@@ -194,6 +194,48 @@ comment cannot be taken back by rewriting a local file, and `z` must not look as
 though it might. If the stack ever holds something that reached GitHub, it is
 the binding rule that has gone wrong.
 
+### Search the source, not the screen
+`/` matches each row's *printed* text, which is what made highlighting possible
+— a character offset in what prints is an offset that can be given a background.
+It also means the search only finds what happens to be visible, and there are
+two ways that loses a real hit. Both are worth fixing even at the cost of the
+highlight, which is a nicety; finding the thing is the point.
+
+**A phrase broken across a wrap.** `perf_event_paranoid` split as `perf_event_`
+/ `paranoid` is not found by either half. Every row already carries `src`, the
+unwrapped line it came from, so this is a change of one predicate in
+`match_rows`: test `r.src` instead of `astrip(r.text)`, on the rows with
+`part == 0` — one per logical line, which is what stops a wrapped line matching
+three times.
+
+Highlighting need not be lost outright, and the hybrid is cheap because both
+halves already exist. Find on `src`; then highlight with the existing
+`findhits(astrip(r.text), q)`, which returns empty exactly for the rows where
+the match straddles a break. So every hit that *is* visible on one row keeps its
+marking, and only the split ones are found-but-unmarked. Those should still be
+reachable — the cursor lands on the row, and the footer count is honest about
+how many there are.
+
+Note this changes what a match *is*: one per logical line rather than one per
+visible occurrence. That is the better unit for `n`/`N` anyway.
+
+**Content inside a folded node.** `rows` skips a closed node's body and the
+whole nested run beneath it, so no row exists to search — a search cannot see
+into a collapsed `<details>` or a comment you folded away. This is the bigger
+half. It means searching the nodes rather than the rows: each `Node` holds its
+`raw`, and `nodelines` has already computed `srcs` for any node that has been
+rendered at the current width (a never-opened one has not, so it would have to
+be rendered to be searched, which is the cost).
+
+Then a hit has to be *revealed*, and folding is depth-based rather than
+structural: there are no parent pointers, so opening the node holding the hit
+means also walking backwards to the nearest preceding node of each lower depth
+and opening those too, or the run stays hidden. Opening anything renumbers every
+row, so the sequence has to be: find the node, open it and its ancestors,
+rebuild the rows, then locate the row. Worth deciding whether a search should
+change fold state at all, or instead report "3 matches in folded blocks" and
+leave the opening to you.
+
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review
 comment, now also the file and line it points at. `rows` runs it through `afit`,
@@ -339,11 +381,6 @@ at all.
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`
   until the lazy fetch lands.
-- **Search matches what a row prints, not what it means.** `/` looks at each
-  row's visible text, so a phrase broken across a wrap is not found, and a
-  search in the thread does not look inside a folded node. Matching `Row.src`
-  instead would find both — but `src` is the *unwrapped* line, so its offsets do
-  not map to a display row and the match could not then be highlighted.
 - **Nesting is depth, not structure.** `Node.depth` draws a block inset and
   `rows` hides the run of deeper nodes under a closed one, which is enough to
   behave like a tree when reading. It is not one: nothing can be moved or
