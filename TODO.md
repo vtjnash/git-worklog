@@ -117,6 +117,61 @@ shipped are not listed; `git log` is the record of those.
 
 ## Requested features, not started
 
+### Review from inside the browser
+
+Everything here is read-only today. The natural next step is the review itself:
+read the diff, say something about a line, approve, label, move on. Four pieces
+that share one prerequisite - a token that can write. The sandbox's GitHub App
+token is read-only for most of this, so this lands behind the same PAT that
+Infrastructure below already wants.
+
+**Comments inline with the diff.** `Events.thread` already fetches
+`/pulls/N/comments` next to the issue comments and merges both into one flat,
+time-ordered list - so a review comment shows up in the `o` pane detached from
+the code it is about, and the `d` pane shows code nobody has said anything
+about. Each review comment carries `path`, `line`/`original_line`, `side`,
+`diff_hunk` and `in_reply_to_id`; `comment_nodes` throws all of it away. Keep
+those fields and hang each comment off the hunk node whose file and line range
+contains it. Two things to decide: what to do with a comment that lands outside
+every hunk of the current diff - an outdated one has a null `line` and only
+`original_line` to go on - and whether a reply thread becomes a nested node or
+an indented block inside the hunk's. Threading is by `in_reply_to_id`; the API
+returns them flat and does not group them.
+
+**Writing a comment.** Three calls, in increasing order of ceremony:
+
+- on the PR or issue as a whole: `POST /repos/{r}/issues/{n}/comments`.
+- on a source line, from the diff pane: `POST /repos/{r}/pulls/{n}/comments`
+  with `commit_id`, `path`, `line` and `side`. The hunk node already holds all
+  of it - `meta["file"]`, `meta["start"]`, the cursor's offset within the hunk,
+  and `head_sha(it)`.
+- replying to an existing review comment: the same endpoint with `in_reply_to`.
+
+The composer is the work, not the request. `PromptView` is one line with
+backspace and nothing else, which is not somewhere anyone will write a review.
+Either grow it into a multi-line editor view, or shell out to `$EDITOR` on a
+temp file - which means giving up raw mode and the alternate screen while it
+runs and restoring both afterwards. The controller owns both, so that belongs
+there, as a `suspend(ctrl) do ... end`.
+
+**Approval.** `POST /repos/{r}/pulls/{n}/reviews` with an `event` of `APPROVE`,
+`REQUEST_CHANGES` or `COMMENT`, which can carry pending line comments in the
+same call. Batching them into one review rather than posting each as it is
+written is the difference between a review and a stream of notifications, so
+the pending set wants to live on `BState` and be visible while it accumulates -
+a count in the footer, and a line in the metadata pane. An approval checkbox
+that submits an empty `APPROVE` is the common case and should be one key.
+
+**Labels.** `labels` is fetched by every GraphQL fragment, stored in
+`facts.json`, and already load-bearing for `state.jl`'s area matching - but
+`Item` drops it, so the browser cannot see it. Carry it through, then:
+
+- a label axis in the filter pane beside category and repo. `Filters` and
+  `filter_rows` are already shaped for another checkbox group.
+- one-key toggles for the two or three reached for constantly (a backport
+  label, `merge me`), named in `config.toml` rather than hardcoded, and a
+  picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
+
 ### Mouse support
 Own the mouse rather than leaving selection to the terminal. Terminal selection
 cannot follow text that *we* wrapped — the terminal only sees the wrapped
