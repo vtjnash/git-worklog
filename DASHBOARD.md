@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 14:10 UTC · 2006 items · 12 rate-limit points_
+_2026-09-01 14:12 UTC · 2010 items · 12 rate-limit points_
 
 ## Needs a reply (10)
 _You were mentioned and the last word is theirs._
@@ -26,19 +26,25 @@ _You were mentioned and the last word is theirs._
 - [julia#40138](https://github.com/JuliaLang/julia/issues/40138) Suggestion: abbreviate stack traces by default  
   <sub>30d</sub>
 
-## Needs edits (4)
+## Needs edits (7)
 _Review feedback, red CI, or you're the blocker._
 
 - [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
   <sub>CI failure · 2 unresolved · 11d</sub>
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
   <sub>CI failure · 2 unresolved · 18d</sub>
+- [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown  
+  <sub>NEW · CI failure · 20d</sub>
+- [libuv#5214](https://github.com/libuv/libuv/pull/5214) win: actually cleanup all things on shutdown  
+  <sub>moved · CI failure · 33d</sub>
+- [libuv#5212](https://github.com/libuv/libuv/pull/5212) test: verify tests do not leak file descriptors  
+  <sub>NEW · CI failure · 34d</sub>
 - [OpenBLAS#5582](https://github.com/OpenMathLib/OpenBLAS/pull/5582) Ensure feature parity for cmake with Makefile  
   <sub>CI failure · 48d</sub>
 - [OpenBLAS#5581](https://github.com/OpenMathLib/OpenBLAS/pull/5581) cmake: document options and set defaults for influential variables  
   <sub>CI failure · 48d</sub>
 
-## Needs stacking (5)
+## Needs stacking (6)
 _Conflicts; rebase or restack with `gh stack`._
 
 - [julia#62396](https://github.com/JuliaLang/julia/pull/62396) gf: fix bug in has_ambig computation, improve accuracy with union of candidates  
@@ -51,6 +57,8 @@ _Conflicts; rebase or restack with `gh stack`._
   <sub>conflicts · 48d</sub>
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
   <sub>conflicts · 48d</sub>
+- [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
+  <sub>moved · CI failure · conflicts · 52d</sub>
 
 ## Needs review (43)
 _Waiting on you to review someone else._
@@ -142,7 +150,7 @@ _Waiting on you to review someone else._
 - [julia#39994](https://github.com/JuliaLang/julia/pull/39994) RFC: Add a hook for detecting task switches.  
   <sub>1 unresolved · conflicts · 1929d</sub>
 
-## Needs a nudge (4)
+## Needs a nudge (6)
 _Yours, quiet, waiting on a reviewer._
 
 - [JSON3.jl#320](https://github.com/quinnj/JSON3.jl/pull/320) Fix compatibility with Julia 1.13+ memhash removal  
@@ -153,6 +161,10 @@ _Yours, quiet, waiting on a reviewer._
   <sub>13d</sub>
 - [llvm-project#216271](https://github.com/llvm/llvm-project/pull/216271) PeepholeOpt: Avoid infinite loop on cyclic rewrite maps  
   <sub>18d</sub>
+- [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
+  <sub>NEW · 33d</sub>
+- [libuv#5215](https://github.com/libuv/libuv/pull/5215) test: make the check_utime_ex fallthrough actually fail  
+  <sub>NEW · 33d</sub>
 
 ## Drafts (2)
 _Yours, not yet proposed._
@@ -201,9 +213,9 @@ _Yours, not yet proposed._
 _You reviewed; ball is with the author._
 
 - [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) avoid loading pkg until needed  
-  <sub>track:loose · NEW · conflicts · 172d</sub>
+  <sub>track:loose · conflicts · 172d</sub>
 
-## Stale — decide (41)
+## Stale — decide (44)
 _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`, `deadline` or `agent_task` to pull one back into an active lane; otherwise close it._
 
 <details><summary>expand</summary>
@@ -227,6 +239,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [Game2048Core.jl#2](https://github.com/xiaodaigh/Game2048Core.jl/pull/2) Document all of these constants <sub>199d</sub>
 - [StrRegex.jl#10](https://github.com/JuliaString/StrRegex.jl/pull/10) Remove unused MurmurHash3 dependency <sub>199d</sub>
 - [ShortStrings.jl#58](https://github.com/JuliaString/ShortStrings.jl/pull/58) Fix compatibility with Julia 1.13+ memhash_seed removal <sub>199d</sub>
+- [GraphQLParser.jl#9](https://github.com/mmiller-max/GraphQLParser.jl/pull/9) Fix compatibility with Julia 1.13+ memhash removal <sub>199d</sub>
 - [BytePairEncoding.jl#10](https://github.com/chengchingwen/BytePairEncoding.jl/pull/10) Turn Merge back into SubString instead of using unsafe operators <sub>199d</sub>
 - [FlatBuffers.jl#72](https://github.com/JuliaData/FlatBuffers.jl/pull/72) fix codecov parameter <sub>199d</sub>
 - [llvm-project#179726](https://github.com/llvm/llvm-project/pull/179726) [Analysis] Track offsets in PtrUseVisitor to revisit when required <sub>207d</sub>
@@ -234,8 +247,10 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [llvm-project#1](https://github.com/vtjnash/llvm-project/pull/1) cowait <sub>229d</sub>
 - [OpenBLAS#5580](https://github.com/OpenMathLib/OpenBLAS/pull/5580) tests: export variables from WSL <sub>251d</sub>
 - [llvm-project#139574](https://github.com/llvm/llvm-project/pull/139574) [VN] be more consistent about forwarding null inputs and ignoring SVE outputs <sub>251d</sub>
+- [llvm-mingw#532](https://github.com/mstorsjo/llvm-mingw/pull/532) [WIP] Add flang (Fortran) compiler support <sub>262d</sub>
 - [julia#43200](https://github.com/JuliaLang/julia/pull/43200) broadcast: disable nospecialize logic for outer method signature <sub>336d</sub>
 - [llvm-project#154356](https://github.com/llvm/llvm-project/pull/154356) [OrcJIT] distinguish normal and abrupt TaskDispatcher shutdown <sub>361d</sub>
+- [libuv#4875](https://github.com/libuv/libuv/pull/4875) misc: add clang thread safety analysis support <sub>369d</sub>
 - [libuv#4873](https://github.com/libuv/libuv/pull/4873) misc: add clang-format config file <sub>370d</sub>
 - [llvm-project#150808](https://github.com/llvm/llvm-project/pull/150808) [MemCpyOpt] add memcpy removal for write-once dest <sub>401d</sub>
 - [julia#57496](https://github.com/JuliaLang/julia/pull/57496) task: reuse stack immediately when Task dies and switches to new Task <sub>502d</sub>
@@ -254,13 +269,14 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 
 ## Background pile
 
-903 open PRs in JuliaLang/julia, 977 threads you were mentioned in or commented on, plus 41 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl.py next`.
+903 open PRs in JuliaLang/julia, 972 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl.py next`.
 
-## Changed since last refresh (5)
+## Changed since last refresh (6)
 
-- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) — new
-- [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) — closed or merged
-- [libuv#5212](https://github.com/libuv/libuv/pull/5212) — closed or merged
-- [libuv#5215](https://github.com/libuv/libuv/pull/5215) — closed or merged
-- [libuv#5216](https://github.com/libuv/libuv/pull/5216) — closed or merged
+- [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) — new
+- [libuv#5216](https://github.com/libuv/libuv/pull/5216) — new
+- [libuv#5215](https://github.com/libuv/libuv/pull/5215) — new
+- [libuv#5214](https://github.com/libuv/libuv/pull/5214) — unresolved None->0
+- [libuv#5212](https://github.com/libuv/libuv/pull/5212) — new
+- [libuv#5189](https://github.com/libuv/libuv/pull/5189) — unresolved None->0
 

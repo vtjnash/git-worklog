@@ -65,6 +65,13 @@ python3 wl.py show     julia#62452
 Refs are `repo#number` (or a full URL). Re-run `refresh.py` after edits to
 re-render.
 
+## Needs a reply
+
+The narrowest and most valuable lane: someone mentioned the user in the last 30
+days and the last comment is not theirs. Treat these as the top of the dashboard
+— they are questions owed answers, and they are few. Everything else from the
+mention/comment history sits in the background pile.
+
 ## Tracking levels
 
 `wl.py track <ref> close|normal|loose|background` sets how sensitive an item's
@@ -82,7 +89,7 @@ grind it down:
 python3 wl.py next 10
 ```
 
-That prints untagged backlog items from the ~983-item pile — your areas first,
+That prints untagged backlog items from the ~1900-item pile — your areas first,
 then quietest first. Walk them with the user and
 tag each one — `dismiss` for anything no longer worth carrying, `track ... loose`
 for keep-but-quiet, `note` for anything they want revived. Tagged items never

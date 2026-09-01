@@ -23,8 +23,9 @@ The split that makes it safe to let a model touch this:
 | `config.toml` | you | edited by hand |
 | `state.toml` | you + the model, via `wl.py` | **never machine-rewritten** |
 | `facts.json` | `refresh.py` | overwritten every run (gitignored, ~1MB) |
-| `firehose.json` | `refresh.py` | cache, refetched every 6h (gitignored) |
+| `bulk.json` | `refresh.py` | slow-lane cache, refetched every 6h (gitignored) |
 | `queue.json` | `wl.py next` | what the backlog queue has shown you (gitignored) |
+| `autocommit.sh` | Stop hook | commits and pushes on session end |
 | `snooze.json` | `refresh.py` | overwritten every run |
 | `DASHBOARD.md` | `refresh.py` | overwritten every run |
 
@@ -46,6 +47,19 @@ primitive — a timer is guessing, and Octobox only offers 1h/1d/1w/1mo. Once
 woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
 
 `snooze = "2026-09-15"` still works for real calendar constraints.
+
+## Lanes
+
+Fast lanes, fetched every refresh: PRs you authored, PRs awaiting your review,
+issues assigned to you. Slow lanes in `[bulk.queries]`, fetched every 6h: every
+open PR in JuliaLang/julia, plus everything you were mentioned in or have
+commented on (~2500 items). Nothing from a slow lane surfaces on its own.
+
+The one exception is **needs-reply**: you were mentioned within `reply_days`
+(30) and the last comment is not yours, so a question is probably owed an
+answer. Deliberately narrow — plain `commented:` never qualifies, because in the
+repos where you are effectively the maintainer you touch nearly every PR, and
+that would put forty items a week in front of you.
 
 ## How closely you track an item
 
@@ -94,6 +108,16 @@ of the lanes. Setting any of `note` / `deadline` / `agent_task` / `snooze` claim
 an item and pulls it back into an active lane; `track` alone marks it triaged
 without reviving it.
 
+## Saving
+
+A `Stop` hook runs `autocommit.sh` when a session ends: commits any change and
+pushes if a remote exists. It exits 0 unconditionally and runs `async`, because
+a Stop hook that fails or hangs degrades the session and nothing here is worth
+that. Before the remote exists it simply commits locally.
+
+The sandbox's GitHub App token is read-only for repo contents everywhere, so
+pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`.
+
 ## Use
 
 ```bash
@@ -119,6 +143,16 @@ forces it), because it is ~1000 PRs and ~2.5 minutes, while a normal refresh wit
 it cached is ~16s and 12 rate-limit points.
 
 Two GitHub behaviours worth knowing, both of which cost real debugging:
+
+`search(type: ISSUE)` silently returns **0** for `assignee:` unless the query
+also carries `is:issue` or `is:pr`. REST has no such quirk, so 16 assigned issues
+were invisible until the qualifier went in. Do not remove it from the `assigned`
+lane.
+
+A search returning Issues against a query fragment that only spreads
+`... on PullRequest` yields bare `{__typename: "Issue"}` stubs with **no fields
+and no error** — the light query needs both fragments or the two `is:issue` bulk
+lanes come back as unusable husks.
 
 GitHub's search API truncates at **1000 results** and this repo is at ~993 open
 PRs, so the fetch partitions by creation year and unions the slices once the
