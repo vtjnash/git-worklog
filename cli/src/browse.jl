@@ -324,7 +324,9 @@ end
 function rows(nodes::Vector{Node}, w::Int)
     out = Tuple{Int,Bool,String}[]
     for (i, n) in enumerate(nodes)
-        push!(out, (i, true, string(AB, afit(string(n.open ? "▾ " : "▸ ", n.header), w), AR)))
+        htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), w)
+        u = get(n.meta, "url", "")
+        push!(out, (i, true, string(AB, isempty(u) ? htxt : osc8(u, htxt), AR)))
         n.open || continue
         for l in nodelines(n, w)
             push!(out, (i, false, l))
@@ -380,6 +382,8 @@ function render_frame(st::BState, w::Int, h::Int)
     side = w >= 110
     lw = side ? clamp(w ÷ 3, 34, 52) : w
     rw = side ? w - lw : w
+    # title bar + panes + footer must total h exactly, or the frame leaves a
+              # dead row at the bottom of the terminal.
     bodyh = max(6, h - 2)
     lh = side ? bodyh : max(5, bodyh ÷ 3)
     rh = side ? bodyh : bodyh - lh
@@ -442,7 +446,16 @@ function render_frame(st::BState, w::Int, h::Int)
     foot = string(AD, afit(ftxt, w), AR)
     body = side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
                   vcat(left, right)
-    frame = join(vcat(body, [apad(foot, w)]), "\n")
+    # Row 1 is a title bar so that selecting the top line in tmux - which
+    # scrolls the pane to make room for its own status line - never lands on
+    # content. Everything real starts at row 2.
+    bar = if it === nothing
+        string(" worklog  ", AD, length(st.items), " items", AR)
+    else
+        link = osc8(it.url, string(it.ref, "  ", it.title))
+        string(" ", AB, link, AR, "  ", AD, "[", filter_summary(st.filters), "]", AR)
+    end
+    frame = join(vcat([apad(afit(bar, w), w)], body, [apad(foot, w)]), "\n")
     linkify(frame, links)
 end
 
@@ -488,13 +501,20 @@ function comment_nodes(it::Item)
     ns = Node[]
     who0 = get(something(get(body, "user", nothing), Dict{String,Any}()), "login", "?")
     btxt = strip(replace(nz(get(body, "body", nothing), ""), "\r\n" => "\n"))
-    isempty(btxt) || push!(ns, Node(string(nz(who0, "?"), " opened this"), btxt, :md, true))
+    if !isempty(btxt)
+        n0 = Node(string(nz(who0, "?"), " opened this"), btxt, :md, true)
+        n0.meta["url"] = String(nz(get(body, "html_url", nothing), it.url))
+        push!(ns, n0)
+    end
     for c in cs
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
         at = first(String(c["created_at"]), 16)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
         peek = strip(first(replace(txt, r"\s+" => " "), 58))
-        push!(ns, Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, true))
+        nc = Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, true)
+        # Anchored, so following it lands on this comment rather than the top.
+        nc.meta["url"] = String(nz(get(c, "html_url", nothing), it.url))
+        push!(ns, nc)
     end
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
 end
@@ -533,6 +553,7 @@ function diff_nodes(it::Item)
         n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
         n.meta["up"] = 0
         n.meta["down"] = 0
+        n.meta["url"] = string(it.url, "/files")
         push!(ns, n)
     end
     for l in split(txt, "\n")

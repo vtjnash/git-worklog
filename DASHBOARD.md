@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 17:37 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 17:50 UTC · 2050 items · 12 rate-limit points_
 
 ## Unread (761)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
@@ -30,7 +30,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
 - [julia#61949](https://github.com/JuliaLang/julia/issues/61949) jl_jit_abi_converter now segfaults without codegen  
   <sub>3 comments · **needs-reply** · 6d</sub>
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
-  <sub>1 comments · **needs-review** · 4d</sub>
+  <sub>1 comments · **needs-review** · 5d</sub>
 - [julia#62905](https://github.com/JuliaLang/julia/pull/62905) codegen: Preserve alias metadata on small copies  
   <sub>no comments · **needs-review** · 4d</sub>
 - [julia#62904](https://github.com/JuliaLang/julia/pull/62904) codegen: redesign aliasinfo again  
@@ -82,9 +82,9 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
 - [julia#62610](https://github.com/JuliaLang/julia/pull/62610) Expose the ABI used by CodeInstances  
   <sub>no comments · 29d</sub>
 - [julia#62395](https://github.com/JuliaLang/julia/pull/62395) Replace libunwind with framehop based library  
-  <sub>6 comments · 28d</sub>
+  <sub>6 comments · 29d</sub>
 - [julia#62331](https://github.com/JuliaLang/julia/pull/62331) runtime: make forbidden-context task-switch errors deterministic  
-  <sub>no comments · closed · 28d</sub>
+  <sub>no comments · closed · 29d</sub>
 - _...and 721 more_
 
 ## Needs a reply (9)
@@ -159,7 +159,7 @@ _Waiting on you to review someone else._
 - [julia#62905](https://github.com/JuliaLang/julia/pull/62905) codegen: Preserve alias metadata on small copies  
   <sub>4d</sub>
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
-  <sub>4d</sub>
+  <sub>5d</sub>
 - [julia#62819](https://github.com/JuliaLang/julia/pull/62819) signals-mach: step past the safepoint poll instead of re-executing it  
   <sub>7d</sub>
 - [julia#62284](https://github.com/JuliaLang/julia/pull/62284) runtime: Add searcher accounting and count-gated wakeups to the scheduler  
@@ -305,7 +305,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 
 - [llvm-project#150792](https://github.com/llvm/llvm-project/pull/150792) [MemCpyOpt] allow more memcpy-to-memcpy optimization <sub>77d</sub>
 - [BinaryBuilder2.jl#56](https://github.com/JuliaPackaging/BinaryBuilder2.jl/pull/56) Add documentation build workflow <sub>80d</sub>
-- [BinaryBuilder2.jl#55](https://github.com/JuliaPackaging/BinaryBuilder2.jl/pull/55) Add quickstart README <sub>80d</sub>
+- [BinaryBuilder2.jl#55](https://github.com/JuliaPackaging/BinaryBuilder2.jl/pull/55) Add quickstart README <sub>81d</sub>
 - [llvm-project#197540](https://github.com/llvm/llvm-project/pull/197540) [clang] model WASM alloca addrspaces in Sema <sub>82d</sub>
 - [llvm-project#181716](https://github.com/llvm/llvm-project/pull/181716) [RFC][Attributor] change argument privatization to size-based type selection <sub>82d</sub>
 - [llvm-project#181256](https://github.com/llvm/llvm-project/pull/181256) [clang] put indirect parameters in the target-requested AS, if appplicable <sub>83d</sub>
