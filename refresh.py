@@ -21,6 +21,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -54,6 +55,28 @@ ISSUE_FIELDS = """
       comments(last: 1) { nodes { author { login } createdAt } }
 """
 
+# The firehose is ~1000 PRs, so it drops the expensive nested connections
+# (review threads, review history, comments). Background items are never
+# bucketed on those fields, and shedding them buys 100 nodes/page at 2 points.
+FIREHOSE_QUERY = """
+query($q: String!, $cursor: String) {
+  rateLimit { cost remaining }
+  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { __typename ... on PullRequest {
+      url number title isDraft createdAt updatedAt
+      repository { nameWithOwner }
+      author { login }
+      reviewDecision mergeable
+      milestone { title dueOn }
+      labels(first: 20) { nodes { name } }
+      commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+    } }
+  }
+}
+"""
+
 QUERY = """
 query($q: String!, $cursor: String) {
   rateLimit { cost remaining }
@@ -74,21 +97,32 @@ query($q: String!, $cursor: String) {
 """ % (PR_FIELDS, ISSUE_FIELDS)
 
 
-def search(q, cap=1000):
+def search(q, cap=1000, query=None):
     """Paginate one search lane. Returns (items, points_spent)."""
     out, cursor, spent = [], None, 0
     while True:
-        body = json.dumps({"query": QUERY, "variables": {"q": q, "cursor": cursor}})
-        p = subprocess.run(["gh", "api", "graphql", "--input", "-"],
-                           input=body, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise SystemExit("GraphQL failed for %r: %s" % (q, (p.stderr or p.stdout)[:2000]))
+        body = json.dumps({"query": query or QUERY,
+                           "variables": {"q": q, "cursor": cursor}})
+        # Long paginations (the firehose is ~10 sequential pages) reliably hit
+        # transient 5xx from the GraphQL endpoint. Retry the page rather than
+        # losing the whole refresh.
+        for attempt in range(5):
+            p = subprocess.run(["gh", "api", "graphql", "--input", "-"],
+                               input=body, capture_output=True, text=True)
+            if p.returncode == 0:
+                break
+            err = (p.stderr or p.stdout)[:200]
+            if attempt == 4 or not any(c in err for c in ("502", "503", "504", "timeout")):
+                raise SystemExit("GraphQL failed for %r: %s" % (q, err))
+            time.sleep(2 ** attempt)
+            print("    retry %d after: %s" % (attempt + 1, err.strip()), file=sys.stderr)
         d = json.loads(p.stdout)
         if "errors" in d:
             raise SystemExit("GraphQL errors for %r: %s" % (q, json.dumps(d["errors"])[:2000]))
         spent += d["data"]["rateLimit"]["cost"]
         s = d["data"]["search"]
         out.extend(n for n in s["nodes"] if n)
+        search.last_total = s["issueCount"]
         if not s["pageInfo"]["hasNextPage"] or len(out) >= cap:
             return out[:cap], spent
         cursor = s["pageInfo"]["endCursor"]
@@ -118,11 +152,11 @@ def activity_age(r):
 
 def normalize(n, lane, login):
     """Flatten one GraphQL node into the record the rest of the script uses."""
-    is_pr = n["__typename"] == "PullRequest"
+    is_pr = n.get("__typename", "PullRequest") == "PullRequest"
     labels = [l["name"] for l in n["labels"]["nodes"]]
     ms = n.get("milestone") or {}
     rec = {
-        "type": n["__typename"],
+        "type": n.get("__typename", "PullRequest"),
         "lane": lane,
         "url": n["url"],
         "number": n["number"],
@@ -136,7 +170,7 @@ def normalize(n, lane, login):
         "milestone_due": ms.get("dueOn"),
         "mine": ((n.get("author") or {}).get("login") == login),
     }
-    lastc = n["comments"]["nodes"]
+    lastc = (n.get("comments") or {}).get("nodes") or []
     rec["last_comment_by"] = (lastc[0].get("author") or {}).get("login") if lastc else None
     rec["last_comment_at"] = lastc[0]["createdAt"] if lastc else None
     rec["human_comment_at"] = (None if (rec["last_comment_by"] or "").endswith("[bot]")
@@ -146,8 +180,10 @@ def normalize(n, lane, login):
         commits = n["commits"]["nodes"]
         commit = commits[0]["commit"] if commits else {}
         roll = commit.get("statusCheckRollup") or {}
-        threads = n["reviewThreads"]["nodes"]
-        reviews = n["reviews"]["nodes"]
+        threads = (n.get("reviewThreads") or {}).get("nodes")
+        reviews = (n.get("reviews") or {}).get("nodes") or []
+        light = threads is None          # firehose record: no thread/review data
+        threads = threads or []
         mine_reviews = [r for r in reviews
                         if (r.get("author") or {}).get("login") == login and r.get("submittedAt")]
         rec.update({
@@ -156,7 +192,8 @@ def normalize(n, lane, login):
             "mergeable": n.get("mergeable"),
             "head_at": commit.get("committedDate"),
             "ci": roll.get("state"),
-            "unresolved": sum(1 for t in threads if not t["isResolved"] and not t["isOutdated"]),
+            "unresolved": (None if light else
+                           sum(1 for t in threads if not t["isResolved"] and not t["isOutdated"])),
             "review_count": len(reviews),
             "my_last_review_at": max((r["submittedAt"] for r in mine_reviews), default=None),
             "my_last_review_state": (sorted(mine_reviews, key=lambda r: r["submittedAt"])[-1]["state"]
@@ -276,6 +313,44 @@ def snooze_active(url, st, fp, snz):
     return True, "until %s" % until
 
 
+def fetch_firehose(cfg, force=False):
+    """Every open PR in the tracked repo, on its own refresh cadence.
+
+    These are background items by definition, so per-refresh freshness buys
+    nothing and costs ~70s of wall clock. Cached for `refresh_hours`; pass
+    --firehose to force.
+
+    GitHub's search API truncates at 1000 results and this repo is already at
+    ~993, so partition by creation year and union the slices once the total
+    gets close to the cap.
+    """
+    fh = cfg["firehose"]
+    cache = ROOT / "firehose.json"
+    hours = fh.get("refresh_hours", 6)
+    if cache.exists() and not force:
+        c = json.loads(cache.read_text())
+        age_h = (NOW - ts(c["fetched_at"])).total_seconds() / 3600
+        if age_h < hours:
+            return c["nodes"], 0, "cached %.1fh old" % age_h
+
+    base = "repo:%s is:open is:pr archived:false" % fh["repo"]
+    nodes, spent = search(base, cap=1000, query=FIREHOSE_QUERY)
+    total = getattr(search, "last_total", len(nodes))
+    if total > 950:
+        seen, merged = set(), []
+        for y in range(2011, NOW.year + 1):
+            part, c = search("%s created:%d-01-01..%d-12-31" % (base, y, y),
+                             cap=1000, query=FIREHOSE_QUERY)
+            spent += c
+            for n in part:
+                if n["url"] not in seen:
+                    seen.add(n["url"])
+                    merged.append(n)
+        nodes = merged
+    cache.write_text(json.dumps({"fetched_at": NOW.isoformat(), "nodes": nodes}))
+    return nodes, spent, "fetched %d of %d" % (len(nodes), total)
+
+
 def main():
     cfg = tomllib.loads((ROOT / "config.toml").read_text())
     login = cfg["login"]
@@ -294,22 +369,15 @@ def main():
             items[n["url"]] = normalize(n, lane, login)
         print("  %-9s %3d items (%d pts)" % (lane, len(nodes), c), file=sys.stderr)
 
-    fh = cfg["firehose"]
-    fq = 'repo:%s is:open is:pr -author:%s archived:false label:%s' % (
-        fh["repo"], login, ",".join('"%s"' % l for l in fh["labels"]))
-    nodes, c = search(fq, cap=fh["max_items"])
+    fh_nodes, c, how = fetch_firehose(cfg, force="--firehose" in sys.argv)
     spent += c
-    maxage = cfg["thresholds"]["firehose_max_age_days"]
     kept = 0
-    for n in nodes:
+    for n in fh_nodes:
         if n["url"] in items:
             continue                       # already yours in another lane
-        age = days_since(n["updatedAt"])
-        if age is not None and age > maxage:
-            continue
         items[n["url"]] = normalize(n, "firehose", login)
         kept += 1
-    print("  %-9s %3d items kept of %d (%d pts)" % ("firehose", kept, len(nodes), c), file=sys.stderr)
+    print("  %-9s %3d items (%s, %d pts)" % ("firehose", kept, how, c), file=sys.stderr)
 
     # Bucket, then tracking level, then a fingerprint at that level, then snooze.
     # Order matters: the level decides the fingerprint, which decides the wake.
@@ -469,17 +537,16 @@ def render(items, changes, cfg, spent):
                         activity_age(r) or 0))
         out += ["", "</details>", ""]
 
-    fire = sorted([r for r in vis if r["bucket"] == "firehose"],
-                  key=lambda r: activity_age(r) or 0)
+    fire = [r for r in vis if r["bucket"] == "firehose"]
     if fire:
-        out += ["## Firehose — %s in your areas (%d)" % (cfg["firehose"]["repo"], len(fire)),
-                "_Not yours, not assigned to you. Discovery only._", "",
-                "<details><summary>expand</summary>", ""]
-        for r in fire:
-            out.append("- [#%s](%s) %s <sub>%s · %s</sub>" %
-                       (r["number"], r["url"], r["title"], r["author"],
-                        ", ".join(r["labels"][:3])))
-        out += ["", "</details>", ""]
+        # Deliberately a count, not a list. The background pile is reached only
+        # through `wl.py next`; printing a thousand lines here would be exactly
+        # the firehose-in-your-feed this is meant to avoid.
+        out += ["## Background pile", "",
+                "%d open PRs in %s, plus %d of your own gone quiet. None of it "
+                "surfaces here. Pull a batch to triage with `wl.py next`." %
+                (len(fire), cfg["firehose"]["repo"],
+                 sum(1 for r in vis if r["bucket"] == "stale")), ""]
 
     if snoozed:
         out += ["## Snoozed (%d)" % len(snoozed), "",

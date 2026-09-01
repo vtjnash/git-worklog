@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 11:26 UTC · 161 items · 21 rate-limit points_
+_2026-09-01 12:47 UTC · 1064 items · 12 rate-limit points_
 
 ## Needs edits (7)
 _Review feedback, red CI, or you're the blocker._
@@ -42,7 +42,7 @@ _Waiting on you to review someone else._
 - [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
   <sub>CI failure · 0d</sub>
 - [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
-  <sub>CI pending · 0d</sub>
+  <sub>0d</sub>
 - [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
   <sub>1d</sub>
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
@@ -72,7 +72,7 @@ _Waiting on you to review someone else._
 - [julia#51908](https://github.com/JuliaLang/julia/pull/51908) seekend: Add a second argument for the number of bytes relative to the end  
   <sub>CI failure · 1 unresolved · 101d</sub>
 - [libuv#4636](https://github.com/libuv/libuv/pull/4636) src: win pipe add unix domain socket support  
-  <sub>conflicts · 124d</sub>
+  <sub>conflicts · 125d</sub>
 - [Nanosoldier.jl#187](https://github.com/JuliaCI/Nanosoldier.jl/pull/187) Add instruction / branch counts to BenchmarkJob reports  
   <sub>conflicts · 151d</sub>
 - [julia#61025](https://github.com/JuliaLang/julia/pull/61025) codegen: represent Bool as i1 instead of i8 in LLVM IR  
@@ -159,7 +159,7 @@ _Yours, not yet proposed._
 - [julia#60148](https://github.com/JuliaLang/julia/issues/60148) Non-fatal error output in precompile test on master CI  
   <sub>track:loose · 288d</sub>
 - [julia#46739](https://github.com/JuliaLang/julia/issues/46739) Document memory model of Per-field atomics  
-  <sub>track:loose · 336d</sub>
+  <sub>track:loose · 337d</sub>
 - [julia#35800](https://github.com/JuliaLang/julia/issues/35800) problem with the unreliable approximation of `Core.Compiler.return_type`  
   <sub>track:loose · 491d</sub>
 - [julia#23619](https://github.com/JuliaLang/julia/issues/23619) implicit `module M` wrapping  
@@ -167,7 +167,7 @@ _Yours, not yet proposed._
 - [julia#53109](https://github.com/JuliaLang/julia/issues/53109) incorrect hash for equal types, with Union instead of lower bound  
   <sub>track:loose · 845d</sub>
 - [julia#36605](https://github.com/JuliaLang/julia/issues/36605) Disallow reading directories as files  
-  <sub>track:loose · 1046d</sub>
+  <sub>track:loose · 1047d</sub>
 - [julia#40793](https://github.com/JuliaLang/julia/issues/40793) readbytes!: support the `all` keyword for all methods  
   <sub>track:loose · 1818d</sub>
 - [julia#41538](https://github.com/JuliaLang/julia/issues/41538) Function attributes for `jl.get_pgcstack`  
@@ -243,47 +243,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 
 </details>
 
-## Firehose — JuliaLang/julia in your areas (36)
-_Not yours, not assigned to you. Discovery only._
+## Background pile
 
-<details><summary>expand</summary>
-
-- [#62658](https://github.com/JuliaLang/julia/pull/62658) Stop recording edges for uninformative calls <sub>JamesWrigley · invalidations, backport 1.13</sub>
-- [#61180](https://github.com/JuliaLang/julia/pull/61180) inference: consolidate recursion detection, return cached results for recursed edges <sub>adienes · bugfix, compiler:inference, caching</sub>
-- [#62920](https://github.com/JuliaLang/julia/pull/62920) Set a concrete type for WaitEntryN.task <sub>JamesWrigley · invalidations</sub>
-- [#62910](https://github.com/JuliaLang/julia/pull/62910) Make `foreigncall` / `foreignsymbol` `dlopen`-aware in `collectinvokes!` / `TrimVerifier` <sub>topolarity · trimming</sub>
-- [#62817](https://github.com/JuliaLang/julia/pull/62817) Switch `BigInt` to Julia managed memory,  <sub>oscardssmith · performance, breaking, GC</sub>
-- [#62875](https://github.com/JuliaLang/julia/pull/62875) MMTk: LXR support <sub>qinsoon · GC: MMTK</sub>
-- [#62838](https://github.com/JuliaLang/julia/pull/62838) Diagnose second system image before aborting <sub>timholy · trimming, backport 1.13</sub>
-- [#62861](https://github.com/JuliaLang/julia/pull/62861) Compiler: restore dominance order after compaction <sub>adienes · bugfix, compiler:optimizer</sub>
-- [#62858](https://github.com/JuliaLang/julia/pull/62858) compiler: Preserve undefined slot entry state <sub>adienes · bugfix, compiler:optimizer</sub>
-- [#62756](https://github.com/JuliaLang/julia/pull/62756) GC: never safepoint in the GMP/MPFR allocation hooks <sub>IanButterworth · multithreading, GC, bignums</sub>
-- [#62746](https://github.com/JuliaLang/julia/pull/62746) Compiler/codegen: devirtualize long tuple splats via an invoke-apply convention <sub>KristofferC · performance, compiler:codegen, needs nanosoldier run</sub>
-- [#62751](https://github.com/JuliaLang/julia/pull/62751) threads: allow concurrent non-nested `@threads :static` loops <sub>IanButterworth · multithreading, backport 1.13</sub>
-- [#62735](https://github.com/JuliaLang/julia/pull/62735) Enable AggregateToVector for SROA in vector pipeline <sub>YonahGoldberg · compiler:llvm</sub>
-- [#62551](https://github.com/JuliaLang/julia/pull/62551) Mark `promote_rule()` and `reduce_first()` as concrete-only <sub>JamesWrigley · invalidations, backport 1.13</sub>
-- [#62716](https://github.com/JuliaLang/julia/pull/62716) subtype: cache `var_occurs_invariant` of a UnionAll per query <sub>IanButterworth · packages, latency</sub>
-- [#62608](https://github.com/JuliaLang/julia/pull/62608) codegen: Shrink-wrap GC shadow-stack frames mk. 2 <sub>IanButterworth · performance, compiler:codegen, GC</sub>
-- [#62637](https://github.com/JuliaLang/julia/pull/62637) Avoid misleading wording for `UnionAll` type in documentation <sub>MagicMuscleMan · docs, types and dispatch</sub>
-- [#62162](https://github.com/JuliaLang/julia/pull/62162) gc: Fix ABA race in concurrent page-pool sweep <sub>IanBallinger · multithreading, GC, needs tests</sub>
-- [#61888](https://github.com/JuliaLang/julia/pull/61888) [experimental] codegen: add tiered compilation <sub>IanButterworth · performance, compiler:codegen, latency</sub>
-- [#62546](https://github.com/JuliaLang/julia/pull/62546) Remove malloc  as a Julia allocation path <sub>oscardssmith · GC</sub>
-- [#62034](https://github.com/JuliaLang/julia/pull/62034) jit: do not compile methods with different optlevel in the same llvm module <sub>KristofferC · compiler:codegen</sub>
-- [#62315](https://github.com/JuliaLang/julia/pull/62315) reinfer: retain invalidated code instances in the method instance cache <sub>KristofferC · compiler:precompilation</sub>
-- [#61746](https://github.com/JuliaLang/julia/pull/61746) Allow setting the various optimization options on methods (as opposed to Modules) <sub>KristofferC · latency</sub>
-- [#62416](https://github.com/JuliaLang/julia/pull/62416) codegen: Add specialized lowering for `Core.invoke_in_world` / `Core.invokelatest` <sub>topolarity · compiler:codegen, backport 1.13</sub>
-- [#50641](https://github.com/JuliaLang/julia/pull/50641) RFC: Effect Preconditions - or - the future of @inbounds <sub>Keno · performance, compiler:effects</sub>
-- [#62076](https://github.com/JuliaLang/julia/pull/62076) codegen: add memory effects to the gc_preserve intrinsics <sub>adienes · performance, compiler:codegen, compiler:llvm</sub>
-- [#46810](https://github.com/JuliaLang/julia/pull/46810) inference: make `Core.Compiler.return_type` respect `max_methods` setting <sub>aviatesk · compiler:inference</sub>
-- [#46328](https://github.com/JuliaLang/julia/pull/46328) effects: improve effects analysis for `Type`-objects <sub>aviatesk · don't squash, compiler:effects</sub>
-- [#61962](https://github.com/JuliaLang/julia/pull/61962) document task_local_storage() <sub>stevengj · docs, multithreading</sub>
-- [#62071](https://github.com/JuliaLang/julia/pull/62071) inference: Preserve caller signature constraints in method lookup <sub>aviatesk · compiler:inference</sub>
-- [#61787](https://github.com/JuliaLang/julia/pull/61787) WIP: subtype: deferred-narrowing covariant intersection for #61773 <sub>Keno · types and dispatch</sub>
-- [#56849](https://github.com/JuliaLang/julia/pull/56849) wip: overhaul EscapeAnalysis.jl <sub>aviatesk · performance, compiler:optimizer, needs nanosoldier run</sub>
-- [#60499](https://github.com/JuliaLang/julia/pull/60499) fix #9498: make keyword calls respect positional dispatch <sub>MilesCranmer · types and dispatch, bugfix, keyword arguments</sub>
-- [#62120](https://github.com/JuliaLang/julia/pull/62120) :robot: llvm-expand-atomic-modify: handle non-convertible shape after inlining <sub>KristofferC · atomics</sub>
-- [#61965](https://github.com/JuliaLang/julia/pull/61965) codegen: speed up debuginfo line-info emission <sub>gbaraldi · compiler:codegen, latency</sub>
-- [#61865](https://github.com/JuliaLang/julia/pull/61865) Emit llvm.fmuladd again for muladd intrinsics <sub>vchuravy · performance, maths, compiler:codegen</sub>
-
-</details>
+939 open PRs in JuliaLang/julia, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl.py next`.
 

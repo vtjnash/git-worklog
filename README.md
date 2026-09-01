@@ -22,7 +22,9 @@ The split that makes it safe to let a model touch this:
 |---|---|---|
 | `config.toml` | you | edited by hand |
 | `state.toml` | you + the model, via `wl.py` | **never machine-rewritten** |
-| `facts.json` | `refresh.py` | overwritten every run |
+| `facts.json` | `refresh.py` | overwritten every run (gitignored, ~1MB) |
+| `firehose.json` | `refresh.py` | cache, refetched every 6h (gitignored) |
+| `queue.json` | `wl.py next` | what the backlog queue has shown you (gitignored) |
 | `snooze.json` | `refresh.py` | overwritten every run |
 | `DASHBOARD.md` | `refresh.py` | overwritten every run |
 
@@ -67,9 +69,10 @@ a relabel wakes only `close`, a human reply wakes all three.
 
 ## Working the backlog
 
-Nothing from the backlog is ever pushed into the dashboard — the 44 stale PRs and
-the firehose stay collapsed and out of the lanes. You pull a batch when you want
-one, and work through it by tagging:
+The background pile is **983 items**: every open PR in JuliaLang/julia (939) plus
+your own that have gone quiet (44). None of it appears in the dashboard — not
+even as a collapsed list, just a one-line count. You pull a batch when you want
+one and work through it by tagging:
 
 ```bash
 python3 wl.py next 10            # next untagged backlog items, quietest first
@@ -80,7 +83,9 @@ python3 wl.py note    julia#44005 "still relevant; rebase onto the new pass mana
 
 Anything you have tagged never comes back in `next`, so the queue drains
 monotonically and you can stop and resume at any point. `queue.json` remembers
-what you have already been shown.
+what you have already been shown, and `next` hands you your areas first (from
+`config.toml`'s `areas` list) so a thousand-PR pile still leads with the
+relevant end of it.
 
 ## The stale pile
 
@@ -105,11 +110,19 @@ only what moved.
 ## Scope
 
 `config.toml` defines the lanes. Currently: PRs you authored, PRs awaiting your
-review, issues assigned to you, plus a JuliaLang/julia discovery feed filtered to
-your areas (compiler, codegen, GC, multithreading, dispatch, ffi, latency …) and
-capped at 90 days.
+review, issues assigned to you, plus **every** open PR in JuliaLang/julia as the
+background pile. The `areas` list is a ranking signal for `wl.py next`, not a
+filter — nothing is excluded.
+
+The firehose is fetched on its own 6-hour cadence (`python3 refresh.py --firehose`
+forces it), because it is ~1000 PRs and ~2.5 minutes, while a normal refresh with
+it cached is ~16s and 12 rate-limit points.
 
 Two GitHub behaviours worth knowing, both of which cost real debugging:
+
+GitHub's search API truncates at **1000 results** and this repo is at ~993 open
+PRs, so the fetch partitions by creation year and unions the slices once the
+total crosses 950. Long paginations also hit transient 502s, so pages retry.
 
 `mergeable` is computed **lazily** — the first read of a PR returns `UNKNOWN` and
 merely schedules the computation (94 of 145 on a cold run). Concluding from it

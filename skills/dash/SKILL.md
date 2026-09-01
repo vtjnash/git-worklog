@@ -19,7 +19,9 @@ through `wl.py`, which edits single keys in place.
 cd /root/.claude/worklog && python3 refresh.py
 ```
 
-~40s, ~21 of 5000 hourly rate-limit points, so cadence is never the constraint.
+~16s, 12 of 5000 hourly rate-limit points, so cadence is never the constraint.
+The ~1000-PR background pile is cached for 6h; `--firehose` forces a refetch
+(~2.5 min).
 It writes `DASHBOARD.md`, `facts.json` (snapshot) and `snooze.json` (armed
 fingerprints). Then read `DASHBOARD.md`.
 
@@ -80,7 +82,8 @@ grind it down:
 python3 wl.py next 10
 ```
 
-That prints untagged backlog items, quietest first. Walk them with the user and
+That prints untagged backlog items from the ~983-item pile — your areas first,
+then quietest first. Walk them with the user and
 tag each one — `dismiss` for anything no longer worth carrying, `track ... loose`
 for keep-but-quiet, `note` for anything they want revived. Tagged items never
 reappear in `next`, so the queue drains monotonically. Do not close PRs yourself;

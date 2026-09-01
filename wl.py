@@ -133,14 +133,25 @@ def next_batch(n):
         r = items[u]
         return max([t for t in (r.get("head_at"), r.get("last_comment_at")) if t]
                    or [r["updated"]])
-    # Never-shown first, then quietest first: the deepest backlog surfaces first.
-    pool.sort(key=lambda u: (seen.get(u, ""), last_activity(u), u))
+    # Never-shown first; then your areas, so a thousand-PR pile still hands you
+    # the relevant end of it; then quietest first.
+    import tomllib as _t
+    areas = set(_t.loads((ROOT / "config.toml").read_text())["firehose"].get("areas", []))
+    def rank(u):
+        r = items[u]
+        return (seen.get(u, ""),
+                not (areas & set(r.get("labels") or [])),
+                last_activity(u), u)
+    pool.sort(key=rank)
     batch = pool[:n]
     print("%d untagged backlog items (%d shown)\n" % (len(pool), len(batch)))
     for u in batch:
         r = items[u]
         ref = "%s#%s" % (r["repo"].split("/")[-1], r["number"])
-        print("%-22s %-6s %s" % (ref, r["bucket"], r["title"][:78]))
+        hit = areas & set(r.get("labels") or [])
+        print("%-22s %-8s %s" % (ref, r["bucket"], r["title"][:74]))
+        if hit:
+            print("%-22s %s" % ("", ", ".join(sorted(hit))))
         print("%-22s %s\n" % ("", u))
         seen[u] = str(__import__("datetime").date.today())
     seen_path.write_text(json.dumps(seen, indent=1, sort_keys=True))

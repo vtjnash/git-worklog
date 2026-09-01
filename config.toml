@@ -8,8 +8,6 @@ login = "vtjnash"
 nudge_days = 7
 # No activity at all this long -> flagged stale in the view.
 stale_days = 60
-# Firehose PRs older than this are dropped from the discovery feed.
-firehose_max_age_days = 90
 
 [lanes]
 # GitHub search syntax. Each lane is one paginated GraphQL search.
@@ -18,9 +16,14 @@ review   = "is:open is:pr review-requested:vtjnash archived:false"
 assigned = "is:open is:issue assignee:vtjnash archived:false"
 
 [firehose]
-# Discovery feed: work in your areas that you are NOT already on.
+# EVERY open PR in this repo lands in the background pile. Nothing here ever
+# surfaces on its own; you reach it only through `wl.py next`.
 repo = "JuliaLang/julia"
-labels = [
+# Fetched on its own cadence, not every refresh (it is ~1000 PRs and ~70s).
+# Force with: python3 refresh.py --firehose
+refresh_hours = 6
+# Not a filter - a ranking signal. `wl.py next` hands you these areas first.
+areas = [
   "compiler:codegen",
   "compiler:llvm",
   "compiler:optimizer",
@@ -41,7 +44,6 @@ labels = [
   "latency",
   "caching",
 ]
-max_items = 300
 
 [backlog]
 # Default size of `wl.py next`, the pull-based backlog queue. Nothing from the
