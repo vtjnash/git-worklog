@@ -118,6 +118,22 @@ function filter_rows(st)
     rows
 end
 
+"""First selectable row of each group in the filter pane.
+
+The groups are what you actually move between - state, category, repo, label -
+and with a couple of hundred labels the last one is long enough that stepping
+into it a row at a time is not stepping into it.
+"""
+function filter_groups(rows)
+    starts, prev_head = Int[], true
+    for (j, r) in enumerate(rows)
+        ishead = r[1] === :head
+        (!ishead && prev_head) && push!(starts, j)
+        prev_head = ishead
+    end
+    starts
+end
+
 "Toggle whatever the filter cursor is on; radio rows replace, checkboxes flip."
 function toggle_filter!(st)
     rows = filter_rows(st)
@@ -527,7 +543,16 @@ function rows(nodes::Vector{Node}, w::Int)
         iw = max(20, w - 2 * n.depth)
         htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), iw)
         u = get(n.meta, "url", "")
-        push!(out, Row(i, true, string(pad, AB, isempty(u) ? htxt : osc8(u, htxt), AR),
+        core = string(AB, isempty(u) ? htxt : osc8(u, htxt), AR)
+        # A rule out to the edge of the pane, so where one comment ends and the
+        # next begins is visible at a glance rather than found by reading. Only
+        # at the top level: a nested block should stay subordinate to the
+        # comment it was written in, not compete with it.
+        if n.depth == 0
+            gap = iw - awidth(htxt) - 1
+            gap > 2 && (core = string(core, " ", AD, "─"^gap, AR))
+        end
+        push!(out, Row(i, true, string(pad, core),
                        get(n.meta, "src", astrip(n.header)), 0))
         if !n.open
             hide = n.depth
@@ -932,7 +957,7 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, riw - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy · c comment · A review · L labels · e edit · s snooze · m mouse ",
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · c checks · l log · y copy · C comment · A review · L labels · e edit · s snooze · m mouse ",
                   st.mouse ? "on" : "off", " · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
@@ -1407,10 +1432,18 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         st.status = st.mouse ? "mouse on — drag to select, y to copy" :
                                "mouse off — the terminal's own selection is back"
     elseif st.focus === :list && st.lmode === :filters
-        nf = length(filter_rows(st))
+        frows = filter_rows(st)
+        nf = length(frows)
         if k in (Int('j'), K_DOWN);     st.frow = min(nf, st.frow + 1)
         elseif k == Int(' ');           st.frow = min(nf, st.frow + lpage)
         elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
+        elseif k in (Int('n'), Int('N'))
+            g = filter_groups(frows)
+            if !isempty(g)
+                st.frow = k == Int('n') ?
+                          g[something(findfirst(>(st.frow), g), length(g))] :
+                          g[something(findlast(<(st.frow), g), 1)]
+            end
         elseif k in (13, 10);           toggle_filter!(st)
         elseif k == Int('c');           st.filters = Filters(); refilter!(st)
         end
@@ -1489,9 +1522,11 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         return :ok
     end
 
+    # Lowercase shows you something, uppercase changes something. `c` was the
+    # composer and `C` the checks pane, which had it exactly backwards.
     if k == Int('d');     st.mode = :diff
     elseif k == Int('o'); st.mode = :comments
-    elseif k == Int('C'); st.mode = :checks
+    elseif k == Int('c'); st.mode = :checks
     elseif k == Int('y')
         # OSC 52, so the copy works over ssh and through tmux. Also shown in the
         # footer, since OSC 52 is disabled by default in some terminals.
@@ -1512,7 +1547,7 @@ function handle!(st::BState, k::Int, ctrl::Controller)
             n.cw = -1; n.open = true
             st.status = "log fetched"
         end
-    elseif k == Int('c'); compose_action(st, ctrl, it, iw)
+    elseif k == Int('C'); compose_action(st, ctrl, it, iw)
     elseif k == Int('A'); review_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
     elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"

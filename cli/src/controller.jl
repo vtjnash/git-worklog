@@ -75,6 +75,7 @@ const K_STAB  = K_BASE + 9     # Shift-Tab, CSI Z
 const K_WORD_LEFT  = K_BASE + 10
 const K_WORD_RIGHT = K_BASE + 11
 const K_WORD_BACK  = K_BASE + 12    # delete the word before the cursor
+const K_EDIT       = K_BASE + 13    # Alt-e, as the REPL binds it
 
 "A key that stands for a character someone meant to type."
 printable(k::Int) = (k >= 32 && k != 127 && k <= 0x10FFFF)
@@ -150,6 +151,10 @@ function readevent(io::IO)
         a == 0x7f && return KeyEvent(K_WORD_BACK)
         a == UInt8('b') && return KeyEvent(K_WORD_LEFT)
         a == UInt8('f') && return KeyEvent(K_WORD_RIGHT)
+        # The REPL binds `\ee` to edit_input - the same move this makes, so the
+        # same key. (`^Q` there opens a numbered frame from the last backtrace,
+        # which is a different thing entirely.)
+        a == UInt8('e') && return KeyEvent(K_EDIT)
         if a == 0x1b && bytesavailable(io) > 0
             # `ESC ESC [ D`: the second ESC opens the arrow's own sequence, so
             # it is the head of a CSI and not a byte to step over.
@@ -527,9 +532,11 @@ end
 
 Enough to write a review comment without leaving the program - insert,
 backspace, the arrows, home and end, and the readline keys people's fingers
-already know - and no more. `^o` hands the buffer to `\$EDITOR` for everything
+already know - and no more. Alt-e hands the buffer to `\$EDITOR` for everything
 past that, which is where undo, search and your own keymap already live and are
-not worth reimplementing here.
+not worth reimplementing here; that is the key the REPL uses for the same move.
+`^o` does it too, because a terminal that treats Option as a compose key sends
+no Meta at all and would leave the editor unreachable.
 """
 mutable struct EditorView <: View
     title::String
@@ -607,7 +614,7 @@ function render(v::EditorView, w::Int, h::Int)
     end
     push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
     foot = isempty(v.status) ?
-           "^s submit · ^o \$EDITOR · ^w word · ^a/^e line · esc cancel" : v.status
+           "^s submit · ⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel" : v.status
     push!(out, string(" "^pad, "\e[2m", afit(foot, box), "\e[0m"))
     top = max(0, (h - length(out)) ÷ 2)
     all = vcat([" "^w for _ in 1:top], out)
@@ -658,7 +665,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         end
         v.onsubmit(String(t))
         return :pop
-    elseif k == C_O                                 # ^o: hand it to $EDITOR
+    elseif k in (K_EDIT, C_O)                       # hand it to $EDITOR
         (txt, note) = compose_external(ctrl, text(v))
         v.lines = isempty(txt) ? [""] : String.(split(replace(txt, "\r\n" => "\n"), "\n"))
         v.row = length(v.lines); v.col = length(last(v.lines)) + 1

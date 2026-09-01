@@ -303,13 +303,24 @@ end
     ns = [W.Node("comment", "body", :md, true), W.Node("folded", "hidden", :md, true, 1),
           W.Node("deeper", "also hidden", :md, true, 2), W.Node("sibling", "shown", :md, true)]
     @test length(W.rows(ns, 60)) == 8
+    # A top-level header carries a rule out to the pane edge; ignore it here.
+    derule(x) = String(rstrip(replace(W.astrip(x), r"[─ ]+$" => "")))
     ns[1].open = false
-    shown = [W.astrip(r.text) for r in W.rows(ns, 60)]
+    shown = [derule(r.text) for r in W.rows(ns, 60)]
     @test shown == ["▸ comment", "▾ sibling", "shown"]
     ns[1].open = true; ns[2].open = false
-    shown = [W.astrip(r.text) for r in W.rows(ns, 60)]
+    shown = [derule(r.text) for r in W.rows(ns, 60)]
     @test !any(occursin("deeper", x) for x in shown)     # the run below it goes too
     @test any(occursin("sibling", x) for x in shown)     # but not its uncle
+
+    # The rule runs to the pane edge on a top-level header and not on a nested
+    # one, which is what separates one comment from the next.
+    ns[1].open = true; ns[2].open = true
+    rs = W.rows(ns, 60)
+    top = first(r for r in rs if occursin("comment", W.astrip(r.text)))
+    nested = first(r for r in rs if occursin("folded", W.astrip(r.text)))
+    @test W.awidth(top.text) == 60
+    @test !occursin("─", W.astrip(nested.text))
 end
 
 @testset "review comments land on their hunk" begin
@@ -348,6 +359,29 @@ end
     hs2 = [hunk("a.jl", 10, 5, 40, 6)]
     out = W.attach_comments(copy(hs2), [cmt(1, "a.jl", 42; side = "LEFT")], "http://x")
     @test occursin("💬1", hdr(out[1])) && length(out) == 2
+end
+
+@testset "n/N steps between filter groups" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    st.lmode = :filters; st.focus = :list
+    ctrl = W.Controller()
+    rows = W.filter_rows(st)
+    g = W.filter_groups(rows)
+    @test length(g) == 4                        # state, category, repo, label
+    @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
+
+    st.frow = g[1]
+    for want in g[2:end]
+        W.handle!(st, Int('n'), ctrl)
+        @test st.frow == want
+    end
+    W.handle!(st, Int('n'), ctrl)
+    @test st.frow == g[end]                     # stops at the last group
+    for want in reverse(g[1:end-1])
+        W.handle!(st, Int('N'), ctrl)
+        @test st.frow == want
+    end
 end
 
 @testset "labels are a filter axis" begin
@@ -404,7 +438,7 @@ end
     ctrl = W.Controller()
     W.push_view!(ctrl, st)
 
-    W.handle!(st, Int('c'), ctrl)
+    W.handle!(st, Int('C'), ctrl)          # capitals change things
     @test last(ctrl.stack) isa W.EditorView
     @test occursin(st.items[st.sel].ref, last(ctrl.stack).title)
     pop!(ctrl.stack)
@@ -416,8 +450,12 @@ end
                                     "ostart" => 40, "ocount" => 2, "up" => 0, "down" => 0))
     st.nodes = [n]; st.nrow = 3
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
-    W.handle!(st, Int('c'), ctrl)
+    W.handle!(st, Int('C'), ctrl)
     @test length(ctrl.stack) == 1 && occursin("deleted line", st.status)
+
+    # ...and lowercase still only looks: `c` is the checks pane now.
+    W.handle!(st, Int('c'), ctrl)
+    @test st.mode === :checks && length(ctrl.stack) == 1
 
     # Review: the picker opens, and picking pushes the composer *and keeps it* -
     # the picker pops itself, not whatever ended up on top.

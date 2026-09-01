@@ -179,6 +179,43 @@ the *other* axes only (so a category shows what selecting it would add, not a
 total that ignores the rest of the filter), and the zero-count skip is what
 keeps 222 labels down to the few worth showing.
 
+### `awrap` breaks words in half
+Its docstring says it breaks at spaces. It does not: it emits a line every time
+the accumulated width would exceed `w`, wherever that falls, and the `lastspace`
+and `sincespace` locals it declares for the purpose are never read. Visible on
+any comment with long identifiers - `deliver_resu`/`lt`, `start_worke`/`r's`,
+`unguarde`/`d.` on Distributed.jl#198 - and it makes prose meaningfully harder
+to read than it should be.
+
+The fix is to hold the run since the last space and flush at the space instead,
+falling back to the hard break when a single run is wider than the pane, which
+is the case that matters for the URLs and stack frames this is full of.
+
+Two things not to break. The escape handling replays the active SGR codes at the
+start of each continuation line, so a break moved backwards has to move the
+replay with it. And `Row.part` marks the first display row of a source line, so
+the copy path does not care *where* the break falls - but the composer's
+`chunks` is a separate, deliberately fixed-width function, and must stay that
+way: its whole job is to be invertible from a character offset back to a row and
+column.
+
+### Should the capitals rule cover the rest?
+`c`/`C` swapped so that lowercase shows and uppercase changes. Three keys still
+break the rule, all of them writing something:
+
+| key | writes |
+|---|---|
+| `r` | `read.json` — marks the thread seen |
+| `s` | `state.toml` — snoozes it |
+| `e` | launches `$EDITOR` on a checkout |
+
+`R`, `S` and `E` are all free, so this is only a question of whether it is worth
+retraining three keys that get pressed constantly for the sake of the rule -
+and `r` and `s` are the two most-pressed keys in the program. An argument for
+leaving them: they write *local* state, and every uppercase key so far writes to
+GitHub, which is a sharper line than "edits" and one they fall on the right side
+of.
+
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review
 comment, now also the file and line it points at. `rows` runs it through `afit`,
