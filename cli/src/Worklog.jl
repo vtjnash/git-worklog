@@ -42,6 +42,7 @@ include("events.jl")
 include("refresh.jl")
 include("state.jl")
 include("ui.jl")
+include("browse.jl")
 include("cli.jl")
 
 # `dispatch` reaches every code path in the program, so the first call to it
