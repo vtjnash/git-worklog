@@ -216,4 +216,63 @@ function thread(url::AbstractString; limit::Int = 10)
     (body, cs[max(1, end - limit + 1):end])
 end
 
+"""
+    itemmeta(url, is_pr) -> (requested, reviews, assignees, teams)
+
+Who was asked to review, who has, and who it is assigned to.
+
+Fetched for the selected item only, on demand. The heavy GraphQL query carries
+reviews already, but the light query the bulk lanes use does not - so anything
+reached through the mention or firehose lanes has none, which is most of the
+list. Widening the light query would pay for ~2000 items to answer a question
+about the one on screen; this pays for the one.
+
+`reviews` is per person, latest state wins: GitHub keeps every submission, so a
+reviewer who approved after requesting changes appears twice and the earlier
+verdict is not the one that counts. COMMENTED never overrides a verdict.
+"""
+function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0)
+    key = string("itemmeta:", url)
+    hit = cache_get(key, ttl)
+    hit === nothing || return _meta_shape(hit[1])
+    parts = split(url, '/')
+    owner_repo = join(parts[4:5], '/')
+    num = parts[end]
+    kind = is_pr ? "pulls" : "issues"
+    head = api_get("/repos/$owner_repo/$kind/$num")[1]
+    assignees = String[String(a["login"]) for a in get(head, "assignees", ())]
+    requested, teams, latest = String[], String[], OrderedDict{String,Any}()
+    if is_pr
+        for r in get(head, "requested_reviewers", ())
+            push!(requested, String(r["login"]))
+        end
+        for t in get(head, "requested_teams", ())
+            push!(teams, String(get(t, "slug", get(t, "name", "?"))))
+        end
+        for r in api_paged("/repos/$owner_repo/pulls/$num/reviews")
+            st = String(get(r, "state", ""))
+            who = String(get(something(get(r, "user", nothing), Dict{String,Any}()),
+                             "login", "?"))
+            at = String(something(get(r, "submitted_at", nothing), ""))
+            # A later COMMENTED does not undo an APPROVED or a CHANGES_REQUESTED.
+            prev = get(latest, who, nothing)
+            (st == "COMMENTED" && prev !== nothing && prev["state"] != "COMMENTED") && continue
+            latest[who] = Dict{String,Any}("state" => st, "at" => at)
+        end
+    end
+    v = OrderedDict{String,Any}(
+        "requested" => requested, "teams" => teams, "assignees" => assignees,
+        "reviews" => [OrderedDict{String,Any}("login" => k, "state" => v["state"],
+                                              "at" => v["at"]) for (k, v) in latest])
+    cache_put(key, v)
+    _meta_shape(v)
+end
+
+"Both a fresh fetch and a cache hit reach the caller in the same shape."
+_meta_shape(v) = (requested = String[String(x) for x in v["requested"]],
+                  teams = String[String(x) for x in v["teams"]],
+                  assignees = String[String(x) for x in v["assignees"]],
+                  reviews = [(login = String(r["login"]), state = String(r["state"]),
+                              at = String(r["at"])) for r in v["reviews"]])
+
 end # module Events

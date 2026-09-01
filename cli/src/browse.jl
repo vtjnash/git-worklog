@@ -139,45 +139,56 @@ function filter_summary(f)
     join(parts, " · ")
 end
 
-mutable struct BState <: View
-    items::Vector{Item}
+"""The browser's whole state.
+
+Keyword-constructed, with defaults: it has thirty fields, and the positional
+form is a place where two of them get transposed silently. `render` mutates the
+scroll offsets and the two geometry readings (`hdr`, `nmeta`) that the mouse
+needs, so it is pure in what it returns but not in what it touches.
+"""
+Base.@kwdef mutable struct BState <: View
+    items::Vector{Item} = Item[]
     title::String
-    sel::Int
-    top::Int
-    nodes::Vector{Node}
-    nrow::Int              # cursor into the flattened rows, not into nodes:
+    sel::Int = 1
+    top::Int = 1
+    nodes::Vector{Node} = Node[]
+    nrow::Int = 1          # cursor into the flattened rows, not into nodes:
                            # scrolling inside a long comment needs row
                            # granularity, and folding still works because every
                            # row knows which node it belongs to
-    ntop::Int
-    focus::Symbol           # :list | :detail
-    mode::Symbol            # :comments | :diff
-    loaded::String
-    status::String
-    pending::Union{Nothing,Task}   # in-flight fetch; the key loop never blocks
-    pendkey::String
-    all::Vector{Item}              # unfiltered
-    unread::Set{String}
-    filters::Filters
-    buckets::Vector{String}
-    repos::Vector{String}
-    lmode::Symbol                  # :items | :filters
-    frow::Int
-    wake::Any                      # set by the controller; called when a fetch lands
-    hdr::Int               # rows of item title above the nodes in the detail
+    ntop::Int = 1
+    focus::Symbol = :list           # :list | :detail
+    mode::Symbol = :comments        # :comments | :diff | :checks
+    loaded::String = ""
+    status::String = ""
+    pending::Union{Nothing,Task} = nothing   # in-flight fetch; the key loop
+    pendkey::String = ""                     # never blocks
+    all::Vector{Item}               # unfiltered
+    unread::Set{String} = Set{String}()
+    filters::Filters = Filters()
+    buckets::Vector{String} = String[]
+    repos::Vector{String} = String[]
+    lmode::Symbol = :items          # :items | :filters
+    frow::Int = 2
+    wake::Any = nothing             # set by the controller; called when a fetch lands
+    hdr::Int = 0           # rows of item title above the nodes in the detail
                            # pane; the mouse needs it to turn a screen row into
                            # an `nrow`, and only `render` knows how tall it got
-    anchor::Int            # row a drag started on
-    sela::Int              # selected range in `nrow` coordinates; 0 for none
-    selb::Int
-    mouse::Bool            # mirrors the controller, for the footer
+    nmeta::Int = 0         # metadata lines the pane last drew; it sizes to its
+                           # content, so the heights depend on it
+    meta::Any = nothing    # Events.itemmeta result for `metakey`, or nothing
+    checks::Any = nothing  # check_contexts result, or nothing
+    metakey::String = ""
+    metapending::Union{Nothing,Task} = nothing
+    anchor::Int = 0        # row a drag started on
+    sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
+    selb::Int = 0
+    mouse::Bool = true     # mirrors the controller, for the footer
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
-    buckets = sort(unique(it.bucket for it in all))
-    repos = sort(unique(it.repo for it in all))
-    st = BState(Item[], String(title), 1, 1, Node[], 1, 1, :list, :comments, "", "",
-                nothing, "", collect(all), unread, Filters(), buckets, repos, :items, 2,
-                nothing, 0, 0, 0, 0, true)
+    st = BState(; all = collect(all), title = String(title), unread = unread,
+                  buckets = sort(unique(it.bucket for it in all)),
+                  repos = sort(unique(it.repo for it in all)))
     refilter!(st)
     st
 end
@@ -520,6 +531,170 @@ function pane(lines::Vector{String}, w::Int, h::Int, title::AbstractString, focu
     out
 end
 
+# --- the metadata pane ------------------------------------------------------
+
+const REV_MARK = Dict("APPROVED" => ("\e[32m", "✓"),
+                      "CHANGES_REQUESTED" => ("\e[31m", "✗"),
+                      "COMMENTED" => ("\e[2m", "·"),
+                      "DISMISSED" => ("\e[2m", "✗"),
+                      "PENDING" => ("\e[33m", "…"))
+
+"""
+    load_meta!(st)
+
+Fetch what the metadata pane needs for the selected item, off the key loop.
+
+Separate from `load_nodes!` because it does not change with the mode: switching
+between the thread, the diff and the checks re-reads the body three times, but
+the reviewers and the labels are the same each time.
+"""
+function load_meta!(st::BState)
+    isempty(st.items) && return
+    it = st.items[st.sel]
+    (st.metakey == it.url || (st.metapending !== nothing && st.metakey == it.url)) && return
+    st.metakey = it.url
+    st.meta = nothing
+    st.checks = nothing
+    st.metapending = @async begin
+        r = try
+            (meta = Events.itemmeta(it.url, it.is_pr),
+             checks = it.is_pr ? check_contexts(it.repo, it.number) : nothing)
+        catch e
+            (meta = nothing, checks = nothing, err = first(sprint(showerror, e), 120))
+        finally
+            st.wake === nothing || st.wake()
+        end
+        r
+    end
+end
+
+function collect_meta!(st::BState)
+    st.metapending === nothing && return false
+    istaskdone(st.metapending) || return false
+    r = try
+        fetch(st.metapending)
+    catch
+        (meta = nothing, checks = nothing)
+    end
+    st.meta = r.meta
+    st.checks = r.checks
+    st.metapending = nothing
+    true
+end
+
+"""Lines for the metadata pane: what is true of this item, rather than what is
+in it.
+
+Everything cheap comes from `facts.json` and is on screen immediately; the two
+that need a request - who has actually reviewed, and the per-check breakdown -
+arrive when `load_meta!` lands and say so until then.
+"""
+function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
+    it === nothing && return String[]
+    out = String[]
+    head(t) = push!(out, string(AB, t, AR))
+    kv(k, v) = isempty(string(v)) ? nothing :
+               push!(out, string(AD, rpad(k, 10), AR, afit(string(v), max(4, w - 10))))
+    wait_ = st.metakey == it.url && st.metapending !== nothing
+
+    if it.is_pr
+        dec = it.review_decision
+        head(string("reviews", isempty(dec) ? "" :
+                    string("  ", dec == "APPROVED" ? GRN :
+                                 dec == "CHANGES_REQUESTED" ? RED : YEL,
+                           lowercase(replace(dec, "_" => " ")), AR)))
+        m = st.meta
+        if m === nothing
+            push!(out, string(AD, wait_ ? "  loading…" : "  —", AR))
+        else
+            for r in m.reviews
+                (col, mark) = get(REV_MARK, r.state, (AD, "?"))
+                push!(out, string("  ", col, mark, AR, " ",
+                                  afit(rpad(r.login, 16), max(4, w - 6)),
+                                  AD, first(r.at, 10), AR))
+            end
+            for who in vcat(m.requested, ["@" * t for t in m.teams])
+                push!(out, string("  ", YEL, "○", AR, " ", afit(rpad(who, 16), max(4, w - 6)),
+                                  AD, "requested", AR))
+            end
+            isempty(m.reviews) && isempty(m.requested) && isempty(m.teams) &&
+                push!(out, string(AD, "  nobody yet", AR))
+        end
+        it.unresolved > 0 &&
+            push!(out, string("  ", YEL, it.unresolved, " unresolved thread",
+                              it.unresolved == 1 ? "" : "s", AR))
+        push!(out, "")
+
+        head("checks")
+        c = st.checks
+        if c === nothing
+            push!(out, string("  ", isempty(it.ci) ? (wait_ ? "loading…" : "—") :
+                              string(get(CI_COLOR, uppercase(it.ci), ""), lowercase(it.ci), AR)))
+        else
+            tally = Dict{String,Int}()
+            for x in c.contexts
+                k = uppercase(x.state)
+                tally[k] = get(tally, k, 0) + 1
+            end
+            parts = [string(get(CI_COLOR, k, ""), get(Dict("SUCCESS" => "✓", "FAILURE" => "✗",
+                            "ERROR" => "✗", "PENDING" => "…"), k, "·"), " ", n, AR)
+                     for (k, n) in sort(collect(tally); by = first)]
+            push!(out, string("  ", isempty(parts) ? string(AD, "none", AR) : join(parts, "  ")))
+        end
+        push!(out, "")
+    end
+
+    if !isempty(it.labels)
+        head("labels")
+        for l in awrap(join(it.labels, ", "), max(8, w - 2))
+            push!(out, string("  ", CYA, l, AR))
+        end
+        push!(out, "")
+    end
+
+    kv("author", it.author)
+    st.meta === nothing || isempty(st.meta.assignees) ||
+        kv("assignee", join(st.meta.assignees, ", "))
+    kv("milestone", string(it.milestone,
+                           isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
+    it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?
+                                string(RED, "conflicting", AR) : lowercase(it.mergeable))
+    it.draft && kv("state", "draft")
+    push!(out, "")
+
+    head("tracking")
+    kv("bucket", it.bucket)
+    kv("level", it.track)
+    it.snoozed && kv("snoozed", "yes")
+    kv("deadline", it.deadline)
+    isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
+    kv("why", it.why)
+    if !isempty(it.note)
+        push!(out, string(AD, "note", AR))
+        for l in awrap(it.note, max(8, w - 2))
+            push!(out, string("  ", l))
+        end
+    end
+    if !isempty(it.agent)
+        push!(out, string(AD, "agent", AR))
+        for l in awrap(it.agent, max(8, w - 2))
+            push!(out, string("  ", l))
+        end
+    end
+    while !isempty(out) && isempty(strip(astrip(last(out))))
+        pop!(out)
+    end
+    out
+end
+
+"""Left column width.
+
+Split out because the metadata pane sizes itself to its content, so it has to be
+rendered before the heights can be settled - and rendering it needs to know how
+wide it will be.
+"""
+leftw(w::Int) = w >= 110 ? clamp(w ÷ 3, 34, 52) : w
+
 """
     layout(w, h) -> NamedTuple
 
@@ -531,22 +706,39 @@ against is the geometry that was drawn. This used to be worked out twice, and
 the copies had drifted - the key handler measured the detail pane six columns
 narrower than the renderer did, so long lines wrapped differently in the two and
 `n`, `↵` and `[`/`]` acted on the wrong node once a thread ran past a screenful.
+
+The metadata pane goes under the item list rather than beside the detail: ten
+item numbers at a time is plenty, and the thing being read is the one that wants
+the full height. `nmeta` is how many lines it has to show, so it takes what it
+needs and the list keeps the rest.
 """
-function layout(w::Int, h::Int)
+function layout(w::Int, h::Int, nmeta::Int = 0)
     side = w >= 110
-    lw = side ? clamp(w ÷ 3, 34, 52) : w
+    lw = leftw(w)
     rw = side ? w - lw : w
     # Row 1 is the title bar and the last row the footer; panes fill the rest.
     # title bar + panes + footer must total h exactly, or the frame leaves a
     # dead row at the bottom of the terminal.
     bodyh = max(6, h - 2)
-    lh = side ? bodyh : max(5, bodyh ÷ 3)
-    rh = side ? bodyh : bodyh - lh
+    if side
+        # The detail keeps the full height; the left column is split between the
+        # list and the metadata, which takes what it needs and leaves the rest.
+        mh = clamp(nmeta + 2, 3, max(3, bodyh - 5))
+        lh, rh = bodyh - mh, bodyh
+    else
+        lh = clamp(bodyh ÷ 3, 3, 12)
+        rest = bodyh - lh
+        # Three stacked panes need the room to be three panes. Below that the
+        # metadata goes rather than squeezing what is being read.
+        mh = rest >= 9 ? clamp(nmeta + 2, 3, rest - 6) : 0
+        rh = rest - mh
+    end
     (side = side,
      lw = lw, lh = lh, lx = 1, ly = 2,
-     rw = rw, rh = rh, rx = side ? lw + 1 : 1, ry = side ? 2 : 2 + lh,
-     liw = lw - 4, riw = rw - 4,       # inner width: 1 border + 1 pad each side
-     page = max(1, rh - 3))
+     mw = lw, mh = mh, mx = 1, my = 2 + lh,
+     rw = rw, rh = rh, rx = side ? lw + 1 : 1, ry = side ? 2 : 2 + lh + mh,
+     liw = lw - 4, miw = lw - 4, riw = rw - 4,   # inner: 1 border + 1 pad a side
+     page = max(1, rh - 3), lpage = max(1, lh - 3))
 end
 
 """
@@ -558,6 +750,7 @@ last drew; `col` likewise. Borders, the title bar and the footer return nothing.
 """
 function hitpane(L, x::Int, y::Int)
     for (which, px, py, pw, ph, iw) in ((:list, L.lx, L.ly, L.lw, L.lh, L.liw),
+                                        (:meta, L.mx, L.my, L.mw, L.mh, L.miw),
                                         (:detail, L.rx, L.ry, L.rw, L.rh, L.riw))
         (px <= x <= px + pw - 1 && py + 1 <= y <= py + ph - 2) || continue
         c = x - px - 1
@@ -610,9 +803,14 @@ Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
 narrow window degrades rather than truncating the detail into uselessness.
 """
 function render_frame(st::BState, w::Int, h::Int)
-    L = layout(w, h)
-    lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
     st.sel = clamp(st.sel, 1, max(1, length(st.items)))
+    it = isempty(st.items) ? nothing : st.items[st.sel]
+    # The pane sizes to its content, so it is rendered before the heights are
+    # settled; only its width is known this early, and only its width is needed.
+    mlines = meta_lines(st, it, leftw(w) - 4)
+    st.nmeta = length(mlines)
+    L = layout(w, h, st.nmeta)
+    lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
     if st.lmode === :filters
         frows = filter_rows(st)
         st.frow = clamp(st.frow, 1, max(1, length(frows)))
@@ -637,7 +835,6 @@ function render_frame(st::BState, w::Int, h::Int)
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
-    it = isempty(st.items) ? nothing : st.items[clamp(st.sel, 1, length(st.items))]
     # The item title again, above the detail. The title bar is a row away at the
     # top of the screen and easy to lose track of once you have scrolled into a
     # long thread.
@@ -677,6 +874,9 @@ function render_frame(st::BState, w::Int, h::Int)
                     sr === nothing ? "" : string("  ", AB, sr[2] - sr[1] + 1, " selected", AR))
 
     left = pane(lvis, lw, lh, ltitle, st.focus === :list)
+    L.mh > 0 && append!(left, pane(first(mlines, L.mh - 2), lw, L.mh,
+                                   it === nothing ? "meta" : string("meta  ", it.ref),
+                                   false))
     right = pane(rvis, rw, rh, rtitle, st.focus === :detail)
 
     links = Pair{String,String}[]
@@ -980,8 +1180,8 @@ end
 
 render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
 
-"Adopt a finished fetch when the controller wakes us."
-onwake!(st::BState) = collect_pending!(st)
+"Adopt whichever finished fetch woke us - the body, the metadata, or both."
+onwake!(st::BState) = collect_pending!(st) | collect_meta!(st)
 
 """
     browse(items, title, unread)
@@ -1005,8 +1205,9 @@ redraws after every key.
 function handle!(st::BState, k::Int, ctrl::Controller)
     h, w = displaysize(stdout)
     load_nodes!(st)
-    L = layout(w, h)
-    iw, page = L.riw, L.page
+    load_meta!(st)
+    L = layout(w, h, st.nmeta)
+    iw, page, lpage = L.riw, L.page, L.lpage
     if k == Int('q')
         return :quit          # Escape no longer quits: it heads key sequences
     elseif k == Int('\t') || k == K_STAB
@@ -1025,15 +1226,16 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     elseif st.focus === :list && st.lmode === :filters
         nf = length(filter_rows(st))
         if k in (Int('j'), K_DOWN);     st.frow = min(nf, st.frow + 1)
+        elseif k == Int(' ');           st.frow = min(nf, st.frow + lpage)
         elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
-        elseif k in (Int(' '), 13, 10); toggle_filter!(st)
+        elseif k in (13, 10);           toggle_filter!(st)
         elseif k == Int('c');           st.filters = Filters(); refilter!(st)
         end
     elseif st.focus === :list
         if k in (Int('j'), K_DOWN);          st.sel = min(length(st.items), st.sel + 1)
         elseif k in (Int('k'), K_UP);        st.sel = max(1, st.sel - 1)
-        elseif k in (Int(' '), 6, K_PGDN);   st.sel = min(length(st.items), st.sel + page)
-        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(1, st.sel - page)
+        elseif k in (Int(' '), 6, K_PGDN);   st.sel = min(length(st.items), st.sel + lpage)
+        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(1, st.sel - lpage)
         elseif k in (Int('g'), K_HOME);      st.sel = 1
         elseif k in (Int('G'), K_END);       st.sel = length(st.items)
         elseif k in (13, 10);                st.focus = :detail
@@ -1132,6 +1334,7 @@ function handle!(st::BState, k::Int, ctrl::Controller)
                           st.status = "snoozed"
     end
     load_nodes!(st)
+    load_meta!(st)
     :ok
 end
 
@@ -1154,10 +1357,11 @@ next keystroke.
 """
 function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
     h, w = displaysize(stdout)
-    L = layout(w, h)
+    L = layout(w, h, st.nmeta)
     p = hitpane(L, ev.x, ev.y)
     p === nothing && return :ok
     (which, row, col) = p
+    which === :meta && return :ok      # a readout, not a control
     wheel = ev.kind === :wheelup || ev.kind === :wheeldown
     d = ev.kind === :wheelup ? -3 : 3
 

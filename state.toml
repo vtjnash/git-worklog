@@ -10,3 +10,6 @@
 #   note       = "one line: what the next action actually is"
 #   blocked_on = ["JuliaLang/julia#62396"]
 #   agent_task = "rebase and rerun Compiler tests"   # promotes into needs-agents
+
+["https://github.com/JuliaCI/Nanosoldier.jl/pull/187"]
+snooze = "on-change"

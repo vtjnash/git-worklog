@@ -23,11 +23,40 @@ const LANES = [
 const DIM = "\e[2m"; const B = "\e[1m"; const R = "\e[0m"
 const RED = "\e[31m"; const YEL = "\e[33m"; const GRN = "\e[32m"; const CYA = "\e[36m"
 
-struct Item
-    url::String; ref::String; repo::String; number::Int; title::String
-    bucket::String; track::String; note::String; agent::String
-    backlog::Bool; ci::String; unresolved::Int; mergeable::String
-    age::Int; new::Bool; moved::Bool; snoozed::Bool; is_pr::Bool
+"""One row of the dashboard.
+
+Keyword-constructed: it carries enough fields now - the metadata pane wants
+labels, milestone, review decision and the rest - that a positional call is a
+place to silently transpose two strings.
+"""
+Base.@kwdef struct Item
+    url::String
+    ref::String
+    repo::String
+    number::Int
+    title::String
+    bucket::String = ""
+    track::String = "normal"
+    note::String = ""
+    agent::String = ""
+    backlog::Bool = false
+    ci::String = ""
+    unresolved::Int = 0
+    mergeable::String = ""
+    age::Int = 0
+    new::Bool = false
+    moved::Bool = false
+    snoozed::Bool = false
+    is_pr::Bool = true
+    author::String = ""
+    labels::Vector{String} = String[]
+    milestone::String = ""
+    milestone_due::String = ""
+    review_decision::String = ""
+    draft::Bool = false
+    deadline::String = ""
+    blocked_on::Vector{String} = String[]
+    why::String = ""
 end
 
 nz(x, d = "") = x === nothing || x === missing ? d : x
@@ -41,16 +70,25 @@ function loaditems()
         act = something(jget(r, :head_at), jget(r, :last_comment_at), r.updated)
         age = something(days_since(act), 0)
         push!(out, Item(
-            r.url, string(split(r.repo, '/')[end], '#', r.number),
-            r.repo, r.number, r.title,
-            nz(jget(r, :bucket), ""), nz(jget(r, :track), "normal"),
-            nz(jget(r, :note), ""), nz(jget(r, :agent_task), ""),
-            nz(jget(r, :backlog), false),
-            nz(jget(r, :ci), ""), nz(jget(r, :unresolved), 0),
-            nz(jget(r, :mergeable), ""),
-            age, nz(jget(r, :new), false), nz(jget(r, :moved), false),
-            nz(jget(r, :snoozed), false),
-            nz(jget(r, :type), "PullRequest") == "PullRequest"))
+            url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
+            repo = r.repo, number = r.number, title = r.title,
+            bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
+            note = nz(jget(r, :note), ""), agent = nz(jget(r, :agent_task), ""),
+            backlog = nz(jget(r, :backlog), false),
+            ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
+            mergeable = nz(jget(r, :mergeable), ""),
+            age = age, new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
+            snoozed = nz(jget(r, :snoozed), false),
+            is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",
+            author = nz(jget(r, :author), ""),
+            labels = String[String(l) for l in jget(r, :labels, ())],
+            milestone = nz(jget(r, :milestone), ""),
+            milestone_due = first(String(nz(jget(r, :milestone_due), "")), 10),
+            review_decision = nz(jget(r, :review_decision), ""),
+            draft = nz(jget(r, :draft), false),
+            deadline = nz(jget(r, :deadline), ""),
+            blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
+            why = nz(jget(r, :why), "")))
     end
     out
 end
@@ -91,9 +129,12 @@ function ui(args = String[])
     unread = Events.unread(cfg, cfg["login"]; verbose = false)
     idx = Dict(i.url => i for i in items)
     # Unread threads that are not otherwise tracked still need a row to select.
-    extra = [Item(String(u["url"]), string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-                  String(u["repo"]), u["number"], String(u["title"]), "unread", "normal",
-                  "", "", true, "", 0, "", 0, false, false, false, true)
+    extra = [Item(url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
+                  ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
+                  title = String(u["title"]), bucket = "unread", backlog = true,
+                  author = String(nz(get(u, "author", nothing), "")),
+                  labels = String[String(l) for l in get(u, "labels", ())],
+                  is_pr = get(u, "is_pr", true))
              for u in unread if !haskey(idx, String(u["url"]))]
     urls = Set{String}(String(u["url"]) for u in unread)
     # Straight into the browser: what the lane menu used to choose is now a tag.

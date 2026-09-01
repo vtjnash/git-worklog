@@ -186,33 +186,6 @@ that submits an empty `APPROVE` is the common case and should be one key.
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
 
-### Third pane: metadata
-Reviewers, labels and CI state at a glance, without switching the detail pane
-away from what you are reading.
-
-Contents: requested reviewers and who has actually reviewed (with their state),
-labels, the CI rollup plus a per-check line, milestone, assignees, mergeable
-state, and the tracking level and any note from `state.toml`.
-
-Most of it is already in hand. `facts.json` carries labels, `review_decision`,
-`ci`, `unresolved`, `mergeable` and `milestone`; `check_contexts` (cached)
-gives per-check state. The gap is per-person review state: the heavy GraphQL
-query fetches `reviews(last:20)` with author and state, but the light query the
-bulk lanes use does not, and items reached through the mention or firehose
-lanes therefore have none. Either widen the light query — it is ~2000 items, so
-measure the cost first — or fetch reviews lazily for the selected item, which
-fits the existing async `load_nodes!` pattern.
-
-Layout is the real question. Side-by-side already needs 110 columns; a third
-pane wants roughly 160. Below that it should probably become a strip under the
-detail pane, or a toggle rather than a permanent pane. `pane()` already draws
-any box, and the frame is assembled by joining rows, so the drawing is not the
-work — deciding the breakpoints is.
-
-Also note `Tab` currently toggles between two panes and would need to cycle
-three, and `BState.focus` is a `Symbol` compared against `:list` / `:detail` in
-several places rather than being a proper cycle.
-
 ### tmux + ClaudeBox review sessions
 A persistent sandboxed Claude per review, to push an item into and resume
 later. Two things to establish before designing further:
@@ -236,6 +209,14 @@ store; only the mapping needs persisting, which fits the `state.toml` pattern
   different one, and no offer to create a worktree for the branch.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
+- **The metadata pane is a readout, not a control.** Clicking in it does
+  nothing, `Tab` still cycles only the list and the detail, and there is no way
+  to act on what it shows — no key to add a label, assign a reviewer or open a
+  check from there. The review-from-the-browser work above is where that goes.
+- **Per-check counts come from the same cache the `C` pane uses.** So the
+  rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
+  checks have never been fetched shows the one-word rollup from `facts.json`
+  until the lazy fetch lands.
 - **A folded `<details>` block is a sibling, not a child.** `Node.depth` draws
   it inset and it starts closed, which is all the case needs, but folding the
   comment above it does not fold the block with it - they are separate entries

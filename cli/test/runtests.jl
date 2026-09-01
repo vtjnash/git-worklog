@@ -80,7 +80,7 @@ mkstate() = begin
 end
 
 @testset "frame geometry" begin
-    for (w, h) in ((80, 24), (110, 40), (160, 50), (100, 12))
+    for (w, h) in ((80, 24), (110, 40), (160, 50), (100, 12), (200, 60), (72, 8))
         st = mkstate()
         f = W.render(st, w, h)
         ls = split(f, "\n")
@@ -93,7 +93,7 @@ end
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
     W.render(st, 160, 50)
-    L = W.layout(160, 50)
+    L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
 
     # A click on the list pane's third content row selects the third item.
@@ -105,6 +105,7 @@ end
     # which is header, not content - so nrow stays put and focus moves.
     st2 = mkstate()
     W.render(st2, 160, 50)
+    L = W.layout(160, 50, st2.nmeta)
     press2(x, y) = W.onmouse!(st2, W.MouseEvent(:press, 0, x, y, 0), ctrl)
     press2(L.rx + 10, L.ry + 1 + st2.hdr)          # first node row (its header)
     @test st2.focus === :detail && st2.nrow == 1
@@ -133,7 +134,7 @@ end
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
     W.render(st, 160, 50)
-    L = W.layout(160, 50)
+    L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
     y0 = L.ry + 1 + st.hdr
     W.onmouse!(st, W.MouseEvent(:press, 0, L.rx + 10, y0 + 1, 0), ctrl)
@@ -158,6 +159,34 @@ end
     @test W.selrange(st) === nothing
 end
 
+@testset "the metadata pane" begin
+    st = mkstate()
+    it = st.items[st.sel]
+    lines = W.meta_lines(st, it, 44)
+    plain = W.astrip(join(lines, "\n"))
+    # Everything cheap comes from facts.json and is there before any fetch.
+    @test occursin("tracking", plain)
+    @test occursin(it.track, plain)
+    isempty(it.labels) || @test occursin(first(it.labels), plain)
+    isempty(it.author) || @test occursin(it.author, plain)
+    # Per-person review state needs a request; until it lands, it says so.
+    @test st.meta === nothing
+    it.is_pr && @test occursin("reviews", plain)
+    @test all(W.awidth(l) <= 44 for l in lines)
+
+    # It sits under the list, and the detail keeps the full height.
+    L = W.layout(160, 50, length(lines))
+    @test L.ly + L.lh == L.my              # meta directly under the list
+    @test L.mw == L.lw                     # same column
+    @test L.rh == L.lh + L.mh              # detail spans both
+    @test L.ry == 2                        # ...starting at the top
+    # It grows with its content, and the list gives way.
+    wide = W.layout(160, 50, 30)
+    @test wide.mh > L.mh && wide.lh < L.lh
+    # Stacked, it is dropped rather than squeezing what is being read.
+    @test W.layout(80, 14).mh == 0
+end
+
 @testset "arrow keys and shift-tab" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
@@ -177,7 +206,7 @@ end
     W.handle!(st, W.K_DOWN, ctrl)
     @test st.nrow == 2
     W.handle!(st, W.K_PGDN, ctrl)
-    @test st.nrow == length(W.rows(st.nodes, W.layout(160, 50).riw))
+    @test st.nrow == length(W.rows(st.nodes, W.layout(160, 50, st.nmeta).riw))
     W.handle!(st, W.K_HOME, ctrl)
     @test st.nrow == 1
 end

@@ -117,6 +117,16 @@ cli/bin/wl              # lane -> item -> thread -> action
 cli/bin/wl --refresh    # re-fetch first
 ```
 
+Under the item list is a metadata pane: who has reviewed and who was asked,
+labels, the check tally, milestone, mergeable state, and the tracking level and
+note from `state.toml`. It sits there rather than beside the detail because ten
+item numbers at a time is plenty and the thing being read wants the height.
+Everything in it that `facts.json` already knows is on screen immediately; the
+two that need a request — per-person review state and the per-check breakdown —
+are fetched for the selected item only. The light GraphQL query the bulk lanes
+use carries no reviews, so widening it would pay for ~2000 items to answer a
+question about the one on screen.
+
 It owns the mouse rather than leaving selection to the terminal. That is not a
 flourish: the terminal only sees the lines *we* wrapped, so selecting a
 paragraph with it yields the wrapped fragments plus the pane borders. Dragging
