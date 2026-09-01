@@ -188,15 +188,21 @@ that submits an empty `APPROVE` is the common case and should be one key.
 
 ### tmux + ClaudeBox review sessions
 A persistent sandboxed Claude per review, to push an item into and resume
-later. Two things to establish before designing further:
+later.
 
-- Whether ClaudeBox.jl can launch non-interactively into an existing tmux pane.
-- Whether sandbox-in-sandbox works here, or whether this is only testable on
-  the host.
+**This one cannot be built from inside the sandbox.** Checked on 2026-09-01:
+`tmux`, `claudebox`, `docker` and `podman` are all absent from `PATH`,
+ClaudeBox.jl is not in any environment here, and `$TMUX` is unset — so neither
+of the questions this section used to open with can be answered from here, and
+neither can the feature be exercised. It is host work; do not start it in a
+sandbox session expecting to test it.
 
-Session naming from the item (`wl-julia-62841`) makes tmux itself the state
-store; only the mapping needs persisting, which fits the `state.toml` pattern
-(`review_session = "..."`) or `repos.toml`.
+What still holds, for whoever picks it up on the host: session naming from the
+item (`wl-julia-62841`) makes tmux itself the state store, so only the mapping
+needs persisting, which fits the `state.toml` pattern (`review_session = "..."`)
+or `repos.toml`. The two open questions remain whether ClaudeBox.jl can launch
+non-interactively into an existing pane, and whether sandbox-in-sandbox works
+at all.
 
 ## Known gaps in what has shipped
 
