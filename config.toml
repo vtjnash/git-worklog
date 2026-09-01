@@ -8,6 +8,8 @@ login = "vtjnash"
 nudge_days = 7
 # No activity at all this long -> flagged stale in the view.
 stale_days = 60
+# A mention this recent, with the last word not yours, is a question owed a reply.
+reply_days = 30
 
 [lanes]
 # GitHub search syntax. Each lane is one paginated GraphQL search.
@@ -16,37 +18,31 @@ review   = "is:open is:pr review-requested:vtjnash archived:false"
 assigned = "is:open is:issue assignee:vtjnash archived:false"
 
 [firehose]
-# EVERY open PR in this repo lands in the background pile. Nothing here ever
-# surfaces on its own; you reach it only through `wl.py next`.
 repo = "JuliaLang/julia"
-# Fetched on its own cadence, not every refresh (it is ~1000 PRs and ~70s).
-# Force with: python3 refresh.py --firehose
-refresh_hours = 6
 # Not a filter - a ranking signal. `wl.py next` hands you these areas first.
 areas = [
-  "compiler:codegen",
-  "compiler:llvm",
-  "compiler:optimizer",
-  "compiler:inference",
-  "compiler:effects",
-  "compiler:lowering",
-  "compiler:precompilation",
-  "GC",
-  "GC: MMTK",
-  "multithreading",
-  "atomics",
-  "invalidations",
-  "types and dispatch",
-  "ffi",
-  "embedding",
-  "juliac",
-  "trimming",
-  "latency",
-  "caching",
+  "compiler:codegen", "compiler:llvm", "compiler:optimizer", "compiler:inference",
+  "compiler:effects", "compiler:lowering", "compiler:precompilation",
+  "GC", "GC: MMTK", "multithreading", "atomics", "invalidations",
+  "types and dispatch", "ffi", "embedding", "juliac", "trimming",
+  "latency", "caching",
 ]
 
-[backlog]
-# Default size of `wl.py next`, the pull-based backlog queue. Nothing from the
-# backlog is ever pushed into the dashboard; you ask for a batch when you want one.
+[bulk]
+# Big, slow-moving queries. ~2000 items between them, so they run on their own
+# cadence rather than every refresh; force with `python3 refresh.py --firehose`.
+# Nothing fetched here surfaces on its own - it all lands in the background pile
+# and is reached only through `wl.py next`. The one exception is a recent mention
+# whose last comment is not yours, which becomes a `needs-reply`.
+refresh_hours = 6
 
+[bulk.queries]
+firehose        = "repo:JuliaLang/julia is:open is:pr archived:false"
+mentioned_pr    = "is:open is:pr mentions:vtjnash archived:false"
+mentioned_issue = "is:open is:issue mentions:vtjnash archived:false"
+commented_pr    = "is:open is:pr commenter:vtjnash archived:false"
+commented_issue = "is:open is:issue commenter:vtjnash archived:false"
+
+[backlog]
+# Default size of `wl.py next`, the pull-based backlog queue.
 batch = 10

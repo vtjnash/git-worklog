@@ -72,6 +72,15 @@ query($q: String!, $cursor: String) {
       milestone { title dueOn }
       labels(first: 20) { nodes { name } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+      comments(last: 1) { nodes { author { login } createdAt } }
+    }
+    ... on Issue {
+      url number title createdAt updatedAt
+      repository { nameWithOwner }
+      author { login }
+      milestone { title dueOn }
+      labels(first: 20) { nodes { name } }
+      comments(last: 1) { nodes { author { login } createdAt } }
     } }
   }
 }
@@ -106,23 +115,24 @@ def search(q, cap=1000, query=None):
         # Long paginations (the firehose is ~10 sequential pages) reliably hit
         # transient 5xx from the GraphQL endpoint. Retry the page rather than
         # losing the whole refresh.
-        for attempt in range(5):
+        for attempt in range(7):
             p = subprocess.run(["gh", "api", "graphql", "--input", "-"],
                                input=body, capture_output=True, text=True)
             if p.returncode == 0:
                 break
             err = (p.stderr or p.stdout)[:200]
-            if attempt == 4 or not any(c in err for c in ("502", "503", "504", "timeout")):
-                raise SystemExit("GraphQL failed for %r: %s" % (q, err))
-            time.sleep(2 ** attempt)
+            if attempt == 6 or not any(c in err for c in ("502", "503", "504", "timeout")):
+                raise FetchError("GraphQL failed for %r: %s" % (q, err))
+            time.sleep(min(2 ** attempt, 30))
             print("    retry %d after: %s" % (attempt + 1, err.strip()), file=sys.stderr)
         d = json.loads(p.stdout)
         if "errors" in d:
-            raise SystemExit("GraphQL errors for %r: %s" % (q, json.dumps(d["errors"])[:2000]))
+            raise FetchError("GraphQL errors for %r: %s" % (q, json.dumps(d["errors"])[:2000]))
         spent += d["data"]["rateLimit"]["cost"]
         s = d["data"]["search"]
-        out.extend(n for n in s["nodes"] if n)
-        search.last_total = s["issueCount"]
+        out.extend(n for n in s["nodes"] if n and n.get("url"))
+        if cursor is None:
+            search.last_total = s["issueCount"]
         if not s["pageInfo"]["hasNextPage"] or len(out) >= cap:
             return out[:cap], spent
         cursor = s["pageInfo"]["endCursor"]
@@ -135,6 +145,11 @@ def ts(s):
 def days_since(s):
     t = ts(s)
     return None if t is None else (NOW - t).days
+
+
+class FetchError(Exception):
+    """A lane could not be fetched. Fatal for the active lanes, survivable for
+    the bulk ones, which fall back to their previous cached contents."""
 
 
 def activity_at(r):
@@ -229,7 +244,7 @@ def resolve_track(st, bucket):
     t = st.get("track")
     if t in TRACK_KEYS:
         return t
-    if bucket in ("stale", "firehose"):
+    if bucket in ("stale", "firehose", "mentioned"):
         return "background"
     if bucket in ("issue", "reviewed", "blocked"):
         return "loose"
@@ -244,10 +259,24 @@ def derive_bucket(r, st, cfg):
     if st.get("bucket"):
         return st["bucket"], "override"
     L = set(r.get("labels", []))
-    if r["type"] == "Issue":
-        return "issue", "assigned issue"
     if r["lane"] == "firehose":
         return "firehose", "discovery"
+    if r["lane"].startswith(("mentioned", "commented")):
+        # The only thing in this pile worth interrupting for: someone named you
+        # recently and the last word is theirs, so a question is probably owed an
+        # answer. Everything else - including your own old comments, and the
+        # repos where you are effectively the maintainer and touch every PR -
+        # stays in the background where you pull it on your own schedule.
+        age = activity_age(r)
+        if (r["lane"].startswith("mentioned")
+                and age is not None and age <= cfg["thresholds"]["reply_days"]
+                and r.get("last_comment_by") not in (None, cfg["login"])):
+            return "needs-reply", "mentioned you %dd ago; last word is theirs" % age
+        return "mentioned", "mention or comment history"
+    # Only after the lanes: an Issue reached via `assigned` is yours to act on,
+    # while the same Issue reached via a mention is background.
+    if r["type"] == "Issue":
+        return "issue", "assigned issue"
 
     if r["mine"]:
         claimed = any(st.get(k) for k in ("note", "deadline", "agent_task", "snooze"))
@@ -313,42 +342,59 @@ def snooze_active(url, st, fp, snz):
     return True, "until %s" % until
 
 
-def fetch_firehose(cfg, force=False):
-    """Every open PR in the tracked repo, on its own refresh cadence.
+def fetch_bulk(cfg, force=False):
+    """Run every [bulk.queries] entry, cached on a slow cadence.
 
-    These are background items by definition, so per-refresh freshness buys
-    nothing and costs ~70s of wall clock. Cached for `refresh_hours`; pass
-    --firehose to force.
+    These are ~2000 items that move slowly and never surface on their own, so
+    per-refresh freshness buys nothing and costs minutes of wall clock.
 
-    GitHub's search API truncates at 1000 results and this repo is already at
-    ~993, so partition by creation year and union the slices once the total
-    gets close to the cap.
+    GitHub's search API truncates at 1000 results and the Julia firehose is
+    already at ~993, so any query approaching the cap is re-run partitioned by
+    creation year and the slices unioned.
     """
-    fh = cfg["firehose"]
-    cache = ROOT / "firehose.json"
-    hours = fh.get("refresh_hours", 6)
+    cache = ROOT / "bulk.json"
+    hours = cfg["bulk"].get("refresh_hours", 6)
     if cache.exists() and not force:
         c = json.loads(cache.read_text())
         age_h = (NOW - ts(c["fetched_at"])).total_seconds() / 3600
         if age_h < hours:
-            return c["nodes"], 0, "cached %.1fh old" % age_h
+            return c["lanes"], 0, "cached %.1fh old" % age_h
 
-    base = "repo:%s is:open is:pr archived:false" % fh["repo"]
-    nodes, spent = search(base, cap=1000, query=FIREHOSE_QUERY)
-    total = getattr(search, "last_total", len(nodes))
-    if total > 950:
-        seen, merged = set(), []
-        for y in range(2011, NOW.year + 1):
-            part, c = search("%s created:%d-01-01..%d-12-31" % (base, y, y),
-                             cap=1000, query=FIREHOSE_QUERY)
+    # Start from whatever is cached so one flaky lane cannot discard the others.
+    # These fetches take minutes; losing a completed lane to a later 502 is the
+    # difference between a slow refresh and a wasted one.
+    prev = json.loads(cache.read_text())["lanes"] if cache.exists() else {}
+    lanes, spent, failed = dict(prev), 0, []
+    for lane, q in cfg["bulk"]["queries"].items():
+        try:
+            nodes, c = search(q, cap=1000, query=FIREHOSE_QUERY)
             spent += c
-            for n in part:
-                if n["url"] not in seen:
-                    seen.add(n["url"])
-                    merged.append(n)
-        nodes = merged
-    cache.write_text(json.dumps({"fetched_at": NOW.isoformat(), "nodes": nodes}))
-    return nodes, spent, "fetched %d of %d" % (len(nodes), total)
+            total = getattr(search, "last_total", len(nodes))
+            if total > 950:
+                seen, merged = set(), []
+                for y in range(2011, NOW.year + 1):
+                    part, pc = search("%s created:%d-01-01..%d-12-31" % (q, y, y),
+                                      cap=1000, query=FIREHOSE_QUERY)
+                    spent += pc
+                    for n in part:
+                        if n["url"] not in seen:
+                            seen.add(n["url"])
+                            merged.append(n)
+                nodes = merged
+        except FetchError as e:
+            failed.append(lane)
+            print("    %-16s FAILED, keeping %d cached: %s"
+                  % (lane, len(prev.get(lane, [])), str(e)[:80]), file=sys.stderr)
+            continue
+        lanes[lane] = nodes
+        print("    %-16s %4d of %s" % (lane, len(nodes), total), file=sys.stderr)
+        # Persist after every lane, not at the end.
+        cache.write_text(json.dumps({"fetched_at": NOW.isoformat(), "lanes": lanes}))
+    cache.write_text(json.dumps({"fetched_at": NOW.isoformat(), "lanes": lanes}))
+    how = "fetched %d" % sum(len(v) for v in lanes.values())
+    if failed:
+        how += ", %d lane(s) stale" % len(failed)
+    return lanes, spent, how
 
 
 def main():
@@ -369,15 +415,16 @@ def main():
             items[n["url"]] = normalize(n, lane, login)
         print("  %-9s %3d items (%d pts)" % (lane, len(nodes), c), file=sys.stderr)
 
-    fh_nodes, c, how = fetch_firehose(cfg, force="--firehose" in sys.argv)
+    bulk, c, how = fetch_bulk(cfg, force="--firehose" in sys.argv)
     spent += c
-    kept = 0
-    for n in fh_nodes:
-        if n["url"] in items:
-            continue                       # already yours in another lane
-        items[n["url"]] = normalize(n, "firehose", login)
-        kept += 1
-    print("  %-9s %3d items (%s, %d pts)" % ("firehose", kept, how, c), file=sys.stderr)
+    for lane, nodes in bulk.items():
+        kept = 0
+        for n in nodes:
+            if n["url"] in items:
+                continue                   # already yours in an active lane
+            items[n["url"]] = normalize(n, lane, login)
+            kept += 1
+        print("  %-16s %4d new (%s)" % (lane, kept, how), file=sys.stderr)
 
     # Bucket, then tracking level, then a fingerprint at that level, then snooze.
     # Order matters: the level decides the fingerprint, which decides the wake.
@@ -404,7 +451,8 @@ def main():
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # The backlog is everything you are not actively carrying: the stale pile,
         # the discovery feed, and anything you explicitly pushed to background.
-        r["backlog"] = r["bucket"] in ("stale", "firehose") or r["track"] == "background"
+        r["backlog"] = (r["bucket"] in ("stale", "firehose", "mentioned")
+                        or r["track"] == "background")
         old = prev_items.get(url)
         r["moved"] = bool(old) and old.get("fp_full") != r["fp_full"]
         if old is None:
@@ -438,6 +486,7 @@ def main():
 # --- rendering -------------------------------------------------------------
 
 SECTIONS = [
+    ("needs-reply",   "Needs a reply",     "You were mentioned and the last word is theirs."),
     ("needs-edits",   "Needs edits",       "Review feedback, red CI, or you're the blocker."),
     ("needs-agents",  "Needs agents",      "Mechanical work you queued for delegation."),
     ("needs-stacking","Needs stacking",    "Conflicts; rebase or restack with `gh stack`."),
@@ -538,14 +587,16 @@ def render(items, changes, cfg, spent):
         out += ["", "</details>", ""]
 
     fire = [r for r in vis if r["bucket"] == "firehose"]
-    if fire:
+    if fire or any(r["bucket"] == "mentioned" for r in vis):
         # Deliberately a count, not a list. The background pile is reached only
         # through `wl.py next`; printing a thousand lines here would be exactly
         # the firehose-in-your-feed this is meant to avoid.
         out += ["## Background pile", "",
-                "%d open PRs in %s, plus %d of your own gone quiet. None of it "
-                "surfaces here. Pull a batch to triage with `wl.py next`." %
+                "%d open PRs in %s, %d threads you were mentioned in or commented "
+                "on, plus %d of your own gone quiet. None of it surfaces here. "
+                "Pull a batch to triage with `wl.py next`." %
                 (len(fire), cfg["firehose"]["repo"],
+                 sum(1 for r in vis if r["bucket"] == "mentioned"),
                  sum(1 for r in vis if r["bucket"] == "stale")), ""]
 
     if snoozed:
@@ -568,4 +619,7 @@ def render(items, changes, cfg, spent):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except FetchError as e:
+        raise SystemExit(str(e))
