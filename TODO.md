@@ -171,6 +171,46 @@ shows them and the filter pane has a label axis. What is left is writing:
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
 
+### Marking a thread unread again
+`r` marks a thread read and there is no way back. The only inverse today is
+editing `read.json` by hand, which is the file the whole unread lane is derived
+from - so a misplaced `r`, or one pressed on the wrong row, silently loses the
+one bit of state that cannot be re-derived from GitHub.
+
+`Events.mark_read` writes one timestamp per URL into `read.json`; the inverse is
+deleting that key, and `unread()` then treats the item as unseen if it moved
+inside the lookback window. So this is a `mark_unread(urls)` beside it, a key in
+the browser (`R` is free, and pairs with `r`), and a line in `wl read`'s command
+surface for the non-interactive side.
+
+Worth deciding at the same time: whether `r` should mark read *up to the
+timestamp shown* rather than to now, so that reading a thread, walking away, and
+coming back does not mark comments read that arrived while you were gone. That
+is the same key doing a slightly different thing, not a second key.
+
+### Inline code should not shout
+Term renders a markdown code span as `md_code`-styled backticks around
+syntax-highlighted content, and `md_code` defaults to `#FFF59D italic` - a pale
+yellow that is the loudest thing on the screen for what is usually a variable
+name. A grey background behind the *contents*, with the backticks quiet or gone,
+is what it should look like.
+
+What is in hand: `Term.TERM_THEME[].md_code` is writable at run time and takes a
+Term style string, and it styles **only the delimiters** - setting it to
+`"on_grey19"` gives a grey backtick, not a grey span. Verified shapes:
+
+    default        \e[3m\e[38;2;255;245;157m`\e[23m\e[39m  <content>  <same again>
+    md_code="dim"  \e[2m`\e[22m                             <content>  <same again>
+
+So killing the yellow is a one-line theme assignment, but putting the background
+behind the content needs a pass over the rendered ANSI in `render_md`: set
+`md_code` to a sentinel style, then rewrite `SENTINEL ` RESET … SENTINEL ` RESET`
+into background-wrapped content. Two things to decide there: whether to drop the
+backticks once the background marks the span, and what to do when Term wraps a
+span across a line - the pair is then on two lines, and a background that spans
+the break would bleed into the pane border, so a split span probably has to keep
+the plain delimiters.
+
 ### tmux + ClaudeBox review sessions
 A persistent sandboxed Claude per review, to push an item into and resume
 later.
@@ -208,11 +248,11 @@ at all.
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`
   until the lazy fetch lands.
-- **A folded `<details>` block is a sibling, not a child.** `Node.depth` draws
-  it inset and it starts closed, which is all the case needs, but folding the
-  comment above it does not fold the block with it - they are separate entries
-  in a flat list. Prose that follows a block comes back under a `…` header for
-  the same reason.
+- **Nesting is depth, not structure.** `Node.depth` draws a block inset and
+  `rows` hides the run of deeper nodes under a closed one, which is enough to
+  behave like a tree when reading. It is not one: nothing can be moved or
+  counted as a subtree, and a body whose depth would exceed `MAX_DEPTH` is left
+  as raw text rather than nested further.
 
 ## Unverified — needs a real terminal
 

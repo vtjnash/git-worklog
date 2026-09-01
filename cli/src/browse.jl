@@ -1032,8 +1032,11 @@ The block becomes a sibling drawn inset and starting closed, rather than a child
 - which is what a five-hundred-line generated table wants to be, and avoids
 turning the flat node list into a tree for the one case that needs one.
 
-Prose that follows a block belongs to the parent, not to the block, so it comes
-back at the parent's depth under a header that says so.
+Every piece of one body sits one level under that body's node, blocks and the
+prose between them alike, so the whole comment folds as a unit. Putting the
+trailing prose back at the parent's depth reads correctly but folds wrongly:
+closing the comment left its own tail on screen as a stray `…`, and the block
+after that tail hung off the tail rather than off the comment.
 """
 function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int = 0)
     segs = depth >= MAX_DEPTH ? [(:text, "", String(body))] : split_details(body)
@@ -1044,7 +1047,7 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
     for (k, (kind, summary, content)) in enumerate(segs)
         (k == 1 && kind === :text) && continue
         kind === :details ? body_nodes!(ns, summary, content, url, false, depth + 1) :
-                            body_nodes!(ns, "…", content, url, true, depth)
+                            body_nodes!(ns, "…", content, url, true, depth + 1)
     end
     ns
 end

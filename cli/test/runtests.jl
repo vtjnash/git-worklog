@@ -60,9 +60,14 @@ end
 
     ns = W.body_nodes("alice", "before\n\n<details><summary>Impacted</summary>\nrows\n</details>\n\nafter",
                       "http://x", true)
+    # Every piece of one body sits under that body's node, blocks and the prose
+    # between them alike, so the comment folds as a unit.
     @test [(n.depth, n.open, n.header) for n in ns] ==
-          [(0, true, "alice"), (1, false, "Impacted"), (0, true, "…")]
+          [(0, true, "alice"), (1, false, "Impacted"), (1, true, "…")]
     @test ns[1].raw == "before" && ns[3].raw == "after"
+    ns[1].open = false
+    @test length(W.rows(ns, 80)) == 1          # closing it leaves one row
+    ns[1].open = true
     # A folded block costs one row until it is opened: three headers plus one
     # body row each for the prose either side of it.
     @test length(W.rows(ns, 80)) == 5
