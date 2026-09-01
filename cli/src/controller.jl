@@ -64,7 +64,20 @@ function run!(ctrl::Controller, root::View)
     ctrl.running = true
     ctrl.reader = @async while ctrl.running
         try
-            put!(ctrl.events, KeyEvent(REPL.TerminalMenus.readkey(stdin)))
+            k = REPL.TerminalMenus.readkey(stdin)
+            if k == 27 && bytesavailable(stdin) > 0
+                # A bare 27 is Escape; 27 followed immediately by more bytes is
+                # the head of a sequence readkey did not decode - Shift-Tab
+                # (CSI Z) among them. Left undrained, its tail arrives as
+                # separate keys and the 27 itself read as quit, so Shift-Tab
+                # closed the browser.
+                while bytesavailable(stdin) > 0
+                    c = read(stdin, UInt8)
+                    (c >= 0x40 && c <= 0x7e && c != UInt8('[')) && break   # final byte
+                end
+                k = -1                                   # unbound; ignored
+            end
+            put!(ctrl.events, KeyEvent(k))
         catch
             break
         end

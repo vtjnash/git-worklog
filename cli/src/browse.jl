@@ -187,15 +187,17 @@ function fit1(s::AbstractString, w::Int)
     String(take!(out)) * "…"
 end
 
+const AB, AD, AR = "\e[1m", "\e[2m", "\e[0m"
+
 function diffline(l)
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
-    startswith(l, "@@") && return "{cyan}" * esc(l) * "{/cyan}"
+    startswith(l, "@@") && return "\e[36m" * l * AR
     (startswith(l, "+++") || startswith(l, "---") || startswith(l, "index ")) &&
-        return "{dim}" * esc(l) * "{/dim}"
-    startswith(l, "+") && return "{green}" * esc(l) * "{/green}"
-    startswith(l, "-") && return "{red}" * esc(l) * "{/red}"
-    esc(l)
+        return AD * l * AR
+    startswith(l, "+") && return "\e[32m" * l * AR
+    startswith(l, "-") && return "\e[31m" * l * AR
+    String(l)
 end
 
 """
@@ -279,8 +281,13 @@ function nodelines(n::Node, w::Int)
                 # bake in escape codes that Panel then counts toward the line
                 # width, wrapping content that already fits and overflowing the
                 # pane height into "... content omitted ...".
-                string(Term.TermMarkdown.parse_md(
-                    Markdown.parse(body); width = max(20, w - 2)))
+                # Term to ANSI, then undo its brace doubling: parse_md escapes
+                # `{` as `{{` and nothing downstream collapses it, so Julia type
+                # signatures reach the screen as `Tuple{{Type{{S{{N, Tup}}}`.
+                # Safe here because apply_style has already consumed the markup.
+                a = apply_style(string(Term.TermMarkdown.parse_md(
+                        Markdown.parse(body); width = max(20, w))))
+                replace(a, "{{" => "{", "}}" => "}")
             catch e
                 # A bad comment must not take the pane down, but the reason has
                 # to be visible: swallowing it hid that markdown was not
@@ -293,12 +300,17 @@ function nodelines(n::Node, w::Int)
     else
         esc(n.raw)
     end
-    lines = isempty(txt) ? String[] : split(txt, "\n")
+    # Wrap here rather than trusting Term, which emitted 232 display columns for
+    # a requested width of 90 on any line holding inline code.
+    lines = String[]
+    for l in (isempty(txt) ? String[] : split(txt, "\n"))
+        append!(lines, awidth(l) <= w ? [String(l)] : awrap(String(l), w))
+    end
     if n.kind === :md && !isempty(n.urls)
         push!(lines, "")
         for (i, u) in enumerate(n.urls)
-            push!(lines, string("{dim}[", i, "]{/dim} {blue}",
-                                esc(shortlink(u, max(20, w - 8))), "{/blue}"))
+            push!(lines, string(AD, "[", i, "]", AR, " \e[34m",
+                                shortlink(u, max(20, w - 8)), AR))
         end
     end
     n.cache = lines
@@ -310,8 +322,7 @@ end
 function rows(nodes::Vector{Node}, w::Int)
     out = Tuple{Int,Bool,String}[]
     for (i, n) in enumerate(nodes)
-        push!(out, (i, true, string("{bold}",
-                    esc(fit1(string(n.open ? "▾ " : "▸ ", n.header), w)), "{/bold}")))
+        push!(out, (i, true, string(AB, afit(string(n.open ? "▾ " : "▸ ", n.header), w), AR)))
         n.open || continue
         for l in nodelines(n, w)
             push!(out, (i, false, l))
@@ -333,6 +344,31 @@ function window(rs, cur, top, h)
 end
 
 """
+    pane(lines, w, h, title, focused) -> Vector{String}
+
+Draw one bordered pane, every row exactly `w` display columns.
+
+Done by hand rather than with Term.Panel, which measures markup instead of what
+prints: escaped braces and embedded ANSI both inflated its width accounting, so
+content that fit was wrapped and the pane then elided its own tail.
+"""
+function pane(lines::Vector{String}, w::Int, h::Int, title::AbstractString, focused::Bool)
+    bw = focused ? "\e[1m" : "\e[2m"
+    R = "\e[0m"
+    inner = w - 4
+    t = afit(String(title), max(0, inner - 4))
+    # "╭─ " + title + " " + bar + "╮" must total w, so the filler is w-5-|title|.
+    bar = "─"^max(0, w - 5 - awidth(t))
+    out = [string(bw, "╭─ ", R, focused ? "\e[1m" : "\e[2m", t, R, bw, " ", bar, "╮", R)]
+    for i in 1:(h - 2)
+        c = i <= length(lines) ? lines[i] : ""
+        push!(out, string(bw, "│", R, " ", apad(afit(c, inner), inner), " ", bw, "│", R))
+    end
+    push!(out, string(bw, "╰", "─"^(w - 2), "╯", R))
+    out
+end
+
+"""
     render(st, w, h) -> String
 
 Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
@@ -346,7 +382,7 @@ function render_frame(st::BState, w::Int, h::Int)
     lh = side ? bodyh : max(5, bodyh ÷ 3)
     rh = side ? bodyh : bodyh - lh
 
-    inner(width) = width - 6      # Term.Panel: 2 border + 4 padding, measured
+    inner(width) = width - 4      # our box: 1 border + 1 pad, each side
     st.sel = clamp(st.sel, 1, max(1, length(st.items)))
     if st.lmode === :filters
         frows = filter_rows(st)
@@ -354,9 +390,8 @@ function render_frame(st::BState, w::Int, h::Int)
         lrows = Tuple{Int,Bool,String}[]
         for (j, (axis, _, text)) in enumerate(frows)
             on = j == st.frow && st.focus === :list && axis !== :head
-            push!(lrows, (j, true, string(axis === :head ? "{bold}" : on ? "{bold white}" : "{dim}",
-                                          esc(fit1(text, inner(lw))),
-                                          axis === :head ? "{/bold}" : on ? "{/bold white}" : "{/dim}")))
+            push!(lrows, (j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
+                                          afit(text, inner(lw)), AR)))
         end
         lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
         ltitle = "filters"
@@ -365,10 +400,9 @@ function render_frame(st::BState, w::Int, h::Int)
     for i in 1:length(st.items)
         it_ = st.items[i]
         on = i == st.sel && st.focus === :list
-        txt = fit1(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title),
+        txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title),
                    inner(lw))
-        push!(lrows, (i, true, string(on ? "{bold white}" : "{dim}", esc(txt),
-                                      on ? "{/bold white}" : "{/dim}")))
+        push!(lrows, (i, true, string(on ? "\e[1;37m" : AD, txt, AR)))
     end
     lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
     ltitle = string(st.title, " ", st.sel, "/", length(st.items))
@@ -380,7 +414,7 @@ function render_frame(st::BState, w::Int, h::Int)
         # Mark the cursor row so it is visible while paging through a body,
         # not only when it lands on a header.
         (ni, hdr, txt) = rrows[st.nrow]
-        rrows[st.nrow] = (ni, hdr, string("{on_gray23}", txt, "{/on_gray23}"))
+        rrows[st.nrow] = (ni, hdr, string("\e[48;5;236m", txt, AR))
     end
     rvis, st.ntop = window(rrows, st.nrow, st.ntop, rh - 2)
 
@@ -392,21 +426,8 @@ function render_frame(st::BState, w::Int, h::Int)
                     total > 0 ? string("  ", st.ntop, "-",
                                        min(total, st.ntop + rh - 3), "/", total) : "")
 
-    # Term measures markup, and escaped braces plus styling make a line's markup
-    # longer than what it prints, so the exact number of content lines that fit
-    # is not predictable from the text. Shrink until Term stops eliding.
-    function panel(lines, width, height, title, style)
-        for n in length(lines):-1:1
-            p = Panel(join(lines[1:n], "\n"); width = width, height = height,
-                      title = title, style = style, title_style = "bold")
-            occursin("omitted", string(p)) || return p
-        end
-        Panel(""; width = width, height = height, title = title, style = style,
-              title_style = "bold")
-    end
-
-    left = panel(lvis, lw, lh, ltitle, st.focus === :list ? "bold" : "dim")
-    right = panel(rvis, rw, rh, rtitle, st.focus === :detail ? "bold blue" : "dim")
+    left = pane(lvis, lw, lh, ltitle, st.focus === :list)
+    right = pane(rvis, rw, rh, rtitle, st.focus === :detail)
 
     links = Pair{String,String}[]
     for n in st.nodes, u in n.urls
@@ -416,9 +437,10 @@ function render_frame(st::BState, w::Int, h::Int)
     keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
-    foot = "{dim}" * esc(rpad(fit1(ftxt, w), w)) * "{/dim}"
-    frame = string(side ? string(left * right) : string(left / right),
-                   "\n", apply_style(foot))
+    foot = string(AD, afit(ftxt, w), AR)
+    body = side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
+                  vcat(left, right)
+    frame = join(vcat(body, [apad(foot, w)]), "\n")
     linkify(frame, links)
 end
 
@@ -470,13 +492,22 @@ function comment_nodes(it::Item)
         at = first(String(c["created_at"]), 16)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
         peek = strip(first(replace(txt, r"\s+" => " "), 58))
-        push!(ns, Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, false))
+        push!(ns, Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, true))
     end
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
 end
 
-"One node per file, so a 600-line diff opens as a list of filenames."
+"""One node per hunk, not per file.
+
+A file-sized node makes n/N step over whole files, which is the wrong grain for
+reading a change: hunks are the units you actually move between. The file name
+stays in each hunk's header so the context is never lost.
+"""
 function diff_nodes(it::Item)
+    # Issues have no diff, and asking gh for one fails with a GraphQL error
+    # rather than an empty result. The assigned lane is full of them.
+    it.is_pr || return [Node("no diff - this is an issue, not a pull request",
+                             "", :plain, true)]
     txt = try
         key = string("diff:", it.repo, "#", it.number)
         hit = cache_get(key, DETAIL_TTL[])
@@ -487,19 +518,23 @@ function diff_nodes(it::Item)
         return [Node("no diff (not a PR, or gh failed)",
                      first(sprint(showerror, e), 200), :plain, true)]
     end
-    ns, buf, name = Node[], String[], ""
-    flush!() = if !isempty(name)
-        body = join(buf, "\n")
+    ns, file, buf, hdr = Node[], "", String[], ""
+    flush!() = if !isempty(hdr)
         adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
         dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
-        push!(ns, Node(string(name, "  +", adds, " -", dels), body, :diff, false))
+        push!(ns, Node(string(file, "  ", hdr, "  +", adds, " -", dels),
+                       join(buf, "\n"), :diff, true))
     end
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
+            flush!(); hdr = ""; buf = String[]
+            file = replace(String(last(split(l, " "))), r"^b/" => "")
+        elseif startswith(l, "@@")
             flush!()
-            name = replace(String(last(split(l, " "))), r"^b/" => "")
+            hdr = String(first(split(String(l), "@@"; limit = 3)[2], 40))
+            hdr = "@@" * hdr * "@@"
             buf = String[]
-        elseif !isempty(name)
+        elseif !isempty(hdr)
             push!(buf, String(l))
         end
     end
@@ -507,13 +542,6 @@ function diff_nodes(it::Item)
     isempty(ns) ? [Node("empty diff", "", :plain, true)] : ns
 end
 
-"""Start fetching the current item's detail, without waiting for it.
-
-Both sources are slow enough to be felt - a thread is several REST calls and a
-diff shells out to `gh` - so doing them inline froze the whole UI on every
-cursor move. `@async` rather than a thread: the subprocess and HTTP reads both
-yield, and keeping it on one thread means the state below needs no locking.
-"""
 function load_nodes!(st::BState)
     isempty(st.items) && return
     it = st.items[st.sel]
@@ -608,8 +636,8 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     load_nodes!(st)
     iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
     page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
-    if k in (Int('q'), 27)
-        return :quit
+    if k == Int('q')
+        return :quit          # Escape no longer quits: it heads key sequences
     elseif k == Int('\t')
         st.focus = st.focus === :list ? :detail : :list
     elseif k == Int('f')

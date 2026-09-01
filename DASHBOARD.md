@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-01 17:24 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 17:37 UTC · 2050 items · 12 rate-limit points_
 
-## Unread (760)
+## Unread (761)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -85,7 +85,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>6 comments · 28d</sub>
 - [julia#62331](https://github.com/JuliaLang/julia/pull/62331) runtime: make forbidden-context task-switch errors deterministic  
   <sub>no comments · closed · 28d</sub>
-- _...and 720 more_
+- _...and 721 more_
 
 ## Needs a reply (9)
 _You were mentioned and the last word is theirs._
@@ -309,12 +309,12 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [llvm-project#197540](https://github.com/llvm/llvm-project/pull/197540) [clang] model WASM alloca addrspaces in Sema <sub>82d</sub>
 - [llvm-project#181716](https://github.com/llvm/llvm-project/pull/181716) [RFC][Attributor] change argument privatization to size-based type selection <sub>82d</sub>
 - [llvm-project#181256](https://github.com/llvm/llvm-project/pull/181256) [clang] put indirect parameters in the target-requested AS, if appplicable <sub>83d</sub>
-- [Strs.jl#127](https://github.com/JuliaString/Strs.jl/pull/127) Remove unused MurmurHash3 dependency <sub>116d</sub>
+- [Strs.jl#127](https://github.com/JuliaString/Strs.jl/pull/127) Remove unused MurmurHash3 dependency <sub>117d</sub>
 - [julia#60986](https://github.com/JuliaLang/julia/pull/60986) pipe: allow half-duplex operation <sub>118d</sub>
 - [llvm-project#182546](https://github.com/llvm/llvm-project/pull/182546) [UTC] Add utility script to deal with conflicting RUN lines <sub>144d</sub>
 - [libuv#3857](https://github.com/libuv/libuv/pull/3857) RFC: win,dl: remove cwd from dlopen search path <sub>166d</sub>
 - [libuv#2941](https://github.com/libuv/libuv/pull/2941) [WIP] qemu CI testing <sub>166d</sub>
-- [llvm-project#186835](https://github.com/llvm/llvm-project/pull/186835) [IRBuilder] add a general CreateLayoutReinterpretCast cast builder <sub>168d</sub>
+- [llvm-project#186835](https://github.com/llvm/llvm-project/pull/186835) [IRBuilder] add a general CreateLayoutReinterpretCast cast builder <sub>169d</sub>
 - [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>169d</sub>
 - [llvm-project#183623](https://github.com/llvm/llvm-project/pull/183623) [SSP] Add llvm.ssp.protected intrinsic for QualType-based stack protection <sub>182d</sub>
 - [llvm-cbe#234](https://github.com/JuliaHubOSS/llvm-cbe/pull/234) add clang frontend support for more reliable ABI generation <sub>190d</sub>

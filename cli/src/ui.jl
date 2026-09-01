@@ -27,7 +27,7 @@ struct Item
     url::String; ref::String; repo::String; number::Int; title::String
     bucket::String; track::String; note::String; agent::String
     backlog::Bool; ci::String; unresolved::Int; mergeable::String
-    age::Int; new::Bool; moved::Bool; snoozed::Bool
+    age::Int; new::Bool; moved::Bool; snoozed::Bool; is_pr::Bool
 end
 
 nz(x, d = "") = x === nothing || x === missing ? d : x
@@ -49,7 +49,8 @@ function loaditems()
             nz(jget(r, :ci), ""), nz(jget(r, :unresolved), 0),
             nz(jget(r, :mergeable), ""),
             age, nz(jget(r, :new), false), nz(jget(r, :moved), false),
-            nz(jget(r, :snoozed), false)))
+            nz(jget(r, :snoozed), false),
+            nz(jget(r, :type), "PullRequest") == "PullRequest"))
     end
     out
 end
@@ -92,7 +93,7 @@ function ui(args = String[])
     # Unread threads that are not otherwise tracked still need a row to select.
     extra = [Item(String(u["url"]), string(split(String(u["repo"]), '/')[end], '#', u["number"]),
                   String(u["repo"]), u["number"], String(u["title"]), "unread", "normal",
-                  "", "", true, "", 0, "", 0, false, false, false)
+                  "", "", true, "", 0, "", 0, false, false, false, true)
              for u in unread if !haskey(idx, String(u["url"]))]
     urls = Set{String}(String(u["url"]) for u in unread)
     # Straight into the browser: what the lane menu used to choose is now a tag.
