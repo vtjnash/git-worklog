@@ -9,15 +9,18 @@ A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2000
 items (own PRs, review requests, assigned issues, plus mention/comment history
 and every open JuliaLang/julia PR as a background pile), tracks which threads
 are unread so per-event email notification can stay off, and browses them in a
-two-pane terminal UI.
+terminal UI of three panes - the item list, its metadata, and the thread or
+diff.
 
 ### Where and how to run it
-Everything lives in `/root/.claude/worklog`, a git repo with no remote yet.
-That path is a real host bind-mount and persists; `/home/vtjnash` outside the
-Julia checkout is a throwaway overlay.
+The checkout is wherever the sandbox mounted it - it has been at
+`/root/.claude/worklog` and at `.../claude_home/git-worklog`, so take the path
+from `git rev-parse --show-toplevel` rather than from here. It persists; the
+rest of the home directory is a throwaway overlay. `origin` is
+`vtjnash/git-worklog` (see Infrastructure - pushing has never been tried).
 
 ```bash
-cd /root/.claude/worklog
+cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/refresh              # fetch, bucket, write DASHBOARD.md  (~30s)
 ./cli/bin/refresh --firehose   # force the 6-hourly bulk lanes too  (~6min)
 ./cli/bin/wl                   # the browser (needs a TTY)
@@ -36,7 +39,7 @@ linked against a newer glibc.
 | `cli/src/events.jl` | unread tracking and live thread fetch (submodule `Events`) |
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, render |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
-| `cli/src/controller.jl` | the view controller that owns stdin; `PromptView` |
+| `cli/src/controller.jl` | the view controller that owns stdin; input decoding; `PromptView`, `EditorView`, `ChooseView` |
 | `cli/src/browse.jl` | the two-pane browser: filters, panes, folding, diffs, checks |
 | `cli/src/ansi.jl` | escape-aware width, truncate, wrap |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
@@ -110,6 +113,10 @@ Do not "simplify" any of these away.
     the unwrapped form — but that render cannot be displayed, because a code
     block or table is a box and Term pads the box to the full width. `nodelines`
     renders both and aligns them; that is what makes a copy paste as paragraphs.
+    The wide line is only ever the better source when it *joined* several narrow
+    ones. Matched one-to-one they are the same content, and taking the wide one
+    hands a copy the box's padding - 1992 columns of spaces with a border on the
+    end, for the gdb log on Distributed.jl#196.
 
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
 11. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
@@ -129,26 +136,13 @@ get interpreted by the shell and silently mangle the message.
 Outstanding work, roughly in the order it is worth doing. Things already
 shipped are not listed; `git log` is the record of those.
 
-## Requested features, not started
+## Outstanding work
 
-### Review from inside the browser
+### What review writing still cannot do
 
-Written, and none of it exercised. The sandbox's App token reads, so every call
-below fails with a 403 here by design - the code names that case rather than
-passing GitHub's "Resource not accessible by integration" through, which reads
-like a malformed request. It needs a PAT with `issues: write` and
-`pull_requests: write`; see Infrastructure.
-
-What is wired:
-
-- `c` writes to whatever the cursor is standing on - a reply if it is on a
-  review comment, that source line if it is inside a hunk, the item itself
-  otherwise. One key, because the answer is never ambiguous.
-- `A` picks a verdict and then opens the composer. An approval may be empty; the
-  other two may not, which is GitHub's rule and not ours.
-- `L` toggles one label, chosen from a list that narrows as you type.
-
-What is left:
+`c`, `A` and `L` are wired but unexercised - see Unverified below, and
+Infrastructure for the PAT they need. What is missing rather than merely
+untested:
 
 - **A comment on a deleted line.** `c` refuses it. The line number is known -
   `hunk_line_at` returns the old-side number and says which side it is - but
@@ -165,6 +159,33 @@ What is left:
 - **A reply to an issue comment.** Only review comments carry a thread, so `c`
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
+
+### Jump to the top, middle and bottom of the pane
+vim's `H`/`M`/`L` - high, middle, low - move the cursor to the top, middle and
+bottom of what is *visible*, which is a different move from `g`/`G`, and the one
+worth having when the window is the unit you are thinking in.
+
+Everything needed is already computed. The visible range is `st.top` for the
+list and `st.ntop` for the detail, both settled by `render`, and the pane
+heights come from `layout(w, h, st.nmeta)` - the same pair the mouse uses to turn
+a screen row into an index, so this is a handful of lines in each of the two
+focus branches of `handle!`. Detail-pane rows are offset by `st.hdr`.
+
+The question is which keys, because the obvious ones are taken:
+
+| key | today |
+|---|---|
+| `h` | free |
+| `m` | mouse reporting on/off |
+| `l` | fetch a Buildkite job's log |
+| `H` | free |
+| `M` | free |
+| `L` | toggle a label |
+
+So lowercase costs two rebindings and uppercase costs one, and `L` is the fresh
+binding of the three - it could move to `,` or to a labels entry in a future
+metadata-pane control. Uppercase also matches vim exactly, which is the reason
+for wanting them.
 
 ### The filter pane is 180× slower than the list
 Measured on the current snapshot: a frame with the filter pane open takes
@@ -215,12 +236,6 @@ fenced block as plain indented text, clipped at the pane width with the overflow
 reachable some other way; or keep the panel and truncate its contents to fit,
 which loses the ends of exactly the lines somebody pasted a log to show; or let
 a code node scroll horizontally, which nothing else in the pane does.
-
-Related and already fixed: the *copy* of such a block used to hand back the wide
-render's padded line - nineteen hundred columns of spaces with a border on the
-end - because a box normalises to the same text at both widths and matched
-one-to-one. `unwrap_map` now keeps the narrow line whenever a match consumed
-only one.
 
 ### Marking a thread unread again
 `r` marks a thread read and there is no way back. The only inverse today is
@@ -292,9 +307,9 @@ at all.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does
-  nothing, `Tab` still cycles only the list and the detail, and there is no way
-  to act on what it shows — no key to add a label, assign a reviewer or open a
-  check from there. The review-from-the-browser work above is where that goes.
+  nothing and `Tab` cycles only the list and the detail, so nothing in it can be
+  acted on where it is shown: `L` toggles a label from anywhere, but there is no
+  way to assign a reviewer, or to open the check your eye is actually on.
 - **Per-check counts come from the same cache the `C` pane uses.** So the
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`
@@ -359,9 +374,14 @@ so they are not mistaken for bugs later:
 
 ## Infrastructure
 
-- **Push to a private repo.** Needs a fine-grained PAT scoped to
-  `vtjnash/worklog` with `Contents: read/write`; the sandbox's GitHub App token
-  is read-only for contents everywhere. Until then everything is local.
+- **A PAT, for two separate things.** `origin` is now
+  `vtjnash/git-worklog` and is readable, but its `master` is still at the last
+  commit made before any of this - pushing has never been attempted, and the
+  sandbox's App token is read-only for contents everywhere, so it is expected to
+  fail. That needs `Contents: read/write`. Writing a review needs a *different*
+  pair of permissions on the repositories being reviewed - `issues: write` and
+  `pull_requests: write` - which the same fine-grained PAT can carry but which
+  are not implied by the first.
 - **Notifications lane.** Decided against: `mentions:` and `commenter:` cover
   the gap through ordinary search, leaving only team mentions
   (`@JuliaLang/compiler`) genuinely unreachable. Revisit only if those matter
