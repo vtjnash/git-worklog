@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-01 15:36 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 16:15 UTC · 2050 items · 12 rate-limit points_
 
-## Unread (762)
+## Unread (759)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -16,7 +16,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
 - [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
   <sub>no comments · **needs-edits** · 11d</sub>
 - [julia#45486](https://github.com/JuliaLang/julia/issues/45486) Support arbitrary bitwidth integers  
-  <sub>27 comments · **needs-reply** · 10d</sub>
+  <sub>27 comments · **needs-reply** · 11d</sub>
 - [julia#62850](https://github.com/JuliaLang/julia/pull/62850) gf: resolve unordered pairs that an empty-set cover wins for reported ambiguities  
   <sub>no comments · **draft** · 10d</sub>
 - [julia#35081](https://github.com/JuliaLang/julia/pull/35081) Sockets: reconsider how to define `bind` failure  
@@ -36,7 +36,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
 - [julia#62904](https://github.com/JuliaLang/julia/pull/62904) codegen: redesign aliasinfo again  
   <sub>1 comments · **draft** · 3d</sub>
 - [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
-  <sub>4 comments · **needs-review** · 2d</sub>
+  <sub>4 comments · **needs-review** · 3d</sub>
 - [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
   <sub>1 comments · **needs-review** · 1d</sub>
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
@@ -67,12 +67,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
   <sub>4 comments · **needs-reply** · today</sub>
-- [julia#53705](https://github.com/JuliaLang/julia/issues/53705) `@inbounds` / proving inbounds inhibits loop vectorization  
-  <sub>1 comments · closed · 29d</sub>
-- [julia#44410](https://github.com/JuliaLang/julia/issues/44410) Unexpected behavior due to implicit `convert` with `Char` and `Integer`  
-  <sub>12 comments · 29d</sub>
-- [julia#35279](https://github.com/JuliaLang/julia/pull/35279) Use trait `RangeStepStyle` for `findfirst(isequal, ...)`, and adjust it for `StepRange{Char,Int}`  
-  <sub>11 comments · 29d</sub>
 - [julia#43989](https://github.com/JuliaLang/julia/pull/43989) optimize `in(::Char, ::String)`  
   <sub>6 comments · closed · 29d</sub>
 - [julia#43980](https://github.com/JuliaLang/julia/issues/43980) char in string is slow for short strings  
@@ -85,7 +79,13 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · closed · 29d</sub>
 - [julia#62606](https://github.com/JuliaLang/julia/pull/62606) RFC: introduce `Base.tracemark()` and `rethrow(; drop_{above,below})` to prune stacktraces exactly.  
   <sub>no comments · 29d</sub>
-- _...and 722 more_
+- [julia#62610](https://github.com/JuliaLang/julia/pull/62610) Expose the ABI used by CodeInstances  
+  <sub>no comments · 29d</sub>
+- [julia#62395](https://github.com/JuliaLang/julia/pull/62395) Replace libunwind with framehop based library  
+  <sub>6 comments · 28d</sub>
+- [julia#62331](https://github.com/JuliaLang/julia/pull/62331) runtime: make forbidden-context task-switch errors deterministic  
+  <sub>no comments · closed · 28d</sub>
+- _...and 719 more_
 
 ## Needs a reply (9)
 _You were mentioned and the last word is theirs._
@@ -105,7 +105,7 @@ _You were mentioned and the last word is theirs._
 - [llvm-project#151062](https://github.com/llvm/llvm-project/pull/151062) [IRCE] Check loop clone legality before attempting to do so  
   <sub>10d</sub>
 - [julia#45486](https://github.com/JuliaLang/julia/issues/45486) Support arbitrary bitwidth integers  
-  <sub>10d</sub>
+  <sub>11d</sub>
 - [julia#61949](https://github.com/JuliaLang/julia/issues/61949) jl_jit_abi_converter now segfaults without codegen  
   <sub>14d</sub>
 
@@ -137,7 +137,7 @@ _Conflicts; rebase or restack with `gh stack`._
 - [julia#62452](https://github.com/JuliaLang/julia/pull/62452) IR: reformulate global reads via inference to binding partition  
   <sub>CI failure · conflicts · 41d</sub>
 - [ClaudeBox.jl#31](https://github.com/Keno/ClaudeBox.jl/pull/31) Prefer host git identity over GitHub for sandbox gitconfig  
-  <sub>conflicts · 48d</sub>
+  <sub>conflicts · 49d</sub>
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
   <sub>conflicts · 49d</sub>
 - [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
@@ -155,7 +155,7 @@ _Waiting on you to review someone else._
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
   <sub>1d</sub>
 - [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
-  <sub>CI failure · 2d</sub>
+  <sub>CI failure · 3d</sub>
 - [julia#62905](https://github.com/JuliaLang/julia/pull/62905) codegen: Preserve alias metadata on small copies  
   <sub>4d</sub>
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
@@ -173,7 +173,7 @@ _Waiting on you to review someone else._
 - [julia#56475](https://github.com/JuliaLang/julia/pull/56475) Split scheduler interface from the Partr implementation  
   <sub>CI failure · conflicts · 46d</sub>
 - [julia#44822](https://github.com/JuliaLang/julia/pull/44822) effects: define `Core.Compiler.infer_effects`  
-  <sub>1 unresolved · conflicts · 53d</sub>
+  <sub>1 unresolved · conflicts · 54d</sub>
 - [julia#62070](https://github.com/JuliaLang/julia/pull/62070) remove zero length memory boundscheck for memoryrefget/set  
   <sub>CI failure · conflicts · 81d</sub>
 - [julia#51908](https://github.com/JuliaLang/julia/pull/51908) seekend: Add a second argument for the number of bytes relative to the end  
@@ -217,7 +217,7 @@ _Waiting on you to review someone else._
 - [libuv#34](https://github.com/JuliaLang/libuv/pull/34) Use a more clever formula for available_mem  
   <sub>2 unresolved · 985d</sub>
 - [julia#50967](https://github.com/JuliaLang/julia/pull/50967) make ConsoleLogger respect active repl iocontext  
-  <sub>conflicts · 1064d</sub>
+  <sub>conflicts · 1065d</sub>
 - [julia#49460](https://github.com/JuliaLang/julia/pull/49460) Add a gc-safe sleeping mutex  
   <sub>1117d</sub>
 - [JLLWrappers.jl#55](https://github.com/JuliaPackaging/JLLWrappers.jl/pull/55) Define new `at-generate_jll_init` macro to replace hardcoded `__init__`  
@@ -280,7 +280,7 @@ _Yours, not yet proposed._
 - [julia#41538](https://github.com/JuliaLang/julia/issues/41538) Function attributes for `jl.get_pgcstack`  
   <sub>track:loose · 1876d</sub>
 - [julia#6661](https://github.com/JuliaLang/julia/issues/6661) introduce va_list  
-  <sub>track:loose · 2512d</sub>
+  <sub>track:loose · 2513d</sub>
 - [julia#18004](https://github.com/JuliaLang/julia/issues/18004) show(io, x) vs show(io, "text/plain", x) -- docs?  
   <sub>track:loose · 3090d</sub>
 - [julia#26107](https://github.com/JuliaLang/julia/issues/26107) windows libuv req bug  
@@ -315,9 +315,9 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [libuv#3857](https://github.com/libuv/libuv/pull/3857) RFC: win,dl: remove cwd from dlopen search path <sub>166d</sub>
 - [libuv#2941](https://github.com/libuv/libuv/pull/2941) [WIP] qemu CI testing <sub>166d</sub>
 - [llvm-project#186835](https://github.com/llvm/llvm-project/pull/186835) [IRBuilder] add a general CreateLayoutReinterpretCast cast builder <sub>168d</sub>
-- [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>168d</sub>
+- [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>169d</sub>
 - [llvm-project#183623](https://github.com/llvm/llvm-project/pull/183623) [SSP] Add llvm.ssp.protected intrinsic for QualType-based stack protection <sub>182d</sub>
-- [llvm-cbe#234](https://github.com/JuliaHubOSS/llvm-cbe/pull/234) add clang frontend support for more reliable ABI generation <sub>189d</sub>
+- [llvm-cbe#234](https://github.com/JuliaHubOSS/llvm-cbe/pull/234) add clang frontend support for more reliable ABI generation <sub>190d</sub>
 - [llvm-project#181845](https://github.com/llvm/llvm-project/pull/181845) [OMPIRBuilder] Replace getAllocatedType with careful tracking <sub>192d</sub>
 - [Game2048Core.jl#2](https://github.com/xiaodaigh/Game2048Core.jl/pull/2) Document all of these constants <sub>199d</sub>
 - [StrRegex.jl#10](https://github.com/JuliaString/StrRegex.jl/pull/10) Remove unused MurmurHash3 dependency <sub>199d</sub>

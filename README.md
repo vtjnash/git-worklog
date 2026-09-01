@@ -136,6 +136,19 @@ Pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`
 - the sandbox's GitHub App token is read-only for contents everywhere, including
 repos you own.
 
+## Authentication
+
+The GraphQL lanes shell out to `gh`, so they use whatever credential `gh` has.
+The REST lanes go through GitHub.jl, which needs the token itself; `token()`
+looks in `/run/claudebox-github/token` (the sandbox host refreshes it, so it
+beats a possibly-stale environment), then `$GH_TOKEN` / `$GITHUB_TOKEN`, then
+`gh auth token`.
+
+That last one is what makes this work off the sandbox: there `gh` keeps its
+credential in its own config or the system keyring and exports nothing, so
+`gh auth status` succeeds while `$GH_TOKEN` is empty. A missing token now fails
+once with a message naming every place it looked, rather than once per repo.
+
 ## Use
 
 ```bash

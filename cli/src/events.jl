@@ -29,16 +29,45 @@ Base.showerror(io::IO, e::ApiError) = print(io, e.msg)
 
 const _AUTH = Ref{Any}(nothing)
 
-"""The sandbox host keeps `/run/claudebox-github/token` refreshed, so prefer the
-file over the environment, which can be a stale copy of an expired token."""
+"Overridable so the source order can be tested without a real sandbox."
+const TOKEN_FILE = Ref("/run/claudebox-github/token")
+
+"""
+    token() -> (token, source)
+
+Find a GitHub token, in order of decreasing authority.
+
+The sandbox host keeps `TOKEN_FILE` refreshed, so it beats the environment,
+which can hold a stale copy of an expired token. `gh auth token` comes last but
+matters most off the sandbox: there `gh` keeps its credential in its own config
+or the system keyring and exports nothing, so `gh auth status` succeeds while
+`GH_TOKEN` is unset - which looked like a broken tool rather than a missing
+lookup.
+"""
+function token()
+    f = TOKEN_FILE[]
+    if isfile(f)
+        t = strip(read(f, String))
+        isempty(t) || return (String(t), f)
+    end
+    for v in ("GH_TOKEN", "GITHUB_TOKEN")
+        t = strip(get(ENV, v, ""))
+        isempty(t) || return (String(t), "\$$v")
+    end
+    t = try
+        strip(read(`gh auth token`, String))
+    catch
+        ""
+    end
+    isempty(t) || return (String(t), "gh auth token")
+    throw(ApiError("no GitHub token. Tried $f, \$GH_TOKEN, \$GITHUB_TOKEN and " *
+                   "`gh auth token`. Run `gh auth login`, or set GH_TOKEN."))
+end
+
 function auth()
     _AUTH[] === nothing || return _AUTH[]
-    tok = ""
-    f = "/run/claudebox-github/token"
-    isfile(f) && (tok = strip(read(f, String)))
-    isempty(tok) && (tok = strip(get(ENV, "GH_TOKEN", get(ENV, "GITHUB_TOKEN", ""))))
-    isempty(tok) && throw(ApiError("no GitHub token: set GH_TOKEN or run `gh auth login`"))
-    _AUTH[] = GitHub.authenticate(String(tok))
+    tok, _ = token()
+    _AUTH[] = GitHub.authenticate(tok)
 end
 
 "One request, one page. Always returns a vector, as the Python `_get` did."
@@ -123,6 +152,9 @@ function unread(cfg, login; verbose::Bool = true)
     repos = get(cfge, "repos", String[])
     isempty(repos) && return OrderedDict{String,Any}[]
     since = Dates.format(NOW[] - Day(get(cfge, "lookback_days", 30)), "yyyy-mm-ddTHH:MM:SS") * "Z"
+    auth()          # Fail once, loudly. Without a token every repo fails the
+                    # same way and the result degrades into a silently empty
+                    # unread list rather than an error.
     rd = load_read()
     out = OrderedDict{String,Any}[]
     for repo in repos
