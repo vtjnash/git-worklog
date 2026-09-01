@@ -130,7 +130,7 @@ function filter_summary(f)
     join(parts, " · ")
 end
 
-mutable struct BState
+mutable struct BState <: View
     items::Vector{Item}
     title::String
     sel::Int
@@ -154,12 +154,14 @@ mutable struct BState
     repos::Vector{String}
     lmode::Symbol                  # :items | :filters
     frow::Int
+    wake::Any                      # set by the controller; called when a fetch lands
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
     buckets = sort(unique(it.bucket for it in all))
     repos = sort(unique(it.repo for it in all))
     st = BState(Item[], String(title), 1, 1, Node[], 1, 1, :list, :comments, "", "",
-                nothing, "", collect(all), unread, Filters(), buckets, repos, :items, 2)
+                nothing, "", collect(all), unread, Filters(), buckets, repos, :items, 2,
+                nothing)
     refilter!(st)
     st
 end
@@ -336,7 +338,7 @@ end
 Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
 narrow window degrades rather than truncating the detail into uselessness.
 """
-function render(st::BState, w::Int, h::Int)
+function render_frame(st::BState, w::Int, h::Int)
     side = w >= 110
     lw = side ? clamp(w ÷ 3, 34, 52) : w
     rw = side ? w - lw : w
@@ -518,7 +520,14 @@ function load_nodes!(st::BState)
     mode = st.mode
     key = string(it.url, ":", mode)
     (st.loaded == key || st.pendkey == key) && return
-    st.pending = @async (mode === :comments ? comment_nodes(it) : diff_nodes(it))
+    st.pending = @async begin
+        r = try
+            mode === :comments ? comment_nodes(it) : diff_nodes(it)
+        finally
+            st.wake === nothing || st.wake()   # redraw as soon as this lands
+        end
+        r
+    end
     st.pendkey = key
     st.nodes = Node[]
     st.nrow = 1; st.ntop = 1
@@ -570,101 +579,86 @@ function jumpnode(st::BState, dir::Int, w::Int)
     end
 end
 
+render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
+
+"Adopt a finished fetch when the controller wakes us."
+onwake!(st::BState) = collect_pending!(st)
+
 """
-    browse(items, title)
+    browse(items, title, unread)
 
-Full-screen two-pane loop. Returns when the user backs out.
-
-Runs on the alternate screen so the scrollback the user came from is still
-there afterwards, and restores the terminal on any exit path - an exception
-here would otherwise leave the shell in raw mode with no cursor.
+Open the browser under a controller that owns stdin for the whole run.
 """
 function browse(items::Vector{Item}, title::AbstractString, unread = Set{String}())
-    isempty(items) && (println("\n  nothing in ", title, "\n"); return)
-    # Polling bytesavailable never terminates on a non-TTY stdin: it stays 0
-    # forever where readkey used to hit EOF and unwind. Refuse up front.
-    if !(stdin isa Base.TTY)
-        println(stderr, "wl: the browser needs a terminal; stdin is not a TTY")
-        return
-    end
+    isempty(items) && (println("\n  nothing in ", title, "\n"); return 0)
     st = BState(collect(items), String(title), unread)
-    term = REPL.Terminals.TTYTerminal(get(ENV, "TERM", "xterm"), stdin, stdout, stderr)
-    print("\e[?1049h\e[?25l")                     # alt screen, hide cursor
-    REPL.Terminals.raw!(term, true)
-    try
-        dirty = true
-        while true
-            h, w = displaysize(stdout)
-            load_nodes!(st)
-            if dirty
-                print("\e[H", replace(render(st, w, h), "\n" => "\e[K\n"), "\e[J")
-                dirty = false
-            end
-            # Poll rather than block in readkey, so a fetch finishing can redraw.
-            # bytesavailable avoids a reader task, which would otherwise outlive
-            # this loop still holding stdin and steal keys from the lane menu.
-            if bytesavailable(stdin) == 0
-                collect_pending!(st) ? (dirty = true) : sleep(0.02)
-                continue
-            end
-            dirty = true
-            k = REPL.TerminalMenus.readkey(stdin)
-            iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
-            page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
-            if k in (Int('q'), 27)                # q, Esc
-                return
-            elseif k == Int('\t')
-                st.focus = st.focus === :list ? :detail : :list
-            elseif k == Int('f')
-                st.lmode = st.lmode === :filters ? :items : :filters
-                st.focus = :list
-            elseif st.focus === :list && st.lmode === :filters
-                nf = length(filter_rows(st))
-                if k in (Int('j'), 66);      st.frow = min(nf, st.frow + 1)
-                elseif k in (Int('k'), 65);  st.frow = max(1, st.frow - 1)
-                elseif k in (Int(' '), 13, 10); toggle_filter!(st)
-                elseif k == Int('c')                     # clear every tag
-                    st.filters = Filters(); refilter!(st)
-                end
-            elseif st.focus === :list
-                if k in (Int('j'), 66);      st.sel = min(length(st.items), st.sel + 1)
-                elseif k in (Int('k'), 65);  st.sel = max(1, st.sel - 1)
-                elseif k in (Int(' '), 6);   st.sel = min(length(st.items), st.sel + page)
-                elseif k in (Int('b'), 2);   st.sel = max(1, st.sel - page)
-                elseif k == Int('g');        st.sel = 1
-                elseif k == Int('G');        st.sel = length(st.items)
-                elseif k in (13, 10);        st.focus = :detail
-                end
-                isempty(st.items) ||
-                    st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
-            else
-                n = length(rows(st.nodes, iw))
-                if k in (Int('j'), 66);      st.nrow = min(n, st.nrow + 1)
-                elseif k in (Int('k'), 65);  st.nrow = max(1, st.nrow - 1)
-                elseif k in (Int(' '), 6);   st.nrow = min(n, st.nrow + page)
-                elseif k in (Int('b'), 2);   st.nrow = max(1, st.nrow - page)
-                elseif k == Int('g');        st.nrow = 1
-                elseif k == Int('G');        st.nrow = n
-                elseif k == Int('n');        jumpnode(st, 1, iw)
-                elseif k == Int('N');        jumpnode(st, -1, iw)
-                elseif k in (13, 10)
-                    i = curnode(st, iw)
-                    if i > 0
-                        st.nodes[i].open = !st.nodes[i].open
-                        st.nrow = headerrow(st, i, iw)
-                    end
-                end
-            end
-            (st.lmode === :filters || isempty(st.items)) && continue
-            it = st.items[clamp(st.sel, 1, length(st.items))]
-            if k == Int('d');     st.mode = :diff
-            elseif k == Int('o'); st.mode = :comments
-            elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
-            elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"]); st.status = "snoozed"
+    ctrl = Controller()
+    st.wake = () -> wake!(ctrl)
+    run!(ctrl, st)
+end
+
+"""
+    handle!(st, k, ctrl) -> Symbol
+
+One keystroke. Returns `:quit` to leave, `:ok` otherwise; the controller
+redraws after every key.
+"""
+function handle!(st::BState, k::Int, ctrl::Controller)
+    h, w = displaysize(stdout)
+    load_nodes!(st)
+    iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
+    page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
+    if k in (Int('q'), 27)
+        return :quit
+    elseif k == Int('\t')
+        st.focus = st.focus === :list ? :detail : :list
+    elseif k == Int('f')
+        st.lmode = st.lmode === :filters ? :items : :filters
+        st.focus = :list
+    elseif st.focus === :list && st.lmode === :filters
+        nf = length(filter_rows(st))
+        if k in (Int('j'), 66);         st.frow = min(nf, st.frow + 1)
+        elseif k in (Int('k'), 65);     st.frow = max(1, st.frow - 1)
+        elseif k in (Int(' '), 13, 10); toggle_filter!(st)
+        elseif k == Int('c');           st.filters = Filters(); refilter!(st)
+        end
+    elseif st.focus === :list
+        if k in (Int('j'), 66);     st.sel = min(length(st.items), st.sel + 1)
+        elseif k in (Int('k'), 65); st.sel = max(1, st.sel - 1)
+        elseif k in (Int(' '), 6);  st.sel = min(length(st.items), st.sel + page)
+        elseif k in (Int('b'), 2);  st.sel = max(1, st.sel - page)
+        elseif k == Int('g');       st.sel = 1
+        elseif k == Int('G');       st.sel = length(st.items)
+        elseif k in (13, 10);       st.focus = :detail
+        end
+        isempty(st.items) ||
+            st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
+    else
+        n = length(rows(st.nodes, iw))
+        if k in (Int('j'), 66);     st.nrow = min(n, st.nrow + 1)
+        elseif k in (Int('k'), 65); st.nrow = max(1, st.nrow - 1)
+        elseif k in (Int(' '), 6);  st.nrow = min(n, st.nrow + page)
+        elseif k in (Int('b'), 2);  st.nrow = max(1, st.nrow - page)
+        elseif k == Int('g');       st.nrow = 1
+        elseif k == Int('G');       st.nrow = n
+        elseif k == Int('n');       jumpnode(st, 1, iw)
+        elseif k == Int('N');       jumpnode(st, -1, iw)
+        elseif k in (13, 10)
+            i = curnode(st, iw)
+            if i > 0
+                st.nodes[i].open = !st.nodes[i].open
+                st.nrow = headerrow(st, i, iw)
             end
         end
-    finally
-        REPL.Terminals.raw!(term, false)
-        print("\e[?25h\e[?1049l")
     end
+    (st.lmode === :filters || isempty(st.items)) && return :ok
+    it = st.items[clamp(st.sel, 1, length(st.items))]
+    if k == Int('d');     st.mode = :diff
+    elseif k == Int('o'); st.mode = :comments
+    elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
+    elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"])
+                          st.status = "snoozed"
+    end
+    load_nodes!(st)
+    :ok
 end

@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 17:18 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 17:24 UTC · 2050 items · 12 rate-limit points_
 
 ## Unread (760)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
