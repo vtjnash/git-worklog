@@ -46,6 +46,15 @@ Prefer `on-change` over a date. It wakes the moment the PR actually moves, which
 is almost always what "remind me later" really means for a PR. Use a date only
 for a real calendar constraint.
 
+## Reading threads
+
+`wl.py show <ref>` prints the item's state and its recent comments, fetched
+live. `wl.py read <ref>` marks it seen; `wl.py read all` zeroes the inbox. The
+**Unread** section at the top of the dashboard is what replaced per-event email
+notification - the only thing stored is one timestamp per item in `read.json`.
+
+There is also an interactive navigator: `cli/bin/wl`.
+
 ## Commands
 
 ```bash

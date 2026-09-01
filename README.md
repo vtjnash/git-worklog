@@ -108,6 +108,20 @@ of the lanes. Setting any of `note` / `deadline` / `agent_task` / `snooze` claim
 an item and pulls it back into an active lane; `track` alone marks it triaged
 without reviving it.
 
+## Navigator
+
+An interactive Julia CLI over the same data:
+
+```bash
+cli/bin/wl              # lane -> item -> thread -> action
+cli/bin/wl --refresh    # re-fetch first
+```
+
+Python stays the engine and the CLI dispatches every mutation back through
+`wl.py`, so the comment-preserving TOML writer and the GitHub quirks below live
+in one place rather than two. It reads `facts.json` with JSON3 and calls
+`wl.py unread` / `wl.py thread` for the live parts. Startup is ~0.5s.
+
 ## Saving
 
 A `Stop` hook runs `autocommit.sh` when a session ends: commits any change and
@@ -143,6 +157,13 @@ forces it), because it is ~1000 PRs and ~2.5 minutes, while a normal refresh wit
 it cached is ~16s and 12 rate-limit points.
 
 Two GitHub behaviours worth knowing, both of which cost real debugging:
+
+`gh api --paginate` is **unsafe on a `sort=updated` list**. It follows Link
+headers over a collection being reordered underneath it, so an item touched
+mid-walk jumps to page 1 and shifts a whole page past the cursor. The same
+query returned 168 items on one attempt and 612 on the next. `events.py` pages
+explicitly with `direction=asc` - where a concurrent update moves an item toward
+the end, which can duplicate but never skip - and dedupes by id.
 
 `search(type: ISSUE)` silently returns **0** for `assignee:` unless the query
 also carries `is:issue` or `is:pr`. REST has no such quirk, so 16 assigned issues
