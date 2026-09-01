@@ -1,4 +1,4 @@
-# Your state. refresh.py READS this and never writes it, so notes and snoozes
+# Your state. The refresh READS this and never writes it, so notes and snoozes
 # here are safe from any refresh. The /dash skill appends and edits entries.
 #
 # Keys are the item URL. Every field is optional:

@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-01 15:20 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 15:31 UTC · 2050 items · 12 rate-limit points_
 
-## Unread (768)
+## Unread (763)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -67,16 +67,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
   <sub>4 comments · **needs-reply** · today</sub>
-- [julia#44560](https://github.com/JuliaLang/julia/pull/44560) Disallow infix macro syntax  
-  <sub>1 comments · closed · 29d</sub>
-- [julia#58583](https://github.com/JuliaLang/julia/issues/58583) `--trace-compile` outputs invalid `precompile(...)` for some Vararg signatures in 1.10 / 1.12  
-  <sub>no comments · 29d</sub>
-- [julia#41889](https://github.com/JuliaLang/julia/pull/41889) `AbstractInterpreter`: generalize `force_const_prop` interface  
-  <sub>1 comments · closed · 29d</sub>
-- [julia#52742](https://github.com/JuliaLang/julia/issues/52742) `redirect_stderr(devnull)` doesn't work for function redefinition warnings  
-  <sub>no comments · closed · 29d</sub>
-- [julia#49561](https://github.com/JuliaLang/julia/pull/49561) Base: fix floating-point div  
-  <sub>5 comments · closed · 29d</sub>
 - [julia#56375](https://github.com/JuliaLang/julia/issues/56375) `argmin()` is much slower than `findmin()` due to automatic inline  
   <sub>10 comments · 29d</sub>
 - [julia#53705](https://github.com/JuliaLang/julia/issues/53705) `@inbounds` / proving inbounds inhibits loop vectorization  
@@ -85,7 +75,17 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>12 comments · 29d</sub>
 - [julia#35279](https://github.com/JuliaLang/julia/pull/35279) Use trait `RangeStepStyle` for `findfirst(isequal, ...)`, and adjust it for `StepRange{Char,Int}`  
   <sub>11 comments · 29d</sub>
-- _...and 728 more_
+- [julia#43989](https://github.com/JuliaLang/julia/pull/43989) optimize `in(::Char, ::String)`  
+  <sub>6 comments · closed · 29d</sub>
+- [julia#43980](https://github.com/JuliaLang/julia/issues/43980) char in string is slow for short strings  
+  <sub>2 comments · closed · 29d</sub>
+- [julia#62583](https://github.com/JuliaLang/julia/pull/62583) lowering/runtime: Fix two define_method regressions from the builtin migration  
+  <sub>no comments · closed · 29d</sub>
+- [libuv#5220](https://github.com/libuv/libuv/pull/5220) build(deps): bump vmactions/solaris-vm from 1.3.7 to 1.3.8  
+  <sub>no comments · closed · 29d</sub>
+- [libuv#5221](https://github.com/libuv/libuv/pull/5221) build(deps): bump actions/checkout from 6.0.3 to 7.0.1  
+  <sub>no comments · closed · 29d</sub>
+- _...and 723 more_
 
 ## Needs a reply (9)
 _You were mentioned and the last word is theirs._
@@ -203,7 +203,7 @@ _Waiting on you to review someone else._
 - [Downloads.jl#231](https://github.com/JuliaLang/Downloads.jl/pull/231) Avoid potential race between read and upload_data  
   <sub>conflicts · 732d</sub>
 - [julia#55000](https://github.com/JuliaLang/julia/pull/55000) Switch to inline ASM to silence warning on newer mingw compilers on ptls code  
-  <sub>1 unresolved · 790d</sub>
+  <sub>1 unresolved · 791d</sub>
 - [julia#45864](https://github.com/JuliaLang/julia/pull/45864) Change timeout kill signals to SIGQUIT from SIGTERM  
   <sub>conflicts · 802d</sub>
 - [julia#54452](https://github.com/JuliaLang/julia/pull/54452) Do not give `StringVector`s to users  
@@ -270,7 +270,7 @@ _Yours, not yet proposed._
 - [julia#35800](https://github.com/JuliaLang/julia/issues/35800) problem with the unreliable approximation of `Core.Compiler.return_type`  
   <sub>track:loose · 491d</sub>
 - [julia#23619](https://github.com/JuliaLang/julia/issues/23619) implicit `module M` wrapping  
-  <sub>track:loose · 508d</sub>
+  <sub>track:loose · 509d</sub>
 - [julia#53109](https://github.com/JuliaLang/julia/issues/53109) incorrect hash for equal types, with Union instead of lower bound  
   <sub>track:loose · 846d</sub>
 - [julia#36605](https://github.com/JuliaLang/julia/issues/36605) Disallow reading directories as files  

@@ -202,6 +202,24 @@ function snooze_active(url, st, fp, snz)
     (true, "until $until")
 end
 
+"""
+    implausible(nodes, total, cached) -> reason or nothing
+
+Reject a bulk result that contradicts itself or the previous snapshot, rather
+than letting it overwrite a good cache. `nothing` means the result is fine.
+"""
+function implausible(nodes, total, cached::Int)
+    n = length(nodes)
+    total isa Number || return nothing
+    n > 0 && total == 0 &&
+        return "issueCount 0 alongside $n nodes"
+    cached > 0 && n < cached ÷ 2 && total >= cached &&
+        return "got $n but issueCount says $total, cache had $cached"
+    cached > 0 && n == 0 && cached >= 20 &&
+        return "empty result replacing $cached cached"
+    nothing
+end
+
 """Run every [bulk.queries] entry, cached on a slow cadence.
 
 These are ~2000 items that move slowly and never surface on their own, so
@@ -211,6 +229,7 @@ GitHub's search API truncates at 1000 results and the Julia firehose is already
 at ~993, so any query approaching the cap is re-run partitioned by creation year
 and the slices unioned.
 """
+
 function fetch_bulk(cfg, cfgtext; force::Bool = false)
     cache = joinpath(ROOT, "bulk.json")
     hours = get(cfg["bulk"], "refresh_hours", 6)
@@ -254,6 +273,20 @@ function fetch_bulk(cfg, cfgtext; force::Bool = false)
                     end
                 end
                 nodes = merged
+            end
+            cached = length(get(prev, lane, ()))
+            why = implausible(nodes, total, cached)
+            if why !== nothing
+                # A soft truncation is more dangerous than a hard failure: it
+                # arrives as a well-formed 200 and silently replaces good data.
+                # Seen live - the firehose returned issueCount 0 alongside 100
+                # nodes and hasNextPage false, which would have overwritten 957
+                # cached items with 100 and dropped the total from 2010 to 1444
+                # without an error anywhere.
+                push!(failed, lane)
+                @printf(stderr, "    %-16s SUSPECT (%s), keeping %d cached\n",
+                        lane, why, cached)
+                continue
             end
             lanes[lane] = nodes
             @printf(stderr, "    %-16s %4d of %s\n", lane, length(nodes), total)

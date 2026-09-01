@@ -78,6 +78,21 @@ function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
                 push!(out, r)
             end
         end
+        if isempty(rows) && page == 1
+            # An empty first page has been observed spuriously, and the
+            # short-page stop below then reports the whole repo as having no
+            # activity: unread went 781 -> 170 with no error. A genuinely empty
+            # result is stable, so confirm it before believing it. Reassign
+            # `rows` rather than looping, so a successful retry's page is still
+            # collected below.
+            for _ in 1:2
+                sleep(1)
+                rows = api_get(endpoint; params = merge(params,
+                    Dict{String,Any}("per_page" => per_page, "page" => 1)))
+                isempty(rows) || break
+            end
+            isempty(rows) && break
+        end
         length(rows) < per_page && break
     end
     out
