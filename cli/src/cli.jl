@@ -83,9 +83,11 @@ function dispatch(args::Vector{String})
         print("\n$title\n", "-"^min(length(title), 78), "\n\n")
         for c in cs
             who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
-            txt = join(split(something(get(c, "body", nothing), "")), " ")
-            print("  ", replace(first(c["created_at"], 16), "T" => " "), "  ", pyrepr(who),
-                  "\n    ", first(txt, 600), "\n\n")
+            print("  ", replace(first(c["created_at"], 16), "T" => " "), "  ", pyrepr(who), "\n")
+            # Rendered, not cut at 600 characters: the same markdown path the
+            # browser uses, with links lifted to footnotes.
+            show_md(something(get(c, "body", nothing), ""))
+            println()
         end
         return 0
     end

@@ -54,22 +54,6 @@ function loaditems()
     out
 end
 
-"""Single-line row. TerminalMenus needs one line per entry, so pack the signals
-into fixed columns and let colour carry the urgency."""
-function row(it::Item; width = 110)
-    flags = String[]
-    it.new && push!(flags, "$(GRN)NEW$(R)")
-    it.moved && push!(flags, "$(CYA)moved$(R)")
-    it.track == "close" && push!(flags, "$(B)*$(R)")
-    it.ci in ("FAILURE", "ERROR") && push!(flags, "$(RED)ci$(R)")
-    it.unresolved > 0 && push!(flags, "$(YEL)$(it.unresolved)u$(R)")
-    it.mergeable == "CONFLICTING" && push!(flags, "$(YEL)cf$(R)")
-    tail = string(DIM, lpad(string(it.age, "d"), 6), R)
-    f = isempty(flags) ? "" : " " * join(flags, " ")
-    t = length(it.title) > width - 34 ? it.title[1:width-37] * "..." : it.title
-    string(rpad(it.ref, 22), t, f, tail)
-end
-
 """Print one markdown body: links lifted to numbered footnotes, the rest
 rendered by Term, wrapped to the terminal."""
 function show_md(raw)
@@ -80,7 +64,8 @@ function show_md(raw)
     out = try
         Term.apply_style(string(Term.TermMarkdown.parse_md(
             Markdown.parse(body); width = w)))
-    catch
+    catch e
+        @warn "markdown render failed, showing raw text" exception = e maxlog = 1
         body
     end
     for l in split(out, "\n")
@@ -91,75 +76,7 @@ function show_md(raw)
     end
 end
 
-function detail(it::Item)
-    println("\n", B, it.ref, "  ", it.title, R)
-    println(DIM, it.url, R)
-    bits = ["bucket=$(it.bucket)", "track=$(it.track)", "$(it.age)d"]
-    isempty(it.ci) || push!(bits, "ci=$(lowercase(it.ci))")
-    it.unresolved > 0 && push!(bits, "$(it.unresolved) unresolved")
-    it.mergeable == "CONFLICTING" && push!(bits, "conflicts")
-    it.snoozed && push!(bits, "snoozed")
-    println(DIM, join(bits, " · "), R)
-    isempty(it.note)  || println("\n  ", YEL, "note: ", it.note, R)
-    isempty(it.agent) || println("  ", CYA, "agent: ", it.agent, R)
-    print("\n  ", DIM, "loading thread...", R)
-    local body, cs
-    try
-        body, cs = Events.thread(it.url; limit = 8)
-    catch
-        println("\r  ", RED, "could not load thread", R)
-        return
-    end
-    print("\r\e[K")
-    # Rendered, not truncated. The old 500-character cut was what produced the
-    # trailing "..." on long comments, and it fell in the middle of whatever the
-    # comment was actually saying.
-    show_md(nz(get(body, "body", nothing), ""))
-    for c in cs
-        who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
-        println("\n  ", B, nz(who, "?"), R, DIM, "  ", first(c["created_at"], 16), R)
-        show_md(nz(get(c, "body", nothing), ""))
-    end
-    println()
-end
-
 ask(prompt) = (print(prompt); strip(readline()))
-
-"Every mutation goes back through the same code the command surface uses."
-function act(it::Item)
-    opts = ["mark read", "snooze until it moves", "snooze until a date",
-            "add a note", "queue for an agent", "set tracking level",
-            "dismiss (retire from backlog)", "copy URL", "back"]
-    c = request("action:", RadioMenu(opts; pagesize = 9))
-    c == -1 && return
-    if     c == 1; Events.mark_read([it.url])
-    elseif c == 2; disarm(it.url); set_fields(it.url, ["snooze" => "on-change"])
-    elseif c == 3; d = ask("date (YYYY-MM-DD): ")
-                   isempty(d) || (disarm(it.url); set_fields(it.url, ["snooze" => String(d)]))
-    elseif c == 4; n = ask("note: "); isempty(n) || set_fields(it.url, ["note" => String(n)])
-    elseif c == 5; t = ask("agent task: "); isempty(t) || set_fields(it.url, ["agent_task" => String(t)])
-    elseif c == 6
-        lv = ["close", "normal", "loose", "background"]
-        k = request("track:", RadioMenu(lv))
-        k == -1 || (disarm(it.url); set_fields(it.url, ["track" => lv[k]]))
-    elseif c == 7; disarm(it.url); set_fields(it.url, ["track" => "loose", "snooze" => "on-change"])
-    elseif c == 8; println("\n  ", it.url, "\n")
-    else return end
-    c in (1, 2, 3, 4, 5, 6, 7) && println(DIM, "  done — refresh to re-bucket", R)
-end
-
-"Superseded by `browse`; kept because `wl show` still renders a thread linearly."
-function browselane(items, title)
-    isempty(items) && (println("\n  nothing in ", title, "\n"); return)
-    while true
-        rows = [row(it) for it in items]
-        push!(rows, string(DIM, "← back", R))
-        c = request("$(B)$title$(R) ($(length(items)))", RadioMenu(rows; pagesize = 20))
-        (c == -1 || c > length(items)) && return
-        detail(items[c])
-        act(items[c])
-    end
-end
 
 function ui(args = String[])
     if "--refresh" in args

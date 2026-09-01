@@ -11,9 +11,13 @@
 # can be snapshot tested without a TTY, which is the only way any of it got
 # verified here.
 
+import Term
 using Term: Panel, apply_style
 import REPL
 import Markdown
+
+"Last markdown failure, surfaced in the footer rather than swallowed."
+const MD_WARN = Ref("")
 
 "A foldable block - a comment, the issue body, or one file of a diff."
 mutable struct Node
@@ -42,8 +46,11 @@ mutable struct BState
     mode::Symbol            # :comments | :diff
     loaded::String
     status::String
+    pending::Union{Nothing,Task}   # in-flight fetch; the key loop never blocks
+    pendkey::String
 end
-BState(items, title) = BState(items, title, 1, 1, Node[], 1, 1, :list, :comments, "", "")
+BState(items, title) =
+    BState(items, title, 1, 1, Node[], 1, 1, :list, :comments, "", "", nothing, "")
 
 """Term reads `{...}` as markup, and comment text is not ours to trust - a
 comment containing braces would otherwise be swallowed or mangled."""
@@ -160,8 +167,12 @@ function nodelines(n::Node, w::Int)
                 # pane height into "... content omitted ...".
                 string(Term.TermMarkdown.parse_md(
                     Markdown.parse(body); width = max(20, w - 2)))
-            catch
-                esc(body)       # malformed markdown must not take the pane down
+            catch e
+                # A bad comment must not take the pane down, but the reason has
+                # to be visible: swallowing it hid that markdown was not
+                # rendering at all for want of an `import Term`.
+                MD_WARN[] = first(sprint(showerror, e), 120)
+                esc(body)
             end
     elseif n.kind === :diff
         join((diffline(l) for l in split(n.raw, "\n")), "\n")
@@ -274,7 +285,8 @@ function render(st::BState, w::Int, h::Int)
     end
 
     keys = "j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q"
-    ftxt = isempty(st.status) ? keys : st.status
+    ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
+           isempty(st.status) ? keys : st.status
     foot = "{dim}" * esc(rpad(fit1(ftxt, w), w)) * "{/dim}"
     frame = string(side ? string(left * right) : string(left / right),
                    "\n", apply_style(foot))
@@ -351,13 +363,40 @@ function diff_nodes(it::Item)
     isempty(ns) ? [Node("empty diff", "", :plain, true)] : ns
 end
 
+"""Start fetching the current item's detail, without waiting for it.
+
+Both sources are slow enough to be felt - a thread is several REST calls and a
+diff shells out to `gh` - so doing them inline froze the whole UI on every
+cursor move. `@async` rather than a thread: the subprocess and HTTP reads both
+yield, and keeping it on one thread means the state below needs no locking.
+"""
 function load_nodes!(st::BState)
     isempty(st.items) && return
     it = st.items[st.sel]
-    key = string(it.url, ":", st.mode)
-    st.loaded == key && return
-    st.nodes = st.mode === :comments ? comment_nodes(it) : diff_nodes(it)
-    st.loaded = key; st.nrow = 1; st.ntop = 1
+    mode = st.mode
+    key = string(it.url, ":", mode)
+    (st.loaded == key || st.pendkey == key) && return
+    st.pending = @async (mode === :comments ? comment_nodes(it) : diff_nodes(it))
+    st.pendkey = key
+    st.nodes = Node[]
+    st.nrow = 1; st.ntop = 1
+    st.status = "loading " * it.ref * "…"
+end
+
+"Adopt a finished fetch. Returns true when the frame needs redrawing."
+function collect_pending!(st::BState)
+    st.pending === nothing && return false
+    istaskdone(st.pending) || return false
+    st.nodes = try
+        fetch(st.pending)
+    catch e
+        [Node("load failed", first(sprint(showerror, e), 300), :plain, true)]
+    end
+    st.loaded = st.pendkey
+    st.pending = nothing
+    st.pendkey = ""
+    st.nrow = 1; st.ntop = 1; st.status = ""
+    true
 end
 
 # --- interaction -----------------------------------------------------------
@@ -405,10 +444,22 @@ function browse(items::Vector{Item}, title::AbstractString)
     print("\e[?1049h\e[?25l")                     # alt screen, hide cursor
     REPL.Terminals.raw!(term, true)
     try
+        dirty = true
         while true
             h, w = displaysize(stdout)
             load_nodes!(st)
-            print("\e[H", replace(render(st, w, h), "\n" => "\e[K\n"), "\e[J")
+            if dirty
+                print("\e[H", replace(render(st, w, h), "\n" => "\e[K\n"), "\e[J")
+                dirty = false
+            end
+            # Poll rather than block in readkey, so a fetch finishing can redraw.
+            # bytesavailable avoids a reader task, which would otherwise outlive
+            # this loop still holding stdin and steal keys from the lane menu.
+            if bytesavailable(stdin) == 0
+                collect_pending!(st) ? (dirty = true) : sleep(0.02)
+                continue
+            end
+            dirty = true
             k = REPL.TerminalMenus.readkey(stdin)
             iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
             page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
