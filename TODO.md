@@ -1,5 +1,117 @@
 # TODO
 
+## Resuming work
+
+Read this first if you are picking this up cold.
+
+### What it is
+A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2000
+items (own PRs, review requests, assigned issues, plus mention/comment history
+and every open JuliaLang/julia PR as a background pile), tracks which threads
+are unread so per-event email notification can stay off, and browses them in a
+two-pane terminal UI.
+
+### Where and how to run it
+Everything lives in `/root/.claude/worklog`, a git repo with no remote yet.
+That path is a real host bind-mount and persists; `/home/vtjnash` outside the
+Julia checkout is a throwaway overlay.
+
+```bash
+cd /root/.claude/worklog
+./cli/bin/refresh              # fetch, bucket, write DASHBOARD.md  (~30s)
+./cli/bin/refresh --firehose   # force the 6-hourly bulk lanes too  (~6min)
+./cli/bin/wl                   # the browser (needs a TTY)
+./cli/bin/wl show julia#62841  # non-interactive thread view
+./cli/bin/wl next 10           # pull untagged backlog to triage
+```
+
+Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
+`/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is
+linked against a newer glibc.
+
+### Layout
+| file | role |
+|---|---|
+| `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
+| `cli/src/events.jl` | unread tracking and live thread fetch (submodule `Events`) |
+| `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, render |
+| `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
+| `cli/src/controller.jl` | the view controller that owns stdin; `PromptView` |
+| `cli/src/browse.jl` | the two-pane browser: filters, panes, folding, diffs, checks |
+| `cli/src/ansi.jl` | escape-aware width, truncate, wrap |
+| `cli/src/ci.jl` | check contexts and Buildkite drill-down |
+| `cli/src/repos.jl` | repo → local checkout mapping, worktrees, `git show` |
+| `cli/src/cache.jl` | on-disk cache with TTL |
+
+Owner rules for the data files matter: `config.toml`, `state.toml` and
+`repos.toml` are **yours** — `refresh` reads `state.toml` and never writes it,
+and only `wl` edits it, through a line-based editor that preserves comments.
+`facts.json`, `bulk.json`, `read.json`, `queue.json`, `snooze.json` and
+`cache/` are machine-owned.
+
+### Testing without a terminal
+There is no TTY here, so the UI is tested by construction rather than by use:
+
+- `render(view, w, h)` is **pure** — state and a size in, a string out. Snapshot
+  it and assert every line has the same display width.
+- `handle!(view, keycode, ctrl)` takes a keycode and returns an action, so real
+  keystrokes can be driven directly without stdin.
+- Strip escapes before measuring: both SGR (`\e[...m`) and OSC 8 hyperlinks.
+- A background fetch signals completion by pushing a `WakeEvent`; in a test,
+  `take!(ctrl.events)` then `onwake!(view)`.
+
+Typical harness:
+
+```julia
+items = Worklog.loaditems()
+st = Worklog.BState(items, "worklog", Set{String}())
+ctrl = Worklog.Controller(); ctrl.running = true
+st.wake = () -> Worklog.wake!(ctrl)
+Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
+```
+
+### Invariants that were each found by debugging a real failure
+Do not "simplify" any of these away.
+
+**GitHub**
+1. `mergeable` is computed lazily — a cold read returns `UNKNOWN` and only
+   schedules the work. Carry the last known value forward.
+2. GraphQL `search(type: ISSUE)` returns **0** for `assignee:` unless the query
+   also carries `is:issue` or `is:pr`.
+3. A search returning Issues against a fragment that only spreads
+   `... on PullRequest` yields field-less `{__typename: "Issue"}` stubs, with no
+   error.
+4. Search truncates at **1000 results**; JuliaLang/julia is at ~993, so a query
+   crossing 950 is re-run partitioned by creation year.
+5. `gh api --paginate` is unsafe on a `sort=updated` list — it follows Link
+   headers over a reordering collection and silently drops entries (168 vs 612
+   on identical runs). Page explicitly with `direction=asc` and dedupe by id.
+6. A *successful* response can still be wrong: an `issueCount` of 0 alongside
+   100 nodes once overwrote a 957-item cached lane. `implausible()` guards this.
+
+**Term.jl**
+7. `parse_md` escapes braces by doubling them and nothing downstream collapses
+   them — Julia type signatures arrive as `Tuple{{Type{{S{{N, Tup}}}`.
+8. `parse_md` does not wrap lines containing inline code (232 display columns
+   for a requested 90). We wrap with `awrap`.
+9. `Panel` measures markup, not what prints, so it is no longer used for layout
+   at all — `pane()` draws borders here. Term is only a markdown→ANSI converter.
+
+**Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
+10. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
+    jobs array to an anonymous caller, with no error.
+11. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
+    numeric entities (`&#47;`) as well as named ones.
+
+### Conventions
+Commit as `worklog: brief summary`, prose body explaining the purpose (not a
+file list, not a test plan), ending with:
+
+    Assisted-by: Claude Code (Opus 5)
+
+Write commit bodies to a file and use `git commit -F` — backticks in a heredoc
+get interpreted by the shell and silently mangle the message.
+
 Outstanding work, roughly in the order it is worth doing. Things already
 shipped are not listed; `git log` is the record of those.
 
