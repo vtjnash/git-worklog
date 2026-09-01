@@ -186,14 +186,6 @@ that submits an empty `APPROVE` is the common case and should be one key.
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
 
-### Collapse `<details>` to its `<summary>`
-GitHub comments are full of them — codecov reports, log dumps, generated
-tables. `Markdown.parse` passes HTML through untouched, so this is a pre-pass
-over the raw body in `comment_nodes`: find `<details>…</details>`, take the
-`<summary>` as a header, and emit the contents as a nested foldable node.
-Nesting is the only awkward part; `Node` is currently a flat list, so either
-give it a depth field or splice the block out into sibling nodes.
-
 ### Third pane: metadata
 Reviewers, labels and CI state at a glance, without switching the detail pane
 away from what you are reading.
@@ -244,6 +236,11 @@ store; only the mapping needs persisting, which fits the `state.toml` pattern
   different one, and no offer to create a worktree for the branch.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
+- **A folded `<details>` block is a sibling, not a child.** `Node.depth` draws
+  it inset and it starts closed, which is all the case needs, but folding the
+  comment above it does not fold the block with it - they are separate entries
+  in a flat list. Prose that follows a block comes back under a `…` header for
+  the same reason.
 
 ## Unverified — needs a real terminal
 

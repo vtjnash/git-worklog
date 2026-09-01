@@ -31,10 +31,14 @@ mutable struct Node
     srcs::Vector{Tuple{Int,String}}  # per cached row: which display row of its
                                      # logical line it is, and that line's plain
                                      # text - together, what a yank rebuilds
+    depth::Int              # nesting, drawn as indentation. The list is flat -
+                            # a `<details>` block is a sibling that draws inset
+                            # rather than a child, which is all the nesting the
+                            # content here actually has
 end
-Node(h, raw, kind, open) =
+Node(h, raw, kind, open, depth = 0) =
     Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}(),
-         Tuple{Int,String}[])
+         Tuple{Int,String}[], depth)
 
 # --- filters ---------------------------------------------------------------
 #
@@ -463,15 +467,17 @@ end
 function rows(nodes::Vector{Node}, w::Int)
     out = Row[]
     for (i, n) in enumerate(nodes)
-        htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), w)
+        pad = " "^(2 * n.depth)
+        iw = max(20, w - 2 * n.depth)
+        htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), iw)
         u = get(n.meta, "url", "")
-        push!(out, Row(i, true, string(AB, isempty(u) ? htxt : osc8(u, htxt), AR),
+        push!(out, Row(i, true, string(pad, AB, isempty(u) ? htxt : osc8(u, htxt), AR),
                        get(n.meta, "src", astrip(n.header)), 0))
         n.open || continue
-        ls = nodelines(n, w)                 # fills n.srcs alongside n.cache
+        ls = nodelines(n, iw)                # fills n.srcs alongside n.cache
         for (j, l) in enumerate(ls)
             (part, src) = n.srcs[j]
-            push!(out, Row(i, false, l, src, part))
+            push!(out, Row(i, false, string(pad, l), src, part))
         end
     end
     out
@@ -723,6 +729,85 @@ end
 replying to, and a stale comment list is worse than a slow one."
 const DETAIL_TTL = Ref(600.0)
 
+"""
+    split_details(md) -> Vector{Tuple{Symbol,String,String}}
+
+Break a comment body into prose and `<details>` blocks, in the order they
+appear: `(:text, "", prose)` or `(:details, summary, contents)`.
+
+`Markdown.parse` passes HTML straight through, so a codecov report or a pasted
+build log arrives as several hundred lines of raw tags sitting in the middle of
+the thread - which is the opposite of what the author meant by folding it away.
+
+Scanned rather than matched with a regex, because these nest: a lazy `.*?` run
+to the first `</details>` closes the outer block at the inner one's end and
+spills the remainder into the prose.
+"""
+function split_details(md::AbstractString)
+    OPEN, CLOSE = r"<details\b[^>]*>"i, r"</details\s*>"i
+    out = Tuple{Symbol,String,String}[]
+    pos = firstindex(md)
+    while pos <= lastindex(md)
+        m = findnext(OPEN, md, pos)
+        m === nothing && break
+        k, depth, closing = nextind(md, last(m)), 1, nothing
+        while depth > 0
+            o = findnext(OPEN, md, k)
+            c = findnext(CLOSE, md, k)
+            c === nothing && break
+            if o !== nothing && first(o) < first(c)
+                depth += 1; k = nextind(md, last(o))
+            else
+                depth -= 1; k = nextind(md, last(c))
+                depth == 0 && (closing = c)
+            end
+        end
+        # Unbalanced: leave the rest as prose rather than guessing where it ends.
+        closing === nothing && break
+        pre = md[pos:prevind(md, first(m))]
+        isempty(strip(pre)) || push!(out, (:text, "", String(strip(pre))))
+        inner = md[nextind(md, last(m)):prevind(md, first(closing))]
+        smy = match(r"<summary[^>]*>(.*?)</summary\s*>"is, inner)
+        summary = smy === nothing ? "details" :
+                  strip(unescape_html(replace(smy[1], r"<[^>]+>" => "")))
+        summary = replace(String(summary), r"\s+" => " ")
+        content = smy === nothing ? inner : replace(inner, smy.match => "")
+        push!(out, (:details, isempty(summary) ? "details" : summary,
+                    String(strip(content))))
+        pos = nextind(md, last(closing))
+    end
+    tail = pos > lastindex(md) ? "" : md[pos:end]
+    isempty(strip(tail)) || push!(out, (:text, "", String(strip(tail))))
+    out
+end
+
+"How far a `<details>` chain is followed before its contents are left as text."
+const MAX_DEPTH = 3
+
+"""Nodes for one body: its prose, then a folded node per `<details>` block.
+
+The block becomes a sibling drawn inset and starting closed, rather than a child
+- which is what a five-hundred-line generated table wants to be, and avoids
+turning the flat node list into a tree for the one case that needs one.
+
+Prose that follows a block belongs to the parent, not to the block, so it comes
+back at the parent's depth under a header that says so.
+"""
+function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int = 0)
+    segs = depth >= MAX_DEPTH ? [(:text, "", String(body))] : split_details(body)
+    lead = (!isempty(segs) && segs[1][1] === :text) ? segs[1][3] : ""
+    n = Node(String(header), lead, :md, open, depth)
+    isempty(url) || (n.meta["url"] = url)
+    push!(ns, n)
+    for (k, (kind, summary, content)) in enumerate(segs)
+        (k == 1 && kind === :text) && continue
+        kind === :details ? body_nodes!(ns, summary, content, url, false, depth + 1) :
+                            body_nodes!(ns, "…", content, url, true, depth)
+    end
+    ns
+end
+body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, url, open)
+
 function comment_nodes(it::Item)
     local body, cs
     try
@@ -741,22 +826,27 @@ function comment_nodes(it::Item)
     who0 = get(something(get(body, "user", nothing), Dict{String,Any}()), "login", "?")
     btxt = strip(replace(nz(get(body, "body", nothing), ""), "\r\n" => "\n"))
     if !isempty(btxt)
-        n0 = Node(string(nz(who0, "?"), " opened this"), btxt, :md, true)
-        n0.meta["url"] = String(nz(get(body, "html_url", nothing), it.url))
-        push!(ns, n0)
+        body_nodes!(ns, string(nz(who0, "?"), " opened this"), btxt,
+                    String(nz(get(body, "html_url", nothing), it.url)), true)
     end
     for c in cs
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
         at = first(String(c["created_at"]), 16)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
-        peek = strip(first(replace(txt, r"\s+" => " "), 58))
-        nc = Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, true)
-        # The header shows a peek at the body, cut mid-word. Copy the byline
-        # instead - the body itself is on the rows underneath it.
-        nc.meta["src"] = string(nz(who, "?"), "  ", at)
         # Anchored, so following it lands on this comment rather than the top.
-        nc.meta["url"] = String(nz(get(c, "html_url", nothing), it.url))
-        push!(ns, nc)
+        url = String(nz(get(c, "html_url", nothing), it.url))
+        made = body_nodes(string(nz(who, "?"), "  ", at), txt, url, true)
+        # The peek belongs to the prose. A comment that is nothing but a folded
+        # block has none, so it borrows the summary - "<details><summary>" is
+        # not a useful thing to read on the header line.
+        lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
+               made[2].header : made[1].raw
+        peek = strip(first(replace(lead, r"\s+" => " "), 58))
+        made[1].header = string(nz(who, "?"), "  ", at, "   ", peek)
+        # The header's peek is cut mid-word; copy the byline instead, since the
+        # body itself is on the rows underneath it.
+        made[1].meta["src"] = string(nz(who, "?"), "  ", at)
+        append!(ns, made)
     end
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
 end
@@ -1239,9 +1329,9 @@ function check_nodes(it::Item)
         failed = bk_failed(bk_jobs(b))
         isempty(failed) && continue
         for j in failed
-            jn = Node(string("\e[31m  ", rpad(j.state, 10), "\e[0m", j.name,
+            jn = Node(string("\e[31m", rpad(j.state, 10), "\e[0m", j.name,
                              j.exit == "" ? "" : string("  (exit ", j.exit, ")")),
-                      "press l to fetch this job's log", :plain, false)
+                      "press l to fetch this job's log", :plain, false, 1)
             jn.meta["bk"] = b
             jn.meta["job"] = j.id
             jn.meta["url"] = "https://buildkite.com/$(b.org)/$(b.pipeline)/builds/$(b.build)#$(j.id)"

@@ -42,6 +42,19 @@ function days_since(s)
     t === nothing ? nothing : fld(Dates.value(NOW[] - t), 86_400_000)
 end
 
+"""Decode HTML entities.
+
+Numeric ones as well as named: Buildkite escapes path separators as `&#47;`, so
+a named-entity-only pass leaves log paths unreadable. `&amp;` is undone last,
+or an escaped `&amp;lt;` decodes twice into a tag.
+"""
+function unescape_html(s::AbstractString)
+    s = replace(s, r"&#(\d+);" => m -> string(Char(parse(Int, m[3:end-1]))))
+    s = replace(s, r"&#x([0-9a-fA-F]+);" => m -> string(Char(parse(Int, m[4:end-1], base = 16))))
+    replace(s, "&lt;" => "<", "&gt;" => ">", "&quot;" => "\"",
+               "&#39;" => "'", "&nbsp;" => " ", "&amp;" => "&")
+end
+
 # Python's `.get(k)`, which cannot tell a missing key from an explicit null and
 # does not need to: both mean "GitHub did not give us this".
 jget(o, k::Symbol) = get(o, k, nothing)

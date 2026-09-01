@@ -44,6 +44,32 @@ end
 # The list pane is populated from the real snapshot: what matters here is the
 # geometry, and a hand-built item list would not exercise the widths that
 # actual titles do.
+@testset "details blocks fold to their summary" begin
+    seg(md) = [(k, sm) for (k, sm, _) in W.split_details(md)]
+    @test seg("just prose") == [(:text, "")]
+    @test seg("a<details><summary>S</summary>x</details>b") ==
+          [(:text, ""), (:details, "S"), (:text, "")]
+    # Nesting: a lazy regex would close the outer block at the inner one's end.
+    outer = W.split_details("<details><summary>out</summary>p<details><summary>in</summary>q</details>r</details>")
+    @test length(outer) == 1 && outer[1][2] == "out"
+    @test occursin("<summary>in</summary>", outer[1][3])
+    @test seg("<details>bare</details>") == [(:details, "details")]
+    @test W.split_details("<details open><summary><b>A &amp; B</b></summary>x</details>")[1][2] == "A & B"
+    # Unbalanced: leave it as prose rather than guess where it ends.
+    @test seg("t <details><summary>never closed</summary> tail") == [(:text, "")]
+
+    ns = W.body_nodes("alice", "before\n\n<details><summary>Impacted</summary>\nrows\n</details>\n\nafter",
+                      "http://x", true)
+    @test [(n.depth, n.open, n.header) for n in ns] ==
+          [(0, true, "alice"), (1, false, "Impacted"), (0, true, "…")]
+    @test ns[1].raw == "before" && ns[3].raw == "after"
+    # A folded block costs one row until it is opened: three headers plus one
+    # body row each for the prose either side of it.
+    @test length(W.rows(ns, 80)) == 5
+    ns[2].open = true
+    @test length(W.rows(ns, 80)) > 5
+end
+
 items = W.loaditems()
 mkstate() = begin
     st = W.BState(items, "worklog", Set{String}())

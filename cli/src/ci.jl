@@ -108,12 +108,7 @@ function bk_log(b, uuid::AbstractString; tail::Int = 300, ttl = 900.0)
     end
     s = replace(txt, r"<time[^>]*>.*?</time>"s => "")
     s = replace(s, r"<[^>]+>" => "")
-    # Numeric entities too: Buildkite escapes path separators as &#47;, so a
-    # named-entity-only pass leaves log paths unreadable.
-    s = replace(s, r"&#(\d+);" => m -> string(Char(parse(Int, m[3:end-1]))))
-    s = replace(s, r"&#x([0-9a-fA-F]+);" => m -> string(Char(parse(Int, m[4:end-1], base = 16))))
-    s = replace(s, "&lt;" => "<", "&gt;" => ">", "&quot;" => "\"",
-                   "&#39;" => "'", "&nbsp;" => " ", "&amp;" => "&")
+    s = unescape_html(s)
     lines = split(s, "\n")
     length(lines) <= tail ? String(s) :
         string("… ", length(lines) - tail, " earlier lines omitted …\n",
