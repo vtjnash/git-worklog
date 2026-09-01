@@ -1,6 +1,10 @@
 # Small shared helpers: the clock, ISO timestamps, and the two places where
 # Julia's stdlib does not give us what the Python it replaces relied on.
 
+# Ref{T}() for an isbits T is zero-initialised, not undefined, so reading NOW[]
+# before _clock!() yields year 0 rather than throwing - which silently produced
+# an empty unread list instead of an error. The module's __init__ sets it, so
+# calling any function directly is safe; main() re-freezes per run.
 const NOW = Ref{DateTime}()
 const TODAY = Ref{Date}()
 

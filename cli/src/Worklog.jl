@@ -58,4 +58,8 @@ precompile(set_fields, (String, Vector{Pair{String,Any}}))
 precompile(next_batch, (Int,))
 precompile(ui, (Vector{String},))
 
+# Runs at load, never at precompile, so the clock is real and every entry point
+# - including direct library use - starts with it set.
+__init__() = _clock!()
+
 end # module Worklog

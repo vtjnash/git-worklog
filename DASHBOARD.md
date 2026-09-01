@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-01 15:31 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 15:36 UTC · 2050 items · 12 rate-limit points_
 
-## Unread (763)
+## Unread (762)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -67,8 +67,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
   <sub>4 comments · **needs-reply** · today</sub>
-- [julia#56375](https://github.com/JuliaLang/julia/issues/56375) `argmin()` is much slower than `findmin()` due to automatic inline  
-  <sub>10 comments · 29d</sub>
 - [julia#53705](https://github.com/JuliaLang/julia/issues/53705) `@inbounds` / proving inbounds inhibits loop vectorization  
   <sub>1 comments · closed · 29d</sub>
 - [julia#44410](https://github.com/JuliaLang/julia/issues/44410) Unexpected behavior due to implicit `convert` with `Char` and `Integer`  
@@ -85,7 +83,9 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · closed · 29d</sub>
 - [libuv#5221](https://github.com/libuv/libuv/pull/5221) build(deps): bump actions/checkout from 6.0.3 to 7.0.1  
   <sub>no comments · closed · 29d</sub>
-- _...and 723 more_
+- [julia#62606](https://github.com/JuliaLang/julia/pull/62606) RFC: introduce `Base.tracemark()` and `rethrow(; drop_{above,below})` to prune stacktraces exactly.  
+  <sub>no comments · 29d</sub>
+- _...and 722 more_
 
 ## Needs a reply (9)
 _You were mentioned and the last word is theirs._
