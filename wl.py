@@ -5,6 +5,8 @@ Line-based on purpose: it rewrites only the keys you name, inside only the block
 you name, and leaves every other block, comment and blank line byte-identical.
 A TOML round-trip library would reformat the whole file and lose the comments.
 
+  wl.py read    julia#62891               # mark a thread seen (or: read all)
+  wl.py show    julia#62891               # state + the thread's recent comments
   wl.py next    [n]                       # pull the next untagged backlog items
   wl.py track   julia#62452 close         # close | normal | loose | background
   wl.py dismiss julia#62452               # retire from the backlog until it moves
@@ -164,6 +166,17 @@ def main():
     if sys.argv[1] == "next":
         next_batch(int(sys.argv[2]) if len(sys.argv) > 2 else 10)
         return
+    if sys.argv[1] == "read":
+        import tomllib, events
+        arg = sys.argv[2] if len(sys.argv) > 2 else "all"
+        if arg == "all":
+            cfg = tomllib.loads((ROOT / "config.toml").read_text())
+            urls = [e["url"] for e in events.unread(cfg, cfg["login"], verbose=False)]
+            print("marked %d threads read" % events.mark_read(urls))
+        else:
+            events.mark_read([resolve(arg)])
+            print("marked read %s" % resolve(arg))
+        return
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     cmd, ref = sys.argv[1], sys.argv[2]
@@ -171,10 +184,23 @@ def main():
     cmd = ALIAS.get(cmd, cmd)
 
     if cmd == "show":
-        import tomllib
+        import tomllib, events
         st = tomllib.loads(STATE.read_text()) if STATE.exists() else {}
         print(url)
-        print(json.dumps(st.get(url, {}), indent=1))
+        if st.get(url):
+            print(json.dumps(st[url], indent=1))
+        # Bodies are never stored; this is a live read of the thread, which is
+        # the part the notification emails were carrying.
+        try:
+            body, cs = events.thread(url)
+        except Exception as e:
+            sys.exit("could not fetch thread: %s" % e)
+        print("\n%s\n%s\n" % (body["title"], "-" * min(len(body["title"]), 78)))
+        for c in cs:
+            who = (c.get("user") or {}).get("login")
+            txt = " ".join((c.get("body") or "").split())
+            print("  %s  %s\n    %s\n" % (c["created_at"][:16].replace("T", " "),
+                                            who, txt[:600]))
         return
     if cmd == "dismiss":
         # Retire a backlog item: stop caring about churn, but do not go blind to

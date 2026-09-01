@@ -25,6 +25,8 @@ import time
 import tomllib
 from pathlib import Path
 
+import events
+
 ROOT = Path(__file__).resolve().parent
 NOW = dt.datetime.now(dt.timezone.utc)
 TODAY = NOW.date()
@@ -415,6 +417,7 @@ def main():
             items[n["url"]] = normalize(n, lane, login)
         print("  %-9s %3d items (%d pts)" % (lane, len(nodes), c), file=sys.stderr)
 
+    unread = events.unread(cfg, login)
     bulk, c, how = fetch_bulk(cfg, force="--firehose" in sys.argv)
     spent += c
     for lane, nodes in bulk.items():
@@ -478,7 +481,7 @@ def main():
     snapshot = {"fetched_at": NOW.isoformat(), "points": spent, "items": items}
     (ROOT / "facts.json").write_text(json.dumps(snapshot, indent=1, sort_keys=True))
     snz_path.write_text(json.dumps(snz, indent=1, sort_keys=True))
-    (ROOT / "DASHBOARD.md").write_text(render(items, changes, cfg, spent))
+    (ROOT / "DASHBOARD.md").write_text(render(items, changes, cfg, spent, unread))
     print("  %d items, %d changes, %d rate-limit points" % (len(items), len(changes), spent),
           file=sys.stderr)
 
@@ -542,7 +545,7 @@ def urgency(r):
             d or "9999-99-99", activity_age(r) or 0)
 
 
-def render(items, changes, cfg, spent):
+def render(items, changes, cfg, spent, unread=()):
     vis = [r for r in items.values() if not r["snoozed"]]
     snoozed = [r for r in items.values() if r["snoozed"]]
     out = ["# Work dashboard", "",
@@ -558,6 +561,35 @@ def render(items, changes, cfg, spent):
             over = " **OVERDUE**" if d < str(TODAY) else ""
             out.append("- `%s`%s [%s#%s](%s) %s" %
                        (d, over, r["repo"].split("/")[-1], r["number"], r["url"], r["title"]))
+        out.append("")
+
+    if unread:
+        # The inbox replacement. Items you are already carrying come first: an
+        # unread comment on your own PR matters more than one on a thread you
+        # have never touched.
+        by_url = {r["url"]: r for r in items.values()}
+        def prio(e):
+            r = by_url.get(e["url"])
+            return (0 if (r and not r.get("backlog")) else 1, e["updated"])
+        ranked = sorted(unread, key=prio)
+        ranked.sort(key=lambda e: (prio(e)[0], ), reverse=False)
+        out += ["## Unread (%d)" % len(unread),
+                "_`wl.py show <ref>` to read a thread, `wl.py read <ref>` when done, "
+                "`wl.py read all` to zero the inbox._", ""]
+        for e in ranked[:40]:
+            r = by_url.get(e["url"])
+            bits = ["%d comments" % e["comments"] if e["comments"] else "no comments"]
+            if r and not r.get("backlog"):
+                bits.append("**%s**" % r["bucket"])
+            if e["state"] != "open":
+                bits.append(e["state"])
+            age = days_since(e["updated"])
+            bits.append("%dd" % age if age else "today")
+            out.append("- [%s#%s](%s) %s  \n  <sub>%s</sub>" %
+                       (e["repo"].split("/")[-1], e["number"], e["url"],
+                        e["title"], " · ".join(bits)))
+        if len(unread) > 40:
+            out.append("- _...and %d more_" % (len(unread) - 40))
         out.append("")
 
     for key, title, blurb in SECTIONS:

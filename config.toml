@@ -46,3 +46,18 @@ commented_issue = "is:open is:issue commenter:vtjnash archived:false"
 [backlog]
 # Default size of `wl.py next`, the pull-based backlog queue.
 batch = 10
+
+[events]
+# Every comment and state change in these repos is logged locally, so the
+# per-event email notifications can be turned off. Polled with `since=`, which
+# is lossless - the cursor is ours, so nothing is missed because it was read
+# somewhere else. Volume is ~300 events/week across these.
+repos = [
+  "JuliaLang/julia",
+  "libuv/libuv",
+  "JuliaCI/julia-buildkite",
+  "JuliaLang/Distributed.jl",
+]
+# How far back an untouched item still counts as "new mail". Nothing is stored
+# but read.json (one timestamp per item), so this is just the query window.
+lookback_days = 30

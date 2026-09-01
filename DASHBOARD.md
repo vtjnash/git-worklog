@@ -1,6 +1,91 @@
 # Work dashboard
 
-_2026-09-01 14:12 UTC · 2010 items · 12 rate-limit points_
+_2026-09-01 14:24 UTC · 2010 items · 12 rate-limit points_
+
+## Unread (781)
+_`wl.py show <ref>` to read a thread, `wl.py read <ref>` when done, `wl.py read all` to zero the inbox._
+
+- [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
+  <sub>no comments · **needs-review** · 28d</sub>
+- [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown  
+  <sub>1 comments · **needs-edits** · 20d</sub>
+- [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
+  <sub>no comments · **needs-edits** · 17d</sub>
+- [julia-buildkite#619](https://github.com/JuliaCI/julia-buildkite/pull/619) debugging: support v2 updates  
+  <sub>no comments · **needs-nudge** · 13d</sub>
+- [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
+  <sub>no comments · **needs-edits** · 11d</sub>
+- [julia#45486](https://github.com/JuliaLang/julia/issues/45486) Support arbitrary bitwidth integers  
+  <sub>27 comments · **needs-reply** · 10d</sub>
+- [julia#62850](https://github.com/JuliaLang/julia/pull/62850) gf: resolve unordered pairs that an empty-set cover wins for reported ambiguities  
+  <sub>no comments · **draft** · 10d</sub>
+- [julia#35081](https://github.com/JuliaLang/julia/pull/35081) Sockets: reconsider how to define `bind` failure  
+  <sub>3 comments · **needs-stacking** · 10d</sub>
+- [julia#62284](https://github.com/JuliaLang/julia/pull/62284) runtime: Add searcher accounting and count-gated wakeups to the scheduler  
+  <sub>1 comments · **needs-review** · 7d</sub>
+- [julia#62396](https://github.com/JuliaLang/julia/pull/62396) gf: fix bug in has_ambig computation, improve accuracy with union of candidates  
+  <sub>12 comments · **needs-stacking** · 6d</sub>
+- [julia#62819](https://github.com/JuliaLang/julia/pull/62819) signals-mach: step past the safepoint poll instead of re-executing it  
+  <sub>10 comments · **needs-review** · 6d</sub>
+- [julia#61949](https://github.com/JuliaLang/julia/issues/61949) jl_jit_abi_converter now segfaults without codegen  
+  <sub>3 comments · **needs-reply** · 6d</sub>
+- [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
+  <sub>1 comments · **needs-review** · 4d</sub>
+- [julia#62905](https://github.com/JuliaLang/julia/pull/62905) codegen: Preserve alias metadata on small copies  
+  <sub>no comments · **needs-review** · 3d</sub>
+- [julia#62904](https://github.com/JuliaLang/julia/pull/62904) codegen: redesign aliasinfo again  
+  <sub>1 comments · **draft** · 3d</sub>
+- [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
+  <sub>4 comments · **needs-review** · 2d</sub>
+- [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
+  <sub>1 comments · **needs-review** · 1d</sub>
+- [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
+  <sub>7 comments · **needs-review** · 1d</sub>
+- [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
+  <sub>5 comments · **needs-reply** · today</sub>
+- [libuv#5223](https://github.com/libuv/libuv/pull/5223) win: allow uv_try_write() from a write callback  
+  <sub>1 comments · **needs-reply** · today</sub>
+- [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
+  <sub>no comments · **needs-nudge** · today</sub>
+- [libuv#5215](https://github.com/libuv/libuv/pull/5215) test: make the check_utime_ex fallthrough actually fail  
+  <sub>no comments · **needs-nudge** · today</sub>
+- [libuv#5214](https://github.com/libuv/libuv/pull/5214) win: actually cleanup all things on shutdown  
+  <sub>no comments · **needs-edits** · today</sub>
+- [libuv#5212](https://github.com/libuv/libuv/pull/5212) test: verify tests do not leak file descriptors  
+  <sub>no comments · **needs-edits** · today</sub>
+- [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
+  <sub>7 comments · **needs-stacking** · today</sub>
+- [libuv#5173](https://github.com/libuv/libuv/pull/5173) tcp,pipe: add uv_tcp_accept_raw/uv_pipe_accept_raw for zero-copy cross-loop load balancing  
+  <sub>2 comments · **needs-reply** · today</sub>
+- [libuv#4296](https://github.com/libuv/libuv/pull/4296) feat: Add a flag to the `uv_spawn` to trigger UAC on Windows  
+  <sub>6 comments · **needs-review** · today</sub>
+- [libuv#4636](https://github.com/libuv/libuv/pull/4636) src: win pipe add unix domain socket support  
+  <sub>50 comments · **needs-review** · today</sub>
+- [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
+  <sub>no comments · **needs-review** · today</sub>
+- [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
+  <sub>no comments · **needs-review** · today</sub>
+- [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
+  <sub>4 comments · **needs-reply** · today</sub>
+- [julia#44691](https://github.com/JuliaLang/julia/issues/44691) Alder Lake processors not detected correctly  
+  <sub>14 comments · closed · 29d</sub>
+- [julia#45984](https://github.com/JuliaLang/julia/issues/45984)  REPL tab completion doesn't recognize unicode operators as word boundary  
+  <sub>1 comments · closed · 29d</sub>
+- [julia#42364](https://github.com/JuliaLang/julia/issues/42364) GC hang waiting for threads  
+  <sub>15 comments · closed · 29d</sub>
+- [julia#37011](https://github.com/JuliaLang/julia/issues/37011) [docs] Better describe difference role of @spawn in multithreading  
+  <sub>1 comments · closed · 29d</sub>
+- [julia#17987](https://github.com/JuliaLang/julia/issues/17987) command line flag to limit heap memory usage?  
+  <sub>35 comments · closed · 29d</sub>
+- [julia#50517](https://github.com/JuliaLang/julia/issues/50517) heap-size-hint ignored with multithreading  
+  <sub>2 comments · closed · 29d</sub>
+- [julia#35143](https://github.com/JuliaLang/julia/issues/35143) Documentation for release candidate is missing  
+  <sub>3 comments · closed · 29d</sub>
+- [julia#28691](https://github.com/JuliaLang/julia/issues/28691) Add optimized implementations of reduce([hv]cat, itr) for iterators with known length  
+  <sub>no comments · closed · 29d</sub>
+- [Distributed.jl#197](https://github.com/JuliaLang/Distributed.jl/issues/197) Unexpected remotecall_fetch behavior  
+  <sub>no comments · 29d</sub>
+- _...and 741 more_
 
 ## Needs a reply (10)
 _You were mentioned and the last word is theirs._
@@ -34,11 +119,11 @@ _Review feedback, red CI, or you're the blocker._
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
   <sub>CI failure · 2 unresolved · 18d</sub>
 - [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown  
-  <sub>NEW · CI failure · 20d</sub>
+  <sub>CI failure · 20d</sub>
 - [libuv#5214](https://github.com/libuv/libuv/pull/5214) win: actually cleanup all things on shutdown  
-  <sub>moved · CI failure · 33d</sub>
+  <sub>CI failure · 33d</sub>
 - [libuv#5212](https://github.com/libuv/libuv/pull/5212) test: verify tests do not leak file descriptors  
-  <sub>NEW · CI failure · 34d</sub>
+  <sub>CI failure · 34d</sub>
 - [OpenBLAS#5582](https://github.com/OpenMathLib/OpenBLAS/pull/5582) Ensure feature parity for cmake with Makefile  
   <sub>CI failure · 48d</sub>
 - [OpenBLAS#5581](https://github.com/OpenMathLib/OpenBLAS/pull/5581) cmake: document options and set defaults for influential variables  
@@ -58,7 +143,7 @@ _Conflicts; rebase or restack with `gh stack`._
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
   <sub>conflicts · 48d</sub>
 - [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
-  <sub>moved · CI failure · conflicts · 52d</sub>
+  <sub>CI failure · conflicts · 52d</sub>
 
 ## Needs review (43)
 _Waiting on you to review someone else._
@@ -74,7 +159,7 @@ _Waiting on you to review someone else._
 - [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
   <sub>CI failure · 2d</sub>
 - [julia#62905](https://github.com/JuliaLang/julia/pull/62905) codegen: Preserve alias metadata on small copies  
-  <sub>3d</sub>
+  <sub>4d</sub>
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
   <sub>4d</sub>
 - [julia#62819](https://github.com/JuliaLang/julia/pull/62819) signals-mach: step past the safepoint poll instead of re-executing it  
@@ -162,9 +247,9 @@ _Yours, quiet, waiting on a reviewer._
 - [llvm-project#216271](https://github.com/llvm/llvm-project/pull/216271) PeepholeOpt: Avoid infinite loop on cyclic rewrite maps  
   <sub>18d</sub>
 - [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
-  <sub>NEW · 33d</sub>
+  <sub>33d</sub>
 - [libuv#5215](https://github.com/libuv/libuv/pull/5215) test: make the check_utime_ex fallthrough actually fail  
-  <sub>NEW · 33d</sub>
+  <sub>33d</sub>
 
 ## Drafts (2)
 _Yours, not yet proposed._
@@ -249,7 +334,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [llvm-project#139574](https://github.com/llvm/llvm-project/pull/139574) [VN] be more consistent about forwarding null inputs and ignoring SVE outputs <sub>251d</sub>
 - [llvm-mingw#532](https://github.com/mstorsjo/llvm-mingw/pull/532) [WIP] Add flang (Fortran) compiler support <sub>262d</sub>
 - [julia#43200](https://github.com/JuliaLang/julia/pull/43200) broadcast: disable nospecialize logic for outer method signature <sub>336d</sub>
-- [llvm-project#154356](https://github.com/llvm/llvm-project/pull/154356) [OrcJIT] distinguish normal and abrupt TaskDispatcher shutdown <sub>361d</sub>
+- [llvm-project#154356](https://github.com/llvm/llvm-project/pull/154356) [OrcJIT] distinguish normal and abrupt TaskDispatcher shutdown <sub>362d</sub>
 - [libuv#4875](https://github.com/libuv/libuv/pull/4875) misc: add clang thread safety analysis support <sub>369d</sub>
 - [libuv#4873](https://github.com/libuv/libuv/pull/4873) misc: add clang-format config file <sub>370d</sub>
 - [llvm-project#150808](https://github.com/llvm/llvm-project/pull/150808) [MemCpyOpt] add memcpy removal for write-once dest <sub>401d</sub>
@@ -270,13 +355,4 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 ## Background pile
 
 903 open PRs in JuliaLang/julia, 972 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl.py next`.
-
-## Changed since last refresh (6)
-
-- [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) — new
-- [libuv#5216](https://github.com/libuv/libuv/pull/5216) — new
-- [libuv#5215](https://github.com/libuv/libuv/pull/5215) — new
-- [libuv#5214](https://github.com/libuv/libuv/pull/5214) — unresolved None->0
-- [libuv#5212](https://github.com/libuv/libuv/pull/5212) — new
-- [libuv#5189](https://github.com/libuv/libuv/pull/5189) — unresolved None->0
 
