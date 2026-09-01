@@ -9,6 +9,7 @@ Work dashboard.
 
   wl refresh [--firehose]                 re-fetch, re-bucket, re-render
   wl unread                               JSON, for the navigator
+  wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl read    julia#62891                  mark a thread seen (or: read all)
   wl show    julia#62891                  state + the thread's recent comments
@@ -33,6 +34,14 @@ function dispatch(args::Vector{String})
     cmd == "refresh" && return refresh(args[2:end])
     cmd == "next" && return next_batch(length(args) > 1 ? parse(Int, args[2]) : 10)
     if cmd == "unread"
+        # With a ref it is the inverse of `read`; bare it is still the dump the
+        # navigator reads.
+        if length(args) > 1
+            u = resolve(args[2])
+            println(Events.mark_unread([u]) == 0 ? "was not marked read $u" :
+                    "marked unread $u")
+            return 0
+        end
         cfg = config()
         print(json_dumps(Events.unread(cfg, cfg["login"]; verbose = false)))
         return 0

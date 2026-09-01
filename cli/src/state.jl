@@ -85,6 +85,26 @@ function set_fields(url::AbstractString, updates)
     isempty(keep) ? "cleared" : "updated"
 end
 
+"""One field of one item's block, as it is written, or `nothing`.
+
+Read out of the file text rather than out of a parse, because a parse cannot
+tell an absent key from one set to an empty value - and that is exactly the
+distinction an undo needs, between putting a value back and removing the key.
+Surrounding quotes are stripped; anything else comes back as written.
+"""
+function get_field(url::AbstractString, key::AbstractString)
+    lines = load_lines()
+    span = block_span(lines, url)
+    span === nothing && return nothing
+    i, j = span
+    pat = Regex("^\\s*\\Q" * key * "\\E\\s*=\\s*(.*?)\\s*\$")
+    for b in lines[i+1:j-1]
+        m = match(pat, b)
+        m === nothing || return String(strip(String(m[1]), '"'))
+    end
+    nothing
+end
+
 "Drop any armed fingerprint so a re-snooze re-arms from the current state."
 function disarm(url::AbstractString)
     f = joinpath(ROOT, "snooze.json")

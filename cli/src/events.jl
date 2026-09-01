@@ -134,6 +134,40 @@ load_read() = isfile(READ) ?
     Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(READ, String))) :
     Dict{String,Any}()
 
+"The seen-up-to timestamp for one item, or `nothing` if it has never been read."
+read_at(url::AbstractString) = get(load_read(), String(url), nothing)
+
+"""Set, or with `nothing` clear, one item's seen-up-to timestamp.
+
+The primitive behind both marking and unmarking, and behind undoing either: the
+undo of a mark is not "mark it the other way", it is putting back whatever was
+there before, which may have been nothing at all.
+"""
+function set_read(url::AbstractString, at::Union{Nothing,AbstractString})
+    r = load_read()
+    u = String(url)
+    at === nothing ? (haskey(r, u) && delete!(r, u)) : (r[u] = String(at))
+    write(READ, json_dumps(r; indent = 1, sortkeys = true))
+    nothing
+end
+
+"""Forget the seen-up-to timestamps for these items, making them unread again.
+
+`unread()` calls an item unseen when it moved more recently than its timestamp
+here, so dropping the key restores it - provided it moved inside the lookback
+window, which is the same condition that governed it before it was ever marked.
+An item that has not moved in months does not come back, and should not.
+"""
+function mark_unread(urls)
+    r = load_read()
+    n = 0
+    for u in urls
+        haskey(r, String(u)) && (delete!(r, String(u)); n += 1)
+    end
+    n == 0 || write(READ, json_dumps(r; indent = 1, sortkeys = true))
+    n
+end
+
 function mark_read(urls)
     r = load_read()
     s = stamp()

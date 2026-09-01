@@ -221,6 +221,17 @@ function filter_summary(f)
     join(parts, " · ")
 end
 
+"""One undoable local action: what it was, and how to put it back.
+
+The stack's scope is exactly the lowercase keys, and not by coincidence. A
+capital reaches GitHub, and nothing here could take that back - so if this ever
+holds one, it is the binding rule that has gone wrong, not this.
+"""
+struct Undo
+    what::String
+    undo::Any            # () -> Nothing
+end
+
 """The browser's whole state.
 
 Keyword-constructed, with defaults: it has thirty fields, and the positional
@@ -267,6 +278,7 @@ Base.@kwdef mutable struct BState <: View
     sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
     selb::Int = 0
     mouse::Bool = true     # mirrors the controller, for the footer
+    undos::Vector{Undo} = Undo[]   # local actions, newest last
     search::String = ""    # the live query; "" when no search is running
     searchin::Symbol = :list  # the pane it was started in, and belongs to
     typing::Bool = false   # is the query still being typed?
@@ -1075,8 +1087,9 @@ function render_frame(st::BState, w::Int, h::Int)
                    "space/b page \u00b7 n/N node \u00b7 \u21b5 fold \u00b7 tab pane \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 q quit")
-    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read \u00b7 s snooze \u00b7 ",
-                   "e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
+    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r/u read \u00b7 s snooze \u00b7 ",
+                   "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
+                   " \u00b7 e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
     msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
     foot1 = string(AD, afit(keys1, w), AR)
     foot2 = if st.typing
@@ -1719,9 +1732,44 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     elseif k == Int('C'); compose_action(st, ctrl, it, iw)
     elseif k == Int('A'); review_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
-    elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
-    elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"])
-                          st.status = "snoozed"
+    elseif k in (Int('r'), Int('u'))
+        # Undoing a mark is not marking it the other way - it is putting back
+        # whatever was there, which may have been nothing at all.
+        seen = k == Int('r')
+        prev = Events.read_at(it.url)
+        was = it.url in st.unread
+        seen ? Events.mark_read([it.url]) : Events.mark_unread([it.url])
+        seen ? delete!(st.unread, it.url) : push!(st.unread, it.url)
+        push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
+            Events.set_read(it.url, prev)
+            was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
+        end))
+        # The unread lane is membership in that set, so it has to be rebuilt for
+        # the row to leave or arrive.
+        st.filters.state === :unread && refilter!(st)
+        st.status = seen ? "marked read" : "marked unread"
+    elseif k == Int('s')
+        prev = get_field(it.url, "snooze")
+        disarm(it.url)
+        set_fields(it.url, ["snooze" => "on-change"])
+        # `set_fields` removes a key when handed nothing, so this is the undo
+        # whether or not there was a snooze here before.
+        push!(st.undos, Undo(string("snooze ", it.ref),
+                             () -> set_fields(it.url, ["snooze" => prev])))
+        st.status = "snoozed"
+    elseif k == Int('z')
+        if isempty(st.undos)
+            st.status = "nothing to undo"
+        else
+            u = pop!(st.undos)
+            st.status = try
+                u.undo()
+                st.filters.state === :unread && refilter!(st)
+                string("undid: ", u.what)
+            catch e
+                string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
+            end
+        end
     end
     load_nodes!(st)
     load_meta!(st)

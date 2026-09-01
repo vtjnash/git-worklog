@@ -622,6 +622,83 @@ end
     @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"), W.HITBG)) == "foo bar baz"
 end
 
+@testset "z undoes local actions" begin
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    ctrl = W.Controller()
+
+    # The stack itself, with nothing touching a file.
+    st = mkstate()
+    @test isempty(st.undos)
+    W.handle!(st, Int('z'), ctrl)
+    @test st.status == "nothing to undo"
+    hits = Int[]
+    push!(st.undos, W.Undo("first", () -> push!(hits, 1)))
+    push!(st.undos, W.Undo("second", () -> push!(hits, 2)))
+    W.handle!(st, Int('z'), ctrl)
+    @test hits == [2] && occursin("second", st.status)     # newest first
+    W.handle!(st, Int('z'), ctrl)
+    @test hits == [2, 1] && isempty(st.undos)
+    # A failing undo reports rather than throwing over the frame.
+    push!(st.undos, W.Undo("bad", () -> error("boom")))
+    W.handle!(st, Int('z'), ctrl)
+    @test occursin("could not undo", st.status) && isempty(st.undos)
+
+    # r/u against the real read.json, put back afterwards either way.
+    readfile = joinpath(W.ROOT, "read.json")
+    before = read(readfile, String)
+    try
+        st = mkstate()
+        it = st.items[st.sel]
+        prev = W.Events.read_at(it.url)
+        W.handle!(st, Int('r'), ctrl)
+        @test st.status == "marked read"
+        @test W.Events.read_at(it.url) !== nothing
+        @test !(it.url in st.unread)
+        W.handle!(st, Int('z'), ctrl)
+        @test W.Events.read_at(it.url) == prev          # exactly what was there
+        @test read(readfile, String) == before          # byte for byte
+
+        W.handle!(st, Int('u'), ctrl)
+        @test st.status == "marked unread" && it.url in st.unread
+        @test W.Events.read_at(it.url) === nothing
+        W.handle!(st, Int('z'), ctrl)
+        @test W.Events.read_at(it.url) == prev
+        @test read(readfile, String) == before
+
+        # A run of them unwinds in order.
+        for _ in 1:3
+            W.handle!(st, Int('r'), ctrl)
+            st.sel = min(st.sel + 1, length(st.items))
+        end
+        @test length(st.undos) == 3
+        for _ in 1:3; W.handle!(st, Int('z'), ctrl); end
+        @test isempty(st.undos) && read(readfile, String) == before
+    finally
+        write(readfile, before)
+    end
+
+    # The footer counts what is pending.
+    st = mkstate()
+    push!(st.undos, W.Undo("x", () -> nothing))
+    @test occursin("z undo(1)", W.astrip(W.render(st, 165, 40)))
+end
+
+@testset "reading one field of state.toml" begin
+    # Read-only: this is the file the refresh promises never to write.
+    lines = W.load_lines()
+    blocks = [strip(l, ['[', ']', '"']) for l in lines if startswith(l, "[\"")]
+    if !isempty(blocks)
+        u = String(first(blocks))
+        @test W.get_field(u, "no-such-key") === nothing
+        # Whatever it has, it comes back unquoted.
+        for k in ("snooze", "track", "note")
+            v = W.get_field(u, k)
+            v === nothing || @test !startswith(v, "\"")
+        end
+    end
+    @test W.get_field("https://example.invalid/nope", "track") === nothing
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]

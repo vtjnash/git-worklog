@@ -169,30 +169,41 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### `z` undoes the last local action
-`r` and `s` change a file with no way back, and both are one keystroke on a list
-where the cursor moves under you. A per-session undo stack on `BState`, deepest
-first, so `z z z` walks back a run of them.
+### An `on-change` snooze can hide something forever
+There is no time limit on it. `snooze_active` arms a fingerprint and wakes the
+item when the fingerprint differs; if it never differs, the item never comes
+back. A pull request everyone has quietly given up on is exactly the shape that
+never differs, and it is also exactly the one worth being reminded of.
 
-What each needs put back:
+Worse in combination: `TRACK_KEYS["background"]` is the empty tuple, so a
+background-tracked item's fingerprint is a constant, so `armed != fp` is never
+true. An item that is both `track = "background"` and `snooze = "on-change"`
+cannot wake by any path at all. `wl dismiss` sets exactly that pair
+(`track = "loose"`, `snooze = "on-change"`) — loose, not background, so it is
+not the dismiss path that does it, but nothing stops the two being set together.
 
-- `r` calls `Events.mark_read([url])`, which sets `read.json[url]` to now. The
-  previous value has to be captured *before* the write — `load_read()` already
-  reads the whole file — and restored, or the key deleted when there was none.
-  That is exactly the operation the mark-unread entry wants, so build that first
-  and `z` becomes one of its callers.
-- `s` calls `disarm(url)` and then `set_fields(url, ["snooze" => "on-change"])`.
-  `set_fields` already removes a key when handed `nothing`, so the undo is
-  `set_fields(url, ["snooze" => previous])` with `previous === nothing` when
-  there was none. Reading `previous` needs a getter for one field of one block,
-  which `state.jl` does not have. `disarm` needs nothing put back: `snooze.json`
-  is machine-owned and the next refresh re-arms it from the current state.
-- `e` has nothing to undo. It launches an editor and changes nothing here.
+The date form is the only thing with a clock and it is a *separate* mode:
+`snooze = "2026-09-15"` wakes on the date and ignores movement entirely, so
+today it is either-or when the thing you usually want is both — wake when it
+moves, and in any case by some date.
 
-The scope is exactly the lowercase set, and that is not a coincidence: a posted
-comment cannot be taken back by rewriting a local file, and `z` must not look as
-though it might. If the stack ever holds something that reached GitHub, it is
-the binding rule that has gone wrong.
+Directions, roughly in order of how much they change:
+
+- a cap, as `snooze_max_days` in `config.toml`, applied inside `snooze_active`
+  alongside the fingerprint check. Needs the arming *time* stored, which
+  `snooze.json` does not currently hold — it holds only the fingerprint, so the
+  entry becomes an object and the file's readers have to tolerate both shapes.
+- a combined value, `on-change/30d`, which puts the cap on the item instead of
+  in the config and reads well in `state.toml`.
+- at minimum, surface it: the dashboard's Snoozed section prints the reason but
+  not the age, so nothing shows that something has been asleep for eight months.
+
+One related trap while in here: a snooze value that is neither `on-change` nor a
+parseable date returns `(false, "bad snooze value ...")`. That means *not
+snoozed*, so the item is not in the Snoozed section, so its reason is never
+printed anywhere — `wl snooze julia#1 3d` looks like it worked and silently does
+nothing. Relative values should either be accepted or rejected at the point they
+are typed.
 
 ### Search the source, not the screen
 `/` matches each row's *printed* text, which is what made highlighting possible
@@ -304,22 +315,17 @@ escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
 
-### Marking a thread unread again
-`r` marks a thread read and there is no way back. The only inverse today is
-editing `read.json` by hand, which is the file the whole unread lane is derived
-from - so a misplaced `r`, or one pressed on the wrong row, silently loses the
-one bit of state that cannot be re-derived from GitHub.
+### Should `r` mark read up to what is on screen?
+It marks read up to *now*. Read a thread, walk away, come back to comments that
+arrived while you were gone, and they are already marked seen — `mark_read`
+stamps the current time rather than the timestamp of the last comment you
+actually looked at.
 
-`Events.mark_read` writes one timestamp per URL into `read.json`; the inverse is
-deleting that key, and `unread()` then treats the item as unseen if it moved
-inside the lookback window. So this is a `mark_unread(urls)` beside it, a key in
-the browser (`R` is free, and pairs with `r`), and a line in `wl read`'s command
-surface for the non-interactive side.
-
-Worth deciding at the same time: whether `r` should mark read *up to the
-timestamp shown* rather than to now, so that reading a thread, walking away, and
-coming back does not mark comments read that arrived while you were gone. That
-is the same key doing a slightly different thing, not a second key.
+`Events.thread` already returns each comment's `created_at`, and the detail pane
+has them on screen; stamping the newest one that was rendered is the fix. The
+awkward part is that the pane may have been scrolled to the middle of a long
+thread, so "what was on screen" and "what was fetched" differ, and it is the
+second that `r` currently means.
 
 ### Inline code should not shout
 Term renders a markdown code span as `md_code`-styled backticks around
@@ -434,7 +440,12 @@ Small behaviour differences the port deliberately kept or introduced, recorded
 so they are not mistaken for bugs later:
 
 - `set_fields` moves edited keys to the end of their block and drops blank
-  lines *inside* an edited block. This matched the Python exactly.
+  lines *inside* an edited block. This matched the Python exactly. Note the
+  block's own trailing blank counts as inside it — `block_span` runs to the next
+  `[`, so the separator before the next block goes too, and `state.toml` grows
+  denser as blocks are edited. `z` therefore restores the *value* exactly and
+  the file only nearly: undoing a snooze leaves the key as it was and the blank
+  line gone.
 - An unquoted `deadline` (a bare TOML date) crashed the Python; the Julia
   flattens it to an ISO string instead.
 - `table_key_order` is untested against TOML shapes it does not parse, such as
