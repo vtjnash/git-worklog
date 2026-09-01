@@ -54,8 +54,21 @@ mutable struct Filters
     state::Symbol
     buckets::Set{String}      # empty means every category
     repos::Set{String}        # empty means every repo
+    labels::Set{String}       # empty means every label
 end
-Filters() = Filters(:active, Set{String}(), Set{String}())
+Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
+
+"""A copy with one axis replaced by one value.
+
+Used to count what selecting a row would actually add: the count beside a
+category is computed against the *other* axes, so it answers "how many would I
+get" rather than a total that ignores the rest of the filter.
+"""
+probe(f::Filters, axis::Symbol, v) =
+    axis === :state  ? Filters(v, f.buckets, f.repos, f.labels) :
+    axis === :bucket ? Filters(f.state, Set([v]), f.repos, f.labels) :
+    axis === :repo   ? Filters(f.state, f.buckets, Set([v]), f.labels) :
+                       Filters(f.state, f.buckets, f.repos, Set([v]))
 
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String})
@@ -66,6 +79,7 @@ function matches(f::Filters, it::Item, unread::Set{String})
     st === :active  && (it.snoozed || it.backlog) && return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
+    isempty(f.labels)  || any(in(f.labels), it.labels) || return false
     true
 end
 
@@ -81,20 +95,21 @@ function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
-        probe = Filters(k, f.buckets, f.repos)
-        n = count(it -> matches(probe, it, st.unread), st.all)
+        n = count(it -> matches(probe(f, :state, k), it, st.unread), st.all)
         push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
                                               rpad(name, 10), n)))
     end
     for (axis, label, values) in ((:bucket, "category", st.buckets),
-                                  (:repo, "repo", st.repos))
+                                  (:repo, "repo", st.repos),
+                                  (:label, "label", st.labels))
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
-        sel = axis === :bucket ? f.buckets : f.repos
+        sel = axis === :bucket ? f.buckets : axis === :repo ? f.repos : f.labels
         for v in values
-            probe = axis === :bucket ? Filters(f.state, Set([v]), f.repos) :
-                                       Filters(f.state, f.buckets, Set([v]))
-            n = count(it -> matches(probe, it, st.unread), st.all)
+            n = count(it -> matches(probe(f, axis, v), it, st.unread), st.all)
+            # A label nothing here carries is noise - and there are hundreds of
+            # them across this many repos. The zero-count skip is what keeps the
+            # list to the ones worth seeing.
             n == 0 && !(v in sel) && continue
             push!(rows, (axis, v, string(v in sel ? "[x] " : "[ ] ",
                                          rpad(first(v, 22), 24), n)))
@@ -116,6 +131,9 @@ function toggle_filter!(st)
     elseif axis === :repo
         val in st.filters.repos ? delete!(st.filters.repos, val) :
                                   push!(st.filters.repos, val)
+    elseif axis === :label
+        val in st.filters.labels ? delete!(st.filters.labels, val) :
+                                   push!(st.filters.labels, val)
     else
         return false
     end
@@ -136,6 +154,7 @@ function filter_summary(f)
     parts = [string(f.state)]
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
+    isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
     join(parts, " · ")
 end
 
@@ -168,6 +187,7 @@ Base.@kwdef mutable struct BState <: View
     filters::Filters = Filters()
     buckets::Vector{String} = String[]
     repos::Vector{String} = String[]
+    labels::Vector{String} = String[]
     lmode::Symbol = :items          # :items | :filters
     frow::Int = 2
     wake::Any = nothing             # set by the controller; called when a fetch lands
@@ -186,9 +206,17 @@ Base.@kwdef mutable struct BState <: View
     mouse::Bool = true     # mirrors the controller, for the footer
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
+    # Labels by how often they appear rather than alphabetically: there are
+    # hundreds across this many repos, and the ones reached for constantly
+    # should not be somewhere down past "upstream".
+    lc = Dict{String,Int}()
+    for it in all, l in it.labels
+        lc[l] = get(lc, l, 0) + 1
+    end
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   buckets = sort(unique(it.bucket for it in all)),
-                  repos = sort(unique(it.repo for it in all)))
+                  repos = sort(unique(it.repo for it in all)),
+                  labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)))
     refilter!(st)
     st
 end
@@ -474,17 +502,31 @@ struct Row
     part::Int
 end
 
-"Flatten open/closed nodes into rows, so selection and scrolling share one space."
+"""Flatten open/closed nodes into rows, so selection and scrolling share one space.
+
+Closing a node takes everything nested under it: the list is flat, so "nested"
+means the run of nodes deeper than it that follows it. That is what makes a
+folded `<details>` disappear with the comment it was written in, and the
+outdated review comments disappear with the header that counts them.
+"""
 function rows(nodes::Vector{Node}, w::Int)
     out = Row[]
+    hide = -1                 # while >= 0, skip anything deeper than this
     for (i, n) in enumerate(nodes)
+        if hide >= 0
+            n.depth > hide && continue
+            hide = -1
+        end
         pad = " "^(2 * n.depth)
         iw = max(20, w - 2 * n.depth)
         htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), iw)
         u = get(n.meta, "url", "")
         push!(out, Row(i, true, string(pad, AB, isempty(u) ? htxt : osc8(u, htxt), AR),
                        get(n.meta, "src", astrip(n.header)), 0))
-        n.open || continue
+        if !n.open
+            hide = n.depth
+            continue
+        end
         ls = nodelines(n, iw)                # fills n.srcs alongside n.cache
         for (j, l) in enumerate(ls)
             (part, src) = n.srcs[j]
@@ -1035,6 +1077,10 @@ function comment_nodes(it::Item)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
         # Anchored, so following it lands on this comment rather than the top.
         url = String(nz(get(c, "html_url", nothing), it.url))
+        # A review comment reads as a non-sequitur in a chronological list
+        # without the line it was left on. The diff pane places it against the
+        # code; here it at least says where it was pointing.
+        loc = comment_loc(c)
         made = body_nodes(string(nz(who, "?"), "  ", at), txt, url, true)
         # The peek belongs to the prose. A comment that is nothing but a folded
         # block has none, so it borrows the summary - "<details><summary>" is
@@ -1042,10 +1088,10 @@ function comment_nodes(it::Item)
         lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
                made[2].header : made[1].raw
         peek = strip(first(replace(lead, r"\s+" => " "), 58))
-        made[1].header = string(nz(who, "?"), "  ", at, "   ", peek)
+        made[1].header = string(nz(who, "?"), "  ", at, loc, "   ", peek)
         # The header's peek is cut mid-word; copy the byline instead, since the
         # body itself is on the rows underneath it.
-        made[1].meta["src"] = string(nz(who, "?"), "  ", at)
+        made[1].meta["src"] = string(nz(who, "?"), "  ", at, astrip(loc))
         append!(ns, made)
     end
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
@@ -1073,7 +1119,7 @@ function diff_nodes(it::Item)
                      first(sprint(showerror, e), 200), :plain, true)]
     end
     ns, file, buf, hdr = Node[], "", String[], ""
-    pending_range = (0, 0)
+    pending_range, pending_old = (0, 0), (0, 0)
     flush!() = if !isempty(hdr)
         adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
         dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
@@ -1082,6 +1128,10 @@ function diff_nodes(it::Item)
         n.meta["file"] = file
         n.meta["start"] = pending_range[1]
         n.meta["count"] = pending_range[2]
+        # The old-side range as well, so a comment left on a deleted line - which
+        # GitHub anchors to the LEFT side - can be placed too.
+        n.meta["ostart"] = pending_old[1]
+        n.meta["ocount"] = pending_old[2]
         n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
         n.meta["up"] = 0
         n.meta["down"] = 0
@@ -1097,15 +1147,135 @@ function diff_nodes(it::Item)
             m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", String(l))
             rng = m === nothing ? (0, 0) :
                   (parse(Int, m[3]), m[4] === nothing ? 1 : parse(Int, m[4]))
+            old = m === nothing ? (0, 0) :
+                  (parse(Int, m[1]), m[2] === nothing ? 1 : parse(Int, m[2]))
             hdr = string("@@ ", rng[1], ",", rng[2], " @@")
-            pending_range = rng
+            pending_range, pending_old = rng, old
             buf = String[]
         elseif !isempty(hdr)
             push!(buf, String(l))
         end
     end
     flush!()
-    isempty(ns) ? [Node("empty diff", "", :plain, true)] : ns
+    isempty(ns) && return [Node("empty diff", "", :plain, true)]
+    place_comments(ns, it)
+end
+
+"""Where a review comment was pointing: `file.jl:544`, or empty for a plain one.
+
+Falls back to `original_line` when `line` is null, which is how an outdated
+comment arrives - it is the wrong line in today's file, but it is the only
+number the comment has, and printing nothing there reads as a bug.
+"""
+function comment_loc(c)
+    p = String(nz(get(c, "path", nothing), ""))
+    isempty(p) && return ""
+    ln = something(get(c, "line", nothing), get(c, "original_line", nothing), "?")
+    string("  ", CYA, last(split(p, '/')), ":", ln, AR)
+end
+
+"Header for one review comment: who, when, where it pointed, and a peek."
+function comment_header(c)
+    who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
+    at = first(String(nz(get(c, "created_at", nothing), "")), 16)
+    peek = strip(first(replace(String(nz(get(c, "body", nothing), "")), r"\s+" => " "), 48))
+    (string(who, "  ", at, "   ", peek), string(who, "  ", at))
+end
+
+"""
+    place_comments(hunks, it) -> Vector{Node}
+
+Hang each review comment off the hunk it was left on.
+
+A review comment carries the file and line it points at, so it belongs against
+the code - not at the end of a chronological thread, which is where the `o`
+pane necessarily puts it, several screens away from the change it is a question
+about.
+
+`line` is the position in the file as it now stands. On a comment left against
+a line that has since changed it is null, and only `original_line` survives -
+which is a position in a diff that no longer exists. Those are gathered under a
+single folded header at the end rather than guessed at: placing one against
+whatever now occupies that line number would attach the discussion to unrelated
+code, which is worse than not placing it.
+
+Replies are threaded by `in_reply_to_id`; the API returns them flat and in
+creation order, and a reply carries the same anchor as its parent.
+"""
+function place_comments(hunks::Vector{Node}, it::Item)
+    cs = try
+        Events.review_comments(it.url)
+    catch
+        return hunks                # the diff is still worth reading without them
+    end
+    attach_comments(hunks, cs, it.url)
+end
+
+"The placement itself, given the comments - so it can be tested without GitHub."
+function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
+    isempty(cs) && return hunks
+    replies = Dict{Any,Vector{Any}}()
+    tops = Any[]
+    for c in cs
+        r = get(c, "in_reply_to_id", nothing)
+        r === nothing ? push!(tops, c) : push!(get!(replies, r, Any[]), c)
+    end
+
+    "The hunk a comment points into, by file and by the side it was left on."
+    function findhunk(c)
+        path = String(nz(get(c, "path", nothing), ""))
+        line = get(c, "line", nothing)
+        line === nothing && return nothing        # outdated: nothing to point at
+        right = String(nz(get(c, "side", nothing), "RIGHT")) != "LEFT"
+        for (i, n) in enumerate(hunks)
+            get(n.meta, "file", "") == path || continue
+            st_ = right ? n.meta["start"] : n.meta["ostart"]
+            ct = right ? n.meta["count"] : n.meta["ocount"]
+            st_ <= line <= st_ + max(ct, 1) - 1 && return i
+        end
+        nothing
+    end
+
+    emit!(out, c, depth) = begin
+        (hdr, src) = comment_header(c)
+        made = body_nodes!(Node[], hdr, strip(replace(String(nz(get(c, "body", nothing), "")),
+                                                      "\r\n" => "\n")),
+                           String(nz(get(c, "html_url", nothing), url)), true, depth)
+        made[1].meta["src"] = src
+        append!(out, made)
+        for r in get(replies, get(c, "id", nothing), ())
+            emit!(out, r, depth + 1)
+        end
+    end
+
+    byhunk = Dict{Int,Vector{Any}}()
+    orphans = Any[]
+    for c in tops
+        i = findhunk(c)
+        i === nothing ? push!(orphans, c) : push!(get!(byhunk, i, Any[]), c)
+    end
+
+    out = Node[]
+    for (i, n) in enumerate(hunks)
+        haskey(byhunk, i) &&
+            (n.header = string(n.header, "  ", CYA, "💬", length(byhunk[i]), AR))
+        push!(out, n)
+        for c in get(byhunk, i, ())
+            emit!(out, c, n.depth + 1)
+        end
+    end
+    if !isempty(orphans)
+        # Folded, and folding now hides the run nested under it, so this really
+        # does put them away.
+        h = Node(string(AD, length(orphans), " comment",
+                        length(orphans) == 1 ? "" : "s",
+                        " on lines that have since changed", AR), "", :plain, false)
+        push!(out, h)
+        for c in orphans
+            emit!(out, c, 1)
+        end
+    end
+    out
 end
 
 mode_nodes(mode::Symbol, it::Item) =

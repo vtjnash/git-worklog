@@ -216,6 +216,28 @@ function thread(url::AbstractString; limit::Int = 10)
     (body, cs[max(1, end - limit + 1):end])
 end
 
+"""Every review comment on a pull request, unabridged.
+
+Separate from `thread`, which merges review comments into the chronological
+list and then keeps only the most recent few. The diff pane wants all of them
+regardless of age - a comment is placed by where it points, not by when it was
+written - and wants the anchoring fields `thread` has no use for: `path`,
+`line`/`original_line`, `side` and `in_reply_to_id`.
+"""
+function review_comments(url::AbstractString; ttl = 300.0)
+    key = string("reviewcomments:", url)
+    hit = cache_get(key, ttl)
+    hit === nothing || return [OrderedDict{String,Any}(String(k) => v for (k, v) in c)
+                               for c in hit[1]]
+    parts = split(url, '/')
+    owner_repo = join(parts[4:5], '/')
+    num = parts[end]
+    cs = api_paged("/repos/$owner_repo/pulls/$num/comments")
+    sort!(cs; by = c -> String(get(c, "created_at", "")))
+    cache_put(key, cs)
+    cs
+end
+
 """
     itemmeta(url, is_pr) -> (requested, reviews, assignees, teams)
 

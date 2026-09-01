@@ -133,24 +133,12 @@ shipped are not listed; `git log` is the record of those.
 
 ### Review from inside the browser
 
-Everything here is read-only today. The natural next step is the review itself:
-read the diff, say something about a line, approve, label, move on. Four pieces
-that share one prerequisite - a token that can write. The sandbox's GitHub App
-token is read-only for most of this, so this lands behind the same PAT that
-Infrastructure below already wants.
+Reading a review has shipped: review comments are placed against the hunk they
+were left on, threaded by `in_reply_to_id`, with the ones GitHub can no longer
+anchor gathered under a folded header; and labels are carried through to the
+metadata pane and the filter pane.
 
-**Comments inline with the diff.** `Events.thread` already fetches
-`/pulls/N/comments` next to the issue comments and merges both into one flat,
-time-ordered list - so a review comment shows up in the `o` pane detached from
-the code it is about, and the `d` pane shows code nobody has said anything
-about. Each review comment carries `path`, `line`/`original_line`, `side`,
-`diff_hunk` and `in_reply_to_id`; `comment_nodes` throws all of it away. Keep
-those fields and hang each comment off the hunk node whose file and line range
-contains it. Two things to decide: what to do with a comment that lands outside
-every hunk of the current diff - an outdated one has a null `line` and only
-`original_line` to go on - and whether a reply thread becomes a nested node or
-an indented block inside the hunk's. Threading is by `in_reply_to_id`; the API
-returns them flat and does not group them.
+What is left is the writing, and all of it waits on a token that can write.
 
 **Writing a comment.** Three calls, in increasing order of ceremony:
 
@@ -176,12 +164,9 @@ the pending set wants to live on `BState` and be visible while it accumulates -
 a count in the footer, and a line in the metadata pane. An approval checkbox
 that submits an empty `APPROVE` is the common case and should be one key.
 
-**Labels.** `labels` is fetched by every GraphQL fragment, stored in
-`facts.json`, and already load-bearing for `state.jl`'s area matching - but
-`Item` drops it, so the browser cannot see it. Carry it through, then:
+**Labels.** Reading them has shipped - `Item` carries them, the metadata pane
+shows them and the filter pane has a label axis. What is left is writing:
 
-- a label axis in the filter pane beside category and repo. `Filters` and
-  `filter_rows` are already shaped for another checkbox group.
 - one-key toggles for the two or three reached for constantly (a backport
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.

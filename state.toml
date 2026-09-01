@@ -13,3 +13,6 @@
 
 ["https://github.com/JuliaCI/Nanosoldier.jl/pull/187"]
 snooze = "on-change"
+
+["https://github.com/JuliaLang/Distributed.jl/pull/198"]
+snooze = "on-change"

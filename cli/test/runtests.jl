@@ -159,6 +159,75 @@ end
     @test W.selrange(st) === nothing
 end
 
+@testset "folding takes what is nested under it" begin
+    ns = [W.Node("comment", "body", :md, true), W.Node("folded", "hidden", :md, true, 1),
+          W.Node("deeper", "also hidden", :md, true, 2), W.Node("sibling", "shown", :md, true)]
+    @test length(W.rows(ns, 60)) == 8
+    ns[1].open = false
+    shown = [W.astrip(r.text) for r in W.rows(ns, 60)]
+    @test shown == ["▸ comment", "▾ sibling", "shown"]
+    ns[1].open = true; ns[2].open = false
+    shown = [W.astrip(r.text) for r in W.rows(ns, 60)]
+    @test !any(occursin("deeper", x) for x in shown)     # the run below it goes too
+    @test any(occursin("sibling", x) for x in shown)     # but not its uncle
+end
+
+@testset "review comments land on their hunk" begin
+    hunk(file, start, count, ostart = start, ocount = count) = begin
+        n = W.Node("$file  @@ $start,$count @@", "-old\n+new", :diff, true)
+        merge!(n.meta, Dict{String,Any}("file" => file, "start" => start, "count" => count,
+                                        "ostart" => ostart, "ocount" => ocount,
+                                        "body" => "-old\n+new", "up" => 0, "down" => 0))
+        n
+    end
+    cmt(id, path, line; reply = nothing, side = "RIGHT", who = "alice") =
+        Dict{String,Any}("id" => id, "path" => path, "line" => line, "side" => side,
+                         "in_reply_to_id" => reply, "body" => "a remark",
+                         "user" => Dict{String,Any}("login" => who),
+                         "created_at" => "2026-08-01T10:00:00Z")
+
+    hs = [hunk("a.jl", 10, 5), hunk("b.jl", 100, 3)]
+    out = W.attach_comments(copy(hs), [cmt(1, "a.jl", 12), cmt(2, "a.jl", 12; reply = 1),
+                                       cmt(3, "b.jl", 101)], "http://x")
+    hdr(n) = W.astrip(n.header)
+    @test occursin("💬1", hdr(out[1]))                    # the hunk says so
+    @test hdr(out[2]) == "alice  2026-08-01T10:00   a remark" && out[2].depth == 1
+    @test out[3].depth == 2                               # the reply nests under it
+    @test occursin("💬1", hdr(out[4]))                    # and the second hunk
+
+    # Out of range, wrong file, and outdated all go to the same folded bucket.
+    out = W.attach_comments(copy(hs), [cmt(1, "a.jl", 999), cmt(2, "z.jl", 3),
+                                       cmt(3, "a.jl", nothing)], "http://x")
+    bucket = findfirst(n -> occursin("since changed", hdr(n)), out)
+    @test bucket !== nothing
+    @test !out[bucket].open                               # folded, so they are away
+    @test count(n -> n.depth == 1, out[bucket:end]) == 3
+    @test !any(occursin("a remark", W.astrip(r.text)) for r in W.rows(out, 90))
+
+    # A comment on a deleted line is anchored to the old side of the hunk.
+    hs2 = [hunk("a.jl", 10, 5, 40, 6)]
+    out = W.attach_comments(copy(hs2), [cmt(1, "a.jl", 42; side = "LEFT")], "http://x")
+    @test occursin("💬1", hdr(out[1])) && length(out) == 2
+end
+
+@testset "labels are a filter axis" begin
+    st = mkstate()
+    @test !isempty(st.labels)
+    # :all, so the state axis does not reject the sample before labels are read.
+    f = W.Filters(); f.state = :all
+    it = st.all[findfirst(x -> !isempty(x.labels), st.all)]
+    push!(f.labels, first(it.labels))
+    @test W.matches(f, it, Set{String}())
+    other = st.all[findfirst(x -> isempty(x.labels), st.all)]
+    @test !W.matches(f, other, Set{String}())
+    @test occursin(first(it.labels), W.filter_summary(f))
+    # Every label row the pane offers actually selects something.
+    st.filters = f
+    rows = W.filter_rows(st)
+    @test any(r -> r[1] === :label, rows)
+    @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]
