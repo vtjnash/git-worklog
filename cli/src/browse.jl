@@ -58,29 +58,63 @@ mutable struct Filters
 end
 Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
-"""A copy with one axis replaced by one value.
-
-Used to count what selecting a row would actually add: the count beside a
-category is computed against the *other* axes, so it answers "how many would I
-get" rather than a total that ignores the rest of the filter.
-"""
-probe(f::Filters, axis::Symbol, v) =
-    axis === :state  ? Filters(v, f.buckets, f.repos, f.labels) :
-    axis === :bucket ? Filters(f.state, Set([v]), f.repos, f.labels) :
-    axis === :repo   ? Filters(f.state, f.buckets, Set([v]), f.labels) :
-                       Filters(f.state, f.buckets, f.repos, Set([v]))
+"Does this item belong to one of the five exclusive states?"
+function state_ok(state::Symbol, it::Item, unread::Set{String})
+    state === :unread  && return it.url in unread
+    state === :snoozed && return it.snoozed
+    state === :backlog && return it.backlog
+    state === :active  && return !(it.snoozed || it.backlog)
+    true                                              # :all
+end
 
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String})
-    st = f.state
-    st === :unread  && !(it.url in unread) && return false
-    st === :snoozed && !it.snoozed && return false
-    st === :backlog && !it.backlog && return false
-    st === :active  && (it.snoozed || it.backlog) && return false
+    state_ok(f.state, it, unread) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
     true
+end
+
+"""
+    axis_counts(st) -> (states, buckets, repos, labels)
+
+How many items each filter value would select, in one pass over the items.
+
+Every count is against the *other* axes only - a category shows what selecting
+it would add, not a total that ignores the rest of the filter - so there are
+four different predicates over the same item, and computing them together is
+what makes this one pass instead of one per row. It was a pass per row: 93 rows
+over 2050 items came to 190,650 `matches` calls per build and two builds per
+keystroke, which made the filter pane the only part of the UI with visible lag -
+128ms a frame against 0.7ms for the item list.
+"""
+function axis_counts(st)
+    f = st.filters
+    states = Dict{Symbol,Int}()
+    buckets = Dict{String,Int}()
+    repos = Dict{String,Int}()
+    labels = Dict{String,Int}()
+    bump!(d, k) = d[k] = get(d, k, 0) + 1
+    for it in st.all
+        bok = isempty(f.buckets) || it.bucket in f.buckets
+        rok = isempty(f.repos)   || it.repo in f.repos
+        lok = isempty(f.labels)  || any(in(f.labels), it.labels)
+        sok = state_ok(f.state, it, st.unread)
+        if bok && rok && lok
+            for (k, _) in STATES
+                state_ok(k, it, st.unread) && bump!(states, k)
+            end
+        end
+        sok && rok && lok && bump!(buckets, it.bucket)
+        sok && bok && lok && bump!(repos, it.repo)
+        if sok && bok && rok
+            for l in it.labels
+                bump!(labels, l)
+            end
+        end
+    end
+    (states, buckets, repos, labels)
 end
 
 apply_filters(f, all, unread) = [it for it in all if matches(f, it, unread)]
@@ -93,20 +127,21 @@ of the filter.
 """
 function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
+    (nstate, nbucket, nrepo, nlabel) = axis_counts(st)
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
-        n = count(it -> matches(probe(f, :state, k), it, st.unread), st.all)
+        n = get(nstate, k, 0)
         push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
                                               rpad(name, 10), n)))
     end
-    for (axis, label, values) in ((:bucket, "category", st.buckets),
-                                  (:repo, "repo", st.repos),
-                                  (:label, "label", st.labels))
+    for (axis, label, values, tally) in ((:bucket, "category", st.buckets, nbucket),
+                                         (:repo, "repo", st.repos, nrepo),
+                                         (:label, "label", st.labels, nlabel))
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
         sel = axis === :bucket ? f.buckets : axis === :repo ? f.repos : f.labels
         for v in values
-            n = count(it -> matches(probe(f, axis, v), it, st.unread), st.all)
+            n = get(tally, v, 0)
             # A label nothing here carries is noise - and there are hundreds of
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
@@ -789,10 +824,9 @@ function layout(w::Int, h::Int, nmeta::Int = 0)
     side = w >= 110
     lw = leftw(w)
     rw = side ? w - lw : w
-    # Row 1 is the title bar and the last row the footer; panes fill the rest.
-    # title bar + panes + footer must total h exactly, or the frame leaves a
-    # dead row at the bottom of the terminal.
-    bodyh = max(6, h - 2)
+    # Row 1 is the title bar and the last two the footer; panes fill the rest.
+    # The key help outgrew one line, and letting it truncate hid half of it.
+    bodyh = max(6, h - 3)          # title bar, panes, then two rows of footer
     if side
         # The detail keeps the full height; the left column is split between the
         # list and the metadata, which takes what it needs and leaves the rest.
@@ -957,11 +991,18 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, riw - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · c checks · l log · y copy · C comment · A review · L labels · e edit · s snooze · m mouse ",
-                  st.mouse ? "on" : "off", " · q")
-    ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
-           isempty(st.status) ? keys : st.status
-    foot = string(AD, afit(ftxt, w), AR)
+    # Split the way the keys themselves divide: what shows you something, then
+    # what changes something. The status keeps the bottom row, where it has
+    # always been and where the eye already goes for it.
+    keys1 = string("[", filter_summary(st.filters), "]  f filters \u00b7 j/k line \u00b7 ",
+                   "space/b page \u00b7 n/N node \u00b7 \u21b5 fold \u00b7 tab pane \u00b7 ",
+                   "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
+                   "y copy \u00b7 q quit")
+    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read \u00b7 s snooze \u00b7 ",
+                   "e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
+    msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
+    foot1 = string(AD, afit(keys1, w), AR)
+    foot2 = string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
     body = L.side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
                     vcat(left, right)
     # Row 1 is a title bar so that selecting the top line in tmux - which
@@ -973,8 +1014,14 @@ function render_frame(st::BState, w::Int, h::Int)
         link = osc8(it.url, string(it.ref, "  ", it.title))
         string(" ", AB, link, AR, "  ", AD, "[", filter_summary(st.filters), "]", AR)
     end
-    frame = join(vcat([apad(afit(bar, w), w)], body, [apad(foot, w)]), "\n")
-    linkify(frame, links)
+    # Clamp to the terminal rather than trusting the arithmetic: on a very short
+    # terminal the pane minimums add up to more than there is room for, and a
+    # frame taller than the screen scrolls the title bar off the top.
+    all_ = vcat([apad(afit(bar, w), w)], body, [apad(foot1, w), apad(foot2, w)])
+    while length(all_) < h
+        push!(all_, " "^w)
+    end
+    linkify(join(all_[1:h], "\n"), links)
 end
 
 """

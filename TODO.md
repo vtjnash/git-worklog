@@ -162,25 +162,6 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### The filter pane is 180× slower than the list
-Measured on the current snapshot: a frame with the filter pane open takes
-**128ms**, against **0.7ms** for the same frame showing the item list, and a
-keystroke inside it costs another 82ms on top because `handle!` builds the rows
-a second time just to learn how many there are. That is the lag; nothing else in
-the UI is anywhere near it.
-
-`filter_rows` counts each row by running `matches` over every item:
-93 rows × 2050 items = 190,650 calls per build, twice per keystroke. The counts
-are the whole cost, and they do not need a pass per row - one pass over the
-items can tally every axis at once, since an item contributes to exactly one
-bucket, one repo, and one entry per label it carries. The state column is the
-only one that needs its own probe, and there are five of those.
-
-Watch two things while fixing it: the counts are deliberately computed against
-the *other* axes only (so a category shows what selecting it would add, not a
-total that ignores the rest of the filter), and the zero-count skip is what
-keeps 222 labels down to the few worth showing.
-
 ### `/` opens a search pane
 One key, doing the obvious thing for wherever the cursor is - the same shape as
 `C`:

@@ -394,6 +394,35 @@ end
     @test occursin("💬1", hdr(out[1])) && length(out) == 2
 end
 
+@testset "axis counts match the brute-force ones" begin
+    st = mkstate()
+    # What the counts used to be computed by: one full pass per value, with one
+    # axis replaced. Slow, obviously correct, and the thing to check against.
+    brute(f, axis, v) = begin
+        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels))
+        axis === :state  ? (p.state = v) :
+        axis === :bucket ? (p.buckets = Set([v])) :
+        axis === :repo   ? (p.repos = Set([v])) : (p.labels = Set([v]))
+        count(it -> W.matches(p, it, st.unread), st.all)
+    end
+    configs = [W.Filters(),
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}()),
+               W.Filters(:backlog, Set{String}(), Set{String}(), Set{String}()),
+               W.Filters(:all, Set(["needs-review"]), Set{String}(), Set{String}()),
+               W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]), Set{String}()),
+               W.Filters(:all, Set(["issue"]), Set(["JuliaLang/julia"]), Set(["docs"]))]
+    for f in configs
+        st.filters = f
+        (ns, nb, nr, nl) = W.axis_counts(st)
+        for (k, _) in W.STATES
+            @test get(ns, k, 0) == brute(f, :state, k)
+        end
+        for v in st.buckets;  @test get(nb, v, 0) == brute(f, :bucket, v); end
+        for v in first(st.repos, 12);  @test get(nr, v, 0) == brute(f, :repo, v); end
+        for v in first(st.labels, 12); @test get(nl, v, 0) == brute(f, :label, v); end
+    end
+end
+
 @testset "n/N steps between filter groups" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
