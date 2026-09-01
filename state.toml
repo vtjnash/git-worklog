@@ -10,15 +10,3 @@
 #   note       = "one line: what the next action actually is"
 #   blocked_on = ["JuliaLang/julia#62396"]
 #   agent_task = "rebase and rerun Compiler tests"   # promotes into needs-agents
-
-["https://github.com/JuliaLang/julia/pull/62452"]
-note = "rebase onto master; verify.jl still bans bare GlobalRef in value position"
-deadline = "2026-09-30"
-
-["https://github.com/JuliaLang/julia/pull/62841"]
-agent_task = "bisect the llvm-23 CI failures, prepare fixup commits"
-
-["https://github.com/libuv/libuv/pull/5212"]
-snooze = "on-change"
-["https://github.com/JuliaLang/julia/pull/62396"]
-note = "unblocks 62452; rebase this first"

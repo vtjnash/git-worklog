@@ -1,5 +1,5 @@
 {
- "fetched_at": "2026-09-01T03:58:44.748637+00:00",
+ "fetched_at": "2026-09-01T04:00:12.486343+00:00",
  "items": {
   "https://github.com/JuliaCI/BaseBenchmarks.jl/pull/283": {
    "agent_task": null,
@@ -3045,7 +3045,7 @@
    "my_last_review_at": "2026-08-25T14:44:31Z",
    "my_last_review_state": "COMMENTED",
    "new": false,
-   "note": "unblocks 62452; rebase this first",
+   "note": null,
    "number": 62396,
    "repo": "JuliaLang/julia",
    "review_count": 9,
@@ -3105,7 +3105,7 @@
    "bucket": "needs-stacking",
    "ci": "FAILURE",
    "created": "2026-07-21T20:31:54Z",
-   "deadline": "2026-09-30",
+   "deadline": null,
    "draft": true,
    "fp": "2e768681d8fbf223",
    "head_at": "2026-07-21T20:14:25Z",
@@ -3120,7 +3120,7 @@
    "my_last_review_at": null,
    "my_last_review_state": null,
    "new": false,
-   "note": "rebase onto master; verify.jl still bans bare GlobalRef in value position",
+   "note": null,
    "number": 62452,
    "repo": "JuliaLang/julia",
    "review_count": 0,
@@ -3800,10 +3800,10 @@
    "why": "discovery"
   },
   "https://github.com/JuliaLang/julia/pull/62841": {
-   "agent_task": "bisect the llvm-23 CI failures, prepare fixup commits",
+   "agent_task": null,
    "author": "vtjnash",
    "blocked_on": [],
-   "bucket": "needs-agents",
+   "bucket": "needs-edits",
    "ci": "FAILURE",
    "created": "2026-08-21T02:07:41Z",
    "deadline": null,
@@ -3833,7 +3833,7 @@
    "unresolved": 2,
    "updated": "2026-08-21T13:39:23Z",
    "url": "https://github.com/JuliaLang/julia/pull/62841",
-   "why": "you queued an agent task"
+   "why": "2 unresolved thread(s)"
   },
   "https://github.com/JuliaLang/julia/pull/62850": {
    "agent_task": null,
@@ -5073,7 +5073,7 @@
    "repo": "libuv/libuv",
    "review_count": 0,
    "review_decision": null,
-   "snooze_why": "woke earlier; re-snooze to re-arm",
+   "snooze_why": null,
    "snoozed": false,
    "title": "test: verify tests do not leak file descriptors",
    "type": "PullRequest",

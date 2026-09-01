@@ -1,14 +1,12 @@
 # Work dashboard
 
-_2026-09-01 03:58 UTC · 161 items · 21 rate-limit points_
+_2026-09-01 04:00 UTC · 161 items · 21 rate-limit points_
 
-## Deadlines
-
-- `2026-09-30` [julia#62452](https://github.com/JuliaLang/julia/pull/62452) IR: reformulate global reads via inference to binding partition
-
-## Needs edits (6)
+## Needs edits (7)
 _Review feedback, red CI, or you're the blocker._
 
+- [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
+  <sub>CI failure · 2 unresolved · 11d</sub>
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
   <sub>CI failure · 2 unresolved · 18d</sub>
 - [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown  
@@ -22,24 +20,15 @@ _Review feedback, red CI, or you're the blocker._
 - [OpenBLAS#5581](https://github.com/OpenMathLib/OpenBLAS/pull/5581) cmake: document options and set defaults for influential variables  
   <sub>CI failure · 48d</sub>
 
-## Needs agents (1)
-_Mechanical work you queued for delegation._
-
-- [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
-  <sub>CI failure · 2 unresolved · 11d</sub>  
-  > agent: bisect the llvm-23 CI failures, prepare fixup commits
-
 ## Needs stacking (6)
 _Conflicts; rebase or restack with `gh stack`._
 
-- [julia#62452](https://github.com/JuliaLang/julia/pull/62452) IR: reformulate global reads via inference to binding partition  
-  <sub>CI failure · conflicts · **due 2026-09-30** · 41d</sub>  
-  > rebase onto master; verify.jl still bans bare GlobalRef in value position
 - [julia#62396](https://github.com/JuliaLang/julia/pull/62396) gf: fix bug in has_ambig computation, improve accuracy with union of candidates  
-  <sub>CI failure · conflicts · 7d</sub>  
-  > unblocks 62452; rebase this first
+  <sub>CI failure · conflicts · 7d</sub>
 - [julia#35081](https://github.com/JuliaLang/julia/pull/35081) Sockets: reconsider how to define `bind` failure  
   <sub>1 unresolved · conflicts · 10d</sub>
+- [julia#62452](https://github.com/JuliaLang/julia/pull/62452) IR: reformulate global reads via inference to binding partition  
+  <sub>CI failure · conflicts · 41d</sub>
 - [ClaudeBox.jl#31](https://github.com/Keno/ClaudeBox.jl/pull/31) Prefer host git identity over GitHub for sandbox gitconfig  
   <sub>conflicts · 48d</sub>
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
