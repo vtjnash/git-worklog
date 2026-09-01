@@ -26,7 +26,6 @@ The split that makes it safe to let a model touch this:
 | `bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h (gitignored) |
 | `queue.json` | `wl next` | what the backlog queue has shown you (gitignored) |
 | `read.json` | `wl read` | one seen-up-to timestamp per item (gitignored) |
-| `autocommit.sh` | Stop hook | commits and pushes on session end |
 | `snooze.json` | `wl refresh` | overwritten every run |
 | `DASHBOARD.md` | `wl refresh` | overwritten every run |
 
@@ -129,13 +128,13 @@ though not its paginating helpers - see the `--paginate` note below.
 
 ## Saving
 
-A `Stop` hook runs `autocommit.sh` when a session ends: commits any change and
-pushes if a remote exists. It exits 0 unconditionally and runs `async`, because
-a Stop hook that fails or hangs degrades the session and nothing here is worth
-that. Before the remote exists it simply commits locally.
+Nothing commits automatically. `/root/.claude` is a host bind-mount, so the repo
+survives sandbox restarts on its own; commit when you have something worth
+keeping.
 
-The sandbox's GitHub App token is read-only for repo contents everywhere, so
-pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`.
+Pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`
+- the sandbox's GitHub App token is read-only for contents everywhere, including
+repos you own.
 
 ## Use
 
