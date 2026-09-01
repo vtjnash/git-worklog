@@ -169,42 +169,6 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### An `on-change` snooze can hide something forever
-There is no time limit on it. `snooze_active` arms a fingerprint and wakes the
-item when the fingerprint differs; if it never differs, the item never comes
-back. A pull request everyone has quietly given up on is exactly the shape that
-never differs, and it is also exactly the one worth being reminded of.
-
-Worse in combination: `TRACK_KEYS["background"]` is the empty tuple, so a
-background-tracked item's fingerprint is a constant, so `armed != fp` is never
-true. An item that is both `track = "background"` and `snooze = "on-change"`
-cannot wake by any path at all. `wl dismiss` sets exactly that pair
-(`track = "loose"`, `snooze = "on-change"`) — loose, not background, so it is
-not the dismiss path that does it, but nothing stops the two being set together.
-
-The date form is the only thing with a clock and it is a *separate* mode:
-`snooze = "2026-09-15"` wakes on the date and ignores movement entirely, so
-today it is either-or when the thing you usually want is both — wake when it
-moves, and in any case by some date.
-
-Directions, roughly in order of how much they change:
-
-- a cap, as `snooze_max_days` in `config.toml`, applied inside `snooze_active`
-  alongside the fingerprint check. Needs the arming *time* stored, which
-  `snooze.json` does not currently hold — it holds only the fingerprint, so the
-  entry becomes an object and the file's readers have to tolerate both shapes.
-- a combined value, `on-change/30d`, which puts the cap on the item instead of
-  in the config and reads well in `state.toml`.
-- at minimum, surface it: the dashboard's Snoozed section prints the reason but
-  not the age, so nothing shows that something has been asleep for eight months.
-
-One related trap while in here: a snooze value that is neither `on-change` nor a
-parseable date returns `(false, "bad snooze value ...")`. That means *not
-snoozed*, so the item is not in the Snoozed section, so its reason is never
-printed anywhere — `wl snooze julia#1 3d` looks like it worked and silently does
-nothing. Relative values should either be accepted or rejected at the point they
-are typed.
-
 ### Search the source, not the screen
 `/` matches each row's *printed* text, which is what made highlighting possible
 — a character offset in what prints is an offset that can be given a background.
@@ -387,6 +351,12 @@ at all.
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`
   until the lazy fetch lands.
+- **A snooze cap is measured from when it was armed, not from when you set it.**
+  `snooze.json` records the time the fingerprint was first taken, which is the
+  next refresh after the value appears in `state.toml` — close enough for a
+  thirty-day cap, wrong if you wanted the day you typed it. Entries written
+  before arming times existed adopt one on first sight rather than counting as
+  infinitely old, so an upgrade wakes nothing.
 - **Nesting is depth, not structure.** `Node.depth` draws a block inset and
   `rows` hides the run of deeper nodes under a closed one, which is enough to
   behave like a tree when reading. It is not one: nothing can be moved or

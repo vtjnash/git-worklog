@@ -46,7 +46,15 @@ that fingerprint differs. For a PR waiting on a reviewer this is the right
 primitive — a timer is guessing, and Octobox only offers 1h/1d/1w/1mo. Once
 woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
 
-`snooze = "2026-09-15"` still works for real calendar constraints.
+An `on-change` snooze on its own has no clock, and a pull request everybody has
+quietly given up on is exactly the shape whose fingerprint never differs — so it
+would hide forever, and that is the one worth being reminded of. Give it a
+deadline: `snooze = "on-change/30d"` wakes when it moves *or* after thirty days,
+whichever comes first, and `max_days` under `[snooze]` in `config.toml` is the
+default cap for the ones that carry none.
+
+`snooze = "2026-09-15"` still works for real calendar constraints, and
+`snooze = "3d"` / `"2w"` / `"6mo"` count from when you set them.
 
 ## Lanes
 

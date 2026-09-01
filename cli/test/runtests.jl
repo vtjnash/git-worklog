@@ -699,6 +699,62 @@ end
     @test W.get_field("https://example.invalid/nope", "track") === nothing
 end
 
+@testset "snooze" begin
+    using Dates
+    ago(d) = Dates.format(W.NOW[] - Day(d), "yyyy-mm-ddTHH:MM:SS") * "Z"
+    act(sv, snz, fp; cap = nothing) =
+        W.snooze_active("u", Dict("snooze" => sv), fp, snz, cap)
+
+    @test W.parse_snooze("on-change").mode === :onchange
+    @test W.parse_snooze("on-change/30d") == (mode = :onchange, days = 30, until = nothing)
+    @test W.parse_snooze("2w").days == 14
+    @test W.parse_snooze("6mo").days == 180
+    @test W.parse_snooze("2026-09-15").mode === :date
+    @test W.parse_snooze("3days") === nothing
+    @test W.parse_snooze("") === nothing
+
+    # on-change: arm, hold, wake on movement, then stay awake.
+    snz = Dict{String,Any}()
+    @test act("on-change", snz, "FP1") == (true, "until it moves")
+    @test W.snooze_entry(snz["u"])[1] == "FP1"
+    @test act("on-change", snz, "FP1")[1]
+    @test act("on-change", snz, "FP2") == (false, "woke: it moved")
+    @test act("on-change", snz, "FP2")[1] == false          # stays awake
+
+    # A cap wakes one that never moves - the whole point.
+    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(45)))
+    @test act("on-change", snz, "FP1"; cap = 30)[1] == false
+    @test occursin("asleep 45d", act("on-change", Dict{String,Any}(
+        "u" => W.snooze_record("FP1", ago(45))), "FP1"; cap = 30)[2])
+    # ...and the item's own cap beats the config default, either way.
+    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(45)))
+    @test act("on-change/60d", snz, "FP1"; cap = 30)[1] == true
+    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(10)))
+    @test act("on-change", snz, "FP1"; cap = 30)[1] == true
+
+    # Relative: counted from when it was armed, and blind to movement.
+    snz = Dict{String,Any}()
+    @test act("2w", snz, "FP1") == (true, "for 2w")
+    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(5)))
+    @test act("2w", snz, "FP1") == (true, "for 2w, 9d left")
+    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(20)))
+    @test act("2w", snz, "FP1") == (false, "woke: 2w elapsed")
+    @test act("2w", snz, "FPX")[1] == false
+
+    # The shape written before arming times existed is adopted, not woken: an
+    # upgrade must not wake every long-standing snooze at once.
+    snz = Dict{String,Any}("u" => "FP1")
+    @test act("on-change", snz, "FP1"; cap = 30)[1] == true
+    @test W.snooze_entry(snz["u"])[2] !== nothing
+    @test W.snooze_entry("WOKE") == ("WOKE", nothing)
+    @test W.snooze_entry(nothing) == (nothing, nothing)
+
+    @test act("2099-01-01", Dict{String,Any}(), "FP1")[1] == true
+    @test act("2020-01-01", Dict{String,Any}(), "FP1") == (false, "woke: snooze expired")
+    @test act("3days", Dict{String,Any}(), "FP1") == (false, "bad snooze value '3days'")
+    @test W.snooze_active("u", Dict{String,Any}(), "FP1", Dict{String,Any}()) == (false, nothing)
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]

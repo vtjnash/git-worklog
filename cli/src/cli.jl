@@ -125,6 +125,13 @@ function dispatch(args::Vector{String})
     if cmd == "snooze"
         disarm(url)
         value in ("off", "none", "") && (value = nothing)
+        # Reject it here rather than writing it. A value the refresh cannot parse
+        # leaves the item *not* snoozed, and the reason goes into a field only
+        # the snoozed section prints - so `wl snooze julia#1 3days` used to look
+        # like it worked and quietly do nothing at all.
+        value === nothing || parse_snooze(value) !== nothing ||
+            die("bad snooze value '$value'. Use on-change, on-change/30d, " *
+                "a span like 3d/2w/6mo/1y, or a date like 2026-09-15.")
     elseif cmd == "blocked_on"
         value = String.(split(value, ","))
     end

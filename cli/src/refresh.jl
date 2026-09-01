@@ -173,33 +173,113 @@ function derive_bucket(r, st, cfg)
     ("needs-review", "review requested")
 end
 
-"Returns (is_snoozed, reason). Arms an on-change snooze on first sight."
-function snooze_active(url, st, fp, snz)
+"""Days in a relative snooze - `3d`, `2w`, `6mo`, `1y` - or `nothing`.
+
+Months and years are 30 and 365 days. Nobody snoozing a pull request for six
+months means it to the calendar day, and pretending otherwise would need the
+arming date to be a `Date` rather than a timestamp.
+"""
+function rel_days(sv::AbstractString)
+    m = match(r"^(\d+)\s*(mo|[dwy])$", lowercase(strip(String(sv))))
+    m === nothing && return nothing
+    per = m[2] == "mo" ? 30 : m[2] == "w" ? 7 : m[2] == "y" ? 365 : 1
+    parse(Int, m[1]) * per
+end
+
+"""
+    parse_snooze(sv) -> (mode, days, until) or nothing
+
+The four shapes a `snooze` value can take:
+
+  * `on-change` (or `until-review`) - hide until the fingerprint differs
+  * `on-change/30d` - the same, but give up after that long
+  * `3d`, `2w`, `6mo` - hide for a while, counted from when it was set
+  * `2026-09-15` - hide until a date, ignoring movement entirely
+
+`nothing` for anything else, which is a value that was typed wrong.
+"""
+function parse_snooze(sv::AbstractString)
+    s = strip(lowercase(String(sv)))
+    (s == "on-change" || s == "until-review") &&
+        return (mode = :onchange, days = nothing, until = nothing)
+    if startswith(s, "on-change/") || startswith(s, "until-review/")
+        d = rel_days(last(split(s, '/')))
+        return d === nothing ? nothing : (mode = :onchange, days = d, until = nothing)
+    end
+    d = rel_days(s)
+    d === nothing || return (mode = :rel, days = d, until = nothing)
+    dt = tryparse(Date, strip(String(sv)))
+    dt === nothing ? nothing : (mode = :date, days = nothing, until = dt)
+end
+
+"""An armed snooze, as `(fingerprint, armed_at)`.
+
+Tolerates both shapes on disk: the bare fingerprint it used to be, and the
+record carrying the time it was armed. An entry written before this existed has
+no time, and is treated as arming now rather than as infinitely old - waking
+every long-standing snooze at once on the first refresh after an upgrade is not
+an improvement.
+"""
+function snooze_entry(v)
+    v === nothing && return (nothing, nothing)
+    v isa AbstractString && return (String(v), nothing)
+    fp, at = pget(v, "fp"), pget(v, "at")
+    (fp === nothing ? nothing : String(fp), at === nothing ? nothing : String(at))
+end
+
+snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
+
+"""Returns (is_snoozed, reason). Arms a snooze on first sight.
+
+`maxdays` is the fallback cap for an `on-change` that carries none of its own:
+without one it hides the item until the fingerprint differs, and a pull request
+that everybody has quietly given up on is exactly the shape whose fingerprint
+never differs. That is also the one worth being reminded about.
+"""
+function snooze_active(url, st, fp, snz, maxdays = nothing)
     s = get(st, "snooze", nothing)
     truthy(s) || return (false, nothing)
     sv = s isa AbstractString ? String(s) : string(s)
-    if sv in ("on-change", "until-review")
-        armed = get(snz, url, nothing)
-        if armed === nothing
-            snz[url] = fp          # arm now; wake when the fingerprint differs
-            return (true, "until it moves")
-        end
-        if armed == "WOKE"
-            # Stay awake once woken. Re-arming here would re-hide the item on the
-            # very next refresh, giving you a single window to notice it moved.
-            # `wl snooze <ref> on-change` re-arms deliberately.
-            return (false, "woke earlier; re-snooze to re-arm")
-        end
-        if armed != fp
-            snz[url] = "WOKE"
-            return (false, "woke: it moved")
-        end
-        return (true, "until it moves")
+    p = parse_snooze(sv)
+    p === nothing && return (false, "bad snooze value '$sv'")
+
+    if p.mode === :date
+        p.until <= TODAY[] && return (false, "woke: snooze expired")
+        return (true, "until $(p.until)")
     end
-    until = tryparse(Date, sv)
-    until === nothing && return (false, "bad snooze value '$sv'")
-    until <= TODAY[] && return (false, "woke: snooze expired")
-    (true, "until $until")
+
+    armed_fp, armed_at = snooze_entry(get(snz, url, nothing))
+    if armed_fp === nothing
+        snz[url] = snooze_record(fp, stamp())        # arm now
+        return (true, p.mode === :rel ? "for $sv" : "until it moves")
+    end
+    if armed_fp == "WOKE"
+        # Stay awake once woken. Re-arming here would re-hide the item on the
+        # very next refresh, giving you a single window to notice it moved.
+        # `wl snooze <ref> on-change` re-arms deliberately.
+        return (false, "woke earlier; re-snooze to re-arm")
+    end
+    # An entry from before arming times were recorded: adopt one now.
+    if armed_at === nothing
+        armed_at = stamp()
+        snz[url] = snooze_record(armed_fp, armed_at)
+    end
+    age = something(days_since(armed_at), 0)
+
+    if p.mode === :rel
+        age >= p.days && return (false, "woke: $sv elapsed")
+        return (true, "for $sv, $(p.days - age)d left")
+    end
+    if armed_fp != fp
+        snz[url] = "WOKE"
+        return (false, "woke: it moved")
+    end
+    cap = p.days === nothing ? maxdays : p.days
+    if cap !== nothing && age >= cap
+        snz[url] = "WOKE"
+        return (false, "woke: asleep $(age)d with no movement")
+    end
+    (true, age > 0 ? "until it moves (asleep $(age)d)" : "until it moves")
 end
 
 """
@@ -328,6 +408,8 @@ function refresh(args::Vector{String} = String[])
     state = load_state()
     factsp = joinpath(ROOT, "facts.json")
     prev_items = isfile(factsp) ? JSON3.read(read(factsp, String)).items : (;)
+    # A default cap for on-change snoozes that carry none of their own.
+    snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
     snzp = joinpath(ROOT, "snooze.json")
     snz = Dict{String,Any}()
     if isfile(snzp)
@@ -383,7 +465,7 @@ function refresh(args::Vector{String} = String[])
         r["deadline"] = get(st, "deadline", nothing)
         r["blocked_on"] = get(st, "blocked_on", String[])
         r["agent_task"] = get(st, "agent_task", nothing)
-        snoozed, sreason = snooze_active(url, st, r["fp"], snz)
+        snoozed, sreason = snooze_active(url, st, r["fp"], snz, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # The backlog is everything you are not actively carrying: the stale pile,
         # the discovery feed, and anything you explicitly pushed to background.
@@ -416,6 +498,14 @@ function refresh(args::Vector{String} = String[])
             push!(changes, (url, old, "closed or merged"))
             delete!(snz, url)
         end
+    end
+
+    # A bad value means "not snoozed", so the item is not in the snoozed section
+    # and its reason is printed nowhere. Say it here instead of losing it.
+    for (u, r) in items
+        w = get(r, "snooze_why", nothing)
+        w isa AbstractString && startswith(w, "bad snooze value") &&
+            @printf(stderr, "  %-16s %s  (%s)\n", "snooze", w, u)
     end
 
     write(factsp, json_dumps(["fetched_at" => now_isoformat(), "points" => spent,
