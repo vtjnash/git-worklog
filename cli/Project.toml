@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Jameson Nash <vtjnash@gmail.com>"]
 
 [deps]
+Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 GitHub = "bc5e4493-9b4d-5f90-b8aa-2b2bcaad7a26"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
@@ -16,6 +17,7 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
 
 [compat]
+Base64 = "1.11.0"
 GitHub = "5.13.0"
 Markdown = "1.11.0"
 OrderedCollections = "2.0.1"

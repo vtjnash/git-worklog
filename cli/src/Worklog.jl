@@ -33,6 +33,7 @@ using Dates, Printf, SHA, TOML
 using JSON3, OrderedCollections
 using REPL.TerminalMenus
 using SHA
+using Base64
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 

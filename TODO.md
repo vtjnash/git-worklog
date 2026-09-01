@@ -177,6 +177,8 @@ actual TTY:
   observed.
 - Raw mode setup and restoration on abnormal exit.
 - Whether the title-bar row actually settles the tmux copy-mode scroll.
+- Whether OSC 8 links and the OSC 52 copy survive this tmux (both need 3.4+,
+  and OSC 52 is opt-in in some terminals).
 - `open_editor`: `code` is not on PATH in the sandbox, so the launch is
   untested. The worktree *selection* around it is tested against a real
   worktree list.

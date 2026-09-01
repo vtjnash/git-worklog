@@ -268,8 +268,16 @@ function shortlink(u::AbstractString, w::Int = 58)
     u[1:prevind(u, w - 2)] * "…"
 end
 
-"OSC 8 hyperlink. Zero width in a real terminal, so it is applied after layout."
-osc8(url, text) = string("\e]8;;", url, "\e\\", text, "\e]8;;\e\\")
+"""OSC 8 hyperlink, underlined so it reads as one.
+
+Zero width in a real terminal, so it is safe to apply after layout. The
+underline is not decoration: terminals differ on whether they mark hyperlinks
+themselves, and an unmarked link is one nobody discovers.
+
+Note tmux only forwards OSC 8 from tmux 3.4; older versions strip it, and the
+link silently becomes plain text.
+"""
+osc8(url, text) = string("\e]8;;", url, "\e\\\e[4m", text, "\e[24m\e]8;;\e\\")
 
 "Render a node's body at width `w`, cached - markdown is too slow to redo per frame."
 function nodelines(n::Node, w::Int)
@@ -420,7 +428,8 @@ function render_frame(st::BState, w::Int, h::Int)
     # long thread.
     rrows = Tuple{Int,Bool,String}[]
     if it !== nothing
-        for (j, l) in enumerate(awrap(string(AB, it.ref, AR, "  ", it.title), inner(rw)))
+        htitle = osc8(it.url, string(AB, it.ref, AR, "  ", it.title))
+        for (j, l) in enumerate(awrap(htitle, inner(rw)))
             push!(rrows, (0, false, l))
         end
         push!(rrows, (0, false, string(AD, "─"^inner(rw), AR)))
@@ -452,7 +461,7 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · e edit · s snooze · q")
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy url · e edit · s snooze · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
     foot = string(AD, afit(ftxt, w), AR)
@@ -772,6 +781,13 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     if k == Int('d');     st.mode = :diff
     elseif k == Int('o'); st.mode = :comments
     elseif k == Int('C'); st.mode = :checks
+    elseif k == Int('y')
+        # OSC 52, so the copy works over ssh and through tmux. Also shown in the
+        # footer, since OSC 52 is disabled by default in some terminals.
+        i = curnode(st, iw)
+        u = i > 0 ? get(st.nodes[i].meta, "url", it.url) : it.url
+        print("\e]52;c;", Base64.base64encode(u), "\a")
+        st.status = string("copied ", u)
     elseif k == Int('l')
         i = curnode(st, iw)
         if i > 0 && haskey(st.nodes[i].meta, "bk")
