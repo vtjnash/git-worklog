@@ -23,6 +23,14 @@ const W = Worklog
     @test ev("\e[6~") == W.KeyEvent(W.K_PGDN)
     @test ev("\e[6;5~") == W.KeyEvent(W.K_PGDN)      # modified page-down
     @test ev("\e[Z") == W.KeyEvent(W.K_STAB)         # shift-tab
+    # Alt/Meta has three spellings in the wild and all of them turn up.
+    @test ev("\eb") == W.KeyEvent(W.K_WORD_LEFT)     # Terminal.app
+    @test ev("\ef") == W.KeyEvent(W.K_WORD_RIGHT)
+    @test ev("\e\x7f") == W.KeyEvent(W.K_WORD_BACK) # alt-backspace, everywhere
+    @test ev("\e[1;3D") == W.KeyEvent(W.K_WORD_LEFT) # CSI with a modifier
+    @test ev("\e[1;5C") == W.KeyEvent(W.K_WORD_RIGHT)# ctrl counts as by-word too
+    @test ev("\e\e[D") == W.KeyEvent(W.K_WORD_LEFT) # iTerm's Esc+
+    @test ev("\e[1;2D") == W.KeyEvent(W.K_LEFT)      # shift is not by-word
     @test ev("\e[3~") == W.KeyEvent(W.K_DEL)
     @test ev("\e[200~") == W.KeyEvent(-1)            # unknown, but consumed
 
@@ -73,6 +81,66 @@ end
     @test length(W.rows(ns, 80)) == 5
     ns[2].open = true
     @test length(W.rows(ns, 80)) > 5
+end
+
+@testset "word motion" begin
+    @test W.word_start("foo bar   ", 11) == 5      # over the spaces, then the word
+    @test W.word_start("foo bar", 8) == 5
+    @test W.word_start("foo", 1) == 1              # nothing behind the cursor
+    @test W.word_end("foo bar", 1) == 4
+    @test W.word_end("  foo bar", 1) == 6          # skip leading space first
+    @test W.word_end("foo", 4) == 4
+    # The two readline rules differ, and the difference is the point.
+    @test W.word_start("/usr/local/lib", 15) == 1                 # ^w: no space to stop at
+    @test W.word_start("/usr/local/lib", 15; alnum = true) == 12  # alt-bksp: just "lib"
+    @test W.word_end("foo.bar", 1; alnum = true) == 4
+end
+
+@testset "readline keys" begin
+    ctrl = W.Controller()
+    got = Ref("")
+    v = W.EditorView("t", "", t -> got[] = t)
+    type!(x) = for c in x; W.handle!(v, Int(c), ctrl); end
+
+    type!("alpha beta gamma")
+    W.handle!(v, W.C_W, ctrl)
+    @test W.text(v) == "alpha beta "
+    W.handle!(v, W.K_WORD_BACK, ctrl)
+    @test W.text(v) == "alpha "
+    W.handle!(v, W.C_A, ctrl); @test v.col == 1
+    W.handle!(v, W.C_E, ctrl); @test v.col == 7
+    W.handle!(v, W.K_WORD_LEFT, ctrl); @test v.col == 1
+    W.handle!(v, W.K_WORD_RIGHT, ctrl); @test v.col == 6
+    W.handle!(v, W.C_A, ctrl)
+    W.handle!(v, W.C_D, ctrl)                      # forward delete
+    @test W.text(v) == "lpha "
+
+    # ^w at column 1 joins upwards, the way backspace does.
+    v2 = W.EditorView("t", "", identity; initial = "one\ntwo")
+    W.handle!(v2, W.C_A, ctrl)
+    W.handle!(v2, W.C_W, ctrl)
+    @test W.text(v2) == "onetwo" && (v2.row, v2.col) == (1, 4)
+
+    # $EDITOR moved off ^e, which is now end-of-line.
+    v3 = W.EditorView("t", "", identity; initial = "abc")
+    v3.col = 1
+    W.handle!(v3, W.C_E, ctrl)
+    @test v3.col == 4 && W.text(v3) == "abc"       # nothing was launched
+
+    # The prompt has a cursor now, and the same keys.
+    p = W.PromptView("t", "", identity)
+    for c in "/usr/local/lib"; W.handle!(p, Int(c), ctrl); end
+    W.handle!(p, W.K_WORD_BACK, ctrl)              # alt-backspace: one component
+    @test p.buf == "/usr/local/"
+    W.handle!(p, W.C_A, ctrl); @test p.col == 1
+    W.handle!(p, Int('X'), ctrl)
+    @test p.buf == "X/usr/local/" && p.col == 2
+    W.handle!(p, W.C_E, ctrl); W.handle!(p, 127, ctrl)
+    @test p.buf == "X/usr/local"
+    W.handle!(p, W.C_W, ctrl)                      # ^w: the whole path at once
+    @test p.buf == ""
+    ls = split(W.render(p, 90, 24), "\n")
+    @test length(ls) == 24 && all(W.awidth(l) == 90 for l in ls)
 end
 
 @testset "the composer" begin

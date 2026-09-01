@@ -72,9 +72,43 @@ const K_END   = K_BASE + 6
 const K_PGUP  = K_BASE + 7
 const K_PGDN  = K_BASE + 8
 const K_STAB  = K_BASE + 9     # Shift-Tab, CSI Z
+const K_WORD_LEFT  = K_BASE + 10
+const K_WORD_RIGHT = K_BASE + 11
+const K_WORD_BACK  = K_BASE + 12    # delete the word before the cursor
 
 "A key that stands for a character someone meant to type."
 printable(k::Int) = (k >= 32 && k != 127 && k <= 0x10FFFF)
+
+# Readline's editing keys, by the control bytes they arrive as.
+const C_A, C_D, C_E, C_K, C_S, C_U, C_W, C_O = 1, 4, 5, 11, 19, 21, 23, 15
+
+"""Column where the word before `col` starts, by one of readline's two rules.
+
+Skip whatever does not count as a word immediately behind the cursor, then the
+run that does. Which rule matters: `^w` is unix-word-rubout, delimited by
+whitespace, and alt-backspace is backward-kill-word, delimited by anything
+non-alphanumeric. On `/usr/local/lib` the first takes the whole path - there is
+no whitespace to stop at - and the second takes only `lib`. Both are wanted,
+which is why both keys exist, so `alnum` picks between them.
+"""
+function word_start(s::AbstractString, col::Int; alnum::Bool = false)
+    inword(c) = alnum ? (isletter(c) || isnumeric(c)) : !isspace(c)
+    cs = collect(s)
+    i = min(col - 1, length(cs))
+    while i >= 1 && !inword(cs[i]); i -= 1; end
+    while i >= 1 && inword(cs[i]); i -= 1; end
+    i + 1
+end
+
+"Column just past the word after `col`, by the same rule in the other direction."
+function word_end(s::AbstractString, col::Int; alnum::Bool = false)
+    inword(c) = alnum ? (isletter(c) || isnumeric(c)) : !isspace(c)
+    cs = collect(s)
+    i = max(col, 1)
+    while i <= length(cs) && !inword(cs[i]); i += 1; end
+    while i <= length(cs) && inword(cs[i]); i += 1; end
+    i
+end
 
 """
     readevent(io) -> KeyEvent | MouseEvent
@@ -107,7 +141,32 @@ function readevent(io::IO)
     # A bare 27 is Escape; 27 with bytes behind it heads a sequence.
     bytesavailable(io) == 0 && return KeyEvent(27)
     a = read(io, UInt8)
-    (a == UInt8('[') || a == UInt8('O')) || return KeyEvent(-1)   # Alt-<key>
+    if a != UInt8('[') && a != UInt8('O')
+        # ESC-prefixed: the terminal is sending Meta/Alt as "escape, then the
+        # key". Which of the three spellings below arrives depends on the
+        # terminal and its settings, and they are all in use - Terminal.app
+        # sends `ESC b` for Alt-Left, iTerm in Esc+ mode sends `ESC ESC [ D`,
+        # and everything sends `ESC DEL` for Alt-Backspace.
+        a == 0x7f && return KeyEvent(K_WORD_BACK)
+        a == UInt8('b') && return KeyEvent(K_WORD_LEFT)
+        a == UInt8('f') && return KeyEvent(K_WORD_RIGHT)
+        if a == 0x1b && bytesavailable(io) > 0
+            # `ESC ESC [ D`: the second ESC opens the arrow's own sequence, so
+            # it is the head of a CSI and not a byte to step over.
+            c = read(io, UInt8)
+            if c == UInt8('[') || c == UInt8('O')
+                ev = read_csi(io)
+                ev isa KeyEvent && ev.code == K_LEFT && return KeyEvent(K_WORD_LEFT)
+                ev isa KeyEvent && ev.code == K_RIGHT && return KeyEvent(K_WORD_RIGHT)
+            end
+        end
+        return KeyEvent(-1)
+    end
+    read_csi(io)
+end
+
+"The body of a CSI sequence, with its `ESC [` already read."
+function read_csi(io::IO)
     params, fin = UInt8[], 0x00
     while true
         c = read(io, UInt8)
@@ -124,10 +183,16 @@ end
 function decode_csi(params::String, fin::Char)
     startswith(params, "<") && (fin == 'M' || fin == 'm') &&
         return decode_mouse(params[2:end], fin == 'M')
+    # `CSI 1;3D` is Alt-Left: the second parameter carries the modifiers, as
+    # 1 + shift + 2·alt + 4·ctrl. Either alt or ctrl on an arrow means the word,
+    # which is what both of them do everywhere else.
+    parts = split(params, ';')
+    mod = length(parts) >= 2 ? something(tryparse(Int, String(parts[2])), 1) : 1
+    byword = (mod - 1) & 0x06 != 0
     fin == 'A' && return KeyEvent(K_UP)
     fin == 'B' && return KeyEvent(K_DOWN)
-    fin == 'C' && return KeyEvent(K_RIGHT)
-    fin == 'D' && return KeyEvent(K_LEFT)
+    fin == 'C' && return KeyEvent(byword ? K_WORD_RIGHT : K_RIGHT)
+    fin == 'D' && return KeyEvent(byword ? K_WORD_LEFT : K_LEFT)
     fin == 'H' && return KeyEvent(K_HOME)
     fin == 'F' && return KeyEvent(K_END)
     fin == 'Z' && return KeyEvent(K_STAB)
@@ -324,9 +389,10 @@ mutable struct PromptView <: View
     title::String
     note::String
     buf::String
+    col::Int                 # cursor, 1 = before the first character
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
 end
-PromptView(title, note, onsubmit) = PromptView(title, note, "", onsubmit)
+PromptView(title, note, onsubmit) = PromptView(title, note, "", 1, onsubmit)
 
 function render(v::PromptView, w::Int, h::Int)
     box = min(w - 4, 100)
@@ -341,9 +407,13 @@ function render(v::PromptView, w::Int, h::Int)
     for l in awrap(v.note, box - 4)
         push!(lines, frame(l, "\e[2m"))
     end
-    push!(lines, frame(string("> ", v.buf, "\e[7m \e[0m")))
+    v.col = clamp(v.col, 1, length(v.buf) + 1)
+    pre = String(first(v.buf, v.col - 1))
+    at = v.col <= length(v.buf) ? string(collect(v.buf)[v.col]) : " "
+    post = v.col < length(v.buf) ? String(SubString(v.buf, nextind(v.buf, 0, v.col + 1))) : ""
+    push!(lines, frame(string("> ", pre, "\e[7m", at, "\e[0m", post)))
     push!(lines, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
-    push!(lines, string(" "^pad, "\e[2m  enter accept · esc cancel\e[0m"))
+    push!(lines, string(" "^pad, "\e[2m  enter accept · ^w word · ^a/^e line · esc cancel\e[0m"))
     while length(lines) < h; push!(lines, " "^w); end
     join([apad(l, w) for l in lines[1:h]], "\n")
 end
@@ -418,8 +488,11 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
         v.sel = max(1, v.sel - 1)
     elseif k in (127, 8)
         isempty(v.query) || (v.query = v.query[1:prevind(v.query, end)]; v.sel = 1)
-    elseif k == 21
+    elseif k == C_U
         v.query = ""; v.sel = 1
+    elseif k in (C_W, K_WORD_BACK)
+        v.query = String(first(v.query, word_start(v.query, length(v.query) + 1) - 1))
+        v.sel = 1
     elseif printable(k)
         v.query *= Char(k); v.sel = 1
     end
@@ -453,9 +526,10 @@ end
 """A small multi-line text area.
 
 Enough to write a review comment without leaving the program - insert,
-backspace, the arrows, home and end - and no more. `^e` hands the buffer to
-`\$EDITOR` for everything past that, which is where undo, search and your own
-keymap already live and are not worth reimplementing here.
+backspace, the arrows, home and end, and the readline keys people's fingers
+already know - and no more. `^o` hands the buffer to `\$EDITOR` for everything
+past that, which is where undo, search and your own keymap already live and are
+not worth reimplementing here.
 """
 mutable struct EditorView <: View
     title::String
@@ -533,7 +607,7 @@ function render(v::EditorView, w::Int, h::Int)
     end
     push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
     foot = isempty(v.status) ?
-           "^s submit · ^e \$EDITOR · ^k kill line · esc cancel" : v.status
+           "^s submit · ^o \$EDITOR · ^w word · ^a/^e line · esc cancel" : v.status
     push!(out, string(" "^pad, "\e[2m", afit(foot, box), "\e[0m"))
     top = max(0, (h - length(out)) ÷ 2)
     all = vcat([" "^w for _ in 1:top], out)
@@ -584,7 +658,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         end
         v.onsubmit(String(t))
         return :pop
-    elseif k == 5                                   # ^e
+    elseif k == C_O                                 # ^o: hand it to $EDITOR
         (txt, note) = compose_external(ctrl, text(v))
         v.lines = isempty(txt) ? [""] : String.(split(replace(txt, "\r\n" => "\n"), "\n"))
         v.row = length(v.lines); v.col = length(last(v.lines)) + 1
@@ -605,19 +679,41 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
             deleteat!(v.lines, v.row)
             v.row -= 1
         end
-    elseif k == K_DEL
+    elseif k in (K_DEL, C_D)
         if v.col <= n
             v.lines[v.row] = string(first(l, v.col - 1), l[nextind(l, 0, v.col + 1):end])
         elseif v.row < length(v.lines)
             v.lines[v.row] = string(l, v.lines[v.row + 1])
             deleteat!(v.lines, v.row + 1)
         end
-    elseif k == 11                                  # ^k
+    elseif k == C_K
         v.col <= n ? (v.lines[v.row] = String(first(l, v.col - 1))) :
                      (v.row < length(v.lines) && (v.lines[v.row] = string(l, v.lines[v.row + 1]);
                                                   deleteat!(v.lines, v.row + 1)))
-    elseif k == 21                                  # ^u
+    elseif k == C_U
         v.lines[v.row] = ""; v.col = 1
+    elseif k in (C_W, K_WORD_BACK)
+        ws = word_start(l, v.col; alnum = k == K_WORD_BACK)
+        if ws < v.col
+            v.lines[v.row] = string(first(l, ws - 1), l[nextind(l, 0, v.col):end])
+            v.col = ws
+        elseif v.row > 1                            # at column 1: join upwards
+            prev = v.lines[v.row - 1]
+            v.col = length(prev) + 1
+            v.lines[v.row - 1] = string(prev, l)
+            deleteat!(v.lines, v.row)
+            v.row -= 1
+        end
+    elseif k == K_WORD_LEFT
+        v.col > 1 ? (v.col = word_start(l, v.col; alnum = true)) :
+        v.row > 1 && (v.row -= 1; v.col = length(v.lines[v.row]) + 1)
+    elseif k == K_WORD_RIGHT
+        v.col <= n ? (v.col = word_end(l, v.col; alnum = true)) :
+        v.row < length(v.lines) && (v.row += 1; v.col = 1)
+    elseif k == C_A
+        v.col = 1
+    elseif k == C_E
+        v.col = n + 1
     elseif k == K_LEFT
         v.col > 1 ? (v.col -= 1) :
         v.row > 1 && (v.row -= 1; v.col = length(v.lines[v.row]) + 1)
@@ -646,11 +742,36 @@ function handle!(v::PromptView, k::Int, ctrl::Controller)
     elseif k == 27
         return :pop
     elseif k in (127, 8)
-        isempty(v.buf) || (v.buf = v.buf[1:prevind(v.buf, end)])
-    elseif k == 21                       # ctrl-u
-        v.buf = ""
+        if v.col > 1
+            v.buf = string(first(v.buf, v.col - 2), v.buf[nextind(v.buf, 0, v.col):end])
+            v.col -= 1
+        end
+    elseif k in (K_DEL, C_D)
+        v.col <= length(v.buf) &&
+            (v.buf = string(first(v.buf, v.col - 1), v.buf[nextind(v.buf, 0, v.col + 1):end]))
+    elseif k == C_U
+        v.buf = ""; v.col = 1
+    elseif k in (C_W, K_WORD_BACK)
+        ws = word_start(v.buf, v.col; alnum = k == K_WORD_BACK)
+        v.buf = string(first(v.buf, ws - 1), v.buf[nextind(v.buf, 0, v.col):end])
+        v.col = ws
+    elseif k == C_K
+        v.buf = String(first(v.buf, v.col - 1))
+    elseif k == K_WORD_LEFT
+        v.col = word_start(v.buf, v.col; alnum = true)
+    elseif k == K_WORD_RIGHT
+        v.col = word_end(v.buf, v.col; alnum = true)
+    elseif k == K_LEFT
+        v.col = max(1, v.col - 1)
+    elseif k == K_RIGHT
+        v.col = min(length(v.buf) + 1, v.col + 1)
+    elseif k in (C_A, K_HOME)
+        v.col = 1
+    elseif k in (C_E, K_END)
+        v.col = length(v.buf) + 1
     elseif printable(k)
-        v.buf *= Char(k)
+        v.buf = string(first(v.buf, v.col - 1), Char(k), v.buf[nextind(v.buf, 0, v.col):end])
+        v.col += 1
     end
     :ok
 end

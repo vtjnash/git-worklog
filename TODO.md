@@ -160,33 +160,6 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### Jump to the top, middle and bottom of the pane
-vim's `H`/`M`/`L` - high, middle, low - move the cursor to the top, middle and
-bottom of what is *visible*, which is a different move from `g`/`G`, and the one
-worth having when the window is the unit you are thinking in.
-
-Everything needed is already computed. The visible range is `st.top` for the
-list and `st.ntop` for the detail, both settled by `render`, and the pane
-heights come from `layout(w, h, st.nmeta)` - the same pair the mouse uses to turn
-a screen row into an index, so this is a handful of lines in each of the two
-focus branches of `handle!`. Detail-pane rows are offset by `st.hdr`.
-
-The question is which keys, because the obvious ones are taken:
-
-| key | today |
-|---|---|
-| `h` | free |
-| `m` | mouse reporting on/off |
-| `l` | fetch a Buildkite job's log |
-| `H` | free |
-| `M` | free |
-| `L` | toggle a label |
-
-So lowercase costs two rebindings and uppercase costs one, and `L` is the fresh
-binding of the three - it could move to `,` or to a labels entry in a future
-metadata-pane control. Uppercase also matches vim exactly, which is the reason
-for wanting them.
-
 ### The filter pane is 180× slower than the list
 Measured on the current snapshot: a frame with the filter pane open takes
 **128ms**, against **0.7ms** for the same frame showing the item list, and a
@@ -236,6 +209,34 @@ fenced block as plain indented text, clipped at the pane width with the overflow
 reachable some other way; or keep the panel and truncate its contents to fit,
 which loses the ends of exactly the lines somebody pasted a log to show; or let
 a code node scroll horizontally, which nothing else in the pane does.
+
+### Offer the composer to Term.jl
+Term has no text input at all - no line editor, no text area, nothing that takes
+a keystroke. `EditorView` and `PromptView` are small, and the parts worth having
+upstream are the parts that were annoying to get right: the input decoder, which
+handles the three spellings terminals use for Alt and assembles UTF-8 from its
+bytes; the two readline word rules, which genuinely differ; and the
+cursor-to-wrapped-row mapping, which is what makes a soft-wrapped text area
+behave.
+
+What would have to be untangled first, none of it deep:
+
+- They are `View`s, so they assume this program's controller - `render(v, w, h)`
+  returning a string, `handle!(v, k, ctrl)` returning an action, and a caller
+  that owns raw mode. Upstream would want the editing model separated from the
+  view, so a `TextBuffer` with `insert!`/`delete_word!`/`move!` could be driven
+  by whatever loop the user already has.
+- They draw with `apad`/`afit`/`awrap` from `ansi.jl` rather than with Term's
+  own measuring, because Term measures markup instead of what prints
+  (invariant 9). Upstream that is backwards: it should use Term's measurement,
+  which means the box-drawing has to be rewritten against `Panel` - and `Panel`
+  is exactly the thing that could not be trusted here.
+- `^o` shelling out to `InteractiveUtils.edit` needs the caller to hand back the
+  terminal for the duration. That is `suspend`, and it belongs upstream too,
+  since anything holding raw mode has the same problem.
+
+Worth asking on the repo before writing it: whether they want input in Term at
+all, given it has been a rendering library on purpose.
 
 ### Marking a thread unread again
 `r` marks a thread read and there is no way back. The only inverse today is
@@ -345,10 +346,14 @@ actual TTY:
   line, submitting a review, toggling a label: all five are written and none has
   ever been sent, because the token here cannot. The shapes of the requests are
   from the REST docs, not from a response.
-- `^e` in the composer, end to end. `suspend` is tested to run its body and put
+- `^o` in the composer, end to end. `suspend` is tested to run its body and put
   the alternate screen back, and the reader is armed one event at a time so it
   is not on the tty while a child runs - but no editor has actually been
   launched from inside the browser here.
+- Which spelling of Alt this terminal actually sends. All three are decoded and
+  each is tested from an `IOBuffer`, but which one arrives is a property of the
+  terminal and its settings - and on a Mac, Option may be composing characters
+  rather than sending Meta at all, in which case none of them arrive.
 - `^s` in the composer. Ctrl-S is XOFF under terminal flow control; raw mode
   should be clearing IXON, which has not been confirmed against a real tty.
 - `open_editor`: `code` is not on PATH in the sandbox, so the launch is
