@@ -52,6 +52,9 @@ python3 wl.py agent    julia#62841 "bisect the CI failures, prepare fixups"
 python3 wl.py snooze   libuv#5212  on-change     # or 2026-09-15, or off
 python3 wl.py deadline julia#62452 2026-09-30
 python3 wl.py blocked  julia#62452 JuliaLang/julia#62396
+python3 wl.py track    julia#62452 loose        # close|normal|loose|background
+python3 wl.py dismiss  julia#43202               # retire from the backlog
+python3 wl.py next     10                        # pull backlog to triage
 python3 wl.py bucket   julia#62452 needs-agents  # force a lane
 python3 wl.py clear    julia#62452
 python3 wl.py show     julia#62452
@@ -59,6 +62,29 @@ python3 wl.py show     julia#62452
 
 Refs are `repo#number` (or a full URL). Re-run `refresh.py` after edits to
 re-render.
+
+## Tracking levels
+
+`wl.py track <ref> close|normal|loose|background` sets how sensitive an item's
+wake is, not just how it is displayed. `loose` ignores CI churn, bot comments and
+relabels, waking only on a review decision or a human reply. `close` wakes on
+anything and pins the item to the top of its lane. Suggest `loose` for things the
+user is watching but not driving, `close` for whatever they are actively landing.
+
+## Working the backlog (pull, never push)
+
+Nothing from the backlog reaches the dashboard on its own. When the user wants to
+grind it down:
+
+```bash
+python3 wl.py next 10
+```
+
+That prints untagged backlog items, quietest first. Walk them with the user and
+tag each one — `dismiss` for anything no longer worth carrying, `track ... loose`
+for keep-but-quiet, `note` for anything they want revived. Tagged items never
+reappear in `next`, so the queue drains monotonically. Do not close PRs yourself;
+propose and let the user decide.
 
 ## The stale pile
 

@@ -5,6 +5,9 @@ Line-based on purpose: it rewrites only the keys you name, inside only the block
 you name, and leaves every other block, comment and blank line byte-identical.
 A TOML round-trip library would reformat the whole file and lose the comments.
 
+  wl.py next    [n]                       # pull the next untagged backlog items
+  wl.py track   julia#62452 close         # close | normal | loose | background
+  wl.py dismiss julia#62452               # retire from the backlog until it moves
   wl.py snooze  julia#62452 on-change     # or a date, or "off"
   wl.py note    julia#62452 "rebase after #62396 lands"
   wl.py deadline julia#62452 2026-09-30
@@ -20,8 +23,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / "state.toml"
-FIELDS = {"snooze", "note", "deadline", "agent_task", "bucket", "blocked_on"}
+FIELDS = {"snooze", "note", "deadline", "agent_task", "bucket", "blocked_on", "track"}
 ALIAS = {"agent": "agent_task", "blocked": "blocked_on"}
+TRACK = ("close", "normal", "loose", "background")
 
 
 def resolve(ref):
@@ -103,7 +107,52 @@ def disarm(url):
         f.write_text(json.dumps(d, indent=1, sort_keys=True))
 
 
+def next_batch(n):
+    """Hand back the next slice of untagged backlog, oldest-unseen first.
+
+    Pull, never push: nothing from the backlog reaches the dashboard on its own.
+    You ask for work when you want it. Items you have already tagged in
+    state.toml are considered triaged and never come back here.
+    """
+    import tomllib
+    facts = ROOT / "facts.json"
+    if not facts.exists():
+        sys.exit("no facts.json yet - run refresh.py first")
+    items = json.loads(facts.read_text())["items"]
+    state = tomllib.loads(STATE.read_text()) if STATE.exists() else {}
+    seen_path = ROOT / "queue.json"
+    seen = json.loads(seen_path.read_text()) if seen_path.exists() else {}
+    seen = {u: d for u, d in seen.items() if u in items}
+
+    pool = [u for u, r in items.items()
+            if r.get("backlog") and not r.get("snoozed") and not state.get(u)]
+    if not pool:
+        print("backlog is fully triaged")
+        return
+    def last_activity(u):
+        r = items[u]
+        return max([t for t in (r.get("head_at"), r.get("last_comment_at")) if t]
+                   or [r["updated"]])
+    # Never-shown first, then quietest first: the deepest backlog surfaces first.
+    pool.sort(key=lambda u: (seen.get(u, ""), last_activity(u), u))
+    batch = pool[:n]
+    print("%d untagged backlog items (%d shown)\n" % (len(pool), len(batch)))
+    for u in batch:
+        r = items[u]
+        ref = "%s#%s" % (r["repo"].split("/")[-1], r["number"])
+        print("%-22s %-6s %s" % (ref, r["bucket"], r["title"][:78]))
+        print("%-22s %s\n" % ("", u))
+        seen[u] = str(__import__("datetime").date.today())
+    seen_path.write_text(json.dumps(seen, indent=1, sort_keys=True))
+    print("tag each:  wl.py dismiss <ref> | track <ref> loose | note <ref> \"...\" | snooze <ref> <date>")
+
+
 def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    if sys.argv[1] == "next":
+        next_batch(int(sys.argv[2]) if len(sys.argv) > 2 else 10)
+        return
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     cmd, ref = sys.argv[1], sys.argv[2]
@@ -116,6 +165,14 @@ def main():
         print(url)
         print(json.dumps(st.get(url, {}), indent=1))
         return
+    if cmd == "dismiss":
+        # Retire a backlog item: stop caring about churn, but do not go blind to
+        # it. Loose tracking plus an on-change snooze means it comes back only if
+        # something that actually matters happens to it.
+        disarm(url)
+        set_fields(url, {"track": "loose", "snooze": "on-change"})
+        print("dismissed %s (returns only on a review, reply or close)" % url)
+        return
     if cmd == "clear":
         disarm(url)
         print("%s %s" % (set_fields(url, {k: None for k in FIELDS}), url))
@@ -125,6 +182,10 @@ def main():
     if len(sys.argv) < 4:
         sys.exit("need a value")
     value = " ".join(sys.argv[3:])
+    if cmd == "track":
+        if value not in TRACK:
+            sys.exit("track must be one of: %s" % ", ".join(TRACK))
+        disarm(url)          # a level change redefines "moved"; re-arm from now
     if cmd == "snooze":
         disarm(url)
         if value in ("off", "none", ""):

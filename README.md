@@ -45,11 +45,49 @@ woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
 
 `snooze = "2026-09-15"` still works for real calendar constraints.
 
+## How closely you track an item
+
+`track` sets both how sensitive its wake is and how prominently it shows. It is
+the answer to "I want to watch this one, and barely watch that one":
+
+| level | wakes on | default for |
+|---|---|---|
+| `close` | anything, including a relabel | — (pinned to the top of its lane, marked `*`) |
+| `normal` | pushes, CI, reviews, comments | your PRs, review requests |
+| `loose` | review decisions and **human** replies only — bot comments and CI churn are ignored | assigned issues, reviewed-and-waiting |
+| `background` | nothing; never surfaces on its own | the stale pile, the firehose |
+
+```bash
+python3 wl.py track julia#62452 close
+```
+
+Because the fingerprint is computed from the level's key set, this is a real
+difference in behaviour, not a label: a CI flip wakes `normal` but not `loose`,
+a relabel wakes only `close`, a human reply wakes all three.
+
+## Working the backlog
+
+Nothing from the backlog is ever pushed into the dashboard — the 44 stale PRs and
+the firehose stay collapsed and out of the lanes. You pull a batch when you want
+one, and work through it by tagging:
+
+```bash
+python3 wl.py next 10            # next untagged backlog items, quietest first
+python3 wl.py dismiss julia#43202  # retire: loose + wake only on real movement
+python3 wl.py track   julia#43257 loose
+python3 wl.py note    julia#44005 "still relevant; rebase onto the new pass manager"
+```
+
+Anything you have tagged never comes back in `next`, so the queue drains
+monotonically and you can stop and resume at any point. `queue.json` remembers
+what you have already been shown.
+
 ## The stale pile
 
-Yours, quiet for 60 days, and unclaimed → **Stale — decide**, collapsed. Setting
-any of `note` / `deadline` / `agent_task` / `snooze` claims an item and pulls it
-back into an active lane. Triage the pile once; claim what matters.
+Yours, quiet for 60 days, and unclaimed → **Stale — decide**, collapsed and out
+of the lanes. Setting any of `note` / `deadline` / `agent_task` / `snooze` claims
+an item and pulls it back into an active lane; `track` alone marks it triaged
+without reviving it.
 
 ## Use
 
@@ -71,6 +109,13 @@ review, issues assigned to you, plus a JuliaLang/julia discovery feed filtered t
 your areas (compiler, codegen, GC, multithreading, dispatch, ffi, latency …) and
 capped at 90 days.
 
-Note: GraphQL search silently returns 0 for `assignee:` without an explicit
+Two GitHub behaviours worth knowing, both of which cost real debugging:
+
+`mergeable` is computed **lazily** — the first read of a PR returns `UNKNOWN` and
+merely schedules the computation (94 of 145 on a cold run). Concluding from it
+flaps the needs-stacking lane and spuriously wakes `on-change` snoozes, so the
+last known value is carried forward until a real one arrives.
+
+GraphQL search silently returns 0 for `assignee:` without an explicit
 `is:issue` / `is:pr` qualifier, unlike REST. The `assigned` lane carries `is:issue`
 for that reason — do not remove it.

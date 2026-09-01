@@ -42,3 +42,9 @@ labels = [
   "caching",
 ]
 max_items = 300
+
+[backlog]
+# Default size of `wl.py next`, the pull-based backlog queue. Nothing from the
+# backlog is ever pushed into the dashboard; you ask for a batch when you want one.
+
+batch = 10

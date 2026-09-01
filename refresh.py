@@ -139,6 +139,8 @@ def normalize(n, lane, login):
     lastc = n["comments"]["nodes"]
     rec["last_comment_by"] = (lastc[0].get("author") or {}).get("login") if lastc else None
     rec["last_comment_at"] = lastc[0]["createdAt"] if lastc else None
+    rec["human_comment_at"] = (None if (rec["last_comment_by"] or "").endswith("[bot]")
+                               else rec["last_comment_at"])
 
     if is_pr:
         commits = n["commits"]["nodes"]
@@ -163,12 +165,38 @@ def normalize(n, lane, login):
     return rec
 
 
-def fingerprint(rec):
-    """What counts as 'this item moved'. Drives snooze = "on-change"."""
-    key = [rec.get("head_at"), rec.get("review_decision"), rec.get("mergeable"),
-           rec.get("ci"), rec.get("unresolved"), rec.get("review_count"),
-           rec.get("last_comment_at"), sorted(rec.get("labels", []))]
+# How closely you are tracking an item decides what counts as it having moved.
+# A loosely-tracked PR should not wake you because CI flapped or someone
+# relabelled it; a closely-tracked one should wake on anything at all.
+TRACK_KEYS = {
+    "close":      ("head_at", "review_decision", "mergeable", "ci", "unresolved",
+                   "review_count", "last_comment_at", "labels"),
+    "normal":     ("head_at", "review_decision", "ci", "unresolved",
+                   "review_count", "last_comment_at"),
+    "loose":      ("review_decision", "review_count", "human_comment_at"),
+    "background": (),          # empty key set -> constant -> never wakes
+}
+TRACK_ORDER = ("close", "normal", "loose", "background")
+
+
+def fingerprint(rec, level="close"):
+    """What counts as 'this item moved', at the given tracking level."""
+    keys = TRACK_KEYS.get(level, TRACK_KEYS["normal"])
+    key = [sorted(rec.get("labels") or []) if k == "labels" else rec.get(k)
+           for k in keys]
     return hashlib.sha256(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def resolve_track(st, bucket):
+    """Explicit setting wins; otherwise the lane picks a sensible default."""
+    t = st.get("track")
+    if t in TRACK_KEYS:
+        return t
+    if bucket in ("stale", "firehose"):
+        return "background"
+    if bucket in ("issue", "reviewed", "blocked"):
+        return "loose"
+    return "normal"
 
 
 # --- bucketing -------------------------------------------------------------
@@ -283,19 +311,34 @@ def main():
         kept += 1
     print("  %-9s %3d items kept of %d (%d pts)" % ("firehose", kept, len(nodes), c), file=sys.stderr)
 
-    # Bucket, fingerprint, snooze, diff.
+    # Bucket, then tracking level, then a fingerprint at that level, then snooze.
+    # Order matters: the level decides the fingerprint, which decides the wake.
     changes = []
     for url, r in items.items():
         st = state.get(url, {})
-        r["fp"] = fingerprint(r)
+        # GitHub computes mergeability lazily: the first read of a PR returns
+        # UNKNOWN and only schedules the real computation. Treating that as fact
+        # flaps the needs-stacking lane between refreshes and, worse, spuriously
+        # wakes on-change snoozes. Carry the last known value forward until a
+        # real one arrives - this read warms it for the next refresh.
+        if r.get("mergeable") == "UNKNOWN":
+            carried = (prev_items.get(url) or {}).get("mergeable")
+            r["mergeable"] = carried if carried != "UNKNOWN" else None
         r["bucket"], r["why"] = derive_bucket(r, st, cfg)
+        r["track"] = resolve_track(st, r["bucket"])
+        r["fp"] = fingerprint(r, r["track"])
+        r["fp_full"] = fingerprint(r, "close")
         r["note"] = st.get("note")
         r["deadline"] = st.get("deadline")
         r["blocked_on"] = st.get("blocked_on", [])
         r["agent_task"] = st.get("agent_task")
         snoozed, sreason = snooze_active(url, st, r["fp"], snz)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
+        # The backlog is everything you are not actively carrying: the stale pile,
+        # the discovery feed, and anything you explicitly pushed to background.
+        r["backlog"] = r["bucket"] in ("stale", "firehose") or r["track"] == "background"
         old = prev_items.get(url)
+        r["moved"] = bool(old) and old.get("fp_full") != r["fp_full"]
         if old is None:
             r["new"] = True
             changes.append((url, r, "new"))
@@ -361,7 +404,12 @@ def line(r):
         bits.append("%dd" % age)
     if r.get("new"):
         bits.insert(0, "NEW")
-    s = "- [%s](%s) %s" % (tag, r["url"], r["title"])
+    elif r.get("moved"):
+        bits.insert(0, "moved")
+    if r.get("track") in ("close", "loose"):
+        bits.insert(0, "track:%s" % r["track"])
+    star = "* " if r.get("track") == "close" else ""
+    s = "- %s[%s](%s) %s" % (star, tag, r["url"], r["title"])
     if bits:
         s += "  \n  <sub>%s</sub>" % " · ".join(bits)
     if r.get("note"):
@@ -373,7 +421,8 @@ def line(r):
 
 def urgency(r):
     d = r.get("deadline") or (r.get("milestone_due") or "")[:10]
-    return (d or "9999-99-99", activity_age(r) or 0)
+    return (0 if r.get("track") == "close" else 1,
+            d or "9999-99-99", activity_age(r) or 0)
 
 
 def render(items, changes, cfg, spent):
@@ -395,7 +444,8 @@ def render(items, changes, cfg, spent):
         out.append("")
 
     for key, title, blurb in SECTIONS:
-        rs = sorted([r for r in vis if r["bucket"] == key], key=urgency)
+        rs = sorted([r for r in vis if r["bucket"] == key and not r["backlog"]],
+                    key=urgency)
         if not rs:
             continue
         out += ["## %s (%d)" % (title, len(rs))]
@@ -440,7 +490,7 @@ def render(items, changes, cfg, spent):
                         r["title"], r.get("snooze_why") or ""))
         out += ["", "</details>", ""]
 
-    real = [c for c in changes if c[2] != "new" or c[1].get("lane") != "firehose"]
+    real = [c for c in changes if not c[1].get("backlog")]
     if real:
         out += ["## Changed since last refresh (%d)" % len(real), ""]
         for url, r, what in real[:40]:

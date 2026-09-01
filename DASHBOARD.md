@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 04:00 UTC · 161 items · 21 rate-limit points_
+_2026-09-01 11:26 UTC · 161 items · 21 rate-limit points_
 
 ## Needs edits (7)
 _Review feedback, red CI, or you're the blocker._
@@ -36,14 +36,16 @@ _Conflicts; rebase or restack with `gh stack`._
 - [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
   <sub>CI failure · conflicts · 52d</sub>
 
-## Needs review (42)
+## Needs review (43)
 _Waiting on you to review someone else._
 
+- [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
+  <sub>CI failure · 0d</sub>
 - [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
-  <sub>conflicts · 0d</sub>
-- [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
-  <sub>0d</sub>
+  <sub>CI pending · 0d</sub>
 - [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
+  <sub>1d</sub>
+- [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
   <sub>1d</sub>
 - [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
   <sub>CI failure · 2d</sub>
@@ -74,7 +76,7 @@ _Waiting on you to review someone else._
 - [Nanosoldier.jl#187](https://github.com/JuliaCI/Nanosoldier.jl/pull/187) Add instruction / branch counts to BenchmarkJob reports  
   <sub>conflicts · 151d</sub>
 - [julia#61025](https://github.com/JuliaLang/julia/pull/61025) codegen: represent Bool as i1 instead of i8 in LLVM IR  
-  <sub>CI failure · 1 unresolved · conflicts · 198d</sub>
+  <sub>CI failure · 1 unresolved · conflicts · 199d</sub>
 - [julia#43007](https://github.com/JuliaLang/julia/pull/43007) Add a warning against having multiple copies of a shared library loaded  
   <sub>conflicts · 209d</sub>
 - [julia#54890](https://github.com/JuliaLang/julia/pull/54890) REPL: add lock to orchestrate adding repl modes etc.  
@@ -84,7 +86,7 @@ _Waiting on you to review someone else._
 - [julia#59013](https://github.com/JuliaLang/julia/pull/59013) Don't inline callees if they might require `_compute_sparams`  
   <sub>1 unresolved · conflicts · 368d</sub>
 - [julia#50167](https://github.com/JuliaLang/julia/pull/50167) improve the interplay between bounds checking system and effect system  
-  <sub>conflicts · 457d</sub>
+  <sub>conflicts · 458d</sub>
 - [julia#43994](https://github.com/JuliaLang/julia/pull/43994) `AbstractInterpreter`: refactor the lifetimes of `OptimizationState` and `IRCode`  
   <sub>conflicts · 523d</sub>
 - [julia#56807](https://github.com/JuliaLang/julia/pull/56807) Support scope_id for link-local IPv6 (rfc4007)  
@@ -118,7 +120,7 @@ _Waiting on you to review someone else._
 - [julia#48059](https://github.com/JuliaLang/julia/pull/48059) RFC: Less aggressive recursion limiting  
   <sub>conflicts · 1295d</sub>
 - [julia#46962](https://github.com/JuliaLang/julia/pull/46962) make `CallInfo` propagate effects  
-  <sub>conflicts · 1348d</sub>
+  <sub>conflicts · 1349d</sub>
 - [JLLWrappers.jl#34](https://github.com/JuliaPackaging/JLLWrappers.jl/pull/34) Add workaround for `musl` lack of SONAME support  
   <sub>1 unresolved · conflicts · 1838d</sub>
 - [julia#39994](https://github.com/JuliaLang/julia/pull/39994) RFC: Add a hook for detecting task switches.  
@@ -134,7 +136,7 @@ _Yours, quiet, waiting on a reviewer._
 - [llvm-project#212615](https://github.com/llvm/llvm-project/pull/212615) [clang][ThreadSafety] Enable late parse for all capabilities, under the experimental flag  
   <sub>13d</sub>
 - [llvm-project#216271](https://github.com/llvm/llvm-project/pull/216271) PeepholeOpt: Avoid infinite loop on cyclic rewrite maps  
-  <sub>17d</sub>
+  <sub>18d</sub>
 - [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
   <sub>33d</sub>
 - [libuv#5215](https://github.com/libuv/libuv/pull/5215) test: make the check_utime_ex fallthrough actually fail  
@@ -151,43 +153,43 @@ _Yours, not yet proposed._
 ## Assigned issues (16)
 
 - [julia#24717](https://github.com/JuliaLang/julia/issues/24717) Pipe objects have lost their asyncness  
-  <sub>52d</sub>
+  <sub>track:loose · 52d</sub>
 - [julia#27813](https://github.com/JuliaLang/julia/issues/27813) extraneous type parameter induces segfault  
-  <sub>276d</sub>
+  <sub>track:loose · 276d</sub>
 - [julia#60148](https://github.com/JuliaLang/julia/issues/60148) Non-fatal error output in precompile test on master CI  
-  <sub>288d</sub>
+  <sub>track:loose · 288d</sub>
 - [julia#46739](https://github.com/JuliaLang/julia/issues/46739) Document memory model of Per-field atomics  
-  <sub>336d</sub>
+  <sub>track:loose · 336d</sub>
 - [julia#35800](https://github.com/JuliaLang/julia/issues/35800) problem with the unreliable approximation of `Core.Compiler.return_type`  
-  <sub>490d</sub>
+  <sub>track:loose · 491d</sub>
 - [julia#23619](https://github.com/JuliaLang/julia/issues/23619) implicit `module M` wrapping  
-  <sub>508d</sub>
+  <sub>track:loose · 508d</sub>
 - [julia#53109](https://github.com/JuliaLang/julia/issues/53109) incorrect hash for equal types, with Union instead of lower bound  
-  <sub>845d</sub>
+  <sub>track:loose · 845d</sub>
 - [julia#36605](https://github.com/JuliaLang/julia/issues/36605) Disallow reading directories as files  
-  <sub>1046d</sub>
+  <sub>track:loose · 1046d</sub>
 - [julia#40793](https://github.com/JuliaLang/julia/issues/40793) readbytes!: support the `all` keyword for all methods  
-  <sub>1817d</sub>
+  <sub>track:loose · 1818d</sub>
 - [julia#41538](https://github.com/JuliaLang/julia/issues/41538) Function attributes for `jl.get_pgcstack`  
-  <sub>1876d</sub>
+  <sub>track:loose · 1876d</sub>
 - [julia#6661](https://github.com/JuliaLang/julia/issues/6661) introduce va_list  
-  <sub>2512d</sub>
+  <sub>track:loose · 2512d</sub>
 - [julia#18004](https://github.com/JuliaLang/julia/issues/18004) show(io, x) vs show(io, "text/plain", x) -- docs?  
-  <sub>3090d</sub>
+  <sub>track:loose · 3090d</sub>
 - [julia#26107](https://github.com/JuliaLang/julia/issues/26107) windows libuv req bug  
-  <sub>3114d</sub>
+  <sub>track:loose · 3114d</sub>
 - [julia#22884](https://github.com/JuliaLang/julia/issues/22884) Serialize dynamically generated anonymous functions closing over any module (not just Main)   
-  <sub>3328d</sub>
+  <sub>track:loose · 3329d</sub>
 - [julia#13359](https://github.com/JuliaLang/julia/issues/13359) Call-site splatting optimization  
-  <sub>3604d</sub>
+  <sub>track:loose · 3604d</sub>
 - [LibExpat.jl#8](https://github.com/JuliaIO/LibExpat.jl/issues/8) xpath tests  
-  <sub>4827d</sub>
+  <sub>track:loose · 4827d</sub>
 
 ## Reviewed, waiting (1)
 _You reviewed; ball is with the author._
 
 - [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) avoid loading pkg until needed  
-  <sub>conflicts · 172d</sub>
+  <sub>track:loose · conflicts · 172d</sub>
 
 ## Stale — decide (44)
 _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`, `deadline` or `agent_task` to pull one back into an active lane; otherwise close it._
@@ -231,7 +233,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [julia#52004](https://github.com/JuliaLang/julia/pull/52004) Define minimum and maximum of empty arrays to return typemax and typemin <sub>726d</sub>
 - [julia#51495](https://github.com/JuliaLang/julia/pull/51495) RFC: syntax: add noinline/inline support overrides for structs <sub>787d</sub>
 - [julia#49793](https://github.com/JuliaLang/julia/pull/49793) macroexpand: stop pre-running the hygiene pass <sub>916d</sub>
-- [TranscodingStreams.jl#167](https://github.com/JuliaIO/TranscodingStreams.jl/pull/167) safety improvement to Memory <sub>940d</sub>
+- [TranscodingStreams.jl#167](https://github.com/JuliaIO/TranscodingStreams.jl/pull/167) safety improvement to Memory <sub>941d</sub>
 - [julia#46911](https://github.com/JuliaLang/julia/pull/46911) audit inbounds for arrays <sub>1033d</sub>
 - [julia#49272](https://github.com/JuliaLang/julia/pull/49272) memoize the freevars list, so less recursion is needed in subtyping <sub>1241d</sub>
 - [julia#44005](https://github.com/JuliaLang/julia/pull/44005) llvm-cpufeatures: get TargetMachine from the MachineModuleInfoWrapperPass pass <sub>1671d</sub>
@@ -241,13 +243,12 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 
 </details>
 
-## Firehose — JuliaLang/julia in your areas (37)
+## Firehose — JuliaLang/julia in your areas (36)
 _Not yours, not assigned to you. Discovery only._
 
 <details><summary>expand</summary>
 
 - [#62658](https://github.com/JuliaLang/julia/pull/62658) Stop recording edges for uninformative calls <sub>JamesWrigley · invalidations, backport 1.13</sub>
-- [#61479](https://github.com/JuliaLang/julia/pull/61479) Don't re-infer compiled CodeInstance from external images <sub>xal-0 · packages, latency, backport 1.13</sub>
 - [#61180](https://github.com/JuliaLang/julia/pull/61180) inference: consolidate recursion detection, return cached results for recursed edges <sub>adienes · bugfix, compiler:inference, caching</sub>
 - [#62920](https://github.com/JuliaLang/julia/pull/62920) Set a concrete type for WaitEntryN.task <sub>JamesWrigley · invalidations</sub>
 - [#62910](https://github.com/JuliaLang/julia/pull/62910) Make `foreigncall` / `foreignsymbol` `dlopen`-aware in `collectinvokes!` / `TrimVerifier` <sub>topolarity · trimming</sub>
@@ -268,8 +269,8 @@ _Not yours, not assigned to you. Discovery only._
 - [#61888](https://github.com/JuliaLang/julia/pull/61888) [experimental] codegen: add tiered compilation <sub>IanButterworth · performance, compiler:codegen, latency</sub>
 - [#62546](https://github.com/JuliaLang/julia/pull/62546) Remove malloc  as a Julia allocation path <sub>oscardssmith · GC</sub>
 - [#62034](https://github.com/JuliaLang/julia/pull/62034) jit: do not compile methods with different optlevel in the same llvm module <sub>KristofferC · compiler:codegen</sub>
-- [#61746](https://github.com/JuliaLang/julia/pull/61746) Allow setting the various optimization options on methods (as opposed to Modules) <sub>KristofferC · latency</sub>
 - [#62315](https://github.com/JuliaLang/julia/pull/62315) reinfer: retain invalidated code instances in the method instance cache <sub>KristofferC · compiler:precompilation</sub>
+- [#61746](https://github.com/JuliaLang/julia/pull/61746) Allow setting the various optimization options on methods (as opposed to Modules) <sub>KristofferC · latency</sub>
 - [#62416](https://github.com/JuliaLang/julia/pull/62416) codegen: Add specialized lowering for `Core.invoke_in_world` / `Core.invokelatest` <sub>topolarity · compiler:codegen, backport 1.13</sub>
 - [#50641](https://github.com/JuliaLang/julia/pull/50641) RFC: Effect Preconditions - or - the future of @inbounds <sub>Keno · performance, compiler:effects</sub>
 - [#62076](https://github.com/JuliaLang/julia/pull/62076) codegen: add memory effects to the gc_preserve intrinsics <sub>adienes · performance, compiler:codegen, compiler:llvm</sub>
