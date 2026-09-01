@@ -205,6 +205,28 @@ restricting to the first row), and the `▾`/`▸` marker itself should not repe
 on continuation rows. `Row` already carries `part`, which is exactly the flag
 needed to tell them apart.
 
+### Code blocks in comments are boxes, and long lines break them
+Term draws a fenced code block as a bordered panel sized to its longest line,
+not to the width it was asked for. A pasted gdb log or stack trace routinely
+runs to 130-250 columns, so in a 96-column pane the panel is wider than the pane
+and `awrap` hard-breaks it: the left border, some content, then the rest of that
+line on the following rows with the closing border landing in the middle of
+nothing. Distributed.jl#196 is the case to look at - its longest log line is 135
+columns against a 91-column panel.
+
+The content is readable; the box is the problem. Options, roughly in order of
+how much they change: stop letting Term draw the panel at all and render a
+fenced block as plain indented text, clipped at the pane width with the overflow
+reachable some other way; or keep the panel and truncate its contents to fit,
+which loses the ends of exactly the lines somebody pasted a log to show; or let
+a code node scroll horizontally, which nothing else in the pane does.
+
+Related and already fixed: the *copy* of such a block used to hand back the wide
+render's padded line - nineteen hundred columns of spaces with a border on the
+end - because a box normalises to the same text at both widths and matched
+one-to-one. `unwrap_map` now keeps the narrow line whenever a match consumed
+only one.
+
 ### Marking a thread unread again
 `r` marks a thread read and there is no way back. The only inverse today is
 editing `read.json` by hand, which is the file the whole unread lane is derived

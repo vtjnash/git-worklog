@@ -216,6 +216,123 @@ function thread(url::AbstractString; limit::Int = 10)
     (body, cs[max(1, end - limit + 1):end])
 end
 
+# --- writing ---------------------------------------------------------------
+#
+# Everything above reads. These five write, and they are the only functions in
+# the program that change anything on GitHub.
+#
+# Each returns a status string - empty for success, the failure otherwise - so a
+# caller can put it in the footer. They do not raise: a review that will not
+# post is a message to read, not a stack trace over the frame you were reading.
+#
+# A 403 here is worth naming specially. The sandbox's App token is scoped for
+# reading, so every one of these fails that way in this environment, and the
+# generic message ("Resource not accessible by integration") reads like a bug in
+# the request rather than the one thing it actually means.
+
+"Post one write, turning any failure into a line of text."
+function _write(f)
+    try
+        f()
+        ""
+    catch e
+        msg = first(sprint(showerror, e), 300)
+        occursin("not accessible by integration", msg) || occursin("403", msg) ?
+            "refused: this token cannot write. It needs a PAT with issues and \
+             pull_requests write access - see Infrastructure in TODO.md" :
+            first(msg, 160)
+    end
+end
+
+_repo_num(url) = (join(split(url, '/')[4:5], '/'), split(url, '/')[end])
+
+"Drop the cached reads an item's own write has just invalidated."
+function _invalidate(url)
+    for k in ("thread:", "reviewcomments:", "itemmeta:")
+        try
+            cache_put(string(k, url), nothing)
+        catch
+        end
+    end
+end
+
+"""Comment on the pull request or issue as a whole."""
+function post_comment(url::AbstractString, body::AbstractString)
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/issues/$n/comments";
+                            auth = auth(), params = Dict("body" => String(body)))
+        _invalidate(url)
+    end
+end
+
+"""Comment on one source line, as a standalone review comment.
+
+`commit_id` has to be the head the diff was read against, not the branch tip: a
+line number means nothing without the commit it was counted in.
+"""
+function post_review_comment(url::AbstractString, commit_id::AbstractString,
+                             path::AbstractString, line::Integer,
+                             side::AbstractString, body::AbstractString)
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/comments";
+                            auth = auth(),
+                            params = Dict("body" => String(body), "commit_id" => String(commit_id),
+                                          "path" => String(path), "line" => Int(line),
+                                          "side" => String(side)))
+        _invalidate(url)
+    end
+end
+
+"""Reply to an existing review comment, in its thread."""
+function reply_review_comment(url::AbstractString, comment_id, body::AbstractString)
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/comments";
+                            auth = auth(),
+                            params = Dict("body" => String(body), "in_reply_to" => comment_id))
+        _invalidate(url)
+    end
+end
+
+"""Submit a review: `APPROVE`, `REQUEST_CHANGES` or `COMMENT`.
+
+`REQUEST_CHANGES` and `COMMENT` require a body; `APPROVE` does not.
+"""
+function submit_review(url::AbstractString, event::AbstractString, body::AbstractString)
+    r, n = _repo_num(url)
+    _write() do
+        p = Dict{String,Any}("event" => String(event))
+        isempty(strip(body)) || (p["body"] = String(body))
+        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/reviews";
+                            auth = auth(), params = p)
+        _invalidate(url)
+    end
+end
+
+"""Add or remove one label. Labels live on the issue, for pull requests too."""
+function toggle_label(url::AbstractString, label::AbstractString, add::Bool)
+    r, n = _repo_num(url)
+    _write() do
+        if add
+            GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/issues/$n/labels";
+                                auth = auth(), params = Dict("labels" => [String(label)]))
+        else
+            GitHub.gh_delete(GitHub.DEFAULT_API,
+                             "/repos/$r/issues/$n/labels/$(HTTP_escape(label))";
+                             auth = auth())
+        end
+        _invalidate(url)
+    end
+end
+
+"A label can contain spaces and colons, which have to survive the path."
+HTTP_escape(s::AbstractString) =
+    join(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~" ?
+         string(c) : string("%", uppercase(string(UInt8(c), base = 16, pad = 2)))
+         for c in String(s))
+
 """Every review comment on a pull request, unabridged.
 
 Separate from `thread`, which merges review comments into the chronological

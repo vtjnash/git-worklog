@@ -415,7 +415,13 @@ function unwrap_map(narrow::Vector{String}, wide::Vector{String})
             acc == target && (hit = true; break)
         end
         if hit
-            src = plain(wide[j])
+            # The wide line is only worth having when it *joined* several narrow
+            # ones - that is the unwrapping. Matched one-to-one they are the
+            # same content, and the narrow one is the copy without the padding:
+            # a code block is a box, and Term pads the box out to whatever width
+            # it was given, so the wide side of a gdb log was handing a yank
+            # nineteen hundred columns of spaces with a border on the end.
+            src = k - i == 1 ? plain(narrow[i]) : plain(wide[j])
             for t in i:(k - 1)
                 out[t] = (t == i, src)
             end

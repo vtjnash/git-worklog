@@ -341,6 +341,84 @@ function render(v::PromptView, w::Int, h::Int)
     join([apad(l, w) for l in lines[1:h]], "\n")
 end
 
+# --- a picker, as a view ----------------------------------------------------
+
+"""Pick one of a list, narrowing by typing.
+
+The filter is what makes it usable rather than a nicety: there are a couple of
+hundred labels across these repos, and scrolling to one is not picking it.
+"""
+mutable struct ChooseView <: View
+    title::String
+    note::String
+    options::Vector{Tuple{String,Any}}    # (what is shown, what is returned)
+    query::String
+    sel::Int
+    top::Int
+    onpick::Any                           # (value) -> Nothing; not called on cancel
+end
+ChooseView(title, note, options, onpick) =
+    ChooseView(String(title), String(note), options, "", 1, 1, onpick)
+
+shown(v::ChooseView) = isempty(v.query) ? v.options :
+    [o for o in v.options if occursin(lowercase(v.query), lowercase(o[1]))]
+
+function render(v::ChooseView, w::Int, h::Int)
+    opts = shown(v)
+    box = min(w - 4, 76)
+    pad = (w - box) ÷ 2
+    iw = box - 4
+    bh = clamp(length(opts), 1, max(1, h - 10))
+    v.sel = clamp(v.sel, 1, max(1, length(opts)))
+    v.top = clamp(v.top, 1, max(1, length(opts)))
+    v.sel < v.top && (v.top = v.sel)
+    v.sel > v.top + bh - 1 && (v.top = v.sel - bh + 1)
+    v.top = clamp(v.top, 1, max(1, length(opts) - bh + 1))
+
+    frame(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
+                                  apad(afit(s, iw), iw), "\e[0m \e[2m│\e[0m")
+    out = [string(" "^pad, "\e[2m╭─ \e[0m\e[1m", afit(v.title, iw - 2), "\e[0m\e[2m ",
+                  "─"^max(0, box - 5 - awidth(afit(v.title, iw - 2))), "╮\e[0m")]
+    isempty(v.note) || push!(out, frame(v.note, "\e[2m"))
+    push!(out, frame(string("/ ", v.query, "\e[7m \e[0m")))
+    for i in v.top:(v.top + bh - 1)
+        if i > length(opts)
+            push!(out, frame(""))
+        else
+            push!(out, frame(opts[i][1], i == v.sel ? "\e[1;37m" : "\e[2m"))
+        end
+    end
+    isempty(opts) && (out[end] = frame("nothing matches", "\e[2m"))
+    push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
+    push!(out, string(" "^pad, "\e[2m", afit("↑/↓ move · ↵ pick · esc cancel", box), "\e[0m"))
+    top = max(0, (h - length(out)) ÷ 2)
+    all = vcat([" "^w for _ in 1:top], out)
+    while length(all) < h; push!(all, " "^w); end
+    join([apad(l, w) for l in all[1:h]], "\n")
+end
+
+function handle!(v::ChooseView, k::Int, ctrl::Controller)
+    opts = shown(v)
+    if k == 27
+        return :pop
+    elseif k in (13, 10)
+        isempty(opts) && return :ok
+        v.onpick(opts[clamp(v.sel, 1, length(opts))][2])
+        return :pop
+    elseif k in (K_DOWN, 14)
+        v.sel = min(length(opts), v.sel + 1)
+    elseif k in (K_UP, 16)
+        v.sel = max(1, v.sel - 1)
+    elseif k in (127, 8)
+        isempty(v.query) || (v.query = v.query[1:prevind(v.query, end)]; v.sel = 1)
+    elseif k == 21
+        v.query = ""; v.sel = 1
+    elseif printable(k)
+        v.query *= Char(k); v.sel = 1
+    end
+    :ok
+end
+
 # --- a multi-line composer, as a view ---------------------------------------
 
 """Split a line into fixed-width pieces, exactly as the composer draws it.
