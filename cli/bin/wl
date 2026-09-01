@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-# Interactive worklog navigator.
+# The work dashboard. No arguments opens the interactive navigator; anything
+# else is a command - `wl refresh`, `wl note <ref> "..."`, `wl next 10`, ...
 exec julia --startup-file=no --project="$(dirname "$0")/.." \
      -e 'using Worklog; exit(Worklog.main(ARGS))' -- "$@"

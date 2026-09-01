@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Re-fetch, re-bucket and re-render the dashboard. `--firehose` forces the
+# slow bulk lanes to refetch instead of using the 6-hour cache.
+exec "$(dirname "$0")/wl" refresh "$@"
