@@ -171,6 +171,40 @@ shows them and the filter pane has a label axis. What is left is writing:
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
 
+### The filter pane is 180× slower than the list
+Measured on the current snapshot: a frame with the filter pane open takes
+**128ms**, against **0.7ms** for the same frame showing the item list, and a
+keystroke inside it costs another 82ms on top because `handle!` builds the rows
+a second time just to learn how many there are. That is the lag; nothing else in
+the UI is anywhere near it.
+
+`filter_rows` counts each row by running `matches` over every item:
+93 rows × 2050 items = 190,650 calls per build, twice per keystroke. The counts
+are the whole cost, and they do not need a pass per row - one pass over the
+items can tally every axis at once, since an item contributes to exactly one
+bucket, one repo, and one entry per label it carries. The state column is the
+only one that needs its own probe, and there are five of those.
+
+Watch two things while fixing it: the counts are deliberately computed against
+the *other* axes only (so a category shows what selecting it would add, not a
+total that ignores the rest of the filter), and the zero-count skip is what
+keeps 222 labels down to the few worth showing.
+
+### Long node headers are cut, not wrapped
+A comment's header is the byline plus a peek at the body — and for a review
+comment, now also the file and line it points at. `rows` runs it through `afit`,
+so on a narrow pane it is truncated mid-sentence with an ellipsis instead of
+wrapping onto a second row. Seen on julia#18004, whose headers run to 91 columns
+before the pane is even involved.
+
+The work is not the wrapping, it is that `rows` currently emits exactly one row
+per node header and several things rely on it: `headerrow` takes the first match
+(fine), the fold-marker hit test treats columns 1-2 of any header row as the
+marker (a continuation row would toggle the fold, which probably wants
+restricting to the first row), and the `▾`/`▸` marker itself should not repeat
+on continuation rows. `Row` already carries `part`, which is exactly the flag
+needed to tell them apart.
+
 ### Marking a thread unread again
 `r` marks a thread read and there is no way back. The only inverse today is
 editing `read.json` by hand, which is the file the whole unread lane is derived

@@ -32,6 +32,7 @@ module Worklog
 using Dates, Printf, SHA, TOML
 using JSON3, OrderedCollections
 import REPL
+import InteractiveUtils
 using SHA
 using Base64
 
