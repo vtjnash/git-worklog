@@ -49,6 +49,14 @@ function cache_put(key::AbstractString, value)
     value
 end
 
+"""Drop one entry, so the next read goes to the network.
+
+For after a write: the thread you just commented on is exactly the thing whose
+cached copy is now wrong, and a TTL that made it fast to re-read makes it slow
+to notice.
+"""
+cache_drop(key::AbstractString) = (f = _slot(key); isfile(f) && rm(f; force = true); nothing)
+
 "Drop everything, or only entries older than `older_than` seconds."
 function cache_clear(; older_than::Real = 0)
     d = cachedir()

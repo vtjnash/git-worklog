@@ -16,7 +16,7 @@
 module Events
 
 # cache.jl is included into the parent before this file.
-import ..cache_get, ..cache_put
+import ..cache_get, ..cache_put, ..cache_drop
 
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
@@ -249,10 +249,7 @@ _repo_num(url) = (join(split(url, '/')[4:5], '/'), split(url, '/')[end])
 "Drop the cached reads an item's own write has just invalidated."
 function _invalidate(url)
     for k in ("thread:", "reviewcomments:", "itemmeta:")
-        try
-            cache_put(string(k, url), nothing)
-        catch
-        end
+        cache_drop(string(k, url))
     end
 end
 

@@ -291,7 +291,14 @@ function run!(ctrl::Controller, root::View)
                 act = ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
                                           handle!(v, ev.code, ctrl)
                 act === :quit && break
-                act === :pop && pop!(ctrl.stack)
+                # Pop the view that asked, not whatever is on top: a view may
+                # push its successor while handling the key it pops on - the
+                # picker that opens a composer does exactly that - and popping
+                # the top would throw away the one just pushed.
+                if act === :pop
+                    at = findlast(x -> x === v, ctrl.stack)
+                    at === nothing || deleteat!(ctrl.stack, at)
+                end
                 dirty = true
             end
         end
@@ -459,11 +466,13 @@ mutable struct EditorView <: View
     top::Int                 # first display row shown
     status::String
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
+    allow_empty::Bool        # an approval needs no words; a comment does
 end
-function EditorView(title, note, onsubmit; initial::AbstractString = "")
+function EditorView(title, note, onsubmit; initial::AbstractString = "",
+                    allow_empty::Bool = false)
     ls = isempty(initial) ? [""] : String.(split(replace(initial, "\r\n" => "\n"), "\n"))
     EditorView(String(title), String(note), ls, length(ls),
-               length(last(ls)) + 1, 1, "", onsubmit)
+               length(last(ls)) + 1, 1, "", onsubmit, allow_empty)
 end
 
 text(v::EditorView) = join(v.lines, "\n")
@@ -569,7 +578,11 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         return :pop
     elseif k == 19                                  # ^s
         t = strip(text(v))
-        isempty(t) || v.onsubmit(String(t))
+        if isempty(t) && !v.allow_empty
+            v.status = "nothing to send — esc cancels"
+            return :ok
+        end
+        v.onsubmit(String(t))
         return :pop
     elseif k == 5                                   # ^e
         (txt, note) = compose_external(ctrl, text(v))

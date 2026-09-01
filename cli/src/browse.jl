@@ -932,7 +932,7 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, riw - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy · e edit · s snooze · m mouse ",
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy · c comment · A review · L labels · e edit · s snooze · m mouse ",
                   st.mouse ? "on" : "off", " · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
@@ -1101,6 +1101,9 @@ function comment_nodes(it::Item)
         # The header's peek is cut mid-word; copy the byline instead, since the
         # body itself is on the rows underneath it.
         made[1].meta["src"] = string(nz(who, "?"), "  ", at, astrip(loc))
+        # Only a review comment can be replied to in a thread; an issue comment
+        # has no thread to reply into, so `c` there writes a new one.
+        isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
         append!(ns, made)
     end
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
@@ -1251,6 +1254,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
                                                       "\r\n" => "\n")),
                            String(nz(get(c, "html_url", nothing), url)), true, depth)
         made[1].meta["src"] = src
+        made[1].meta["comment_id"] = get(c, "id", nothing)
         append!(out, made)
         for r in get(replies, get(c, "id", nothing), ())
             emit!(out, r, depth + 1)
@@ -1508,6 +1512,9 @@ function handle!(st::BState, k::Int, ctrl::Controller)
             n.cw = -1; n.open = true
             st.status = "log fetched"
         end
+    elseif k == Int('c'); compose_action(st, ctrl, it, iw)
+    elseif k == Int('A'); review_action(st, ctrl, it)
+    elseif k == Int('L'); label_action(st, ctrl, it)
     elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
     elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"])
                           st.status = "snoozed"
@@ -1591,6 +1598,130 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
             (st.status = string(r[2] - r[1] + 1, " rows selected — y to copy"))
     end
     :ok
+end
+
+# --- writing ----------------------------------------------------------------
+
+"""
+    hunk_line_at(st, i, w) -> (line, side) or nothing
+
+The source line under the cursor inside hunk node `i`.
+
+The cursor is a display row and the hunk is diff lines, so the rows are counted
+back to a logical line first - `part == 0` marks the first row of each - and the
+hunk is then walked from its own top, which knows where it starts and how far
+`[`/`]` has widened it.
+
+The old-side number is only right while expansion has added pure context, which
+is all it ever adds; a hunk expanded across a deletion would drift.
+"""
+function hunk_line_at(st::BState, i::Int, w::Int)
+    n = st.nodes[i]
+    haskey(n.meta, "start") || return nothing
+    rs = rows(st.nodes, w)
+    idx = 0
+    for j in 1:min(st.nrow, length(rs))
+        r = rs[j]
+        (r.node == i && !r.header && r.part == 0) && (idx += 1)
+    end
+    idx == 0 && return nothing
+    lines = split(n.raw, "\n")
+    idx > length(lines) && return nothing
+    up = get(n.meta, "up", 0)
+    newno = n.meta["start"] - up
+    oldno = get(n.meta, "ostart", n.meta["start"]) - up
+    for (k, l) in enumerate(lines)
+        del, add = startswith(l, "-"), startswith(l, "+")
+        k == idx && return del ? (oldno, "LEFT") : (newno, "RIGHT")
+        del ? (oldno += 1) : add ? (newno += 1) : (oldno += 1; newno += 1)
+    end
+    nothing
+end
+
+"""What `c` writes to, given where the cursor is standing.
+
+One key rather than three, because the answer is never ambiguous: on a review
+comment it is a reply, on a hunk it is that line, and anywhere else it is the
+item itself.
+"""
+function compose_target(st::BState, iw::Int)
+    i = curnode(st, iw)
+    i == 0 && return (:item, nothing)
+    n = st.nodes[i]
+    cid = get(n.meta, "comment_id", nothing)
+    cid === nothing || return (:reply, cid)
+    if st.mode === :diff && haskey(n.meta, "file")
+        r = hunk_line_at(st, i, iw)
+        r === nothing || return (:line, (n.meta["file"], r[1], r[2]))
+    end
+    (:item, nothing)
+end
+
+"After a write lands, re-read the thread rather than showing the stale one."
+function reread!(st::BState)
+    st.loaded = ""; st.pendkey = ""
+    st.metakey = ""
+    load_nodes!(st); load_meta!(st)
+end
+
+"""Open the composer on whatever `c` is pointing at."""
+function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
+    (kind, target) = compose_target(st, iw)
+    if kind === :line && target[3] == "LEFT"
+        st.status = "a comment on a deleted line has to go to the old side — not wired up"
+        return
+    end
+    (title, note, submit) = if kind === :reply
+        (string("Reply · ", it.ref), "goes into this review thread",
+         b -> Events.reply_review_comment(it.url, target, b))
+    elseif kind === :line
+        sha = head_sha(it)
+        (string("Comment on ", target[1], ":", target[2]),
+         isempty(sha) ? "no head commit could be found — this will fail" :
+                        string("against ", first(sha, 8), ", posted on its own"),
+         b -> Events.post_review_comment(it.url, sha, target[1], target[2], target[3], b))
+    else
+        (string("Comment on ", it.ref), it.title, b -> Events.post_comment(it.url, b))
+    end
+    push_view!(ctrl, EditorView(title, note, b -> begin
+        r = submit(b)
+        st.status = isempty(r) ? "posted" : r
+        isempty(r) && reread!(st)
+    end))
+end
+
+"""Submit a review: pick the verdict, then write the body."""
+function review_action(st::BState, ctrl::Controller, it::Item)
+    it.is_pr || (st.status = "not a pull request"; return)
+    opts = [("approve", "APPROVE"), ("request changes", "REQUEST_CHANGES"),
+            ("comment", "COMMENT")]
+    push_view!(ctrl, ChooseView(string("Review ", it.ref), it.title, opts, ev -> begin
+        push_view!(ctrl, EditorView(
+            string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
+            ev == "APPROVE" ? "a body is optional; ^s submits the approval" :
+                              "GitHub requires a body for this",
+            b -> begin
+                r = Events.submit_review(it.url, ev, b)
+                st.status = isempty(r) ? string("submitted: ", replace(lowercase(ev), "_" => " ")) : r
+                isempty(r) && reread!(st)
+            end; allow_empty = ev == "APPROVE"))
+    end))
+end
+
+"""Toggle one label, chosen from this item's own plus every label seen."""
+function label_action(st::BState, ctrl::Controller, it::Item)
+    have = Set(it.labels)
+    all_ = sort(unique(vcat(it.labels, st.labels)); by = l -> (!(l in have), l))
+    opts = [(string(l in have ? "[x] " : "[ ] ", l), l) for l in all_]
+    push_view!(ctrl, ChooseView(string("Labels · ", it.ref), "↵ toggles one", opts,
+        l -> begin
+            on = l in have
+            r = Events.toggle_label(it.url, l, !on)
+            # `Item` comes from facts.json and is not rewritten here, so the
+            # metadata pane keeps showing the old set until the next refresh.
+            st.status = isempty(r) ? string(on ? "removed " : "added ", l,
+                                            " — shows here after `wl refresh`") : r
+        end))
 end
 
 # --- context expansion ------------------------------------------------------

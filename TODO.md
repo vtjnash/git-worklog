@@ -133,43 +133,38 @@ shipped are not listed; `git log` is the record of those.
 
 ### Review from inside the browser
 
-Reading a review has shipped: review comments are placed against the hunk they
-were left on, threaded by `in_reply_to_id`, with the ones GitHub can no longer
-anchor gathered under a folded header; and labels are carried through to the
-metadata pane and the filter pane.
+Written, and none of it exercised. The sandbox's App token reads, so every call
+below fails with a 403 here by design - the code names that case rather than
+passing GitHub's "Resource not accessible by integration" through, which reads
+like a malformed request. It needs a PAT with `issues: write` and
+`pull_requests: write`; see Infrastructure.
 
-What is left is the writing, and all of it waits on a token that can write.
+What is wired:
 
-**Writing a comment.** Three calls, in increasing order of ceremony:
+- `c` writes to whatever the cursor is standing on - a reply if it is on a
+  review comment, that source line if it is inside a hunk, the item itself
+  otherwise. One key, because the answer is never ambiguous.
+- `A` picks a verdict and then opens the composer. An approval may be empty; the
+  other two may not, which is GitHub's rule and not ours.
+- `L` toggles one label, chosen from a list that narrows as you type.
 
-- on the PR or issue as a whole: `POST /repos/{r}/issues/{n}/comments`.
-- on a source line, from the diff pane: `POST /repos/{r}/pulls/{n}/comments`
-  with `commit_id`, `path`, `line` and `side`. The hunk node already holds all
-  of it - `meta["file"]`, `meta["start"]`, the cursor's offset within the hunk,
-  and `head_sha(it)`.
-- replying to an existing review comment: the same endpoint with `in_reply_to`.
+What is left:
 
-The composer is the work, not the request. `PromptView` is one line with
-backspace and nothing else, which is not somewhere anyone will write a review.
-Either grow it into a multi-line editor view, or shell out to `$EDITOR` on a
-temp file - which means giving up raw mode and the alternate screen while it
-runs and restoring both afterwards. The controller owns both, so that belongs
-there, as a `suspend(ctrl) do ... end`.
-
-**Approval.** `POST /repos/{r}/pulls/{n}/reviews` with an `event` of `APPROVE`,
-`REQUEST_CHANGES` or `COMMENT`, which can carry pending line comments in the
-same call. Batching them into one review rather than posting each as it is
-written is the difference between a review and a stream of notifications, so
-the pending set wants to live on `BState` and be visible while it accumulates -
-a count in the footer, and a line in the metadata pane. An approval checkbox
-that submits an empty `APPROVE` is the common case and should be one key.
-
-**Labels.** Reading them has shipped - `Item` carries them, the metadata pane
-shows them and the filter pane has a label axis. What is left is writing:
-
-- one-key toggles for the two or three reached for constantly (a backport
-  label, `merge me`), named in `config.toml` rather than hardcoded, and a
-  picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
+- **A comment on a deleted line.** `c` refuses it. The line number is known -
+  `hunk_line_at` returns the old-side number and says which side it is - but
+  GitHub wants that anchored against the commit the line still existed in, and
+  `head_sha` only knows the head.
+- **Batching line comments into one review.** Each `c` on a line posts
+  immediately, so five remarks are five notifications rather than one review.
+  `POST /pulls/{n}/reviews` takes a `comments` array; the pending set wants to
+  live on `BState` and be visible while it accumulates - a count in the footer,
+  a line in the metadata pane - with `A` submitting it.
+- **A label toggle does not show until the next refresh.** `Item` is built from
+  `facts.json` and is not rewritten in place, so the metadata pane keeps the old
+  set; the status line says so. Either patch the item in memory or re-read it.
+- **A reply to an issue comment.** Only review comments carry a thread, so `c`
+  on an ordinary comment writes a new one rather than replying. That matches
+  GitHub, but it surprises.
 
 ### The filter pane is 180× slower than the list
 Measured on the current snapshot: a frame with the filter pane open takes
@@ -331,6 +326,16 @@ actual TTY:
 - Whether the title-bar row actually settles the tmux copy-mode scroll.
 - Whether OSC 8 links and the OSC 52 copy survive this tmux (both need 3.4+,
   and OSC 52 is opt-in in some terminals).
+- Every write. Posting a comment, replying in a thread, commenting on a source
+  line, submitting a review, toggling a label: all five are written and none has
+  ever been sent, because the token here cannot. The shapes of the requests are
+  from the REST docs, not from a response.
+- `^e` in the composer, end to end. `suspend` is tested to run its body and put
+  the alternate screen back, and the reader is armed one event at a time so it
+  is not on the tty while a child runs - but no editor has actually been
+  launched from inside the browser here.
+- `^s` in the composer. Ctrl-S is XOFF under terminal flow control; raw mode
+  should be clearing IXON, which has not been confirmed against a real tty.
 - `open_editor`: `code` is not on PATH in the sandbox, so the launch is
   untested. The worktree *selection* around it is tested against a real
   worktree list.

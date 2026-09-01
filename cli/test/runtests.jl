@@ -300,6 +300,76 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "what c writes to" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    st.mode = :diff
+    n = W.Node("a.jl  @@ 10,3 @@", " ctx\n-gone\n+added", :diff, true)
+    merge!(n.meta, Dict{String,Any}("file" => "a.jl", "start" => 10, "count" => 3,
+                                    "ostart" => 40, "ocount" => 2, "up" => 0, "down" => 0,
+                                    "body" => " ctx\n-gone\n+added"))
+    st.nodes = [n]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    iw = W.layout(160, 50, st.nmeta).riw
+
+    # Header row, then one row per diff line.
+    st.nrow = 2; @test W.hunk_line_at(st, 1, iw) == (10, "RIGHT")   # context
+    st.nrow = 3; @test W.hunk_line_at(st, 1, iw) == (41, "LEFT")    # deletion
+    st.nrow = 4; @test W.hunk_line_at(st, 1, iw) == (11, "RIGHT")   # addition
+    st.nrow = 1; @test W.hunk_line_at(st, 1, iw) === nothing        # the header
+
+    st.nrow = 4
+    @test W.compose_target(st, iw) == (:line, ("a.jl", 11, "RIGHT"))
+    # A review comment answers with its own thread instead.
+    st.nodes = [W.Node("alice  2026-01-01", "a remark", :md, true)]
+    st.nodes[1].meta["comment_id"] = 4242
+    st.nrow = 1
+    @test W.compose_target(st, iw) == (:reply, 4242)
+    # Anything else is the item as a whole.
+    st.nodes = [W.Node("prose", "text", :md, true)]
+    @test W.compose_target(st, iw) == (:item, nothing)
+end
+
+@testset "the write keys open the right views" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    ctrl = W.Controller()
+    W.push_view!(ctrl, st)
+
+    W.handle!(st, Int('c'), ctrl)
+    @test last(ctrl.stack) isa W.EditorView
+    @test occursin(st.items[st.sel].ref, last(ctrl.stack).title)
+    pop!(ctrl.stack)
+
+    # A deleted line has nowhere to post yet, and says so instead of opening.
+    st.mode = :diff
+    n = W.Node("a.jl", " ctx\n-gone", :diff, true)
+    merge!(n.meta, Dict{String,Any}("file" => "a.jl", "start" => 10, "count" => 2,
+                                    "ostart" => 40, "ocount" => 2, "up" => 0, "down" => 0))
+    st.nodes = [n]; st.nrow = 3
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    W.handle!(st, Int('c'), ctrl)
+    @test length(ctrl.stack) == 1 && occursin("deleted line", st.status)
+
+    # Review: the picker opens, and picking pushes the composer *and keeps it* -
+    # the picker pops itself, not whatever ended up on top.
+    st.mode = :comments
+    W.handle!(st, Int('A'), ctrl)
+    ch = last(ctrl.stack)
+    @test ch isa W.ChooseView
+    @test [o[2] for o in W.shown(ch)] == ["APPROVE", "REQUEST_CHANGES", "COMMENT"]
+    @test W.handle!(ch, 13, ctrl) === :pop
+    at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)   # what run! does
+    @test last(ctrl.stack) isa W.EditorView
+    @test last(ctrl.stack).allow_empty                              # approve needs no words
+    pop!(ctrl.stack)
+
+    W.handle!(st, Int('L'), ctrl)
+    lv = last(ctrl.stack)
+    @test lv isa W.ChooseView && !isempty(W.shown(lv))
+    @test all(startswith(o[1], "[x] ") || startswith(o[1], "[ ] ") for o in W.shown(lv))
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]
