@@ -1,0 +1,44 @@
+# Work dashboard configuration.
+# Edited by you. refresh.py only ever reads this file.
+
+login = "vtjnash"
+
+[thresholds]
+# Your PR has been green and waiting on a reviewer this long -> needs-nudge.
+nudge_days = 7
+# No activity at all this long -> flagged stale in the view.
+stale_days = 60
+# Firehose PRs older than this are dropped from the discovery feed.
+firehose_max_age_days = 90
+
+[lanes]
+# GitHub search syntax. Each lane is one paginated GraphQL search.
+mine     = "is:open is:pr author:vtjnash archived:false"
+review   = "is:open is:pr review-requested:vtjnash archived:false"
+assigned = "is:open is:issue assignee:vtjnash archived:false"
+
+[firehose]
+# Discovery feed: work in your areas that you are NOT already on.
+repo = "JuliaLang/julia"
+labels = [
+  "compiler:codegen",
+  "compiler:llvm",
+  "compiler:optimizer",
+  "compiler:inference",
+  "compiler:effects",
+  "compiler:lowering",
+  "compiler:precompilation",
+  "GC",
+  "GC: MMTK",
+  "multithreading",
+  "atomics",
+  "invalidations",
+  "types and dispatch",
+  "ffi",
+  "embedding",
+  "juliac",
+  "trimming",
+  "latency",
+  "caching",
+]
+max_items = 300
