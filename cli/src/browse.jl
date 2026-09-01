@@ -12,6 +12,7 @@
 # verified here.
 
 using Term: Panel, apply_style
+import REPL
 import Markdown
 
 "A foldable block - a comment, the issue body, or one file of a diff."
@@ -32,7 +33,10 @@ mutable struct BState
     sel::Int
     top::Int
     nodes::Vector{Node}
-    ncur::Int
+    nrow::Int              # cursor into the flattened rows, not into nodes:
+                           # scrolling inside a long comment needs row
+                           # granularity, and folding still works because every
+                           # row knows which node it belongs to
     ntop::Int
     focus::Symbol           # :list | :detail
     mode::Symbol            # :comments | :diff
@@ -231,13 +235,22 @@ function render(st::BState, w::Int, h::Int)
     lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
 
     rrows = rows(st.nodes, inner(rw))
-    cur = findfirst(r -> r[1] == st.ncur && r[2], rrows)
-    rvis, st.ntop = window(rrows, cur, st.ntop, rh - 2)
+    st.nrow = clamp(st.nrow, 1, max(1, length(rrows)))
+    if st.focus === :detail && !isempty(rrows)
+        # Mark the cursor row so it is visible while paging through a body,
+        # not only when it lands on a header.
+        (ni, hdr, txt) = rrows[st.nrow]
+        rrows[st.nrow] = (ni, hdr, string("{on_gray23}", txt, "{/on_gray23}"))
+    end
+    rvis, st.ntop = window(rrows, st.nrow, st.ntop, rh - 2)
 
     it = isempty(st.items) ? nothing : st.items[st.sel]
     ltitle = string(st.title, " ", st.sel, "/", length(st.items))
+    total = length(rows(st.nodes, inner(rw)))
     rtitle = string(st.mode === :comments ? "comments" : "diff",
-                    it === nothing ? "" : string("  ", it.ref))
+                    it === nothing ? "" : string("  ", it.ref),
+                    total > 0 ? string("  ", st.ntop, "-",
+                                       min(total, st.ntop + rh - 3), "/", total) : "")
 
     # Term measures markup, and escaped braces plus styling make a line's markup
     # longer than what it prints, so the exact number of content lines that fit
@@ -260,7 +273,7 @@ function render(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
     end
 
-    keys = "j/k move · tab pane · ↵ fold · d diff · o comments · r read · s snooze · q back"
+    keys = "j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q"
     ftxt = isempty(st.status) ? keys : st.status
     foot = "{dim}" * esc(rpad(fit1(ftxt, w), w)) * "{/dim}"
     frame = string(side ? string(left * right) : string(left / right),
@@ -344,5 +357,102 @@ function load_nodes!(st::BState)
     key = string(it.url, ":", st.mode)
     st.loaded == key && return
     st.nodes = st.mode === :comments ? comment_nodes(it) : diff_nodes(it)
-    st.loaded = key; st.ncur = 1; st.ntop = 1
+    st.loaded = key; st.nrow = 1; st.ntop = 1
+end
+
+# --- interaction -----------------------------------------------------------
+
+"Node index owning the cursor row, so folding works from anywhere in a body."
+function curnode(st::BState, w::Int)
+    rs = rows(st.nodes, w)
+    isempty(rs) && return 0
+    rs[clamp(st.nrow, 1, length(rs))][1]
+end
+
+"Row index of node `i`'s header - where the cursor lands after folding."
+function headerrow(st::BState, i::Int, w::Int)
+    rs = rows(st.nodes, w)
+    j = findfirst(r -> r[1] == i && r[2], rs)
+    j === nothing ? 1 : j
+end
+
+"Move the cursor to the next (`+1`) or previous (`-1`) node header."
+function jumpnode(st::BState, dir::Int, w::Int)
+    rs = rows(st.nodes, w)
+    isempty(rs) && return
+    hdrs = [j for j in eachindex(rs) if rs[j][2]]
+    isempty(hdrs) && return
+    st.nrow = if dir > 0
+        something(findfirst(>(st.nrow), hdrs), length(hdrs)) |> i -> hdrs[i]
+    else
+        something(findlast(<(st.nrow), hdrs), 1) |> i -> hdrs[i]
+    end
+end
+
+"""
+    browse(items, title)
+
+Full-screen two-pane loop. Returns when the user backs out.
+
+Runs on the alternate screen so the scrollback the user came from is still
+there afterwards, and restores the terminal on any exit path - an exception
+here would otherwise leave the shell in raw mode with no cursor.
+"""
+function browse(items::Vector{Item}, title::AbstractString)
+    isempty(items) && (println("\n  nothing in ", title, "\n"); return)
+    st = BState(collect(items), String(title))
+    term = REPL.Terminals.TTYTerminal(get(ENV, "TERM", "xterm"), stdin, stdout, stderr)
+    print("\e[?1049h\e[?25l")                     # alt screen, hide cursor
+    REPL.Terminals.raw!(term, true)
+    try
+        while true
+            h, w = displaysize(stdout)
+            load_nodes!(st)
+            print("\e[H", replace(render(st, w, h), "\n" => "\e[K\n"), "\e[J")
+            k = REPL.TerminalMenus.readkey(stdin)
+            iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
+            page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
+            if k in (Int('q'), 27)                # q, Esc
+                return
+            elseif k == Int('\t')
+                st.focus = st.focus === :list ? :detail : :list
+            elseif st.focus === :list
+                if k in (Int('j'), 66);      st.sel = min(length(st.items), st.sel + 1)
+                elseif k in (Int('k'), 65);  st.sel = max(1, st.sel - 1)
+                elseif k in (Int(' '), 6);   st.sel = min(length(st.items), st.sel + page)
+                elseif k in (Int('b'), 2);   st.sel = max(1, st.sel - page)
+                elseif k == Int('g');        st.sel = 1
+                elseif k == Int('G');        st.sel = length(st.items)
+                elseif k in (13, 10);        st.focus = :detail
+                end
+                st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
+            else
+                n = length(rows(st.nodes, iw))
+                if k in (Int('j'), 66);      st.nrow = min(n, st.nrow + 1)
+                elseif k in (Int('k'), 65);  st.nrow = max(1, st.nrow - 1)
+                elseif k in (Int(' '), 6);   st.nrow = min(n, st.nrow + page)
+                elseif k in (Int('b'), 2);   st.nrow = max(1, st.nrow - page)
+                elseif k == Int('g');        st.nrow = 1
+                elseif k == Int('G');        st.nrow = n
+                elseif k == Int('n');        jumpnode(st, 1, iw)
+                elseif k == Int('N');        jumpnode(st, -1, iw)
+                elseif k in (13, 10)
+                    i = curnode(st, iw)
+                    if i > 0
+                        st.nodes[i].open = !st.nodes[i].open
+                        st.nrow = headerrow(st, i, iw)
+                    end
+                end
+            end
+            it = st.items[st.sel]
+            if k == Int('d');     st.mode = :diff
+            elseif k == Int('o'); st.mode = :comments
+            elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
+            elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"]); st.status = "snoozed"
+            end
+        end
+    finally
+        REPL.Terminals.raw!(term, false)
+        print("\e[?25h\e[?1049l")
+    end
 end

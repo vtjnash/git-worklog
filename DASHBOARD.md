@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-01 16:15 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 16:49 UTC · 2050 items · 12 rate-limit points_
 
-## Unread (759)
+## Unread (760)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -41,8 +41,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>1 comments · **needs-review** · 1d</sub>
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
   <sub>7 comments · **needs-review** · 1d</sub>
-- [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
-  <sub>5 comments · **needs-reply** · today</sub>
 - [libuv#5223](https://github.com/libuv/libuv/pull/5223) win: allow uv_try_write() from a write callback  
   <sub>1 comments · **needs-reply** · today</sub>
 - [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
@@ -67,6 +65,8 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
   <sub>4 comments · **needs-reply** · today</sub>
+- [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
+  <sub>6 comments · **needs-reply** · today</sub>
 - [julia#43989](https://github.com/JuliaLang/julia/pull/43989) optimize `in(::Char, ::String)`  
   <sub>6 comments · closed · 29d</sub>
 - [julia#43980](https://github.com/JuliaLang/julia/issues/43980) char in string is slow for short strings  
@@ -85,7 +85,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>6 comments · 28d</sub>
 - [julia#62331](https://github.com/JuliaLang/julia/pull/62331) runtime: make forbidden-context task-switch errors deterministic  
   <sub>no comments · closed · 28d</sub>
-- _...and 719 more_
+- _...and 720 more_
 
 ## Needs a reply (9)
 _You were mentioned and the last word is theirs._
@@ -115,7 +115,7 @@ _Review feedback, red CI, or you're the blocker._
 - [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
   <sub>CI failure · 2 unresolved · 11d</sub>
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
-  <sub>CI failure · 2 unresolved · 18d</sub>
+  <sub>CI failure · 2 unresolved · 19d</sub>
 - [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown  
   <sub>CI failure · 20d</sub>
 - [libuv#5214](https://github.com/libuv/libuv/pull/5214) win: actually cleanup all things on shutdown  
@@ -175,7 +175,7 @@ _Waiting on you to review someone else._
 - [julia#44822](https://github.com/JuliaLang/julia/pull/44822) effects: define `Core.Compiler.infer_effects`  
   <sub>1 unresolved · conflicts · 54d</sub>
 - [julia#62070](https://github.com/JuliaLang/julia/pull/62070) remove zero length memory boundscheck for memoryrefget/set  
-  <sub>CI failure · conflicts · 81d</sub>
+  <sub>CI failure · conflicts · 82d</sub>
 - [julia#51908](https://github.com/JuliaLang/julia/pull/51908) seekend: Add a second argument for the number of bytes relative to the end  
   <sub>CI failure · 1 unresolved · 101d</sub>
 - [libuv#4636](https://github.com/libuv/libuv/pull/4636) src: win pipe add unix domain socket support  
@@ -195,7 +195,7 @@ _Waiting on you to review someone else._
 - [julia#50167](https://github.com/JuliaLang/julia/pull/50167) improve the interplay between bounds checking system and effect system  
   <sub>conflicts · 458d</sub>
 - [julia#43994](https://github.com/JuliaLang/julia/pull/43994) `AbstractInterpreter`: refactor the lifetimes of `OptimizationState` and `IRCode`  
-  <sub>conflicts · 523d</sub>
+  <sub>conflicts · 524d</sub>
 - [julia#56807](https://github.com/JuliaLang/julia/pull/56807) Support scope_id for link-local IPv6 (rfc4007)  
   <sub>conflicts · 628d</sub>
 - [julia#55956](https://github.com/JuliaLang/julia/pull/55956) Make threadcall gc safe  
@@ -260,7 +260,7 @@ _Yours, not yet proposed._
 ## Assigned issues (16)
 
 - [julia#24717](https://github.com/JuliaLang/julia/issues/24717) Pipe objects have lost their asyncness  
-  <sub>track:loose · 52d</sub>
+  <sub>track:loose · 53d</sub>
 - [julia#27813](https://github.com/JuliaLang/julia/issues/27813) extraneous type parameter induces segfault  
   <sub>track:loose · 276d</sub>
 - [julia#60148](https://github.com/JuliaLang/julia/issues/60148) Non-fatal error output in precompile test on master CI  
@@ -318,7 +318,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>169d</sub>
 - [llvm-project#183623](https://github.com/llvm/llvm-project/pull/183623) [SSP] Add llvm.ssp.protected intrinsic for QualType-based stack protection <sub>182d</sub>
 - [llvm-cbe#234](https://github.com/JuliaHubOSS/llvm-cbe/pull/234) add clang frontend support for more reliable ABI generation <sub>190d</sub>
-- [llvm-project#181845](https://github.com/llvm/llvm-project/pull/181845) [OMPIRBuilder] Replace getAllocatedType with careful tracking <sub>192d</sub>
+- [llvm-project#181845](https://github.com/llvm/llvm-project/pull/181845) [OMPIRBuilder] Replace getAllocatedType with careful tracking <sub>193d</sub>
 - [Game2048Core.jl#2](https://github.com/xiaodaigh/Game2048Core.jl/pull/2) Document all of these constants <sub>199d</sub>
 - [StrRegex.jl#10](https://github.com/JuliaString/StrRegex.jl/pull/10) Remove unused MurmurHash3 dependency <sub>199d</sub>
 - [ShortStrings.jl#58](https://github.com/JuliaString/ShortStrings.jl/pull/58) Fix compatibility with Julia 1.13+ memhash_seed removal <sub>199d</sub>
@@ -330,7 +330,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [llvm-project#1](https://github.com/vtjnash/llvm-project/pull/1) cowait <sub>229d</sub>
 - [llvm-project#139574](https://github.com/llvm/llvm-project/pull/139574) [VN] be more consistent about forwarding null inputs and ignoring SVE outputs <sub>251d</sub>
 - [OpenBLAS#5580](https://github.com/OpenMathLib/OpenBLAS/pull/5580) tests: export variables from WSL <sub>252d</sub>
-- [llvm-mingw#532](https://github.com/mstorsjo/llvm-mingw/pull/532) [WIP] Add flang (Fortran) compiler support <sub>262d</sub>
+- [llvm-mingw#532](https://github.com/mstorsjo/llvm-mingw/pull/532) [WIP] Add flang (Fortran) compiler support <sub>263d</sub>
 - [julia#43200](https://github.com/JuliaLang/julia/pull/43200) broadcast: disable nospecialize logic for outer method signature <sub>336d</sub>
 - [llvm-project#154356](https://github.com/llvm/llvm-project/pull/154356) [OrcJIT] distinguish normal and abrupt TaskDispatcher shutdown <sub>362d</sub>
 - [libuv#4875](https://github.com/libuv/libuv/pull/4875) misc: add clang thread safety analysis support <sub>369d</sub>

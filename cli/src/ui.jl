@@ -148,6 +148,7 @@ function act(it::Item)
     c in (1, 2, 3, 4, 5, 6, 7) && println(DIM, "  done — refresh to re-bucket", R)
 end
 
+"Superseded by `browse`; kept because `wl show` still renders a thread linearly."
 function browselane(items, title)
     isempty(items) && (println("\n  nothing in ", title, "\n"); return)
     while true
@@ -195,6 +196,6 @@ function ui(args = String[])
             refresh(String[])
             return ui(String[])
         end
-        browselane(by[ks[c]], LANES[findfirst(x -> x[1] == ks[c], LANES)][2])
+        browse(by[ks[c]], LANES[findfirst(x -> x[1] == ks[c], LANES)][2])
     end
 end
