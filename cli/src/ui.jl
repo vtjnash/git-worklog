@@ -84,35 +84,18 @@ function ui(args = String[])
         refresh(String[])
     end
     items = loaditems()
-    by = Dict(k => filter(i -> i.bucket == k && !i.snoozed, items) for (k, _) in LANES)
     cfg = config()
+    DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
+                              "detail_ttl_minutes", 10)
     unread = Events.unread(cfg, cfg["login"]; verbose = false)
     idx = Dict(i.url => i for i in items)
-    by["unread"] = [get(idx, u["url"],
-                        Item(u["url"], string(split(u["repo"], '/')[end], '#', u["number"]),
-                             u["repo"], u["number"], u["title"], "unread", "normal",
-                             "", "", true, "", 0, "", 0, false, false, false))
-                    for u in unread]
-
-    while true
-        labels = String[]; ks = String[]
-        for (k, name) in LANES
-            n = length(get(by, k, Item[]))
-            n == 0 && continue
-            push!(ks, k)
-            push!(labels, string(rpad(name, 20), DIM, n, R))
-        end
-        push!(labels, string(rpad("refresh", 20), DIM, "re-fetch and re-bucket", R))
-        push!(labels, string(DIM, "quit", R))
-        c = request("$(B)worklog$(R)  $(DIM)$(length(items)) items$(R)",
-                    RadioMenu(labels; pagesize = 16))
-        c == -1 && return 0
-        if c == length(labels)
-            return 0
-        elseif c == length(labels) - 1
-            refresh(String[])
-            return ui(String[])
-        end
-        browse(by[ks[c]], LANES[findfirst(x -> x[1] == ks[c], LANES)][2])
-    end
+    # Unread threads that are not otherwise tracked still need a row to select.
+    extra = [Item(String(u["url"]), string(split(String(u["repo"]), '/')[end], '#', u["number"]),
+                  String(u["repo"]), u["number"], String(u["title"]), "unread", "normal",
+                  "", "", true, "", 0, "", 0, false, false, false)
+             for u in unread if !haskey(idx, String(u["url"]))]
+    urls = Set{String}(String(u["url"]) for u in unread)
+    # Straight into the browser: what the lane menu used to choose is now a tag.
+    browse(vcat(items, extra), "worklog", urls)
+    0
 end

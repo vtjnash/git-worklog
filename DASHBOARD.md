@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-01 16:49 UTC · 2050 items · 12 rate-limit points_
+_2026-09-01 17:18 UTC · 2050 items · 12 rate-limit points_
 
 ## Unread (760)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
@@ -63,10 +63,10 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
   <sub>no comments · **needs-review** · today</sub>
-- [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
-  <sub>4 comments · **needs-reply** · today</sub>
 - [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
   <sub>6 comments · **needs-reply** · today</sub>
+- [libuv#5165](https://github.com/libuv/libuv/pull/5165) unix: drain tty reads on POLLHUP without POLLIN  
+  <sub>4 comments · **needs-reply** · closed · today</sub>
 - [julia#43989](https://github.com/JuliaLang/julia/pull/43989) optimize `in(::Char, ::String)`  
   <sub>6 comments · closed · 29d</sub>
 - [julia#43980](https://github.com/JuliaLang/julia/issues/43980) char in string is slow for short strings  
@@ -215,7 +215,7 @@ _Waiting on you to review someone else._
 - [libuv#4296](https://github.com/libuv/libuv/pull/4296) feat: Add a flag to the `uv_spawn` to trigger UAC on Windows  
   <sub>conflicts · 896d</sub>
 - [libuv#34](https://github.com/JuliaLang/libuv/pull/34) Use a more clever formula for available_mem  
-  <sub>2 unresolved · 985d</sub>
+  <sub>2 unresolved · 986d</sub>
 - [julia#50967](https://github.com/JuliaLang/julia/pull/50967) make ConsoleLogger respect active repl iocontext  
   <sub>conflicts · 1065d</sub>
 - [julia#49460](https://github.com/JuliaLang/julia/pull/49460) Add a gc-safe sleeping mutex  
@@ -325,7 +325,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note`,
 - [GraphQLParser.jl#9](https://github.com/mmiller-max/GraphQLParser.jl/pull/9) Fix compatibility with Julia 1.13+ memhash removal <sub>199d</sub>
 - [BytePairEncoding.jl#10](https://github.com/chengchingwen/BytePairEncoding.jl/pull/10) Turn Merge back into SubString instead of using unsafe operators <sub>199d</sub>
 - [FlatBuffers.jl#72](https://github.com/JuliaData/FlatBuffers.jl/pull/72) fix codecov parameter <sub>199d</sub>
-- [llvm-project#179726](https://github.com/llvm/llvm-project/pull/179726) [Analysis] Track offsets in PtrUseVisitor to revisit when required <sub>207d</sub>
+- [llvm-project#179726](https://github.com/llvm/llvm-project/pull/179726) [Analysis] Track offsets in PtrUseVisitor to revisit when required <sub>208d</sub>
 - [llvm-project#176952](https://github.com/llvm/llvm-project/pull/176952) [RFC] [IR] Change personality function type from Constant* to Function* <sub>222d</sub>
 - [llvm-project#1](https://github.com/vtjnash/llvm-project/pull/1) cowait <sub>229d</sub>
 - [llvm-project#139574](https://github.com/llvm/llvm-project/pull/139574) [VN] be more consistent about forwarding null inputs and ignoring SVE outputs <sub>251d</sub>

@@ -31,6 +31,105 @@ mutable struct Node
 end
 Node(h, raw, kind, open) = Node(h, raw, kind, open, String[], -1, String[])
 
+# --- filters ---------------------------------------------------------------
+#
+# The lane menu forced one choice at a time and made you back out to change it.
+# The same information reads better as tag sets applied to a single list: state
+# is exclusive so it behaves as a radio group, while categories and repos are
+# additive and behave as checkboxes.
+
+const STATES = [(:active, "active"), (:unread, "unread"),
+                (:snoozed, "snoozed"), (:backlog, "backlog"), (:all, "all")]
+
+mutable struct Filters
+    state::Symbol
+    buckets::Set{String}      # empty means every category
+    repos::Set{String}        # empty means every repo
+end
+Filters() = Filters(:active, Set{String}(), Set{String}())
+
+"An empty tag set means 'no restriction', so a fresh filter shows everything."
+function matches(f::Filters, it::Item, unread::Set{String})
+    st = f.state
+    st === :unread  && !(it.url in unread) && return false
+    st === :snoozed && !it.snoozed && return false
+    st === :backlog && !it.backlog && return false
+    st === :active  && (it.snoozed || it.backlog) && return false
+    isempty(f.buckets) || it.bucket in f.buckets || return false
+    isempty(f.repos)   || it.repo in f.repos     || return false
+    true
+end
+
+apply_filters(f, all, unread) = [it for it in all if matches(f, it, unread)]
+
+"""Rows for the filter pane: the radio group, then the two checkbox groups.
+
+Counts are computed against the other axes only, so a category shows how many
+items selecting it would actually add rather than a total that ignores the rest
+of the filter.
+"""
+function filter_rows(st)
+    f, rows = st.filters, Tuple{Symbol,String,String}[]
+    push!(rows, (:head, "", "state"))
+    for (k, name) in STATES
+        probe = Filters(k, f.buckets, f.repos)
+        n = count(it -> matches(probe, it, st.unread), st.all)
+        push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
+                                              rpad(name, 10), n)))
+    end
+    for (axis, label, values) in ((:bucket, "category", st.buckets),
+                                  (:repo, "repo", st.repos))
+        push!(rows, (:head, "", ""))
+        push!(rows, (:head, "", label))
+        sel = axis === :bucket ? f.buckets : f.repos
+        for v in values
+            probe = axis === :bucket ? Filters(f.state, Set([v]), f.repos) :
+                                       Filters(f.state, f.buckets, Set([v]))
+            n = count(it -> matches(probe, it, st.unread), st.all)
+            n == 0 && !(v in sel) && continue
+            push!(rows, (axis, v, string(v in sel ? "[x] " : "[ ] ",
+                                         rpad(first(v, 22), 24), n)))
+        end
+    end
+    rows
+end
+
+"Toggle whatever the filter cursor is on; radio rows replace, checkboxes flip."
+function toggle_filter!(st)
+    rows = filter_rows(st)
+    st.frow = clamp(st.frow, 1, length(rows))
+    (axis, val, _) = rows[st.frow]
+    if axis === :state
+        st.filters.state = Symbol(val)
+    elseif axis === :bucket
+        val in st.filters.buckets ? delete!(st.filters.buckets, val) :
+                                    push!(st.filters.buckets, val)
+    elseif axis === :repo
+        val in st.filters.repos ? delete!(st.filters.repos, val) :
+                                  push!(st.filters.repos, val)
+    else
+        return false
+    end
+    refilter!(st)
+    true
+end
+
+function refilter!(st)
+    keep = isempty(st.items) ? "" : st.items[st.sel].url
+    st.items = apply_filters(st.filters, st.all, st.unread)
+    i = findfirst(x -> x.url == keep, st.items)
+    st.sel = i === nothing ? 1 : i          # stay on the same item when possible
+    st.top = 1
+end
+
+"One-line summary of what is applied, for the frame title."
+function filter_summary(f)
+    parts = [string(f.state)]
+    isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
+    isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
+    join(parts, " · ")
+end
+
 mutable struct BState
     items::Vector{Item}
     title::String
@@ -48,9 +147,22 @@ mutable struct BState
     status::String
     pending::Union{Nothing,Task}   # in-flight fetch; the key loop never blocks
     pendkey::String
+    all::Vector{Item}              # unfiltered
+    unread::Set{String}
+    filters::Filters
+    buckets::Vector{String}
+    repos::Vector{String}
+    lmode::Symbol                  # :items | :filters
+    frow::Int
 end
-BState(items, title) =
-    BState(items, title, 1, 1, Node[], 1, 1, :list, :comments, "", "", nothing, "")
+function BState(all::Vector{Item}, title, unread = Set{String}())
+    buckets = sort(unique(it.bucket for it in all))
+    repos = sort(unique(it.repo for it in all))
+    st = BState(Item[], String(title), 1, 1, Node[], 1, 1, :list, :comments, "", "",
+                nothing, "", collect(all), unread, Filters(), buckets, repos, :items, 2)
+    refilter!(st)
+    st
+end
 
 """Term reads `{...}` as markup, and comment text is not ours to trust - a
 comment containing braces would otherwise be swallowed or mangled."""
@@ -234,6 +346,19 @@ function render(st::BState, w::Int, h::Int)
 
     inner(width) = width - 6      # Term.Panel: 2 border + 4 padding, measured
     st.sel = clamp(st.sel, 1, max(1, length(st.items)))
+    if st.lmode === :filters
+        frows = filter_rows(st)
+        st.frow = clamp(st.frow, 1, max(1, length(frows)))
+        lrows = Tuple{Int,Bool,String}[]
+        for (j, (axis, _, text)) in enumerate(frows)
+            on = j == st.frow && st.focus === :list && axis !== :head
+            push!(lrows, (j, true, string(axis === :head ? "{bold}" : on ? "{bold white}" : "{dim}",
+                                          esc(fit1(text, inner(lw))),
+                                          axis === :head ? "{/bold}" : on ? "{/bold white}" : "{/dim}")))
+        end
+        lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
+        ltitle = "filters"
+    else
     lrows = Tuple{Int,Bool,String}[]
     for i in 1:length(st.items)
         it_ = st.items[i]
@@ -244,6 +369,8 @@ function render(st::BState, w::Int, h::Int)
                                       on ? "{/bold white}" : "{/dim}")))
     end
     lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
+    ltitle = string(st.title, " ", st.sel, "/", length(st.items))
+    end
 
     rrows = rows(st.nodes, inner(rw))
     st.nrow = clamp(st.nrow, 1, max(1, length(rrows)))
@@ -284,7 +411,7 @@ function render(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
     end
 
-    keys = "j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q"
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
     foot = "{dim}" * esc(rpad(fit1(ftxt, w), w)) * "{/dim}"
@@ -314,10 +441,21 @@ end
 
 # --- content loading -------------------------------------------------------
 
+"TTL for a cached thread or diff. Short: these are things people are actively
+replying to, and a stale comment list is worse than a slow one."
+const DETAIL_TTL = Ref(600.0)
+
 function comment_nodes(it::Item)
     local body, cs
     try
-        body, cs = Events.thread(it.url; limit = 30)
+        key = "thread:" * it.url
+        hit = cache_get(key, DETAIL_TTL[])
+        if hit === nothing
+            body, cs = Events.thread(it.url; limit = 30)
+            cache_put(key, (body = body, comments = cs))
+        else
+            body, cs = hit[1].body, hit[1].comments
+        end
     catch e
         return [Node("could not load thread", first(sprint(showerror, e), 200), :plain, true)]
     end
@@ -338,7 +476,11 @@ end
 "One node per file, so a 600-line diff opens as a list of filenames."
 function diff_nodes(it::Item)
     txt = try
-        read(`gh pr diff $(it.number) --repo $(it.repo)`, String)
+        key = string("diff:", it.repo, "#", it.number)
+        hit = cache_get(key, DETAIL_TTL[])
+        hit === nothing ?
+            cache_put(key, read(`gh pr diff $(it.number) --repo $(it.repo)`, String)) :
+            String(hit[1])
     catch e
         return [Node("no diff (not a PR, or gh failed)",
                      first(sprint(showerror, e), 200), :plain, true)]
@@ -437,9 +579,15 @@ Runs on the alternate screen so the scrollback the user came from is still
 there afterwards, and restores the terminal on any exit path - an exception
 here would otherwise leave the shell in raw mode with no cursor.
 """
-function browse(items::Vector{Item}, title::AbstractString)
+function browse(items::Vector{Item}, title::AbstractString, unread = Set{String}())
     isempty(items) && (println("\n  nothing in ", title, "\n"); return)
-    st = BState(collect(items), String(title))
+    # Polling bytesavailable never terminates on a non-TTY stdin: it stays 0
+    # forever where readkey used to hit EOF and unwind. Refuse up front.
+    if !(stdin isa Base.TTY)
+        println(stderr, "wl: the browser needs a terminal; stdin is not a TTY")
+        return
+    end
+    st = BState(collect(items), String(title), unread)
     term = REPL.Terminals.TTYTerminal(get(ENV, "TERM", "xterm"), stdin, stdout, stderr)
     print("\e[?1049h\e[?25l")                     # alt screen, hide cursor
     REPL.Terminals.raw!(term, true)
@@ -467,6 +615,17 @@ function browse(items::Vector{Item}, title::AbstractString)
                 return
             elseif k == Int('\t')
                 st.focus = st.focus === :list ? :detail : :list
+            elseif k == Int('f')
+                st.lmode = st.lmode === :filters ? :items : :filters
+                st.focus = :list
+            elseif st.focus === :list && st.lmode === :filters
+                nf = length(filter_rows(st))
+                if k in (Int('j'), 66);      st.frow = min(nf, st.frow + 1)
+                elseif k in (Int('k'), 65);  st.frow = max(1, st.frow - 1)
+                elseif k in (Int(' '), 13, 10); toggle_filter!(st)
+                elseif k == Int('c')                     # clear every tag
+                    st.filters = Filters(); refilter!(st)
+                end
             elseif st.focus === :list
                 if k in (Int('j'), 66);      st.sel = min(length(st.items), st.sel + 1)
                 elseif k in (Int('k'), 65);  st.sel = max(1, st.sel - 1)
@@ -476,7 +635,8 @@ function browse(items::Vector{Item}, title::AbstractString)
                 elseif k == Int('G');        st.sel = length(st.items)
                 elseif k in (13, 10);        st.focus = :detail
                 end
-                st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
+                isempty(st.items) ||
+                    st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
             else
                 n = length(rows(st.nodes, iw))
                 if k in (Int('j'), 66);      st.nrow = min(n, st.nrow + 1)
@@ -495,7 +655,8 @@ function browse(items::Vector{Item}, title::AbstractString)
                     end
                 end
             end
-            it = st.items[st.sel]
+            (st.lmode === :filters || isempty(st.items)) && continue
+            it = st.items[clamp(st.sel, 1, length(st.items))]
             if k == Int('d');     st.mode = :diff
             elseif k == Int('o'); st.mode = :comments
             elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"

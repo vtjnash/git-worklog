@@ -61,3 +61,9 @@ repos = [
 # How far back an untouched item still counts as "new mail". Nothing is stored
 # but read.json (one timestamp per item), so this is just the query window.
 lookback_days = 30
+
+[cache]
+# On-disk cache for thread and diff reads, which the browser hits repeatedly as
+# you move over the same items. Short by design: these are things people are
+# actively replying to.
+detail_ttl_minutes = 10

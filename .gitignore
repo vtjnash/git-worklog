@@ -4,3 +4,4 @@ facts.json
 bulk.json
 queue.json
 read.json
+cache/

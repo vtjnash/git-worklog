@@ -32,11 +32,13 @@ module Worklog
 using Dates, Printf, SHA, TOML
 using JSON3, OrderedCollections
 using REPL.TerminalMenus
+using SHA
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 
 include("pyjson.jl")
 include("util.jl")
+include("cache.jl")
 include("gh.jl")
 include("events.jl")
 include("refresh.jl")
