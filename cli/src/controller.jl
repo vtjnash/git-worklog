@@ -108,3 +108,55 @@ function run!(ctrl::Controller, root::View)
     end
     0
 end
+
+# --- a line prompt, as a view ----------------------------------------------
+
+"""Ask for one line of text.
+
+A view rather than a readline: the controller holds the terminal in raw mode
+for the whole run, so anything that wants input has to go through the same
+event stream instead of reaching for stdin itself.
+"""
+mutable struct PromptView <: View
+    title::String
+    note::String
+    buf::String
+    onsubmit::Any            # (String) -> Nothing; not called when cancelled
+end
+PromptView(title, note, onsubmit) = PromptView(title, note, "", onsubmit)
+
+function render(v::PromptView, w::Int, h::Int)
+    box = min(w - 4, 100)
+    pad = (w - box) ÷ 2
+    top = (h - 7) ÷ 2
+    lines = [" "^w for _ in 1:top]
+    frame(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
+                                  apad(afit(s, box - 4), box - 4), "\e[0m \e[2m│\e[0m")
+    push!(lines, string(" "^pad, "\e[2m╭", "─"^(box - 2), "╮\e[0m"))
+    push!(lines, frame(v.title, "\e[1m"))
+    push!(lines, frame(""))
+    for l in awrap(v.note, box - 4)
+        push!(lines, frame(l, "\e[2m"))
+    end
+    push!(lines, frame(string("> ", v.buf, "\e[7m \e[0m")))
+    push!(lines, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
+    push!(lines, string(" "^pad, "\e[2m  enter accept · esc cancel\e[0m"))
+    while length(lines) < h; push!(lines, " "^w); end
+    join([apad(l, w) for l in lines[1:h]], "\n")
+end
+
+function handle!(v::PromptView, k::Int, ctrl::Controller)
+    if k in (13, 10)
+        isempty(strip(v.buf)) || v.onsubmit(strip(v.buf))
+        return :pop
+    elseif k == 27
+        return :pop
+    elseif k in (127, 8)
+        isempty(v.buf) || (v.buf = v.buf[1:prevind(v.buf, end)])
+    elseif k == 21                       # ctrl-u
+        v.buf = ""
+    elseif k >= 32 && k < 127
+        v.buf *= Char(k)
+    end
+    :ok
+end

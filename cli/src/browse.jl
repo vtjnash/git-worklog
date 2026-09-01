@@ -28,8 +28,10 @@ mutable struct Node
     cache::Vector{String}   # rendered at `cw`; markdown is far too slow per frame
     cw::Int
     urls::Vector{String}    # link targets pulled out of the body
+    meta::Dict{String,Any}  # hunk file and ranges, expansion counts
 end
-Node(h, raw, kind, open) = Node(h, raw, kind, open, String[], -1, String[])
+Node(h, raw, kind, open) =
+    Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}())
 
 # --- filters ---------------------------------------------------------------
 #
@@ -434,7 +436,7 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · s snooze · q")
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · e edit · s snooze · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
     foot = string(AD, afit(ftxt, w), AR)
@@ -519,11 +521,19 @@ function diff_nodes(it::Item)
                      first(sprint(showerror, e), 200), :plain, true)]
     end
     ns, file, buf, hdr = Node[], "", String[], ""
+    pending_range = (0, 0)
     flush!() = if !isempty(hdr)
         adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
         dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
-        push!(ns, Node(string(file, "  ", hdr, "  +", adds, " -", dels),
-                       join(buf, "\n"), :diff, true))
+        n = Node(string(file, "  ", hdr, "  +", adds, " -", dels),
+                 join(buf, "\n"), :diff, true)
+        n.meta["file"] = file
+        n.meta["start"] = pending_range[1]
+        n.meta["count"] = pending_range[2]
+        n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
+        n.meta["up"] = 0
+        n.meta["down"] = 0
+        push!(ns, n)
     end
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
@@ -531,8 +541,11 @@ function diff_nodes(it::Item)
             file = replace(String(last(split(l, " "))), r"^b/" => "")
         elseif startswith(l, "@@")
             flush!()
-            hdr = String(first(split(String(l), "@@"; limit = 3)[2], 40))
-            hdr = "@@" * hdr * "@@"
+            m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", String(l))
+            rng = m === nothing ? (0, 0) :
+                  (parse(Int, m[3]), m[4] === nothing ? 1 : parse(Int, m[4]))
+            hdr = string("@@ ", rng[1], ",", rng[2], " @@")
+            pending_range = rng
             buf = String[]
         elseif !isempty(hdr)
             push!(buf, String(l))
@@ -681,6 +694,44 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     end
     (st.lmode === :filters || isempty(st.items)) && return :ok
     it = st.items[clamp(st.sel, 1, length(st.items))]
+
+    # Context expansion and the editor both need a local checkout. Ask for it the
+    # first time it is actually needed, rather than as up-front configuration.
+    needs_repo(action) = push_view!(ctrl, PromptView(
+        "Local checkout for $(it.repo)",
+        "Path to a clone or worktree. It is resolved to the main .git, so any " *
+        "worktree of the repository will do.",
+        p -> begin
+            try
+                r = register_repo!(it.repo, p)
+                st.status = string("pinned ", it.repo, " -> ", r.path,
+                                   r.matched ? "" : "  (remote does not match)")
+                action()
+            catch e
+                st.status = "could not pin: " * first(sprint(showerror, e), 80)
+            end
+        end))
+
+    if k in (Int('['), Int(']')) && st.mode === :diff
+        i = curnode(st, iw)
+        if i > 0
+            dir = k == Int('[') ? -1 : 1
+            retry_expand = () -> begin
+                rr = expand_hunk!(st.nodes[i], it, dir)
+                st.status = rr isa String ? rr : ""
+            end
+            r = expand_hunk!(st.nodes[i], it, dir)
+            r === :needs_repo ? needs_repo(retry_expand) :
+                (st.status = r isa String ? r : "")
+        end
+        return :ok
+    elseif k == Int('e')
+        retry_edit = () -> (rr = open_editor(it); st.status = rr isa String ? rr : "")
+        r = open_editor(it)
+        r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
+        return :ok
+    end
+
     if k == Int('d');     st.mode = :diff
     elseif k == Int('o'); st.mode = :comments
     elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
@@ -689,4 +740,90 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     end
     load_nodes!(st)
     :ok
+end
+
+# --- context expansion ------------------------------------------------------
+
+"Head commit of a pull request, cached: expansion needs the file as it will be."
+function head_sha(it::Item)
+    key = string("headsha:", it.repo, "#", it.number)
+    hit = cache_get(key, 86_400.0)
+    hit === nothing || return String(hit[1])
+    out = try
+        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefOid -q .headRefOid`,
+                   String))
+    catch
+        ""
+    end
+    cache_put(key, out)
+    String(out)
+end
+
+"""
+    expand_hunk!(node, it, dir, n) -> status
+
+Widen a hunk by `n` lines above (`dir < 0`) or below (`dir > 0`), reading the
+file from the pinned local checkout rather than the API - the objects are
+already there, so expanding repeatedly costs nothing after the first fetch.
+"""
+function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
+    node.kind === :diff && haskey(node.meta, "file") ||
+        return "not a hunk"
+    repo = repo_path(it.repo)
+    repo === nothing && return :needs_repo
+    sha = head_sha(it)
+    isempty(sha) && return "could not determine the head commit"
+    ensure_commit!(repo, sha, it.number) ||
+        return "commit $(first(sha, 8)) is not in $repo and could not be fetched"
+    lines = file_at(repo, sha, node.meta["file"])
+    lines === nothing && return "$(node.meta["file"]) is absent at $(first(sha, 8))"
+
+    start, count = node.meta["start"], node.meta["count"]
+    up = node.meta["up"] + (dir < 0 ? n : 0)
+    down = node.meta["down"] + (dir > 0 ? n : 0)
+    lo = max(1, start - up)
+    hi = min(length(lines), start + count - 1 + down)
+    node.meta["up"] = start - lo
+    node.meta["down"] = hi - (start + count - 1)
+
+    pre = [string(" ", lines[i]) for i in lo:(start - 1)]
+    post = [string(" ", lines[i]) for i in (start + count):hi]
+    node.raw = join(vcat(pre, split(node.meta["body"], "\n"), post), "\n")
+    node.cw = -1                                    # force a re-render
+    node.header = string(node.meta["file"], "  @@ ", start, ",", count, " @@",
+                         node.meta["up"] > 0 ? string("  ↑", node.meta["up"]) : "",
+                         node.meta["down"] > 0 ? string("  ↓", node.meta["down"]) : "")
+    ""
+end
+
+# --- editor -----------------------------------------------------------------
+
+"""Open a checkout of this pull request's branch in VS Code.
+
+Prefers a worktree already on that branch, since that is the copy the user is
+most likely to have been working in; otherwise falls back to the main checkout.
+"""
+function open_editor(it::Item)
+    repo = repo_path(it.repo)
+    repo === nothing && return :needs_repo
+    Sys.which("code") === nothing && return "`code` is not on PATH"
+    branch = try
+        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefName -q .headRefName`,
+                   String))
+    catch
+        ""
+    end
+    target = repo
+    for (path, br) in worktrees(repo)
+        if !isempty(branch) && br == branch
+            target = path
+            break
+        end
+    end
+    try
+        run(pipeline(`code $target`; stdout = devnull, stderr = devnull); wait = false)
+    catch e
+        return "could not launch code: " * first(sprint(showerror, e), 80)
+    end
+    string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
 end
