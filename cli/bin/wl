@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Interactive worklog navigator.
+exec julia --startup-file=no --project="$(dirname "$0")/.." \
+     -e 'using Worklog; exit(Worklog.main(ARGS))' -- "$@"

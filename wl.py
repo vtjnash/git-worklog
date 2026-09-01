@@ -5,6 +5,8 @@ Line-based on purpose: it rewrites only the keys you name, inside only the block
 you name, and leaves every other block, comment and blank line byte-identical.
 A TOML round-trip library would reformat the whole file and lose the comments.
 
+  wl.py unread                            # JSON, for the Julia navigator
+  wl.py thread  julia#62891 [n]           # JSON of a thread's recent comments
   wl.py read    julia#62891               # mark a thread seen (or: read all)
   wl.py show    julia#62891               # state + the thread's recent comments
   wl.py next    [n]                       # pull the next untagged backlog items
@@ -165,6 +167,24 @@ def main():
         sys.exit(__doc__)
     if sys.argv[1] == "next":
         next_batch(int(sys.argv[2]) if len(sys.argv) > 2 else 10)
+        return
+    if sys.argv[1] == "unread":
+        # JSON bridge for the Julia navigator; reuses the tested unread logic
+        # rather than reimplementing the query on the other side.
+        import tomllib, events
+        cfg = tomllib.loads((ROOT / "config.toml").read_text())
+        json.dump(events.unread(cfg, cfg["login"], verbose=False), sys.stdout)
+        return
+    if sys.argv[1] == "thread":
+        import events
+        body, cs = events.thread(resolve(sys.argv[2]),
+                                 int(sys.argv[3]) if len(sys.argv) > 3 else 12)
+        json.dump({"title": body["title"], "body": body.get("body") or "",
+                   "state": body["state"], "user": (body.get("user") or {}).get("login"),
+                   "comments": [{"at": c["created_at"],
+                                 "who": (c.get("user") or {}).get("login"),
+                                 "body": c.get("body") or ""} for c in cs]},
+                  sys.stdout)
         return
     if sys.argv[1] == "read":
         import tomllib, events

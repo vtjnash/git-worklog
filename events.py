@@ -23,19 +23,39 @@ READ = ROOT / "read.json"
 NOW = dt.datetime.now(dt.timezone.utc)
 
 
-def _api(path, paginate=True):
-    cmd = ["gh", "api", path] + (["--paginate"] if paginate else [])
-    p = subprocess.run(cmd, capture_output=True, text=True)
+def _get(path):
+    p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
     if p.returncode != 0:
         raise RuntimeError((p.stderr or p.stdout)[:200])
-    out, dec, s, i = [], json.JSONDecoder(), p.stdout, 0
-    while i < len(s):                       # --paginate concatenates page arrays
-        while i < len(s) and s[i].isspace():
-            i += 1
-        if i >= len(s):
+    v = json.loads(p.stdout)
+    return v if isinstance(v, list) else [v]
+
+
+def _api(path, paginate=True, per_page=100, max_pages=60):
+    """Page explicitly rather than with `gh api --paginate`.
+
+    --paginate follows Link headers over a list that is being reordered
+    underneath it. With the default descending `sort=updated`, an item touched
+    mid-walk jumps to page 1 and shifts a whole page past the cursor, so entries
+    are silently dropped: the same query returned 168 items on one attempt and
+    612 on the next. Ascending order is stable for a `since` window - a
+    concurrent update moves an item toward the end, which can duplicate but
+    never skip - and explicit paging plus a short-page stop makes the walk
+    deterministic. Dedupe by id to absorb the duplicates that ordering allows.
+    """
+    if not paginate:
+        return _get(path)
+    sep = "&" if "?" in path else "?"
+    out, seen = [], set()
+    for page in range(1, max_pages + 1):
+        rows = _get("%s%sper_page=%d&page=%d" % (path, sep, per_page, page))
+        for r in rows:
+            k = r.get("id", r.get("url"))
+            if k not in seen:
+                seen.add(k)
+                out.append(r)
+        if len(rows) < per_page:
             break
-        v, i = dec.raw_decode(s, i)
-        out.extend(v if isinstance(v, list) else [v])
     return out
 
 
@@ -68,8 +88,8 @@ def unread(cfg, login, verbose=True):
     read, out = load_read(), []
     for repo in repos:
         try:
-            rows = _api("/repos/%s/issues?since=%s&state=all&sort=updated&per_page=100"
-                        % (repo, since))
+            rows = _api("/repos/%s/issues?since=%s&state=all&sort=updated"
+                        "&direction=asc" % (repo, since))
         except RuntimeError as e:
             print("    %-24s FAILED: %s" % (repo, e), file=sys.stderr)
             continue
@@ -100,9 +120,9 @@ def thread(url, limit=10):
     owner_repo = "/".join(url.split("/")[3:5])
     num = url.rsplit("/", 1)[-1]
     body = _api("/repos/%s/issues/%s" % (owner_repo, num), paginate=False)[0]
-    cs = _api("/repos/%s/issues/%s/comments?per_page=100" % (owner_repo, num))
+    cs = _api("/repos/%s/issues/%s/comments" % (owner_repo, num))
     try:
-        cs += _api("/repos/%s/pulls/%s/comments?per_page=100" % (owner_repo, num))
+        cs += _api("/repos/%s/pulls/%s/comments" % (owner_repo, num))
     except RuntimeError:
         pass                                 # not a PR, or no review comments
     cs.sort(key=lambda c: c["created_at"])
