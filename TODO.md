@@ -135,6 +135,13 @@ file list, not a test plan), ending with:
 Write commit bodies to a file and use `git commit -F` — backticks in a heredoc
 get interpreted by the shell and silently mangle the message.
 
+**Key bindings: a capital reaches GitHub, lowercase does not.** `C`, `A` and `L`
+post a comment, submit a review and set a label; everything lowercase stays on
+this machine, `r` and `s` included — `read.json` and `state.toml` are local
+files, and `e` only launches an editor. The line is *remote*, not *writes
+something*, which is also why `z` below can offer to undo the lowercase set and
+must never offer to undo the capitals.
+
 Outstanding work, roughly in the order it is worth doing. Things already
 shipped are not listed; `git log` is the record of those.
 
@@ -162,45 +169,30 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### `/` opens a search pane
-One key, doing the obvious thing for wherever the cursor is - the same shape as
-`C`:
+### `z` undoes the last local action
+`r` and `s` change a file with no way back, and both are one keystroke on a list
+where the cursor moves under you. A per-session undo stack on `BState`, deepest
+first, so `z z z` walks back a run of them.
 
-- in the item list, narrow it: a substring of the title or the ref, so `/segv`
-  and `/libuv` both work. `ChooseView` already narrows a list by typing and is
-  the closest thing to reuse, though this wants to filter the pane in place
-  rather than pop a picker over it.
-- a bare number jumps: `/62841` to `julia#62841`. Every `Item` carries `number`
-  and `ref`, so this is a lookup, not a search - and it wants to reach items the
-  current filter is hiding, or it will fail exactly when you most want it.
-- in the detail pane, search the thread or the diff. `Row.src` is already the
-  plain text of each row with the escapes taken out, which is precisely what to
-  match against, and moving to a hit is setting `st.nrow`.
+What each needs put back:
 
-Two things to decide. Highlighting the hits needs a per-row overlay, and the one
-that exists - `hlrow` - lays a background over a whole row; a match inside a row
-needs the same trick applied to a span, which is fiddly for exactly the reason
-`hlrow` exists (a row carries its own resets). And `n`/`N` are taken: they step
-between nodes in the detail pane and between groups in the filter pane, but vim
-users will expect them to mean the next and previous match once a search is
-running. That is a mode, and the footer would have to say which one is in force.
+- `r` calls `Events.mark_read([url])`, which sets `read.json[url]` to now. The
+  previous value has to be captured *before* the write — `load_read()` already
+  reads the whole file — and restored, or the key deleted when there was none.
+  That is exactly the operation the mark-unread entry wants, so build that first
+  and `z` becomes one of its callers.
+- `s` calls `disarm(url)` and then `set_fields(url, ["snooze" => "on-change"])`.
+  `set_fields` already removes a key when handed `nothing`, so the undo is
+  `set_fields(url, ["snooze" => previous])` with `previous === nothing` when
+  there was none. Reading `previous` needs a getter for one field of one block,
+  which `state.jl` does not have. `disarm` needs nothing put back: `snooze.json`
+  is machine-owned and the next refresh re-arms it from the current state.
+- `e` has nothing to undo. It launches an editor and changes nothing here.
 
-### Should the capitals rule cover the rest?
-`c`/`C` swapped so that lowercase shows and uppercase changes. Three keys still
-break the rule, all of them writing something:
-
-| key | writes |
-|---|---|
-| `r` | `read.json` — marks the thread seen |
-| `s` | `state.toml` — snoozes it |
-| `e` | launches `$EDITOR` on a checkout |
-
-`R`, `S` and `E` are all free, so this is only a question of whether it is worth
-retraining three keys that get pressed constantly for the sake of the rule -
-and `r` and `s` are the two most-pressed keys in the program. An argument for
-leaving them: they write *local* state, and every uppercase key so far writes to
-GitHub, which is a sharper line than "edits" and one they fall on the right side
-of.
+The scope is exactly the lowercase set, and that is not a coincidence: a posted
+comment cannot be taken back by rewriting a local file, and `z` must not look as
+though it might. If the stack ever holds something that reached GitHub, it is
+the binding rule that has gone wrong.
 
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review
@@ -347,6 +339,11 @@ at all.
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`
   until the lazy fetch lands.
+- **Search matches what a row prints, not what it means.** `/` looks at each
+  row's visible text, so a phrase broken across a wrap is not found, and a
+  search in the thread does not look inside a folded node. Matching `Row.src`
+  instead would find both — but `src` is the *unwrapped* line, so its offsets do
+  not map to a display row and the match could not then be highlighted.
 - **Nesting is depth, not structure.** `Node.depth` draws a block inset and
   `rows` hides the run of deeper nodes under a closed one, which is enough to
   behave like a tree when reading. It is not one: nothing can be moved or

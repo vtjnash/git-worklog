@@ -127,6 +127,11 @@ are fetched for the selected item only. The light GraphQL query the bulk lanes
 use carries no reviews, so widening it would pay for ~2000 items to answer a
 question about the one on screen.
 
+`/` searches. In the item list it narrows by title or ref, and a bare number is
+a jump — reaching past the filter that is hiding the item, since being unable to
+see it is exactly when you go looking for it by number. In the thread or the
+diff it marks every match and `n`/`N` step between them.
+
 It owns the mouse rather than leaving selection to the terminal. That is not a
 flourish: the terminal only sees the lines *we* wrapped, so selecting a
 paragraph with it yields the wrapped fragments plus the pane borders. Dragging

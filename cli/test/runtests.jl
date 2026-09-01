@@ -538,6 +538,90 @@ end
     @test all(startswith(o[1], "[x] ") || startswith(o[1], "[ ] ") for o in W.shown(lv))
 end
 
+@testset "/ searches" begin
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    ctrl = W.Controller()
+    iw = W.layout(150, 40, 0).riw
+    type!(v, x) = for c in x; W.handle!(v, Int(c), ctrl); end
+
+    # In the list it narrows, and it can be kept or dropped.
+    st = mkstate()
+    n0 = length(st.items)
+    W.handle!(st, Int('/'), ctrl)
+    @test st.typing && st.searchin === :list
+    type!(st, "libuv")
+    @test 0 < length(st.items) < n0
+    @test all(occursin("libuv", lowercase(i.title * i.ref)) for i in st.items)
+    W.handle!(st, 13, ctrl)
+    @test !st.typing && st.search == "libuv"          # kept
+    W.handle!(st, Int('/'), ctrl); W.handle!(st, 27, ctrl)
+    @test isempty(st.search) && length(st.items) == n0 # dropped
+
+    # A bare number jumps, but only once it is finished being typed.
+    st = mkstate()
+    want = st.all[findfirst(i -> i.number > 999, st.all)]
+    W.handle!(st, Int('/'), ctrl)
+    type!(st, string(want.number))
+    @test st.typing && !occursin("jumped", st.status)   # not until enter
+    W.handle!(st, 13, ctrl)
+    @test st.items[st.sel].ref == want.ref && occursin("jumped", st.status)
+    # ...and it reaches an item the filter was hiding.
+    st = mkstate()
+    hidden = st.all[findfirst(i -> i.backlog, st.all)]
+    @test !any(i -> i.url == hidden.url, st.items)
+    W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
+    W.handle!(st, 13, ctrl)
+    @test st.items[st.sel].url == hidden.url
+    st = mkstate()
+    W.handle!(st, Int('/'), ctrl); type!(st, "99999999"); W.handle!(st, 13, ctrl)
+    @test occursin("no item numbered", st.status)
+
+    # In the detail pane it moves the cursor, and n/N step the matches.
+    st = mkstate()
+    st.nodes = [W.Node("a", "the quick brown fox\njumps over\nthe lazy dog and the fox", :md, true),
+                W.Node("b", "nothing here", :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    W.handle!(st, Int('/'), ctrl)
+    @test st.searchin === :detail
+    type!(st, "fox")
+    ms = W.match_rows(st, iw)
+    @test length(ms) == 2 && st.nrow == ms[1]
+    W.handle!(st, 13, ctrl)
+    W.handle!(st, Int('n'), ctrl); @test st.nrow == ms[2]
+    W.handle!(st, Int('n'), ctrl); @test st.nrow == ms[1]   # wraps
+    W.handle!(st, Int('N'), ctrl); @test st.nrow == ms[2]
+    # A search in the thread must not narrow the list out from under the cursor.
+    before = length(st.items)
+    W.refilter!(st)
+    @test length(st.items) == before
+
+    f = W.render(st, 150, 40)
+    @test occursin(W.HITBG, f)                          # matches are marked
+    @test occursin("2 matches", W.astrip(f))            # and counted
+    @test all(W.awidth(l) == 150 for l in split(f, "\n"))
+
+    # Typing takes every key: `/d` is a search, not a jump to the diff pane.
+    st = mkstate()
+    mode0 = st.mode
+    W.handle!(st, Int('/'), ctrl); type!(st, "d")
+    @test st.mode === mode0 && st.search == "d"
+end
+
+@testset "span highlighting" begin
+    s = "\e[31mred\e[0m and green"
+    hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.HITBG)
+    @test W.astrip(hl) == W.astrip(s)          # nothing printable is disturbed
+    @test occursin(W.HITBG * "green", hl)
+    @test endswith(hl, W.NOBG)                 # ends the background, not the colour
+    @test W.findhits("aXbXc", "x") == [2:2, 4:4]
+    @test isempty(W.findhits("abc", ""))
+    @test W.hlspan("plain", UnitRange{Int}[], W.HITBG) == "plain"
+    # A match inside styled text keeps the style around it.
+    s2 = "\e[32mfoo bar baz\e[0m"
+    @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"), W.HITBG)) == "foo bar baz"
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]

@@ -192,9 +192,21 @@ function toggle_filter!(st)
     true
 end
 
+"Does this item answer to `/query`? Title or ref, case-insensitively."
+hits(it::Item, q::AbstractString) =
+    occursin(lowercase(q), lowercase(it.title)) || occursin(lowercase(q), lowercase(it.ref))
+
 function refilter!(st)
     keep = isempty(st.items) ? "" : st.items[st.sel].url
     st.items = apply_filters(st.filters, st.all, st.unread)
+    # The text filter sits on top of the tag axes rather than inside `Filters`,
+    # so the counts in the filter pane keep describing the tags alone - which is
+    # what they are for.
+    # Only a search started in the list narrows it. One begun in the thread is
+    # about the thread, and should not quietly filter the list out from under
+    # the cursor the next time anything rebuilds it.
+    (isempty(st.search) || st.searchin !== :list) ||
+        (st.items = [it for it in st.items if hits(it, st.search)])
     i = findfirst(x -> x.url == keep, st.items)
     st.sel = i === nothing ? 1 : i          # stay on the same item when possible
     st.top = 1
@@ -255,6 +267,9 @@ Base.@kwdef mutable struct BState <: View
     sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
     selb::Int = 0
     mouse::Bool = true     # mirrors the controller, for the footer
+    search::String = ""    # the live query; "" when no search is running
+    searchin::Symbol = :list  # the pane it was started in, and belongs to
+    typing::Bool = false   # is the query still being typed?
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
     # Labels by how often they appear rather than alphabetically: there are
@@ -901,7 +916,57 @@ A row carries its own colours, and the `\\e[0m` that ends one of them ends the
 background too - so a highlight applied naively stops at the first styled word
 on the line.
 """
-hlrow(s::AbstractString, bg::AbstractString) = string(bg, replace(s, AR => AR * bg), AR)
+hlrow(s::AbstractString, bg::AbstractString) =
+    string(bg, replace(replace(s, AR => AR * bg), NOBG => NOBG * bg), AR)
+
+"Default background, which ends a span highlight without touching the colours."
+const NOBG = "\e[49m"
+const HITBG = "\e[43m\e[30m"     # a match, dark on yellow
+
+"""Lay a background over given ranges of a row's *plain* characters.
+
+The row carries escapes, so a character offset in the text it prints is not an
+offset into the string. This walks it, counting only what would appear, and ends
+each span with `\\e[49m` rather than a reset - so a match inside coloured text
+keeps its colour, and `hlrow` can still lay the cursor's background over the top.
+"""
+function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractString)
+    isempty(ranges) && return s
+    io, i, n, open_ = IOBuffer(), firstindex(s), 0, false
+    while i <= lastindex(s)
+        m = match(ESCAPE, SubString(s, i))
+        if m !== nothing
+            write(io, m.match); i += ncodeunits(m.match); continue
+        end
+        n += 1
+        inspan = any(r -> n in r, ranges)
+        inspan && !open_ && write(io, bg)
+        !inspan && open_ && write(io, NOBG)
+        open_ = inspan
+        write(io, s[i]); i = nextind(s, i)
+    end
+    open_ && write(io, NOBG)
+    String(take!(io))
+end
+
+"Every place `q` appears in `text`, as ranges of plain characters."
+function findhits(text::AbstractString, q::AbstractString)
+    out = UnitRange{Int}[]
+    (isempty(q) || isempty(text)) && return out
+    hay, needle = lowercase(text), lowercase(q)
+    n = length(needle)
+    start = 1
+    cs = collect(hay)
+    while start + n - 1 <= length(cs)
+        if String(cs[start:(start + n - 1)]) == needle
+            push!(out, start:(start + n - 1))
+            start += n
+        else
+            start += 1
+        end
+    end
+    out
+end
 
 """
     render(st, w, h) -> String
@@ -935,7 +1000,10 @@ function render_frame(st::BState, w::Int, h::Int)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
             txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title), liw)
-            push!(lrows, Row(i, true, string(on ? "\e[1;37m" : AD, txt, AR),
+            styled = string(on ? "\e[1;37m" : AD, txt, AR)
+            (isempty(st.search) || st.searchin !== :list) ||
+                (styled = hlspan(styled, findhits(astrip(styled), st.search), HITBG))
+            push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end
         lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
@@ -960,6 +1028,15 @@ function render_frame(st::BState, w::Int, h::Int)
     append!(rrows, nrows)
     st.nrow = clamp(st.nrow, 1, max(1, length(nrows)))
     sr = selrange(st)
+    if !isempty(st.search) && st.searchin === :detail
+        for i in 1:length(nrows)
+            r = rrows[i + st.hdr]
+            hs = findhits(astrip(r.text), st.search)
+            isempty(hs) && continue
+            rrows[i + st.hdr] = Row(r.node, r.header, hlspan(r.text, hs, HITBG),
+                                    r.src, r.part)
+        end
+    end
     for i in 1:length(nrows)
         insel = sr !== nothing && sr[1] <= i <= sr[2]
         # Mark the cursor row so it is visible while paging through a body,
@@ -997,12 +1074,25 @@ function render_frame(st::BState, w::Int, h::Int)
     keys1 = string("[", filter_summary(st.filters), "]  f filters \u00b7 j/k line \u00b7 ",
                    "space/b page \u00b7 n/N node \u00b7 \u21b5 fold \u00b7 tab pane \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
-                   "y copy \u00b7 q quit")
+                   "y copy \u00b7 / search \u00b7 q quit")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read \u00b7 s snooze \u00b7 ",
                    "e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
     msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
     foot1 = string(AD, afit(keys1, w), AR)
-    foot2 = string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
+    foot2 = if st.typing
+        # The query line, with a block for the cursor: this view draws its own,
+        # the terminal's being hidden for the whole run.
+        string(AB, "/", AR, st.search, "\e[7m \e[0m",
+               AD, "   ↵ keep · esc drop", AR)
+    elseif !isempty(st.search)
+        nmatch = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
+        string(AB, "/", st.search, AR, AD, "  ", nmatch,
+               st.searchin === :detail ? " matches · n/N steps them · " : " items · ",
+               "/ to search again", AR)
+    else
+        string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
+    end
+    foot2 = string(AD, afit(foot2, w), AR)
     body = L.side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
                     vcat(left, right)
     # Row 1 is a title bar so that selecting the top line in tmux - which
@@ -1463,7 +1553,35 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     load_meta!(st)
     L = layout(w, h, st.nmeta)
     iw, page, lpage = L.riw, L.page, L.lpage
-    if k == Int('q')
+    # While the query is being typed it takes every key, so that `/julia` is a
+    # search and not four commands. Enter keeps it, escape drops it.
+    if st.typing
+        if k in (13, 10)
+            commit_search!(st, iw)
+        elseif k == 27
+            st.search = ""; st.typing = false
+            st.searchin === :list && refilter!(st)
+        elseif k in (127, 8)
+            isempty(st.search) || (st.search = st.search[1:prevind(st.search, end)];
+                                   research!(st, iw))
+        elseif k == C_U
+            st.search = ""; research!(st, iw)
+        elseif k in (C_W, K_WORD_BACK)
+            st.search = String(first(st.search,
+                                     word_start(st.search, length(st.search) + 1) - 1))
+            research!(st, iw)
+        elseif printable(k)
+            st.search *= Char(k); research!(st, iw)
+        end
+        return :ok
+    end
+    if k == Int('/')
+        st.typing = true
+        st.search = ""
+        st.searchin = st.focus === :detail ? :detail : :list
+        st.searchin === :list && refilter!(st)
+        return :ok
+    elseif k == Int('q')
         return :quit          # Escape no longer quits: it heads key sequences
     elseif k == Int('\t') || k == K_STAB
         st.focus = st.focus === :list ? :detail : :list
@@ -1519,8 +1637,12 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         elseif k in (Int('b'), 2, K_PGUP);   st.nrow = max(1, st.nrow - page)
         elseif k in (Int('g'), K_HOME);      st.nrow = 1
         elseif k in (Int('G'), K_END);       st.nrow = n
-        elseif k == Int('n');       jumpnode(st, 1, iw)
-        elseif k == Int('N');       jumpnode(st, -1, iw)
+        elseif k == Int('n')
+            (isempty(st.search) || st.searchin !== :detail) ? jumpnode(st, 1, iw) :
+                                                              jumpmatch(st, 1, iw)
+        elseif k == Int('N')
+            (isempty(st.search) || st.searchin !== :detail) ? jumpnode(st, -1, iw) :
+                                                              jumpmatch(st, -1, iw)
         elseif k in (13, 10)
             i = curnode(st, iw)
             if i > 0
@@ -1680,6 +1802,67 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
             (st.status = string(r[2] - r[1] + 1, " rows selected — y to copy"))
     end
     :ok
+end
+
+# --- search -----------------------------------------------------------------
+
+"Rows of the detail pane that contain the query, by what they actually print."
+function match_rows(st::BState, w::Int)
+    isempty(st.search) && return Int[]
+    [j for (j, r) in enumerate(rows(st.nodes, w))
+     if !isempty(findhits(astrip(r.text), st.search))]
+end
+
+"""Re-aim after the query changed.
+
+In the list the query narrows; in the detail pane it moves the cursor to the
+first hit at or after where it already is, so refining a search does not jump
+back to the top of the thread.
+"""
+function research!(st::BState, w::Int)
+    if st.searchin === :detail
+        ms = match_rows(st, w)
+        isempty(ms) && return
+        st.nrow = something(findfirst(>=(st.nrow), ms), 1) |> i -> ms[i]
+    else
+        refilter!(st)
+    end
+end
+
+"""Finish a search. A bare number is a jump rather than a filter.
+
+Only on Enter: done live, typing the `1` of `18004` would land on whatever
+`#1` happens to be and take the rest of the digits as commands. The jump also
+reaches past the filter that is hiding the item, by widening the state axis -
+being unable to see it is exactly when you go looking for it by number.
+"""
+function commit_search!(st::BState, w::Int)
+    st.typing = false
+    st.searchin === :list || return
+    n = tryparse(Int, strip(st.search))
+    n === nothing && return
+    k = findfirst(it -> it.number == n, st.all)
+    if k === nothing
+        st.status = string("no item numbered ", n)
+        return
+    end
+    target, ref = st.all[k].url, st.all[k].ref
+    st.search = ""
+    any(it -> it.url == target, apply_filters(st.filters, st.all, st.unread)) ||
+        (st.filters.state = :all)
+    refilter!(st)
+    j = findfirst(it -> it.url == target, st.items)
+    j === nothing || (st.sel = j)
+    st.status = string("jumped to ", ref)
+end
+
+"Step to the next (`+1`) or previous (`-1`) match in the detail pane."
+function jumpmatch(st::BState, dir::Int, w::Int)
+    ms = match_rows(st, w)
+    isempty(ms) && return false
+    st.nrow = dir > 0 ? ms[something(findfirst(>(st.nrow), ms), 1)] :
+                        ms[something(findlast(<(st.nrow), ms), length(ms))]
+    true
 end
 
 # --- writing ----------------------------------------------------------------
