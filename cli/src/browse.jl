@@ -22,8 +22,9 @@ mutable struct Node
     open::Bool
     cache::Vector{String}   # rendered at `cw`; markdown is far too slow per frame
     cw::Int
+    urls::Vector{String}    # link targets pulled out of the body
 end
-Node(h, raw, kind, open) = Node(h, raw, kind, open, String[], -1)
+Node(h, raw, kind, open) = Node(h, raw, kind, open, String[], -1, String[])
 
 mutable struct BState
     items::Vector{Item}
@@ -72,27 +73,106 @@ function diffline(l)
     esc(l)
 end
 
+"""
+    delink(md) -> (text, urls)
+
+Pull the URLs out of markdown links, leaving `label [n]` behind.
+
+Term renders a link as its label followed by the raw URL, so a single Godbolt
+or CI permalink - routinely several hundred characters - crowds out the comment
+it appears in. The URLs come back as footnotes instead, one short line each.
+
+Scanned rather than matched with a regex: link targets nest parentheses, and
+Godbolt in particular emits URLs full of them. A `[^)]+` target stops at the
+first one and spills the rest of the URL into the prose as literal text.
+"""
+function delink(md::AbstractString)
+    urls = String[]
+    io = IOBuffer()
+    i, n = firstindex(md), lastindex(md)
+    while i <= n
+        c = md[i]
+        if c != '['
+            write(io, c); i = nextind(md, i); continue
+        end
+        # label
+        j = nextind(md, i); depth = 0; close = 0
+        while j <= n
+            md[j] == '[' && (depth += 1)
+            if md[j] == ']'
+                depth == 0 && (close = j; break)
+                depth -= 1
+            end
+            j = nextind(md, j)
+        end
+        k = close == 0 ? 0 : nextind(md, close)
+        if close == 0 || k > n || md[k] != '('
+            write(io, c); i = nextind(md, i); continue
+        end
+        # target, with balanced parentheses
+        d, m = 1, nextind(md, k)
+        while m <= n && d > 0
+            md[m] == '(' && (d += 1)
+            md[m] == ')' && (d -= 1)
+            d == 0 && break
+            m = nextind(md, m)
+        end
+        if d != 0
+            write(io, c); i = nextind(md, i); continue
+        end
+        label = strip(String(md[nextind(md, i):prevind(md, close)]))
+        url = String(md[nextind(md, k):prevind(md, m)])
+        if startswith(url, "http")
+            push!(urls, url)
+            write(io, isempty(label) ? "link" : label, " [", string(length(urls)), "]")
+        else
+            write(io, "[", label, "](", url, ")")
+        end
+        i = nextind(md, m)
+    end
+    (String(take!(io)), urls)
+end
+
+"Shorten for display; the full URL still rides along in the hyperlink."
+function shortlink(u::AbstractString, w::Int = 58)
+    length(u) <= w && return u
+    u[1:prevind(u, w - 2)] * "…"
+end
+
+"OSC 8 hyperlink. Zero width in a real terminal, so it is applied after layout."
+osc8(url, text) = string("\e]8;;", url, "\e\\", text, "\e]8;;\e\\")
+
 "Render a node's body at width `w`, cached - markdown is too slow to redo per frame."
 function nodelines(n::Node, w::Int)
     n.cw == w && return n.cache
     txt = if n.kind === :md
-        isempty(strip(n.raw)) ? "" :
+        body, urls = delink(n.raw)
+        n.urls = urls
+        isempty(strip(body)) ? "" :
             try
                 # Hand Panel Term *markup*, not ANSI. apply_style here would
                 # bake in escape codes that Panel then counts toward the line
                 # width, wrapping content that already fits and overflowing the
                 # pane height into "... content omitted ...".
                 string(Term.TermMarkdown.parse_md(
-                    Markdown.parse(n.raw); width = max(20, w - 2)))
+                    Markdown.parse(body); width = max(20, w - 2)))
             catch
-                esc(n.raw)      # malformed markdown must not take the pane down
+                esc(body)       # malformed markdown must not take the pane down
             end
     elseif n.kind === :diff
         join((diffline(l) for l in split(n.raw, "\n")), "\n")
     else
         esc(n.raw)
     end
-    n.cache = isempty(txt) ? String[] : split(txt, "\n")
+    lines = isempty(txt) ? String[] : split(txt, "\n")
+    if n.kind === :md && !isempty(n.urls)
+        push!(lines, "")
+        for (i, u) in enumerate(n.urls)
+            push!(lines, string("{dim}[", i, "]{/dim} {blue}",
+                                esc(shortlink(u, max(20, w - 8))), "{/blue}"))
+        end
+    end
+    n.cache = lines
     n.cw = w
     n.cache
 end
@@ -175,10 +255,36 @@ function render(st::BState, w::Int, h::Int)
     left = panel(lvis, lw, lh, ltitle, st.focus === :list ? "bold" : "dim")
     right = panel(rvis, rw, rh, rtitle, st.focus === :detail ? "bold blue" : "dim")
 
+    links = Pair{String,String}[]
+    for n in st.nodes, u in n.urls
+        push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
+    end
+
     keys = "j/k move · tab pane · ↵ fold · d diff · o comments · r read · s snooze · q back"
     ftxt = isempty(st.status) ? keys : st.status
     foot = "{dim}" * esc(rpad(fit1(ftxt, w), w)) * "{/dim}"
-    string(side ? string(left * right) : string(left / right), "\n", apply_style(foot))
+    frame = string(side ? string(left * right) : string(left / right),
+                   "\n", apply_style(foot))
+    linkify(frame, links)
+end
+
+"""
+    linkify(frame, links) -> String
+
+Wrap each rendered short URL in an OSC 8 hyperlink pointing at the full one.
+
+Done last, on the finished frame, because OSC 8 sequences are invisible to the
+terminal but not to Term's width accounting - injecting them earlier would wrap
+lines that fit. The display form is kept short enough that Term never splits it
+across lines, which is what makes a plain textual replacement safe here.
+"""
+function linkify(frame::AbstractString, links)
+    isempty(links) && return frame
+    for (disp, full) in links
+        (isempty(disp) || !occursin(disp, frame)) && continue
+        frame = replace(frame, disp => osc8(full, disp))
+    end
+    frame
 end
 
 # --- content loading -------------------------------------------------------

@@ -70,6 +70,27 @@ function row(it::Item; width = 110)
     string(rpad(it.ref, 22), t, f, tail)
 end
 
+"""Print one markdown body: links lifted to numbered footnotes, the rest
+rendered by Term, wrapped to the terminal."""
+function show_md(raw)
+    txt = strip(replace(String(raw), "\r\n" => "\n"))
+    isempty(txt) && return
+    w = max(40, min(displaysize(stdout)[2] - 4, 100))
+    body, urls = delink(txt)
+    out = try
+        Term.apply_style(string(Term.TermMarkdown.parse_md(
+            Markdown.parse(body); width = w)))
+    catch
+        body
+    end
+    for l in split(out, "\n")
+        println("  ", l)
+    end
+    for (i, u) in enumerate(urls)
+        println("  ", DIM, "[", i, "]", R, " ", osc8(u, u))
+    end
+end
+
 function detail(it::Item)
     println("\n", B, it.ref, "  ", it.title, R)
     println(DIM, it.url, R)
@@ -90,13 +111,14 @@ function detail(it::Item)
         return
     end
     print("\r\e[K")
-    txt = strip(join(split(nz(get(body, "body", nothing), "")), " "))
-    isempty(txt) || println("  ", first(txt, 400), length(txt) > 400 ? "..." : "")
+    # Rendered, not truncated. The old 500-character cut was what produced the
+    # trailing "..." on long comments, and it fell in the middle of whatever the
+    # comment was actually saying.
+    show_md(nz(get(body, "body", nothing), ""))
     for c in cs
-        t = strip(join(split(nz(get(c, "body", nothing), "")), " "))
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
         println("\n  ", B, nz(who, "?"), R, DIM, "  ", first(c["created_at"], 16), R)
-        println("    ", first(t, 500), length(t) > 500 ? "..." : "")
+        show_md(nz(get(c, "body", nothing), ""))
     end
     println()
 end
