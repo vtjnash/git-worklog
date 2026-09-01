@@ -61,6 +61,10 @@ repos = [
 # How far back an untouched item still counts as "new mail". Nothing is stored
 # but read.json (one timestamp per item), so this is just the query window.
 lookback_days = 30
+# The activity query runs on every browser launch and is several paginated
+# requests per repo. Cached this long; read state is applied after the cache,
+# so marking something read still takes effect at once.
+activity_ttl_seconds = 120
 
 [cache]
 # On-disk cache for thread and diff reads, which the browser hits repeatedly as

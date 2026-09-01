@@ -414,20 +414,32 @@ function render_frame(st::BState, w::Int, h::Int)
     ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
-    rrows = rows(st.nodes, inner(rw))
-    st.nrow = clamp(st.nrow, 1, max(1, length(rrows)))
-    if st.focus === :detail && !isempty(rrows)
+    it = isempty(st.items) ? nothing : st.items[clamp(st.sel, 1, length(st.items))]
+    # The item title again, above the detail. The title bar is a row away at the
+    # top of the screen and easy to lose track of once you have scrolled into a
+    # long thread.
+    rrows = Tuple{Int,Bool,String}[]
+    if it !== nothing
+        for (j, l) in enumerate(awrap(string(AB, it.ref, AR, "  ", it.title), inner(rw)))
+            push!(rrows, (0, false, l))
+        end
+        push!(rrows, (0, false, string(AD, "─"^inner(rw), AR)))
+    end
+    hdr_rows = length(rrows)
+    append!(rrows, rows(st.nodes, inner(rw)))
+    st.nrow = clamp(st.nrow, 1, max(1, length(rrows) - hdr_rows))
+    if st.focus === :detail && length(rrows) > hdr_rows
         # Mark the cursor row so it is visible while paging through a body,
         # not only when it lands on a header.
-        (ni, hdr, txt) = rrows[st.nrow]
-        rrows[st.nrow] = (ni, hdr, string("\e[48;5;236m", txt, AR))
+        (ni, hdr, txt) = rrows[st.nrow + hdr_rows]
+        rrows[st.nrow + hdr_rows] = (ni, hdr, string("\e[48;5;236m", txt, AR))
     end
-    rvis, st.ntop = window(rrows, st.nrow, st.ntop, rh - 2)
+    rvis, st.ntop = window(rrows, st.nrow + hdr_rows, st.ntop, rh - 2)
 
     it = isempty(st.items) ? nothing : st.items[st.sel]
     ltitle = string(st.title, " ", st.sel, "/", length(st.items))
-    total = length(rows(st.nodes, inner(rw)))
-    rtitle = string(st.mode === :comments ? "comments" : "diff",
+    total = length(rrows) - hdr_rows
+    rtitle = string(String(st.mode),
                     it === nothing ? "" : string("  ", it.ref),
                     total > 0 ? string("  ", st.ntop, "-",
                                        min(total, st.ntop + rh - 3), "/", total) : "")
@@ -440,7 +452,7 @@ function render_frame(st::BState, w::Int, h::Int)
         push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · e edit · s snooze · q")
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · e edit · s snooze · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
     foot = string(AD, afit(ftxt, w), AR)
@@ -576,6 +588,10 @@ function diff_nodes(it::Item)
     isempty(ns) ? [Node("empty diff", "", :plain, true)] : ns
 end
 
+mode_nodes(mode::Symbol, it::Item) =
+    mode === :comments ? comment_nodes(it) :
+    mode === :diff     ? diff_nodes(it) : check_nodes(it)
+
 function load_nodes!(st::BState)
     isempty(st.items) && return
     it = st.items[st.sel]
@@ -584,7 +600,7 @@ function load_nodes!(st::BState)
     (st.loaded == key || st.pendkey == key) && return
     st.pending = @async begin
         r = try
-            mode === :comments ? comment_nodes(it) : diff_nodes(it)
+            mode_nodes(mode, it)
         finally
             st.wake === nothing || st.wake()   # redraw as soon as this lands
         end
@@ -755,6 +771,15 @@ function handle!(st::BState, k::Int, ctrl::Controller)
 
     if k == Int('d');     st.mode = :diff
     elseif k == Int('o'); st.mode = :comments
+    elseif k == Int('C'); st.mode = :checks
+    elseif k == Int('l')
+        i = curnode(st, iw)
+        if i > 0 && haskey(st.nodes[i].meta, "bk")
+            n = st.nodes[i]
+            n.raw = bk_log(n.meta["bk"], n.meta["job"])
+            n.cw = -1; n.open = true
+            st.status = "log fetched"
+        end
     elseif k == Int('r'); Events.mark_read([it.url]); st.status = "marked read"
     elseif k == Int('s'); disarm(it.url); set_fields(it.url, ["snooze" => "on-change"])
                           st.status = "snoozed"
@@ -847,4 +872,49 @@ function open_editor(it::Item)
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
     string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
+end
+
+# --- CI checks --------------------------------------------------------------
+
+const CI_COLOR = Dict("SUCCESS" => "\e[32m", "FAILURE" => "\e[31m", "ERROR" => "\e[31m",
+                      "PENDING" => "\e[33m", "TIMED_OUT" => "\e[31m",
+                      "CANCELLED" => "\e[2m", "SKIPPED" => "\e[2m", "NEUTRAL" => "\e[2m")
+
+"""Checks for an item, with failing Buildkite jobs listed underneath.
+
+A rollup of FAILURE says nothing about which of sixty jobs broke, so each
+failing Buildkite build is expanded into its failed jobs, each of which can
+pull its own log.
+"""
+function check_nodes(it::Item)
+    it.is_pr || return [Node("no checks - this is an issue, not a pull request",
+                             "", :plain, true)]
+    c = check_contexts(it.repo, it.number)
+    ns = Node[]
+    seen_builds = Set{String}()
+    for x in c.contexts
+        col = get(CI_COLOR, uppercase(x.state), "")
+        n = Node(string(col, rpad(x.state, 9), "\e[0m", x.name), "", :plain, false)
+        isempty(x.url) || (n.meta["url"] = x.url)
+        n.raw = isempty(x.url) ? "" : x.url
+        push!(ns, n)
+
+        b = bk_parse(x.url)
+        b === nothing && continue
+        k = string(b.pipeline, "/", b.build)
+        k in seen_builds && continue
+        push!(seen_builds, k)
+        failed = bk_failed(bk_jobs(b))
+        isempty(failed) && continue
+        for j in failed
+            jn = Node(string("\e[31m  ", rpad(j.state, 10), "\e[0m", j.name,
+                             j.exit == "" ? "" : string("  (exit ", j.exit, ")")),
+                      "press l to fetch this job's log", :plain, false)
+            jn.meta["bk"] = b
+            jn.meta["job"] = j.id
+            jn.meta["url"] = "https://buildkite.com/$(b.org)/$(b.pipeline)/builds/$(b.build)#$(j.id)"
+            push!(ns, jn)
+        end
+    end
+    isempty(ns) ? [Node("no checks reported", "", :plain, true)] : ns
 end

@@ -15,6 +15,9 @@
 # `GitHub.issues`, which pages by following Link headers - see `api_paged`.
 module Events
 
+# cache.jl is included into the parent before this file.
+import ..cache_get, ..cache_put
+
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
@@ -157,10 +160,20 @@ function unread(cfg, login; verbose::Bool = true)
                     # unread list rather than an error.
     rd = load_read()
     out = OrderedDict{String,Any}[]
+    ttl = Float64(get(cfge, "activity_ttl_seconds", 120))
     for repo in repos
+        # Persisted: this runs on every launch of the browser and is several
+        # paginated requests per repo, which is most of the startup wait. Read
+        # state is applied below, after the cache, so marking something read is
+        # reflected immediately even against a warm entry.
+        ckey = string("activity:", repo, ":", since)
         rows = try
-            api_paged("/repos/$repo/issues"; params = Dict{String,Any}(
-                "since" => since, "state" => "all", "sort" => "updated", "direction" => "asc"))
+            hit = cache_get(ckey, ttl)
+            hit === nothing ?
+                cache_put(ckey, api_paged("/repos/$repo/issues"; params = Dict{String,Any}(
+                    "since" => since, "state" => "all", "sort" => "updated",
+                    "direction" => "asc"))) :
+                hit[1]
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", repo, e.msg)
