@@ -21,15 +21,16 @@ The split that makes it safe to let a model touch this:
 | file | owner | lifetime |
 |---|---|---|
 | `config.toml` | you | edited by hand |
-| `state.toml` | you + the model, via `wl.py` | **never machine-rewritten** |
-| `facts.json` | `refresh.py` | overwritten every run (gitignored, ~1MB) |
-| `bulk.json` | `refresh.py` | slow-lane cache, refetched every 6h (gitignored) |
-| `queue.json` | `wl.py next` | what the backlog queue has shown you (gitignored) |
+| `state.toml` | you + the model, via `wl` | **never machine-rewritten** |
+| `facts.json` | `wl refresh` | overwritten every run (gitignored, ~1MB) |
+| `bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h (gitignored) |
+| `queue.json` | `wl next` | what the backlog queue has shown you (gitignored) |
+| `read.json` | `wl read` | one seen-up-to timestamp per item (gitignored) |
 | `autocommit.sh` | Stop hook | commits and pushes on session end |
-| `snooze.json` | `refresh.py` | overwritten every run |
-| `DASHBOARD.md` | `refresh.py` | overwritten every run |
+| `snooze.json` | `wl refresh` | overwritten every run |
+| `DASHBOARD.md` | `wl refresh` | overwritten every run |
 
-`refresh.py` reads `state.toml` and never writes it. Every snooze and note you
+The refresh reads `state.toml` and never writes it. Every snooze and note you
 set survives any refresh, and a confused model cannot erase your triage.
 
 Buckets are derived from facts by rules, not guessed: changes-requested or
@@ -74,7 +75,7 @@ the answer to "I want to watch this one, and barely watch that one":
 | `background` | nothing; never surfaces on its own | the stale pile, the firehose |
 
 ```bash
-python3 wl.py track julia#62452 close
+cli/bin/wl track julia#62452 close
 ```
 
 Because the fingerprint is computed from the level's key set, this is a real
@@ -89,10 +90,10 @@ even as a collapsed list, just a one-line count. You pull a batch when you want
 one and work through it by tagging:
 
 ```bash
-python3 wl.py next 10            # next untagged backlog items, quietest first
-python3 wl.py dismiss julia#43202  # retire: loose + wake only on real movement
-python3 wl.py track   julia#43257 loose
-python3 wl.py note    julia#44005 "still relevant; rebase onto the new pass manager"
+cli/bin/wl next 10                 # next untagged backlog items, quietest first
+cli/bin/wl dismiss julia#43202     # retire: loose + wake only on real movement
+cli/bin/wl track   julia#43257 loose
+cli/bin/wl note    julia#44005 "still relevant; rebase onto the new pass manager"
 ```
 
 Anything you have tagged never comes back in `next`, so the queue drains
@@ -110,17 +111,21 @@ without reviving it.
 
 ## Navigator
 
-An interactive Julia CLI over the same data:
+The same program with no arguments is an interactive browser over the same data:
 
 ```bash
 cli/bin/wl              # lane -> item -> thread -> action
 cli/bin/wl --refresh    # re-fetch first
 ```
 
-Python stays the engine and the CLI dispatches every mutation back through
-`wl.py`, so the comment-preserving TOML writer and the GitHub quirks below live
-in one place rather than two. It reads `facts.json` with JSON3 and calls
-`wl.py unread` / `wl.py thread` for the live parts. Startup is ~0.5s.
+Everything is one Julia module under `cli/src`, so the comment-preserving TOML
+writer and the GitHub quirks below live in one place rather than two: the
+navigator calls the same functions the commands do, rather than shelling back
+out to itself. Startup is ~0.7s.
+
+The GraphQL search lanes shell out to `gh api graphql` because GitHub.jl exports
+neither GraphQL nor search; the REST side (`events.jl`) uses GitHub.jl directly,
+though not its paginating helpers - see the `--paginate` note below.
 
 ## Saving
 
@@ -135,12 +140,16 @@ pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`
 ## Use
 
 ```bash
-python3 refresh.py                                   # ~40s, ~21 of 5000 rate points
-python3 wl.py note   julia#62452 "rebase after #62396"
-python3 wl.py agent  julia#62841 "bisect CI, prepare fixups"
-python3 wl.py snooze libuv#5212 on-change
-python3 wl.py clear  julia#62452
+cli/bin/refresh                                # ~20s, 12 of 5000 rate points
+cli/bin/wl note   julia#62452 "rebase after #62396"
+cli/bin/wl agent  julia#62841 "bisect CI, prepare fixups"
+cli/bin/wl snooze libuv#5212 on-change
+cli/bin/wl clear  julia#62452
+cli/bin/wl                                     # the interactive navigator
 ```
+
+`cli/bin/refresh` is `cli/bin/wl refresh`; every command is a subcommand of the
+one entry point.
 
 Or `/dash` in Claude Code, which refreshes, triages the change set and reports
 only what moved.
@@ -149,21 +158,23 @@ only what moved.
 
 `config.toml` defines the lanes. Currently: PRs you authored, PRs awaiting your
 review, issues assigned to you, plus **every** open PR in JuliaLang/julia as the
-background pile. The `areas` list is a ranking signal for `wl.py next`, not a
+background pile. The `areas` list is a ranking signal for `wl next`, not a
 filter — nothing is excluded.
 
-The firehose is fetched on its own 6-hour cadence (`python3 refresh.py --firehose`
-forces it), because it is ~1000 PRs and ~2.5 minutes, while a normal refresh with
-it cached is ~16s and 12 rate-limit points.
+The firehose is fetched on its own 6-hour cadence (`cli/bin/refresh --firehose`
+forces it), because it is ~1000 PRs and several minutes, while a normal refresh with
+it cached is ~20s and 12 rate-limit points.
 
 Two GitHub behaviours worth knowing, both of which cost real debugging:
 
-`gh api --paginate` is **unsafe on a `sort=updated` list**. It follows Link
-headers over a collection being reordered underneath it, so an item touched
-mid-walk jumps to page 1 and shifts a whole page past the cursor. The same
-query returned 168 items on one attempt and 612 on the next. `events.py` pages
-explicitly with `direction=asc` - where a concurrent update moves an item toward
-the end, which can duplicate but never skip - and dedupes by id.
+Following `Link: rel="next"` is **unsafe on a `sort=updated` list**, whether the
+follower is `gh api --paginate` or `GitHub.issues`. It walks a collection being
+reordered underneath it, so an item touched mid-walk jumps to page 1 and shifts
+a whole page past the cursor. The same query returned 168 items on one attempt
+and 612 on the next. `events.jl` therefore uses GitHub.jl's single-request
+`gh_get_json` and pages itself with `direction=asc` - where a concurrent update
+moves an item toward the end, which can duplicate but never skip - and dedupes
+by id.
 
 `search(type: ISSUE)` silently returns **0** for `assignee:` unless the query
 also carries `is:issue` or `is:pr`. REST has no such quirk, so 16 assigned issues

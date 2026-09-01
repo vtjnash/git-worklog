@@ -9,19 +9,19 @@ State lives in `/root/.claude/worklog`. Read `README.md` there once if you have 
 
 ## The one rule
 
-`refresh.py` owns the facts. You own the judgement. **Never rewrite `state.toml`
+The refresh owns the facts. You own the judgement. **Never rewrite `state.toml`
 wholesale** — it holds the user's snoozes, notes and deadlines. Change it only
-through `wl.py`, which edits single keys in place.
+through `cli/bin/wl`, which edits single keys in place.
 
 ## Refresh
 
 ```bash
-cd /root/.claude/worklog && python3 refresh.py
+cd /root/.claude/worklog && cli/bin/refresh
 ```
 
-~16s, 12 of 5000 hourly rate-limit points, so cadence is never the constraint.
+~20s, 12 of 5000 hourly rate-limit points, so cadence is never the constraint.
 The ~1000-PR background pile is cached for 6h; `--firehose` forces a refetch
-(~2.5 min).
+(several minutes).
 It writes `DASHBOARD.md`, `facts.json` (snapshot) and `snooze.json` (armed
 fingerprints). Then read `DASHBOARD.md`.
 
@@ -34,13 +34,13 @@ rules cannot:
 
 1. **Is the failure mechanical?** Rebase, a rerun of a flaky job, a mechanical
    API update, a stale checksum — if an agent could do it unattended, set
-   `wl.py agent <ref> "<the task>"`, which promotes it into **Needs agents**.
+   `wl agent <ref> "<the task>"`, which promotes it into **Needs agents**.
    A design disagreement or a real bug is not mechanical; leave it in needs-edits.
 2. **What is the actual next action?** One line, concrete, in the imperative:
-   `wl.py note <ref> "rebase after #62396 lands"`. Not a restatement of the title.
+   `wl note <ref> "rebase after #62396 lands"`. Not a restatement of the title.
 3. **Should it be quiet?** If it is genuinely waiting on another person, snooze
    it until it moves rather than letting it sit in view:
-   `wl.py snooze <ref> on-change`.
+   `wl snooze <ref> on-change`.
 
 Prefer `on-change` over a date. It wakes the moment the PR actually moves, which
 is almost always what "remind me later" really means for a PR. Use a date only
@@ -48,30 +48,31 @@ for a real calendar constraint.
 
 ## Reading threads
 
-`wl.py show <ref>` prints the item's state and its recent comments, fetched
-live. `wl.py read <ref>` marks it seen; `wl.py read all` zeroes the inbox. The
+`wl show <ref>` prints the item's state and its recent comments, fetched
+live. `wl read <ref>` marks it seen; `wl read all` zeroes the inbox. The
 **Unread** section at the top of the dashboard is what replaced per-event email
 notification - the only thing stored is one timestamp per item in `read.json`.
 
-There is also an interactive navigator: `cli/bin/wl`.
+Running `cli/bin/wl` with no arguments opens the interactive navigator over the
+same data.
 
 ## Commands
 
 ```bash
-python3 wl.py note     julia#62452 "rebase onto master first"
-python3 wl.py agent    julia#62841 "bisect the CI failures, prepare fixups"
-python3 wl.py snooze   libuv#5212  on-change     # or 2026-09-15, or off
-python3 wl.py deadline julia#62452 2026-09-30
-python3 wl.py blocked  julia#62452 JuliaLang/julia#62396
-python3 wl.py track    julia#62452 loose        # close|normal|loose|background
-python3 wl.py dismiss  julia#43202               # retire from the backlog
-python3 wl.py next     10                        # pull backlog to triage
-python3 wl.py bucket   julia#62452 needs-agents  # force a lane
-python3 wl.py clear    julia#62452
-python3 wl.py show     julia#62452
+cli/bin/wl note     julia#62452 "rebase onto master first"
+cli/bin/wl agent    julia#62841 "bisect the CI failures, prepare fixups"
+cli/bin/wl snooze   libuv#5212  on-change      # or 2026-09-15, or off
+cli/bin/wl deadline julia#62452 2026-09-30
+cli/bin/wl blocked  julia#62452 JuliaLang/julia#62396
+cli/bin/wl track    julia#62452 loose          # close|normal|loose|background
+cli/bin/wl dismiss  julia#43202                # retire from the backlog
+cli/bin/wl next     10                         # pull backlog to triage
+cli/bin/wl bucket   julia#62452 needs-agents   # force a lane
+cli/bin/wl clear    julia#62452
+cli/bin/wl show     julia#62452
 ```
 
-Refs are `repo#number` (or a full URL). Re-run `refresh.py` after edits to
+Refs are `repo#number` (or a full URL). Re-run `cli/bin/refresh` after edits to
 re-render.
 
 ## Needs a reply
@@ -83,7 +84,7 @@ mention/comment history sits in the background pile.
 
 ## Tracking levels
 
-`wl.py track <ref> close|normal|loose|background` sets how sensitive an item's
+`wl track <ref> close|normal|loose|background` sets how sensitive an item's
 wake is, not just how it is displayed. `loose` ignores CI churn, bot comments and
 relabels, waking only on a review decision or a human reply. `close` wakes on
 anything and pins the item to the top of its lane. Suggest `loose` for things the
@@ -95,7 +96,7 @@ Nothing from the backlog reaches the dashboard on its own. When the user wants t
 grind it down:
 
 ```bash
-python3 wl.py next 10
+cli/bin/wl next 10
 ```
 
 That prints untagged backlog items from the ~1900-item pile — your areas first,

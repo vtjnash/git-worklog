@@ -1,5 +1,5 @@
 # Work dashboard configuration.
-# Edited by you. refresh.py only ever reads this file.
+# Edited by you. The refresh only ever reads this file.
 
 login = "vtjnash"
 
@@ -19,7 +19,7 @@ assigned = "is:open is:issue assignee:vtjnash archived:false"
 
 [firehose]
 repo = "JuliaLang/julia"
-# Not a filter - a ranking signal. `wl.py next` hands you these areas first.
+# Not a filter - a ranking signal. `wl next` hands you these areas first.
 areas = [
   "compiler:codegen", "compiler:llvm", "compiler:optimizer", "compiler:inference",
   "compiler:effects", "compiler:lowering", "compiler:precompilation",
@@ -30,9 +30,9 @@ areas = [
 
 [bulk]
 # Big, slow-moving queries. ~2000 items between them, so they run on their own
-# cadence rather than every refresh; force with `python3 refresh.py --firehose`.
+# cadence rather than every refresh; force with `cli/bin/refresh --firehose`.
 # Nothing fetched here surfaces on its own - it all lands in the background pile
-# and is reached only through `wl.py next`. The one exception is a recent mention
+# and is reached only through `wl next`. The one exception is a recent mention
 # whose last comment is not yours, which becomes a `needs-reply`.
 refresh_hours = 6
 
@@ -44,7 +44,7 @@ commented_pr    = "is:open is:pr commenter:vtjnash archived:false"
 commented_issue = "is:open is:issue commenter:vtjnash archived:false"
 
 [backlog]
-# Default size of `wl.py next`, the pull-based backlog queue.
+# Default size of `wl next`, the pull-based backlog queue.
 batch = 10
 
 [events]
