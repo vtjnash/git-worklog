@@ -13,7 +13,6 @@
 
 import Term
 using Term: Panel, apply_style
-import REPL
 import Markdown
 
 "Last markdown failure, surfaced in the footer rather than swallowed."
@@ -29,9 +28,13 @@ mutable struct Node
     cw::Int
     urls::Vector{String}    # link targets pulled out of the body
     meta::Dict{String,Any}  # hunk file and ranges, expansion counts
+    srcs::Vector{Tuple{Int,String}}  # per cached row: which display row of its
+                                     # logical line it is, and that line's plain
+                                     # text - together, what a yank rebuilds
 end
 Node(h, raw, kind, open) =
-    Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}())
+    Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}(),
+         Tuple{Int,String}[])
 
 # --- filters ---------------------------------------------------------------
 #
@@ -157,13 +160,20 @@ mutable struct BState <: View
     lmode::Symbol                  # :items | :filters
     frow::Int
     wake::Any                      # set by the controller; called when a fetch lands
+    hdr::Int               # rows of item title above the nodes in the detail
+                           # pane; the mouse needs it to turn a screen row into
+                           # an `nrow`, and only `render` knows how tall it got
+    anchor::Int            # row a drag started on
+    sela::Int              # selected range in `nrow` coordinates; 0 for none
+    selb::Int
+    mouse::Bool            # mirrors the controller, for the footer
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
     buckets = sort(unique(it.bucket for it in all))
     repos = sort(unique(it.repo for it in all))
     st = BState(Item[], String(title), 1, 1, Node[], 1, 1, :list, :comments, "", "",
                 nothing, "", collect(all), unread, Filters(), buckets, repos, :items, 2,
-                nothing)
+                nothing, 0, 0, 0, 0, true)
     refilter!(st)
     st
 end
@@ -279,72 +289,196 @@ link silently becomes plain text.
 """
 osc8(url, text) = string("\e]8;;", url, "\e\\\e[4m", text, "\e[24m\e]8;;\e\\")
 
+"""Markdown to ANSI at one width.
+
+Term is handed *markup*, not ANSI: `apply_style` here would bake in escape codes
+that Term then counts toward the line width, wrapping content that already fits.
+Its brace doubling is undone afterwards - `parse_md` escapes `{` as `{{` and
+nothing downstream collapses it, so Julia type signatures reach the screen as
+`Tuple{{Type{{S{{N, Tup}}}`. That is safe here only because `apply_style` has
+already consumed the markup.
+
+A bad comment must not take the pane down, but the reason has to be visible:
+swallowing it once hid that markdown was not rendering at all, for want of an
+`import Term`.
+"""
+function render_md(body::AbstractString, w::Int)
+    try
+        a = apply_style(string(Term.TermMarkdown.parse_md(
+                Markdown.parse(body); width = max(20, w))))
+        replace(a, "{{" => "{", "}}" => "}")
+    catch e
+        MD_WARN[] = first(sprint(showerror, e), 120)
+        esc(body)
+    end
+end
+
+"Wide enough that no paragraph wraps, narrow enough that a padded box is cheap."
+const WIDE_MD = 2000
+
+"""
+    unwrap_map(narrow, wide) -> Vector{Tuple{Bool,String}}
+
+For each display line, whether it starts a written line and what that line says.
+
+Term wraps prose itself, at whatever width it is handed, so a paragraph is
+already in pieces before `awrap` ever sees it - `awrap` only ever gets the lines
+Term declined to wrap. Rendering a second time at a width nothing reaches gives
+the unwrapped form, but that render cannot be shown: a code block or a table is
+a box, and Term pads the box out to the full width.
+
+So render twice and align the two. Each wide line is matched against as many
+narrow lines as it takes to reproduce it, ignoring where the spaces fell. What
+fails to match - the boxes, which are the same shape at both widths - stands for
+itself, and the walk carries on in step.
+"""
+function unwrap_map(narrow::Vector{String}, wide::Vector{String})
+    norm(s) = replace(strip(astrip(s)), r"\s+" => " ")
+    plain(s) = rstrip(astrip(s))
+    out = Vector{Tuple{Bool,String}}(undef, length(narrow))
+    i, j = 1, 1
+    while i <= length(narrow)
+        if isempty(norm(narrow[i]))
+            # A blank row stands for itself, and takes a blank on the wide side
+            # with it: letting one be swallowed into the next paragraph's group
+            # puts the two walks out of step for the rest of the comment.
+            out[i] = (true, ""); i += 1
+            j <= length(wide) && isempty(norm(wide[j])) && (j += 1)
+            continue
+        end
+        if j > length(wide)
+            out[i] = (true, plain(narrow[i])); i += 1; continue
+        end
+        target = norm(wide[j])
+        if isempty(target)
+            j += 1; continue
+        end
+        acc, k, hit = "", i, false
+        while k <= length(narrow)
+            piece = norm(narrow[k])
+            isempty(piece) && break
+            # Term breaks a long token - a URL, usually - with no space at the
+            # break, so rejoining with one does not reproduce the wide line.
+            # Try it both ways and take whichever the wide line agrees with.
+            cand = if isempty(acc)
+                piece
+            elseif startswith(target, string(acc, " ", piece))
+                string(acc, " ", piece)
+            else
+                string(acc, piece)
+            end
+            startswith(target, cand) || break
+            acc = cand; k += 1
+            acc == target && (hit = true; break)
+        end
+        if hit
+            src = plain(wide[j])
+            for t in i:(k - 1)
+                out[t] = (t == i, src)
+            end
+            i = k; j += 1
+        else
+            out[i] = (true, plain(narrow[i])); i += 1; j += 1
+        end
+    end
+    out
+end
+
 "Render a node's body at width `w`, cached - markdown is too slow to redo per frame."
 function nodelines(n::Node, w::Int)
     n.cw == w && return n.cache
-    txt = if n.kind === :md
+    local txt::String
+    srcline = Tuple{Bool,String}[]     # per line of txt: starts a written line?
+    if n.kind === :md
         body, urls = delink(n.raw)
         n.urls = urls
-        isempty(strip(body)) ? "" :
-            try
-                # Hand Panel Term *markup*, not ANSI. apply_style here would
-                # bake in escape codes that Panel then counts toward the line
-                # width, wrapping content that already fits and overflowing the
-                # pane height into "... content omitted ...".
-                # Term to ANSI, then undo its brace doubling: parse_md escapes
-                # `{` as `{{` and nothing downstream collapses it, so Julia type
-                # signatures reach the screen as `Tuple{{Type{{S{{N, Tup}}}`.
-                # Safe here because apply_style has already consumed the markup.
-                a = apply_style(string(Term.TermMarkdown.parse_md(
-                        Markdown.parse(body); width = max(20, w))))
-                replace(a, "{{" => "{", "}}" => "}")
-            catch e
-                # A bad comment must not take the pane down, but the reason has
-                # to be visible: swallowing it hid that markdown was not
-                # rendering at all for want of an `import Term`.
-                MD_WARN[] = first(sprint(showerror, e), 120)
-                esc(body)
-            end
+        if isempty(strip(body))
+            txt = ""
+        else
+            txt = render_md(body, w)
+            srcline = unwrap_map(String.(split(txt, "\n")),
+                                 String.(split(render_md(body, WIDE_MD), "\n")))
+        end
     elseif n.kind === :diff
-        join((diffline(l) for l in split(n.raw, "\n")), "\n")
+        txt = join((diffline(l) for l in split(n.raw, "\n")), "\n")
     else
-        esc(n.raw)
+        txt = esc(n.raw)
     end
+    lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
+    # A diff or a plain block is already one line per line of its source, so
+    # only markdown needs the alignment above.
+    isempty(srcline) && (srcline = [(true, rstrip(astrip(l))) for l in lines])
+
     # Wrap here rather than trusting Term, which emitted 232 display columns for
     # a requested width of 90 on any line holding inline code.
-    lines = String[]
-    for l in (isempty(txt) ? String[] : split(txt, "\n"))
-        append!(lines, awidth(l) <= w ? [String(l)] : awrap(String(l), w))
-    end
-    if n.kind === :md && !isempty(n.urls)
-        push!(lines, "")
-        for (i, u) in enumerate(n.urls)
-            push!(lines, string(AD, "[", i, "]", AR, " \e[34m",
-                                shortlink(u, max(20, w - 8)), AR))
+    #
+    # Every row records the written line behind it, and whether it is the first
+    # row of it. Both wraps - Term's and ours - are ours to undo when copying;
+    # neither is something the reader chose.
+    out, srcs = String[], Tuple{Int,String}[]
+    for (idx, l) in enumerate(lines)
+        (first_of, src) = srcline[idx]
+        ws = awidth(l) <= w ? [l] : awrap(l, w)
+        for (j, x) in enumerate(ws)
+            push!(out, x)
+            push!(srcs, (first_of && j == 1 ? 0 : 1, src))
         end
     end
-    n.cache = lines
+    if n.kind === :md && !isempty(n.urls)
+        push!(out, ""); push!(srcs, (0, ""))
+        for (i, u) in enumerate(n.urls)
+            push!(out, string(AD, "[", i, "]", AR, " \e[34m",
+                              shortlink(u, max(20, w - 8)), AR))
+            # The whole URL, not the elided form on screen: a shortened link is
+            # the one thing on the row that is useless once pasted.
+            push!(srcs, (0, string("[", i, "] ", u)))
+        end
+    end
+    n.cache = out
+    n.srcs = srcs
     n.cw = w
     n.cache
 end
 
+"""One row of a pane.
+
+`text` is what prints. `src` is the written line behind it with the escapes
+removed, and `part` is 0 on the first display row of that line and 1 on every
+continuation of it.
+
+Those last two are the whole point of owning the mouse. The terminal only ever
+saw the wrapped fragments and the pane borders, so a selection made with the
+terminal's own copy gives you those. A selection made here is turned back into
+the lines as they were written.
+"""
+struct Row
+    node::Int
+    header::Bool
+    text::String
+    src::String
+    part::Int
+end
+
 "Flatten open/closed nodes into rows, so selection and scrolling share one space."
 function rows(nodes::Vector{Node}, w::Int)
-    out = Tuple{Int,Bool,String}[]
+    out = Row[]
     for (i, n) in enumerate(nodes)
         htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), w)
         u = get(n.meta, "url", "")
-        push!(out, (i, true, string(AB, isempty(u) ? htxt : osc8(u, htxt), AR)))
+        push!(out, Row(i, true, string(AB, isempty(u) ? htxt : osc8(u, htxt), AR),
+                       get(n.meta, "src", astrip(n.header)), 0))
         n.open || continue
-        for l in nodelines(n, w)
-            push!(out, (i, false, l))
+        ls = nodelines(n, w)                 # fills n.srcs alongside n.cache
+        for (j, l) in enumerate(ls)
+            (part, src) = n.srcs[j]
+            push!(out, Row(i, false, l, src, part))
         end
     end
     out
 end
 
 "Vertical slice with the cursor's node kept in view."
-function window(rs, cur, top, h)
+function window(rs::Vector{Row}, cur, top, h)
     isempty(rs) && return (String[], 1)
     top = clamp(top, 1, max(1, length(rs)))
     if cur !== nothing
@@ -352,7 +486,7 @@ function window(rs, cur, top, h)
         cur > top + h - 1 && (top = cur - h + 1)
     end
     top = clamp(top, 1, max(1, length(rs) - h + 1))
-    ([r[3] for r in rs[top:min(end, top + h - 1)]], top)
+    ([r.text for r in rs[top:min(end, top + h - 1)]], top)
 end
 
 """
@@ -381,92 +515,176 @@ function pane(lines::Vector{String}, w::Int, h::Int, title::AbstractString, focu
 end
 
 """
+    layout(w, h) -> NamedTuple
+
+Where the two panes sit, in screen coordinates.
+
+Shared by `render_frame` and the mouse handler because the two must agree
+exactly: a click only maps to the row under it if the geometry it is measured
+against is the geometry that was drawn. This used to be worked out twice, and
+the copies had drifted - the key handler measured the detail pane six columns
+narrower than the renderer did, so long lines wrapped differently in the two and
+`n`, `↵` and `[`/`]` acted on the wrong node once a thread ran past a screenful.
+"""
+function layout(w::Int, h::Int)
+    side = w >= 110
+    lw = side ? clamp(w ÷ 3, 34, 52) : w
+    rw = side ? w - lw : w
+    # Row 1 is the title bar and the last row the footer; panes fill the rest.
+    # title bar + panes + footer must total h exactly, or the frame leaves a
+    # dead row at the bottom of the terminal.
+    bodyh = max(6, h - 2)
+    lh = side ? bodyh : max(5, bodyh ÷ 3)
+    rh = side ? bodyh : bodyh - lh
+    (side = side,
+     lw = lw, lh = lh, lx = 1, ly = 2,
+     rw = rw, rh = rh, rx = side ? lw + 1 : 1, ry = side ? 2 : 2 + lh,
+     liw = lw - 4, riw = rw - 4,       # inner width: 1 border + 1 pad each side
+     page = max(1, rh - 3))
+end
+
+"""
+    hitpane(L, x, y) -> (pane, row, col) or nothing
+
+Turn a screen position into a pane and a position inside its content area.
+`row` is 1-based within the pane's content, so it indexes the window that pane
+last drew; `col` likewise. Borders, the title bar and the footer return nothing.
+"""
+function hitpane(L, x::Int, y::Int)
+    for (which, px, py, pw, ph, iw) in ((:list, L.lx, L.ly, L.lw, L.lh, L.liw),
+                                        (:detail, L.rx, L.ry, L.rw, L.rh, L.riw))
+        (px <= x <= px + pw - 1 && py + 1 <= y <= py + ph - 2) || continue
+        c = x - px - 1
+        return 1 <= c <= iw ? (which, y - py, c) : nothing
+    end
+    nothing
+end
+
+"The selected rows in `nrow` coordinates, low to high, or nothing."
+selrange(st::BState) = (st.sela == 0 || st.selb == 0) ? nothing :
+                       (min(st.sela, st.selb), max(st.sela, st.selb))
+
+clearsel!(st::BState) = (st.sela = 0; st.selb = 0; st.anchor = 0; nothing)
+
+"""Rebuild the selected text from the nodes rather than from the screen.
+
+One line out per *logical* line covered: a paragraph the pane wrapped across
+five rows comes back as the single line it was written as, without the borders
+between panes and without the colours. A selection that begins partway into a
+wrapped line still takes the whole line, because the wrap point is ours.
+"""
+function selection_text(st::BState, w::Int)
+    r = selrange(st)
+    r === nothing && return ""
+    rs = rows(st.nodes, w)
+    isempty(rs) && return ""
+    a, b = clamp(r[1], 1, length(rs)), clamp(r[2], 1, length(rs))
+    out = String[]
+    for i in a:b
+        (i == a || rs[i].part == 0) && push!(out, rs[i].src)
+    end
+    join(out, "\n")
+end
+
+const CURBG = "\e[48;5;236m"
+const SELBG = "\e[48;5;24m"
+
+"""Lay a background over a whole row, re-arming it after every reset.
+
+A row carries its own colours, and the `\\e[0m` that ends one of them ends the
+background too - so a highlight applied naively stops at the first styled word
+on the line.
+"""
+hlrow(s::AbstractString, bg::AbstractString) = string(bg, replace(s, AR => AR * bg), AR)
+
+"""
     render(st, w, h) -> String
 
 Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
 narrow window degrades rather than truncating the detail into uselessness.
 """
 function render_frame(st::BState, w::Int, h::Int)
-    side = w >= 110
-    lw = side ? clamp(w ÷ 3, 34, 52) : w
-    rw = side ? w - lw : w
-    # title bar + panes + footer must total h exactly, or the frame leaves a
-              # dead row at the bottom of the terminal.
-    bodyh = max(6, h - 2)
-    lh = side ? bodyh : max(5, bodyh ÷ 3)
-    rh = side ? bodyh : bodyh - lh
-
-    inner(width) = width - 4      # our box: 1 border + 1 pad, each side
+    L = layout(w, h)
+    lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
     st.sel = clamp(st.sel, 1, max(1, length(st.items)))
     if st.lmode === :filters
         frows = filter_rows(st)
         st.frow = clamp(st.frow, 1, max(1, length(frows)))
-        lrows = Tuple{Int,Bool,String}[]
+        lrows = Row[]
         for (j, (axis, _, text)) in enumerate(frows)
             on = j == st.frow && st.focus === :list && axis !== :head
-            push!(lrows, (j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
-                                          afit(text, inner(lw)), AR)))
+            push!(lrows, Row(j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
+                                             afit(text, liw), AR), text, 0))
         end
         lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
         ltitle = "filters"
     else
-    lrows = Tuple{Int,Bool,String}[]
-    for i in 1:length(st.items)
-        it_ = st.items[i]
-        on = i == st.sel && st.focus === :list
-        txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title),
-                   inner(lw))
-        push!(lrows, (i, true, string(on ? "\e[1;37m" : AD, txt, AR)))
-    end
-    lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
-    ltitle = string(st.title, " ", st.sel, "/", length(st.items))
+        lrows = Row[]
+        for i in 1:length(st.items)
+            it_ = st.items[i]
+            on = i == st.sel && st.focus === :list
+            txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title), liw)
+            push!(lrows, Row(i, true, string(on ? "\e[1;37m" : AD, txt, AR),
+                             string(it_.ref, " ", it_.title), 0))
+        end
+        lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
+        ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
     it = isempty(st.items) ? nothing : st.items[clamp(st.sel, 1, length(st.items))]
     # The item title again, above the detail. The title bar is a row away at the
     # top of the screen and easy to lose track of once you have scrolled into a
     # long thread.
-    rrows = Tuple{Int,Bool,String}[]
+    rrows = Row[]
     if it !== nothing
         htitle = osc8(it.url, string(AB, it.ref, AR, "  ", it.title))
-        for (j, l) in enumerate(awrap(htitle, inner(rw)))
-            push!(rrows, (0, false, l))
+        for l in awrap(htitle, riw)
+            push!(rrows, Row(0, false, l, string(it.ref, "  ", it.title), 0))
         end
-        push!(rrows, (0, false, string(AD, "─"^inner(rw), AR)))
+        push!(rrows, Row(0, false, string(AD, "─"^riw, AR), "", 0))
     end
-    hdr_rows = length(rrows)
-    append!(rrows, rows(st.nodes, inner(rw)))
-    st.nrow = clamp(st.nrow, 1, max(1, length(rrows) - hdr_rows))
-    if st.focus === :detail && length(rrows) > hdr_rows
+    # The mouse turns a screen row into an `nrow` by subtracting this, and only
+    # here is it known - the item title wraps to however many rows it wraps to.
+    st.hdr = length(rrows)
+    nrows = rows(st.nodes, riw)
+    append!(rrows, nrows)
+    st.nrow = clamp(st.nrow, 1, max(1, length(nrows)))
+    sr = selrange(st)
+    for i in 1:length(nrows)
+        insel = sr !== nothing && sr[1] <= i <= sr[2]
         # Mark the cursor row so it is visible while paging through a body,
-        # not only when it lands on a header.
-        (ni, hdr, txt) = rrows[st.nrow + hdr_rows]
-        rrows[st.nrow + hdr_rows] = (ni, hdr, string("\e[48;5;236m", txt, AR))
+        # not only when it lands on a header. The selection outranks it.
+        cur = st.focus === :detail && i == st.nrow
+        (insel || cur) || continue
+        r = rrows[i + st.hdr]
+        rrows[i + st.hdr] = Row(r.node, r.header,
+                                hlrow(apad(afit(r.text, riw), riw), insel ? SELBG : CURBG),
+                                r.src, r.part)
     end
-    rvis, st.ntop = window(rrows, st.nrow + hdr_rows, st.ntop, rh - 2)
+    rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
 
-    it = isempty(st.items) ? nothing : st.items[st.sel]
-    ltitle = string(st.title, " ", st.sel, "/", length(st.items))
-    total = length(rrows) - hdr_rows
+    total = length(nrows)
     rtitle = string(String(st.mode),
                     it === nothing ? "" : string("  ", it.ref),
                     total > 0 ? string("  ", st.ntop, "-",
-                                       min(total, st.ntop + rh - 3), "/", total) : "")
+                                       min(total, st.ntop + rh - 3), "/", total) : "",
+                    sr === nothing ? "" : string("  ", AB, sr[2] - sr[1] + 1, " selected", AR))
 
     left = pane(lvis, lw, lh, ltitle, st.focus === :list)
     right = pane(rvis, rw, rh, rtitle, st.focus === :detail)
 
     links = Pair{String,String}[]
     for n in st.nodes, u in n.urls
-        push!(links, shortlink(u, max(20, inner(rw) - 8)) => u)
+        push!(links, shortlink(u, max(20, riw - 8)) => u)
     end
 
-    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy url · e edit · s snooze · q")
+    keys = string("[", filter_summary(st.filters), "]  f filters · j/k line · space/b page · n/N node · ↵ fold · tab pane · d diff · o comments · r read · [/] context · C checks · l log · y copy · e edit · s snooze · m mouse ",
+                  st.mouse ? "on" : "off", " · q")
     ftxt = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] :
            isempty(st.status) ? keys : st.status
     foot = string(AD, afit(ftxt, w), AR)
-    body = side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
-                  vcat(left, right)
+    body = L.side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
+                    vcat(left, right)
     # Row 1 is a title bar so that selecting the top line in tmux - which
     # scrolls the pane to make room for its own status line - never lands on
     # content. Everything real starts at row 2.
@@ -533,6 +751,9 @@ function comment_nodes(it::Item)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
         peek = strip(first(replace(txt, r"\s+" => " "), 58))
         nc = Node(string(nz(who, "?"), "  ", at, "   ", peek), txt, :md, true)
+        # The header shows a peek at the body, cut mid-word. Copy the byline
+        # instead - the body itself is on the rows underneath it.
+        nc.meta["src"] = string(nz(who, "?"), "  ", at)
         # Anchored, so following it lands on this comment rather than the top.
         nc.meta["url"] = String(nz(get(c, "html_url", nothing), it.url))
         push!(ns, nc)
@@ -618,6 +839,7 @@ function load_nodes!(st::BState)
     st.pendkey = key
     st.nodes = Node[]
     st.nrow = 1; st.ntop = 1
+    clearsel!(st)          # it indexed rows that are about to be replaced
     st.status = "loading " * it.ref * "…"
 end
 
@@ -633,7 +855,7 @@ function collect_pending!(st::BState)
     st.loaded = st.pendkey
     st.pending = nothing
     st.pendkey = ""
-    st.nrow = 1; st.ntop = 1; st.status = ""
+    st.nrow = 1; st.ntop = 1; clearsel!(st); st.status = ""
     true
 end
 
@@ -643,13 +865,13 @@ end
 function curnode(st::BState, w::Int)
     rs = rows(st.nodes, w)
     isempty(rs) && return 0
-    rs[clamp(st.nrow, 1, length(rs))][1]
+    rs[clamp(st.nrow, 1, length(rs))].node
 end
 
 "Row index of node `i`'s header - where the cursor lands after folding."
 function headerrow(st::BState, i::Int, w::Int)
     rs = rows(st.nodes, w)
-    j = findfirst(r -> r[1] == i && r[2], rs)
+    j = findfirst(r -> r.node == i && r.header, rs)
     j === nothing ? 1 : j
 end
 
@@ -657,7 +879,7 @@ end
 function jumpnode(st::BState, dir::Int, w::Int)
     rs = rows(st.nodes, w)
     isempty(rs) && return
-    hdrs = [j for j in eachindex(rs) if rs[j][2]]
+    hdrs = [j for j in eachindex(rs) if rs[j].header]
     isempty(hdrs) && return
     st.nrow = if dir > 0
         something(findfirst(>(st.nrow), hdrs), length(hdrs)) |> i -> hdrs[i]
@@ -693,41 +915,55 @@ redraws after every key.
 function handle!(st::BState, k::Int, ctrl::Controller)
     h, w = displaysize(stdout)
     load_nodes!(st)
-    iw = (w >= 110 ? w - clamp(w ÷ 3, 34, 52) : w) - 6
-    page = max(1, (w >= 110 ? h - 2 : (h - 2) - max(5, (h - 2) ÷ 3)) - 3)
+    L = layout(w, h)
+    iw, page = L.riw, L.page
     if k == Int('q')
         return :quit          # Escape no longer quits: it heads key sequences
-    elseif k == Int('\t')
+    elseif k == Int('\t') || k == K_STAB
         st.focus = st.focus === :list ? :detail : :list
     elseif k == Int('f')
         st.lmode = st.lmode === :filters ? :items : :filters
         st.focus = :list
+    elseif k == Int('m')
+        # Handled up here rather than with the other actions so it still works
+        # in the filter pane - a terminal that cannot report the mouse has to be
+        # escapable from wherever you happen to be standing.
+        st.mouse = mouse!(ctrl, !ctrl.mouse)
+        clearsel!(st)
+        st.status = st.mouse ? "mouse on — drag to select, y to copy" :
+                               "mouse off — the terminal's own selection is back"
     elseif st.focus === :list && st.lmode === :filters
         nf = length(filter_rows(st))
-        if k in (Int('j'), 66);         st.frow = min(nf, st.frow + 1)
-        elseif k in (Int('k'), 65);     st.frow = max(1, st.frow - 1)
+        if k in (Int('j'), K_DOWN);     st.frow = min(nf, st.frow + 1)
+        elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
         elseif k in (Int(' '), 13, 10); toggle_filter!(st)
         elseif k == Int('c');           st.filters = Filters(); refilter!(st)
         end
     elseif st.focus === :list
-        if k in (Int('j'), 66);     st.sel = min(length(st.items), st.sel + 1)
-        elseif k in (Int('k'), 65); st.sel = max(1, st.sel - 1)
-        elseif k in (Int(' '), 6);  st.sel = min(length(st.items), st.sel + page)
-        elseif k in (Int('b'), 2);  st.sel = max(1, st.sel - page)
-        elseif k == Int('g');       st.sel = 1
-        elseif k == Int('G');       st.sel = length(st.items)
-        elseif k in (13, 10);       st.focus = :detail
+        if k in (Int('j'), K_DOWN);          st.sel = min(length(st.items), st.sel + 1)
+        elseif k in (Int('k'), K_UP);        st.sel = max(1, st.sel - 1)
+        elseif k in (Int(' '), 6, K_PGDN);   st.sel = min(length(st.items), st.sel + page)
+        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(1, st.sel - page)
+        elseif k in (Int('g'), K_HOME);      st.sel = 1
+        elseif k in (Int('G'), K_END);       st.sel = length(st.items)
+        elseif k in (13, 10);                st.focus = :detail
         end
         isempty(st.items) ||
             st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
     else
         n = length(rows(st.nodes, iw))
-        if k in (Int('j'), 66);     st.nrow = min(n, st.nrow + 1)
-        elseif k in (Int('k'), 65); st.nrow = max(1, st.nrow - 1)
-        elseif k in (Int(' '), 6);  st.nrow = min(n, st.nrow + page)
-        elseif k in (Int('b'), 2);  st.nrow = max(1, st.nrow - page)
-        elseif k == Int('g');       st.nrow = 1
-        elseif k == Int('G');       st.nrow = n
+        # Moving the cursor drops the selection. Listed rather than blanket, so
+        # that `y` - which falls through this branch to the actions below - can
+        # still see what is selected.
+        k in (Int('j'), K_DOWN, Int('k'), K_UP, Int(' '), 6, K_PGDN, Int('b'), 2,
+              K_PGUP, Int('g'), K_HOME, Int('G'), K_END, Int('n'), Int('N'),
+              13, 10) && clearsel!(st)
+        if k in (Int('j'), K_DOWN);          st.nrow = min(n, st.nrow + 1)
+        elseif k in (Int('k'), K_UP);        st.nrow = max(1, st.nrow - 1)
+        elseif k in (Int(' '), 6, K_PGDN);   st.nrow = min(n, st.nrow + page)
+        elseif k in (Int('b'), 2, K_PGUP);   st.nrow = max(1, st.nrow - page)
+        elseif k in (Int('g'), K_HOME);      st.nrow = 1
+        elseif k in (Int('G'), K_END);       st.nrow = n
         elseif k == Int('n');       jumpnode(st, 1, iw)
         elseif k == Int('N');       jumpnode(st, -1, iw)
         elseif k in (13, 10)
@@ -784,10 +1020,15 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     elseif k == Int('y')
         # OSC 52, so the copy works over ssh and through tmux. Also shown in the
         # footer, since OSC 52 is disabled by default in some terminals.
-        i = curnode(st, iw)
-        u = i > 0 ? get(st.nodes[i].meta, "url", it.url) : it.url
-        print("\e]52;c;", Base64.base64encode(u), "\a")
-        st.status = string("copied ", u)
+        txt = selection_text(st, iw)
+        note = if isempty(txt)
+            i = curnode(st, iw)
+            txt = i > 0 ? get(st.nodes[i].meta, "url", it.url) : it.url
+        else
+            string(count(==('\n'), txt) + 1, " lines")
+        end
+        print("\e]52;c;", Base64.base64encode(txt), "\a")
+        st.status = string("copied ", note)
     elseif k == Int('l')
         i = curnode(st, iw)
         if i > 0 && haskey(st.nodes[i].meta, "bk")
@@ -801,6 +1042,81 @@ function handle!(st::BState, k::Int, ctrl::Controller)
                           st.status = "snoozed"
     end
     load_nodes!(st)
+    :ok
+end
+
+# --- mouse ------------------------------------------------------------------
+
+"""
+    onmouse!(st, ev, ctrl) -> Symbol
+
+One mouse report, in the same shape as `handle!`.
+
+Clicking anywhere moves the cursor there and focuses that pane, which is the
+behaviour that makes a pointer worth having at all. Clicking a fold marker
+toggles it. Dragging selects rows, which `y` then copies as the text they were
+written as rather than as the wrapped fragments the terminal can see.
+
+The wheel moves the cursor rather than only the viewport, because the viewport
+does not survive: `window` pulls the pane back to wherever the cursor is on the
+next redraw, so a scroll that left the cursor behind would spring back at the
+next keystroke.
+"""
+function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
+    h, w = displaysize(stdout)
+    L = layout(w, h)
+    p = hitpane(L, ev.x, ev.y)
+    p === nothing && return :ok
+    (which, row, col) = p
+    wheel = ev.kind === :wheelup || ev.kind === :wheeldown
+    d = ev.kind === :wheelup ? -3 : 3
+
+    if which === :list
+        (wheel || ev.kind === :press) || return :ok
+        st.focus = :list
+        if st.lmode === :filters
+            nf = length(filter_rows(st))
+            st.frow = wheel ? clamp(st.frow + d, 1, nf) : clamp(st.top + row - 1, 1, nf)
+            wheel || toggle_filter!(st)
+        elseif !isempty(st.items)
+            st.sel = wheel ? clamp(st.sel + d, 1, length(st.items)) :
+                             clamp(st.top + row - 1, 1, length(st.items))
+            load_nodes!(st)         # clears any selection with the old nodes
+        end
+        return :ok
+    end
+
+    rs = rows(st.nodes, L.riw)
+    isempty(rs) && return :ok
+    if wheel
+        st.focus = :detail
+        clearsel!(st)
+        st.nrow = clamp(st.nrow + d, 1, length(rs))
+        return :ok
+    end
+    # `ntop` indexes rows including the item-title block; `nrow` excludes it.
+    idx = st.ntop + row - 1 - st.hdr
+    1 <= idx <= length(rs) || return :ok
+    if ev.kind === :press
+        st.focus = :detail
+        st.nrow = idx
+        st.anchor = idx
+        st.sela = 0; st.selb = 0
+        if rs[idx].header && col <= 2          # the ▾/▸ marker and its space
+            i = rs[idx].node
+            st.nodes[i].open = !st.nodes[i].open
+            st.nrow = headerrow(st, i, L.riw)
+            st.anchor = 0
+        end
+    elseif ev.kind === :drag
+        st.anchor == 0 && (st.anchor = idx)
+        st.sela, st.selb = st.anchor, idx
+        st.nrow = idx
+    elseif ev.kind === :release
+        r = selrange(st)
+        r === nothing ||
+            (st.status = string(r[2] - r[1] + 1, " rows selected — y to copy"))
+    end
     :ok
 end
 

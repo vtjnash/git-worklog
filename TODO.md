@@ -42,6 +42,7 @@ linked against a newer glibc.
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
 | `cli/src/repos.jl` | repo → local checkout mapping, worktrees, `git show` |
 | `cli/src/cache.jl` | on-disk cache with TTL |
+| `cli/test/runtests.jl` | everything testable without a terminal |
 
 Owner rules for the data files matter: `config.toml`, `state.toml` and
 `repos.toml` are **yours** — `refresh` reads `state.toml` and never writes it,
@@ -59,6 +60,13 @@ There is no TTY here, so the UI is tested by construction rather than by use:
 - Strip escapes before measuring: both SGR (`\e[...m`) and OSC 8 hyperlinks.
 - A background fetch signals completion by pushing a `WakeEvent`; in a test,
   `take!(ctrl.events)` then `onwake!(view)`.
+- `readevent(io)` is a pure function of a byte stream, so keys and mouse reports
+  are driven from an `IOBuffer`: `readevent(IOBuffer("\e[<0;40;12M"))`.
+- `onmouse!(view, MouseEvent(...), ctrl)` takes screen coordinates. Render a
+  frame first — the mouse maps a click through `layout(w, h)` and `st.hdr`, and
+  `st.hdr` is only known once the item title has been wrapped.
+- `cli/test/runtests.jl` holds all of the above; run it with
+  `julia --project=cli cli/test/runtests.jl`.
 
 Typical harness:
 
@@ -96,11 +104,17 @@ Do not "simplify" any of these away.
    for a requested 90). We wrap with `awrap`.
 9. `Panel` measures markup, not what prints, so it is no longer used for layout
    at all — `pane()` draws borders here. Term is only a markdown→ANSI converter.
+10. `parse_md` wraps prose at the width it is handed, so by the time text
+    reaches us a paragraph is already in pieces and `awrap` only sees what Term
+    declined to wrap. Rendering a second time at a width nothing reaches gives
+    the unwrapped form — but that render cannot be displayed, because a code
+    block or table is a box and Term pads the box to the full width. `nodelines`
+    renders both and aligns them; that is what makes a copy paste as paragraphs.
 
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
-10. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
+11. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
     jobs array to an anonymous caller, with no error.
-11. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
+12. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
     numeric entities (`&#47;`) as well as named ones.
 
 ### Conventions
@@ -172,23 +186,6 @@ that submits an empty `APPROVE` is the common case and should be one key.
   label, `merge me`), named in `config.toml` rather than hardcoded, and a
   picker for everything else. `POST`/`DELETE /repos/{r}/issues/{n}/labels`.
 
-### Mouse support
-Own the mouse rather than leaving selection to the terminal. Terminal selection
-cannot follow text that *we* wrapped — the terminal only sees the wrapped
-lines, so selecting a paragraph inside a pane yields the wrapped fragments plus
-the pane borders.
-
-- Enable SGR mouse reporting (`\e[?1006h\e[?1002h`) alongside the alternate
-  screen in `Controller.run!`, and disable it in the same `finally`.
-- Decode `\e[<b;x;yM` / `m` in the controller's reader. That reader is now the
-  only thing that touches stdin, which is what makes this tractable; emit a
-  `MouseEvent` on the same channel as keys and wakeups.
-- Selection state on the view: click positions, drag extends, and a yank that
-  reconstructs the **unwrapped** source text from the node rather than scraping
-  the screen. This is the part that carries the value and most of the work.
-- Clicking a row should also move the cursor there, and clicking a fold marker
-  should toggle it.
-
 ### Collapse `<details>` to its `<summary>`
 GitHub comments are full of them — codecov reports, log dumps, generated
 tables. `Markdown.parse` passes HTML through untouched, so this is a pre-pass
@@ -254,9 +251,17 @@ Everything below is written and compiles, and its state transitions are tested
 by driving `handle!` directly, but none of it has been exercised through an
 actual TTY:
 
-- Key handling end to end: arrow keys, page keys, and specifically Shift-Tab,
-  whose fix (draining `CSI Z` in the reader) was reasoned about rather than
-  observed.
+- Key handling end to end: arrow keys, page keys and Shift-Tab. The decoder
+  that produces them is driven directly from an `IOBuffer` in the tests, so the
+  byte-to-keycode step is covered; what is not is whether this terminal sends
+  the bytes the tests feed it.
+- Mouse reporting end to end. `\e[?1006h\e[?1002h` going out, SGR reports
+  coming back, and whether they survive tmux. Click-to-row, drag-to-select and
+  the wheel are all tested by handing `onmouse!` synthetic events against a
+  rendered frame, which pins the geometry but not the terminal.
+- Whether giving up the terminal's own selection is the right trade in practice.
+  `m` turns mouse reporting off and hands it back, which is the escape hatch,
+  but only real use will say whether that toggle is reached for constantly.
 - Raw mode setup and restoration on abnormal exit.
 - Whether the title-bar row actually settles the tmux copy-mode scroll.
 - Whether OSC 8 links and the OSC 52 copy survive this tmux (both need 3.4+,

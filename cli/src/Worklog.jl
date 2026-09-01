@@ -31,7 +31,7 @@ module Worklog
 
 using Dates, Printf, SHA, TOML
 using JSON3, OrderedCollections
-using REPL.TerminalMenus
+import REPL
 using SHA
 using Base64
 

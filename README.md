@@ -117,6 +117,14 @@ cli/bin/wl              # lane -> item -> thread -> action
 cli/bin/wl --refresh    # re-fetch first
 ```
 
+It owns the mouse rather than leaving selection to the terminal. That is not a
+flourish: the terminal only sees the lines *we* wrapped, so selecting a
+paragraph with it yields the wrapped fragments plus the pane borders. Dragging
+here selects rows, and `y` copies them as the lines they were written as - one
+line per paragraph, links whole, no colours in the paste. Clicking moves the
+cursor and clicking a fold marker toggles it; the wheel scrolls the pane under
+the pointer. `m` gives the mouse back to the terminal when you want it.
+
 Everything is one Julia module under `cli/src`, so the comment-preserving TOML
 writer and the GitHub quirks below live in one place rather than two: the
 navigator calls the same functions the commands do, rather than shelling back

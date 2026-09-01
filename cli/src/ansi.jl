@@ -27,6 +27,24 @@ function awidth(s::AbstractString)
     w
 end
 
+"""Plain text: the same string with every escape sequence taken out.
+
+What a yank has to produce. The screen carries colour and hyperlinks that are
+invisible in the terminal but very visible in a paste buffer.
+"""
+function astrip(s::AbstractString)
+    io, i = IOBuffer(), firstindex(s)
+    while i <= lastindex(s)
+        m = match(ESCAPE, SubString(s, i))
+        if m === nothing
+            write(io, s[i]); i = nextind(s, i)
+        else
+            i += ncodeunits(m.match)
+        end
+    end
+    String(take!(io))
+end
+
 "Truncate to `w` display columns, keeping escapes, and reset style at the cut."
 function afit(s::AbstractString, w::Int)
     w <= 0 && return ""
