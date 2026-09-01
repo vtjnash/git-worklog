@@ -67,36 +67,77 @@ apad(s::AbstractString, w::Int) = (d = w - awidth(s); d > 0 ? s * " "^d : afit(s
 
 """Wrap to `w` display columns, preserving escapes and breaking at spaces.
 
+Two things make this more than a chunking loop.
+
 Style carries across a break: the active SGR codes are replayed at the start of
 each continuation line, or a colour opened before the break would stop at it.
+Escapes travel with the word they style, so that a word carried to the next line
+takes its colour with it.
+
+And a run wider than the pane has nowhere to break - a URL, a stack frame, a
+type signature, all of which this is full of - so it falls back to breaking
+mid-run rather than overflowing the pane.
 """
 function awrap(s::AbstractString, w::Int)
     w <= 1 && return [s]
-    out, io, acc, active, i = String[], IOBuffer(), 0, String[], firstindex(s)
-    lastspace, sincespace = -1, IOBuffer()
-    flush_line() = begin
-        push!(out, String(take!(io)))
-        acc = 0
-        isempty(active) || write(io, join(active))
+    out = String[]
+    line, word = IOBuffer(), IOBuffer()   # committed; and the run since a space
+    lw, ww = 0, 0                         # their display widths
+    active = String[]                     # SGR codes in force right now
+    wactive = String[]                    # ...and as of the start of `word`
+    breakable = false                     # does `line` end at a space?
+    emit!(codes) = begin
+        push!(out, String(take!(line)))
+        lw = 0
+        isempty(codes) || write(line, join(codes))
     end
+    commit!() = begin                     # fold the word into the line
+        write(line, String(take!(word)))
+        lw += ww; ww = 0
+        wactive = copy(active)
+    end
+    carry!() = begin                      # move the word down to a new line
+        before = copy(wactive)            # what was in force before the word
+        emit!(before)                     # the word replays its own codes
+        write(line, String(take!(word)))
+        lw = ww; ww = 0
+        wactive = copy(active)
+        breakable = false
+    end
+    i = firstindex(s)
     while i <= lastindex(s)
         m = match(ESCAPE, SubString(s, i))
         if m !== nothing
             e = String(m.match)
-            write(io, e)
+            write(word, e)                # zero width, and belongs to the word
             if startswith(e, "\e[")
                 e == "\e[0m" ? empty!(active) : push!(active, e)
             end
-            i += ncodeunits(m.match); continue
+            i += ncodeunits(m.match)
+            continue
         end
         c = s[i]
         cw = textwidth(c)
-        if acc + cw > w
-            flush_line()
+        # A loop rather than a branch: a word carried down can still be wider
+        # than the pane on its own, and then has to be split anyway.
+        while lw + ww + cw > w
+            if breakable
+                carry!()
+            else
+                commit!(); emit!(active)  # no space to break at; split the run
+                breakable = false
+            end
         end
-        write(io, c); acc += cw
+        if isspace(c)
+            commit!()
+            write(line, c); lw += cw
+            breakable = true
+        else
+            write(word, c); ww += cw
+        end
         i = nextind(s, i)
     end
-    push!(out, String(take!(io)))
+    write(line, String(take!(word)))
+    push!(out, String(take!(line)))
     out
 end

@@ -104,7 +104,9 @@ Do not "simplify" any of these away.
 7. `parse_md` escapes braces by doubling them and nothing downstream collapses
    them — Julia type signatures arrive as `Tuple{{Type{{S{{N, Tup}}}`.
 8. `parse_md` does not wrap lines containing inline code (232 display columns
-   for a requested 90). We wrap with `awrap`.
+   for a requested 90). We wrap with `awrap`. Term's own wrapping is known to be
+   shaky - FedeClaudi/Term.jl#247 is open on it - so this is not a workaround
+   waiting on an upgrade.
 9. `Panel` measures markup, not what prints, so it is no longer used for layout
    at all — `pane()` draws borders here. Term is only a markdown→ANSI converter.
 10. `parse_md` wraps prose at the width it is handed, so by the time text
@@ -179,25 +181,28 @@ the *other* axes only (so a category shows what selecting it would add, not a
 total that ignores the rest of the filter), and the zero-count skip is what
 keeps 222 labels down to the few worth showing.
 
-### `awrap` breaks words in half
-Its docstring says it breaks at spaces. It does not: it emits a line every time
-the accumulated width would exceed `w`, wherever that falls, and the `lastspace`
-and `sincespace` locals it declares for the purpose are never read. Visible on
-any comment with long identifiers - `deliver_resu`/`lt`, `start_worke`/`r's`,
-`unguarde`/`d.` on Distributed.jl#198 - and it makes prose meaningfully harder
-to read than it should be.
+### `/` opens a search pane
+One key, doing the obvious thing for wherever the cursor is - the same shape as
+`C`:
 
-The fix is to hold the run since the last space and flush at the space instead,
-falling back to the hard break when a single run is wider than the pane, which
-is the case that matters for the URLs and stack frames this is full of.
+- in the item list, narrow it: a substring of the title or the ref, so `/segv`
+  and `/libuv` both work. `ChooseView` already narrows a list by typing and is
+  the closest thing to reuse, though this wants to filter the pane in place
+  rather than pop a picker over it.
+- a bare number jumps: `/62841` to `julia#62841`. Every `Item` carries `number`
+  and `ref`, so this is a lookup, not a search - and it wants to reach items the
+  current filter is hiding, or it will fail exactly when you most want it.
+- in the detail pane, search the thread or the diff. `Row.src` is already the
+  plain text of each row with the escapes taken out, which is precisely what to
+  match against, and moving to a hit is setting `st.nrow`.
 
-Two things not to break. The escape handling replays the active SGR codes at the
-start of each continuation line, so a break moved backwards has to move the
-replay with it. And `Row.part` marks the first display row of a source line, so
-the copy path does not care *where* the break falls - but the composer's
-`chunks` is a separate, deliberately fixed-width function, and must stay that
-way: its whole job is to be invertible from a character offset back to a row and
-column.
+Two things to decide. Highlighting the hits needs a per-row overlay, and the one
+that exists - `hlrow` - lays a background over a whole row; a match inside a row
+needs the same trick applied to a span, which is fiddly for exactly the reason
+`hlrow` exists (a row carries its own resets). And `n`/`N` are taken: they step
+between nodes in the detail pane and between groups in the filter pane, but vim
+users will expect them to mean the next and previous match once a search is
+running. That is a mode, and the footer would have to say which one is in force.
 
 ### Should the capitals rule cover the rest?
 `c`/`C` swapped so that lowercase shows and uppercase changes. Three keys still
@@ -272,8 +277,17 @@ What would have to be untangled first, none of it deep:
   terminal for the duration. That is `suspend`, and it belongs upstream too,
   since anything holding raw mode has the same problem.
 
-Worth asking on the repo before writing it: whether they want input in Term at
-all, given it has been a rendering library on purpose.
+They have been asked before: **FedeClaudi/Term.jl#131**, "How To Accept User
+Input?" (Jul 2022), someone wanting to type into a `Panel`. It was closed
+without one, and the discussion ends on the two approaches they could not choose
+between - so the appetite exists and the shape is the open question, which is a
+good position to arrive with a working implementation.
+
+Worth reading first, since they bear on how much of ours would be welcome:
+**#119** "Style information is dropped on wrapped lines" (closed) is the bug our
+escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
+Mar 2024) is still open with the maintainer saying text wrapping "has been hard
+to fix".
 
 ### Marking a thread unread again
 `r` marks a thread read and there is no way back. The only inverse today is

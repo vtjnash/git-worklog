@@ -83,6 +83,39 @@ end
     @test length(W.rows(ns, 80)) > 5
 end
 
+@testset "awrap breaks at spaces" begin
+    ok(s, w) = all(W.awidth(l) <= w for l in W.awrap(s, w))
+    # Nothing is lost or gained: a break only ends a line, it never edits.
+    same(s, w) = W.astrip(join(W.awrap(s, w), "")) == W.astrip(s)
+
+    @test W.awrap("guard the remaining raw stderr writes that gate cleanup", 40) ==
+          ["guard the remaining raw stderr writes ", "that gate cleanup"]
+    @test !any(occursin("deliver_resu", l) && !occursin("deliver_result", l)
+               for l in W.awrap("guard cleanup in deliver_result and connect_to_peer", 40))
+
+    # A run wider than the pane has nowhere to break, so it is split - and the
+    # pieces fill the width rather than coming out ragged.
+    long = W.awrap("a " * "x"^45, 20)
+    @test all(W.awidth(l) <= 20 for l in long)
+    @test length([l for l in long if W.awidth(l) == 20]) >= 2
+
+    for w in (12, 20, 40, 79)
+        for t in ("short", "", "     ", "a b c d e f g h i j k l m n o p q r s t",
+                  "https://github.com/JuliaLang/julia/pull/62841#issuecomment-372112478 see",
+                  "Tuple{Type{S{N, Tup}}, Vararg{Any}} and some prose after it",
+                  "word " * "y"^100 * " tail")
+            @test ok(t, w)
+            @test same(t, w)
+        end
+    end
+
+    # Style carries across a break, and is not doubled onto the carried word.
+    st = W.awrap("\e[31mred words here\e[0m and \e[32mgreen ones\e[0m too", 14)
+    @test all(W.awidth(l) <= 14 for l in st)
+    @test count(l -> occursin("\e[32m", l), st) == 1
+    @test startswith(st[2], "\e[31m")          # the colour resumes on line two
+end
+
 @testset "word motion" begin
     @test W.word_start("foo bar   ", 11) == 5      # over the spaces, then the word
     @test W.word_start("foo bar", 8) == 5
