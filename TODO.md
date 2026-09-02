@@ -269,29 +269,6 @@ escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
 
-### Inline code should not shout
-Term renders a markdown code span as `md_code`-styled backticks around
-syntax-highlighted content, and `md_code` defaults to `#FFF59D italic` - a pale
-yellow that is the loudest thing on the screen for what is usually a variable
-name. A grey background behind the *contents*, with the backticks quiet or gone,
-is what it should look like.
-
-What is in hand: `Term.TERM_THEME[].md_code` is writable at run time and takes a
-Term style string, and it styles **only the delimiters** - setting it to
-`"on_grey19"` gives a grey backtick, not a grey span. Verified shapes:
-
-    default        \e[3m\e[38;2;255;245;157m`\e[23m\e[39m  <content>  <same again>
-    md_code="dim"  \e[2m`\e[22m                             <content>  <same again>
-
-So killing the yellow is a one-line theme assignment, but putting the background
-behind the content needs a pass over the rendered ANSI in `render_md`: set
-`md_code` to a sentinel style, then rewrite `SENTINEL ` RESET … SENTINEL ` RESET`
-into background-wrapped content. Two things to decide there: whether to drop the
-backticks once the background marks the span, and what to do when Term wraps a
-span across a line - the pair is then on two lines, and a background that spans
-the break would bleed into the pane border, so a split span probably has to keep
-the plain delimiters.
-
 ### tmux + ClaudeBox review sessions
 A persistent sandboxed Claude per review, to push an item into and resume
 later.
@@ -341,6 +318,10 @@ at all.
   shows an elided form and its source is the whole URL. Those fall back to
   marking whatever of the query is visible on the row, which is the old
   behaviour and is right for them.
+- **A code span Term wrapped gets no background.** `style_code_spans` pairs
+  delimiters within a line, and Term breaks a long span across two — so those
+  fall back to a dim backtick. Drawing a background across the break would need
+  the span to be known before wrapping, which is Term's side of the line.
 - **Nesting is depth, not structure.** `Node.depth` draws a block inset and
   `rows` hides the run of deeper nodes under a closed one, which is enough to
   behave like a tree when reading. It is not one: nothing can be moved or

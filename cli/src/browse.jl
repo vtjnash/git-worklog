@@ -462,6 +462,55 @@ function escape_intraword(md::AbstractString)
     String(take!(out))
 end
 
+# Term styles a code span's *delimiters* and not what is between them, and the
+# default is a pale yellow - the loudest thing on a screen of prose, for what is
+# usually a variable name. Setting the theme to a colour nothing else emits
+# makes the delimiters findable afterwards, which is the only way to reach the
+# span itself.
+const MD_CODE_SENTINEL = "\e[38;2;255;0;255m"
+const CODE_DELIM = MD_CODE_SENTINEL * "`" * "\e[39m"
+const CODEBG = "\e[48;5;238m"
+
+"""Draw a code span as a quiet background instead of loud punctuation.
+
+The backticks stay, dimmed. They could go - the background marks the span on its
+own - but they are part of what a copy produces, and pasting `Sockets.bind` back
+into a comment without them loses the formatting the author put there.
+
+Only a pair on one line is rewritten. Term wraps before this sees the text, so a
+span it split has one delimiter on each of two lines and no background could be
+drawn across the break; a lone delimiter becomes a dim backtick, which is what
+it would have been with none of this.
+"""
+function style_code_spans(str::AbstractString)
+    occursin(CODE_DELIM, str) || return String(str)
+    tick = "\e[2m`\e[22m"                   # dim, without resetting the background
+    out = IOBuffer()
+    for (i, line) in enumerate(split(str, '\n'))
+        i == 1 || write(out, '\n')
+        parts = split(line, CODE_DELIM)
+        nd = length(parts) - 1
+        write(out, parts[1])
+        d = 1
+        while d <= nd
+            if d + 1 <= nd
+                write(out, CODEBG, tick,
+                      replace(String(parts[d + 1]), AR => AR * CODEBG), tick, NOBG)
+                write(out, parts[d + 2])
+                d += 2
+            else
+                write(out, "\e[2m`\e[0m", parts[d + 1])
+                d += 1
+            end
+        end
+    end
+    # Term can also wrap *between* the colour and the backtick it applies to,
+    # leaving the sentinel alone on a line with no pair to find. Anything still
+    # carrying it becomes dim, so a stray delimiter is quiet rather than
+    # magenta.
+    replace(String(take!(out)), MD_CODE_SENTINEL => "\e[2m")
+end
+
 """Markdown to ANSI at one width.
 
 Term is handed *markup*, not ANSI: `apply_style` here would bake in escape codes
@@ -479,7 +528,7 @@ function render_md(body::AbstractString, w::Int)
     try
         a = apply_style(string(Term.TermMarkdown.parse_md(
                 Markdown.parse(escape_intraword(body)); width = max(20, w))))
-        replace(a, "{{" => "{", "}}" => "}")
+        style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
         MD_WARN[] = first(sprint(showerror, e), 120)
         esc(body)

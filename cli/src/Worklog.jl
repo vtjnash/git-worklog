@@ -69,6 +69,15 @@ precompile(ui, (Vector{String},))
 
 # Runs at load, never at precompile, so the clock is real and every entry point
 # - including direct library use - starts with it set.
-__init__() = _clock!()
+function __init__()
+    _clock!()
+    # A colour nothing else emits, so `style_code_spans` can find the code-span
+    # delimiters Term marks and turn them into a background. Set here rather
+    # than at precompile time: the theme is a mutable global of Term's.
+    try
+        Term.TERM_THEME[].md_code = "#ff00ff"
+    catch
+    end
+end
 
 end # module Worklog

@@ -701,6 +701,32 @@ end
     @test !st.nodes[2].open && st.hidden == 1
 end
 
+@testset "inline code is a background, not a shout" begin
+    lines(t, w) = W.nodelines(W.Node("h", t, :md, true), w)
+    plain(t, w) = strip(join([W.astrip(l) for l in lines(t, w)], " "))
+
+    ls = lines("call `Sockets.bind` and `false` here", 70)
+    @test count(l -> occursin(W.CODEBG, l), ls) >= 1
+    @test sum(count(W.CODEBG, l) for l in ls) == 2          # one per span
+    # The backticks stay, so a copy keeps the formatting the author wrote.
+    @test plain("call `Sockets.bind` and `false` here", 70) ==
+          "call `Sockets.bind` and `false` here"
+    # Nothing leaks the sentinel colour, at any width.
+    for w in (24, 40, 70, 120)
+        for t in ("call `Sockets.bind` here",
+                  "a `span with several words that will not fit on one line at all` yes",
+                  "unclosed `backtick here", "no code at all here")
+            @test !any(occursin(W.MD_CODE_SENTINEL, l) for l in lines(t, w))
+        end
+    end
+    # A span Term split has no pair on one line, so it falls back quietly.
+    split_ = lines("a `span with several words that will not fit on one line at all` yes", 30)
+    @test !any(occursin(W.MD_CODE_SENTINEL, l) for l in split_)
+    @test occursin("`span with several words", plain("a `span with several words that will not fit on one line at all` yes", 30))
+    # And the background never reaches the plain text.
+    @test !occursin("[48;5;238m", plain("call `x` here", 70))
+end
+
 @testset "underscores in identifiers survive" begin
     render(t) = strip(W.astrip(join(W.nodelines(W.Node("h", t, :md, true), 100), " ")))
     # Julia's Markdown opens emphasis on an intraword underscore and it takes
