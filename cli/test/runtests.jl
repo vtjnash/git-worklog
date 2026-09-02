@@ -486,6 +486,44 @@ end
         W.handle!(st, Int('N'), ctrl)
         @test st.frow == want
     end
+
+    # The ends and the page keys, which the filter list is long enough to need
+    # and which used to stop at the item list.
+    nf = length(rows)
+    W.handle!(st, Int('G'), ctrl)
+    @test st.frow == nf
+    W.handle!(st, Int('g'), ctrl)
+    @test st.frow == 1
+    W.handle!(st, W.K_END, ctrl); @test st.frow == nf
+    W.handle!(st, W.K_HOME, ctrl); @test st.frow == 1
+    W.handle!(st, Int(' '), ctrl)
+    paged = st.frow
+    @test 1 < paged <= nf
+    W.handle!(st, Int('b'), ctrl)
+    @test st.frow == 1
+    W.handle!(st, W.K_PGDN, ctrl); @test st.frow == paged
+    W.handle!(st, W.K_PGUP, ctrl); @test st.frow == 1
+    # And they stay inside the list at both ends.
+    W.handle!(st, Int('b'), ctrl); @test st.frow == 1
+    st.frow = nf
+    W.handle!(st, Int(' '), ctrl); @test st.frow == nf
+end
+
+@testset "the key help says what is bound" begin
+    st = mkstate()
+    line = W.astrip(W.render(st, 200, 40))
+    # Every key the list and the detail bind should be findable in the footer.
+    for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
+              "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
+              "q quit", "tab pane", "C comment", "A review", "L labels",
+              "r read/unread", "s snooze", "z undo", "v note", "e edit",
+              "t term", "T agent", "\" worktrees", "m mouse")
+        @test occursin(k, line)
+    end
+    # The navigation runs at the end, so a narrow screen keeps what is worth
+    # reading rather than cutting it first.
+    @test findfirst("d diff", line)[1] < findfirst("j/k line", line)[1]
+    @test findfirst("/ search", line)[1] < findfirst("space/b page", line)[1]
 end
 
 @testset "labels are a filter axis" begin
@@ -1774,7 +1812,7 @@ end
     @test W.viewcursor(c, 80, 24) === nothing        # no client, nothing to show
 end
 
-@testset "tables Term cannot nest" begin
+@testset "shapes Term cannot render" begin
     # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
     # own recursion passes `inline` to whatever is inside a list or a quote. One
     # table in one bullet used to drop the whole comment back to raw text.
@@ -1798,6 +1836,26 @@ end
     # Nested, it keeps every cell.
     nested = W.render_md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
+
+    # An empty list item is the other shape that takes a whole comment down:
+    # `parse_md(::Markdown.List)` indexes [1] on every item, and Julia parses
+    # `- a`/`-`/`- b` into items of length [1, 0, 1]. Ordered or not, nested or
+    # top level, and a lone `-` is enough.
+    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    empty!(W.ERRSEEN)
+    for src in ("- a\n-\n- b\n", "1. one\n2.\n3. three\n", "-\n",
+                "- outer\n    -\n    - inner\n", "> - a\n> -\n")
+        out = W.render_md(src, 60)
+        @test !occursin("BoundsError", out)
+    end
+    @test !isfile(W.ERRLOG)
+    # Filled rather than dropped: the bullet was typed, so it is drawn, and an
+    # ordered list is not renumbered behind the user's back.
+    md = W.Markdown.parse("1. one\n2.\n3. three\n")
+    @test length(W.for_term(md).content[1].items) == 3
+    @test all(!isempty(i) for i in W.for_term(md).content[1].items)
+    out = W.render_md("1. one\n2.\n3. three\n", 60)
+    @test occursin("one", out) && occursin("three", out)
 end
 
 @testset "cursor and mouse, against a live child" begin

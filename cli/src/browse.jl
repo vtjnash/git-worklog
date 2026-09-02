@@ -519,32 +519,42 @@ function style_code_spans(str::AbstractString)
     replace(String(take!(out)), MD_CODE_SENTINEL => "\e[2m")
 end
 
-"""Take tables out of the places Term cannot render them.
+"""Rewrite the parsed markdown into what Term can actually render.
 
+One walk of the tree, because both of the things it fixes are Term crashing on
+a shape Julia's parser produces perfectly happily - and each one takes the
+*whole* comment down to raw text, since `render_md` can only catch the throw,
+not the node that caused it.
+
+**A table inside a list or a block quote.**
 `Term.TermMarkdown.parse_md(::Markdown.Table)` accepts `width` and nothing else,
-but Term's own recursion passes `inline` to whatever it finds inside a list item
-or a block quote. A table there is a `MethodError`, which `render_md` catches -
-so one table nested in one bullet drops the *whole* comment back to raw text.
+but Term's own recursion passes `inline` to whatever it finds nested. A table
+there is a `MethodError`. Keyword arguments take no part in dispatch, so this
+cannot be fixed by adding a method: any definition for `Markdown.Table` would
+replace Term's rather than extend it. The table is moved instead - nested, it
+becomes a code block of its own markdown source, which keeps every cell and
+loses only the box drawing; at the top level, where Term renders it properly, it
+is left alone. Upstream the fix is one `inline = false` in a signature.
 
-Keyword arguments take no part in dispatch, so this cannot be fixed by adding a
-method: any definition for `Markdown.Table` replaces Term's rather than
-extending it. The table is moved instead. Nested, it becomes a code block of
-its own markdown source, which keeps every cell and loses only the box drawing;
-at the top level, where Term renders it properly, it is left alone.
-
-Worth filing: the fix upstream is one `inline = false` in a signature.
+**An empty list item.** `parse_md(::Markdown.List)` indexes `[1]` on every item,
+and `- a` / `-` / `- b` parses to items of length `[1, 0, 1]`, so a lone `-`
+is a `BoundsError`. The empty item is filled with an empty paragraph rather than
+dropped: the bullet was typed, so it should appear, and dropping one out of an
+ordered list would renumber everything after it.
 """
-untable(x, nested::Bool = false) = x
-untable(t::Markdown.Table, nested::Bool) =
+for_term(x, nested::Bool = false) = x
+for_term(t::Markdown.Table, nested::Bool) =
     nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) : t
-untable(md::Markdown.MD, nested::Bool = false) =
-    Markdown.MD([untable(c, nested) for c in md.content])
-untable(l::Markdown.List, nested::Bool) =
-    Markdown.List([[untable(b, true) for b in item] for item in l.items], l.ordered, l.loose)
-untable(q::Markdown.BlockQuote, nested::Bool) =
-    Markdown.BlockQuote([untable(c, true) for c in q.content])
-untable(a::Markdown.Admonition, nested::Bool) =
-    Markdown.Admonition(a.category, a.title, [untable(c, true) for c in a.content])
+for_term(md::Markdown.MD, nested::Bool = false) =
+    Markdown.MD([for_term(c, nested) for c in md.content])
+for_term(l::Markdown.List, nested::Bool) =
+    Markdown.List([isempty(item) ? Any[Markdown.Paragraph(Any[""])] :
+                   Any[for_term(b, true) for b in item] for item in l.items],
+                  l.ordered, l.loose)
+for_term(q::Markdown.BlockQuote, nested::Bool) =
+    Markdown.BlockQuote([for_term(c, true) for c in q.content])
+for_term(a::Markdown.Admonition, nested::Bool) =
+    Markdown.Admonition(a.category, a.title, [for_term(c, true) for c in a.content])
 
 """Markdown to ANSI at one width.
 
@@ -565,7 +575,7 @@ the backtrace, and the standing warning keeps pointing at it.
 function render_md(body::AbstractString, w::Int)
     try
         a = apply_style(string(Term.TermMarkdown.parse_md(
-                untable(Markdown.parse(escape_source(body))); width = max(20, w))))
+                for_term(Markdown.parse(escape_source(body))); width = max(20, w))))
         style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
         logerror!(e, catch_backtrace(), "render_md")
@@ -1313,13 +1323,17 @@ function render_frame(st::BState, w::Int, h::Int)
     # Split the way the keys themselves divide: what shows you something, then
     # what changes something. The status keeps the bottom row, where it has
     # always been and where the eye already goes for it.
-    keys1 = string("[", filter_summary(st.filters), "]  f filters \u00b7 j/k line \u00b7 ",
-                   "space/b page \u00b7 n/N node \u00b7 \u21b5 fold \u00b7 tab pane \u00b7 ",
+    # Worst-first is the wrong order for a line that gets cut on a narrow
+    # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
+    # runs at the end and what is worth reading is at the front.
+    keys1 = string("[", filter_summary(st.filters), "]  f filters \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
-                   "y copy \u00b7 / search \u00b7 q quit")
+                   "y copy \u00b7 / search \u00b7 \u21b5 fold \u00b7 n/N node \u00b7 ",
+                   "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
+                   "q quit \u00b7 tab pane")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 v note \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" sessions \u00b7 m mouse ",
+                   " \u00b7 v note \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
@@ -1936,8 +1950,14 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         frows = filter_rows(st)
         nf = length(frows)
         if k in (Int('j'), K_DOWN);     st.frow = min(nf, st.frow + 1)
-        elseif k == Int(' ');           st.frow = min(nf, st.frow + lpage)
+        elseif k in (Int(' '), 6, K_PGDN); st.frow = min(nf, st.frow + lpage)
         elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
+        # The same four the item list has. The filter list is long enough to
+        # need them - it is every bucket, every repo and every label seen -
+        # and `nf` is its bound the way `length(st.items)` is that list's.
+        elseif k in (Int('b'), 2, K_PGUP); st.frow = max(1, st.frow - lpage)
+        elseif k in (Int('g'), K_HOME); st.frow = 1
+        elseif k in (Int('G'), K_END);  st.frow = nf
         elseif k in (Int('n'), Int('N'))
             g = filter_groups(frows)
             if !isempty(g)
