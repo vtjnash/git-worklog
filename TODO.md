@@ -406,12 +406,32 @@ An adopted branch has no such signal from GitHub, so it is asked of git:
 `merged_here` is true when every commit on the branch is already in its base,
 however it got there — merge, squash or rebase.
 
+**Closed lanes, so a fast merge is not missed.** Every other lane is `is:open`,
+so a pull request that merged between two refreshes stopped being returned and
+was never seen at all. `landed`, `reviewed` and `resolved` in `config.toml` are
+the closed halves of the three open lanes, bounded by `{since:N}` — the date N
+days before the run, expanded by `expand_lane` so the window moves rather than
+being a literal in the user's file. They land in the `done` bucket, which
+short-circuits every "what next" rule and tracks loosely. 9 rate-limit points
+for the three of them; the first run surfaced 18.
+
+First sighting counts as news alongside unread, because the unread lane only
+covers `[events].repos` and a merge anywhere else would otherwise be offered for
+filing before it had ever been on screen.
+
 **Still to decide: "I merged it" should skip the wait.** When *you* did the
-merge there is no notice to read, so the offer could come straight away. The
-merger is not known today: the active lanes are `is:open` so a merged pull
-request is gone before `mergedBy` could be read from it, and a local branch has
-no record of who pushed the merge. Needs either a lane that keeps recently
-merged pull requests, or reading the merge commit's committer.
+merge there is no notice to read, so the offer could come straight away.
+`mergedBy` is now reachable — the `landed` lane returns merged pull requests, so
+the field could simply be selected — which makes this a small change rather than
+a blocked one. A local branch still has no record of who pushed the merge; that
+would want the merge commit's committer.
+
+**The alternative considered: the notifications API.** It would answer this and
+the team-mention gap in one, but it needs a *classic* PAT with the
+`notifications` scope, which is a bigger credential than anything else here asks
+for. The closed lanes cover the "merged too fast to see" case through ordinary
+search and no new credential, so notifications stays where the Infrastructure
+note left it — revisit only if team mentions start mattering.
 
 **Order to build in.** Archive is all that is left of this plan, and it is the
 only piece that touches how items leave the lanes — which is what an adopted

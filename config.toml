@@ -16,6 +16,15 @@ reply_days = 30
 mine     = "is:open is:pr author:vtjnash archived:false"
 review   = "is:open is:pr review-requested:vtjnash archived:false"
 assigned = "is:open is:issue assignee:vtjnash archived:false"
+# Recently finished. Without these a pull request that merged between two
+# refreshes is never seen at all: every lane above is `is:open`, so it simply
+# stops being returned and the merge goes unnoticed. `{since:N}` is the date N
+# days before the run, so these stay bounded - unbounded they are every pull
+# request you have ever had. They land in the `done` bucket, where `x` files
+# them away.
+landed   = "is:pr author:vtjnash is:closed closed:>{since:21} archived:false"
+reviewed = "is:pr review-requested:vtjnash is:closed closed:>{since:14} archived:false"
+resolved = "is:issue assignee:vtjnash is:closed closed:>{since:14} archived:false"
 
 [firehose]
 repo = "JuliaLang/julia"

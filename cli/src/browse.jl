@@ -1025,10 +1025,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                                 string(RED, "conflicting", AR) : lowercase(it.mergeable))
     if haskey(st.archived, it.url)
         kv("archived", string(st.archived[it.url], "  ", AD, "x takes it back out", AR))
-    elseif isdone(it) && it.url in st.unread
-        # Merged, and you have not looked at it since. That is news, not
-        # filing: a merge you did not do is exactly the thing to be told about,
-        # so it is left in the unread lane rather than offered as done.
+    elseif isdone(it) && (it.url in st.unread || it.new)
+        # Merged, and you have not looked at it since - or this is the first
+        # refresh that has seen it at all, which is the same thing for a repo
+        # the event poller does not cover. That is news, not filing: a merge you
+        # did not do is exactly the thing to be told about.
         kv("state", string(lowercase(it.state), "  ", AD, "new since you last looked", AR))
     elseif isdone(it)
         # Offered once the notice has been read, and never done silently: a

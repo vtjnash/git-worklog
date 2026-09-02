@@ -111,6 +111,7 @@ end
 function resolve_track(st, bucket)
     t = get(st, "track", nothing)
     t isa AbstractString && haskey(TRACK_KEYS, t) && return t
+    bucket == "done" && return "loose"   # over; nothing about it should wake you
     bucket in ("stale", "firehose", "mentioned") && return "background"
     bucket in ("issue", "reviewed", "blocked") && return "loose"
     "normal"
@@ -122,6 +123,15 @@ end
 
 function derive_bucket(r, st, cfg, at::DateTime)
     truthy(get(st, "bucket", nothing)) && return (st["bucket"], "override")
+    # Over, whichever lane found it. This has to come before every rule below,
+    # which are all about what to do next: a merged pull request does not need
+    # review, a nudge, or a rebase.
+    s = get(r, "state", nothing)
+    if s in ("MERGED", "CLOSED")
+        d = activity_age(r, at)
+        return ("done", string(s == "MERGED" ? "merged" : "closed",
+                               d === nothing ? "" : " $(d)d ago"))
+    end
     L = Set(get(r, "labels", String[]))
     r["lane"] == "firehose" && return ("firehose", "discovery")
     if startswith(r["lane"], "mentioned") || startswith(r["lane"], "commented")
@@ -422,7 +432,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     items = OrderedDict{String,Any}()
     spent = 0
     for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
-        nodes, c, _ = search(q)
+        nodes, c, _ = search(expand_lane(q, at))
         spent += c
         for n in nodes
             items[String(n.url)] = normalize(n, lane, login)
@@ -534,6 +544,7 @@ const SECTIONS = [
     ("draft",          "Drafts",            "Yours, not yet proposed."),
     ("issue",          "Assigned issues",   ""),
     ("reviewed",       "Reviewed, waiting", "You reviewed; ball is with the author."),
+    ("done",           "Recently landed",   "Merged or closed. `x` files one away."),
 ]
 
 shortrepo(r) = split(r["repo"], '/')[end]

@@ -1668,6 +1668,60 @@ end
     end
 end
 
+@testset "work that has already landed is still seen" begin
+    # Every open lane is `is:open`, so a pull request that merges between two
+    # refreshes stops being returned and the merge goes unnoticed. The closed
+    # lanes are what catch it, bounded by a date that has to move with the run.
+    at = W.DateTime(2026, 9, 2)
+    @test W.expand_lane("is:pr is:closed closed:>{since:21}", at) ==
+          "is:pr is:closed closed:>2026-08-12"
+    @test W.expand_lane("a {since} b", at) == "a 2026-08-19 b"     # 14 by default
+    @test W.expand_lane("nothing to fill", at) == "nothing to fill"
+    @test W.expand_lane("{since:1}", at) == "2026-09-01"
+    # It moves with the run, which is the whole reason it is not written into
+    # config.toml as a literal date.
+    @test W.expand_lane("{since:1}", at + Dates.Day(5)) == "2026-09-06"
+
+    # Over, whichever lane found it: none of the rules about what to do next
+    # apply to a merged pull request.
+    cfg = W.config()
+    base = Dict{String,Any}("lane" => "mine", "type" => "PullRequest", "mine" => true,
+                            "labels" => String[], "head_at" => W.stamp(at - Dates.Day(2)),
+                            "updated" => W.stamp(at - Dates.Day(2)))
+    for (state, word) in (("MERGED", "merged"), ("CLOSED", "closed"))
+        r = merge(base, Dict("state" => state))
+        b, why = W.derive_bucket(r, Dict{String,Any}(), cfg, at)
+        @test b == "done" && occursin(word, why) && occursin("2d ago", why)
+    end
+    # An open one is bucketed by the rules as before, and an unknown state is
+    # not treated as closed.
+    @test W.derive_bucket(merge(base, Dict("state" => "OPEN")), Dict{String,Any}(),
+                          cfg, at)[1] != "done"
+    @test W.derive_bucket(base, Dict{String,Any}(), cfg, at)[1] != "done"
+    # An explicit bucket still wins, and nothing about finished work should wake
+    # you, so it tracks loosely.
+    @test W.derive_bucket(merge(base, Dict("state" => "MERGED")),
+                          Dict{String,Any}("bucket" => "needs-review"), cfg, at)[1] ==
+          "needs-review"
+    @test W.resolve_track(Dict{String,Any}(), "done") == "loose"
+    # And it has somewhere to be printed.
+    @test "done" in [s[1] for s in W.SECTIONS]
+
+    # First sighting is news even where the event poller does not reach: the
+    # unread lane only covers `[events].repos`, and a merge in any other repo
+    # would otherwise be offered for filing before it had been seen.
+    st = mkstate()
+    done = W.Item(url = "https://example.invalid/x/y/pull/1", ref = "y#1", repo = "x/y",
+                  number = 1, title = "t", state = "MERGED", new = true)
+    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
+                              if occursin("state", l)], " "))
+    @test occursin("new since you last looked", says(done))
+    seen = W.Item(; (f => getfield(done, f) for f in fieldnames(W.Item))..., new = false)
+    @test occursin("x archives it", says(seen))
+    push!(st.unread, seen.url)
+    @test occursin("new since you last looked", says(seen))
+end
+
 @testset "archive lets work leave without deleting it" begin
     keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
     before = read(W.STATE, String)

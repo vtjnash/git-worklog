@@ -30,6 +30,23 @@ now_isoformat(at::DateTime) = string(Dates.format(at, "yyyy-mm-ddTHH:MM:SS.sss")
 "The ISO-8601 Z form of `at`, which is how every timestamp is written here."
 stamp(at::DateTime) = Dates.format(at, "yyyy-mm-ddTHH:MM:SS") * "Z"
 
+"""Fill in the date placeholders in a search lane.
+
+`{since:21}` becomes the date 21 days before this run, and `{since}` defaults to
+14. Written here rather than in `config.toml` because the answer changes daily
+and the file is the user's - a literal date there would be a thing to remember
+to edit, and a lane that quietly stopped covering the gap it was added for.
+
+The gap: every other lane is `is:open`, so a pull request that merges between
+two refreshes stops being returned and is never seen at all.
+"""
+function expand_lane(q::AbstractString, at::DateTime)
+    replace(String(q), r"\{since(?::(\d+))?\}" => s -> begin
+        m = match(r"\{since(?::(\d+))?\}", s)
+        string(Date(at) - Day(m[1] === nothing ? 14 : parse(Int, m[1])))
+    end)
+end
+
 """Parse a GitHub/ISO timestamp. Everything GitHub emits is UTC, so the offset
 is dropped rather than modelled."""
 function ts(s)

@@ -1,14 +1,32 @@
 # Work dashboard
 
-_2026-09-02 18:21 UTC · 2052 items · 12 rate-limit points_
+_2026-09-02 18:32 UTC · 2069 items · 21 rate-limit points_
 
 ## Unread (788)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
   <sub>no comments · **needs-review** · 29d</sub>
+- [julia#62448](https://github.com/JuliaLang/julia/pull/62448) EscapeAnalysis: correct annotation of setfield into object  
+  <sub>2 comments · **done** · closed · 20d</sub>
+- [julia#62405](https://github.com/JuliaLang/julia/pull/62405) derive detect_unbound_args from subtyping's updated parameter-assignment rule  
+  <sub>1 comments · **done** · closed · 19d</sub>
+- [julia#62694](https://github.com/JuliaLang/julia/pull/62694) build: fix regression of `DEPS_GIT` checkouts of git-external dependencies  
+  <sub>no comments · **done** · closed · 18d</sub>
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
   <sub>no comments · **needs-edits** · 18d</sub>
+- [julia#62685](https://github.com/JuliaLang/julia/pull/62685) RFC: clarify our AGENTS to align with our current policies  
+  <sub>2 comments · **done** · closed · 16d</sub>
+- [julia#62693](https://github.com/JuliaLang/julia/pull/62693) Revert "runtime: Make exit signals safe during startup and bound the teardown"  
+  <sub>1 comments · **done** · closed · 16d</sub>
+- [libuv#5211](https://github.com/libuv/libuv/pull/5211) test: close file descriptors leaked by tests  
+  <sub>no comments · **done** · closed · 15d</sub>
+- [julia#62752](https://github.com/JuliaLang/julia/pull/62752) codegen: give RMW fields a slot when splitting an allocation  
+  <sub>no comments · **done** · closed · 13d</sub>
+- [julia#62697](https://github.com/JuliaLang/julia/pull/62697) Revert "codegen: Propagate `ipo_purity_bits` to LLVM function attributes (#61394)"  
+  <sub>2 comments · **done** · closed · 13d</sub>
+- [julia#62563](https://github.com/JuliaLang/julia/pull/62563) llvm: Update to LLVM 22.1.8  
+  <sub>25 comments · **done** · closed · 12d</sub>
 - [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
   <sub>no comments · **needs-edits** · 12d</sub>
 - [julia#45486](https://github.com/JuliaLang/julia/issues/45486) Support arbitrary bitwidth integers  
@@ -31,10 +49,22 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · 5d</sub>
 - [julia#62904](https://github.com/JuliaLang/julia/pull/62904) codegen: redesign aliasinfo again  
   <sub>1 comments · **draft** · 4d</sub>
+- [julia#62802](https://github.com/JuliaLang/julia/pull/62802) codegen: implement better tbaa+noalias info  
+  <sub>10 comments · **done** · closed · 4d</sub>
+- [julia#62771](https://github.com/JuliaLang/julia/pull/62771) Fix how `ReinterpretArray` handles padding  
+  <sub>16 comments · **done** · closed · 4d</sub>
+- [julia#62872](https://github.com/JuliaLang/julia/pull/62872) Compiler: don't crash `return_type_tfunc` on signatures without a function type  
+  <sub>no comments · **done** · closed · 4d</sub>
 - [julia#62889](https://github.com/JuliaLang/julia/pull/62889) Skip tagged immediates in JL_GC_PUSH roots  
   <sub>4 comments · **needs-review** · 4d</sub>
 - [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
   <sub>1 comments · **needs-review** · 2d</sub>
+- [julia#62704](https://github.com/JuliaLang/julia/pull/62704) codegen: place tbaa for array and memory under `jtbaa_value`  
+  <sub>3 comments · **done** · closed · 2d</sub>
+- [julia#62934](https://github.com/JuliaLang/julia/pull/62934) precompile: don't re-infer image-compiled callees when generating a pkgimage  
+  <sub>4 comments · **done** · closed · 2d</sub>
+- [julia#62733](https://github.com/JuliaLang/julia/pull/62733) gf: hash missing-method backedges by signature per typename  
+  <sub>no comments · **done** · closed · 1d</sub>
 - [libuv#5223](https://github.com/libuv/libuv/pull/5223) win: allow uv_try_write() from a write callback  
   <sub>1 comments · **needs-reply** · 1d</sub>
 - [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
@@ -55,36 +85,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>50 comments · **needs-review** · 1d</sub>
 - [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
   <sub>no comments · **needs-review** · 1d</sub>
-- [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
-  <sub>6 comments · **needs-reply** · 1d</sub>
-- [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
-  <sub>8 comments · **needs-review** · today</sub>
-- [julia#62968](https://github.com/JuliaLang/julia/pull/62968) Fix simulated longjmp on FreeBSD/AArch64  
-  <sub>no comments · **needs-review** · today</sub>
-- [julia#50790](https://github.com/JuliaLang/julia/pull/50790) Add explicitly wrapping versions of integer arithmetic  
-  <sub>12 comments · closed · 29d</sub>
-- [julia#62609](https://github.com/JuliaLang/julia/pull/62609) Sys: Fix CPU summary aggregation across models and speeds  
-  <sub>3 comments · closed · 29d</sub>
-- [julia#62612](https://github.com/JuliaLang/julia/pull/62612) [release-1.13] codegen: do not rely on method roots if `--strip-ir` is enabled (#62579)  
-  <sub>no comments · closed · 29d</sub>
-- [julia#22208](https://github.com/JuliaLang/julia/pull/22208) Use map instead of broadcast for Array*/Number and Matrix+-Matrix.  
-  <sub>13 comments · closed · 29d</sub>
-- [julia#62618](https://github.com/JuliaLang/julia/pull/62618) JuliaLowering: set slot flags on the break-block result slot  
-  <sub>3 comments · closed · 29d</sub>
-- [julia#50616](https://github.com/JuliaLang/julia/issues/50616) add syntax for using symbols from the parent module (without naming it)  
-  <sub>5 comments · 29d</sub>
-- [julia#62621](https://github.com/JuliaLang/julia/pull/62621) runtime: uphold Method's min-initialized invariant in jl_new_method_u…  
-  <sub>no comments · closed · 29d</sub>
-- [julia#62617](https://github.com/JuliaLang/julia/pull/62617) Compiler/test: drain drop_all_caches stderr pipe concurrently  
-  <sub>no comments · closed · 29d</sub>
-- [julia#62568](https://github.com/JuliaLang/julia/pull/62568) loading: add a cache-fetch hook consulted before compiling a package  
-  <sub>2 comments · closed · 29d</sub>
-- [julia#52965](https://github.com/JuliaLang/julia/issues/52965) `isa` disagrees with dispatch for types with free type vars  
-  <sub>3 comments · 29d</sub>
-- [julia#47129](https://github.com/JuliaLang/julia/pull/47129) Fix IteratorSize for zip of mixed shapes  
-  <sub>7 comments · closed · 29d</sub>
-- [julia#62625](https://github.com/JuliaLang/julia/issues/62625) Transformations  
-  <sub>1 comments · closed · 29d</sub>
 - _...and 748 more_
 
 ## Needs a reply (7)
@@ -109,7 +109,7 @@ _You were mentioned and the last word is theirs._
 _Review feedback, red CI, or you're the blocker._
 
 - [llvm-project#220635](https://github.com/llvm/llvm-project/pull/220635) Thread Safety Analysis: Track try-acquired capabilities as a ternary try-held state  
-  <sub>NEW · CI failure · 0d</sub>
+  <sub>CI failure · 0d</sub>
 - [julia#62841](https://github.com/JuliaLang/julia/pull/62841) add llvm-23 support  
   <sub>CI failure · 2 unresolved · 12d</sub>
 - [julia#62713](https://github.com/JuliaLang/julia/pull/62713) subtype: substitute resolved var values into inner envout entries  
@@ -119,7 +119,7 @@ _Review feedback, red CI, or you're the blocker._
 - [libuv#5212](https://github.com/libuv/libuv/pull/5212) test: verify tests do not leak file descriptors  
   <sub>CI failure · 35d</sub>
 - [OpenBLAS#5582](https://github.com/OpenMathLib/OpenBLAS/pull/5582) Ensure feature parity for cmake with Makefile  
-  <sub>CI failure · 49d</sub>
+  <sub>CI failure · 50d</sub>
 - [OpenBLAS#5581](https://github.com/OpenMathLib/OpenBLAS/pull/5581) cmake: document options and set defaults for influential variables  
   <sub>CI failure · 50d</sub>
 
@@ -243,9 +243,9 @@ _Yours, quiet, waiting on a reviewer._
 _Yours, in flight, nothing for you to do._
 
 - [llvm-project#220634](https://github.com/llvm/llvm-project/pull/220634) Thread Safety Analysis: Decode terminator branches directly into capability resolutions [NFC]  
-  <sub>NEW · 0d</sub>
+  <sub>0d</sub>
 - [llvm-project#212615](https://github.com/llvm/llvm-project/pull/212615) [clang][ThreadSafety] Enable late parse for all capabilities, under the experimental flag  
-  <sub>moved · 0d</sub>
+  <sub>0d</sub>
 
 ## Drafts (2)
 _Yours, not yet proposed._
@@ -289,6 +289,46 @@ _Yours, not yet proposed._
   <sub>track:loose · 3605d</sub>
 - [LibExpat.jl#8](https://github.com/JuliaIO/LibExpat.jl/issues/8) xpath tests  
   <sub>track:loose · 4829d</sub>
+
+## Recently landed (18)
+_Merged or closed. `x` files one away._
+
+- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) Load Pkg only when a lazy artifact needs installing  
+  <sub>track:loose · moved · 0d</sub>
+- [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
+  <sub>track:loose · NEW · 1d</sub>
+- [julia#62704](https://github.com/JuliaLang/julia/pull/62704) codegen: place tbaa for array and memory under `jtbaa_value`  
+  <sub>track:loose · NEW · CI failure · 1 unresolved · 2d</sub>
+- [julia#62934](https://github.com/JuliaLang/julia/pull/62934) precompile: don't re-infer image-compiled callees when generating a pkgimage  
+  <sub>track:loose · NEW · 1.13 · 2d</sub>
+- [julia#62733](https://github.com/JuliaLang/julia/pull/62733) gf: hash missing-method backedges by signature per typename  
+  <sub>track:loose · NEW · 2d</sub>
+- [julia#62802](https://github.com/JuliaLang/julia/pull/62802) codegen: implement better tbaa+noalias info  
+  <sub>track:loose · NEW · 7d</sub>
+- [julia#62872](https://github.com/JuliaLang/julia/pull/62872) Compiler: don't crash `return_type_tfunc` on signatures without a function type  
+  <sub>track:loose · NEW · CI failure · 7d</sub>
+- [julia#62771](https://github.com/JuliaLang/julia/pull/62771) Fix how `ReinterpretArray` handles padding  
+  <sub>track:loose · NEW · CI failure · 1 unresolved · 11d</sub>
+- [julia#62563](https://github.com/JuliaLang/julia/pull/62563) llvm: Update to LLVM 22.1.8  
+  <sub>track:loose · NEW · CI failure · 12d</sub>
+- [julia#62697](https://github.com/JuliaLang/julia/pull/62697) Revert "codegen: Propagate `ipo_purity_bits` to LLVM function attributes (#61394)"  
+  <sub>track:loose · NEW · CI failure · 16d</sub>
+- [julia#62693](https://github.com/JuliaLang/julia/pull/62693) Revert "runtime: Make exit signals safe during startup and bound the teardown"  
+  <sub>track:loose · NEW · CI failure · 16d</sub>
+- [julia#62685](https://github.com/JuliaLang/julia/pull/62685) RFC: clarify our AGENTS to align with our current policies  
+  <sub>track:loose · NEW · CI failure · 3 unresolved · 16d</sub>
+- [julia#62752](https://github.com/JuliaLang/julia/pull/62752) codegen: give RMW fields a slot when splitting an allocation  
+  <sub>track:loose · NEW · CI failure · 18d</sub>
+- [llvm-project#215152](https://github.com/llvm/llvm-project/pull/215152) [CodeGen] Take the executable stack from a module flag  
+  <sub>track:loose · NEW · 20d</sub>
+- [julia#62448](https://github.com/JuliaLang/julia/pull/62448) EscapeAnalysis: correct annotation of setfield into object  
+  <sub>track:loose · NEW · CI failure · 20d</sub>
+- [julia#62694](https://github.com/JuliaLang/julia/pull/62694) build: fix regression of `DEPS_GIT` checkouts of git-external dependencies  
+  <sub>track:loose · NEW · 21d</sub>
+- [julia#62405](https://github.com/JuliaLang/julia/pull/62405) derive detect_unbound_args from subtyping's updated parameter-assignment rule  
+  <sub>track:loose · NEW · CI failure · 23d</sub>
+- [libuv#5211](https://github.com/libuv/libuv/pull/5211) test: close file descriptors leaked by tests  
+  <sub>track:loose · NEW · 35d</sub>
 
 ## Stale — decide (44)
 _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` or `deadline` to pull one back into an active lane; otherwise close it._
@@ -344,7 +384,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 
 ## Background pile
 
-943 open PRs in JuliaLang/julia, 976 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl next`.
+943 open PRs in JuliaLang/julia, 975 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl next`.
 
 ## Snoozed (3)
 
@@ -356,9 +396,24 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 
 </details>
 
-## Changed since last refresh (3)
+## Changed since last refresh (18)
 
-- [llvm-project#220635](https://github.com/llvm/llvm-project/pull/220635) — new
-- [llvm-project#220634](https://github.com/llvm/llvm-project/pull/220634) — new
-- [llvm-project#212615](https://github.com/llvm/llvm-project/pull/212615) — new comment
+- [julia#62802](https://github.com/JuliaLang/julia/pull/62802) — new
+- [julia#62752](https://github.com/JuliaLang/julia/pull/62752) — new
+- [julia#62704](https://github.com/JuliaLang/julia/pull/62704) — new
+- [julia#62697](https://github.com/JuliaLang/julia/pull/62697) — new
+- [julia#62694](https://github.com/JuliaLang/julia/pull/62694) — new
+- [julia#62693](https://github.com/JuliaLang/julia/pull/62693) — new
+- [julia#62685](https://github.com/JuliaLang/julia/pull/62685) — new
+- [llvm-project#215152](https://github.com/llvm/llvm-project/pull/215152) — new
+- [julia#62563](https://github.com/JuliaLang/julia/pull/62563) — new
+- [libuv#5211](https://github.com/libuv/libuv/pull/5211) — new
+- [julia#62448](https://github.com/JuliaLang/julia/pull/62448) — new
+- [julia#62405](https://github.com/JuliaLang/julia/pull/62405) — new
+- [julia#62942](https://github.com/JuliaLang/julia/pull/62942) — new
+- [julia#62934](https://github.com/JuliaLang/julia/pull/62934) — new
+- [julia#62872](https://github.com/JuliaLang/julia/pull/62872) — new
+- [julia#62771](https://github.com/JuliaLang/julia/pull/62771) — new
+- [julia#62733](https://github.com/JuliaLang/julia/pull/62733) — new
+- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) — unresolved None->0, new comment
 
