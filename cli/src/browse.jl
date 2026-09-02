@@ -1565,7 +1565,11 @@ body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, ur
 
 function comment_nodes(it::Item)
     local body, cs
-    fetched = stamp()
+    # The live clock, not `stamp()`. `r` marks the thread read up to this, and
+    # the browser stays open for hours - stamped from the frozen `NOW[]` this
+    # said the thread was fetched when `wl` was *launched*, so every comment
+    # posted during the session stayed unread however carefully it was read.
+    fetched = livestamp()
     try
         key = "thread:" * it.url
         hit = cache_get(key, DETAIL_TTL[])
@@ -1577,8 +1581,7 @@ function comment_nodes(it::Item)
             # When this thread was actually read from GitHub, not when it came
             # out of the cache. `r` marks read up to this, so a comment that
             # arrived after the fetch stays unread.
-            fetched = Dates.format(NOW[] - Second(round(Int, hit[2])),
-                                   "yyyy-mm-ddTHH:MM:SS") * "Z"
+            fetched = livestamp(hit[2])
         end
     catch e
         return [Node("could not load thread", first(sprint(showerror, e), 200), :plain, true)]
@@ -2111,7 +2114,8 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         at = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
         prev = Events.read_at(it.url)
         if seen
-            Events.set_read(it.url, at === nothing ? stamp() : st.nodes[at].meta["fetched"])
+            Events.set_read(it.url,
+                            at === nothing ? livestamp() : st.nodes[at].meta["fetched"])
         else
             Events.mark_unread([it.url])
         end

@@ -2078,6 +2078,57 @@ end
                              title = "t", is_pr = false)) == ""
 end
 
+@testset "the browser does not read the frozen clock" begin
+    # `NOW[]` is frozen for the run, which is right for a refresh and wrong for
+    # a program that stays open for hours. Every timestamp the browser writes
+    # has to come from the wall clock instead.
+    keep = W.NOW[]
+    try
+        W.NOW[] = W.DateTime(2000, 1, 1)
+        @test startswith(W.stamp(), "2000")            # the frozen one, as set
+        @test !startswith(W.livestamp(), "2000")
+        # Seconds back from now, for a thing whose age is known rather than its
+        # time - which is what a cache hit has.
+        @test W.livestamp(0) >= W.livestamp(60)
+        @test W.livestamp() != W.livestamp(3600)
+
+        # A thread read now says it was fetched now, not when `wl` started.
+        # Stamped from the frozen clock, `r` marked it seen up to launch, so
+        # every comment posted during the session stayed unread.
+        st = mkstate()
+        it = st.items[st.sel]
+        # The first few items that actually have a thread: one with no comments
+        # has no node carrying a fetch time, so it would pass without testing
+        # anything.
+        got = nothing
+        for x in first(st.items, 6)
+            ns = W.comment_nodes(x)
+            at = findfirst(n -> haskey(n.meta, "fetched"), ns)
+            at === nothing || (got = ns[at].meta["fetched"]; break)
+        end
+        if got === nothing
+            @info "no thread could be fetched; skipping the fetched-at check"
+        else
+            @test !startswith(got, "2000")
+        end
+
+        # And the fallback `r` uses when nothing carries a fetch time.
+        readfile = joinpath(W.ROOT, "read.json")
+        before = read(readfile, String)
+        try
+            st.nodes = W.Node[]
+            push!(st.unread, it.url)
+            ctrl = W.Controller()
+            W.handle!(st, Int('r'), ctrl)
+            @test !startswith(W.Events.read_at(it.url), "2000")
+        finally
+            write(readfile, before)
+        end
+    finally
+        W.NOW[] = keep
+    end
+end
+
 @testset "the interaction clock" begin
     # Redirected again inside the testset so it starts empty and nothing else in
     # the suite can have written to it first.

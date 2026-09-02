@@ -216,10 +216,16 @@ Do not "simplify" any of these away.
 25. `NOW[]` is frozen for the whole run, which is right for a refresh — one
     instant for every age and expiry, so a run cannot straddle midnight and
     bucket half its items against a different day. The browser is the other
-    kind of program: it stays open for hours, so anything recording *when you
-    did something* must use `livestamp()`. Stamping `touched.json` from
-    `stamp()` would date a whole session to when `wl` was launched, ordering it
-    by nothing at all.
+    kind of program: it stays open for hours, and **nothing in `browse.jl` may
+    read `NOW[]` or `stamp()`.** It has cost a real bug once: `comment_nodes`
+    recorded a thread as fetched at the frozen instant, and `r` marks read up
+    to that — so in a session open since morning, every comment posted since
+    launch stayed unread however carefully it had just been read. The cached
+    branch subtracted a real age from the frozen instant and drifted further
+    back the longer the session ran. `livestamp()` is the wall clock, and
+    `livestamp(ago)` is it minus a known age in seconds.
+
+    The name is the trap: `NOW[]` is not now, it is when this run started.
 
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
 12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty

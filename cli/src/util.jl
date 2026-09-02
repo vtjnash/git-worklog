@@ -32,9 +32,15 @@ for every age and expiry, so a run cannot straddle midnight and bucket half its
 items against a different day. The browser is the other kind of program - it
 stays open for hours - and a timestamp taken from the frozen clock there would
 date every action in the session to when `wl` was launched, ordering them by
-nothing at all. Anything recording *when you did something* wants this one.
+nothing at all. Anything recording *when something happened* wants this one.
+
+`ago` is seconds back from now, for the case where the thing being stamped
+happened at a known age rather than just now - a cache hit knows how old its
+entry is, not when it was written.
 """
-livestamp() = Dates.format(Dates.now(Dates.UTC), "yyyy-mm-ddTHH:MM:SS") * "Z"
+livestamp(ago::Real = 0) =
+    Dates.format(Dates.now(Dates.UTC) - Millisecond(round(Int, 1000ago)),
+                 "yyyy-mm-ddTHH:MM:SS") * "Z"
 
 """Parse a GitHub/ISO timestamp. Everything GitHub emits is UTC, so the offset
 is dropped rather than modelled."""
