@@ -2103,12 +2103,17 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
         prev = get_field(it.url, "snooze")
+        prevtouch = touched_at(it.url)
         disarm(it.url)
         set_fields(it.url, ["snooze" => "on-change"])
         # `set_fields` removes a key when handed nothing, so this is the undo
-        # whether or not there was a snooze here before.
-        push!(st.undos, Undo(string("snooze ", it.ref),
-                             () -> set_fields(it.url, ["snooze" => prev])))
+        # whether or not there was a snooze here before. The clock goes back
+        # after it, not before: restoring the value writes through `set_fields`,
+        # which stamps on the way past.
+        push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
+            set_fields(it.url, ["snooze" => prev])
+            set_touched(it.url, prevtouch)
+        end))
         st.status = "snoozed"
     elseif k == Int('z')
         if isempty(st.undos)
@@ -2426,7 +2431,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     push_view!(ctrl, EditorView(title, note, b -> begin
         r = submit(b)
         st.status = isempty(r) ? "posted" : r
-        isempty(r) && reread!(st)
+        isempty(r) && (touch!(it.url); reread!(st))
     end))
 end
 
@@ -2443,7 +2448,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             b -> begin
                 r = Events.submit_review(it.url, ev, b)
                 st.status = isempty(r) ? string("submitted: ", replace(lowercase(ev), "_" => " ")) : r
-                isempty(r) && reread!(st)
+                isempty(r) && (touch!(it.url); reread!(st))
             end; allow_empty = ev == "APPROVE"))
     end))
 end
@@ -2457,6 +2462,7 @@ function label_action(st::BState, ctrl::Controller, it::Item)
         l -> begin
             on = l in have
             r = Events.toggle_label(it.url, l, !on)
+            isempty(r) && touch!(it.url)
             # `Item` comes from facts.json and is not rewritten here, so the
             # metadata pane keeps showing the old set until the next refresh.
             st.status = isempty(r) ? string(on ? "removed " : "added ", l,
@@ -2605,6 +2611,7 @@ than storing a blank.
 function edit_note(st::BState, it::Item, ctrl)
     path = joinpath(mktempdir(), string(replace(it.ref, '/' => '-', '#' => '-'), ".md"))
     before = it.note
+    prevtouch = touched_at(it.url)
     write(path, isempty(before) ? "" : before)
     ok = true
     suspend(ctrl) do
@@ -2631,9 +2638,10 @@ function edit_note(st::BState, it::Item, ctrl)
     # the next refresh rewrites `facts.json`.
     st.items[st.sel] = Item(; (f => getfield(it, f) for f in fieldnames(Item))...,
                             note = String(after))
-    push!(st.undos, Undo(string("note ", it.ref),
-                         () -> set_fields(it.url,
-                                          ["note" => isempty(before) ? nothing : before])))
+    push!(st.undos, Undo(string("note ", it.ref), () -> begin
+        set_fields(it.url, ["note" => isempty(before) ? nothing : before])
+        set_touched(it.url, prevtouch)
+    end))
     isempty(after) ? "note cleared" : "note saved"
 end
 
@@ -2663,6 +2671,11 @@ function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
     v = pane_view(name, string(kind === :agent ? "agent  " : "", it.ref,
                                isempty(branch) ? "" : string("  ", branch)), ctrl)
     v === nothing && return "could not attach to " * name
+    # Only once there is something to work in. Opening a shell or an agent on an
+    # item is the strongest signal of work there is - stronger than any amount
+    # of reading it - which is why the clock has a hand in a view that does no
+    # reading at all.
+    touch!(it.url)
     pane_sync!(v)
     push!(ctrl.stack, v)
     if found === nothing

@@ -25,6 +25,17 @@ now_isoformat() = string(Dates.format(NOW[], "yyyy-mm-ddTHH:MM:SS.sss"), "000+00
 
 stamp() = Dates.format(NOW[], "yyyy-mm-ddTHH:MM:SS") * "Z"
 
+"""The wall clock, for the program that outlives the instant it started at.
+
+`stamp()` reads the frozen `NOW[]`, which is right for a refresh: one instant
+for every age and expiry, so a run cannot straddle midnight and bucket half its
+items against a different day. The browser is the other kind of program - it
+stays open for hours - and a timestamp taken from the frozen clock there would
+date every action in the session to when `wl` was launched, ordering them by
+nothing at all. Anything recording *when you did something* wants this one.
+"""
+livestamp() = Dates.format(Dates.now(Dates.UTC), "yyyy-mm-ddTHH:MM:SS") * "Z"
+
 """Parse a GitHub/ISO timestamp. Everything GitHub emits is UTC, so the offset
 is dropped rather than modelled."""
 function ts(s)

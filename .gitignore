@@ -4,6 +4,7 @@ facts.json
 bulk.json
 queue.json
 read.json
+touched.json
 cache/
 repos.toml
 

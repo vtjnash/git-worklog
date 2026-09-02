@@ -10,6 +10,7 @@ GitHub quirks live in exactly one place:
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  unread tracking, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, the snapshot diff, DASHBOARD.md
+  * `touched.jl` the interaction clock, for ordering work by what you did
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the interactive navigator
   * `mux.jl`     multiplexer sessions, for hosting a child program
@@ -26,6 +27,7 @@ File ownership is strict, because it is what keeps the user's notes safe:
   | `bulk.json`   | machine | slow-lane cache, refetched every 6h|
   | `queue.json`  | machine | what the backlog queue has shown  |
   | `read.json`   | machine | one seen-up-to timestamp per item |
+  | `touched.json`| machine | one last-interaction timestamp per item|
   | `snooze.json` | machine | armed "until it moves" fingerprints|
   | `DASHBOARD.md`| machine | overwritten every refresh         |
 """
@@ -49,6 +51,7 @@ include("ci.jl")
 include("gh.jl")
 include("events.jl")
 include("refresh.jl")
+include("touched.jl")
 include("state.jl")
 include("controller.jl")
 include("ui.jl")

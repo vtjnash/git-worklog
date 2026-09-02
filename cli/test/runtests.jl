@@ -18,6 +18,11 @@ const W = Worklog
 # tests below write and delete this file themselves anyway.
 isfile(W.ERRLOG) && rm(W.ERRLOG)
 
+# The interaction clock is redirected for the whole run. Several tests below
+# set a field, and setting a field stamps it - against the real file that would
+# reorder the user's own lists as a side effect of running the suite.
+W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+
 @testset "input decoding" begin
     ev(s) = W.readevent(IOBuffer(s))
     @test ev("j") == W.KeyEvent(Int('j'))
@@ -1705,6 +1710,106 @@ end
 
 end
 
+
+@testset "the interaction clock" begin
+    # Redirected again inside the testset so it starts empty and nothing else in
+    # the suite can have written to it first.
+    keep = W.TOUCHED[]
+    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    try
+        u = W.loaditems()[1].url
+        @test W.touched_at(u) === nothing          # nothing has been done to it
+        prev = W.touch!(u)
+        @test prev === nothing                     # ...and it says so
+        first_at = W.touched_at(u)
+        @test first_at !== nothing && endswith(first_at, "Z")
+
+        # The clock is the wall clock, not the frozen one: the browser runs for
+        # hours, and stamping from `NOW[]` would date a whole session to launch.
+        W.NOW[] = W.DateTime(2000, 1, 1)
+        try
+            @test W.touch!(u) == first_at          # returns what was there
+            @test !startswith(W.touched_at(u), "2000")
+        finally
+            W._clock!()
+        end
+
+        # Clearing is a distinct state from never having been touched, which is
+        # what an undo of a first interaction has to restore.
+        W.set_touched(u, nothing)
+        @test W.touched_at(u) === nothing
+        W.set_touched(u, "2026-01-02T03:04:05Z")
+        @test W.touched_at(u) == "2026-01-02T03:04:05Z"
+
+        # Setting any field stamps it, through the one point they all pass.
+        state = read(W.STATE, String)
+        try
+            W.set_fields(u, ["note" => "a passing thought"])
+            @test W.touched_at(u) != "2026-01-02T03:04:05Z"
+        finally
+            W.set_fields(u, ["note" => nothing])
+            write(W.STATE, state)
+        end
+    finally
+        W.TOUCHED[] = keep
+    end
+end
+
+@testset "what the clock does not count" begin
+    keep = W.TOUCHED[]
+    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    readfile = joinpath(W.ROOT, "read.json")
+    before = read(readfile, String)
+    try
+        st = mkstate()
+        ctrl = W.Controller()
+        it = st.items[st.sel]
+
+        # Looking is not interacting. Moving the cursor, folding, changing pane,
+        # searching and switching mode must all leave the clock alone - a list
+        # ordered by it would otherwise be a record of browsing.
+        for k in (Int('j'), Int('k'), Int('\t'), Int('\r'), Int('d'), Int('o'),
+                  Int('g'), Int('G'), Int('n'), Int('N'), Int('/'))
+            W.handle!(st, k, ctrl)
+        end
+        @test all(W.touched_at(x.url) === nothing for x in st.items)
+
+        # Nor is read/unread, which is the end of looking rather than the start
+        # of doing, and has its own filter already.
+        st = mkstate(); it = st.items[st.sel]
+        push!(st.unread, it.url)
+        W.handle!(st, Int('r'), ctrl)
+        @test st.status == "marked read"
+        @test W.touched_at(it.url) === nothing
+        W.handle!(st, Int('u'), ctrl)
+        @test W.touched_at(it.url) === nothing
+        W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
+
+        # A snooze is, and undoing it puts the clock back to where it was -
+        # which for a first interaction means back to nothing at all.
+        state = read(W.STATE, String)
+        try
+            W.handle!(st, Int('s'), ctrl)
+            @test st.status == "snoozed"
+            @test W.touched_at(it.url) !== nothing
+            W.handle!(st, Int('z'), ctrl)
+            @test occursin("undid", st.status)
+            @test W.touched_at(it.url) === nothing
+
+            # And an earlier interaction is restored as itself, not erased.
+            W.set_touched(it.url, "2026-01-02T03:04:05Z")
+            W.handle!(st, Int('s'), ctrl)
+            @test W.touched_at(it.url) != "2026-01-02T03:04:05Z"
+            W.handle!(st, Int('z'), ctrl)
+            @test W.touched_at(it.url) == "2026-01-02T03:04:05Z"
+        finally
+            write(W.STATE, state)
+        end
+    finally
+        write(readfile, before)
+        W.TOUCHED[] = keep
+    end
+end
 
 @testset "notes, and the file they land in" begin
     # `state.toml` is the user's, edited key-by-key and never rewritten. A key

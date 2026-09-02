@@ -57,7 +57,16 @@ end
 fmt(v::AbstractVector) = "[" * join((json_dumps(x) for x in v), ", ") * "]"
 fmt(v) = json_dumps(v)
 
+"""Set (or with a `nothing` value, remove) named keys of one item's block.
+
+Setting a field is an interaction, so this stamps the clock - here rather than
+at each caller, because this is the one point every field write passes through:
+`v` and `s` in the browser, and every `wl <field>` command. An undo therefore
+has to put the previous timestamp back explicitly, since restoring the value
+comes back through here and stamps again.
+"""
 function set_fields(url::AbstractString, updates)
+    touch!(url)
     lines = load_lines()
     span = block_span(lines, url)
     if span === nothing

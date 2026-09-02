@@ -52,6 +52,7 @@ linked against a newer glibc.
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
 | `cli/src/events.jl` | unread tracking and live thread fetch (submodule `Events`) |
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, render |
+| `cli/src/touched.jl` | the interaction clock: when you last acted on an item |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
 | `cli/src/controller.jl` | the view controller that owns stdin; input decoding; `PromptView`, `EditorView`, `ChooseView` |
 | `cli/src/browse.jl` | the two-pane browser: filters, panes, folding, diffs, checks |
@@ -66,10 +67,10 @@ linked against a newer glibc.
 Owner rules for the data files matter: `config.toml`, `state.toml` and
 `repos.toml` are **yours** — `refresh` reads `state.toml` and never writes it,
 and only `wl` edits it, through a line-based editor that preserves comments.
-`facts.json`, `bulk.json`, `read.json`, `queue.json`, `snooze.json` and
-`cache/` are machine-owned. `errors.log` is written by the browser when
-something throws, and deleting it is how its standing footer warning is
-dismissed.
+`facts.json`, `bulk.json`, `read.json`, `touched.json`, `queue.json`,
+`snooze.json` and `cache/` are machine-owned. `errors.log` is written by the
+browser when something throws, and deleting it is how its standing footer
+warning is dismissed.
 
 ### Testing without a terminal
 There is no TTY here, so the UI is tested by construction rather than by use:
@@ -202,6 +203,15 @@ Do not "simplify" any of these away.
     Filtering it out to keep new keys in the right place took a line out of the
     user's file on every write; hold it back and re-append it instead.
 
+**The clock**
+25. `NOW[]` is frozen for the whole run, which is right for a refresh — one
+    instant for every age and expiry, so a run cannot straddle midnight and
+    bucket half its items against a different day. The browser is the other
+    kind of program: it stays open for hours, so anything recording *when you
+    did something* must use `livestamp()`. Stamping `touched.json` from
+    `stamp()` would date a whole session to when `wl` was launched, ordering it
+    by nothing at all.
+
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
 12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
     jobs array to an anonymous caller, with no error.
@@ -234,24 +244,12 @@ shipped are not listed; `git log` is the record of those.
 Four lists the browser cannot show today, planned together because they share
 two things underneath and because two of them turn out to be the same list.
 
-**What has to exist first.**
+**What has to exist first.** The interaction clock has shipped — `touched.json`
+and `touched.jl`, with the reasoning about what does and does not write to it
+in that file's header. Nothing reads it yet; lists C and D below are what it is
+for. What is still missing:
 
-1. **An interaction clock.** `touched.json`, machine-owned and gitignored,
-   `url -> ISO8601` — the shape `read.json` already uses for a per-item
-   timestamp the refresh does not own.
-
-   The point is what does *not* write to it. Opening an item, scrolling,
-   searching and changing mode are looking, and looking must not reorder the
-   list you are looking at. **Read/unread is not an interaction either** —
-   decided, and it is already its own filter, so nothing is lost.
-
-   What writes: a comment (`C`), a review (`A`), a label (`L`), a note (`v`), a
-   snooze (`s`), a field set from `wl`, and opening a shell or an agent on it
-   (`t`, `T`) — that last because starting work on something is the strongest
-   signal there is, and a viewing-based clock would miss it entirely. `z`
-   restores the previous timestamp along with everything else it undoes.
-
-2. **A local git survey.** `repos.jl` has `worktrees(path)`; what is missing is
+1. **A local git survey.** `repos.jl` has `worktrees(path)`; what is missing is
    every repo in `repos.toml` at once and, per worktree, the branch, whether it
    is dirty, ahead/behind upstream, the last commit date, and the item for its
    branch if there is one.
@@ -318,12 +316,10 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** `touched.json` first: it is small, it is what two of the
-four lists sort by, and every action that should write to it is already a single
-place in `handle!`. Then the git survey with `headRefName`, which unblocks
-everything else. Then the worktree view by folding the session list into it,
-then branches beside it, then adoption and the synthetic items, and archive
-last — it is the only piece that touches how items leave the lanes.
+**Order to build in.** The git survey with `headRefName` is next, and it
+unblocks everything else. Then the worktree view by folding the session list
+into it, then branches beside it, then adoption and the synthetic items, and
+archive last — it is the only piece that touches how items leave the lanes.
 
 ### What review writing still cannot do
 
