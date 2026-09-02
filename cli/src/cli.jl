@@ -18,6 +18,7 @@ Work dashboard.
   wl dismiss julia#62452                  retire from the backlog until it moves
   wl snooze  julia#62452 on-change        or a date, or "off"
   wl note    julia#62452 "rebase after #62396 lands"
+  wl archive julia#62452 2026-09-02        or: wl adopted local:o/r#branch <date>
   wl deadline julia#62452 2026-09-30
   wl bucket  julia#62452 needs-review
   wl blocked julia#62452 JuliaLang/julia#62396
