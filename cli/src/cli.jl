@@ -26,11 +26,11 @@ Work dashboard.
 
 config() = TOML.parse(read(joinpath(ROOT, "config.toml"), String))
 
-function dispatch(args::Vector{String})
-    (isempty(args) || args == ["--refresh"]) && return ui(args)
+function dispatch(args::Vector{String}, at::DateTime = utcnow())
+    (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     cmd = args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
-    cmd == "refresh" && return refresh(args[2:end])
+    cmd == "refresh" && return refresh(args[2:end], at)
     cmd == "next" && return next_batch(length(args) > 1 ? parse(Int, args[2]) : 10)
     if cmd == "unread"
         # With a ref it is the inverse of `read`; bare it is still the dump the
@@ -42,7 +42,7 @@ function dispatch(args::Vector{String})
             return 0
         end
         cfg = config()
-        print(json_dumps(Events.unread(cfg, cfg["login"]; verbose = false)))
+        print(json_dumps(Events.unread(cfg, cfg["login"], at; verbose = false)))
         return 0
     end
     if cmd == "thread"
@@ -63,11 +63,11 @@ function dispatch(args::Vector{String})
         arg = length(args) > 1 ? args[2] : "all"
         if arg == "all"
             cfg = config()
-            urls = [e["url"] for e in Events.unread(cfg, cfg["login"]; verbose = false)]
-            println("marked $(Events.mark_read(urls)) threads read")
+            urls = [e["url"] for e in Events.unread(cfg, cfg["login"], at; verbose = false)]
+            println("marked $(Events.mark_read(urls, at)) threads read")
         else
             u = resolve(arg)
-            Events.mark_read([u])
+            Events.mark_read([u], at)
             println("marked read $u")
         end
         return 0
@@ -139,9 +139,8 @@ function dispatch(args::Vector{String})
 end
 
 function main(args = String[])
-    _clock!()
     try
-        return dispatch(collect(String, args))
+        return dispatch(collect(String, args), utcnow())
     catch e
         e isa CliError || rethrow()
         println(stderr, e.msg)

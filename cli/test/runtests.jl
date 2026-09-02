@@ -1009,9 +1009,12 @@ end
 
 @testset "snooze" begin
     using Dates
-    ago(d) = Dates.format(W.NOW[] - Day(d), "yyyy-mm-ddTHH:MM:SS") * "Z"
+    # One instant, handed in. Threading it is what lets a test say when "now"
+    # is without reaching into the module to set a global first.
+    now = W.utcnow()
+    ago(d) = Dates.format(now - Day(d), "yyyy-mm-ddTHH:MM:SS") * "Z"
     act(sv, snz, fp; cap = nothing) =
-        W.snooze_active("u", Dict("snooze" => sv), fp, snz, cap)
+        W.snooze_active("u", Dict("snooze" => sv), fp, snz, now, cap)
 
     @test W.parse_snooze("on-change").mode === :onchange
     @test W.parse_snooze("on-change/30d") == (mode = :onchange, days = 30, until = nothing)
@@ -1060,7 +1063,14 @@ end
     @test act("2099-01-01", Dict{String,Any}(), "FP1")[1] == true
     @test act("2020-01-01", Dict{String,Any}(), "FP1") == (false, "woke: snooze expired")
     @test act("3days", Dict{String,Any}(), "FP1") == (false, "bad snooze value '3days'")
-    @test W.snooze_active("u", Dict{String,Any}(), "FP1", Dict{String,Any}()) == (false, nothing)
+    @test W.snooze_active("u", Dict{String,Any}(), "FP1", Dict{String,Any}(), now) ==
+          (false, nothing)
+    # An expiry is measured against the instant the run began, so a refresh
+    # cannot straddle midnight and wake half its snoozes against another day.
+    yesterday = Dates.format(Date(now) - Day(1), "yyyy-mm-dd")
+    @test act(yesterday, Dict{String,Any}(), "FP1")[1] == false
+    @test W.snooze_active("u", Dict("snooze" => yesterday), "FP1", Dict{String,Any}(),
+                          now - Day(2))[1] == true
 end
 
 @testset "the metadata pane" begin
@@ -2078,55 +2088,74 @@ end
                              title = "t", is_pr = false)) == ""
 end
 
-@testset "the browser does not read the frozen clock" begin
-    # `NOW[]` is frozen for the run, which is right for a refresh and wrong for
-    # a program that stays open for hours. Every timestamp the browser writes
-    # has to come from the wall clock instead.
-    keep = W.NOW[]
-    try
-        W.NOW[] = W.DateTime(2000, 1, 1)
-        @test startswith(W.stamp(), "2000")            # the frozen one, as set
-        @test !startswith(W.livestamp(), "2000")
-        # Seconds back from now, for a thing whose age is known rather than its
-        # time - which is what a cache hit has.
-        @test W.livestamp(0) >= W.livestamp(60)
-        @test W.livestamp() != W.livestamp(3600)
+@testset "an operation is measured from when it started" begin
+    # There is no global clock any more. The instant is an argument, so a test
+    # can hand in one that is obviously not now and see it come back out - the
+    # thing a frozen global could never distinguish from a clock read halfway
+    # through the work.
+    then = W.DateTime(2000, 1, 2, 3, 4, 5)
+    @test W.stamp(then) == "2000-01-02T03:04:05Z"
+    @test startswith(W.now_isoformat(then), "2000-01-02T03:04:05")
+    @test W.days_since("2000-01-01T03:04:05Z", then) == 1
+    @test W.days_since("2000-01-03T03:04:05Z", then) == -1     # floors, so future is negative
+    @test W.days_since(nothing, then) === nothing
+    @test W.utcnow() > W.DateTime(2020)
 
-        # A thread read now says it was fetched now, not when `wl` started.
-        # Stamped from the frozen clock, `r` marked it seen up to launch, so
-        # every comment posted during the session stayed unread.
-        st = mkstate()
-        it = st.items[st.sel]
-        # The first few items that actually have a thread: one with no comments
-        # has no node carrying a fetch time, so it would pass without testing
-        # anything.
-        got = nothing
-        for x in first(st.items, 6)
-            ns = W.comment_nodes(x)
-            at = findfirst(n -> haskey(n.meta, "fetched"), ns)
-            at === nothing || (got = ns[at].meta["fetched"]; break)
-        end
-        if got === nothing
-            @info "no thread could be fetched; skipping the fetched-at check"
-        else
-            @test !startswith(got, "2000")
-        end
-
-        # And the fallback `r` uses when nothing carries a fetch time.
-        readfile = joinpath(W.ROOT, "read.json")
-        before = read(readfile, String)
-        try
-            st.nodes = W.Node[]
-            push!(st.unread, it.url)
-            ctrl = W.Controller()
-            W.handle!(st, Int('r'), ctrl)
-            @test !startswith(W.Events.read_at(it.url), "2000")
-        finally
-            write(readfile, before)
-        end
-    finally
-        W.NOW[] = keep
+    # A thread is stamped with when its fetch *began*, not when it returned.
+    # A comment that arrived while the request was in flight was never on
+    # screen, so `r` must not be able to mark it seen.
+    st = mkstate()
+    it = st.items[st.sel]
+    fetchedat(x, at) = let ns = W.comment_nodes(x, at)
+        i = findfirst(n -> haskey(n.meta, "fetched"), ns)
+        i === nothing ? nothing : ns[i].meta["fetched"]
     end
+    subject = nothing
+    for x in first(st.items, 6)
+        # Cold, so this is the path that actually talks to GitHub.
+        rm(W._slot("thread:" * x.url); force = true)
+        fetchedat(x, then) === nothing || (subject = x; break)
+    end
+    if subject === nothing
+        @info "no thread could be fetched; skipping the fetched-at check"
+    else
+        rm(W._slot("thread:" * subject.url); force = true)
+        # Exactly what was handed in - not a clock read inside the fetch, and
+        # not the moment it came back.
+        @test fetchedat(subject, then) == "2000-01-02T03:04:05Z"
+        # Warm, it reports when the entry was really written, measured back
+        # from the same instant - so it errs early rather than claiming the
+        # thread is as fresh as this read of it.
+        warm = fetchedat(subject, then)
+        @test warm < "2000-01-02T03:04:05Z"
+        @test startswith(warm, "2000-01-02")
+    end
+
+    # And `r`'s fallback, for a thread carrying no fetch time at all.
+    readfile = joinpath(W.ROOT, "read.json")
+    before = read(readfile, String)
+    try
+        st.nodes = W.Node[]
+        push!(st.unread, it.url)
+        ctrl = W.Controller()
+        W.handle!(st, Int('r'), ctrl, then)
+        @test W.Events.read_at(it.url) == "2000-01-02T03:04:05Z"
+        # Left to itself a keystroke is its own operation, starting now.
+        W.handle!(st, Int('u'), ctrl)
+        push!(st.unread, it.url)
+        W.handle!(st, Int('r'), ctrl)
+        @test W.Events.read_at(it.url) > "2020"
+    finally
+        write(readfile, before)
+    end
+
+    # A refresh measures its whole run against one instant, so it cannot
+    # straddle midnight - which is what the global was for and what threading
+    # keeps.
+    r = Dict{String,Any}("head_at" => W.stamp(then - Dates.Day(3)),
+                         "updated" => W.stamp(then - Dates.Day(9)))
+    @test W.activity_age(r, then) == 3
+    @test W.activity_age(r, then + Dates.Day(1)) == 4
 end
 
 @testset "the interaction clock" begin
@@ -2142,15 +2171,13 @@ end
         first_at = W.touched_at(u)
         @test first_at !== nothing && endswith(first_at, "Z")
 
-        # The clock is the wall clock, not the frozen one: the browser runs for
-        # hours, and stamping from `NOW[]` would date a whole session to launch.
-        W.NOW[] = W.DateTime(2000, 1, 1)
-        try
-            @test W.touch!(u) == first_at          # returns what was there
-            @test !startswith(W.touched_at(u), "2000")
-        finally
-            W._clock!()
-        end
+        # The instant is the caller's, so an action can say when it happened
+        # rather than being told by whatever clock the callee reaches for.
+        @test W.touch!(u, W.DateTime(2000, 1, 2, 3, 4, 5)) == first_at   # what was there
+        @test W.touched_at(u) == "2000-01-02T03:04:05Z"
+        # And left alone it is now, not the moment the program started.
+        W.touch!(u)
+        @test W.touched_at(u) > "2020"
 
         # Clearing is a distinct state from never having been touched, which is
         # what an undo of a first interaction has to restore.
@@ -2164,6 +2191,10 @@ end
         try
             W.set_fields(u, ["note" => "a passing thought"])
             @test W.touched_at(u) != "2026-01-02T03:04:05Z"
+            # One keystroke, one instant: the field write and the clock agree
+            # because the operation hands the same `at` to both.
+            W.set_fields(u, ["note" => "again"], W.DateTime(2000, 1, 2, 3, 4, 5))
+            @test W.touched_at(u) == "2000-01-02T03:04:05Z"
         finally
             W.set_fields(u, ["note" => nothing])
             write(W.STATE, state)

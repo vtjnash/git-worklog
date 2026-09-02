@@ -1,46 +1,34 @@
 # Small shared helpers: the clock, ISO timestamps, and the two places where
 # Julia's stdlib does not give us what the Python it replaces relied on.
 
-# Ref{T}() for an isbits T is zero-initialised, not undefined, so reading NOW[]
-# before _clock!() yields year 0 rather than throwing - which silently produced
-# an empty unread list instead of an error. The module's __init__ sets it, so
-# calling any function directly is safe; main() re-freezes per run.
-const NOW = Ref{DateTime}()
-const TODAY = Ref{Date}()
+"""When an operation started, which is the instant everything in it is
+measured against.
 
-"""Freeze the clock for the whole run, as the Python module did at import.
+Every age, threshold and snooze expiry inside one operation is compared to one
+instant, so a refresh cannot straddle midnight and bucket half its items
+against a different day. That instant is threaded through as an argument rather
+than held in a global: a global is only ever right for a process that does one
+thing and exits, and the browser does not - it stays open for hours, running an
+operation per keystroke. It held a frozen `NOW[]` once, and the browser reading
+it recorded threads as fetched when `wl` was launched.
 
-Every age, threshold and snooze expiry is measured against one instant, so a
-refresh cannot straddle midnight and bucket half its items against a different
-day.
+The rule the signatures follow: **an entry point defaults `at` to `utcnow()`,
+and everything it calls takes `at` as a required argument.** A default further
+in would quietly reintroduce the second half of the problem - measuring against
+the moment a function happened to be reached, so that a long operation stamps
+its result with a time *after* things it never saw. The start is the honest
+answer for both.
 """
-function _clock!()
-    NOW[] = Dates.now(Dates.UTC)
-    TODAY[] = Date(NOW[])
-end
+utcnow() = Dates.now(Dates.UTC)
 
-"`datetime.now(utc).isoformat()`. Julia's clock is millisecond resolution, so
-the microsecond field is padded rather than measured; only the day matters."
-now_isoformat() = string(Dates.format(NOW[], "yyyy-mm-ddTHH:MM:SS.sss"), "000+00:00")
+"""`datetime.now(utc).isoformat()` for `at`. Julia's clock is millisecond
+resolution, so the microsecond field is padded rather than measured; only the
+day matters."""
+now_isoformat(at::DateTime) = string(Dates.format(at, "yyyy-mm-ddTHH:MM:SS.sss"),
+                                     "000+00:00")
 
-stamp() = Dates.format(NOW[], "yyyy-mm-ddTHH:MM:SS") * "Z"
-
-"""The wall clock, for the program that outlives the instant it started at.
-
-`stamp()` reads the frozen `NOW[]`, which is right for a refresh: one instant
-for every age and expiry, so a run cannot straddle midnight and bucket half its
-items against a different day. The browser is the other kind of program - it
-stays open for hours - and a timestamp taken from the frozen clock there would
-date every action in the session to when `wl` was launched, ordering them by
-nothing at all. Anything recording *when something happened* wants this one.
-
-`ago` is seconds back from now, for the case where the thing being stamped
-happened at a known age rather than just now - a cache hit knows how old its
-entry is, not when it was written.
-"""
-livestamp(ago::Real = 0) =
-    Dates.format(Dates.now(Dates.UTC) - Millisecond(round(Int, 1000ago)),
-                 "yyyy-mm-ddTHH:MM:SS") * "Z"
+"The ISO-8601 Z form of `at`, which is how every timestamp is written here."
+stamp(at::DateTime) = Dates.format(at, "yyyy-mm-ddTHH:MM:SS") * "Z"
 
 """Parse a GitHub/ISO timestamp. Everything GitHub emits is UTC, so the offset
 is dropped rather than modelled."""
@@ -52,11 +40,11 @@ function ts(s)
     DateTime(m[1] * frac)
 end
 
-"`(NOW - t).days`, which floors, so a future timestamp is negative rather than
+"`(at - t).days`, which floors, so a future timestamp is negative rather than
 rounded toward zero."
-function days_since(s)
+function days_since(s, at::DateTime)
     t = ts(s)
-    t === nothing ? nothing : fld(Dates.value(NOW[] - t), 86_400_000)
+    t === nothing ? nothing : fld(Dates.value(at - t), 86_400_000)
 end
 
 """Decode HTML entities.

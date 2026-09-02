@@ -64,9 +64,12 @@ at each caller, because this is the one point every field write passes through:
 `v` and `s` in the browser, and every `wl <field>` command. An undo therefore
 has to put the previous timestamp back explicitly, since restoring the value
 comes back through here and stamps again.
+
+`at` is the operation this write belongs to, so that one keystroke setting a
+field and stamping the clock records one instant for both.
 """
-function set_fields(url::AbstractString, updates)
-    touch!(url)
+function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
+    touch!(url, at)
     lines = load_lines()
     span = block_span(lines, url)
     if span === nothing

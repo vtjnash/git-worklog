@@ -21,7 +21,7 @@ import ..cache_get, ..cache_put, ..cache_drop
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
-using ..Worklog: ROOT, NOW, stamp, json_dumps
+using ..Worklog: ROOT, stamp, json_dumps
 
 const READ = joinpath(ROOT, "read.json")
 
@@ -168,9 +168,9 @@ function mark_unread(urls)
     n
 end
 
-function mark_read(urls)
+function mark_read(urls, at::DateTime)
     r = load_read()
-    s = stamp()
+    s = stamp(at)
     for u in urls
         r[u] = s
     end
@@ -184,11 +184,11 @@ One query per repo, nothing cached. An item you have never marked is unread only
 if it moved inside the window - otherwise turning this on would present every
 thread in the repo as new mail.
 """
-function unread(cfg, login; verbose::Bool = true)
+function unread(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = get(cfg, "events", Dict{String,Any}())
     repos = get(cfge, "repos", String[])
     isempty(repos) && return OrderedDict{String,Any}[]
-    since = Dates.format(NOW[] - Day(get(cfge, "lookback_days", 30)), "yyyy-mm-ddTHH:MM:SS") * "Z"
+    since = Dates.format(at - Day(get(cfge, "lookback_days", 30)), "yyyy-mm-ddTHH:MM:SS") * "Z"
     auth()          # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.

@@ -61,14 +61,14 @@ end
 
 nz(x, d = "") = x === nothing || x === missing ? d : x
 
-function loaditems()
+function loaditems(at::DateTime = utcnow())
     f = joinpath(ROOT, "facts.json")
     isfile(f) || die("no facts.json — run `wl refresh` first")
     raw = JSON3.read(read(f, String))
     out = Item[]
     for (_, r) in raw.items
         act = something(jget(r, :head_at), jget(r, :last_comment_at), r.updated)
-        age = something(days_since(act), 0)
+        age = something(days_since(act, at), 0)
         push!(out, Item(
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
@@ -118,16 +118,20 @@ end
 
 ask(prompt) = (print(prompt); strip(readline()))
 
-function ui(args = String[])
+function ui(args = String[], at::DateTime = utcnow())
     if "--refresh" in args
         println("refreshing...")
+        # Its own operation, and its own start: a refresh takes half a minute
+        # and the browser that follows must not be measured against the moment
+        # before it began.
         refresh(String[])
+        at = utcnow()
     end
-    items = loaditems()
+    items = loaditems(at)
     cfg = config()
     DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
                               "detail_ttl_minutes", 10)
-    unread = Events.unread(cfg, cfg["login"]; verbose = false)
+    unread = Events.unread(cfg, cfg["login"], at; verbose = false)
     idx = Dict(i.url => i for i in items)
     # Unread threads that are not otherwise tracked still need a row to select.
     extra = [Item(url = String(u["url"]), repo = String(u["repo"]), number = u["number"],

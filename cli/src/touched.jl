@@ -47,8 +47,8 @@ end
 
 """Record that this item was just acted on, and return what the clock said
 before - which is what an undo has to put back."""
-function touch!(url::AbstractString)
+function touch!(url::AbstractString, at::DateTime = utcnow())
     prev = touched_at(url)
-    set_touched(url, livestamp())
+    set_touched(url, stamp(at))
     prev
 end

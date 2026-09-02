@@ -65,19 +65,16 @@ include("cli.jl")
 # loading the module. Forcing that inference into the package image at
 # precompile time is the difference between a usable CLI and one you avoid.
 precompile(main, (Vector{String},))
-precompile(dispatch, (Vector{String},))
-precompile(refresh, (Vector{String},))
-precompile(render, (OrderedDict{String,Any}, Vector{Any}, Dict{String,Any}, Int, Vector{OrderedDict{String,Any}}))
+precompile(dispatch, (Vector{String}, DateTime))
+precompile(refresh, (Vector{String}, DateTime))
+precompile(render, (OrderedDict{String,Any}, Vector{Any}, Dict{String,Any}, Int, DateTime, Vector{OrderedDict{String,Any}}))
 precompile(normalize, (JSON3.Object, String, String))
-precompile(Events.unread, (Dict{String,Any}, String))
-precompile(set_fields, (String, Vector{Pair{String,Any}}))
+precompile(Events.unread, (Dict{String,Any}, String, DateTime))
+precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(next_batch, (Int,))
-precompile(ui, (Vector{String},))
+precompile(ui, (Vector{String}, DateTime))
 
-# Runs at load, never at precompile, so the clock is real and every entry point
-# - including direct library use - starts with it set.
 function __init__()
-    _clock!()
     # A colour nothing else emits, so `style_code_spans` can find the code-span
     # delimiters Term marks and turn them into a background. Set here rather
     # than at precompile time: the theme is a mutable global of Term's.

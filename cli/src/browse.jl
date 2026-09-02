@@ -1563,13 +1563,14 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
 end
 body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, url, open)
 
-function comment_nodes(it::Item)
+function comment_nodes(it::Item, at::DateTime)
     local body, cs
-    # The live clock, not `stamp()`. `r` marks the thread read up to this, and
-    # the browser stays open for hours - stamped from the frozen `NOW[]` this
-    # said the thread was fetched when `wl` was *launched*, so every comment
-    # posted during the session stayed unread however carefully it was read.
-    fetched = livestamp()
+    # When the fetch *started*, which is the whole reason `at` is threaded here
+    # rather than read off a clock below. `r` marks the thread read up to this,
+    # so a comment that arrived while the request was in flight has to stay
+    # unread - stamping on the way out would mark it seen without it ever
+    # having been on screen.
+    fetched = stamp(at)
     try
         key = "thread:" * it.url
         hit = cache_get(key, DETAIL_TTL[])
@@ -1579,9 +1580,11 @@ function comment_nodes(it::Item)
         else
             body, cs = hit[1].body, hit[1].comments
             # When this thread was actually read from GitHub, not when it came
-            # out of the cache. `r` marks read up to this, so a comment that
-            # arrived after the fetch stays unread.
-            fetched = livestamp(hit[2])
+            # out of the cache. Measured back from the start of *this*
+            # operation, so the answer errs early rather than late - the age
+            # was taken a moment after `at`, and reading up to too early a
+            # point leaves a comment unread, which is the safe direction.
+            fetched = stamp(at - Millisecond(round(Int, 1000 * hit[2])))
         end
     catch e
         return [Node("could not load thread", first(sprint(showerror, e), 200), :plain, true)]
@@ -1805,8 +1808,8 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
     out
 end
 
-mode_nodes(mode::Symbol, it::Item) =
-    mode === :comments ? comment_nodes(it) :
+mode_nodes(mode::Symbol, it::Item, at::DateTime) =
+    mode === :comments ? comment_nodes(it, at) :
     mode === :diff     ? diff_nodes(it) : check_nodes(it)
 
 function load_nodes!(st::BState)
@@ -1815,9 +1818,14 @@ function load_nodes!(st::BState)
     mode = st.mode
     key = string(it.url, ":", mode)
     (st.loaded == key || st.pendkey == key) && return
+    # Taken here rather than inside the task: a moment before the fetch begins
+    # is early by however long scheduling takes, and early is the safe end -
+    # `fetched` decides what `r` can mark seen, and too early leaves a comment
+    # unread rather than hiding one.
+    at = utcnow()
     st.pending = @async begin
         r = try
-            mode_nodes(mode, it)
+            mode_nodes(mode, it, at)
         finally
             st.wake === nothing || st.wake()   # redraw as soon as this lands
         end
@@ -1899,7 +1907,7 @@ end
 One keystroke. Returns `:quit` to leave, `:ok` otherwise; the controller
 redraws after every key.
 """
-function handle!(st::BState, k::Int, ctrl::Controller)
+function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     h, w = displaysize(stdout)
     load_nodes!(st)
     load_meta!(st)
@@ -2111,11 +2119,11 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         # would mark it seen. Not the newest comment's own time either: an item
         # whose `updated_at` moved for a label edit would then be permanently
         # unread, because marking it read could never catch up to it.
-        at = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
+        fi = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
         prev = Events.read_at(it.url)
         if seen
             Events.set_read(it.url,
-                            at === nothing ? livestamp() : st.nodes[at].meta["fetched"])
+                            fi === nothing ? stamp(at) : st.nodes[fi].meta["fetched"])
         else
             Events.mark_unread([it.url])
         end
@@ -2132,7 +2140,7 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         prev = get_field(it.url, "snooze")
         prevtouch = touched_at(it.url)
         disarm(it.url)
-        set_fields(it.url, ["snooze" => "on-change"])
+        set_fields(it.url, ["snooze" => "on-change"], at)
         # `set_fields` removes a key when handed nothing, so this is the undo
         # whether or not there was a snooze here before. The clock goes back
         # after it, not before: restoring the value writes through `set_fields`,

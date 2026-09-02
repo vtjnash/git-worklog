@@ -101,6 +101,11 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   The protocol itself needs none of that: `mux_feed!` is a pure function of one
   line and the state before it, driven from a vector of strings the way
   `readevent` is driven from an `IOBuffer`.
+- Time is an argument, so a test says when "now" is by passing it rather than
+  by setting a global first: `snooze_active(url, st, fp, snz, at, cap)`,
+  `comment_nodes(it, at)`, `handle!(st, key, ctrl, at)`. That is what makes
+  "measured from when the operation started" assertable at all — a global could
+  not tell that apart from a clock read halfway through the work.
 - The suite deletes `errors.log` at startup. The standing warning takes the
   footer's second row, so a log left from a previous run fails every test that
   asserts what is written there.
@@ -213,19 +218,28 @@ Do not "simplify" any of these away.
     person, so `git()` runs them all under `LC_ALL=C`.
 
 **The clock**
-25. `NOW[]` is frozen for the whole run, which is right for a refresh — one
-    instant for every age and expiry, so a run cannot straddle midnight and
-    bucket half its items against a different day. The browser is the other
-    kind of program: it stays open for hours, and **nothing in `browse.jl` may
-    read `NOW[]` or `stamp()`.** It has cost a real bug once: `comment_nodes`
-    recorded a thread as fetched at the frozen instant, and `r` marks read up
-    to that — so in a session open since morning, every comment posted since
-    launch stayed unread however carefully it had just been read. The cached
-    branch subtracted a real age from the frozen instant and drifted further
-    back the longer the session ran. `livestamp()` is the wall clock, and
-    `livestamp(ago)` is it minus a known age in seconds.
+25. **The instant an operation is measured against is an argument, `at`, and
+    it is when the operation *started*.** There is no global clock; there was
+    one, `NOW[]`, frozen at process start, and it was wrong at both ends.
 
-    The name is the trap: `NOW[]` is not now, it is when this run started.
+    Frozen is right for a refresh — one instant for every age and expiry, so a
+    run cannot straddle midnight and bucket half its items against a different
+    day. It is wrong for the browser, which stays open for hours and runs an
+    operation per keystroke: `comment_nodes` recorded each thread as fetched at
+    the frozen instant, and `r` marks read up to that, so in a session open
+    since morning every comment posted since launch stayed unread however
+    carefully it had just been read. The cached branch subtracted a real age
+    from the frozen instant and drifted further back the longer the session ran.
+
+    Reading a live clock instead only moves the error: an operation that stamps
+    on the way *out* claims a moment after things it never saw — a thread whose
+    fetch took two seconds would be marked read up to a comment that landed
+    during the request. So the start is threaded in, and a long operation and a
+    short one are honest for the same reason.
+
+    The rule the signatures follow: **an entry point defaults `at` to
+    `utcnow()`; everything it calls takes `at` as a required argument.** A
+    default further in is how the second failure gets back in, quietly.
 
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
 12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty

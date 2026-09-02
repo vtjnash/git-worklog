@@ -1,6 +1,6 @@
 # Work dashboard
 
-_2026-09-02 14:45 UTC · 2050 items · 162 rate-limit points_
+_2026-09-02 15:46 UTC · 2050 items · 12 rate-limit points_
 
 ## Unread (783)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
@@ -18,11 +18,11 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
 - [julia#35081](https://github.com/JuliaLang/julia/pull/35081) Sockets: reconsider how to define `bind` failure  
   <sub>3 comments · **needs-stacking** · 11d</sub>
 - [julia#62284](https://github.com/JuliaLang/julia/pull/62284) runtime: Add searcher accounting and count-gated wakeups to the scheduler  
-  <sub>1 comments · **needs-review** · 8d</sub>
+  <sub>1 comments · **needs-review** · 9d</sub>
 - [julia#62396](https://github.com/JuliaLang/julia/pull/62396) gf: fix bug in has_ambig computation, improve accuracy with union of candidates  
   <sub>12 comments · **needs-stacking** · 8d</sub>
 - [julia#62819](https://github.com/JuliaLang/julia/pull/62819) signals-mach: step past the safepoint poll instead of re-executing it  
-  <sub>10 comments · **needs-review** · 7d</sub>
+  <sub>10 comments · **needs-review** · 8d</sub>
 - [julia#61949](https://github.com/JuliaLang/julia/issues/61949) jl_jit_abi_converter now segfaults without codegen  
   <sub>3 comments · **needs-reply** · 7d</sub>
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
@@ -61,8 +61,6 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · **needs-review** · today</sub>
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
   <sub>8 comments · **needs-review** · today</sub>
-- [julia#62610](https://github.com/JuliaLang/julia/pull/62610) Expose the ABI used by CodeInstances  
-  <sub>no comments · 29d</sub>
 - [julia#62395](https://github.com/JuliaLang/julia/pull/62395) Replace libunwind with framehop based library  
   <sub>6 comments · 29d</sub>
 - [julia#62331](https://github.com/JuliaLang/julia/pull/62331) runtime: make forbidden-context task-switch errors deterministic  
@@ -85,13 +83,15 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>no comments · closed · 29d</sub>
 - [julia#62568](https://github.com/JuliaLang/julia/pull/62568) loading: add a cache-fetch hook consulted before compiling a package  
   <sub>2 comments · closed · 29d</sub>
+- [julia#52965](https://github.com/JuliaLang/julia/issues/52965) `isa` disagrees with dispatch for types with free type vars  
+  <sub>3 comments · 29d</sub>
 - _...and 743 more_
 
 ## Needs a reply (7)
 _You were mentioned and the last word is theirs._
 
 - [libuv#5240](https://github.com/libuv/libuv/issues/5240) OpenBSD: uv_spawn does not report exec failures; children exit 127  
-  <sub>moved · 0d</sub>
+  <sub>0d</sub>
 - [libuv#5173](https://github.com/libuv/libuv/pull/5173) tcp,pipe: add uv_tcp_accept_raw/uv_pipe_accept_raw for zero-copy cross-loop load balancing  
   <sub>2d</sub>
 - [libuv#5223](https://github.com/libuv/libuv/pull/5223) win: allow uv_try_write() from a write callback  
@@ -133,19 +133,17 @@ _Conflicts; rebase or restack with `gh stack`._
 - [ClaudeBox.jl#31](https://github.com/Keno/ClaudeBox.jl/pull/31) Prefer host git identity over GitHub for sandbox gitconfig  
   <sub>conflicts · 49d</sub>
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
-  <sub>conflicts · 49d</sub>
+  <sub>conflicts · 50d</sub>
 - [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
   <sub>CI failure · conflicts · 53d</sub>
 
-## Needs review (43)
+## Needs review (42)
 _Waiting on you to review someone else._
 
 - [julia#62968](https://github.com/JuliaLang/julia/pull/62968) Fix simulated longjmp on FreeBSD/AArch64  
-  <sub>NEW · CI failure · 0d</sub>
+  <sub>CI failure · 0d</sub>
 - [julia#62724](https://github.com/JuliaLang/julia/pull/62724) coverage: Reduce coverage runtime and compilation overhead  
-  <sub>moved · CI pending · 0d</sub>
-- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) Load Pkg only when a lazy artifact needs installing  
-  <sub>moved · 0d</sub>
+  <sub>CI pending · 0d</sub>
 - [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
   <sub>CI failure · 1d</sub>
 - [julia#62928](https://github.com/JuliaLang/julia/pull/62928) clangsa: Mark GC-tracked types with an attribute  
@@ -157,13 +155,13 @@ _Waiting on you to review someone else._
 - [julia#62632](https://github.com/JuliaLang/julia/pull/62632) runtime: fix a deadlock between JIT debug-info registration and unwinding on 32-bit Windows  
   <sub>5d</sub>
 - [julia#62819](https://github.com/JuliaLang/julia/pull/62819) signals-mach: step past the safepoint poll instead of re-executing it  
-  <sub>7d</sub>
+  <sub>conflicts · 8d</sub>
 - [julia#62284](https://github.com/JuliaLang/julia/pull/62284) runtime: Add searcher accounting and count-gated wakeups to the scheduler  
-  <sub>CI failure · conflicts · 8d</sub>
+  <sub>CI failure · conflicts · 9d</sub>
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
   <sub>30d</sub>
 - [cpufeatures#57](https://github.com/JuliaLang/cpufeatures/pull/57) Filter LLVM CPU models to runtime supported features  
-  <sub>1 unresolved · 32d</sub>
+  <sub>1 unresolved · 33d</sub>
 - [julia#62245](https://github.com/JuliaLang/julia/pull/62245) Add `ABIAdapter` / `DispatchTrampoline` and use for `@ccallable` / `@cfunction`  
   <sub>conflicts · 34d</sub>
 - [julia#56475](https://github.com/JuliaLang/julia/pull/56475) Split scheduler interface from the Partr implementation  
@@ -185,7 +183,7 @@ _Waiting on you to review someone else._
 - [julia#43738](https://github.com/JuliaLang/julia/pull/43738) don't capture arrays/tuples in `BoundsError`  
   <sub>2 unresolved · conflicts · 338d</sub>
 - [julia#59013](https://github.com/JuliaLang/julia/pull/59013) Don't inline callees if they might require `_compute_sparams`  
-  <sub>moved · 1 unresolved · conflicts · 370d</sub>
+  <sub>1 unresolved · conflicts · 370d</sub>
 - [julia#50167](https://github.com/JuliaLang/julia/pull/50167) improve the interplay between bounds checking system and effect system  
   <sub>conflicts · 459d</sub>
 - [julia#43994](https://github.com/JuliaLang/julia/pull/43994) `AbstractInterpreter`: refactor the lifetimes of `OptimizationState` and `IRCode`  
@@ -197,7 +195,7 @@ _Waiting on you to review someone else._
 - [Downloads.jl#231](https://github.com/JuliaLang/Downloads.jl/pull/231) Avoid potential race between read and upload_data  
   <sub>conflicts · 733d</sub>
 - [julia#55000](https://github.com/JuliaLang/julia/pull/55000) Switch to inline ASM to silence warning on newer mingw compilers on ptls code  
-  <sub>1 unresolved · 791d</sub>
+  <sub>1 unresolved · 792d</sub>
 - [julia#45864](https://github.com/JuliaLang/julia/pull/45864) Change timeout kill signals to SIGQUIT from SIGTERM  
   <sub>conflicts · 803d</sub>
 - [julia#54452](https://github.com/JuliaLang/julia/pull/54452) Do not give `StringVector`s to users  
@@ -233,9 +231,9 @@ _Yours, quiet, waiting on a reviewer._
 - [JSON3.jl#320](https://github.com/quinnj/JSON3.jl/pull/320) Fix compatibility with Julia 1.13+ memhash removal  
   <sub>8d</sub>
 - [julia-buildkite#619](https://github.com/JuliaCI/julia-buildkite/pull/619) debugging: support v2 updates  
-  <sub>14d</sub>
+  <sub>15d</sub>
 - [llvm-project#212615](https://github.com/llvm/llvm-project/pull/212615) [clang][ThreadSafety] Enable late parse for all capabilities, under the experimental flag  
-  <sub>14d</sub>
+  <sub>15d</sub>
 - [llvm-project#216271](https://github.com/llvm/llvm-project/pull/216271) PeepholeOpt: Avoid infinite loop on cyclic rewrite maps  
   <sub>19d</sub>
 - [libuv#5216](https://github.com/libuv/libuv/pull/5216) win: cancel poll requests with modern `CancelIoEx()`  
@@ -264,7 +262,7 @@ _Yours, not yet proposed._
 - [julia#35800](https://github.com/JuliaLang/julia/issues/35800) problem with the unreliable approximation of `Core.Compiler.return_type`  
   <sub>track:loose · 492d</sub>
 - [julia#23619](https://github.com/JuliaLang/julia/issues/23619) implicit `module M` wrapping  
-  <sub>track:loose · 509d</sub>
+  <sub>track:loose · 510d</sub>
 - [julia#53109](https://github.com/JuliaLang/julia/issues/53109) incorrect hash for equal types, with Union instead of lower bound  
   <sub>track:loose · 847d</sub>
 - [julia#36605](https://github.com/JuliaLang/julia/issues/36605) Disallow reading directories as files  
@@ -291,7 +289,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 
 <details><summary>expand</summary>
 
-- [llvm-project#150792](https://github.com/llvm/llvm-project/pull/150792) [MemCpyOpt] allow more memcpy-to-memcpy optimization <sub>77d</sub>
+- [llvm-project#150792](https://github.com/llvm/llvm-project/pull/150792) [MemCpyOpt] allow more memcpy-to-memcpy optimization <sub>78d</sub>
 - [BinaryBuilder2.jl#56](https://github.com/JuliaPackaging/BinaryBuilder2.jl/pull/56) Add documentation build workflow <sub>81d</sub>
 - [BinaryBuilder2.jl#55](https://github.com/JuliaPackaging/BinaryBuilder2.jl/pull/55) Add quickstart README <sub>81d</sub>
 - [llvm-project#197540](https://github.com/llvm/llvm-project/pull/197540) [clang] model WASM alloca addrspaces in Sema <sub>83d</sub>
@@ -303,7 +301,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 - [libuv#3857](https://github.com/libuv/libuv/pull/3857) RFC: win,dl: remove cwd from dlopen search path <sub>167d</sub>
 - [libuv#2941](https://github.com/libuv/libuv/pull/2941) [WIP] qemu CI testing <sub>167d</sub>
 - [llvm-project#186835](https://github.com/llvm/llvm-project/pull/186835) [IRBuilder] add a general CreateLayoutReinterpretCast cast builder <sub>169d</sub>
-- [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>169d</sub>
+- [julia#54977](https://github.com/JuliaLang/julia/pull/54977) Revert "inference: implement an opt-in interface to cache generated sources" <sub>170d</sub>
 - [llvm-project#183623](https://github.com/llvm/llvm-project/pull/183623) [SSP] Add llvm.ssp.protected intrinsic for QualType-based stack protection <sub>183d</sub>
 - [llvm-cbe#234](https://github.com/JuliaHubOSS/llvm-cbe/pull/234) add clang frontend support for more reliable ABI generation <sub>190d</sub>
 - [llvm-project#181845](https://github.com/llvm/llvm-project/pull/181845) [OMPIRBuilder] Replace getAllocatedType with careful tracking <sub>193d</sub>
@@ -316,8 +314,8 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 - [llvm-project#179726](https://github.com/llvm/llvm-project/pull/179726) [Analysis] Track offsets in PtrUseVisitor to revisit when required <sub>208d</sub>
 - [llvm-project#176952](https://github.com/llvm/llvm-project/pull/176952) [RFC] [IR] Change personality function type from Constant* to Function* <sub>223d</sub>
 - [llvm-project#1](https://github.com/vtjnash/llvm-project/pull/1) cowait <sub>230d</sub>
-- [OpenBLAS#5580](https://github.com/OpenMathLib/OpenBLAS/pull/5580) tests: export variables from WSL <sub>252d</sub>
 - [llvm-project#139574](https://github.com/llvm/llvm-project/pull/139574) [VN] be more consistent about forwarding null inputs and ignoring SVE outputs <sub>252d</sub>
+- [OpenBLAS#5580](https://github.com/OpenMathLib/OpenBLAS/pull/5580) tests: export variables from WSL <sub>253d</sub>
 - [llvm-mingw#532](https://github.com/mstorsjo/llvm-mingw/pull/532) [WIP] Add flang (Fortran) compiler support <sub>263d</sub>
 - [julia#43200](https://github.com/JuliaLang/julia/pull/43200) broadcast: disable nospecialize logic for outer method signature <sub>337d</sub>
 - [llvm-project#154356](https://github.com/llvm/llvm-project/pull/154356) [OrcJIT] distinguish normal and abrupt TaskDispatcher shutdown <sub>363d</sub>
@@ -340,7 +338,7 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 
 ## Background pile
 
-943 open PRs in JuliaLang/julia, 975 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl next`.
+943 open PRs in JuliaLang/julia, 976 threads you were mentioned in or commented on, plus 44 of your own gone quiet. None of it surfaces here. Pull a batch to triage with `wl next`.
 
 ## Snoozed (2)
 
@@ -350,14 +348,4 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 - [Distributed.jl#198](https://github.com/JuliaLang/Distributed.jl/pull/198) process_messages: don't let a failed error report skip worker teardown <sub>until it moves</sub>
 
 </details>
-
-## Changed since last refresh (7)
-
-- [julia#62968](https://github.com/JuliaLang/julia/pull/62968) — new
-- [julia#62724](https://github.com/JuliaLang/julia/pull/62724) — CI SUCCESS->PENDING, new push, new comment
-- [julia#59013](https://github.com/JuliaLang/julia/pull/59013) — CI SUCCESS->None
-- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) — CI None->SUCCESS, mergeable CONFLICTING->MERGEABLE, new push, new comment
-- [libuv#5240](https://github.com/libuv/libuv/issues/5240) — new comment
-- [julia#62942](https://github.com/JuliaLang/julia/pull/62942) — closed or merged
-- [libuv#5165](https://github.com/libuv/libuv/pull/5165) — closed or merged
 

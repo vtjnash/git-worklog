@@ -15,3 +15,6 @@ snooze = "on-change"
 
 ["https://github.com/JuliaLang/Distributed.jl/pull/198"]
 snooze = "on-change"
+
+["https://github.com/quinnj/JSON3.jl/pull/320"]
+snooze = "on-change"

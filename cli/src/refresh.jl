@@ -30,7 +30,7 @@ function activity_at(r)
     isempty(c) ? r["updated"] : maximum(c)
 end
 
-activity_age(r) = days_since(activity_at(r))
+activity_age(r, at::DateTime) = days_since(activity_at(r), at)
 
 "Flatten one GraphQL node into the record the rest of the script uses."
 function normalize(n, lane::AbstractString, login::AbstractString)
@@ -119,7 +119,7 @@ end
 # Every rule below is a fact GitHub already knows. Anything requiring judgement
 # is left to the model via a state.toml override.
 
-function derive_bucket(r, st, cfg)
+function derive_bucket(r, st, cfg, at::DateTime)
     truthy(get(st, "bucket", nothing)) && return (st["bucket"], "override")
     L = Set(get(r, "labels", String[]))
     r["lane"] == "firehose" && return ("firehose", "discovery")
@@ -129,7 +129,7 @@ function derive_bucket(r, st, cfg)
         # answer. Everything else - including your own old comments, and the
         # repos where you are effectively the maintainer and touch every PR -
         # stays in the background where you pull it on your own schedule.
-        age = activity_age(r)
+        age = activity_age(r, at)
         if startswith(r["lane"], "mentioned") && age !== nothing &&
            age <= cfg["thresholds"]["reply_days"] &&
            !(r["last_comment_by"] in (nothing, cfg["login"]))
@@ -143,7 +143,7 @@ function derive_bucket(r, st, cfg)
 
     if r["mine"]
         claimed = any(truthy(get(st, k, nothing)) for k in ("note", "deadline", "snooze"))
-        age = activity_age(r)
+        age = activity_age(r, at)
         if !claimed && age !== nothing && age >= cfg["thresholds"]["stale_days"]
             return ("stale", "quiet $(age)d, unclaimed")
         end
@@ -236,7 +236,7 @@ without one it hides the item until the fingerprint differs, and a pull request
 that everybody has quietly given up on is exactly the shape whose fingerprint
 never differs. That is also the one worth being reminded about.
 """
-function snooze_active(url, st, fp, snz, maxdays = nothing)
+function snooze_active(url, st, fp, snz, at::DateTime, maxdays = nothing)
     s = get(st, "snooze", nothing)
     truthy(s) || return (false, nothing)
     sv = s isa AbstractString ? String(s) : string(s)
@@ -244,13 +244,13 @@ function snooze_active(url, st, fp, snz, maxdays = nothing)
     p === nothing && return (false, "bad snooze value '$sv'")
 
     if p.mode === :date
-        p.until <= TODAY[] && return (false, "woke: snooze expired")
+        p.until <= Date(at) && return (false, "woke: snooze expired")
         return (true, "until $(p.until)")
     end
 
     armed_fp, armed_at = snooze_entry(get(snz, url, nothing))
     if armed_fp === nothing
-        snz[url] = snooze_record(fp, stamp())        # arm now
+        snz[url] = snooze_record(fp, stamp(at))      # arm now
         return (true, p.mode === :rel ? "for $sv" : "until it moves")
     end
     if armed_fp == "WOKE"
@@ -261,10 +261,10 @@ function snooze_active(url, st, fp, snz, maxdays = nothing)
     end
     # An entry from before arming times were recorded: adopt one now.
     if armed_at === nothing
-        armed_at = stamp()
+        armed_at = stamp(at)
         snz[url] = snooze_record(armed_fp, armed_at)
     end
-    age = something(days_since(armed_at), 0)
+    age = something(days_since(armed_at, at), 0)
 
     if p.mode === :rel
         age >= p.days && return (false, "woke: $sv elapsed")
@@ -310,12 +310,12 @@ at ~993, so any query approaching the cap is re-run partitioned by creation year
 and the slices unioned.
 """
 
-function fetch_bulk(cfg, cfgtext; force::Bool = false)
+function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
     cache = joinpath(ROOT, "bulk.json")
     hours = get(cfg["bulk"], "refresh_hours", 6)
     if isfile(cache) && !force
         c = JSON3.read(read(cache, String))
-        age_h = Dates.value(NOW[] - ts(c.fetched_at)) / 3_600_000
+        age_h = Dates.value(at - ts(c.fetched_at)) / 3_600_000
         if age_h < hours
             return (OrderedDict{String,Any}(String(k) => v for (k, v) in c.lanes), 0,
                     @sprintf("cached %.1fh old", age_h))
@@ -341,7 +341,7 @@ function fetch_bulk(cfg, cfgtext; force::Bool = false)
             spent += c
             if total > 950
                 seen, merged = Set{String}(), Any[]
-                for y in 2011:Dates.year(NOW[])
+                for y in 2011:Dates.year(at)
                     part, pc, _ = search("$q created:$y-01-01..$y-12-31";
                                          cap = 1000, query = FIREHOSE_QUERY)
                     spent += pc
@@ -378,9 +378,9 @@ function fetch_bulk(cfg, cfgtext; force::Bool = false)
             continue
         end
         # Persist after every lane, not at the end.
-        write(cache, json_dumps(["fetched_at" => now_isoformat(), "lanes" => lanes]))
+        write(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
     end
-    write(cache, json_dumps(["fetched_at" => now_isoformat(), "lanes" => lanes]))
+    write(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
     how = "fetched $(sum(length(v) for v in values(lanes); init=0))"
     isempty(failed) || (how *= ", $(length(failed)) lane(s) stale")
     (lanes, spent, how)
@@ -401,7 +401,7 @@ function load_state()
         for (u, st) in raw if st isa AbstractDict)
 end
 
-function refresh(args::Vector{String} = String[])
+function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
@@ -429,8 +429,8 @@ function refresh(args::Vector{String} = String[])
         @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
     end
 
-    unread = Events.unread(cfg, login)
-    bulk, c, how = fetch_bulk(cfg, cfgtext; force = "--firehose" in args)
+    unread = Events.unread(cfg, login, at)
+    bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
     spent += c
     for (lane, nodes) in bulk
         kept = 0
@@ -457,14 +457,14 @@ function refresh(args::Vector{String} = String[])
             carried = jget(jget(prev_items, Symbol(url)), :mergeable)
             r["mergeable"] = carried == "UNKNOWN" ? nothing : carried
         end
-        r["bucket"], r["why"] = derive_bucket(r, st, cfg)
+        r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
         r["track"] = resolve_track(st, r["bucket"])
         r["fp"] = fingerprint(r, r["track"])
         r["fp_full"] = fingerprint(r, "close")
         r["note"] = get(st, "note", nothing)
         r["deadline"] = get(st, "deadline", nothing)
         r["blocked_on"] = get(st, "blocked_on", String[])
-        snoozed, sreason = snooze_active(url, st, r["fp"], snz, snooze_cap)
+        snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # The backlog is everything you are not actively carrying: the stale pile,
         # the discovery feed, and anything you explicitly pushed to background.
@@ -507,10 +507,10 @@ function refresh(args::Vector{String} = String[])
             @printf(stderr, "  %-16s %s  (%s)\n", "snooze", w, u)
     end
 
-    write(factsp, json_dumps(["fetched_at" => now_isoformat(), "points" => spent,
+    write(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
                               "items" => items]; indent = 1, sortkeys = true))
     write(snzp, json_dumps(snz; indent = 1, sortkeys = true))
-    write(joinpath(ROOT, "DASHBOARD.md"), render(items, changes, cfg, spent, unread))
+    write(joinpath(ROOT, "DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
     @printf(stderr, "  %d items, %d changes, %d rate-limit points\n",
             length(items), length(changes), spent)
     0
@@ -537,7 +537,7 @@ const SECTIONS = [
 
 shortrepo(r) = split(r["repo"], '/')[end]
 
-function line(r)
+function line(r, at::DateTime)
     tag = "$(shortrepo(r))#$(r["number"])"
     bits = String[]
     truthy(get(r, "ci", nothing)) && r["ci"] != "SUCCESS" && push!(bits, "CI $(lowercase(r["ci"]))")
@@ -546,7 +546,7 @@ function line(r)
     truthy(get(r, "milestone", nothing)) && push!(bits, r["milestone"])
     truthy(get(r, "deadline", nothing)) && push!(bits, "**due $(r["deadline"])**")
     truthy(get(r, "blocked_on", nothing)) && push!(bits, "blocked on " * join(r["blocked_on"], ", "))
-    age = activity_age(r)
+    age = activity_age(r, at)
     age === nothing || push!(bits, "$(age)d")
     if truthy(get(r, "new", nothing))
         pushfirst!(bits, "NEW")
@@ -561,30 +561,30 @@ function line(r)
     s
 end
 
-function urgency(r)
+function urgency(r, at::DateTime)
     d = truthy(get(r, "deadline", nothing)) ? String(r["deadline"]) :
         first(something(get(r, "milestone_due", nothing), ""), 10)
     (get(r, "track", nothing) == "close" ? 0 : 1,
      isempty(d) ? "9999-99-99" : d,
-     something(activity_age(r), 0))
+     something(activity_age(r, at), 0))
 end
 
-function render(items, changes, cfg, spent, unread = ())
+function render(items, changes, cfg, spent, at::DateTime, unread = ())
     vis = [r for r in values(items) if !r["snoozed"]]
     snoozed = [r for r in values(items) if r["snoozed"]]
     out = ["# Work dashboard", "",
-           "_$(Dates.format(NOW[], "yyyy-mm-dd HH:MM")) UTC · $(length(items)) items · $spent rate-limit points_",
+           "_$(Dates.format(at, "yyyy-mm-dd HH:MM")) UTC · $(length(items)) items · $spent rate-limit points_",
            ""]
 
     # Deadlines first: anything with a date attached, soonest first.
     dated = sort([r for r in vis
                   if truthy(get(r, "deadline", nothing)) || truthy(get(r, "milestone_due", nothing))];
-                 by = urgency)
+                 by = r -> urgency(r, at))
     if !isempty(dated)
         append!(out, ["## Deadlines", ""])
         for r in first(dated, 15)
             d = truthy(get(r, "deadline", nothing)) ? String(r["deadline"]) : first(r["milestone_due"], 10)
-            over = d < string(TODAY[]) ? " **OVERDUE**" : ""
+            over = d < string(Date(at)) ? " **OVERDUE**" : ""
             push!(out, "- `$d`$over [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"])")
         end
         push!(out, "")
@@ -606,7 +606,7 @@ function render(items, changes, cfg, spent, unread = ())
             bits = [e["comments"] != 0 ? "$(e["comments"]) comments" : "no comments"]
             r !== nothing && !r["backlog"] && push!(bits, "**$(r["bucket"])**")
             e["state"] == "open" || push!(bits, e["state"])
-            age = days_since(e["updated"])
+            age = days_since(e["updated"], at)
             push!(bits, truthy(age) ? "$(age)d" : "today")
             push!(out, "- [$(split(e["repo"], '/')[end])#$(e["number"])]($(e["url"])) $(e["title"])  \n  <sub>" *
                        join(bits, " · ") * "</sub>")
@@ -616,16 +616,17 @@ function render(items, changes, cfg, spent, unread = ())
     end
 
     for (key, title, blurb) in SECTIONS
-        rs = sort([r for r in vis if r["bucket"] == key && !r["backlog"]]; by = urgency)
+        rs = sort([r for r in vis if r["bucket"] == key && !r["backlog"]];
+                  by = r -> urgency(r, at))
         isempty(rs) && continue
         push!(out, "## $title ($(length(rs)))")
         isempty(blurb) || push!(out, "_$(blurb)_")
         push!(out, "")
-        append!(out, [line(r) for r in rs])
+        append!(out, [line(r, at) for r in rs])
         push!(out, "")
     end
 
-    stale = sort([r for r in vis if r["bucket"] == "stale"]; by = r -> something(activity_age(r), 0))
+    stale = sort([r for r in vis if r["bucket"] == "stale"]; by = r -> something(activity_age(r, at), 0))
     if !isempty(stale)
         append!(out, ["## Stale — decide ($(length(stale)))",
                       "_Yours, gone quiet, and you have not claimed them in `state.toml`. " *
@@ -633,7 +634,7 @@ function render(items, changes, cfg, spent, unread = ())
                       "active lane; otherwise close it._", "",
                       "<details><summary>expand</summary>", ""])
         for r in stale
-            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"]) <sub>$(something(activity_age(r), 0))d</sub>")
+            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"]) <sub>$(something(activity_age(r, at), 0))d</sub>")
         end
         append!(out, ["", "</details>", ""])
     end
