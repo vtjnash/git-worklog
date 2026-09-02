@@ -1677,6 +1677,27 @@ end
 end
 
 @testset "reading beside the child" begin
+    # No pane is ever more than half the screen, split or not: one pane growing
+    # to fill a wide screen is what makes the other useless.
+    for w in (110, 120, 150, 165, 200, 250, 300, 400)
+        side, lw, rw = W.panewidths(w)
+        @test side
+        @test lw <= cld(w, 2) && rw <= cld(w, 2)
+        @test rw <= W.DETAIL_MAX
+        @test lw + rw <= w                     # short of the edge, never over
+        r, t = W.split_box(w)
+        @test r <= cld(w, 2)
+        @test r + t == w                       # a child fills what is left
+    end
+    # Below the threshold there is one column, and it is the whole screen.
+    @test W.panewidths(80) == (false, 80, 80)
+    # The frame is padded to the screen even when the panes stop short of it.
+    st = mkstate()
+    for w in (110, 165, 200, 300)
+        ls = split(W.render(st, w, 20), "\n")
+        @test all(W.awidth(l) == w for l in ls)
+    end
+
     # Nothing is split below the threshold: two columns too narrow to use are
     # worse than one that works.
     @test W.split_box(80) == (0, 80)

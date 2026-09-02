@@ -993,13 +993,44 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     out
 end
 
+"""The widest the thread is ever drawn.
+
+Half again what the item list wants, which is enough for a comment to read as
+prose and not so much that a line runs the width of a page.
+"""
+const DETAIL_MAX = 78
+
+"""
+    panewidths(w) -> (side, lw, rw)
+
+How wide the two columns are. `side` is false below the width where two columns
+are worth having, and then each pane is the full screen with the panes stacked.
+
+**No pane is ever more than half the screen.** Beside each other, one pane
+growing to fill a wide screen is the thing that makes the other useless, and
+the thread is the one that would - it takes whatever the list does not want, and
+the list has never wanted more than a third. So the thread is capped at half and
+at `DETAIL_MAX`, and the list takes what is left up to half of its own.
+
+Above about 160 columns those two caps stop adding up to the screen, and the
+frame ends short of the right edge. That gap is not waste: it is exactly where
+`t` and `T` put a terminal, and `split_box` divides the same way when one is
+open.
+"""
+function panewidths(w::Int)
+    w >= 110 || return (false, w, w)
+    half = cld(w, 2)
+    rw = min(w - clamp(w ÷ 3, 34, 52), half, DETAIL_MAX)
+    (true, min(w - rw, half), rw)
+end
+
 """Left column width.
 
 Split out because the metadata pane sizes itself to its content, so it has to be
 rendered before the heights can be settled - and rendering it needs to know how
 wide it will be.
 """
-leftw(w::Int) = w >= 110 ? clamp(w ÷ 3, 34, 52) : w
+leftw(w::Int) = panewidths(w)[2]
 
 """
     layout(w, h) -> NamedTuple
@@ -1019,9 +1050,7 @@ the full height. `nmeta` is how many lines it has to show, so it takes what it
 needs and the list keeps the rest.
 """
 function layout(w::Int, h::Int, nmeta::Int = 0)
-    side = w >= 110
-    lw = leftw(w)
-    rw = side ? w - lw : w
+    side, lw, rw = panewidths(w)
     # Row 1 is the title bar and the last two the footer; panes fill the rest.
     # The key help outgrew one line, and letting it truncate hid half of it.
     bodyh = max(6, h - 3)          # title bar, panes, then two rows of footer
@@ -1368,8 +1397,12 @@ function render_frame(st::BState, w::Int, h::Int)
         string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
     end
     foot2 = string(AD, afit(foot2, w), AR)
-    body = L.side ? [string(left[i], right[i]) for i in 1:min(length(left), length(right))] :
-                    vcat(left, right)
+    # Padded to the screen, not to the columns: neither pane may be more than
+    # half, so on a wide screen the two of them stop short of the right edge.
+    body = [apad(r, w) for r in
+            (L.side ? [string(left[i], right[i])
+                       for i in 1:min(length(left), length(right))] :
+                      vcat(left, right))]
     # Row 1 is a title bar so that selecting the top line in tmux - which
     # scrolls the pane to make room for its own status line - never lands on
     # content. Everything real starts at row 2.

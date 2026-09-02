@@ -44,15 +44,6 @@ pane_box(w::Integer, h::Integer) = (max(1, w - 4), max(1, h - 3))
 """Below this there is no room to put two things side by side."""
 const SPLIT_MIN = 150
 
-"""The widest the reading column is ever drawn beside a child.
-
-Half again what the item list gets at its own cap, which is enough for a
-comment to read as prose and not so much that a line runs the width of a page.
-Everything above it goes to the terminal: on a wide screen the work is what
-should get the room, and a thread does not become more readable past this.
-"""
-const DETAIL_MAX = 78
-
 """
     split_box(w) -> (browser, terminal)
 
