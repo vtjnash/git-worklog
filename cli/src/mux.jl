@@ -24,21 +24,34 @@ function mux_bin()
 end
 
 """
-    mux_session(repo, number) -> String
+    mux_name(stem, branch, ref, kind) -> String
 
-The session name for an item, matching what tmux will actually call it.
+What to *call* a session: the worktree it is in, the branch that worktree is on,
+and the item that was in view when it was opened. All three, because each
+answers a different question - which copy of the repo, which state of it, and
+what you were doing - and the list is unreadable without any one of them.
+
+This is a label and not an identity. Two of the three change under a session
+that has not moved, so what a session *is* lives in its options, not its name;
+see `mux_tag!`.
 
 tmux does not reject `.` or `:` in a session name, it silently rewrites them to
 `_`, so `wl-Distributed.jl-198` is created and then cannot be found under the
 name it was asked for. Doing the same substitution here means the name held on
-this side is the name the server holds.
+this side is the name the server holds. `/` it leaves alone, which is what lets
+a branch keep its owner prefix.
 """
-function mux_session(repo::AbstractString, number::Integer, kind::Symbol = :shell)
-    short = last(split(repo, '/'))
-    string("wl-", replace(short, '.' => '_', ':' => '_'), '-', number,
-           kind === :shell ? "" : string('-', kind))
+function mux_name(stem::AbstractString, branch::AbstractString,
+                  ref::AbstractString, kind::Symbol = :shell)
+    clean(x) = replace(String(x), '.' => '_', ':' => '_')
+    parts = ["wl", clean(stem)]
+    isempty(branch) || push!(parts, clean(branch))
+    isempty(ref) || push!(parts, clean(ref))
+    kind === :shell || push!(parts, String(kind))
+    join(parts, '-')
 end
-mux_session(it::Item, kind::Symbol = :shell) = mux_session(it.repo, it.number, kind)
+mux_name(worktree, branch, it::Item, kind::Symbol = :shell) =
+    mux_name(basename(rstrip(String(worktree), '/')), branch, string(it.number), kind)
 
 """Quote one argument for the shell tmux will hand the command to.
 
@@ -87,6 +100,43 @@ function mux_start(name::AbstractString, dir::AbstractString, cmd::AbstractStrin
 end
 
 mux_kill(name::AbstractString) = first(mux("kill-session", "-t=" * name))
+
+"""Record what a session *is*, as against what it is called.
+
+A name carries the branch and the item in view, and both of those change under
+a session that has never moved - a branch gets renamed, a different item gets
+opened on the same checkout. So the name is a label and these are the identity:
+the worktree, which is the resource actually being shared, and the kind, since
+a shell and an agent in one checkout are two different things.
+
+`@wl_item` is neither. It is what the metadata pane matches on, so that an item
+can be told a session exists for it without anything having to work out which
+worktree it would land in - which costs a `git` call, and the pane redraws.
+"""
+function mux_tag!(name::AbstractString, worktree::AbstractString, kind::Symbol,
+                  item::AbstractString)
+    ok = first(mux("set", "-t", name, "@wl_worktree", String(worktree)))
+    ok &= first(mux("set", "-t", name, "@wl_kind", String(kind)))
+    ok &= first(mux("set", "-t", name, "@wl_item", String(item)))
+    ok
+end
+
+mux_rename(old::AbstractString, new::AbstractString) =
+    old == new || first(mux("rename-session", "-t=" * old, String(new)))
+
+"""The session for this worktree and kind, or `nothing`.
+
+Matched here rather than with a tmux filter expression: a path can contain the
+characters a format string is made of, and a comma in a checkout's name would
+otherwise quietly match nothing.
+"""
+function mux_find(worktree::AbstractString, kind::Symbol, rows = mux_list())
+    want = String(worktree)
+    for r in rows
+        r.worktree == want && r.kind === kind && return r
+    end
+    nothing
+end
 
 """Every session this program owns, oldest first."""
 function mux_sessions()
@@ -396,31 +446,20 @@ list or to kill.
 function mux_list()
     ok, out = mux("list-panes", "-a",
                   "-f", "#{&&:#{window_active},#{pane_active}}",
-                  "-F", "#{session_name}\t#{pane_current_command}\t#{session_created}\t#{session_attached}")
+                  "-F", "#{session_name}\t#{pane_current_command}\t#{session_attached}\t" *
+                        "#{@wl_worktree}\t#{@wl_kind}\t#{@wl_item}")
     ok || return NamedTuple[]
     rows = NamedTuple[]
     for line in split(out, '\n'; keepempty = false)
         f = split(line, '\t')
-        length(f) == 4 || continue
+        length(f) == 6 || continue
         startswith(f[1], "wl-") || continue
         push!(rows, (name = String(f[1]), command = String(f[2]),
-                     created = something(tryparse(Int, f[3]), 0),
-                     attached = f[4] != "0"))
+                     attached = f[3] != "0", worktree = String(f[4]),
+                     kind = isempty(f[5]) ? :shell : Symbol(f[5]),
+                     item = String(f[6])))
     end
     sort!(rows; by = r -> r.name)
     rows
 end
 
-"""Pull an item back out of a session name.
-
-Returns `(short, number, kind)`, or `nothing` when the name is not one of ours.
-The repo is only its short half - `mux_session` threw the owner away and this
-cannot invent it back - so matching a session to an item is done by comparing
-generated names, not by parsing this into one.
-"""
-function mux_parse(name::AbstractString)
-    m = match(r"^wl-(.+)-(\d+)(?:-([a-z]+))?$", name)
-    m === nothing && return nothing
-    (short = m[1], number = parse(Int, m[2]),
-     kind = m[3] === nothing ? :shell : Symbol(m[3]))
-end

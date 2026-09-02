@@ -152,38 +152,31 @@ end
 # that they accumulate somewhere you cannot see. This is the somewhere: what is
 # running, on which item, and how to get back into it or be rid of it.
 
-"""One row of the session list, and the item it belongs to if that is known.
+"""One row of the session list.
 
-The item is matched by generating names and comparing them, not by parsing the
-session name into a repo: `mux_session` keeps only the short half of the repo,
-so `julia` cannot be turned back into `JuliaLang/julia` without guessing.
+The item comes from the session's own `@wl_item` tag rather than from anything
+read out of its name. A name is a label that changes - a shell gets renamed to
+whichever item was opened on it last - and half of what is in it, the short
+repo, cannot be turned back into a full one without guessing.
 """
 struct SessionRow
     name::String
     kind::Symbol
     command::String
     attached::Bool
+    where::String            # the worktree's stem, which is what is shared
     label::String            # the item's title, or what could be recovered
 end
 
 function session_rows(items::Vector{Item})
-    byname = Dict{String,Item}()
-    for it in items, kind in (:shell, :agent)
-        byname[mux_session(it, kind)] = it
-    end
+    byref = Dict(it.ref => it for it in items)
     rows = SessionRow[]
     for r in mux_list()
-        p = mux_parse(r.name)
-        it = get(byname, r.name, nothing)
-        label = if it !== nothing
-            string(it.repo, "#", it.number, "  ", it.title)
-        elseif p !== nothing
-            string(p.short, "#", p.number)
-        else
-            r.name
-        end
-        push!(rows, SessionRow(r.name, p === nothing ? :shell : p.kind,
-                               r.command, r.attached, label))
+        it = get(byref, r.item, nothing)
+        label = it !== nothing ? string(it.ref, "  ", it.title) :
+                !isempty(r.item) ? r.item : r.name
+        where = isempty(r.worktree) ? "" : basename(rstrip(r.worktree, '/'))
+        push!(rows, SessionRow(r.name, r.kind, r.command, r.attached, where, label))
     end
     rows
 end
@@ -214,13 +207,15 @@ function render(v::SessionView, w::Int, h::Int)
     # than hunting for where each one starts.
     iw = w - 4
     cw = 10
-    lw = max(10, iw - 5 - 1 - 1 - 1 - cw - 1)
+    ww = 14
+    lw = max(10, iw - 5 - 1 - 1 - 1 - ww - 1 - cw - 1)
     body = String[]
     for (i, r) in enumerate(v.rows)
         mark = r.kind === :agent ? string("\e[35m", rpad("agent", 5), "\e[0m") :
                                    string("\e[2m", rpad("shell", 5), "\e[0m")
         line = string(mark, " ", r.attached ? "\e[32m\u25cf\e[0m" : " ", " ",
                       apad(afit(r.label, lw), lw), " ",
+                      "\e[36m", apad(afit(r.where, ww), ww), "\e[0m ",
                       "\e[2m", afit(r.command, cw), "\e[0m")
         # `hlrow` rather than a background in front: it puts the colour back
         # after every reset in the row, so the highlight covers the whole line

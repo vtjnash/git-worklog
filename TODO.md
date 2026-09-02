@@ -493,21 +493,21 @@ The stages, each of which stands on its own:
    answer. `t` and `T` are separate sessions — `wl-julia-62841` and
    `wl-julia-62841-agent` — so a shell and an agent can both be open on one
    item.
-   - **`review_session` in `state.toml` turned out to be unnecessary.** The
-     name is derived from the item, so there is nothing to write down: the
-     session either exists or it does not and `mux_alive` is the whole of the
-     bookkeeping. One less thing in a user-owned file.
+   - **`review_session` in `state.toml` turned out to be unnecessary**, and
+     so did keying anything on the item; see the entry below.
    - **The metadata pane reports a running session** from a list cached by
      `load_meta!` on the async path. Listing them costs a process, and `render`
      is pure and runs per frame, so it cannot be the thing that asks.
    - **The task is shell-quoted** (`shquote`). It is a sentence someone typed,
      interpolated into a command tmux hands to `sh`, so an apostrophe in it
      would otherwise break the launch.
-   - **Still outstanding: taking the result.** An agent that has written a diff
-     or a comment draft still has nowhere to put it. The composer (`C`) accepts
-     initial text and the pane can already be read back as text, so the missing
-     piece is a key in the pane that hands a selection to it — and a decision
-     about what "the result" is, which is why it is not done.
+   - **Taking the result needs nothing.** It was carried as outstanding for
+     half a day: an agent that had written a diff or a draft had "nowhere to
+     put it". It has somewhere — press `T` and read it, and type the reply
+     there. The pane is not a display of the agent, it is the agent, and input
+     in it is as user-driven as input anywhere else. A key that lifted a
+     selection into the composer would be a second, worse route to a thing the
+     pane already does.
 4b. **The session list. Done 2026-09-02.** `"` opens a `SessionView` over
    every `wl-` session: what kind it is, which item it belongs to, what is
    running in it, and whether anyone is attached. `\u21b5` opens one in a pane,
@@ -520,6 +520,33 @@ The stages, each of which stands on its own:
      `mux_session` keeps only the short half of the repo, so `julia` cannot be
      turned back into `JuliaLang/julia` without guessing; `mux_parse` recovers
      enough to label an orphan, and nothing more.
+
+4c. **A session belongs to a worktree, not to an item. Done 2026-09-02.**
+   Keying on the item was wrong, and wrong in a way that could not be seen: a
+   session records the item but `item_checkout` decides *where* at launch time,
+   so once a worktree exists for the branch, `mux_alive` says the session is
+   there and `t` reattaches to a shell in the wrong directory. Two items both
+   falling back to the main checkout got two sessions in one place, and either
+   could change the branch under the other.
+   - **Identity is `@wl_worktree` and `@wl_kind`, tmux session options.** The
+     worktree is what is actually shared, and the kind because a shell and an
+     agent in one checkout are two different things. Options survive a rename,
+     which a name cannot: a branch gets renamed, a different item gets opened.
+   - **The name is a label**, `wl-<worktree>-<branch>-<ref>`, all three because
+     each answers a different question and the list is unreadable without any
+     one of them. `/` survives, so a branch keeps its owner prefix.
+   - **A shell is renamed to whatever item was opened on it; an agent is not.**
+     A shell is a place. An agent has a task, so one already at work in a
+     checkout is on some other item, and `T` says whose it is rather than
+     presenting it as yours. Two agents editing one worktree would fight, and
+     this makes that impossible to express rather than merely unwise.
+   - **`@wl_item` is neither name nor identity.** It is what the metadata pane
+     matches on, so an item can be told a session exists for it without the
+     pane working out which worktree it would land in — that costs a `git`
+     call, and the pane redraws per frame.
+   - Sessions are matched in Julia rather than with a tmux filter expression: a
+     path can contain the characters a format string is made of, and a comma in
+     a checkout's name would otherwise quietly match nothing.
 
 5. **Offer it upstream.** Only after it has carried `vi` and an agent for a
    while, and only backend-shaped rather than tmux-shaped. On Windows `psmux`

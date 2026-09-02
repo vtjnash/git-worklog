@@ -1067,16 +1067,24 @@ end
 end
 
 @testset "multiplexer sessions" begin
-    # Naming is pure, so it is tested whether or not a tmux exists here.
-    @test W.mux_session("JuliaLang/julia", 62841) == "wl-julia-62841"
-    @test W.mux_session("JuliaLang/julia", 1) == "wl-julia-1"
+    # Naming is pure, so it is tested whether or not a tmux exists here. All
+    # three parts are in it: which copy of the repo, which state of it, and
+    # what was in view.
+    @test W.mux_name("julia", "master", "62841") == "wl-julia-master-62841"
+    @test W.mux_name("julia", "master", "62841", :agent) == "wl-julia-master-62841-agent"
+
+    # A branch keeps its owner prefix: tmux leaves `/` alone.
+    @test W.mux_name("julia-wt2", "vtjnash/fix", "1") == "wl-julia-wt2-vtjnash/fix-1"
 
     # tmux does not reject `.` or `:` in a session name, it rewrites them to
     # `_` and says nothing. A name that did not do the same substitution would
     # create a session and then never find it again.
-    @test W.mux_session("JuliaLang/Distributed.jl", 198) == "wl-Distributed_jl-198"
-    @test W.mux_session("a/b:c", 2) == "wl-b_c-2"
-    @test !occursin('.', W.mux_session("x/y.z.jl", 3))
+    @test W.mux_name("Distributed.jl", "release-1.12", "198") == "wl-Distributed_jl-release-1_12-198"
+    @test !occursin('.', W.mux_name("y.z.jl", "a.b", "3"))
+    @test !occursin(':', W.mux_name("a:b", "c:d", "4"))
+
+    # A worktree with no branch known still gets a usable name.
+    @test W.mux_name("julia", "", "62841") == "wl-julia-62841"
 
     # A missing binary has to be an answer, not an exception: every caller is
     # on a keystroke path.
@@ -1090,15 +1098,33 @@ end
     if W.mux_bin() === nothing
         @info "no tmux; skipping the session lifecycle test"
     else
-        n = W.mux_session("test/lifecycle.jl", 1)
+        n = "wl-test-lifecycle-1"
         W.mux_kill(n)                                   # from an earlier run
         @test W.mux_alive(n) === false
         @test first(W.mux_start(n, pwd(), "sleep 120")) === true
         @test W.mux_alive(n) === true
         @test first(W.mux_start(n, pwd(), "sleep 120")) === true   # idempotent
         @test n in W.mux_sessions()
-        @test W.mux_kill(n) === true
-        @test W.mux_alive(n) === false
+
+        # What a session *is* lives in its options, so that the name is free to
+        # change under it. The worktree is the identity because the worktree is
+        # what is actually shared.
+        wt = mktempdir()
+        @test W.mux_tag!(n, wt, :shell, "julia#62841") === true
+        found = W.mux_find(wt, :shell)
+        @test found !== nothing && found.name == n && found.item == "julia#62841"
+        @test W.mux_find(wt, :agent) === nothing        # a separate slot
+
+        # Renaming is what keeps the label current without starting anything
+        # new: same session, different name, still found by the same key.
+        n3 = "wl-test-lifecycle-renamed"
+        @test W.mux_rename(n, n3) === true
+        @test W.mux_alive(n) === false && W.mux_alive(n3) === true
+        again = W.mux_find(wt, :shell)
+        @test again !== nothing && again.name == n3
+
+        @test W.mux_kill(n3) === true
+        @test W.mux_alive(n3) === false
     end
 end
 
@@ -1144,7 +1170,7 @@ end
     if W.mux_bin() === nothing
         @info "no tmux; skipping the live control-mode test"
     else
-        n = W.mux_session("test/control.jl", 1)
+        n = "wl-test-control-1"
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf READY; sleep 120'")
         woke = Ref(0)
@@ -1180,7 +1206,7 @@ end
     if W.mux_bin() === nothing
         @info "no tmux; skipping the pane view test"
     else
-        n = W.mux_session("test/paneview.jl", 1)
+        n = "wl-test-paneview-1"
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf \"\\033[1;32mgreen\\033[0m plain\\n\"; sleep 120'")
         ctrl = W.Controller(); ctrl.running = true
@@ -1238,7 +1264,7 @@ end
     if W.mux_bin() === nothing
         @info "no tmux; skipping the raw forwarding test"
     else
-        n = W.mux_session("test/raw.jl", 1)
+        n = "wl-test-raw-1"
         W.mux_kill(n)
         tmp = joinpath(mktempdir(), "edit-me.txt")
         write(tmp, "first line\n")
@@ -1261,7 +1287,7 @@ end
         @test W.mux_alive(n) === false            # vi quit, so the session ended
 
         # Ctrl-] alone leaves; the same byte inside a burst is the child's.
-        n2 = W.mux_session("test/raw.jl", 2)
+        n2 = "wl-test-raw-2"
         W.mux_kill(n2)
         W.mux_start(n2, pwd(), "sh -c 'sleep 120'")
         v2 = W.pane_view(n2, "sh", ctrl)
@@ -1273,11 +1299,9 @@ end
 end
 
 @testset "an agent in a session" begin
-    # A shell and an agent can both exist for one item, so they cannot share a
-    # name; everything else about the naming is the same.
-    @test W.mux_session("JuliaLang/julia", 62841) == "wl-julia-62841"
-    @test W.mux_session("JuliaLang/julia", 62841, :agent) == "wl-julia-62841-agent"
-    @test W.mux_session("JuliaLang/Distributed.jl", 198, :agent) == "wl-Distributed_jl-198-agent"
+    # A shell and an agent in one worktree are two different things, so they
+    # are two slots, distinguished by kind rather than by anything in the name.
+    @test W.mux_name("julia", "master", "62841", :agent) == "wl-julia-master-62841-agent"
 
     # The task is a sentence someone typed and it is interpolated into a
     # command a shell will read, so it has to survive one.
@@ -1297,24 +1321,22 @@ end
     # for one per frame: `render` is pure and listing them costs a process.
     tasked = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))...,
                     agent = "rebase and rerun the tests")
-    st.sessions = String[]
+    row(kind, ref) = (name = "wl-x", command = "sh", attached = false,
+                      worktree = "/tmp/x", kind = kind, item = ref)
+    st.sessions = NamedTuple[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
-    st.sessions = [W.mux_session(tasked, :agent)]
+    # Matched on the item the session was tagged with, so the pane never has to
+    # work out which worktree the item would land in.
+    st.sessions = [row(:agent, tasked.ref)]
     lines = join(W.meta_lines(st, tasked, 40), "\n")
     @test occursin("running", lines) && occursin("agent", lines)
-    st.sessions = [W.mux_session(tasked)]
+    st.sessions = [row(:shell, tasked.ref)]
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
+    st.sessions = [row(:shell, "someone/else#1")]
+    @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
 end
 
 @testset "the session list" begin
-    # A session name carries only the short half of the repo, so an item is
-    # matched by generating names and comparing, never by parsing one back.
-    @test W.mux_parse("wl-julia-62841") == (short = "julia", number = 62841, kind = :shell)
-    @test W.mux_parse("wl-julia-62841-agent") == (short = "julia", number = 62841, kind = :agent)
-    @test W.mux_parse("wl-Distributed_jl-198-agent").short == "Distributed_jl"
-    @test W.mux_parse("random-session") === nothing
-    @test W.mux_parse("wl-no-number") === nothing
-
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true
 
@@ -1322,35 +1344,40 @@ end
         @info "no tmux; skipping the live session list test"
     else
         it = items[1]
-        for kind in (:shell, :agent)
-            W.mux_kill(W.mux_session(it, kind))
-            W.mux_start(W.mux_session(it, kind), pwd(), "sleep 120")
+        wt = mktempdir()
+        shell = W.mux_name(wt, "master", string(it.number))
+        agent = W.mux_name(wt, "master", string(it.number), :agent)
+        for (n, kind) in ((shell, :shell), (agent, :agent))
+            W.mux_kill(n)
+            W.mux_start(n, wt, "sleep 120")
+            W.mux_tag!(n, wt, kind, it.ref)
         end
         v = W.session_view(items)
         names = [r.name for r in v.rows]
-        @test W.mux_session(it, :shell) in names
-        @test W.mux_session(it, :agent) in names
+        @test shell in names && agent in names
 
-        # A session that maps to an item is shown as that item, not as a name.
-        row = v.rows[findfirst(==(W.mux_session(it, :agent)), names)]
+        # A session is shown as the item it was tagged with, not as anything
+        # parsed out of its name, and as the worktree it is actually in.
+        row = v.rows[findfirst(==(agent), names)]
         @test row.kind === :agent
-        @test occursin(it.repo, row.label) && occursin(string(it.number), row.label)
+        @test occursin(it.ref, row.label)
+        @test row.where == basename(wt)
 
         for (w, h) in ((80, 24), (120, 40))
             ls = split(W.render(v, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
 
-        # Moving the selection, and killing what it points at.
-        v.sel = findfirst(==(W.mux_session(it, :agent)), names)
+        # Killing what the selection points at, and only that.
+        v.sel = findfirst(==(agent), names)
         before = length(v.rows)
         W.handle!(v, Int('K'), ctrl)
-        @test W.mux_alive(W.mux_session(it, :agent)) === false
+        @test W.mux_alive(agent) === false
         @test length(v.rows) == before - 1
-        @test W.mux_alive(W.mux_session(it, :shell)) === true   # only the one
+        @test W.mux_alive(shell) === true
 
         @test W.handle!(v, Int('q'), ctrl) === :pop
-        W.mux_kill(W.mux_session(it, :shell))
+        W.mux_kill(shell)
     end
 
     # With nothing running the view still renders, and says so.

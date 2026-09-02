@@ -274,9 +274,9 @@ Base.@kwdef mutable struct BState <: View
     checks::Any = nothing  # check_contexts result, or nothing
     metakey::String = ""
     metapending::Union{Nothing,Task} = nothing
-    sessions::Vector{String} = String[]   # live multiplexer sessions, as of the
-                                          # last metadata fetch; asking costs a
-                                          # process, and `render` is pure
+    sessions::Vector{NamedTuple} = NamedTuple[]  # live multiplexer sessions, as
+                                          # of the last metadata fetch; asking
+                                          # costs a process, and `render` is pure
     anchor::Int = 0        # row a drag started on
     sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
     selb::Int = 0
@@ -944,12 +944,14 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     end
     # A session is its own record that something is running: named after the
     # item, so nothing has to be stored to know it is there.
-    live = [(k, n) for (k, n) in ((:shell, mux_session(it)), (:agent, mux_session(it, :agent)))
-            if n in st.sessions]
+    # Matched on the item a session was tagged with, not on its name: the name
+    # is built from a worktree this pane would have to run `git` to work out,
+    # and it redraws per frame.
+    live = [r for r in st.sessions if r.item == it.ref]
     if !isempty(live)
         push!(out, string(AD, "running", AR))
-        for (k, _) in live
-            push!(out, string("  ", k === :agent ? "agent  T to watch" : "shell  t to open"))
+        for r in sort(live; by = x -> String(x.kind))
+            push!(out, string("  ", r.kind === :agent ? "agent  T to watch" : "shell  t to open"))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))
@@ -2543,21 +2545,30 @@ function open_agent(it::Item, ctrl)
     Sys.which("claude") === nothing && return "`claude` is not on PATH"
     target, branch = item_checkout(it)
     target === nothing && return :needs_repo
-    name = mux_session(it, :agent)
-    started = !mux_alive(name)
-    if started
+    found = mux_find(target, :agent)
+    # Unlike a shell, an agent is not renamed to whoever asked for it last. It
+    # has a task, and one already at work in this checkout is working on some
+    # other item; two of them editing one worktree would fight, so this says
+    # whose it is rather than quietly presenting it as yours.
+    name = found === nothing ? mux_name(target, branch, it, :agent) : found.name
+    if found === nothing
         # The item, so the agent does not have to be told twice what it is
         # working on, and the task exactly as it was written.
         prompt = string(it.repo, "#", it.number, " - ", it.url, "\n\n", it.agent)
         ok, err = mux_start(name, target, string("claude ", shquote(prompt)))
         ok || return err
+        mux_tag!(name, target, :agent, it.ref)
     end
-    v = pane_view(name, string("agent  ", it.repo, "#", it.number), ctrl)
+    v = pane_view(name, string("agent  ", found === nothing || found.item == it.ref ?
+                                          it.ref : found.item), ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
     push!(ctrl.stack, v)
-    string(started ? "started " : "watching ", name,
-           isempty(branch) ? "" : string(" (", branch, ")"))
+    if found !== nothing && found.item != it.ref
+        return string("an agent is already running in ", basename(target),
+                      ", on ", isempty(found.item) ? "another item" : found.item)
+    end
+    string(found === nothing ? "started " : "watching ", name)
 end
 
 """Open a shell on this item's checkout, in a multiplexer session of its own,
@@ -2574,15 +2585,25 @@ function open_terminal(it::Item, ctrl)
     mux_bin() === nothing && return "no tmux on PATH"
     target, branch = item_checkout(it)
     target === nothing && return :needs_repo
-    name = mux_session(it)
-    started = !mux_alive(name)
-    ok, err = mux_start(name, target, get(ENV, "SHELL", "/bin/sh"))
-    ok || return err
-    v = pane_view(name, string(it.repo, "#", it.number, isempty(branch) ? "" : string("  ", branch)), ctrl)
+    name = mux_name(target, branch, it)
+    found = mux_find(target, :shell)
+    started = found === nothing
+    if started
+        ok, err = mux_start(name, target, get(ENV, "SHELL", "/bin/sh"))
+        ok || return err
+    else
+        # A shell is a place, not a task, so the one already in this worktree
+        # is the right one to come back to whichever item asked for it. Rename
+        # it so the list says what it is being used for now.
+        mux_rename(found.name, name)
+    end
+    mux_tag!(name, target, :shell, it.ref)
+    v = pane_view(name, string(it.repo, "#", it.number,
+                               isempty(branch) ? "" : string("  ", branch)), ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
     push!(ctrl.stack, v)
-    string(started ? "started " : "watching ", name)
+    string(started ? "started " : "back in ", name)
 end
 
 # --- CI checks --------------------------------------------------------------
