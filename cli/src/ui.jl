@@ -41,7 +41,11 @@ Base.@kwdef struct Item
     ci::String = ""
     unresolved::Int = 0
     mergeable::String = ""
-    age::Int = 0
+    act::String = ""       # when this last moved: the head commit, else the last
+                           # comment, else `updated`. Stored as the timestamp
+                           # and not as an age in days, because an age is only
+                           # true at the instant it was worked out and this
+                           # object outlives that instant by hours.
     new::Bool = false
     moved::Bool = false
     snoozed::Bool = false
@@ -61,14 +65,22 @@ end
 
 nz(x, d = "") = x === nothing || x === missing ? d : x
 
-function loaditems(at::DateTime = utcnow())
+"""How many days ago this item last moved, as of `at`.
+
+Computed on demand rather than stored. The browser holds its items for the
+length of a session, so an age worked out when they were loaded is an age from
+whenever `wl` was started - right for about a day and then quietly wrong. Ask
+at the point of use and the answer is always the one being shown.
+"""
+age(it::Item, at::DateTime) = something(days_since(it.act, at), 0)
+
+function loaditems()
     f = joinpath(ROOT, "facts.json")
     isfile(f) || die("no facts.json — run `wl refresh` first")
     raw = JSON3.read(read(f, String))
     out = Item[]
     for (_, r) in raw.items
         act = something(jget(r, :head_at), jget(r, :last_comment_at), r.updated)
-        age = something(days_since(act, at), 0)
         push!(out, Item(
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
@@ -77,7 +89,8 @@ function loaditems(at::DateTime = utcnow())
             backlog = nz(jget(r, :backlog), false),
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             mergeable = nz(jget(r, :mergeable), ""),
-            age = age, new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
+            act = String(nz(act, "")),
+            new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
             snoozed = nz(jget(r, :snoozed), false),
             is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",
             author = nz(jget(r, :author), ""),
@@ -127,7 +140,7 @@ function ui(args = String[], at::DateTime = utcnow())
         refresh(String[])
         at = utcnow()
     end
-    items = loaditems(at)
+    items = loaditems()
     cfg = config()
     DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
                               "detail_ttl_minutes", 10)

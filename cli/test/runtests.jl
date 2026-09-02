@@ -2104,6 +2104,25 @@ end
                              title = "t", is_pr = false)) == ""
 end
 
+@testset "an age is worked out when it is asked for" begin
+    # Stored, an age is only true at the instant it was computed, and the
+    # browser holds its items for the length of a session - so it was right for
+    # about a day and then quietly wrong. The timestamp is what is kept.
+    it = W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t",
+                act = "2000-01-01T00:00:00Z")
+    @test W.age(it, W.DateTime(2000, 1, 2)) == 1
+    @test W.age(it, W.DateTime(2000, 2, 1)) == 31
+    # Same item, a week later in the same session: a different answer.
+    @test W.age(it, W.DateTime(2000, 1, 9)) - W.age(it, W.DateTime(2000, 1, 2)) == 7
+    # Nothing to measure is zero rather than an error.
+    @test W.age(W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t"),
+                W.utcnow()) == 0
+    # And it comes off the real facts, newest field first.
+    loaded = W.loaditems()
+    @test all(!isempty(x.act) for x in loaded)
+    @test W.age(loaded[1], W.utcnow()) >= 0
+end
+
 @testset "an operation is measured from when it started" begin
     # There is no global clock any more. The instant is an argument, so a test
     # can hand in one that is obviously not now and see it come back out - the

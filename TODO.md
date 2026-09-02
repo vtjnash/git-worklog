@@ -242,6 +242,12 @@ Do not "simplify" any of these away.
     `utcnow()`; everything it calls takes `at` as a required argument.** A
     default further in is how the second failure gets back in, quietly.
 
+    The same reasoning forbids *storing* a time-derived number. `Item` carries
+    `act`, the timestamp it last moved, and `age(it, at)` works the difference
+    out when it is asked for. An age computed at load is an age from whenever
+    `wl` was started — right for about a day, then quietly wrong — and the
+    browser holds its items for the length of a session.
+
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
 12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
     jobs array to an anonymous caller, with no error.
