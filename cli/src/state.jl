@@ -8,7 +8,7 @@
 # wrote for themselves.
 
 const STATE = joinpath(ROOT, "state.toml")
-const FIELDS = ["blocked_on", "bucket", "deadline", "note", "snooze", "track"]
+const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "note", "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
 const TRACK = ("close", "normal", "loose", "background")
 
@@ -40,6 +40,21 @@ function resolve(ref::AbstractString)
 end
 
 load_lines() = isfile(STATE) ? String.(splitlines(read(STATE, String))) : String[]
+
+"""Every url `state.toml` has a block for, in the order they appear.
+
+Read out of the block headers rather than out of a parse, for the same reason
+`get_field` is: the file is the record, and a key that TOML would reformat is
+still a key that was written.
+"""
+function state_urls()
+    out = String[]
+    for l in load_lines()
+        m = match(r"^\[\"(.*)\"\]\s*$", strip(l))
+        m === nothing || push!(out, String(m[1]))
+    end
+    out
+end
 
 """Line range of the `[\"url\"]` table, as `(header, first_line_after)`, or
 `nothing`. The body is `lines[header+1:after-1]`."""

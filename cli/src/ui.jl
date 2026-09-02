@@ -107,6 +107,90 @@ function loaditems()
     out
 end
 
+"""The GitHub login from `config.toml`, read once.
+
+Kept here rather than threaded down: the guard on adoption runs on a keystroke,
+inside a view that has no other reason to be handed the whole config.
+"""
+const LOGIN = Ref("")
+login() = isempty(LOGIN[]) ?
+    (LOGIN[] = try
+        String(get(TOML.parse(read(joinpath(ROOT, "config.toml"), String)), "login", ""))
+    catch
+        ""
+    end) : LOGIN[]
+
+# --- work with no pull request ----------------------------------------------
+#
+# `git br` and `gh pr status` each show half of what is going on and neither can
+# hold a note about it. A local branch is not an item, and everything here is
+# keyed by url - so an adopted branch is given a synthetic one, and notes,
+# snoozes, the interaction clock, the buckets and the filters all begin working
+# on unlanded work without a line of code each.
+#
+# The key is `local:<repo>#<branch>` and *not* the worktree the plan first
+# named. A branch with no worktree is exactly the case adoption exists for -
+# work that has no place yet - so a key naming a place cannot address it, and a
+# branch that is moved to another checkout would lose whatever was written about
+# it. Repo and branch are what `branch_index` already joins on.
+
+localurl(repo, branch) = string("local:", repo, "#", branch)
+localref(repo, branch) = string(last(split(String(repo), '/')), "#", branch)
+islocal(url::AbstractString) = startswith(url, "local:")
+islocal(it::Item) = islocal(it.url)
+
+"`(repo, branch)` from a local url, splitting at the first `#` - a repo has none."
+function localparts(url::AbstractString)
+    rest = String(url)[7:end]
+    i = findfirst('#', rest)
+    i === nothing ? (rest, "") : (rest[1:prevind(rest, i)], rest[nextind(rest, i):end])
+end
+
+"Urls of every branch that has been adopted, whether or not it still exists."
+adopted_urls() = [u for u in state_urls()
+                  if islocal(u) && get_field(u, "adopted") !== nothing]
+
+"""One synthetic item for an adopted branch.
+
+`b` is what the survey found for it, or `nothing` when the branch has since been
+deleted - which is shown rather than dropped, because a branch that is gone is
+still something you wrote a note on and still something to be told about.
+"""
+function local_item(url::AbstractString, b = nothing)
+    repo, branch = localparts(url)
+    Item(url = String(url), ref = localref(repo, branch), repo = String(repo),
+         number = 0, is_pr = false, branch = String(branch),
+         # The tip's subject, which is the only title unlanded work has. The
+         # branch name is the fallback, and it is what a bare ref would show.
+         title = b === nothing ? branch :
+                 isempty(b.subject) ? branch : b.subject,
+         bucket = nz(get_field(url, "bucket"), "local"),
+         track = nz(get_field(url, "track"), "normal"),
+         note = nz(get_field(url, "note"), ""),
+         deadline = nz(get_field(url, "deadline"), ""),
+         act = b === nothing ? "" : b.at,
+         why = b === nothing ? "adopted; the branch is gone" :
+               isempty(b.worktree) ? "adopted; no worktree" :
+               string("adopted; ", basename(rstrip(b.worktree, '/'))))
+end
+
+"""Every adopted branch, as items.
+
+The survey is asked for once and only when something has been adopted, so a
+dashboard with none of this pays nothing for it.
+"""
+function local_items()
+    urls = adopted_urls()
+    isempty(urls) && return Item[]
+    bs = try
+        last(survey(; withdirty = false))
+    catch
+        Branch[]
+    end
+    byk = Dict((b.repo, b.name) => b for b in bs)
+    [local_item(u, get(byk, localparts(u), nothing)) for u in urls]
+end
+
 """Print one markdown body: links lifted to numbered footnotes, the rest
 rendered by Term, wrapped to the terminal."""
 function show_md(raw)
@@ -140,7 +224,9 @@ function ui(args = String[], at::DateTime = utcnow())
         refresh(String[])
         at = utcnow()
     end
-    items = loaditems()
+    # Adopted branches are items too, and everything keyed by url works on them
+    # the moment they are: notes, snoozes, the clock, the buckets, the filters.
+    items = vcat(loaditems(), local_items())
     cfg = config()
     DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
                               "detail_ttl_minutes", 10)

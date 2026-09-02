@@ -1575,6 +1575,170 @@ end
     end
 end
 
+@testset "adoption is explicit, and guarded" begin
+    # `gh pr checkout` leaves other people's branches in your checkout, so
+    # opening a terminal in one must not quietly claim their work. The guard is
+    # one question: is there a commit of yours on it?
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@example.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "a"), "x"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    bare = joinpath(root, "o.git"); g("init", "--quiet", "--bare", bare)
+    g("remote", "add", "origin", bare); g("push", "--quiet", "-u", "origin", "master")
+
+    g("checkout", "--quiet", "-b", "mine"); write(joinpath(main, "a"), "m")
+    g("commit", "--quiet", "-am", "my work")
+    g("checkout", "--quiet", "master"); g("checkout", "--quiet", "-b", "theirs")
+    write(joinpath(main, "a"), "t")
+    g("-c", "user.email=s@e.example", "-c", "user.name=S", "commit", "--quiet",
+      "-am", "their work")
+    g("checkout", "--quiet", "master"); g("checkout", "--quiet", "-b", "joint")
+    write(joinpath(main, "a"), "j")
+    g("-c", "user.email=s@e.example", "-c", "user.name=S", "commit", "--quiet",
+      "-am", "joint\n\nCo-authored-by: Me <me@example.com>")
+    g("checkout", "--quiet", "master")
+
+    ids = W.git_ids(main, "mylogin")
+    @test "me@example.com" in ids && "me" in ids && "mylogin" in ids
+    @test W.default_base(main) == "origin/master"
+    @test W.mine_on_branch(main, "mine", ids)
+    @test !W.mine_on_branch(main, "theirs", ids)
+    # Co-authored counts: a commit you wrote with someone else is work you did,
+    # and the trailer is the only record of it.
+    @test W.mine_on_branch(main, "joint", ids)
+    # Nothing on the branch, nothing to own.
+    @test !W.mine_on_branch(main, "master", ids)
+    # Every uncertainty refuses, because this only ever grants adoption.
+    @test !W.mine_on_branch(main, "mine", String[])
+    @test !W.mine_on_branch(main, "", ids)
+    @test !W.mine_on_branch(main, "mine", ids; base = "no-such-base")
+    # The tip's subject rides along, since it is the only title a branch has.
+    bs = Dict(b.name => b for b in W.branches("a/b", main))
+    @test bs["mine"].subject == "my work"
+
+    # The key is repo and branch, not the worktree: a branch with no worktree
+    # is exactly the case adoption is for.
+    @test W.localurl("a/b", "x/y") == "local:a/b#x/y"
+    @test W.localparts("local:a/b#x/y") == ("a/b", "x/y")
+    @test W.localref("a/b", "x/y") == "b#x/y"
+    @test W.islocal("local:a/b#c") && !W.islocal("https://github.com/a/b/pull/1")
+
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    state = read(W.STATE, String)
+    try
+        W.register_repo!("o/main", main)
+        items = W.loaditems()
+        st = W.BState(items, "worklog", Set{String}())
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        n0 = length(st.all)
+        W.handle!(st, Int('"'), ctrl)
+        v = last(ctrl.stack)
+        W.handle!(v, 9, ctrl)
+        @test v.mode === :branches
+        pick(n) = (v.bsel = findfirst(b -> b.name == n, v.brows))
+
+        # `a` is asking for it, which is the deliberate act the guard requires -
+        # so it works on someone else's branch too.
+        pick("theirs"); W.handle!(v, Int('a'), ctrl)
+        @test occursin("adopted", v.status)
+        W.handle!(v, Int('a'), ctrl)                    # and toggles back
+        @test occursin("released", v.status)
+
+        pick("mine"); W.handle!(v, Int('a'), ctrl)
+        @test v.status == "adopted main#mine"
+        u = W.localurl("o/main", "mine")
+        @test W.get_field(u, "adopted") !== nothing
+        @test length(st.all) == n0 + 1
+        it = first(x for x in st.all if W.islocal(x))
+        # The tip's subject is its title, and it joins the branch list.
+        @test it.ref == "main#mine" && it.title == "my work"
+        @test it.bucket == "local" && !it.is_pr && it.branch == "mine"
+        @test W.branch_index(st.all)[("o/main", "mine")].url == u
+        # The row it came from now carries it, so `a` reads as a toggle.
+        @test v.brows[findfirst(b -> b.name == "mine", v.brows)].item !== nothing
+
+        # Undone, it stops being an item and stops being adopted.
+        W.handle!(st, Int('z'), ctrl)
+        @test occursin("undid", st.status)
+        @test W.get_field(u, "adopted") === nothing
+        @test count(W.islocal, st.all) == 0
+
+        # Whatever was written about it outlives the release: deciding the work
+        # is not yours does not undo a note.
+        W.handle!(v, Int('a'), ctrl)                    # re-adopt
+        W.set_fields(u, ["note" => "keep me"])
+        W.handle!(v, Int('a'), ctrl)                    # release
+        @test occursin("released", v.status)
+        @test W.get_field(u, "adopted") === nothing
+        @test W.get_field(u, "note") == "keep me"
+
+        # A branch that already has a pull request is refused: a second item
+        # keyed on it would be the same work listed twice.
+        pr = first(x for x in items if x.is_pr && !isempty(x.branch))
+        fake = W.BranchRow(pr.repo, pr.branch, "", 0, 0, false, "", "", pr)
+        @test occursin("pull request already", W.adopt_row(v, fake))
+        # And a detached head has no branch to adopt.
+        det = W.BranchRow("o/main", "", "", 0, 0, false, "", "", nothing)
+        @test occursin("no branch", W.adopt_row(v, det))
+
+        # Working in something is a deliberate enough act to claim it - but
+        # only your own work, which is what the guard is between.
+        if W.mux_bin() === nothing
+            @info "no tmux; skipping the automatic adoption test"
+        else
+            for br in ("mine", "theirs")
+                W.set_fields(W.localurl("o/main", br), ["adopted" => nothing])
+            end
+            for br in ("mine", "theirs")
+                g("worktree", "add", "--quiet", joinpath(root, "wt-" * br), br)
+            end
+            W.worktree_reload!(v)
+            v.mode = :worktrees
+            for br in ("mine", "theirs")
+                v.sel = findfirst(r -> r.name == "wt-" * br, v.rows)
+                W.handle!(v, Int('t'), ctrl)
+                if last(ctrl.stack) isa W.PaneView
+                    W.mux_kill(last(ctrl.stack).name); pop!(ctrl.stack)
+                end
+            end
+            @test W.get_field(W.localurl("o/main", "mine"), "adopted") !== nothing
+            @test W.get_field(W.localurl("o/main", "theirs"), "adopted") === nothing
+            # And it is said, rather than done behind the status line.
+            v.sel = findfirst(r -> r.name == "wt-mine", v.rows)
+            W.worktree_reload!(v)
+            @test v.rows[v.sel].item !== nothing
+            for br in ("mine", "theirs")
+                g("worktree", "remove", "--force", joinpath(root, "wt-" * br))
+                W.set_fields(W.localurl("o/main", br), ["adopted" => nothing])
+            end
+            v.mode = :branches
+            W.worktree_reload!(v)
+            pick("mine"); W.handle!(v, Int('a'), ctrl)   # adopted, for what follows
+            @test occursin("adopted", v.status)
+        end
+
+        # Adopted branches come back as items on the next start, and one whose
+        # branch has gone is shown rather than dropped - it is still something
+        # a note was written on. Stated rather than toggled into place, so this
+        # does not depend on how many times `a` has been pressed above.
+        pick("mine")
+        W.get_field(u, "adopted") === nothing && W.handle!(v, Int('a'), ctrl)
+        @test W.get_field(u, "adopted") !== nothing
+        @test length(W.local_items()) == 1
+        @test W.local_items()[1].url == u
+        g("branch", "-D", "mine")
+        gone = W.local_items()
+        @test length(gone) == 1 && occursin("gone", gone[1].why)
+        @test gone[1].title == "mine"          # the name, with no tip to read
+    finally
+        write(W.STATE, state)
+        W.REPOS_FILE[] = ""
+        W.TOUCHED[] = keept
+    end
+end
+
 @testset "branches, the second lens" begin
     # Worktrees are places that exist; branches are work that exists without
     # one. Same key, same rows underneath, one `tab` apart.
@@ -1655,7 +1819,7 @@ end
 
         # An empty list still renders and says which one is empty.
         e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
-                           1, 1, 1, 1, "", nothing, nothing, nothing)
+                           1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing)
         ls = split(W.render(e, 80, 24), "\n")
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))

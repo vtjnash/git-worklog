@@ -2107,9 +2107,15 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         # Not per-item: a worktree outlives whatever was opened on it, and this
         # is the only place every one of them - and every session in them - can
         # be seen at once.
-        push!(ctrl.stack, worktree_view(st.items;
+        # Every item, not the filtered ones: a row should not lose the pull
+        # request it belongs to because a filter is hiding it elsewhere.
+        push!(ctrl.stack, worktree_view(st.all;
+                                        source = () -> st.all,
                                         wake = () -> wake!(ctrl),
-                                        onitem = x -> select_item!(st, x)))
+                                        onitem = x -> select_item!(st, x),
+                                        onadopt = (repo, br, take) ->
+                                            take ? adopt!(st, repo, br, at) :
+                                                   unadopt!(st, repo, br, at)))
         return :ok
     end
 
@@ -2724,14 +2730,98 @@ from different forks.
 function branch_index(items)
     d = Dict{Tuple{String,String},Item}()
     for it in items
-        it.is_pr && !isempty(it.branch) || continue
+        isempty(it.branch) && continue
+        it.is_pr || islocal(it) || continue
         k = (it.repo, it.branch)
-        # A branch is reused: an older closed pull request on the same name
-        # should not shadow the one that is open now.
         prev = get(d, k, nothing)
-        (prev === nothing || it.number > prev.number) && (d[k] = it)
+        # A pull request wins over an adopted branch of the same name: a branch
+        # adopted before it had one should show the pull request once it does.
+        # Between two pull requests the newer wins, since a reused branch name
+        # should not be shadowed by an older closed one.
+        better = prev === nothing || (it.is_pr && !prev.is_pr) ||
+                 (it.is_pr == prev.is_pr && it.number > prev.number)
+        better && (d[k] = it)
     end
     d
+end
+
+"""Claim a local branch as work of yours, and make it an item.
+
+Explicit by design. Nothing becomes yours by being present in a checkout - the
+whole point of the guard on the automatic route is that `gh pr checkout` leaves
+other people's branches lying about - so this is what a key press does and it
+can always be undone.
+"""
+function adopt!(st::BState, repo, branch, at::DateTime)
+    isempty(branch) && return "a detached head has no branch to adopt"
+    u = localurl(repo, branch)
+    get_field(u, "adopted") === nothing || return string(localref(repo, branch),
+                                                         " is already yours")
+    prev = touched_at(u)
+    set_fields(u, ["adopted" => string(Date(at))], at)
+    it = local_item(u, branchfor(repo, branch))
+    add_item!(st, it)
+    push!(st.undos, Undo(string("adopt ", it.ref), () -> begin
+        set_fields(u, ["adopted" => nothing])
+        set_touched(u, prev)
+        drop_item!(st, u)
+    end))
+    string("adopted ", it.ref)
+end
+
+"""Give a branch back: it stops being an item and its row goes.
+
+Whatever was written about it stays in `state.toml` - a note is not undone by
+deciding the work is not yours - so re-adopting finds it again.
+"""
+function unadopt!(st::BState, repo, branch, at::DateTime)
+    u = localurl(repo, branch)
+    get_field(u, "adopted") === nothing && return string(localref(repo, branch),
+                                                         " was not adopted")
+    was = get_field(u, "adopted")
+    prev = touched_at(u)
+    set_fields(u, ["adopted" => nothing], at)
+    drop_item!(st, u)
+    push!(st.undos, Undo(string("release ", localref(repo, branch)), () -> begin
+        set_fields(u, ["adopted" => was])
+        set_touched(u, prev)
+        add_item!(st, local_item(u, branchfor(repo, branch)))
+    end))
+    string("released ", localref(repo, branch))
+end
+
+"What the survey knows about one branch, or `nothing`. One repo, not every one."
+function branchfor(repo, branch)
+    p = repo_path(repo)
+    p === nothing && return nothing
+    for b in try; branches(repo, p); catch; Branch[]; end
+        b.name == branch && return b
+    end
+    nothing
+end
+
+"""Put a synthetic item into the browser's lists.
+
+`buckets` is built once from the items the dashboard was opened with, so a
+bucket arriving mid-session has to be added to the axis by hand or it is a
+filter you cannot select.
+"""
+function add_item!(st::BState, it::Item)
+    findfirst(x -> x.url == it.url, st.all) === nothing || return false
+    push!(st.all, it)
+    it.bucket in st.buckets || push!(st.buckets, it.bucket)
+    it.repo in st.repos || push!(st.repos, it.repo)
+    refilter!(st)
+    true
+end
+
+"Take one back out again, by url."
+function drop_item!(st::BState, url::AbstractString)
+    i = findfirst(x -> x.url == url, st.all)
+    i === nothing && return false
+    deleteat!(st.all, i)
+    refilter!(st)
+    true
 end
 
 """Open a checkout of this pull request's branch in VS Code.

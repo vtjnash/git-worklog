@@ -40,8 +40,8 @@ changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `z` undoes the last
 local action. `v` edits the note,
 `t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
-running; `tab` there swaps the worktrees for the branches, and `i` on a row of
-either goes to its pull request. Inside a hosted
+running; `tab` there swaps the worktrees for the branches, `i` on a row of
+either goes to its pull request, and `a` adopts a local branch as work of yours. Inside a hosted
 pane every key belongs to the child except the prefix
 `^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
 re-reads, `^]]` sends a literal `^]`.
@@ -324,11 +324,11 @@ without one, so the leading column is whether anything has the branch checked
 out and `↵` on a branch goes to the worktree that does. Sorted newest tip first
 across every repo, which is what `git branch --sort=-committerdate` shows.
 
-What it is still missing is its whole purpose: **adoption**, below, and a way to
+`a` adopts the row's branch, or gives it back. What the list still cannot do is
 *make* a worktree for a branch that has none — today `↵` on one can only say
 that there is nowhere to go.
 
-**C. Everything touched, by when.** A state in `STATES` beside
+**C. Everything touched, by when.** *(next)* A state in `STATES` beside
 `active`/`unread`/`snoozed`/`backlog`/`all`, plus a *sort* by that timestamp.
 Sorting is orthogonal to all three filter axes and should not be squeezed into
 `Filters`; it wants its own control and its own key.
@@ -344,18 +344,28 @@ per-item mechanism here is keyed by url, so notes, snoozes, the interaction
 clock and the buckets all begin working on unlanded work for free — which is
 exactly what neither `git br` nor `gh pr status` can do.
 
-**Adoption is explicit, and guarded.**
+**Adoption — shipped.** `a` in either lens of `"` claims the row's branch or
+gives it back, and opening a shell or an agent in a worktree whose branch has no
+pull request claims it too. Undoable with `z` like any other local write.
 
-Nothing becomes "mine" by being present. A branch is adopted by picking it from
-the branch list, or by opening a shell or an agent in a worktree whose branch
-has no pull request — working in something is a deliberate enough act to count.
-Adoption can be undone, which is what makes it safe to offer.
+The guard is `mine_on_branch` in `repos.jl`: `gh pr checkout` leaves someone
+else's branch in your checkout, so the automatic route asks whether you have a
+commit over `base..branch` — authored, or on a `Co-authored-by:` trailer. Every
+uncertainty refuses, including a base that cannot be found, because this only
+ever *grants* adoption and `a` is always still there. `a` itself is unguarded:
+asking for it is the deliberate act the guard exists to require.
 
-The guard matters: `gh pr checkout` leaves someone else's branch in your
-checkout, and opening a terminal there must not quietly claim their work.
-**A branch is only adoptable automatically if you have a commit on it** —
-authored, or listed as a co-author — over the range `base..branch`. Otherwise
-it can still be adopted, but only by asking for it in the branch list.
+**One deviation from the plan above.** The synthetic item is keyed
+`local:<repo>#<branch>`, not `local:<worktree>#<branch>`. A branch with no
+worktree is exactly the case adoption is for — work that has no place yet — so
+a key naming a place cannot address it, and a branch moved to another checkout
+would lose whatever was written about it. Repo and branch are also what
+`branch_index` already joins on.
+
+Releasing a branch leaves everything written about it in `state.toml`: deciding
+the work is not yours does not undo a note, and re-adopting finds it again.
+`adopted` is a `state.toml` field like any other, so `wl adopted <ref> <date>`
+works from the shell too.
 
 **Archive, as a state tag.** Work that is done, rejected or merged should leave
 without being deleted: an `archive` field in `state.toml` carrying the date it
@@ -365,10 +375,10 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** Adoption and the synthetic items are next, and they are
-what make lists C and D possible — until a branch can become an item, nothing
-keyed by url can hold anything about it. Archive last: it is the only piece that
-touches how items leave the lanes.
+**Order to build in.** Lists C and D are next, and both are now unblocked: a
+branch can be an item, so everything keyed by url holds for unlanded work.
+Archive last — it is the only piece that touches how items leave the lanes, and
+it is what an adopted branch that came to nothing needs in order to go.
 
 ### What review writing still cannot do
 

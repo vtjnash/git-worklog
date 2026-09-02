@@ -177,6 +177,8 @@ Base.@kwdef struct Branch
     name::String
     head::String = ""
     at::String = ""          # committer date of its tip, ISO 8601
+    subject::String = ""     # its tip's summary line, which is the best title
+                             # an unlanded branch has
     upstream::String = ""
     ahead::Int = 0
     behind::Int = 0
@@ -223,7 +225,8 @@ function branches(repo::AbstractString, path::AbstractString)
     # sort as strings, and object names are full, to match what `worktree list`
     # reports - shortening is the display's job, not two different lengths here.
     fmt = join(("%(refname:short)", "%(objectname)", "%(committerdate:iso-strict)",
-                "%(upstream:short)", "%(upstream:track)", "%(worktreepath)"), "%09")
+                "%(upstream:short)", "%(upstream:track)", "%(worktreepath)",
+                "%(contents:subject)"), "%09")
     out = Branch[]
     for l in split(git(path, "for-each-ref", "--format=" * fmt, "refs/heads"), "\n")
         isempty(strip(l)) && continue
@@ -233,7 +236,8 @@ function branches(repo::AbstractString, path::AbstractString)
         push!(out, Branch(; repo = String(repo), name = String(f[1]), head = String(f[2]),
                             at = String(f[3]), upstream = String(f[4]),
                             ahead = ahead, behind = behind, gone = gone,
-                            worktree = String(f[6])))
+                            worktree = String(f[6]),
+                            subject = length(f) >= 7 ? String(f[7]) : ""))
     end
     out
 end
@@ -309,4 +313,92 @@ function survey(; withdirty::Bool = true)
         end
     end
     (ws, bs)
+end
+
+# --- whose work is this ------------------------------------------------------
+#
+# `gh pr checkout` leaves someone else's branch in your checkout, and a browser
+# that adopted a branch because you opened a terminal in it would quietly claim
+# their work. So automatic adoption asks one question first: is there a commit
+# of yours on this branch?
+
+"Does `rev` name something in this repo?"
+has_rev(path::AbstractString, rev::AbstractString) =
+    try; git(path, "rev-parse", "--verify", "--quiet", string(rev, "^{commit}")); true
+    catch; false; end
+
+"""What a branch is measured against: the default branch, if one can be found.
+
+`origin/HEAD` is the real answer and is often simply absent - it is only set by
+`clone`, and a repo added as a second remote or fetched into never gets one -
+so the usual names are tried after it. `nothing` when none of them exists, which
+is a refusal to guess rather than a fallback to the whole history: with no base
+every commit on the branch counts, and the guard would pass for anything.
+"""
+function default_base(path::AbstractString)
+    try
+        r = strip(git(path, "symbolic-ref", "--short", "--quiet", "refs/remotes/origin/HEAD"))
+        isempty(r) || return String(r)
+    catch
+    end
+    for c in ("origin/master", "origin/main", "master", "main")
+        has_rev(path, c) && return c
+    end
+    nothing
+end
+
+"""The strings that mean *you* to git, for matching a commit's authorship.
+
+Git identity is per checkout and has nothing to do with the GitHub login, so
+both go in: `user.email` and `user.name` from the repo itself, plus the login
+and the address GitHub hands out for it. The login is matched as a *substring*
+of an email, which is what makes `1234567+login@users.noreply.github.com` count.
+"""
+function git_ids(path::AbstractString, login::AbstractString = "")
+    ids = String[]
+    for k in ("user.email", "user.name")
+        try
+            v = strip(git(path, "config", "--get", k))
+            isempty(v) || push!(ids, String(v))
+        catch
+        end
+    end
+    isempty(login) || append!(ids, [String(login), string(login, "@users.noreply.github.com")])
+    unique(lowercase.(ids))
+end
+
+"""Is any commit on `branch`, but not on its base, yours?
+
+Authored or co-authored: a commit you wrote with someone else is still work you
+did, and the trailer is the only record of that. Bounded at `limit` commits,
+because this runs on a keystroke and a branch that far from its base is not one
+you are about to be surprised to own.
+
+False when the base cannot be found, when git fails, or when there is nothing on
+the branch at all - every uncertainty refuses, because this only ever *grants*
+adoption automatically and the explicit route is always still there.
+"""
+function mine_on_branch(path::AbstractString, branch::AbstractString, ids;
+                        base = nothing, limit::Int = 200)
+    (isempty(branch) || isempty(ids)) && return false
+    b = base === nothing ? default_base(path) : base
+    b === nothing && return false
+    out = try
+        git(path, "log", "-n", string(limit), "--format=%an%x1f%ae%x1f%b%x1e",
+            string(b, "..", branch))
+    catch
+        return false
+    end
+    for rec in split(out, '\x1e'; keepempty = false)
+        fs = split(rec, '\x1f')
+        length(fs) >= 2 || continue
+        name, email = lowercase(strip(fs[1])), lowercase(strip(fs[2]))
+        any(i -> i == name || occursin(i, email), ids) && return true
+        length(fs) >= 3 || continue
+        for l in split(fs[3], '\n')
+            startswith(lowercase(strip(l)), "co-authored-by:") || continue
+            any(i -> occursin(i, lowercase(l)), ids) && return true
+        end
+    end
+    false
 end

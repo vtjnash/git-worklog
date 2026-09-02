@@ -519,6 +519,8 @@ mutable struct WorktreeView <: View
     pending::Union{Nothing,Task}    # the dirty pass, which is the slow half
     wake::Any
     onitem::Any                     # (Item) -> String, supplied by the browser
+    onadopt::Any                    # (repo, branch, take::Bool) -> String
+    source::Any                     # () -> Vector{Item}, re-read on every reload
 end
 
 """Open the list, without having walked a single tree yet.
@@ -528,17 +530,24 @@ of the survey that is not instant, and a list you cannot see yet is worse than
 one whose last column arrives a moment late - so the first pass skips it and a
 background pass fills it in.
 """
-function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing)
+function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing,
+                       onadopt = nothing, source = nothing)
     rows, brows = place_rows(items; withdirty = false)
     v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1,
                      isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
-                     nothing, wake, onitem)
+                     nothing, wake, onitem, onadopt, source)
     dirty_pass!(v)
     v
 end
 
-"Re-read what is running and what git says, and walk the trees again."
+"""Re-read what is running and what git says, and walk the trees again.
+
+The items are re-read too, not just the git side: adopting a branch *creates* an
+item, and a view labelling its rows from the snapshot it opened with would go on
+saying the branch has none.
+"""
 function worktree_reload!(v::WorktreeView)
+    v.source === nothing || (v.items = v.source())
     v.rows, v.brows = place_rows(v.items; withdirty = false)
     v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
     v.bsel = clamp(v.bsel, 1, max(1, length(v.brows)))
@@ -735,11 +744,19 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
                         r.item === nothing ? "" : r.item.ref,
                         r.item === nothing ? "" : string(r.item.number),
                         title, ctrl, kind, (_, _) -> cmd)
+    length(ctrl.stack) > n || return out
     # The same rule the item keys follow: starting work on something is what
-    # the clock records, and a worktree with a pull request is that pull
-    # request. One with none has nowhere to record it yet - that is what the
-    # synthetic items in the plan are for.
-    length(ctrl.stack) > n && r.item !== nothing && touch!(r.item.url)
+    # the clock records.
+    r.item === nothing || touch!(r.item.url)
+    # Working in something is a deliberate enough act to claim it - but only
+    # your own work. `gh pr checkout` leaves other people's branches in your
+    # checkout, and opening a terminal in one must not quietly take it.
+    if r.item === nothing && !isempty(r.branch) && v.onadopt !== nothing &&
+       get_field(localurl(r.repo, r.branch), "adopted") === nothing &&
+       mine_on_branch(r.path, r.branch, git_ids(r.path, login()))
+        took = v.onadopt(r.repo, r.branch, true)
+        isempty(took) || (out = string(out, " \u00b7 ", took))
+    end
     out
 end
 
@@ -750,6 +767,28 @@ function currow(v::WorktreeView)
     else
         isempty(v.rows) ? nothing : v.rows[clamp(v.sel, 1, length(v.rows))]
     end
+end
+
+"""Claim the row's branch as yours, or give it back.
+
+A toggle, and always allowed: `a` is asking for it, which is the deliberate act
+the guard on the automatic route exists to require. A branch that already has a
+pull request is refused - it is an item already, and a second one keyed on the
+branch would be the same work listed twice.
+"""
+function adopt_row(v::WorktreeView, r)
+    v.onadopt === nothing && return "nowhere to record that from here"
+    r isa WorktreeRow && r.orphan && return "that worktree is gone"
+    branch = r isa BranchRow ? r.name : r.branch
+    isempty(branch) && return "a detached head has no branch to adopt"
+    repo = r.repo
+    isempty(repo) && return "no repo for this row"
+    if r.item !== nothing && r.item.is_pr
+        return string(r.item.ref, " is a pull request already")
+    end
+    # Asked of `state.toml` and not of the row: the file is the record of what
+    # has been adopted, and the row is a picture of it from a moment ago.
+    v.onadopt(repo, branch, get_field(localurl(repo, branch), "adopted") === nothing)
 end
 
 """Go to the item on this row, which means leaving: the list underneath is
@@ -808,6 +847,11 @@ function handle!(v::WorktreeView, k::Int, ctrl)
         end
     elseif k == Int('i')
         return goto_item(v, r.item)
+    elseif k == Int('a')
+        v.status = adopt_row(v, r)
+        # The row's item is what changed, so the lists have to be rebuilt for
+        # it to show - or to stop showing.
+        worktree_reload!(v)
     elseif k == Int('K')
         if r isa BranchRow
             v.status = "nothing runs on a branch — tab to its worktree"
