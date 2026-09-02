@@ -53,14 +53,6 @@ end
 mux_name(worktree, branch, it::Item, kind::Symbol = :shell) =
     mux_name(basename(rstrip(String(worktree), '/')), branch, string(it.number), kind)
 
-"""Quote one argument for the shell tmux will hand the command to.
-
-`mux_start` passes its command as a single argument so that tmux gives the whole
-thing to `sh`, which means anything interpolated into it has to survive a shell.
-An agent prompt is a sentence someone typed, so it will contain quotes sooner
-rather than later.
-"""
-shquote(s::AbstractString) = string("'", replace(s, "'" => "'\\''"), "'")
 
 """Run a multiplexer command, returning `(ok, output)`.
 

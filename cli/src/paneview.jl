@@ -27,6 +27,7 @@ mutable struct PaneView <: View
     frame::Vector{String}
     sized::Tuple{Int,Int}          # what the child was last told it had
     status::String
+    pending::Bool                  # the prefix has been seen, its key has not
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -45,7 +46,7 @@ pane that never explains itself.
 function pane_view(name::AbstractString, title::AbstractString, ctrl)
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
-    PaneView(String(name), String(title), c, String[], (0, 0), "")
+    PaneView(String(name), String(title), c, String[], (0, 0), "", false)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -81,7 +82,7 @@ function render(v::PaneView, w::Int, h::Int)
     elseif v.client === nothing
         string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
     else
-        string(v.name, " \u00b7 ^] to leave it running \u00b7 a full screen")
+        string(v.name, " \u00b7 ^] tab to leave it running \u00b7 ^] a full screen")
     end
     rows = vcat(body, [string("\e[2m", afit(note, w), "\e[0m")])
     # Exactly `h` rows of exactly `w` columns, like every other view: the frame
@@ -92,35 +93,79 @@ function render(v::PaneView, w::Int, h::Int)
     join([apad(r, w) for r in rows[1:h]], "\n")
 end
 
-"""The one key this view keeps: Ctrl-] leaves the pane.
+"""Ctrl-] is the prefix, and the only key this view keeps.
 
-Everything else belongs to the child, Escape and Ctrl-C included, so the way
-out cannot be a key any program would want. Ctrl-] is telnet's, for the same
-reason, and almost nothing binds it.
+Everything else belongs to the child, Escape and Ctrl-C included, so the way in
+cannot be a key a program would want. Ctrl-] is telnet's, for the same reason,
+and almost nothing binds it.
 
-Leaving is not ending. The session runs on and the same program is still there
-next time, which is the whole reason for putting the child in a session rather
-than running it as a child process of this one.
+It has to be a prefix and not simply an escape. With every key forwarded, a
+lone escape key leaves no way to reach anything else the view can do - killing
+the session, going full screen - which were reachable only after the child had
+already died. One prefix gives all of them back.
+
+`Tab` under it leaves the pane, since `tab` is already what moves between panes
+in the browser. `Tab` itself is not the prefix: it is the most-pressed key in a
+shell, and completion would cost two presses for the rest of time.
 """
-const PANE_ESCAPE = 0x1d
+const PANE_PREFIX = 0x1d
+
+"""One key after the prefix. Returns `:pop`, `:literal` to send the prefix
+through to the child, or `:ok`."""
+function pane_command!(v::PaneView, b::UInt8, ctrl)
+    if b == UInt8('\t') || b == UInt8('q')
+        mux_close(v.client)
+        :pop
+    elseif b == UInt8('K')
+        mux_close(v.client)
+        mux_kill(v.name)
+        :pop
+    elseif b == UInt8('a')
+        mux_attach(v.name, ctrl)
+        pane_sync!(v)
+        :ok
+    elseif b == UInt8('r')
+        pane_sync!(v)
+        :ok
+    elseif b == PANE_PREFIX || b == UInt8(']')
+        :literal
+    else
+        v.status = "^] then tab leave \u00b7 K kill \u00b7 a full screen \u00b7 r reread \u00b7 ] literal"
+        :ok
+    end
+end
 
 wantsraw(v::PaneView) = v.client !== nothing
 
 """Bytes as typed, straight through to the child.
 
 No key is named and no sequence is interpreted on the way, so this is the same
-amount of code whether the child is a shell, `vi` or something that has not
-been written yet.
+amount of code whether the child is a shell, `vi` or something not yet written.
+The prefix is the one byte read rather than forwarded, and it is tracked across
+bursts: it can arrive alone, or ahead of its key in the same read.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     v.client === nothing && return :pop
-    # Only alone: a lone Ctrl-] is someone leaving, the same byte inside a
-    # longer burst is a paste or a sequence and is the child's.
-    if length(bytes) == 1 && bytes[1] == PANE_ESCAPE
-        mux_close(v.client)
-        return :pop
+    out = UInt8[]
+    flush!() = (isempty(out) || (mux_keys(v.client, out); empty!(out)))
+    for b in bytes
+        if v.pending
+            v.pending = false
+            act = begin
+                # Anything typed before the prefix goes first: the child should
+                # see the order it was typed in, whatever the prefix then does.
+                flush!()
+                pane_command!(v, b, ctrl)
+            end
+            act === :pop && return :pop
+            act === :literal && push!(out, PANE_PREFIX)
+        elseif b == PANE_PREFIX
+            v.pending = true
+        else
+            push!(out, b)
+        end
     end
-    mux_keys(v.client, bytes)
+    flush!()
     :ok
 end
 

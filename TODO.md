@@ -479,10 +479,16 @@ The stages, each of which stands on its own:
    - **Proven by driving `vi`**: `G`, `o`, text, a literal escape byte and
      `:wq\r` went through as bytes and the file on disk changed. Nothing in the
      browser named a key or parsed a sequence.
-   - **Ctrl-] is the way out**, and only alone. Everything else belongs to the
-     child, Escape and Ctrl-C included, so the way out cannot be a key a program
-     would want; the same byte inside a longer burst is a paste or a sequence
-     and stays the child's. Leaving is not ending — the session runs on.
+   - **Ctrl-] is a prefix, not an escape.** Everything else belongs to the
+     child, Escape and Ctrl-C included, so the way in cannot be a key a program
+     would want. It had to become a prefix because an escape key alone left
+     everything else the view can do — killing the session, going full screen —
+     reachable only after the child had died, which was a hole. `^] tab` leaves
+     (the browser already uses `tab` to change pane), `^] K` ends it, `^] a`
+     goes full screen, `^] r` re-reads, `^] ]` sends a literal Ctrl-].
+   - **`tab` itself is not the prefix.** It is the most-pressed key in a shell
+     and completion would cost two presses for the rest of time; checked that a
+     literal tab still reaches `vi` through the pane.
    - `readraw` blocks for one byte, then takes what has already arrived. That
      draining never waits, so it cannot hang the way polling for input would,
      and it is what keeps a sequence together and in order.
@@ -505,9 +511,22 @@ The stages, each of which stands on its own:
      half a day: an agent that had written a diff or a draft had "nowhere to
      put it". It has somewhere — press `T` and read it, and type the reply
      there. The pane is not a display of the agent, it is the agent, and input
-     in it is as user-driven as input anywhere else. A key that lifted a
-     selection into the composer would be a second, worse route to a thing the
-     pane already does.
+     in it is as user-driven as input anywhere else.
+   - **Starting one needs nothing either.** `T` required an `agent_task` and
+     refused without one, which made the agent reachable only through a field
+     the workflow has no reason to fill in — it exists to pull an item into the
+     `needs-agents` bucket — and left `T` refusing to connect to a session
+     sitting right there. Now it just connects.
+   - **Nothing is said to the agent on the way in.** Not the task, and not the
+     checkout: an agent already reads its working directory and branch from its
+     own system prompt, so anything added would be a second, staler copy of
+     what it can see. Staler matters here because a system prompt survives
+     `/clear` — checked, not assumed — so it would outlive every correction
+     made from inside, on a session that gets pointed at a different item.
+   - The three things it is actually for — `/review`, reading a buildkite log,
+     making the edit — are all typed in the pane, and none of them want to be
+     preceded by a reply to a preamble.
+
 4b. **The session list. Done 2026-09-02.** `"` opens a `SessionView` over
    every `wl-` session: what kind it is, which item it belongs to, what is
    running in it, and whether anyone is attached. `\u21b5` opens one in a pane,
@@ -553,6 +572,16 @@ The stages, each of which stands on its own:
    - Sessions are matched in Julia rather than with a tmux filter expression: a
      path can contain the characters a format string is made of, and a comma in
      a checkout's name would otherwise quietly match nothing.
+
+4d. **Next: drop `agent_task`, and give the notes a place instead.** Nothing
+   launches from it any more, so what is left is a `state.toml` field whose
+   only remaining job is to force an item into the `needs-agents` bucket. That
+   bucket, `wl agent`, the `agent` block in the metadata pane and the
+   `refresh.jl` rule all go with it. What people actually want that field for
+   is somewhere to keep a prompt they are drafting, which is a private note and
+   not a piece of workflow state — so a notes editor, on the `note` field that
+   already exists, is the replacement. Not started; it changes the dashboard's
+   buckets, so it wants doing deliberately.
 
 5. **Offer it upstream.** Only after it has carried `vi` and an agent for a
    while, and only backend-shaped rather than tmux-shaped. On Windows `psmux`

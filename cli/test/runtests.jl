@@ -1286,15 +1286,41 @@ end
         @test read(tmp, String) == "first line\ntyped through the pane\n"
         @test W.mux_alive(n) === false            # vi quit, so the session ended
 
-        # Ctrl-] alone leaves; the same byte inside a burst is the child's.
+        # Ctrl-] is a prefix, not an escape: with every other key forwarded it
+        # is the only way left to reach anything this view can do.
         n2 = "wl-test-raw-2"
         W.mux_kill(n2)
         W.mux_start(n2, pwd(), "sh -c 'sleep 120'")
         v2 = W.pane_view(n2, "sh", ctrl)
-        @test W.onraw!(v2, UInt8[0x61, W.PANE_ESCAPE, 0x62], ctrl) === :ok
-        @test W.onraw!(v2, UInt8[W.PANE_ESCAPE], ctrl) === :pop
+
+        # Alone it commits to nothing and waits for its key, which may arrive
+        # in the same read or the next one.
+        @test W.onraw!(v2, UInt8[W.PANE_PREFIX], ctrl) === :ok
+        @test v2.pending === true
+        @test W.onraw!(v2, UInt8[UInt8('r')], ctrl) === :ok     # reread
+        @test v2.pending === false
+
+        # Doubled, it is a literal Ctrl-] for the child, and the pane stays.
+        @test W.onraw!(v2, [W.PANE_PREFIX, W.PANE_PREFIX], ctrl) === :ok
+
+        # A prefix inside a burst still only takes the byte after it; what came
+        # before is the child's and is sent first.
+        @test W.onraw!(v2, UInt8[0x61, W.PANE_PREFIX, UInt8('r'), 0x62], ctrl) === :ok
+        sleep(0.4)
+        @test occursin("ab", join(W.mux_capture(v2.client; escapes = false)))
+
+        # An unknown key after the prefix says what the prefix takes.
+        W.onraw!(v2, [W.PANE_PREFIX, UInt8('Z')], ctrl)
+        @test occursin("kill", v2.status)
+
+        # tab leaves it running; the browser already uses tab to change pane.
+        @test W.onraw!(v2, [W.PANE_PREFIX, UInt8('\t')], ctrl) === :pop
         @test W.mux_alive(n2) === true             # left running, not killed
-        W.mux_kill(n2)
+
+        # K is the one that ends it.
+        v3 = W.pane_view(n2, "sh", ctrl)
+        @test W.onraw!(v3, [W.PANE_PREFIX, UInt8('K')], ctrl) === :pop
+        @test W.mux_alive(n2) === false
     end
 end
 
@@ -1303,19 +1329,14 @@ end
     # are two slots, distinguished by kind rather than by anything in the name.
     @test W.mux_name("julia", "master", "62841", :agent) == "wl-julia-master-62841-agent"
 
-    # The task is a sentence someone typed and it is interpolated into a
-    # command a shell will read, so it has to survive one.
-    tricky = "it's \"quoted\" \$HOME and `x`"
-    @test read(`sh -c $("printf %s " * W.shquote(tricky))`, String) == tricky
-
     st = W.BState(W.loaditems(), "worklog", Set{String}())
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[1]
 
-    # An item with no agent task has nothing to run, and says so rather than
-    # starting an agent with an empty prompt.
+    # An agent needs nothing set up: no task, and nothing said to it on the
+    # way in. An unregistered repo is the only thing that stops it.
     bare = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))..., agent = "")
-    @test W.open_agent(bare, ctrl) == "no agent task - set one with `wl agent`"
+    @test W.open_agent(bare, ctrl) === :needs_repo
 
     # The metadata pane reports a session from the cached list, never by asking
     # for one per frame: `render` is pure and listing them costs a process.

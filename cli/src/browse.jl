@@ -2538,14 +2538,14 @@ re-tagged with it.
 
 What differs is only what gets run when there is nothing there yet.
 """
-function enter_session(it::Item, ctrl, kind::Symbol, cmd::AbstractString)
+function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return "no tmux on PATH"
     target, branch = item_checkout(it)
     target === nothing && return :needs_repo
     found = mux_find(target, kind)
     name = mux_name(target, branch, it, kind)
     if found === nothing
-        ok, err = mux_start(name, target, cmd)
+        ok, err = mux_start(name, target, mkcmd(target, branch))
         ok || return err
     else
         mux_rename(found.name, name)
@@ -2567,23 +2567,24 @@ function enter_session(it::Item, ctrl, kind::Symbol, cmd::AbstractString)
     end
 end
 
-"""Run an agent on this item, in its worktree, and watch it work.
+"""Open an agent on this item's worktree, and watch it work.
 
-The task is the `agent_task` already on the item - what `wl agent <ref> "..."`
-wrote and what put the item in the `needs-agents` bucket. Until now that text
-was a note to yourself; this is the thing that runs it.
+Nothing has to be set up first, and nothing is said to it on the way in.
+Requiring an `agent_task` made the agent reachable only through a field the
+workflow has no reason to fill in - it exists to pull an item into the
+`needs-agents` bucket - and left `T` refusing to connect to a session sitting
+right there. Starting one is immediate, and what it should do is said in the
+pane.
 
-Refusing without one is deliberate: `T` means run my task, and there is nothing
-to run. Watching an agent that is already busy in that worktree is what the
-session list is for.
+The checkout is not described to it either. An agent already reads its working
+directory and the branch there from its own system prompt, so anything added
+here would be a second, staler copy of what it can see - and a system prompt
+survives `/clear`, so a stale copy would outlive every correction made from
+inside.
 """
 function open_agent(it::Item, ctrl)
-    isempty(it.agent) && return "no agent task - set one with `wl agent`"
     Sys.which("claude") === nothing && return "`claude` is not on PATH"
-    # The item, so the agent does not have to be told twice what it is working
-    # on, and the task exactly as it was written.
-    prompt = string(it.repo, "#", it.number, " - ", it.url, "\n\n", it.agent)
-    enter_session(it, ctrl, :agent, string("claude ", shquote(prompt)))
+    enter_session(it, ctrl, :agent, (_, _) -> "claude")
 end
 
 """Open a shell on this item's checkout, in its worktree's session, and show it.
@@ -2592,7 +2593,7 @@ Leaving the pane is not ending it: come back to the same checkout and the same
 shell is still there, with whatever was half-typed still on the line.
 """
 open_terminal(it::Item, ctrl) =
-    enter_session(it, ctrl, :shell, get(ENV, "SHELL", "/bin/sh"))
+    enter_session(it, ctrl, :shell, (_, _) -> get(ENV, "SHELL", "/bin/sh"))
 
 # --- CI checks --------------------------------------------------------------
 
