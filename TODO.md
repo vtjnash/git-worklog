@@ -54,7 +54,8 @@ requests or both.
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
-request, and `a` adopts a local branch as work of yours. Inside a hosted
+request, and `a` adopts a local branch as work of yours. Its one-character
+columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside a hosted
 pane every key belongs to the child except the prefix
 `^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
 re-reads, `^]]` sends a literal `^]`.

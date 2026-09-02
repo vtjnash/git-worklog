@@ -1522,6 +1522,19 @@ end
         # The row says which pull request the work in it is.
         @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
 
+        # `san` and `+*` are as much as a three-column header can say, so the
+        # legend under the list says the rest - and stays there.
+        for (w, h) in ((80, 24), (165, 50))
+            leg = W.astrip(W.render(v, w, h))
+            @test occursin("s shell", leg) && occursin("a agent", leg)
+            @test occursin("n note", leg) && occursin("* unstaged", leg)
+        end
+        # It is not the status line: a message does not take it away.
+        v.status = "something happened"
+        shown = W.astrip(W.render(v, 165, 24))
+        @test occursin("s shell", shown) && occursin("something happened", shown)
+        v.status = ""
+
         # The tip date is drawn where there is room for it, and dropped where
         # taking eleven columns would cost the title instead.
         wide = W.astrip(W.render(v, 165, 24))
@@ -2141,6 +2154,10 @@ end
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
         @test occursin("branches", W.astrip(W.render(v, 120, 24)))
+        # The branch list has marks of its own, so it has a legend of its own.
+        blegend = W.astrip(W.render(v, 120, 24))
+        @test occursin("checked out somewhere", blegend)
+        @test !occursin("s shell", blegend)
         @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
 
         # Each lens keeps its own cursor, so `tab` returns to where you were.

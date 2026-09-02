@@ -715,12 +715,28 @@ function list_header(branches::Bool, iw::Int)
     string("\e[2m", afit(line, iw), "\e[0m")
 end
 
+"""What the one-character columns mean, spelled out.
+
+The marks have to be one character wide - three session slots in three columns
+is what lets a row show every repo, branch and pull request beside them - so the
+header can only name the column, and `san` is not something anyone guesses. This
+is the other half of it, and it stays on screen: a key you have to already know
+to ask for is no better than no key at all.
+
+Per mode, because the two lists share no marks: `\u25cf` is the whole difference
+the branch list draws, and none of the session or change marks appear in it.
+"""
+list_legend(branches::Bool) = branches ?
+    "\u25cf checked out somewhere \u00b7 \u00b1upstream is +ahead/-behind" :
+    "s shell \u00b7 a agent \u00b7 n note (green: attached) \u00b7 + staged \u00b7 * unstaged"
+
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather
     # than hunting for where each one starts.
     iw = w - 4
-    # The pane's border, the footer row, and the header that names the columns.
-    inner = max(1, h - 4)
+    # The pane's border, the legend and status rows under it, and the header
+    # that names the columns.
+    inner = max(1, h - 5)
     branches = v.mode === :branches
     n = branches ? length(v.brows) : length(v.rows)
     sel, top, win = listwindow(n, branches ? v.bsel : v.sel,
@@ -738,8 +754,9 @@ function render(v::WorktreeView, w::Int, h::Int)
         "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
     keys = branches ? "↵ its worktree, or make one · i item · tab worktrees · r refresh · q back" :
                       "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
-    rows = vcat(pane(body, w, h - 1, branches ? "branches" : "worktrees", true),
-                [string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
+    rows = vcat(pane(body, w, h - 2, branches ? "branches" : "worktrees", true),
+                [string("\e[2m", afit(list_legend(branches), w), "\e[0m"),
+                 string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
     while length(rows) < h
         push!(rows, "")
     end
