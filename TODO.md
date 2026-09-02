@@ -459,6 +459,42 @@ note left it — revisit only if team mentions start mattering.
 only piece that touches how items leave the lanes — which is what an adopted
 branch that came to nothing needs in order to go.
 
+### Repo hygiene: what is tracked, and what the skill is for
+
+Recorded 2026-09-02, with the findings; each is a decision rather than a task.
+
+**`DASHBOARD.md` is machine-owned and committed anyway.** `refresh` overwrites
+it every run, so every refresh dirties the tree and it has to be swept into
+whatever commit is being made — 24 commits touch it and 9 of those changed
+nothing else. Its only consumer is the `dash` skill, which reads it to triage,
+plus a human with no TTY. `wl show` covers the second case now and the browser
+covers the first, so the question is whether the *history* of it is still worth
+having: the `.gitignore` comment says `facts.json` is ignored precisely so that
+`DASHBOARD.md` diffs stay legible, which was the record of what changed back
+when a rendered file was the whole product. Either commit to that (and say so)
+or gitignore it like every other machine file.
+
+**`snooze.json` is tracked and `read.json`, `touched.json` and `inbox.json` are
+not.** Both ownership tables call all four machine-owned. That is a plain
+inconsistency, and the one-line fix is to ignore it — but check first whether
+its armed fingerprints are worth carrying between checkouts, since losing them
+re-arms every on-change snooze from scratch.
+
+**The root `Project.toml` and `Manifest.toml` look vestigial.** They declare
+only `Term`, which is already a dependency of `cli/Project.toml`, and both
+`cli/bin/wl` and `cli/bin/refresh` run with `--project=cli`. Nothing found that
+uses the root environment. Probably left from the port; delete after confirming
+no ad-hoc `julia --project=.` workflow depends on it.
+
+**`skills/dash/SKILL.md` predates the browser.** It points at
+`/root/.claude/worklog`, which is not where the checkout is any more, and
+describes a workflow where an agent reads `DASHBOARD.md` and edits `state.toml`
+through `wl`. Nothing in it knows about the browser, the worktree and branch
+lists, adoption, archive or the incremental inbox. Decide what the skill is
+*for* now: triage that an agent should still do on its own (in which case
+rewrite it around `wl next` and the lanes), or nothing, in which case delete it
+and let the CLI be the interface.
+
 ### Ignoring forks in an owner glob
 
 Recorded 2026-09-02. `vtjnash/*` is 100 repos, 82 of them forks, and activity on
