@@ -329,19 +329,8 @@ shipped are not listed; `git log` is the record of those.
 
 ## Outstanding work
 
-### Left over from "where the work is"
-
-That plan shipped whole — the interaction clock, the git survey, the worktree
-and branch lists, adoption, the two lanes and archive. `git log` is the record.
-These are the pieces of it that did not get built.
-
-- **Ignoring forks in an owner glob.** `vtjnash/*` is 100 repos, 82 of them
-  forks, and activity on a fork of someone else's project is usually not
-  activity you want. It would not save a request — a glob is two searches
-  whatever the repo count, and issue search has no fork qualifier, so filtering
-  means listing the owner's repos (one more call, cacheable for a day) and
-  dropping items whose repo is a fork. A noise control, not a cost one, and
-  today it would filter nothing: `vtjnash/*` returns zero items in a month.
+Everything "where the work is" left behind has now shipped; `git log` is the
+record of it.
 
 ### A filter axis you can search, and an author axis at all
 

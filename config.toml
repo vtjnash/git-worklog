@@ -86,6 +86,12 @@ repos = [
   "vtjnash/*",
   "libuv/*",
 ]
+# A glob skips the owner's forks: 171 of the repos under `vtjnash/*` are forks of
+# other people's projects, where an issue somebody filed is not work of yours. It costs one repo listing per owner per day, and a repo the
+# listing does not mention keeps its items - this only hides things, so anything
+# unknown is kept. Set true to see them; a fork you do want is better named
+# outright above, which is never filtered.
+include_forks = false
 # How far back a source starts the *first* time it is seen. 0 is inbox zero:
 # turning one on brings nothing with it, and everything after that is caught by
 # the cursor. Only ever used once per source; after that `inbox.json` says where

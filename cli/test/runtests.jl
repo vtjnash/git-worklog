@@ -1772,6 +1772,28 @@ end
     @test E.item_repo(Dict("repository_url" => "https://api.github.com/repos/a/b")) == "a/b"
     @test E.item_repo(Dict{String,Any}()) == ""
 
+    # And a glob is where a fork arrives, so a glob is where one is dropped:
+    # eighty-two of vtjnash's hundred repos are forks of other people's work.
+    row(r) = Dict{String,Any}("repository_url" => "https://api.github.com/repos/$r")
+    rows = [row("o/mine"), row("o/theirs"), row("o/also")]
+    @test length(E.drop_forks(rows, Set(["o/theirs"]))) == 2
+    @test E.item_repo(E.drop_forks(rows, Set(["o/theirs"]))[2]) == "o/also"
+    # Nothing known to be a fork is nothing dropped, and the rows come back as
+    # they were rather than as a copy.
+    @test E.drop_forks(rows, Set{String}()) === rows
+
+    # The listing is one request a day, and unknown is not a fork: a repo the
+    # listing does not mention keeps its items, because this only hides things.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        W.cache_put("forks:o", ["o/theirs"])
+        @test E.owner_forks("o") == Set(["o/theirs"])       # read, not fetched
+        @test !("o/mine" in E.owner_forks("o"))
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+
     # The inbox is incremental: a cursor per source, and what has been seen and
     # not yet read. A source seen for the first time starts at now, so turning
     # one on is inbox zero rather than a month of history to dismiss.

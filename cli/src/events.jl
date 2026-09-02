@@ -179,12 +179,51 @@ statement of what is tracked.
 """
 subscriptions() = sort!([String(r["full_name"]) for r in api_paged("/user/subscriptions")])
 
+"""Repos of `owner` that are forks of somebody else's project.
+
+Issue search has no fork qualifier, so telling them apart takes a listing of the
+owner's repos - one request, cached for a day, since repos are created about
+that often. It is not a saving either way: a glob is two searches whatever the
+repo count. It is a noise control, and `vtjnash/*` is a hundred repos of which
+eighty-two are forks, where an issue somebody filed on a fork of their own
+project is not work of yours.
+
+**Unknown is not a fork.** A listing that fails, a repo private to the owner, a
+repo created since the entry was cached - all of them keep their items. This
+only ever hides things, and a noise control that guesses wrong hides work.
+"""
+function owner_forks(owner::AbstractString)
+    key = string("forks:", owner)
+    hit = cache_get(key, 86_400.0)
+    hit === nothing || return Set{String}(String(x) for x in hit[1])
+    out = String[]
+    try
+        for r in api_paged("/users/$owner/repos";
+                           params = Dict{String,Any}("type" => "owner"))
+            get(r, "fork", false) === true && push!(out, String(r["full_name"]))
+        end
+    catch e
+        e isa ApiError || rethrow()
+        return Set{String}()      # not cached: unknown now is not unknown forever
+    end
+    cache_put(key, out)
+    Set{String}(out)
+end
+
 "`owner/name` out of a search result, which names the repo only by its API url."
 function item_repo(r)
     u = String(get(r, "repository_url", ""))
     p = split(u, "/repos/")
     length(p) < 2 ? "" : String(p[end])
 end
+
+"""Drop the search results that came from a fork.
+
+Off the item and not off the source, the same way the repo is: a glob covers
+many repos and only the row knows which one it came from.
+"""
+drop_forks(rows, forks::Set{String}) =
+    isempty(forks) ? rows : [r for r in rows if !(item_repo(r) in forks)]
 
 load_read() = isfile(readfile()) ?
     Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(readfile(), String))) :
@@ -307,13 +346,22 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
             params = Dict{String,Any}("since" => since, "state" => "all",
                                       "sort" => "updated", "direction" => "asc"))))
     end
+    # A fork of somebody else's project is usually not somewhere your work is,
+    # and a glob is where they arrive - a repo named by hand was meant. Looked
+    # up inside the closure, so it is paid only by a source that actually polls.
+    keep_forks = get(cfge, "include_forks", false) === true
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (string(owner, "/* ", kind), since -> begin
             its, total = search_issues("user:$owner $kind updated:>$since")
             total >= 1000 && @printf(stderr,
                 "    %-24s truncated at 1000 of %d - poll more often\n",
                 string(owner, "/*"), total)
-            its
+            keep_forks && return its
+            kept = drop_forks(its, owner_forks(owner))
+            length(kept) == length(its) ||
+                @printf(stderr, "    %-24s %d on forks skipped\n",
+                        string(owner, "/*"), length(its) - length(kept))
+            kept
         end))
     end
 
