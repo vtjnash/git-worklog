@@ -3,13 +3,12 @@
 #
 # Keys are the item URL. Every field is optional:
 #
-#   bucket     = "needs-agents"     # force a lane; otherwise derived from facts
+#   bucket     = "needs-review"      # force a lane; otherwise derived from facts
 #   snooze     = "on-change"        # hide until the PR actually moves
 #   snooze     = "2026-09-15"       # or hide until a date
 #   deadline   = "2026-09-30"       # your own deadline (milestone due dates come from GitHub)
 #   note       = "one line: what the next action actually is"
 #   blocked_on = ["JuliaLang/julia#62396"]
-#   agent_task = "rebase and rerun Compiler tests"   # promotes into needs-agents
 
 ["https://github.com/JuliaCI/Nanosoldier.jl/pull/187"]
 snooze = "on-change"

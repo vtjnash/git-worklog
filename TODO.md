@@ -163,6 +163,88 @@ shipped are not listed; `git log` is the record of those.
 
 ## Outstanding work
 
+### Three views of the work — worktrees, interactions, and what is mine
+
+Three lists that the browser cannot show today. They are one piece of work
+because two of the three want the same two things underneath, and building
+either one twice would be the mistake.
+
+**What has to exist first.**
+
+1. **An interaction clock.** `touched.json`, machine-owned and gitignored,
+   `url -> ISO8601` — the same shape as `read.json`, which is the precedent for
+   a per-item timestamp the refresh does not own.
+
+   The point is what does *not* write to it. Opening an item, changing mode,
+   scrolling and searching are looking, and looking must not reorder the list
+   you are looking at — a list that reshuffles as you read it is unusable.
+   What writes: a comment (`C`), a review (`A`), a label (`L`), a note (`v`),
+   a snooze (`s`), a bucket or field set from `wl`, and opening a shell or an
+   agent on it (`t`, `T`) — that last because starting work on something is
+   the strongest signal there is, and it is exactly what a viewing-based clock
+   would miss.
+
+   `z` already restores everything else an action did, so it restores the
+   previous timestamp too.
+
+2. **A local git survey.** `repos.jl` has `worktrees(path)`; what is missing is
+   every repo in `repos.toml` at once, and per worktree: the branch, whether it
+   is dirty, ahead/behind its upstream, the last commit date, and the item for
+   its branch if there is one.
+
+   That last mapping is the enabling change and it belongs in `gh.jl`: the
+   GraphQL lanes should fetch `headRefName` for every pull request, so
+   `facts.json` already carries branch → item. Asking per item with `gh pr
+   view`, which is what `pr_branch` does now, is one process per row and
+   hopeless for a list.
+
+**Then the three lists.**
+
+**A. Worktrees, by name.** Not a list of items but a list of directories, so it
+is its own `View`, the same shape as the session list: a key to open it, `↵` to
+act, `q` to leave. Per row: the worktree, its repo, its branch, whether it is
+clean, the item if its branch has one — and whether a session is running in it,
+which `mux_list()` already knows because sessions are keyed by worktree. That
+last column is free and is the answer to "what was I doing in there".
+
+**B. Everything touched, by when.** Two small things once `touched.json`
+exists: a state in `STATES` beside `active`/`unread`/`snoozed`/`backlog`/`all`
+for "things I have acted on", and a *sort* by that timestamp. Sorting is not a
+filter axis and should not be squeezed into `Filters` — it is orthogonal to
+every one of them, so it wants its own control and its own key.
+
+**C. What is mine, by when.** The one with real design in it. `git br` sorts by
+recency and knows nothing about pull requests; `gh pr status` knows about pull
+requests and sorts by number, which is arrival order and never what you want.
+This wants both halves: everything with an open pull request of mine, *plus*
+every branch of mine that has no pull request yet, sorted by last interaction
+and falling back to last commit date — which is what `git br` sorts by, and the
+right answer for a branch nothing has happened to yet.
+
+The hard part is that a branch without a pull request is not an item, and the
+list is a list of items. The proposal is to give it a synthetic one, keyed
+`local:<worktree>#<branch>`, because every per-item mechanism here is keyed by
+url: notes, snoozes, the interaction clock and the buckets all start working on
+unlanded work for free, which is the thing neither `git br` nor `gh pr status`
+can do.
+
+**Decisions to settle before building any of it.**
+
+- **Does read/unread count as an interaction?** It changes remote state, which
+  argues yes, but it is what you do *while* reading, which argues no. Proposed:
+  no, on the grounds that the whole value of this list is that reading does not
+  disturb it.
+- **Where does the git survey run** — during `wl refresh`, or lazily in the
+  browser? Worktrees change under you while the browser is open, and a refresh
+  is not frequent enough to notice. Proposed: lazily, on the async path
+  `load_meta!` established, cached with a short TTL.
+- **Do PR-less branches become synthetic items?** Proposed yes, as above. The
+  alternative is folding list C into the worktree view, which is less code and
+  gives up notes and history on exactly the work that has none yet.
+- **Which branches are "mine"?** Every local branch is a candidate; most are
+  not interesting. Proposed: branches with an upstream on a fork you can push
+  to, or with commits authored by you, rather than every branch that exists.
+
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
