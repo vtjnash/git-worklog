@@ -408,6 +408,17 @@ Three things have to be built, and only the third is a real design problem.
   reader consults and a `RawEvent` beside `KeyEvent`, plus one key held back as
   the escape hatch, since every other key now belongs to the child.
 
+**Where this stands, 2026-09-02.** Stages 0 through 3 are built and in use,
+and so is the agent on top of them (4), the session list (4b), worktree
+identity (4c), reading beside the child (4e), surviving a bug (4f), the real
+cursor and the mouse (4g). Two of those came out of a live session rather than
+a test: an uncaught error used to end the run, and a two-line footer message
+scrolled the screen and put every mouse click two rows out.
+
+**Not started: 4d**, dropping `agent_task` and giving the notes somewhere to
+live. It is the only stage of this plan that has not been begun. **5**, offering
+it upstream, is deliberately still gated.
+
 The stages, each of which stands on its own:
 
 0. **Full-screen handoff, no widget. Done 2026-09-02.** `mux.jl` holds the
@@ -625,6 +636,12 @@ The stages, each of which stands on its own:
      — names — into a field that had become what `mux_list()` returns. Every
      test set `st.sessions` by hand, so none of them ever ran the fetch. There
      is now one that does.
+   - **The markdown failure goes to the log too**, and `MD_WARN` is gone with
+     it. A footer had room for the first sentence of a `showerror` — long
+     enough to say a `MethodError` had happened and not which method, and gone
+     again at the next status. The log keeps the backtrace and the standing
+     warning keeps pointing at it, which is what "the reason has to be visible"
+     was always after.
    - **The child's cursor has to be drawn.** `capture-pane` returns the grid and
      says nothing about the cursor, and the real one is hidden for the whole
      run, so a scraped child had none at all. `mux_cursor` asks for it and

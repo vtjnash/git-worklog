@@ -16,7 +16,6 @@ using Term: Panel, apply_style
 import Markdown
 
 "Last markdown failure, surfaced in the footer rather than swallowed."
-const MD_WARN = Ref("")
 
 "A foldable block - a comment, the issue body, or one file of a diff."
 mutable struct Node
@@ -558,7 +557,10 @@ already consumed the markup.
 
 A bad comment must not take the pane down, but the reason has to be visible:
 swallowing it once hid that markdown was not rendering at all, for want of an
-`import Term`.
+`import Term`. It goes to `errors.log` rather than the footer, which only ever
+had room for the first sentence - long enough to say a `MethodError` had
+happened and not which method, and gone again on the next status. The log keeps
+the backtrace, and the standing warning keeps pointing at it.
 """
 function render_md(body::AbstractString, w::Int)
     try
@@ -566,7 +568,7 @@ function render_md(body::AbstractString, w::Int)
                 untable(Markdown.parse(escape_source(body))); width = max(20, w))))
         style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
-        MD_WARN[] = oneline(first(sprint(showerror, e), 120))
+        logerror!(e, catch_backtrace(), "render_md")
         String(body)          # the raw text; this path bypasses Term entirely
     end
 end
@@ -1330,8 +1332,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # `oneline` is not belt and braces: a status set from an exception carries
     # whatever newlines `showerror` put in it, and one of those in a one-row
     # field makes the frame taller than the screen.
-    msg = oneline(!isempty(errnote()) ? errnote() :
-                  !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status)
+    msg = oneline(isempty(errnote()) ? st.status : errnote())
     foot1 = string(AD, afit(keys1, w), AR)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,

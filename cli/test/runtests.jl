@@ -1592,25 +1592,26 @@ end
     # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
     # own recursion passes `inline` to whatever is inside a list or a quote. One
     # table in one bullet used to drop the whole comment back to raw text.
+    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    empty!(W.ERRSEEN)
     for src in ("| a | b |\n|---|---|\n| 1 | 2 |\n",
                 "- point\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n",
                 "> | a | b |\n> |---|---|\n> | 1 | 2 |\n",
                 "- a\n    - b\n\n      | x | y |\n      |---|---|\n      | 1 | 2 |\n")
-        W.MD_WARN[] = ""
         out = W.render_md(src, 60)
-        @test isempty(W.MD_WARN[])
         @test occursin("a", out) || occursin("x", out)
     end
+    # A failure now goes to the log, with its backtrace, rather than a sentence
+    # in the footer that had room only to say a MethodError had happened.
+    @test !isfile(W.ERRLOG)
 
     # A table at the top level is left where it is, because Term renders it
     # properly there - box drawing and all.
-    W.MD_WARN[] = ""
     @test occursin("\u2500", W.render_md("| a | b |\n|---|---|\n| 1 | 2 |\n", 60))
 
     # Nested, it keeps every cell.
     nested = W.render_md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
-    W.MD_WARN[] = ""
 end
 
 @testset "cursor and mouse, against a live child" begin
@@ -1698,11 +1699,4 @@ end
     end
     st.status = ""
 
-    # The same for the markdown warning, which is where this came from.
-    W.MD_WARN[] = sprint(showerror, MethodError(sin, ("a", "b")))
-    @test !occursin('\n', W.MD_WARN[]) || true      # set directly, not via render_md
-    W.MD_WARN[] = W.oneline(W.MD_WARN[])
-    ls = split(W.render(st, 120, 40), "\n")
-    @test length(ls) == 40
-    W.MD_WARN[] = ""
 end
