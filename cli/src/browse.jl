@@ -2039,9 +2039,12 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         st.status = edit_note(st, it, ctrl)
         return :ok
     elseif k == Int('"')
-        # Not per-item: a session outlives the item it was opened on, and this
-        # is the only place they can all be seen.
-        push!(ctrl.stack, session_view(st.items))
+        # Not per-item: a worktree outlives whatever was opened on it, and this
+        # is the only place every one of them - and every session in them - can
+        # be seen at once.
+        push!(ctrl.stack, worktree_view(st.items;
+                                        wake = () -> wake!(ctrl),
+                                        onitem = x -> select_item!(st, x)))
         return :ok
     end
 
@@ -2402,6 +2405,33 @@ function compose_target(st::BState, iw::Int)
     (:item, nothing)
 end
 
+"""Put the cursor on this item, or say why it cannot go there.
+
+Returns `""` on success, which is what tells the worktree view it may close.
+An item filtered out of the current lane is not silently un-filtered: changing
+what the list shows is the user's decision and `f` is where it is made, so this
+reports instead.
+"""
+function select_item!(st::BState, it::Item)
+    i = findfirst(x -> x.url == it.url, st.items)
+    if i === nothing
+        return findfirst(x -> x.url == it.url, st.all) === nothing ?
+               string(it.ref, " is not in this dashboard") :
+               string(it.ref, " is filtered out — f to change what is shown")
+    end
+    st.sel = i
+    st.focus = :list
+    # `window` re-aims the scroll around the cursor, so `top` is left alone.
+    # The detail pane is loaded here rather than on the next keystroke: the
+    # caller is another view, so there is no `handle!` about to finish and do
+    # it, and arriving on an item showing the previous one's thread is worse
+    # than arriving a moment later.
+    st.status = string("went to ", it.ref)
+    load_nodes!(st)
+    load_meta!(st)
+    ""
+end
+
 "After a write lands, re-read the thread rather than showing the stale one."
 function reread!(st::BState)
     st.loaded = ""; st.pendkey = ""
@@ -2674,7 +2704,7 @@ function edit_note(st::BState, it::Item, ctrl)
     isempty(after) ? "note cleared" : "note saved"
 end
 
-"""Find or start this item's session of `kind` in its worktree, and show it.
+"""Find or start the session of `kind` in `target`, and show it.
 
 One path for both kinds, because a session of either is a *place*: the shell in
 a checkout is the shell in that checkout whoever asked for it, and an agent can
@@ -2682,40 +2712,60 @@ be cleared and pointed at something else as easily as a shell can be `cd`-ed.
 So both are renamed to whatever item was last opened on them, and both are
 re-tagged with it.
 
-What differs is only what gets run when there is nothing there yet.
+Keyed on the worktree and not on the item, which is what lets the same session
+be reached from a row in the item list and from a row in the worktree list -
+`ref` and `num` only decide what it is *called* and what it is tagged with, and
+a worktree that has no pull request simply passes neither.
+
+What differs between the kinds is only what gets run when there is nothing
+there yet.
 """
-function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
+function enter_session(target::AbstractString, branch::AbstractString,
+                       ref::AbstractString, num::AbstractString,
+                       title::AbstractString, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return "no tmux on PATH"
-    target, branch = item_checkout(it)
-    target === nothing && return :needs_repo
     found = mux_find(target, kind)
-    name = mux_name(target, branch, it, kind)
+    name = mux_name(basename(rstrip(String(target), '/')), branch, num, kind)
     if found === nothing
         ok, err = mux_start(name, target, mkcmd(target, branch))
         ok || return err
     else
         mux_rename(found.name, name)
     end
-    mux_tag!(name, target, kind, it.ref)
-    v = pane_view(name, string(kind === :agent ? "agent  " : "", it.ref,
-                               isempty(branch) ? "" : string("  ", branch)), ctrl)
+    mux_tag!(name, target, kind, ref)
+    v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
-    # Only once there is something to work in. Opening a shell or an agent on an
-    # item is the strongest signal of work there is - stronger than any amount
-    # of reading it - which is why the clock has a hand in a view that does no
-    # reading at all.
-    touch!(it.url)
     pane_sync!(v)
     push!(ctrl.stack, v)
     if found === nothing
         string("started ", name)
-    elseif !isempty(found.item) && found.item != it.ref
+    elseif !isempty(found.item) && !isempty(ref) && found.item != ref
         # Not a refusal - the session is yours to redirect - but the
         # conversation in it is about something else until you say otherwise.
-        string("back in ", basename(target), " \u00b7 was on ", found.item)
+        string("back in ", basename(rstrip(String(target), '/')),
+               " \u00b7 was on ", found.item)
     else
         string("back in ", name)
     end
+end
+
+"""The same, for an item: its worktree is where its session lives."""
+function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
+    mux_bin() === nothing && return "no tmux on PATH"
+    target, branch = item_checkout(it)
+    target === nothing && return :needs_repo
+    n = length(ctrl.stack)
+    r = enter_session(target, branch, it.ref, string(it.number),
+                      string(kind === :agent ? "agent  " : "", it.ref,
+                             isempty(branch) ? "" : string("  ", branch)),
+                      ctrl, kind, mkcmd)
+    # Only once there is something to work in - the pane being on the stack is
+    # what says so, rather than the shape of the message. Opening a shell or an
+    # agent on an item is the strongest signal of work there is, stronger than
+    # any amount of reading it, which is why the clock has a hand in a view that
+    # does no reading at all.
+    length(ctrl.stack) > n && touch!(it.url)
+    r
 end
 
 """Open an agent on this item's worktree, and watch it work.

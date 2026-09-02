@@ -1400,55 +1400,143 @@ end
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
 end
 
-@testset "the session list" begin
+@testset "worktrees, with the sessions folded in" begin
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true
 
-    if W.mux_bin() === nothing
-        @info "no tmux; skipping the live session list test"
-    else
-        it = items[1]
-        wt = mktempdir()
-        shell = W.mux_name(wt, "master", string(it.number))
-        agent = W.mux_name(wt, "master", string(it.number), :agent)
-        for (n, kind) in ((shell, :shell), (agent, :agent))
-            W.mux_kill(n)
-            W.mux_start(n, wt, "sleep 120")
-            W.mux_tag!(n, wt, kind, it.ref)
-        end
-        v = W.session_view(items)
-        names = [r.name for r in v.rows]
-        @test shell in names && agent in names
+    # A repo with two worktrees, one of them on a branch that has a pull
+    # request in the real facts.json - which is the join this view is for.
+    # Taken from what the browser is actually showing, since `i` goes to the
+    # row in that list and an item outside it is a different case, tested below.
+    shown = W.BState(items, "worklog", Set{String}())
+    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+    root = mktempdir()
+    main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a.txt"), "one\n")
+    W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
+    side = joinpath(root, "side")
+    W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
 
-        # A session is shown as the item it was tagged with, not as anything
-        # parsed out of its name, and as the worktree it is actually in.
-        row = v.rows[findfirst(==(agent), names)]
-        @test row.kind === :agent
-        @test occursin(it.ref, row.label)
-        @test row.where == basename(wt)
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    try
+        W.register_repo!(pr.repo, main)
+        rows = W.worktree_rows(items)
+        byname = Dict(r.name => r for r in rows)
+        @test sort(collect(keys(byname))) == ["main", "side"]
+        @test byname["main"].main && !byname["side"].main
+        # The branch carries its pull request, and the one with no branch of
+        # its own carries none.
+        @test byname["side"].item !== nothing && byname["side"].item.url == pr.url
+        @test byname["main"].item === nothing
+        @test all(isempty(r.sessions) for r in rows)
 
-        for (w, h) in ((80, 24), (120, 40))
+        v = W.worktree_view(items)
+        @test length(v.rows) == 2
+        for (w, h) in ((80, 24), (120, 40), (165, 50))
             ls = split(W.render(v, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
+        # The row says which pull request the work in it is.
+        @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
 
-        # Killing what the selection points at, and only that.
-        v.sel = findfirst(==(agent), names)
-        before = length(v.rows)
-        W.handle!(v, Int('K'), ctrl)
-        @test W.mux_alive(agent) === false
-        @test length(v.rows) == before - 1
-        @test W.mux_alive(shell) === true
+        # Dirty arrives behind the list rather than holding it up: the first
+        # pass skips the tree walk entirely.
+        @test all(!r.dirty for r in W.worktree_rows(items; withdirty = false))
+        write(joinpath(main, "a.txt"), "two\n")
+        v2 = W.worktree_view(items)
+        @test all(!r.dirty for r in v2.rows)          # not walked yet
+        wait(v2.pending)
+        @test W.onwake!(v2)
+        @test W.worktree_rows(items)[1].dirty         # and now it is known
+        @test any(r.dirty for r in v2.rows)
+        @test !W.onwake!(v2)                          # nothing left pending
+        W.git(main, "checkout", "--quiet", "--", "a.txt")
 
-        @test W.handle!(v, Int('q'), ctrl) === :pop
-        W.mux_kill(shell)
+        # `i` leaves for the item, and reports rather than moving when the
+        # list underneath is not showing it.
+        st = W.BState(items, "worklog", Set{String}())
+        v3 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
+        v3.sel = findfirst(r -> r.name == "side", v3.rows)
+        @test W.handle!(v3, Int('i'), ctrl) === :pop
+        @test st.items[st.sel].url == pr.url
+        v3.sel = findfirst(r -> r.name == "main", v3.rows)
+        @test W.handle!(v3, Int('i'), ctrl) === :ok
+        @test occursin("no pull request", v3.status)
+        # Filtered out is a message, not a silent change of what is shown.
+        st2 = W.BState(items, "worklog", Set{String}())
+        st2.items = [x for x in st2.items if x.url != pr.url]
+        v4 = W.worktree_view(items; onitem = x -> W.select_item!(st2, x))
+        v4.sel = findfirst(r -> r.name == "side", v4.rows)
+        @test W.handle!(v4, Int('i'), ctrl) === :ok
+        @test occursin("filtered out", v4.status)
+
+        if W.mux_bin() === nothing
+            @info "no tmux; skipping the live worktree session test"
+        else
+            # A session is a column of the worktree it is in, not a list of its
+            # own: starting one from the row puts it on that row.
+            v5 = W.worktree_view(items)
+            v5.sel = findfirst(r -> r.name == "side", v5.rows)
+            @test isempty(v5.rows[v5.sel].sessions)
+            W.handle!(v5, Int('t'), ctrl)
+            @test last(ctrl.stack) isa W.PaneView
+            pop!(ctrl.stack)
+            row = v5.rows[findfirst(r -> r.name == "side", v5.rows)]
+            @test length(row.sessions) == 1 && row.sessions[1].kind === :shell
+            @test occursin("s", W.astrip(W.render(v5, 165, 24)))
+            # And the same worktree reached from its item is the same session,
+            # because a session is keyed by where it is and not by what asked.
+            n = length(W.mux_list())
+            W.open_terminal(pr, ctrl)
+            pop!(ctrl.stack)
+            @test length(W.mux_list()) == n
+
+            # `K` ends what is running on the row, and nothing else.
+            W.handle!(v5, Int('K'), ctrl)
+            @test isempty(v5.rows[findfirst(r -> r.name == "side", v5.rows)].sessions)
+            @test occursin("ended", v5.status)
+            W.handle!(v5, Int('K'), ctrl)
+            @test occursin("nothing running", v5.status)
+
+            # A session whose worktree has gone is an orphan row rather than a
+            # hidden one: it is still holding a process, and K is still how to
+            # be rid of it.
+            gone = mktempdir()
+            name = W.mux_name(basename(gone), "master", "", :shell)
+            W.mux_start(name, gone, "sleep 120")
+            W.mux_tag!(name, gone, :shell, "")
+            rm(gone; recursive = true)
+            v6 = W.worktree_view(items)
+            orph = findfirst(r -> r.orphan, v6.rows)
+            @test orph !== nothing && v6.rows[orph].name == basename(gone)
+            @test occursin("gone", W.astrip(W.render(v6, 120, 24)))
+            v6.sel = orph
+            # Nothing can be started in a directory that is not there.
+            W.handle!(v6, Int('t'), ctrl)
+            @test occursin("gone", v6.status)
+            W.handle!(v6, Int('K'), ctrl)
+            @test W.mux_alive(name) === false
+        end
+
+        @test W.handle!(W.worktree_view(items), Int('q'), ctrl) === :pop
+    finally
+        W.REPOS_FILE[] = ""
     end
 
-    # With nothing running the view still renders, and says so.
-    empty = W.SessionView(items, W.SessionRow[], 1, "")
-    ls = split(W.render(empty, 80, 24), "\n")
-    @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
-    @test occursin("nothing running", join(ls, "\n"))
+    # With nothing registered the view still renders, and says so.
+    W.REPOS_FILE[] = joinpath(mktempdir(), "none.toml")
+    try
+        v = W.worktree_view(items)
+        @test isempty(v.rows)
+        ls = split(W.render(v, 80, 24), "\n")
+        @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+        @test occursin("no worktrees", join(ls, "\n"))
+    finally
+        W.REPOS_FILE[] = ""
+    end
 end
 
 @testset "reading beside the child" begin

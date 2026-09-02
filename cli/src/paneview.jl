@@ -336,13 +336,20 @@ function handle!(v::PaneView, k::Int, ctrl)
     :ok
 end
 
-# --- every session at once --------------------------------------------------
+# --- where the work is ------------------------------------------------------
 #
 # A session outlives the view of it, which is the point, and the cost of that is
-# that they accumulate somewhere you cannot see. This is the somewhere: what is
-# running, on which item, and how to get back into it or be rid of it.
+# that they accumulate somewhere you cannot see. This used to be a list of them.
+#
+# But a session is *keyed by its worktree*, so every one already belongs to
+# exactly one checkout: they were never a list of their own, they were a column
+# of a list nobody had written yet. So this is that list - every worktree of
+# every registered repo, what is checked out in it, whether it is dirty, the
+# pull request its branch belongs to if there is one, and which sessions are
+# live in it. `"` still opens it, and everything the session list could do is
+# still done here, on the row the session is part of.
 
-"""One row of the session list.
+"""One session, as the worktree row it belongs to sees it.
 
 The item comes from the session's own `@wl_item` tag rather than from anything
 read out of its name. A name is a label that changes - a shell gets renamed to
@@ -358,6 +365,41 @@ struct SessionRow
     label::String            # the item's title, or what could be recovered
 end
 
+"""One place work can happen, and what is happening in it.
+
+`orphan` is a session whose worktree has since been deleted. It is a row rather
+than a hidden entry, because a session nothing can reach is exactly the thing
+you would want told about - it is still holding a process, and `K` is still how
+to be rid of it.
+"""
+struct WorktreeRow
+    repo::String
+    path::String
+    name::String                    # the worktree's stem, as it is referred to
+    branch::String                  # "" on a detached head
+    dirty::Bool
+    ahead::Int
+    behind::Int
+    at::String                      # its branch's tip date
+    main::Bool
+    orphan::Bool
+    item::Union{Nothing,Item}       # the pull request its branch belongs to
+    sessions::Vector{SessionRow}
+end
+
+"""Compare two worktree paths the way the filesystem does.
+
+tmux was told the path `item_checkout` chose and git reports its own; those are
+the same directory reached two ways, and a symlink anywhere above them makes the
+strings differ. Matching on the string alone turned every session in a linked
+worktree into an orphan.
+"""
+wtkey(p) = try
+    realpath(String(p))
+catch
+    String(rstrip(String(p), '/'))
+end
+
 function session_rows(items::Vector{Item})
     byref = Dict(it.ref => it for it in items)
     rows = SessionRow[]
@@ -371,58 +413,208 @@ function session_rows(items::Vector{Item})
     rows
 end
 
-"""The list of running sessions, as a view.
+"""Every worktree, with its sessions folded in.
 
-Held as a snapshot rather than re-read per frame: `render` is pure, and asking
-tmux costs a process. `r` re-reads it, and so does anything here that changes
-what is running.
+`withdirty` decides whether the one part that walks a tree runs. The view opens
+without it and fills it in behind, so a checkout the size of julia costs the
+list nothing on the way up.
 """
-mutable struct SessionView <: View
+function worktree_rows(items::Vector{Item}; withdirty::Bool = true)
+    ix = branch_index(items)
+    byref = Dict(it.ref => it for it in items)
+    live = Dict{String,Vector{SessionRow}}()
+    for r in mux_list()
+        it = get(byref, r.item, nothing)
+        label = it !== nothing ? string(it.ref, "  ", it.title) :
+                !isempty(r.item) ? r.item : r.name
+        k = isempty(r.worktree) ? "" : wtkey(r.worktree)
+        push!(get!(live, k, SessionRow[]),
+              SessionRow(r.name, r.kind, r.command, r.attached,
+                         isempty(r.worktree) ? "" : basename(rstrip(r.worktree, '/')), label))
+    end
+    ws, _ = survey(; withdirty = withdirty)
+    rows = WorktreeRow[]
+    for w in ws
+        k = wtkey(w.path)
+        push!(rows, WorktreeRow(w.repo, w.path, basename(rstrip(w.path, '/')), w.branch,
+                                w.dirty, w.ahead, w.behind, w.at, w.main, false,
+                                get(ix, (w.repo, w.branch), nothing),
+                                sort!(pop!(live, k, SessionRow[]); by = r -> r.kind)))
+    end
+    # By repo and then by name, which is an order that does not move under you.
+    # The primary checkout leads its repo: it is the one every other worktree of
+    # it was made from, and the one a fallback lands in.
+    sort!(rows; by = r -> (r.repo, !r.main, r.name))
+    # Whatever is left over is running somewhere that is no longer there.
+    for (k, ss) in sort(collect(live); by = first)
+        isempty(k) && continue
+        push!(rows, WorktreeRow("", k, basename(rstrip(k, '/')), "", false, 0, 0, "",
+                                false, true, nothing, sort!(ss; by = r -> r.kind)))
+    end
+    rows
+end
+
+"""Every worktree of every registered repo, as a view.
+
+Held as a snapshot rather than re-read per frame: `render` is pure, and both
+halves of this - listing sessions and asking git - cost processes. `r` re-reads
+it, and so does anything here that changes what is running.
+"""
+mutable struct WorktreeView <: View
     items::Vector{Item}
-    rows::Vector{SessionRow}
+    rows::Vector{WorktreeRow}
     sel::Int
+    top::Int
     status::String
+    pending::Union{Nothing,Task}    # the dirty pass, which is the slow half
+    wake::Any
+    onitem::Any                     # (Item) -> String, supplied by the browser
 end
 
-function session_view(items::Vector{Item})
-    rows = session_rows(items)
-    SessionView(items, rows, 1, isempty(rows) ? "nothing running" : "")
+"""Open the list, without having walked a single tree yet.
+
+The rows are built twice on purpose. `git status` per worktree is the only part
+of the survey that is not instant, and a list you cannot see yet is worse than
+one whose last column arrives a moment late - so the first pass skips it and a
+background pass fills it in.
+"""
+function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing)
+    rows = worktree_rows(items; withdirty = false)
+    v = WorktreeView(items, rows, 1, 1,
+                     isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
+                     nothing, wake, onitem)
+    dirty_pass!(v)
+    v
 end
 
-session_reload!(v::SessionView) =
-    (v.rows = session_rows(v.items); v.sel = clamp(v.sel, 1, max(1, length(v.rows))); true)
+"Re-read what is running and what git says, and walk the trees again."
+function worktree_reload!(v::WorktreeView)
+    v.rows = worktree_rows(v.items; withdirty = false)
+    v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
+    dirty_pass!(v)
+    true
+end
 
-function render(v::SessionView, w::Int, h::Int)
-    # Fixed columns, so the eye can run down the kind and the command rather
+"""Work out which worktrees are dirty, off the key loop.
+
+Only the dirty bits are taken from the result. Anything else could have changed
+under it - a session started, a branch switched - and re-adopting a whole row
+from a snapshot taken before the last keystroke would undo what that keystroke
+did.
+"""
+function dirty_pass!(v::WorktreeView)
+    v.pending === nothing || return
+    paths = [r.path for r in v.rows if !r.orphan]
+    isempty(paths) && return
+    v.pending = @async begin
+        r = try
+            Dict(p => dirty(p) for p in paths)
+        catch
+            Dict{String,Bool}()
+        finally
+            v.wake === nothing || v.wake()
+        end
+        r
+    end
+end
+
+function onwake!(v::WorktreeView)
+    v.pending === nothing && return false
+    istaskdone(v.pending) || return false
+    d = try
+        fetch(v.pending)
+    catch
+        Dict{String,Bool}()
+    end
+    v.pending = nothing
+    isempty(d) && return false
+    v.rows = [haskey(d, r.path) && d[r.path] != r.dirty ?
+              WorktreeRow(r.repo, r.path, r.name, r.branch, d[r.path], r.ahead, r.behind,
+                          r.at, r.main, r.orphan, r.item, r.sessions) : r
+              for r in v.rows]
+    true
+end
+
+"The two session slots of one row: a shell and an agent, each present or not."
+function session_marks(r::WorktreeRow)
+    out = ""
+    for (kind, ch) in ((:shell, 's'), (:agent, 'a'))
+        i = findfirst(x -> x.kind === kind, r.sessions)
+        out *= i === nothing ? " " :
+               r.sessions[i].attached ? string("\e[32m", ch, "\e[0m") :
+                                        string("\e[2m", ch, "\e[0m")
+    end
+    out
+end
+
+"`+2/-1` against upstream, or nothing to say."
+function track_mark(r::WorktreeRow)
+    r.ahead == 0 && r.behind == 0 && return ""
+    string(r.ahead > 0 ? string("+", r.ahead) : "",
+           r.behind > 0 ? string(r.ahead > 0 ? "/" : "", "-", r.behind) : "")
+end
+
+function render(v::WorktreeView, w::Int, h::Int)
+    # Fixed columns, so the eye can run down the branch and the marks rather
     # than hunting for where each one starts.
     iw = w - 4
-    cw = 10
-    ww = 14
-    lw = max(10, iw - 5 - 1 - 1 - 1 - ww - 1 - cw - 1)
+    nw = 18
+    bw = 22
+    lw = max(12, iw - 2 - 1 - 1 - 1 - nw - 1 - bw - 1 - 5 - 1)
+    inner = h - 3          # the pane's border, plus the footer row
+    v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
+    v.top = clamp(v.top, 1, max(1, length(v.rows)))
+    v.sel < v.top && (v.top = v.sel)
+    v.sel >= v.top + inner && (v.top = v.sel - inner + 1)
     body = String[]
-    for (i, r) in enumerate(v.rows)
-        mark = r.kind === :agent ? string("\e[35m", rpad("agent", 5), "\e[0m") :
-                                   string("\e[2m", rpad("shell", 5), "\e[0m")
-        line = string(mark, " ", r.attached ? "\e[32m\u25cf\e[0m" : " ", " ",
-                      apad(afit(r.label, lw), lw), " ",
-                      "\e[36m", apad(afit(r.where, ww), ww), "\e[0m ",
-                      "\e[2m", afit(r.command, cw), "\e[0m")
-        # `hlrow` rather than a background in front: it puts the colour back
-        # after every reset in the row, so the highlight covers the whole line
-        # without flattening what is coloured in it.
+    for i in v.top:min(length(v.rows), v.top + inner - 1)
+        r = v.rows[i]
+        label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
+                r.orphan ? "\e[31mworktree is gone\e[0m" :
+                isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
+        line = string(session_marks(r), " ",
+                      r.dirty ? "\e[33m*\e[0m" : " ", " ",
+                      apad(afit(r.name, nw), nw), " ",
+                      "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, bw), bw),
+                      "\e[0m ",
+                      "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
+                      apad(afit(label, lw), lw))
         push!(body, i == v.sel ? hlrow(apad(line, iw), SELBG) : line)
     end
-    isempty(body) && push!(body, "\e[2mnothing running — t or T on an item starts one\e[0m")
-    rows = vcat(pane(body, w, h - 1, "sessions", true),
+    isempty(body) &&
+        push!(body, "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
+    rows = vcat(pane(body, w, h - 1, "worktrees", true),
                 [string("\e[2m", afit(isempty(v.status) ?
-                    "↵ open · K kill · r refresh · q back" : v.status, w), "\e[0m")])
+                    "↵/t shell · T agent · i item · K kill · r refresh · q back" :
+                    v.status, w), "\e[0m")])
     while length(rows) < h
         push!(rows, "")
     end
     join([apad(x, w) for x in rows[1:h]], "\n")
 end
 
-function handle!(v::SessionView, k::Int, ctrl)
+"Open a session of `kind` on the row, which may have no item at all."
+function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
+    r.orphan && return "that worktree is gone; K removes what is left running"
+    kind === :agent && Sys.which("claude") === nothing && return "`claude` is not on PATH"
+    cmd = kind === :agent ? "claude" : get(ENV, "SHELL", "/bin/sh")
+    title = string(kind === :agent ? "agent  " : "",
+                   r.item === nothing ? r.name : r.item.ref,
+                   isempty(r.branch) ? "" : string("  ", r.branch))
+    n = length(ctrl.stack)
+    out = enter_session(r.path, r.branch,
+                        r.item === nothing ? "" : r.item.ref,
+                        r.item === nothing ? "" : string(r.item.number),
+                        title, ctrl, kind, (_, _) -> cmd)
+    # The same rule the item keys follow: starting work on something is what
+    # the clock records, and a worktree with a pull request is that pull
+    # request. One with none has nowhere to record it yet - that is what the
+    # synthetic items in the plan are for.
+    length(ctrl.stack) > n && r.item !== nothing && touch!(r.item.url)
+    out
+end
+
+function handle!(v::WorktreeView, k::Int, ctrl)
     n = length(v.rows)
     if k == Int('q') || k == 27
         return :pop
@@ -430,21 +622,42 @@ function handle!(v::SessionView, k::Int, ctrl)
         n > 0 && (v.sel = min(v.sel + 1, n))
     elseif k in (Int('k'), K_UP)
         n > 0 && (v.sel = max(v.sel - 1, 1))
+    elseif k in (Int('g'), K_HOME)
+        v.sel = 1
+    elseif k in (Int('G'), K_END)
+        v.sel = max(1, n)
     elseif k == Int('r')
-        session_reload!(v)
-    elseif n > 0 && (k == 13 || k == 10)
-        r = v.rows[v.sel]
-        pv = pane_view(r.name, r.label, ctrl)
-        if pv === nothing
-            v.status = "could not attach to " * r.name
-            session_reload!(v)
+        worktree_reload!(v)
+        v.status = ""
+    elseif n > 0 && (k == 13 || k == 10 || k == Int('t'))
+        v.status = row_session(v, v.rows[v.sel], ctrl, :shell)
+        worktree_reload!(v)
+    elseif n > 0 && k == Int('T')
+        v.status = row_session(v, v.rows[v.sel], ctrl, :agent)
+        worktree_reload!(v)
+    elseif n > 0 && k == Int('i')
+        # The item is one key away, as promised - and going to it means leaving,
+        # because it is the list underneath that shows it.
+        it = v.rows[v.sel].item
+        if it === nothing
+            v.status = "no pull request on this branch"
+        elseif v.onitem === nothing
+            v.status = "nowhere to show it from here"
         else
-            pane_sync!(pv)
-            push!(ctrl.stack, pv)
+            r = v.onitem(it)
+            r isa String && !isempty(r) ? (v.status = r) : return :pop
         end
     elseif n > 0 && k == Int('K')
-        mux_kill(v.rows[v.sel].name)
-        session_reload!(v)
+        r = v.rows[v.sel]
+        if isempty(r.sessions)
+            v.status = "nothing running here"
+        else
+            for s in r.sessions
+                mux_kill(s.name)
+            end
+            v.status = string("ended ", length(r.sessions), " in ", r.name)
+            worktree_reload!(v)
+        end
     end
     :ok
 end

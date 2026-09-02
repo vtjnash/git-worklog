@@ -15,7 +15,8 @@ diff.
 It also hosts programs. A tmux session per worktree can be opened on an item
 (`t` a shell, `T` an agent), drawn in a pane beside the thread and driven by
 forwarding the bytes you type, so the browser needs no model of what is running
-in it. `"` lists the sessions, `v` opens the item's note in `$EDITOR`.
+in it. `"` lists every worktree and what is running in each, `v` opens the
+item's note in `$EDITOR`.
 
 ### Where and how to run it
 The checkout is wherever the sandbox mounted it - it has been at
@@ -38,7 +39,8 @@ The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `z` undoes the last local action. `v` edits the note,
 `t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
-running. Inside a hosted pane every key belongs to the child except the prefix
+running, and `i` on one of those rows goes to its pull request. Inside a hosted
+pane every key belongs to the child except the prefix
 `^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
 re-reads, `^]]` sends a literal `^]`.
 
@@ -60,7 +62,7 @@ linked against a newer glibc.
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
 | `cli/src/repos.jl` | repo → local checkout mapping, the worktree/branch survey, `git show` |
 | `cli/src/mux.jl` | tmux sessions and the control-mode client |
-| `cli/src/paneview.jl` | a hosted program drawn in a pane; the session list |
+| `cli/src/paneview.jl` | a hosted program drawn in a pane; the worktree list |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
 
@@ -269,17 +271,17 @@ lists below are what they are for.
 
 **The lists.**
 
-**A. Worktrees, by name — and the session list folds into it.** A session is
-*keyed* by its worktree, so every session already belongs to exactly one
-worktree row. Sessions are therefore a column, not a list: the shipped
-`SessionView` becomes the worktree view with a running-sessions column, and `"`
-keeps its key. That is one view fewer than the plan started with, not one more.
+**A. Worktrees, by name — shipped.** `WorktreeView` in `paneview.jl`, on the
+`"` the session list used to have. A session is *keyed* by its worktree, so
+every one already belonged to exactly one worktree row: they are a column now,
+not a list, which left one view fewer rather than one more. `↵`/`t` and `T` open
+a shell and an agent on the row, `i` goes to its pull request, `K` ends what is
+running there, and a session whose worktree has been deleted is an orphan row
+rather than a hidden one.
 
-Per row: the worktree, its repo, its branch, clean or dirty, the item if its
-branch has one, and which sessions are live in it. `↵` attaches or starts the
-shell there, and the same row is where an agent is started; the item, if there
-is one, is one key away. A session whose worktree has since been deleted is an
-orphan row rather than a hidden one.
+Still missing from it: the last-commit date is collected but not drawn, there is
+no way to *make* a worktree from here, and the rows are not sortable — which is
+what list D wants and what `touched.json` is waiting for.
 
 **B. Branches, as a second lens on the same key.** Worktrees are places that
 exist; branches are work that exists without a place. `tab` switches between
@@ -324,11 +326,10 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** The worktree view is next — fold the session list into
-it, since a session is keyed by its worktree and every one already belongs to
-exactly one row. Then branches beside it, then adoption and the synthetic
-items, and archive last: it is the only piece that touches how items leave the
-lanes.
+**Order to build in.** Branches beside the worktree list is next — `tab`
+between them, against the `Branch` list `survey()` already returns. Then
+adoption and the synthetic items, and archive last: it is the only piece that
+touches how items leave the lanes.
 
 ### What review writing still cannot do
 
@@ -532,8 +533,9 @@ Kept here so they can be written up in one pass rather than rediscovered.
   otherwise falls back to the main clone. There is no way to pick a different
   one and no offer to create a worktree for the branch — and since a session is
   keyed by its worktree, that choice now decides which session you land in as
-  well as which files `e` opens. The worktree view in the plan above is where
-  this gets a control.
+  well as which files `e` opens. `"` is now where every worktree can be *seen*
+  and started in, which is half of it; what it still cannot do is create one,
+  or be the thing `t` on an item asks first.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does

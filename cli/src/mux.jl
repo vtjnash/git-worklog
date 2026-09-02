@@ -50,8 +50,6 @@ function mux_name(stem::AbstractString, branch::AbstractString,
     kind === :shell || push!(parts, String(kind))
     join(parts, '-')
 end
-mux_name(worktree, branch, it::Item, kind::Symbol = :shell) =
-    mux_name(basename(rstrip(String(worktree), '/')), branch, string(it.number), kind)
 
 
 """Run a multiplexer command, returning `(ok, output)`.
