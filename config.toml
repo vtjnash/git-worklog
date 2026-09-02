@@ -51,6 +51,17 @@ mentioned_pr    = "is:open is:pr mentions:vtjnash archived:false"
 mentioned_issue = "is:open is:issue mentions:vtjnash archived:false"
 commented_pr    = "is:open is:pr commenter:vtjnash archived:false"
 commented_issue = "is:open is:issue commenter:vtjnash archived:false"
+# Team mentions, which `mentions:` does not cover - it matches the user, not a
+# team they are on. `team:ORG/TEAM` is a real qualifier but needs a token with
+# org read, and returns nothing with an App installation token; searching for
+# the literal text needs no such thing and finds the same mentions in comments
+# as well as bodies. The lane name starts with `mentioned` on purpose: that is
+# what the bucketing rule keys on, so a team mention whose last word is not
+# yours becomes a needs-reply exactly like a personal one. Add teams with OR.
+# Two lanes and not one: a GraphQL search without `is:pr` or `is:issue` returns
+# zero, free text included, which is the same trap `assignee:` falls into.
+mentioned_team_pr    = "is:open is:pr in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
+mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 
 [backlog]
 # Default size of `wl next`, the pull-based backlog queue.

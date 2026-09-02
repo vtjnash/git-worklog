@@ -148,8 +148,11 @@ Do not "simplify" any of these away.
 **GitHub**
 1. `mergeable` is computed lazily — a cold read returns `UNKNOWN` and only
    schedules the work. Carry the last known value forward.
-2. GraphQL `search(type: ISSUE)` returns **0** for `assignee:` unless the query
-   also carries `is:issue` or `is:pr`.
+2. GraphQL `search(type: ISSUE)` returns **0** unless the query carries
+   `is:issue` or `is:pr`. Found on `assignee:`, and it is not about `assignee:`
+   at all — a free-text lane (`"@JuliaLang/compiler" in:body,comments`) returned
+   0 through GraphQL and 31 through REST search until `is:pr` was added. Every
+   lane must carry one, which is why the team-mention lanes are a pair.
 3. A search returning Issues against a fragment that only spreads
    `... on PullRequest` yields field-less `{__typename: "Issue"}` stubs, with no
    error.

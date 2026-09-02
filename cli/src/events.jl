@@ -169,6 +169,16 @@ function event_sources(repos)
     (explicit, owners, bad)
 end
 
+"""Every repo you watch on GitHub, as `owner/name`.
+
+Not a source, and deliberately: this prints a list to paste rather than feeding
+the events lane directly. A watch list is a record of what you were once
+interested in, and a repo you stopped caring about would come back on every
+refresh because you never got round to unwatching it. `config.toml` stays the
+statement of what is tracked.
+"""
+subscriptions() = sort!([String(r["full_name"]) for r in api_paged("/user/subscriptions")])
+
 "`owner/name` out of a search result, which names the repo only by its API url."
 function item_repo(r)
     u = String(get(r, "repository_url", ""))

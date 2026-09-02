@@ -14,6 +14,7 @@ Work dashboard.
   wl read    julia#62891                  mark a thread seen (or: read all)
   wl show    julia#62891                  state + the thread's recent comments
   wl next    [n]                          pull the next untagged backlog items
+  wl watching                             repos you watch, and which are tracked
   wl track   julia#62452 close            close | normal | loose | background
   wl dismiss julia#62452                  retire from the backlog until it moves
   wl snooze  julia#62452 on-change        or a date, or "off"
@@ -44,6 +45,25 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         end
         cfg = config()
         print(json_dumps(Events.unread(cfg, cfg["login"], at; verbose = false)))
+        return 0
+    end
+    if cmd == "watching"
+        cfg = config()
+        listed = get(get(cfg, "events", Dict{String,Any}()), "repos", String[])
+        explicit, owners, _ = Events.event_sources(listed)
+        subs = Events.subscriptions()
+        covers(r) = r in explicit ? "listed" :
+                    first(split(r, '/')) in owners ? "covered" : ""
+        untracked = [r for r in subs if isempty(covers(r))]
+        for r in subs
+            c = covers(r)
+            println(isempty(c) ? "  " : "# ", r, isempty(c) ? "" : "   ($c)")
+        end
+        @printf(stderr, "\n%d watched, %d already tracked, %d not.\n",
+                length(subs), length(subs) - length(untracked), length(untracked))
+        isempty(untracked) ||
+            println(stderr, "The unprefixed lines are the ones to paste into ",
+                    "[events].repos in config.toml.")
         return 0
     end
     if cmd == "thread"
