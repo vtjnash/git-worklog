@@ -637,6 +637,35 @@ The stages, each of which stands on its own:
      session rather than the cursor. A quoted *target* meanwhile succeeds and
      matches nothing. The two rules are opposite and both are silent.
 
+4g. **The real cursor, and the mouse. Done 2026-09-02.**
+   - **The cursor is the terminal's own, moved.** A painted block was the first
+     version and the wrong one: a real cursor blinks, takes whatever shape the
+     user chose, and cannot drift out of step with the frame. `viewcursor(v, w,
+     h)` is a `View` hook returning a screen position or `nothing`, and the
+     loop places it after printing - before, and drawing the frame would move
+     it again.
+   - **Mouse reports have to be translated, and gated.** This is the one thing
+     that cannot be forwarded untouched. A report arrives in screen
+     coordinates while the child owns a box inside that screen, so sent on
+     unchanged a click lands somewhere else and usually plausibly so. And
+     `send-keys` puts the bytes into the pane's pty as *input*, so tmux never
+     sees them as mouse events and its own `mouse` setting has no bearing at
+     all: a program that never asked for mouse reporting receives the escape
+     sequence and prints it. That is exactly the control characters that
+     appeared on screen. `mouse_any_flag` says whether the child asked;
+     `retarget_mouse` translates when it did and drops when it did not.
+   - Byobu was not the cause and syncing its config would not have helped:
+     `$TMUX` decides which server a tmux command talks to, so inside byobu
+     these sessions are created on byobu's own server and already inherit its
+     `set -g mouse on`.
+
+4h. **A one-row field must hold one row. Fixed 2026-09-02.** `showerror` puts a
+   newline in its message, and a two-line message in the footer made the frame
+   one row taller than the screen: the terminal scrolled and every mouse click
+   then reported a row that was no longer under it. `render_frame` clamps by
+   *element*, so an element holding a newline is two rows and the clamp never
+   sees it. `oneline` collapses them where such text is set.
+
 4d. **Next: drop `agent_task`, and give the notes a place instead.** Nothing
    launches from it any more, so what is left is a `state.toml` field whose
    only remaining job is to force an item into the `needs-agents` bucket. That
@@ -659,6 +688,17 @@ The stages, each of which stands on its own:
 
 
 ## Known gaps in what has shipped
+
+- **URL handling in the detail pane is inconsistent.** A comment's links
+  sometimes appear inline immediately before the following node's header rather
+  than where the text put them, so a header reads as
+  `https://…#issuecomment-372112478\u25be nalimilan  2018-03-11 …`. Reported
+  2026-09-02 from a real thread on julia#18004; the footnote rows and `linkify`
+  are the two things that touch this and it is not yet known which is wrong.
+- **Click-to-copy on a link is unconfirmed.** `y` copies and is known to work;
+  clicking a link to copy it may not, and may be the editor not acting on OSC 8
+  rather than anything here. Needs checking against a terminal that is known to
+  support OSC 8 clicks.
 
 - **Hunk context expands against the head commit.** Context around a `-` line
   therefore shows the post-change file, not the pre-change one. Fine for

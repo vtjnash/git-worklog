@@ -36,6 +36,17 @@ wrong. Such a view takes the stream as it arrived and passes it on.
 wantsraw(::View) = false
 onraw!(::View, ::Vector{UInt8}, ::Any) = :ok
 
+"""Where the real cursor belongs on screen, 1-based `(row, col)`, or `nothing`.
+
+The terminal's cursor is hidden for the whole run because most views draw their
+own - a block in a query line owes nothing to where the terminal thinks it is.
+A view hosting another program is the exception: the child has a real cursor,
+and putting the terminal's own there beats painting a facsimile, which cannot
+blink, ignores whatever shape the user chose, and is one more thing to keep in
+step with the frame.
+"""
+viewcursor(::View, ::Int, ::Int) = nothing
+
 struct KeyEvent
     code::Int
 end
@@ -361,7 +372,7 @@ const ERRSEEN = Set{UInt64}()
 
 """Record an error and carry on. Returns the one-line summary."""
 function logerror!(e, bt, what::AbstractString)
-    line = first(sprint(showerror, e), 200)
+    line = oneline(first(sprint(showerror, e), 200))
     key = hash((line, what))
     if !(key in ERRSEEN)
         push!(ERRSEEN, key)
@@ -464,6 +475,15 @@ function run!(ctrl::Controller, root::View)
             if dirty
                 h, w = displaysize(stdout)
                 print("\e[H", replace(safe_render(v, w, h), "\n" => "\e[K\n"), "\e[J")
+                # After the frame, or drawing it would move the cursor again.
+                cur = try
+                    viewcursor(v, w, h)
+                catch e
+                    logerror!(e, catch_backtrace(), "viewcursor")
+                    nothing
+                end
+                print(cur === nothing ? "\e[?25l" :
+                      string("\e[", cur[1], ";", cur[2], "H\e[?25h"))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does

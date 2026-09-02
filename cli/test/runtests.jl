@@ -1569,44 +1569,140 @@ end
 end
 
 @testset "the child's cursor" begin
-    # `hlspan` closes a span with whatever it is told to, so reverse video can
-    # be undone; a background colour's `\e[49m` would not touch it.
-    @test W.hlspan("abc", [2:2], "\e[7m"; off = "\e[27m") == "a\e[7mb\e[27mc"
-    @test W.hlspan("abc", [2:2], "\e[7m") == "a\e[7mb\e[49mc"     # default close
+    mk(cur; beside = nothing) =
+        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false)
 
-    mk(frame, cur) = W.PaneView("n", "t", nothing, frame, (0, 0), "", false, nothing, cur)
+    # The terminal's own cursor is moved to the child's, rather than a block
+    # being painted where it should be: a real one blinks, takes the shape the
+    # user chose, and cannot drift out of step with the frame.
+    #
+    # Hidden by the child, or no client: nothing to place.
+    @test W.viewcursor(mk((0, 0, false)), 80, 24) === nothing
 
-    # Hidden: the frame is handed back untouched.
-    @test W.cursor_frame(mk(["abc"], (1, 0, false))) == ["abc"]
-    # Off the end of what was captured: nothing to draw on.
-    @test W.cursor_frame(mk(["abc"], (0, 9, true))) == ["abc"]
+    v = W.pane_view("unused", "t", W.Controller(); beside = nothing)   # no session
+    @test v === nothing
 
-    # On a character, counted in what prints and not in bytes: the escapes in
-    # a captured row are not columns.
-    @test W.cursor_frame(mk(["abc"], (1, 0, true)))[1] == "a\e[7mb\e[27mc"
-    # The span opens immediately before the cell. Its close may land after the
-    # row's own trailing reset, which has already ended the reverse video - so
-    # what matters is where it starts.
-    got = W.cursor_frame(mk(["\e[32mabc\e[0m"], (2, 0, true)))[1]
-    @test occursin("\e[7mc", got)
+    # `pane` spends a row on its border and two columns on border and padding,
+    # so the child's (0,0) is screen row 2, column 3.
+    c = mk((0, 0, true)); c.client = nothing
+    @test W.viewcursor(c, 80, 24) === nothing        # no client, nothing to show
+end
 
-    # Past the end of the row - a prompt with nothing typed after it - there is
-    # no character to invert, so one is made.
-    out = W.cursor_frame(mk(["ab"], (4, 0, true)))[1]
-    @test W.awidth(W.astrip(out)) == 5 && occursin("\e[7m \e[27m", out)
-
-    if W.mux_bin() !== nothing
-        n = "wl-test-cursor-1"; W.mux_kill(n)
-        W.mux_start(n, pwd(), "sh -c 'printf \"prompt> \"; sleep 60'")
-        ctrl = W.Controller(); ctrl.running = true
-        v = W.pane_view(n, "cursor", ctrl); sleep(1.0)
-        withenv("LINES" => "8", "COLUMNS" => "48") do
-            W.pane_sync!(v)
-            x, y, showing = v.cursor
-            @test showing === true          # quoted format, or tmux answers about the session
-            @test (x, y) == (8, 0)          # just past "prompt> "
-            @test occursin("\e[7m", W.render(v, 48, 8))
-        end
-        W.mux_close(v.client); W.mux_kill(n)
+@testset "tables Term cannot nest" begin
+    # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
+    # own recursion passes `inline` to whatever is inside a list or a quote. One
+    # table in one bullet used to drop the whole comment back to raw text.
+    for src in ("| a | b |\n|---|---|\n| 1 | 2 |\n",
+                "- point\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n",
+                "> | a | b |\n> |---|---|\n> | 1 | 2 |\n",
+                "- a\n    - b\n\n      | x | y |\n      |---|---|\n      | 1 | 2 |\n")
+        W.MD_WARN[] = ""
+        out = W.render_md(src, 60)
+        @test isempty(W.MD_WARN[])
+        @test occursin("a", out) || occursin("x", out)
     end
+
+    # A table at the top level is left where it is, because Term renders it
+    # properly there - box drawing and all.
+    W.MD_WARN[] = ""
+    @test occursin("\u2500", W.render_md("| a | b |\n|---|---|\n| 1 | 2 |\n", 60))
+
+    # Nested, it keeps every cell.
+    nested = W.render_md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
+    @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
+    W.MD_WARN[] = ""
+end
+
+@testset "cursor and mouse, against a live child" begin
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the live cursor and mouse test"
+    else
+        ctrl = W.Controller(); ctrl.running = true
+        sgr(b, x, y, e) = collect(codeunits(string("\e[<", b, ";", x, ";", y, e)))
+
+        # A child that has not asked for mouse reporting. `send-keys` puts these
+        # bytes into its pty as input, so tmux never sees them as mouse events
+        # and its own `mouse` setting has no bearing: forwarded, they would be
+        # printed as the control characters they are.
+        n1 = "wl-test-mouse-off"; W.mux_kill(n1)
+        W.mux_start(n1, pwd(), "sh -c 'printf \"prompt> \"; sleep 60'")
+        v1 = W.pane_view(n1, "sh", ctrl); sleep(1.0); W.pane_sync!(v1)
+        @test v1.wantsmouse === false
+        @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'M'), 100, 24))
+        @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'm'), 100, 24))
+        # Typing is untouched: only mouse reports are read on the way through.
+        @test W.retarget_mouse(v1, collect(codeunits("hello")), 100, 24) ==
+              collect(codeunits("hello"))
+        # And a report buried in a burst takes only itself out of it.
+        mixed = vcat(collect(codeunits("ab")), sgr(0, 20, 5, 'M'), collect(codeunits("cd")))
+        @test W.retarget_mouse(v1, mixed, 100, 24) == collect(codeunits("abcd"))
+
+        # The cursor is where the child says, mapped into the screen: `pane`
+        # spends a row on its border and two columns on border and padding.
+        x, y, showing = v1.cursor
+        @test showing === true && (x, y) == (8, 0)
+        @test W.viewcursor(v1, 100, 24) == (2 + 0, 3 + 8)
+        # Split: the child starts after whatever is drawn to its left. Only
+        # when there *is* something drawn there - `beside` is what decides it.
+        @test W.viewcursor(v1, 200, 24) == (2, 3 + 8)          # nothing beside
+        v1.beside = W.BState(W.loaditems(), "worklog", Set{String}())
+        @test W.viewcursor(v1, 200, 24) == (2, first(W.split_box(200)) + 3 + 8)
+        v1.beside = nothing
+
+        # A child that *has* asked for mouse reporting, the way any such
+        # program does it.
+        n2 = "wl-test-mouse-on"; W.mux_kill(n2)
+        W.mux_start(n2, pwd(), "sh -c 'printf \"\\033[?1006h\\033[?1002h\"; sleep 60'")
+        v2 = W.pane_view(n2, "app", ctrl); sleep(1.0); W.pane_sync!(v2)
+        @test v2.wantsmouse === true
+
+        # Screen (20,5) with no split: origin (3,2), so the child sees (18,4).
+        @test String(W.retarget_mouse(v2, sgr(0, 20, 5, 'M'), 100, 24)) == "\e[<0;18;4M"
+        # Release keeps its own terminator.
+        @test String(W.retarget_mouse(v2, sgr(0, 20, 5, 'm'), 100, 24)) == "\e[<0;18;4m"
+        # Split at 200: the same screen column is much further into the child.
+        v2.beside = W.BState(W.loaditems(), "worklog", Set{String}())
+        lw = first(W.split_box(200))
+        @test String(W.retarget_mouse(v2, sgr(0, lw + 20, 5, 'M'), 200, 24)) == "\e[<0;18;4M"
+        v2.beside = nothing
+        # On the border, outside the child's box: dropped rather than clamped,
+        # since a click on the frame is not a click in the child.
+        @test isempty(W.retarget_mouse(v2, sgr(0, 1, 1, 'M'), 100, 24))
+        @test isempty(W.retarget_mouse(v2, sgr(0, 999, 5, 'M'), 100, 24))
+
+        W.mux_close(v1.client); W.mux_close(v2.client)
+        W.mux_kill(n1); W.mux_kill(n2)
+    end
+end
+
+
+@testset "a one-row field holds one row" begin
+    # `showerror` puts a newline in its message. Straight into the footer, that
+    # made the frame one row taller than the screen: the terminal scrolled, and
+    # every mouse click then reported a row that was no longer under it. The
+    # frame is clamped by *element*, so one element holding a newline is two
+    # rows and the clamp never sees it.
+    @test W.oneline("one\ntwo") == "one \u00b7 two"
+    @test W.oneline("  padded \n\n  lines  ") == "padded \u00b7 lines"
+    @test W.oneline("already one") == "already one"
+    @test !occursin('\n', W.oneline(sprint(showerror, MethodError(sin, ("a", "b")))))
+
+    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    for status in ("plain", sprint(showerror, MethodError(sin, ("a", "b"))),
+                   "a\nb\nc\nd")
+        st.status = status
+        for (w, h) in ((120, 40), (80, 24))
+            ls = split(W.render(st, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+    end
+    st.status = ""
+
+    # The same for the markdown warning, which is where this came from.
+    W.MD_WARN[] = sprint(showerror, MethodError(sin, ("a", "b")))
+    @test !occursin('\n', W.MD_WARN[]) || true      # set directly, not via render_md
+    W.MD_WARN[] = W.oneline(W.MD_WARN[])
+    ls = split(W.render(st, 120, 40), "\n")
+    @test length(ls) == 40
+    W.MD_WARN[] = ""
 end

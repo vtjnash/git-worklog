@@ -30,6 +30,7 @@ mutable struct PaneView <: View
     pending::Bool                  # the prefix has been seen, its key has not
     beside::Any                    # the BState to read alongside, or nothing
     cursor::Tuple{Int,Int,Bool}    # the child's cursor: x, y (0-based), showing
+    wantsmouse::Bool               # the child asked for mouse reporting
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -82,7 +83,7 @@ function pane_view(name::AbstractString, title::AbstractString, ctrl;
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
     PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
-             (0, 0, false))
+             (0, 0, false), false)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -107,7 +108,8 @@ function pane_sync!(v::PaneView)
     # Every row is closed off, or an unterminated colour would run out of the
     # content and into the pane's own border and padding.
     v.frame = [string(l, "\e[0m") for l in lines]
-    v.cursor = mux_cursor(v.client)
+    cx, cy, showing, mouse = mux_pane_state(v.client)
+    v.cursor, v.wantsmouse = (cx, cy, showing), mouse
     true
 end
 
@@ -121,30 +123,34 @@ function onwake!(v::PaneView)
     a || b
 end
 
-"""The captured frame with the child's cursor drawn into it.
+"""Screen position of the child's top-left cell, 1-based `(col, row)`.
 
-The terminal's own cursor is hidden for the whole run, so this is the only one
-there is. Reverse video rather than a background colour, because the cell under
-it keeps whatever colour it had and a block has to read as a block over any of
-them - which is why `hlspan` had to learn how to close a span it did not open
-with a background.
+`pane` spends its first row on the border and its first two columns on border
+and padding, and the whole pane starts after whatever is drawn to its left.
 """
-function cursor_frame(v::PaneView)
+function pane_origin(v::PaneView, w::Int)
+    lw = v.beside === nothing ? 0 : first(split_box(w))
+    (lw + 3, 2)
+end
+
+"""Put the terminal's own cursor where the child's is.
+
+Nothing when the child is hiding it, when the pane is not showing one, or when
+it would land outside the box - a cursor drawn over the border would be worse
+than none.
+"""
+function viewcursor(v::PaneView, w::Int, h::Int)
     cx, cy, showing = v.cursor
-    (showing && 1 <= cy + 1 <= length(v.frame)) || return v.frame
-    out = copy(v.frame)
-    line = out[cy + 1]
-    # Past the end of what was captured - a prompt with nothing typed after it -
-    # there is no character to invert, so one is made.
-    pad = cx + 1 - awidth(astrip(line))
-    pad > 0 && (line = string(line, " "^pad))
-    out[cy + 1] = hlspan(line, [(cx + 1):(cx + 1)], "\e[7m"; off = "\e[27m")
-    out
+    (showing && v.client !== nothing) || return nothing
+    cols, rows = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
+    (0 <= cx < cols && 0 <= cy < rows) || return nothing
+    ox, oy = pane_origin(v, w)
+    (oy + cy, ox + cx)
 end
 
 """The child's column: exactly `h` rows of exactly `w`."""
 function pane_column(v::PaneView, w::Int, h::Int)
-    body = pane(cursor_frame(v), w, h - 1, v.title, true)
+    body = pane(v.frame, w, h - 1, v.title, true)
     note = if !isempty(v.status)
         v.status
     elseif v.client === nothing
@@ -222,6 +228,58 @@ end
 
 wantsraw(v::PaneView) = v.client !== nothing
 
+"""Rewrite the mouse reports in `bytes` for the child, or drop them.
+
+This is the one thing that cannot be forwarded untouched, and both reasons are
+worth stating.
+
+A report arrives in *screen* coordinates, but the child owns a box inside that
+screen, offset by whatever is drawn to its left and by its own border. Sent on
+unchanged, a click lands wherever the arithmetic happens to put it - which is
+somewhere else, and usually plausibly so.
+
+And a report means nothing to a program that never asked for one. `send-keys`
+puts these bytes into the pane's pty as *input*, so tmux never sees them as
+mouse events and its own `mouse` setting has no bearing: an application that
+has not turned mouse reporting on receives the escape sequence and prints it,
+which is exactly the control characters that show up on the screen. So the
+child is asked, through `mouse_any_flag`, and told nothing it did not ask for.
+
+Only the SGR form (`\e[<b;x;yM`) is understood, which is the only form the
+browser asks its own terminal for.
+"""
+function retarget_mouse(v::PaneView, bytes::Vector{UInt8}, w::Int, h::Int)
+    occursin("\e[<", String(copy(bytes))) || return bytes
+    ox, oy = pane_origin(v, w)
+    cols, rows = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
+    out, i, n = UInt8[], 1, length(bytes)
+    while i <= n
+        # ESC [ < ... (M|m)
+        if bytes[i] == 0x1b && i + 2 <= n && bytes[i+1] == UInt8('[') && bytes[i+2] == UInt8('<')
+            j = i + 3
+            while j <= n && bytes[j] != UInt8('M') && bytes[j] != UInt8('m')
+                j += 1
+            end
+            if j <= n
+                f = split(String(bytes[i+3:j-1]), ';')
+                nums = length(f) == 3 ? tryparse.(Int, f) : nothing
+                if nums !== nothing && !any(isnothing, nums)
+                    b, sx, sy = nums
+                    cx, cy = sx - ox, sy - oy      # 0-based within the child
+                    if v.wantsmouse && 0 <= cx < cols && 0 <= cy < rows
+                        append!(out, codeunits(string("\e[<", b, ";", cx + 1, ";",
+                                                      cy + 1, Char(bytes[j]))))
+                    end
+                    i = j + 1
+                    continue
+                end
+            end
+        end
+        push!(out, bytes[i]); i += 1
+    end
+    out
+end
+
 """Bytes as typed, straight through to the child.
 
 No key is named and no sequence is interpreted on the way, so this is the same
@@ -231,6 +289,8 @@ bursts: it can arrive alone, or ahead of its key in the same read.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     v.client === nothing && return :pop
+    h, w = displaysize(stdout)
+    bytes = retarget_mouse(v, bytes, w, h)
     out = UInt8[]
     flush!() = (isempty(out) || (mux_keys(v.client, out); empty!(out)))
     for b in bytes

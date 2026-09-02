@@ -401,26 +401,33 @@ function mux_capture(c::MuxClient; escapes::Bool = true)
     ok ? lines : String[]
 end
 
-"""Where the child's cursor is, and whether it is showing.
+"""What the pane knows that its screen does not say: the cursor, and whether
+the child has asked for mouse reporting.
 
-`(x, y)` are zero-based, as tmux counts them. It has to be asked for separately:
-`capture-pane` returns the grid and says nothing about the cursor, and the real
-one is hidden for the whole run - the browser draws its own - so a scraped child
-would otherwise have no cursor at all and no way to see where typing goes.
+Both in one round trip, because both are wanted on every redraw.
+
+`(x, y)` are zero-based, as tmux counts them. The cursor has to be asked for
+because `capture-pane` returns the grid and nothing else, and the real cursor is
+hidden for the whole run.
+
+`mouse` is whether the *child* turned mouse reporting on. It matters because a
+mouse report forwarded to a program that never asked for one is printed as the
+control characters it is.
+
+The format is quoted and the target is not, which is the opposite way round
+from everywhere else and is not a preference: `#` starts a comment in tmux's
+command syntax, so an unquoted format is discarded and the default message
+comes back instead - successfully, and about the session rather than the pane.
+A quoted *target* meanwhile succeeds and matches nothing.
 """
-function mux_cursor(c::MuxClient)
-    # The format is quoted and the target is not, which is the opposite way
-    # round from everywhere else and is not a preference: `#` starts a comment
-    # in tmux's command syntax, so an unquoted format is discarded and the
-    # default message comes back instead - successfully, and about the session
-    # rather than the cursor. A quoted *target* meanwhile succeeds and matches
-    # nothing.
+function mux_pane_state(c::MuxClient)
     ok, lines = mux_ask(c, string("display-message -p -t =", c.name,
-                                  ": '#{cursor_x},#{cursor_y},#{cursor_flag}'"))
-    (ok && !isempty(lines)) || return (0, 0, false)
+        ": '#{cursor_x},#{cursor_y},#{cursor_flag},#{mouse_any_flag}'"))
+    (ok && !isempty(lines)) || return (0, 0, false, false)
     f = split(strip(lines[1]), ',')
-    length(f) == 3 || return (0, 0, false)
-    (something(tryparse(Int, f[1]), 0), something(tryparse(Int, f[2]), 0), f[3] == "1")
+    length(f) == 4 || return (0, 0, false, false)
+    (something(tryparse(Int, f[1]), 0), something(tryparse(Int, f[2]), 0),
+     f[3] == "1", f[4] == "1")
 end
 
 """Size the session to `w` by `h`.

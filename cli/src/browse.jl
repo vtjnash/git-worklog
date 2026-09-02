@@ -520,6 +520,33 @@ function style_code_spans(str::AbstractString)
     replace(String(take!(out)), MD_CODE_SENTINEL => "\e[2m")
 end
 
+"""Take tables out of the places Term cannot render them.
+
+`Term.TermMarkdown.parse_md(::Markdown.Table)` accepts `width` and nothing else,
+but Term's own recursion passes `inline` to whatever it finds inside a list item
+or a block quote. A table there is a `MethodError`, which `render_md` catches -
+so one table nested in one bullet drops the *whole* comment back to raw text.
+
+Keyword arguments take no part in dispatch, so this cannot be fixed by adding a
+method: any definition for `Markdown.Table` replaces Term's rather than
+extending it. The table is moved instead. Nested, it becomes a code block of
+its own markdown source, which keeps every cell and loses only the box drawing;
+at the top level, where Term renders it properly, it is left alone.
+
+Worth filing: the fix upstream is one `inline = false` in a signature.
+"""
+untable(x, nested::Bool = false) = x
+untable(t::Markdown.Table, nested::Bool) =
+    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) : t
+untable(md::Markdown.MD, nested::Bool = false) =
+    Markdown.MD([untable(c, nested) for c in md.content])
+untable(l::Markdown.List, nested::Bool) =
+    Markdown.List([[untable(b, true) for b in item] for item in l.items], l.ordered, l.loose)
+untable(q::Markdown.BlockQuote, nested::Bool) =
+    Markdown.BlockQuote([untable(c, true) for c in q.content])
+untable(a::Markdown.Admonition, nested::Bool) =
+    Markdown.Admonition(a.category, a.title, [untable(c, true) for c in a.content])
+
 """Markdown to ANSI at one width.
 
 Term is handed *markup*, not ANSI: `apply_style` here would bake in escape codes
@@ -536,10 +563,10 @@ swallowing it once hid that markdown was not rendering at all, for want of an
 function render_md(body::AbstractString, w::Int)
     try
         a = apply_style(string(Term.TermMarkdown.parse_md(
-                Markdown.parse(escape_source(body)); width = max(20, w))))
+                untable(Markdown.parse(escape_source(body))); width = max(20, w))))
         style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
-        MD_WARN[] = first(sprint(showerror, e), 120)
+        MD_WARN[] = oneline(first(sprint(showerror, e), 120))
         String(body)          # the raw text; this path bypasses Term entirely
     end
 end
@@ -1300,8 +1327,11 @@ function render_frame(st::BState, w::Int, h::Int)
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
-    msg = !isempty(errnote()) ? errnote() :
-          !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
+    # `oneline` is not belt and braces: a status set from an exception carries
+    # whatever newlines `showerror` put in it, and one of those in a one-row
+    # field makes the frame taller than the screen.
+    msg = oneline(!isempty(errnote()) ? errnote() :
+                  !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status)
     foot1 = string(AD, afit(keys1, w), AR)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
