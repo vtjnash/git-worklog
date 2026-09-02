@@ -757,7 +757,7 @@ end
     @test !occursin("[48;5;238m", plain("call `x` here", 70))
 end
 
-@testset "underscores in identifiers survive" begin
+@testset "markup does not eat the text" begin
     render(t) = strip(W.astrip(join(W.nodelines(W.Node("h", t, :md, true), 100), " ")))
     # Julia's Markdown opens emphasis on an intraword underscore and it takes
     # two to pair, so a single identifier was never the failing case.
@@ -771,13 +771,21 @@ end
     @test render("`deliver_result` in code stays") == "`deliver_result` in code stays"
     @test render("mixed `a_b` and c_d_e here") == "mixed `a_b` and c_d_e here"
 
-    esc = W.escape_intraword
+    esc = W.escape_source
     @test esc("a_b") == "a\\_b"
     @test esc("_leading and trailing_") == "_leading and trailing_"
     @test esc("```\nkeep_me\n```") == "```\nkeep_me\n```"          # fenced
     @test esc("    keep_me indented") == "    keep_me indented"    # indented
     @test esc("`keep_me` but not_this") == "`keep_me` but not\\_this"
     @test esc("") == ""
+
+    # Braces written as prose survive too: Term's markup is `{...}`, and
+    # apply_style deletes anything shaped like a tag.
+    @test render("a Tuple{Type{S{N}}} sig") == "a Tuple{Type{S{N}}} sig"
+    @test render("mixed Set{Int} and `Vector{T}` here") == "mixed Set{Int} and `Vector{T}` here"
+    @test render("a { lone brace") == "a { lone brace"
+    @test esc("a {b}") == "a {{b}}"
+    @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 
     # And the name is findable, which is the point.
     st = mkstate()

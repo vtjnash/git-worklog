@@ -411,26 +411,30 @@ link silently becomes plain text.
 """
 osc8(url, text) = string("\e]8;;", url, "\e\\\e[4m", text, "\e[24m\e]8;;\e\\")
 
-"""Escape underscores inside words, which CommonMark says are not emphasis.
+"""Protect text from the two markup layers that would eat it.
 
-Julia's `Markdown` opens emphasis on an underscore that has letters on both
-sides, so `deliver_result and connect_to_peer` comes back with `result and
-connect` italicised and both underscores *gone*. It takes two to pair, so a
-single identifier survives and a comment mentioning two does not - which is why
-this is easy to miss and why most comments hit it.
+**Underscores inside words.** Julia's `Markdown` opens emphasis on an underscore
+with letters on both sides, so `deliver_result and connect_to_peer` comes back
+with `result and connect` italicised and both underscores *gone*. It takes two
+to pair, so a single identifier survives and a comment mentioning two does not -
+which is why this is easy to miss and why most comments hit it. CommonMark
+forbids it: a `_` may open emphasis only if it is left-flanking and either not
+right-flanking or preceded by punctuation, and one with a letter each side is
+both and neither. GitHub renders the name intact.
 
-CommonMark forbids it: a `_` may open emphasis only if it is left-flanking and
-either not right-flanking or preceded by punctuation, and one with a letter each
-side is both and neither. GitHub therefore shows the name intact, and until this
-pass existed we disagreed with the page the comment came from - in the pane, in
-what a copy produced, and in what `/` could find.
+**Braces.** Term's markup is `{...}`, and `apply_style` deletes anything that
+looks like a tag - so `a Tuple{Type{S{N}}} sig` printed as `a Tuple sig`, with
+the type silently removed. Doubling is Term's own escape (`escape_brackets`),
+and a doubled brace survives `parse_md` and is collapsed by `render_md`. It
+cannot be done to `parse_md`'s *output*, which is where the braces of Term's own
+tags live.
 
-Code is left alone, since a backslash inside a code span prints as a backslash:
-fenced blocks, indented blocks, and inline spans are all skipped. An unbalanced
-backtick makes the rest of its line count as code, which errs towards changing
-nothing.
+Code is left alone for both, since a backslash inside a code span prints as a
+backslash and `parse_md` already escapes braces there itself: fenced blocks,
+indented blocks and inline spans are all skipped. An unbalanced backtick makes
+the rest of its line count as code, which errs towards changing nothing.
 """
-function escape_intraword(md::AbstractString)
+function escape_source(md::AbstractString)
     isword(c) = isletter(c) || isdigit(c) || c == '_'
     out = IOBuffer()
     fenced = false
@@ -449,6 +453,8 @@ function escape_intraword(md::AbstractString)
             if c == '`'
                 incode = !incode
                 write(out, c)
+            elseif !incode && (c == '{' || c == '}')
+                write(out, c, c)                 # Term's escape is doubling
             elseif !incode && c == '_' &&
                    i > firstindex(line) && isword(line[prevind(line, i)]) &&
                    nextind(line, i) <= lastindex(line) && isword(line[nextind(line, i)])
@@ -527,7 +533,7 @@ swallowing it once hid that markdown was not rendering at all, for want of an
 function render_md(body::AbstractString, w::Int)
     try
         a = apply_style(string(Term.TermMarkdown.parse_md(
-                Markdown.parse(escape_intraword(body)); width = max(20, w))))
+                Markdown.parse(escape_source(body)); width = max(20, w))))
         style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
         MD_WARN[] = first(sprint(showerror, e), 120)

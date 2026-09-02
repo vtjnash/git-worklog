@@ -26,7 +26,13 @@ cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view
 ./cli/bin/wl next 10           # pull untagged backlog to triage
+./cli/bin/wl agent julia#62841 "rebase and rerun Compiler tests"
+julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
+
+The browser's keys divide by case: **lowercase shows you something, uppercase
+changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
+labels, `r` toggles read, `z` undoes the last local action.
 
 Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
 `/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is
@@ -101,10 +107,11 @@ Do not "simplify" any of these away.
    100 nodes once overwrote a 957-item cached lane. `implausible()` guards this.
 
 **Term.jl**
-7. `parse_md` doubles braces **inside a code span** and nothing downstream
-   collapses them, so a signature arrives as `Tuple{{Type{{S{{N, Tup}}}`; we
-   undo it in `render_md`. In prose it does *not* double them, and `apply_style`
-   then eats them as markup — see the entry above, which is not fixed.
+7. Braces are markup. `parse_md` doubles them **inside a code span** and
+   nothing collapses them, so a signature arrives as `Tuple{{Type{{S{{N, Tup}}}`
+   — `render_md` undoes that. In prose it does *not* double them and
+   `apply_style` *deletes* them as an unknown tag, so `escape_source` doubles
+   them first. Both paths end at one brace; neither may be removed alone.
 8. `parse_md` does not wrap lines containing inline code (232 display columns
    for a requested 90). We wrap with `awrap`. Term's own wrapping is known to be
    shaky - FedeClaudi/Term.jl#247 is open on it - so this is not a workaround
@@ -218,30 +225,33 @@ inline code spans, where a backslash would print. So this repo is no longer
 waiting on the fix; what remains is filing it, so that everyone else's rendered
 docstrings and READMEs stop losing characters too.
 
-### `apply_style` eats braces written as prose
-`a Tuple{Type{S{N}}} sig` renders as `a Tuple sig`. Not doubled — **deleted**.
-Invariant 7 says `parse_md` doubles braces and nothing collapses them, which is
-true *inside a code span* and not true in prose, where they are left alone and
-`apply_style` then consumes them as an unknown markup tag. Julia type signatures
-are the obvious casualty, and they are common in the comments this reads.
+### File the brace bug on Term.jl
+`a Tuple{Type{S{N}}} sig` printed as `a Tuple sig` — the type silently deleted,
+not mangled. Term's markup is `{...}` and `apply_style` consumes anything shaped
+like a tag, and `parse_md` does not escape the braces it passes through from
+prose. It *does* escape them inside a code span, which is what makes this a bug
+rather than a design: the same characters are protected in one context and not
+the other.
 
-What the pipeline actually does, measured:
+**Worked around here** — `escape_source` doubles them before `Markdown.parse`,
+which is Term's own escape (`Term.escape_brackets` does the same), and the
+doubling survives `parse_md` for `render_md` to collapse. It cannot be done to
+`parse_md`'s *output*, where Term's own tags live as braces.
 
-| input | `parse_md` | then `apply_style` |
-|---|---|---|
-| `Tuple{Type{S{N}}}` in prose | unchanged | **gone** |
-| `` `Dict{String,Int}` `` in code | doubled to `{{` | kept as `{{`, undoubled by us |
-| a lone `{` | unchanged | kept (not a valid tag) |
+**Not filed.** FedeClaudi/Term.jl. Prior art to cite, both closed and both the
+same bug when the markup delimiter was `[...]`: **#59** "escape style brackets",
+where the maintainer said the next version would ignore doubled brackets, and
+**#84** "Term removes bracket `[...]`". Neither covers `parse_md` failing to
+escape what it emits, which is the actual report:
 
-The obvious fix does not work: doubling every brace before `apply_style` also
-doubles Term's *own* tags — `parse_md` emits `{#FFF59D italic}` for styling —
-and they then print literally instead of colouring anything. So a fix has to
-distinguish content braces from markup braces, which means either recognising
-Term's tag grammar (fragile, and it is not ours) or getting `parse_md` to escape
-prose braces the way it already escapes them in code spans, which looks like the
-actual bug and belongs upstream with the intraword-underscore one.
+```julia
+julia> apply_style(string(Term.TermMarkdown.parse_md(
+           Markdown.parse("a Tuple{Type{S{N}}} sig"); width = 80)))
+"a Tuple sig\e[0m"
+```
 
-Both are the same failure: a markup layer consuming characters that were text.
+Goes alongside the intraword-underscore report above — the same failure, one
+markup layer each, both consuming characters that were text.
 
 ### Offer the composer to Term.jl
 Term has no text input at all - no line editor, no text area, nothing that takes
@@ -280,23 +290,48 @@ escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
 
-### tmux + ClaudeBox review sessions
-A persistent sandboxed Claude per review, to push an item into and resume
-later.
+### Agent integration — push an item into an agent and get it back
 
-**This one cannot be built from inside the sandbox.** Checked on 2026-09-01:
-`tmux`, `claudebox`, `docker` and `podman` are all absent from `PATH`,
-ClaudeBox.jl is not in any environment here, and `$TMUX` is unset — so neither
-of the questions this section used to open with can be answered from here, and
-neither can the feature be exercised. It is host work; do not start it in a
-sandbox session expecting to test it.
+**Half of this already exists, and it is the bookkeeping half.** What is missing
+is anything that runs.
 
-What still holds, for whoever picks it up on the host: session naming from the
-item (`wl-julia-62841`) makes tmux itself the state store, so only the mapping
-needs persisting, which fits the `state.toml` pattern (`review_session = "..."`)
-or `repos.toml`. The two open questions remain whether ClaudeBox.jl can launch
-non-interactively into an existing pane, and whether sandbox-in-sandbox works
-at all.
+In place today:
+
+- `agent_task` in `state.toml`, set by `wl agent <ref> "..."` (aliased to
+  `agent_task` in `state.jl`'s `ALIAS`).
+- setting it forces the item into the `needs-agents` bucket — `refresh.jl`'s
+  rule is literally "you queued an agent task" — and it counts as *claimed*, so
+  the item stops being treated as untriaged backlog.
+- the metadata pane prints it under `agent`, and the browser has no key to set
+  or clear one; that goes through `wl agent` on the command line.
+
+So an item can be marked as wanting an agent, and nothing more happens. The task
+text is a note to yourself.
+
+What integration would mean, roughly in order of how much has to be decided:
+
+1. **Launch one.** Given an item and its `agent_task`, start an agent with the
+   repo checked out at the PR's branch — `repos.jl` already maps a repo to a
+   local checkout and finds a worktree on a given branch, which is what `e`
+   uses. The prompt has the item, its thread and its diff available; all three
+   are already fetched and cached.
+2. **Keep it.** A session per item, resumable, so an agent can be left running
+   and returned to. Naming it from the item (`wl-julia-62841`) makes the session
+   store itself and leaves only the mapping to persist, which fits the
+   `state.toml` pattern — a `review_session` field beside `agent_task`.
+3. **See it.** The metadata pane is the obvious place for "running / finished /
+   failed", and it already fetches per-item state lazily on the async path that
+   `load_meta!` established.
+4. **Take the result.** An agent that produces a diff or a comment draft has
+   nowhere to put it yet; the composer (`C`) is where a draft would land, and it
+   already accepts initial text.
+
+**None of it can be built in this sandbox.** Checked on 2026-09-01: `tmux`,
+`claudebox`, `docker` and `podman` are all absent from `PATH`, ClaudeBox.jl is in
+no environment here, and `$TMUX` is unset. Do not start this in a sandbox
+session expecting to test it. The two questions that were open before still are:
+whether ClaudeBox.jl can launch non-interactively into an existing pane, and
+whether sandbox-in-sandbox works at all — both answerable only on the host.
 
 ## Known gaps in what has shipped
 
@@ -330,9 +365,11 @@ at all.
   marking whatever of the query is visible on the row, which is the old
   behaviour and is right for them.
 - **A fenced code block is a node, not part of its comment.** Lifting it out of
-  the markdown is what stops Term boxing it, but it means folding the comment
-  and folding the block are two actions, and a block appears after all the prose
-  of the segment it interrupted rather than exactly where it was written.
+  the markdown is what stops Term boxing it. It keeps its place in the reading
+  order and folds away with the comment above it, but it costs a header row of
+  its own and carries its own fold state, and one over a dozen lines starts
+  closed — so a short snippet reads as a labelled block rather than as part of
+  the sentence around it.
 - **A code span Term wrapped gets no background.** `style_code_spans` pairs
   delimiters within a line, and Term breaks a long span across two — so those
   fall back to a dim backtick. Drawing a background across the break would need
@@ -368,7 +405,7 @@ actual TTY:
   line, submitting a review, toggling a label: all five are written and none has
   ever been sent, because the token here cannot. The shapes of the requests are
   from the REST docs, not from a response.
-- `^o` in the composer, end to end. `suspend` is tested to run its body and put
+- `⌥e`/`^o` in the composer, end to end. `suspend` is tested to run its body and put
   the alternate screen back, and the reader is armed one event at a time so it
   is not on the tty while a child runs - but no editor has actually been
   launched from inside the browser here.
