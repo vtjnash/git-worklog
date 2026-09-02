@@ -46,8 +46,20 @@ Node(h, raw, kind, open, depth = 0) =
 # is exclusive so it behaves as a radio group, while categories and repos are
 # additive and behave as checkboxes.
 
-const STATES = [(:active, "active"), (:unread, "unread"),
-                (:snoozed, "snoozed"), (:backlog, "backlog"), (:all, "all")]
+const STATES = [(:active, "active"), (:unread, "unread"), (:mine, "mine"),
+                (:touched, "touched"), (:snoozed, "snoozed"),
+                (:backlog, "backlog"), (:all, "all")]
+
+"""How the list is ordered. Its own control, deliberately.
+
+Sorting is orthogonal to all three filter axes - any order makes sense over any
+selection - so it does not belong inside `Filters`, where it would multiply the
+axes instead of sitting beside them. `w` cycles it.
+
+`:none` is the order the lanes were fetched in, which is the order the dashboard
+has always had.
+"""
+const SORTS = [(:none, "as fetched"), (:touched, "by when")]
 
 mutable struct Filters
     state::Symbol
@@ -58,17 +70,44 @@ end
 Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
 "Does this item belong to one of the five exclusive states?"
-function state_ok(state::Symbol, it::Item, unread::Set{String})
+function state_ok(state::Symbol, it::Item, unread::Set{String},
+                  touched::Dict{String,String} = EMPTY_TOUCHED)
     state === :unread  && return it.url in unread
     state === :snoozed && return it.snoozed
     state === :backlog && return it.backlog
     state === :active  && return !(it.snoozed || it.backlog)
+    # Everything you have actually done something to, which is what the
+    # interaction clock is a record of - and nothing else writes to it, so this
+    # is work rather than browsing.
+    state === :touched && return haskey(touched, it.url)
+    # Yours: an open pull request you wrote, or a branch you have claimed.
+    # Both are things you are expected to carry, which is what makes them one
+    # list rather than two.
+    state === :mine    && return (it.is_pr && !isempty(it.author) &&
+                                  it.author == login()) || islocal(it)
     true                                              # :all
 end
 
+const EMPTY_TOUCHED = Dict{String,String}()
+
+"""The timestamp a sorted list is ordered by: when you last acted on it, and
+failing that when it last moved.
+
+One key rather than two groups. A branch nothing has been done to but that was
+committed to this morning belongs above a pull request last touched in March,
+and splitting the list into touched-then-untouched would bury it.
+"""
+sortkey(it::Item, touched::Dict{String,String}) =
+    something(get(touched, it.url, nothing), isempty(it.act) ? nothing : it.act, "")
+
+"Newest first, and stable - so an untimed item keeps the order it was fetched in."
+sortitems(items, mode::Symbol, touched::Dict{String,String}) =
+    mode === :touched ? sort(items; by = it -> sortkey(it, touched), rev = true) : items
+
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
-function matches(f::Filters, it::Item, unread::Set{String})
-    state_ok(f.state, it, unread) || return false
+function matches(f::Filters, it::Item, unread::Set{String},
+                 touched::Dict{String,String} = EMPTY_TOUCHED)
+    state_ok(f.state, it, unread, touched) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
@@ -99,10 +138,10 @@ function axis_counts(st)
         bok = isempty(f.buckets) || it.bucket in f.buckets
         rok = isempty(f.repos)   || it.repo in f.repos
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
-        sok = state_ok(f.state, it, st.unread)
+        sok = state_ok(f.state, it, st.unread, st.touched)
         if bok && rok && lok
             for (k, _) in STATES
-                state_ok(k, it, st.unread) && bump!(states, k)
+                state_ok(k, it, st.unread, st.touched) && bump!(states, k)
             end
         end
         sok && rok && lok && bump!(buckets, it.bucket)
@@ -116,7 +155,8 @@ function axis_counts(st)
     (states, buckets, repos, labels)
 end
 
-apply_filters(f, all, unread) = [it for it in all if matches(f, it, unread)]
+apply_filters(f, all, unread, touched = EMPTY_TOUCHED) =
+    [it for it in all if matches(f, it, unread, touched)]
 
 """Rows for the filter pane: the radio group, then the two checkbox groups.
 
@@ -197,7 +237,12 @@ hits(it::Item, q::AbstractString) =
 
 function refilter!(st)
     keep = isempty(st.items) ? "" : st.items[st.sel].url
-    st.items = apply_filters(st.filters, st.all, st.unread)
+    # Re-read here rather than per frame: this runs when something has changed,
+    # and `render` is pure. The `touched` lane is membership in this map, so it
+    # has to be current for a row to arrive in it.
+    st.touched = load_touched()
+    st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched),
+                         st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,
     # so the counts in the filter pane keep describing the tags alone - which is
     # what they are for.
@@ -212,8 +257,11 @@ function refilter!(st)
 end
 
 "One-line summary of what is applied, for the frame title."
-function filter_summary(f)
+function filter_summary(f, order::Symbol = :none)
     parts = [string(f.state)]
+    # Not `sort`: that is the name of the function two lines down, and shadowing
+    # it turned `sort(collect(f.buckets))` into a call on a Symbol.
+    order === :none || push!(parts, "by when")
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
@@ -261,6 +309,10 @@ Base.@kwdef mutable struct BState <: View
     buckets::Vector{String} = String[]
     repos::Vector{String} = String[]
     labels::Vector{String} = String[]
+    sort::Symbol = :none            # how the list is ordered; see `SORTS`
+    touched::Dict{String,String} = Dict{String,String}()   # the interaction
+                                    # clock, read when something changes rather
+                                    # than per frame
     lmode::Symbol = :items          # :items | :filters
     frow::Int = 2
     wake::Any = nothing             # set by the controller; called when a fetch lands
@@ -295,6 +347,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
         lc[l] = get(lc, l, 0) + 1
     end
     st = BState(; all = collect(all), title = String(title), unread = unread,
+                  touched = load_touched(),
                   buckets = sort(unique(it.bucket for it in all)),
                   repos = sort(unique(it.repo for it in all)),
                   labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)))
@@ -1355,7 +1408,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # Worst-first is the wrong order for a line that gets cut on a narrow
     # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
     # runs at the end and what is worth reading is at the front.
-    keys1 = string("[", filter_summary(st.filters), "]  f filters \u00b7 ",
+    keys1 = string("[", filter_summary(st.filters, st.sort), "]  f filters \u00b7 w sort \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 \u21b5 fold \u00b7 n/N node \u00b7 ",
                    "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
@@ -1411,7 +1464,7 @@ function render_frame(st::BState, w::Int, h::Int)
         string(" worklog  ", AD, length(st.items), " items", AR)
     else
         link = osc8(it.url, string(it.ref, "  ", it.title))
-        string(" ", AB, link, AR, "  ", AD, "[", filter_summary(st.filters), "]", AR)
+        string(" ", AB, link, AR, "  ", AD, "[", filter_summary(st.filters, st.sort), "]", AR)
     end
     # Clamp to the terminal rather than trusting the arithmetic: on a very short
     # terminal the pane minimums add up to more than there is room for, and a
@@ -2102,6 +2155,13 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         return :ok
     elseif k == Int('v')
         st.status = edit_note(st, it, ctrl)
+        return :ok
+    elseif k == Int('w')
+        i = findfirst(x -> x[1] === st.sort, SORTS)
+        st.sort = SORTS[mod1(something(i, 1) + 1, length(SORTS))][1]
+        refilter!(st)
+        st.status = string("sorted ", last(SORTS[findfirst(x -> x[1] === st.sort, SORTS)]))
+        load_nodes!(st); load_meta!(st)
         return :ok
     elseif k == Int('"')
         # Not per-item: a worktree outlives whatever was opened on it, and this

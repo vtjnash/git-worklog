@@ -1575,6 +1575,87 @@ end
     end
 end
 
+@testset "two more lanes, and an order of their own" begin
+    keept = W.TOUCHED[]
+    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    try
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true
+        st.filters.state = :all; W.refilter!(st)
+        n = length(st.items)
+
+        # Everything you have actually done something to. Nothing but an action
+        # writes to the clock, so this is work rather than browsing.
+        a, b, c = st.all[1], st.all[2], st.all[3]
+        W.set_touched(a.url, "2020-01-01T00:00:00Z")
+        W.set_touched(b.url, "2026-09-02T12:00:00Z")
+        W.set_touched(c.url, "2024-06-01T00:00:00Z")
+        st.filters.state = :touched; W.refilter!(st)
+        @test length(st.items) == 3
+        @test Set(x.url for x in st.items) == Set([a.url, b.url, c.url])
+        # Looking at one does not put it in the lane.
+        W.handle!(st, Int('j'), ctrl); W.handle!(st, Int('\t'), ctrl)
+        W.refilter!(st)
+        @test length(st.items) == 3
+
+        # Yours: an open pull request you wrote, or a branch you have claimed.
+        st.filters.state = :mine; W.refilter!(st)
+        @test !isempty(st.items)
+        @test all(x.is_pr && x.author == W.login() for x in st.items)
+        local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
+                          title = "t", is_pr = false, branch = "x", bucket = "local")
+        W.add_item!(st, local_it)
+        st.filters.state = :mine; W.refilter!(st)
+        @test any(x.url == local_it.url for x in st.items)
+        # A pull request that is somebody else's is not.
+        theirs = first(x for x in st.all if x.is_pr && x.author != W.login())
+        @test !any(x.url == theirs.url for x in st.items)
+        W.drop_item!(st, local_it.url)
+
+        # The order is its own control: any of it makes sense over any of the
+        # lanes, so it sits beside the filter rather than inside it.
+        st.filters.state = :all
+        st.sort = :none; W.refilter!(st)
+        @test [x.url for x in st.items] == [x.url for x in st.all]   # as fetched
+        @test length(st.items) == n
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :touched && occursin("by when", st.status)
+        keys = [W.sortkey(x, st.touched) for x in st.items]
+        @test issorted(keys; rev = true)
+        @test length(st.items) == n                    # an order, not a filter
+        # Touched and untouched interleave by their timestamps: a branch
+        # committed to this morning belongs above a pull request touched in
+        # March, and two blocks would bury it.
+        pos(u) = findfirst(x -> x.url == u, st.items)
+        @test pos(b.url) < pos(c.url) < pos(a.url)
+        @test W.sortkey(b, st.touched) == "2026-09-02T12:00:00Z"     # the clock
+        untouched = first(x for x in st.all if !haskey(st.touched, x.url) &&
+                                               !isempty(x.act))
+        @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
+        # And it says so where the filter says what it is.
+        @test occursin("by when", W.filter_summary(st.filters, st.sort))
+        @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :none
+        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
+
+        # Both new lanes are pickable in the filter pane, with their counts.
+        st.lmode = :filters
+        rows = W.filter_rows(st)
+        txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
+        @test occursin("touched", txt) && occursin("mine", txt)
+        states, _, _, _ = W.axis_counts(st)
+        @test states[:touched] == 3
+        @test states[:mine] >= 1
+        for (w, h) in ((80, 24), (200, 50))
+            ls = split(W.render(st, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+    finally
+        W.TOUCHED[] = keept
+    end
+end
+
 @testset "adoption is explicit, and guarded" begin
     # `gh pr checkout` leaves other people's branches in your checkout, so
     # opening a terminal in one must not quietly claim their work. The guard is

@@ -37,8 +37,8 @@ julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
-labels, `r` toggles read, `s` asks how long to snooze for, `z` undoes the last
-local action. `v` edits the note,
+labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
+last acted, `z` undoes the last local action. `v` edits the note,
 `t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
 running; `tab` there swaps the worktrees for the branches, `i` on a row of
 either goes to its pull request, and `a` adopts a local branch as work of yours. Inside a hosted
@@ -328,21 +328,24 @@ across every repo, which is what `git branch --sort=-committerdate` shows.
 *make* a worktree for a branch that has none — today `↵` on one can only say
 that there is nowhere to go.
 
-**C. Everything touched, by when.** *(next)* A state in `STATES` beside
-`active`/`unread`/`snoozed`/`backlog`/`all`, plus a *sort* by that timestamp.
-Sorting is orthogonal to all three filter axes and should not be squeezed into
-`Filters`; it wants its own control and its own key.
+**C. Everything touched, by when — shipped.** A `touched` state beside the
+others, which is membership in `touched.json` and therefore a record of what you
+have *done* rather than of what you have looked at.
 
-**D. What is mine, by when.** Everything with an open pull request of mine, plus
-every branch that has been *adopted*, sorted by last interaction and falling
-back to last commit date — which is what `git br` sorts by and the right answer
-for something nothing has happened to yet.
+The order is its own control, as planned: `SORTS` beside `Filters`, cycled with
+`w`, and named in the tag the footer already shows. It is not a fourth filter
+axis — any order makes sense over any lane, and putting it inside `Filters`
+would have multiplied the axes rather than sitting beside them.
 
-A branch without a pull request is not an item and the list is a list of items,
-so it is given a synthetic one keyed `local:<worktree>#<branch>`. Every
-per-item mechanism here is keyed by url, so notes, snoozes, the interaction
-clock and the buckets all begin working on unlanded work for free — which is
-exactly what neither `git br` nor `gh pr status` can do.
+**D. What is mine, by when — shipped.** A `mine` state: an open pull request you
+wrote, or a branch you have adopted. Both are things you are expected to carry,
+which is what makes them one lane rather than two. `w` is the "by when" half.
+
+The sort key is one value and not two groups: `touched.json` if there is an
+entry, and the item's own last-moved timestamp otherwise. Splitting the list
+into touched-then-untouched would bury a branch committed to this morning under
+a pull request last touched in March, which is the opposite of what the lane is
+for.
 
 **Adoption — shipped.** `a` in either lens of `"` claims the row's branch or
 gives it back, and opening a shell or an agent in a worktree whose branch has no
@@ -375,10 +378,9 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** Lists C and D are next, and both are now unblocked: a
-branch can be an item, so everything keyed by url holds for unlanded work.
-Archive last — it is the only piece that touches how items leave the lanes, and
-it is what an adopted branch that came to nothing needs in order to go.
+**Order to build in.** Archive is all that is left of this plan, and it is the
+only piece that touches how items leave the lanes — which is what an adopted
+branch that came to nothing needs in order to go.
 
 ### What review writing still cannot do
 
