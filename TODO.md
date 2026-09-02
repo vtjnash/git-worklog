@@ -39,7 +39,8 @@ The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `z` undoes the last local action. `v` edits the note,
 `t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
-running, and `i` on one of those rows goes to its pull request. Inside a hosted
+running; `tab` there swaps the worktrees for the branches, and `i` on a row of
+either goes to its pull request. Inside a hosted
 pane every key belongs to the child except the prefix
 `^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
 re-reads, `^]]` sends a literal `^]`.
@@ -283,11 +284,16 @@ Still missing from it: the last-commit date is collected but not drawn, there is
 no way to *make* a worktree from here, and the rows are not sortable — which is
 what list D wants and what `touched.json` is waiting for.
 
-**B. Branches, as a second lens on the same key.** Worktrees are places that
-exist; branches are work that exists without a place. `tab` switches between
-them, the way `tab` already changes pane in the browser. This is the `git br`
-view, and its purpose is adoption: it is where work with no pull request is
-picked up deliberately.
+**B. Branches, as a second lens — shipped.** `tab` inside `"` switches between
+them, the way `tab` already changes pane in the browser, and each lens keeps its
+own cursor. Worktrees are places that exist; branches are work that exists
+without one, so the leading column is whether anything has the branch checked
+out and `↵` on a branch goes to the worktree that does. Sorted newest tip first
+across every repo, which is what `git branch --sort=-committerdate` shows.
+
+What it is still missing is its whole purpose: **adoption**, below, and a way to
+*make* a worktree for a branch that has none — today `↵` on one can only say
+that there is nowhere to go.
 
 **C. Everything touched, by when.** A state in `STATES` beside
 `active`/`unread`/`snoozed`/`backlog`/`all`, plus a *sort* by that timestamp.
@@ -326,9 +332,9 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** Branches beside the worktree list is next — `tab`
-between them, against the `Branch` list `survey()` already returns. Then
-adoption and the synthetic items, and archive last: it is the only piece that
+**Order to build in.** Adoption and the synthetic items are next, and they are
+what make lists C and D possible — until a branch can become an item, nothing
+keyed by url can hold anything about it. Archive last: it is the only piece that
 touches how items leave the lanes.
 
 ### What review writing still cannot do

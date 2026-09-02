@@ -413,13 +413,33 @@ function session_rows(items::Vector{Item})
     rows
 end
 
-"""Every worktree, with its sessions folded in.
+"""One local branch: work that exists whether or not it has a place.
+
+`worktree` is the checkout that has it out, empty when nothing does - which is
+the whole distinction this list draws against the worktree list beside it.
+"""
+struct BranchRow
+    repo::String
+    name::String
+    at::String                      # its tip's committer date
+    ahead::Int
+    behind::Int
+    gone::Bool
+    upstream::String
+    worktree::String
+    item::Union{Nothing,Item}
+end
+
+"""Both lists, from one survey: worktrees with their sessions, and branches.
+
+Built together because they are two lenses on the same git output and running
+it twice would be two answers to the same question, taken a moment apart.
 
 `withdirty` decides whether the one part that walks a tree runs. The view opens
 without it and fills it in behind, so a checkout the size of julia costs the
 list nothing on the way up.
 """
-function worktree_rows(items::Vector{Item}; withdirty::Bool = true)
+function place_rows(items::Vector{Item}; withdirty::Bool = true)
     ix = branch_index(items)
     byref = Dict(it.ref => it for it in items)
     live = Dict{String,Vector{SessionRow}}()
@@ -432,7 +452,7 @@ function worktree_rows(items::Vector{Item}; withdirty::Bool = true)
               SessionRow(r.name, r.kind, r.command, r.attached,
                          isempty(r.worktree) ? "" : basename(rstrip(r.worktree, '/')), label))
     end
-    ws, _ = survey(; withdirty = withdirty)
+    ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
     for w in ws
         k = wtkey(w.path)
@@ -451,8 +471,19 @@ function worktree_rows(items::Vector{Item}; withdirty::Bool = true)
         push!(rows, WorktreeRow("", k, basename(rstrip(k, '/')), "", false, 0, 0, "",
                                 false, true, nothing, sort!(ss; by = r -> r.kind)))
     end
-    rows
+    brows = [BranchRow(b.repo, b.name, b.at, b.ahead, b.behind, b.gone, b.upstream,
+                       b.worktree, get(ix, (b.repo, b.name), nothing)) for b in bs]
+    # Newest tip first, across every repo at once: what this list is for is
+    # finding work, and the most recent commit is the best guess at where it
+    # was. It is also what `git branch --sort=-committerdate` shows, which is
+    # what anyone reaching for this list is used to.
+    sort!(brows; by = r -> (r.at, r.repo, r.name), rev = true)
+    (rows, brows)
 end
+
+"The worktree half, for a caller that wants only that."
+worktree_rows(items::Vector{Item}; withdirty::Bool = true) =
+    first(place_rows(items; withdirty = withdirty))
 
 """Every worktree of every registered repo, as a view.
 
@@ -463,8 +494,12 @@ it, and so does anything here that changes what is running.
 mutable struct WorktreeView <: View
     items::Vector{Item}
     rows::Vector{WorktreeRow}
-    sel::Int
+    brows::Vector{BranchRow}
+    mode::Symbol                    # :worktrees | :branches
+    sel::Int                        # per mode, so `tab` does not lose either
     top::Int
+    bsel::Int
+    btop::Int
     status::String
     pending::Union{Nothing,Task}    # the dirty pass, which is the slow half
     wake::Any
@@ -479,8 +514,8 @@ one whose last column arrives a moment late - so the first pass skips it and a
 background pass fills it in.
 """
 function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing)
-    rows = worktree_rows(items; withdirty = false)
-    v = WorktreeView(items, rows, 1, 1,
+    rows, brows = place_rows(items; withdirty = false)
+    v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1,
                      isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
                      nothing, wake, onitem)
     dirty_pass!(v)
@@ -489,8 +524,9 @@ end
 
 "Re-read what is running and what git says, and walk the trees again."
 function worktree_reload!(v::WorktreeView)
-    v.rows = worktree_rows(v.items; withdirty = false)
+    v.rows, v.brows = place_rows(v.items; withdirty = false)
     v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
+    v.bsel = clamp(v.bsel, 1, max(1, length(v.brows)))
     dirty_pass!(v)
     true
 end
@@ -548,45 +584,83 @@ function session_marks(r::WorktreeRow)
 end
 
 "`+2/-1` against upstream, or nothing to say."
-function track_mark(r::WorktreeRow)
-    r.ahead == 0 && r.behind == 0 && return ""
-    string(r.ahead > 0 ? string("+", r.ahead) : "",
-           r.behind > 0 ? string(r.ahead > 0 ? "/" : "", "-", r.behind) : "")
+function track_mark(ahead::Int, behind::Int)
+    ahead == 0 && behind == 0 && return ""
+    string(ahead > 0 ? string("+", ahead) : "",
+           behind > 0 ? string(ahead > 0 ? "/" : "", "-", behind) : "")
+end
+track_mark(r::WorktreeRow) = track_mark(r.ahead, r.behind)
+track_mark(r::BranchRow) = track_mark(r.ahead, r.behind)
+
+"""Scroll so the cursor is on screen, and report the window to draw.
+
+Both lists share it: the geometry of a list of rows in a box does not depend on
+what the rows are.
+"""
+function listwindow(n::Int, sel::Int, top::Int, inner::Int)
+    sel = clamp(sel, 1, max(1, n))
+    top = clamp(top, 1, max(1, n))
+    sel < top && (top = sel)
+    sel >= top + inner && (top = sel - inner + 1)
+    (sel, top, top:min(n, top + inner - 1))
+end
+
+"One worktree row, drawn."
+function wt_line(r::WorktreeRow, iw::Int)
+    nw, bw = 18, 22
+    lw = max(12, iw - 2 - 1 - 1 - 1 - nw - 1 - bw - 1 - 5 - 1)
+    label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
+            r.orphan ? "\e[31mworktree is gone\e[0m" :
+            isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
+    string(session_marks(r), " ",
+           r.dirty ? "\e[33m*\e[0m" : " ", " ",
+           apad(afit(r.name, nw), nw), " ",
+           "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, bw), bw), "\e[0m ",
+           "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
+           apad(afit(label, lw), lw))
+end
+
+"""One branch row, drawn.
+
+The leading mark is whether it has a place: `\u25cf` for a branch that is
+checked out somewhere, nothing for one that is only a ref. That column is the
+difference between the two lists, so it leads.
+"""
+function br_line(r::BranchRow, iw::Int)
+    nw, rw = 30, 16
+    lw = max(12, iw - 1 - 1 - nw - 1 - rw - 1 - 10 - 1 - 5 - 1)
+    label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
+            r.gone ? "\e[2mupstream is gone\e[0m" : ""
+    string(isempty(r.worktree) ? " " : "\e[32m\u25cf\e[0m", " ",
+           "\e[36m", apad(afit(r.name, nw), nw), "\e[0m ",
+           "\e[2m", apad(afit(last(split(r.repo, '/')), rw), rw), "\e[0m ",
+           "\e[2m", apad(first(r.at, 10), 10), "\e[0m ",
+           "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
+           apad(afit(label, lw), lw))
 end
 
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather
     # than hunting for where each one starts.
     iw = w - 4
-    nw = 18
-    bw = 22
-    lw = max(12, iw - 2 - 1 - 1 - 1 - nw - 1 - bw - 1 - 5 - 1)
     inner = h - 3          # the pane's border, plus the footer row
-    v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
-    v.top = clamp(v.top, 1, max(1, length(v.rows)))
-    v.sel < v.top && (v.top = v.sel)
-    v.sel >= v.top + inner && (v.top = v.sel - inner + 1)
+    branches = v.mode === :branches
+    n = branches ? length(v.brows) : length(v.rows)
+    sel, top, win = listwindow(n, branches ? v.bsel : v.sel,
+                               branches ? v.btop : v.top, inner)
+    branches ? (v.bsel = sel; v.btop = top) : (v.sel = sel; v.top = top)
     body = String[]
-    for i in v.top:min(length(v.rows), v.top + inner - 1)
-        r = v.rows[i]
-        label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
-                r.orphan ? "\e[31mworktree is gone\e[0m" :
-                isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
-        line = string(session_marks(r), " ",
-                      r.dirty ? "\e[33m*\e[0m" : " ", " ",
-                      apad(afit(r.name, nw), nw), " ",
-                      "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, bw), bw),
-                      "\e[0m ",
-                      "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
-                      apad(afit(label, lw), lw))
-        push!(body, i == v.sel ? hlrow(apad(line, iw), SELBG) : line)
+    for i in win
+        line = branches ? br_line(v.brows[i], iw) : wt_line(v.rows[i], iw)
+        push!(body, i == sel ? hlrow(apad(line, iw), SELBG) : line)
     end
-    isempty(body) &&
-        push!(body, "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
-    rows = vcat(pane(body, w, h - 1, "worktrees", true),
-                [string("\e[2m", afit(isempty(v.status) ?
-                    "↵/t shell · T agent · i item · K kill · r refresh · q back" :
-                    v.status, w), "\e[0m")])
+    isempty(body) && push!(body, branches ?
+        "\e[2mno branches — none of the registered repos is here\e[0m" :
+        "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
+    keys = branches ? "↵ its worktree · i item · tab worktrees · r refresh · q back" :
+                      "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
+    rows = vcat(pane(body, w, h - 1, branches ? "branches" : "worktrees", true),
+                [string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
     while length(rows) < h
         push!(rows, "")
     end
@@ -614,42 +688,75 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     out
 end
 
+"The row the cursor is on, in whichever list is showing, or `nothing`."
+function currow(v::WorktreeView)
+    if v.mode === :branches
+        isempty(v.brows) ? nothing : v.brows[clamp(v.bsel, 1, length(v.brows))]
+    else
+        isempty(v.rows) ? nothing : v.rows[clamp(v.sel, 1, length(v.rows))]
+    end
+end
+
+"""Go to the item on this row, which means leaving: the list underneath is
+where an item is shown."""
+function goto_item(v::WorktreeView, it::Union{Nothing,Item})
+    if it === nothing
+        v.status = "no pull request on this branch"
+    elseif v.onitem === nothing
+        v.status = "nowhere to show it from here"
+    else
+        r = v.onitem(it)
+        (r isa String && !isempty(r)) ? (v.status = r) : return :pop
+    end
+    :ok
+end
+
 function handle!(v::WorktreeView, k::Int, ctrl)
-    n = length(v.rows)
+    branches = v.mode === :branches
+    n = branches ? length(v.brows) : length(v.rows)
+    move!(d) = branches ? (v.bsel = clamp(v.bsel + d, 1, max(1, n))) :
+                          (v.sel = clamp(v.sel + d, 1, max(1, n)))
+    r = currow(v)
     if k == Int('q') || k == 27
         return :pop
-    elseif k in (Int('j'), K_DOWN)
-        n > 0 && (v.sel = min(v.sel + 1, n))
-    elseif k in (Int('k'), K_UP)
-        n > 0 && (v.sel = max(v.sel - 1, 1))
-    elseif k in (Int('g'), K_HOME)
-        v.sel = 1
-    elseif k in (Int('G'), K_END)
-        v.sel = max(1, n)
+    elseif k == 9 || k == K_STAB
+        # The same `tab` the browser uses to change pane: two lenses on one
+        # key, and each keeps its own cursor so switching back returns to where
+        # you were rather than to the top.
+        v.mode = branches ? :worktrees : :branches
+        v.status = ""
+    elseif k in (Int('j'), K_DOWN); move!(1)
+    elseif k in (Int('k'), K_UP);   move!(-1)
+    elseif k in (Int('g'), K_HOME); move!(-n)
+    elseif k in (Int('G'), K_END);  move!(n)
     elseif k == Int('r')
         worktree_reload!(v)
         v.status = ""
-    elseif n > 0 && (k == 13 || k == 10 || k == Int('t'))
-        v.status = row_session(v, v.rows[v.sel], ctrl, :shell)
-        worktree_reload!(v)
-    elseif n > 0 && k == Int('T')
-        v.status = row_session(v, v.rows[v.sel], ctrl, :agent)
-        worktree_reload!(v)
-    elseif n > 0 && k == Int('i')
-        # The item is one key away, as promised - and going to it means leaving,
-        # because it is the list underneath that shows it.
-        it = v.rows[v.sel].item
-        if it === nothing
-            v.status = "no pull request on this branch"
-        elseif v.onitem === nothing
-            v.status = "nowhere to show it from here"
+    elseif r === nothing
+        # Nothing to act on; every key below wants a row.
+    elseif k == 13 || k == 10 || k == Int('t') || k == Int('T')
+        kind = k == Int('T') ? :agent : :shell
+        if r isa BranchRow
+            # A branch is not a place. Enter goes to the worktree that has it
+            # out, and there is nothing yet for one that has none - making a
+            # worktree for a branch is the missing half of this view.
+            i = isempty(r.worktree) ? nothing :
+                findfirst(x -> wtkey(x.path) == wtkey(r.worktree), v.rows)
+            if i === nothing
+                v.status = string(r.name, " is not checked out anywhere")
+            else
+                v.mode = :worktrees; v.sel = i; v.status = ""
+            end
         else
-            r = v.onitem(it)
-            r isa String && !isempty(r) ? (v.status = r) : return :pop
+            v.status = row_session(v, r, ctrl, kind)
+            worktree_reload!(v)
         end
-    elseif n > 0 && k == Int('K')
-        r = v.rows[v.sel]
-        if isempty(r.sessions)
+    elseif k == Int('i')
+        return goto_item(v, r.item)
+    elseif k == Int('K')
+        if r isa BranchRow
+            v.status = "nothing runs on a branch — tab to its worktree"
+        elseif isempty(r.sessions)
             v.status = "nothing running here"
         else
             for s in r.sessions

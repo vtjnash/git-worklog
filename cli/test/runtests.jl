@@ -1525,6 +1525,95 @@ end
     finally
         W.REPOS_FILE[] = ""
     end
+end
+
+@testset "branches, the second lens" begin
+    # Worktrees are places that exist; branches are work that exists without
+    # one. Same key, same rows underneath, one `tab` apart.
+    items = W.loaditems()
+    ctrl = W.Controller(); ctrl.running = true
+    shown = W.BState(items, "worklog", Set{String}())
+    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+
+    root = mktempdir()
+    main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a.txt"), "one\n")
+    W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
+    side = joinpath(root, "side")
+    W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
+    W.git(main, "branch", "homeless")
+
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    try
+        W.register_repo!(pr.repo, main)
+        v = W.worktree_view(items)
+        @test v.mode === :worktrees
+        @test length(v.brows) == 3
+        # The place column is the difference between the two lists: two of
+        # these are checked out and one is only a ref.
+        byname = Dict(b.name => b for b in v.brows)
+        @test byname[pr.branch].worktree == realpath(side)
+        @test isempty(byname["homeless"].worktree)
+        @test byname[pr.branch].item !== nothing && byname[pr.branch].item.url == pr.url
+        @test byname["homeless"].item === nothing
+
+        @test W.handle!(v, 9, ctrl) === :ok && v.mode === :branches
+        for (w, h) in ((80, 24), (120, 40), (165, 50))
+            ls = split(W.render(v, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+        @test occursin("branches", W.astrip(W.render(v, 120, 24)))
+        @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
+
+        # Each lens keeps its own cursor, so `tab` returns to where you were.
+        v.sel = 2
+        W.handle!(v, Int('G'), ctrl)
+        @test v.bsel == length(v.brows) && v.sel == 2
+        W.handle!(v, 9, ctrl)
+        @test v.mode === :worktrees && v.sel == 2
+        W.handle!(v, 9, ctrl)
+        @test v.bsel == length(v.brows)
+
+        # A branch is not a place: enter goes to the worktree that has it out.
+        v.bsel = findfirst(b -> b.name == pr.branch, v.brows)
+        W.handle!(v, 13, ctrl)
+        @test v.mode === :worktrees && v.rows[v.sel].name == "side"
+        # And says so for one that has none, rather than opening something.
+        W.handle!(v, 9, ctrl)
+        v.bsel = findfirst(b -> b.name == "homeless", v.brows)
+        @test W.handle!(v, 13, ctrl) === :ok
+        @test v.mode === :branches && occursin("not checked out", v.status)
+        # Nothing runs on a branch either.
+        W.handle!(v, Int('K'), ctrl)
+        @test occursin("nothing runs on a branch", v.status)
+
+        # `i` works from either lens.
+        st = W.BState(items, "worklog", Set{String}())
+        v2 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
+        W.handle!(v2, 9, ctrl)
+        v2.bsel = findfirst(b -> b.name == pr.branch, v2.brows)
+        @test W.handle!(v2, Int('i'), ctrl) === :pop
+        @test st.items[st.sel].url == pr.url
+        v2.bsel = findfirst(b -> b.name == "homeless", v2.brows)
+        @test W.handle!(v2, Int('i'), ctrl) === :ok
+        @test occursin("no pull request", v2.status)
+
+        # Newest tip first, across every repo at once.
+        ats = [b.at for b in v.brows]
+        @test issorted(ats; rev = true)
+
+        # An empty list still renders and says which one is empty.
+        e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
+                           1, 1, 1, 1, "", nothing, nothing, nothing)
+        ls = split(W.render(e, 80, 24), "\n")
+        @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+        @test occursin("no branches", join(ls, "\n"))
+    finally
+        W.REPOS_FILE[] = ""
+    end
 
     # With nothing registered the view still renders, and says so.
     W.REPOS_FILE[] = joinpath(mktempdir(), "none.toml")
