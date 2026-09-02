@@ -163,87 +163,101 @@ shipped are not listed; `git log` is the record of those.
 
 ## Outstanding work
 
-### Three views of the work — worktrees, interactions, and what is mine
+### Where the work is — worktrees, branches, interactions, and what is mine
 
-Three lists that the browser cannot show today. They are one piece of work
-because two of the three want the same two things underneath, and building
-either one twice would be the mistake.
+Four lists the browser cannot show today, planned together because they share
+two things underneath and because two of them turn out to be the same list.
 
 **What has to exist first.**
 
 1. **An interaction clock.** `touched.json`, machine-owned and gitignored,
-   `url -> ISO8601` — the same shape as `read.json`, which is the precedent for
-   a per-item timestamp the refresh does not own.
+   `url -> ISO8601` — the shape `read.json` already uses for a per-item
+   timestamp the refresh does not own.
 
-   The point is what does *not* write to it. Opening an item, changing mode,
-   scrolling and searching are looking, and looking must not reorder the list
-   you are looking at — a list that reshuffles as you read it is unusable.
-   What writes: a comment (`C`), a review (`A`), a label (`L`), a note (`v`),
-   a snooze (`s`), a bucket or field set from `wl`, and opening a shell or an
-   agent on it (`t`, `T`) — that last because starting work on something is
-   the strongest signal there is, and it is exactly what a viewing-based clock
-   would miss.
+   The point is what does *not* write to it. Opening an item, scrolling,
+   searching and changing mode are looking, and looking must not reorder the
+   list you are looking at. **Read/unread is not an interaction either** —
+   decided, and it is already its own filter, so nothing is lost.
 
-   `z` already restores everything else an action did, so it restores the
-   previous timestamp too.
+   What writes: a comment (`C`), a review (`A`), a label (`L`), a note (`v`), a
+   snooze (`s`), a field set from `wl`, and opening a shell or an agent on it
+   (`t`, `T`) — that last because starting work on something is the strongest
+   signal there is, and a viewing-based clock would miss it entirely. `z`
+   restores the previous timestamp along with everything else it undoes.
 
 2. **A local git survey.** `repos.jl` has `worktrees(path)`; what is missing is
-   every repo in `repos.toml` at once, and per worktree: the branch, whether it
-   is dirty, ahead/behind its upstream, the last commit date, and the item for
-   its branch if there is one.
+   every repo in `repos.toml` at once and, per worktree, the branch, whether it
+   is dirty, ahead/behind upstream, the last commit date, and the item for its
+   branch if there is one.
 
-   That last mapping is the enabling change and it belongs in `gh.jl`: the
-   GraphQL lanes should fetch `headRefName` for every pull request, so
-   `facts.json` already carries branch → item. Asking per item with `gh pr
-   view`, which is what `pr_branch` does now, is one process per row and
-   hopeless for a list.
+   That mapping is the enabling change and belongs in `gh.jl`: the GraphQL
+   lanes should fetch `headRefName` for every pull request so `facts.json`
+   carries branch → item. `pr_branch` asks `gh` per item, which is one process
+   per row and hopeless for a list.
 
-**Then the three lists.**
+**The lists.**
 
-**A. Worktrees, by name.** Not a list of items but a list of directories, so it
-is its own `View`, the same shape as the session list: a key to open it, `↵` to
-act, `q` to leave. Per row: the worktree, its repo, its branch, whether it is
-clean, the item if its branch has one — and whether a session is running in it,
-which `mux_list()` already knows because sessions are keyed by worktree. That
-last column is free and is the answer to "what was I doing in there".
+**A. Worktrees, by name — and the session list folds into it.** A session is
+*keyed* by its worktree, so every session already belongs to exactly one
+worktree row. Sessions are therefore a column, not a list: the shipped
+`SessionView` becomes the worktree view with a running-sessions column, and `"`
+keeps its key. That is one view fewer than the plan started with, not one more.
 
-**B. Everything touched, by when.** Two small things once `touched.json`
-exists: a state in `STATES` beside `active`/`unread`/`snoozed`/`backlog`/`all`
-for "things I have acted on", and a *sort* by that timestamp. Sorting is not a
-filter axis and should not be squeezed into `Filters` — it is orthogonal to
-every one of them, so it wants its own control and its own key.
+Per row: the worktree, its repo, its branch, clean or dirty, the item if its
+branch has one, and which sessions are live in it. `↵` attaches or starts the
+shell there, and the same row is where an agent is started; the item, if there
+is one, is one key away. A session whose worktree has since been deleted is an
+orphan row rather than a hidden one.
 
-**C. What is mine, by when.** The one with real design in it. `git br` sorts by
-recency and knows nothing about pull requests; `gh pr status` knows about pull
-requests and sorts by number, which is arrival order and never what you want.
-This wants both halves: everything with an open pull request of mine, *plus*
-every branch of mine that has no pull request yet, sorted by last interaction
-and falling back to last commit date — which is what `git br` sorts by, and the
-right answer for a branch nothing has happened to yet.
+**B. Branches, as a second lens on the same key.** Worktrees are places that
+exist; branches are work that exists without a place. `tab` switches between
+them, the way `tab` already changes pane in the browser. This is the `git br`
+view, and its purpose is adoption: it is where work with no pull request is
+picked up deliberately.
 
-The hard part is that a branch without a pull request is not an item, and the
-list is a list of items. The proposal is to give it a synthetic one, keyed
-`local:<worktree>#<branch>`, because every per-item mechanism here is keyed by
-url: notes, snoozes, the interaction clock and the buckets all start working on
-unlanded work for free, which is the thing neither `git br` nor `gh pr status`
-can do.
+**C. Everything touched, by when.** A state in `STATES` beside
+`active`/`unread`/`snoozed`/`backlog`/`all`, plus a *sort* by that timestamp.
+Sorting is orthogonal to all three filter axes and should not be squeezed into
+`Filters`; it wants its own control and its own key.
 
-**Decisions to settle before building any of it.**
+**D. What is mine, by when.** Everything with an open pull request of mine, plus
+every branch that has been *adopted*, sorted by last interaction and falling
+back to last commit date — which is what `git br` sorts by and the right answer
+for something nothing has happened to yet.
 
-- **Does read/unread count as an interaction?** It changes remote state, which
-  argues yes, but it is what you do *while* reading, which argues no. Proposed:
-  no, on the grounds that the whole value of this list is that reading does not
-  disturb it.
-- **Where does the git survey run** — during `wl refresh`, or lazily in the
-  browser? Worktrees change under you while the browser is open, and a refresh
-  is not frequent enough to notice. Proposed: lazily, on the async path
-  `load_meta!` established, cached with a short TTL.
-- **Do PR-less branches become synthetic items?** Proposed yes, as above. The
-  alternative is folding list C into the worktree view, which is less code and
-  gives up notes and history on exactly the work that has none yet.
-- **Which branches are "mine"?** Every local branch is a candidate; most are
-  not interesting. Proposed: branches with an upstream on a fork you can push
-  to, or with commits authored by you, rather than every branch that exists.
+A branch without a pull request is not an item and the list is a list of items,
+so it is given a synthetic one keyed `local:<worktree>#<branch>`. Every
+per-item mechanism here is keyed by url, so notes, snoozes, the interaction
+clock and the buckets all begin working on unlanded work for free — which is
+exactly what neither `git br` nor `gh pr status` can do.
+
+**Adoption is explicit, and guarded.**
+
+Nothing becomes "mine" by being present. A branch is adopted by picking it from
+the branch list, or by opening a shell or an agent in a worktree whose branch
+has no pull request — working in something is a deliberate enough act to count.
+Adoption can be undone, which is what makes it safe to offer.
+
+The guard matters: `gh pr checkout` leaves someone else's branch in your
+checkout, and opening a terminal there must not quietly claim their work.
+**A branch is only adoptable automatically if you have a commit on it** —
+authored, or listed as a co-author — over the range `base..branch`. Otherwise
+it can still be adopted, but only by asking for it in the branch list.
+
+**Archive, as a state tag.** Work that is done, rejected or merged should leave
+without being deleted: an `archive` field in `state.toml` carrying the date it
+was set, a state in `STATES` to look at it, and `active` excluding it. It is
+what closes the loop for adopted branches especially — a merged pull request
+already leaves the active lanes on its own, but a local branch that came to
+nothing has no other way out. A merged or closed item is worth *offering* to
+archive rather than archiving silently.
+
+**Order to build in.** `touched.json` first: it is small, it is what two of the
+four lists sort by, and every action that should write to it is already a single
+place in `handle!`. Then the git survey with `headRefName`, which unblocks
+everything else. Then the worktree view by folding the session list into it,
+then branches beside it, then adoption and the synthetic items, and archive
+last — it is the only piece that touches how items leave the lanes.
 
 ### What review writing still cannot do
 
