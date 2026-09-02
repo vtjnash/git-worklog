@@ -2935,12 +2935,12 @@ hunk is then walked from its own top, which knows where it starts and how far
 The old-side number is only right while expansion has added pure context, which
 is all it ever adds; a hunk expanded across a deletion would drift.
 """
-function hunk_line_at(st::BState, i::Int, w::Int)
+function hunk_line_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
     n = st.nodes[i]
     haskey(n.meta, "start") || return nothing
     rs = rows(st.nodes, w)
     idx = 0
-    for j in 1:min(st.nrow, length(rs))
+    for j in 1:min(row, length(rs))
         r = rs[j]
         (r.node == i && !r.header && r.part == 0) && (idx += 1)
     end
@@ -2958,11 +2958,59 @@ function hunk_line_at(st::BState, i::Int, w::Int)
     nothing
 end
 
+"""The rows of hunk `i` a comment is about: the selection, or the cursor row.
+
+Dragging over a hunk already selects rows - it is how `y` copies several - so a
+range comment needs no new gesture, only for `c` to look at what is selected
+instead of at where the cursor happens to be. Rows outside the hunk are clipped
+rather than refused: a selection that runs off the end of a hunk still says
+which lines of it were meant.
+"""
+function hunk_rows(st::BState, i::Int, w::Int)
+    sr = selrange(st)
+    sr === nothing && return (st.nrow, st.nrow)
+    rs = rows(st.nodes, w)
+    lo = hi = 0
+    for j in max(1, sr[1]):min(sr[2], length(rs))
+        rs[j].node == i && !rs[j].header || continue
+        lo == 0 && (lo = j)
+        hi = j
+    end
+    lo == 0 ? (st.nrow, st.nrow) : (lo, hi)
+end
+
+"""The lines of the hunk between two display rows, as they would be replaced.
+
+The text of a suggestion, in other words: what GitHub prefills its box with when
+you press the button. Deletions are left out - a suggestion replaces what is on
+the side being commented on, and a deleted line is not there any more - and the
+diff marker goes with them, since it is a column of the display and not of the
+file.
+"""
+function hunk_text(st::BState, i::Int, w::Int, lo::Int, hi::Int)
+    rs = rows(st.nodes, w)
+    out = String[]
+    for j in max(1, lo):min(hi, length(rs))
+        r = rs[j]
+        (r.node == i && !r.header && r.part == 0) || continue
+        src = r.src
+        isempty(src) && (push!(out, ""); continue)
+        startswith(src, "-") && continue
+        push!(out, String(SubString(src, nextind(src, 1))))
+    end
+    out
+end
+
 """What `c` writes to, given where the cursor is standing.
 
 One key rather than three, because the answer is never ambiguous: on a review
-comment it is a reply, on a hunk it is that line, and anywhere else it is the
+comment it is a reply, on a hunk it is those lines, and anywhere else it is the
 item itself.
+
+A hunk answers with a *range*, which is one line long unless rows are selected.
+GitHub takes `start_line`/`line` for that, and the range is what makes a
+suggestion worth anything: a replacement for one line is a note, and a
+replacement for the five you highlighted is a patch.
 """
 function compose_target(st::BState, iw::Int)
     i = curnode(st, iw)
@@ -2971,8 +3019,21 @@ function compose_target(st::BState, iw::Int)
     cid = get(n.meta, "comment_id", nothing)
     cid === nothing || return (:reply, cid)
     if st.mode === :diff && haskey(n.meta, "file")
-        r = hunk_line_at(st, i, iw)
-        r === nothing || return (:line, (n.meta["file"], r[1], r[2]))
+        (lo, hi) = hunk_rows(st, i, iw)
+        a = hunk_line_at(st, i, iw, lo)
+        b = hunk_line_at(st, i, iw, hi)
+        a === nothing && (a = b)
+        b === nothing && (b = a)
+        if b !== nothing
+            # The end of the range is what GitHub calls the line; the start is
+            # only sent when there is one, and a range across both sides of the
+            # diff is not a thing it accepts.
+            first_ = (a !== nothing && a[2] == b[2] && a[1] < b[1]) ? a[1] : nothing
+            return (:line, (file = n.meta["file"], line = b[1], side = b[2],
+                            start = first_,
+                            text = first_ === nothing ? String[] :
+                                   hunk_text(st, i, iw, lo, hi)))
+        end
     end
     (:item, nothing)
 end
@@ -3014,19 +3075,25 @@ end
 """Open the composer on whatever `c` is pointing at."""
 function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     (kind, target) = compose_target(st, iw)
-    if kind === :line && target[3] == "LEFT"
+    if kind === :line && target.side == "LEFT"
         st.status = "a comment on a deleted line has to go to the old side — not wired up"
         return
     end
+    suggest = ""
     (title, note, submit) = if kind === :reply
         (string("Reply · ", it.ref), "goes into this review thread",
          b -> Events.reply_review_comment(it.url, target, b))
     elseif kind === :line
         sha = head_sha(it)
-        (string("Comment on ", target[1], ":", target[2]),
+        where_ = target.start === nothing ? string(target.file, ":", target.line) :
+                 string(target.file, ":", target.start, "-", target.line)
+        suggest = suggestion(target.text)
+        (string("Comment on ", where_),
          isempty(sha) ? "no head commit could be found — this will fail" :
-                        string("against ", first(sha, 8), ", posted on its own"),
-         b -> Events.post_review_comment(it.url, sha, target[1], target[2], target[3], b))
+                        string("against ", first(sha, 8), ", posted on its own",
+                               isempty(suggest) ? "" : " · ^r suggests a replacement"),
+         b -> Events.post_review_comment(it.url, sha, target.file, target.line,
+                                         target.side, b; start_line = target.start))
     else
         (string("Comment on ", it.ref), it.title, b -> Events.post_comment(it.url, b))
     end
@@ -3034,7 +3101,21 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         r = submit(b)
         st.status = isempty(r) ? "posted" : r
         isempty(r) && (touch!(it.url); reread!(st))
-    end))
+    end; suggest = suggest))
+end
+
+"""GitHub's suggestion block, filled with the lines it would replace.
+
+The one toolbar button worth having. The others insert a couple of characters of
+markdown anybody can type; this one is a *review action* - GitHub applies the
+block as a commit - and it is unusable without the current text of the lines in
+front of you, which is the part the editor cannot know on its own.
+
+Empty for an empty range: a suggestion that replaces nothing is a comment.
+"""
+function suggestion(lines::Vector{String})
+    isempty(lines) && return ""
+    string("```suggestion\n", join(lines, "\n"), "\n```")
 end
 
 """Submit a review: pick the verdict, then write the body."""

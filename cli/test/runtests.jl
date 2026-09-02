@@ -732,6 +732,36 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "the one toolbar button worth having" begin
+    # A suggestion is a review action - GitHub applies the block as a commit -
+    # and it is unusable without the current text of the lines in front of you.
+    # The rest of a markdown toolbar inserts characters anybody can type.
+    ctrl = W.Controller()
+    got = Ref("")
+    v = W.EditorView("Comment on a.jl:10-12", "against abc1234", t -> got[] = t;
+                     suggest = "```suggestion\nctx\nadded\n```")
+    @test occursin("^r suggestion", W.astrip(W.render(v, 90, 16)))
+    W.handle!(v, 18, ctrl)                                  # ^r
+    # An empty composer takes the block whole, with a line under it to say why.
+    @test W.text(v) == "```suggestion\nctx\nadded\n```\n"
+    @test v.row == length(v.lines) && v.col == 1
+    @test occursin("suggestion inserted", v.status)
+    # And it is ordinary text from there: the editor knows nothing about what
+    # the block is, only where it went.
+    for c in "why not"; W.handle!(v, Int(c), ctrl); end
+    @test endswith(W.text(v), "```\nwhy not")
+    # A second one lands under the first rather than inside it.
+    W.handle!(v, 18, ctrl)
+    @test count("```suggestion", W.text(v)) == 2
+    @test !occursin("suggestionwhy", W.text(v))
+
+    # Nowhere to put one is said rather than silently doing nothing.
+    v2 = W.EditorView("Comment on julia#1", "the item itself", identity)
+    @test !occursin("^r", W.astrip(W.render(v2, 90, 16)))
+    W.handle!(v2, 18, ctrl)
+    @test occursin("nothing to suggest", v2.status) && isempty(W.text(v2))
+end
+
 @testset "what c writes to" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
@@ -751,7 +781,28 @@ end
     st.nrow = 1; @test W.hunk_line_at(st, 1, iw) === nothing        # the header
 
     st.nrow = 4
-    @test W.compose_target(st, iw) == (:line, ("a.jl", 11, "RIGHT"))
+    t = W.compose_target(st, iw)
+    @test t[1] === :line
+    @test (t[2].file, t[2].line, t[2].side) == ("a.jl", 11, "RIGHT")
+    @test t[2].start === nothing && isempty(t[2].text)    # one line is no range
+
+    # Dragging over the hunk is already a selection - it is how `y` copies
+    # several rows - so a range comment needs no new gesture, only for `c` to
+    # look at what is selected.
+    st.sela, st.selb = 2, 4
+    t2 = W.compose_target(st, iw)[2]
+    @test (t2.start, t2.line, t2.side) == (10, 11, "RIGHT")
+    # What it would replace: the new side of those lines, without the marker
+    # column and without the line that is being deleted.
+    @test t2.text == ["ctx", "added"]
+    @test W.suggestion(t2.text) == "```suggestion\nctx\nadded\n```"
+    @test isempty(W.suggestion(String[]))
+    # A selection that runs off the end of the hunk still says which lines of
+    # it were meant.
+    st.sela, st.selb = 1, 99
+    t3 = W.compose_target(st, iw)[2]
+    @test (t3.start, t3.line) == (10, 11)
+    st.sela = 0; st.selb = 0
     # A review comment answers with its own thread instead.
     st.nodes = [W.Node("alice  2026-01-01", "a remark", :md, true)]
     st.nodes[1].meta["comment_id"] = 4242

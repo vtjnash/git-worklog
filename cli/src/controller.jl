@@ -111,6 +111,7 @@ printable(k::Int) = (k >= 32 && k != 127 && k <= 0x10FFFF)
 
 # Readline's editing keys, by the control bytes they arrive as.
 const C_A, C_D, C_E, C_K, C_S, C_U, C_W, C_O = 1, 4, 5, 11, 19, 21, 23, 15
+const C_R = 18
 
 """Column where the word before `col` starts, by one of readline's two rules.
 
@@ -694,12 +695,15 @@ mutable struct EditorView <: View
     status::String
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
     allow_empty::Bool        # an approval needs no words; a comment does
+    suggest::String          # a block `^r` drops in, empty when there is none.
+                             # The editor knows nothing about what it is - the
+                             # caller does, and hands it over already written
 end
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
-                    allow_empty::Bool = false)
+                    allow_empty::Bool = false, suggest::AbstractString = "")
     ls = isempty(initial) ? [""] : String.(split(replace(initial, "\r\n" => "\n"), "\n"))
     EditorView(String(title), String(note), ls, length(ls),
-               length(last(ls)) + 1, 1, "", onsubmit, allow_empty)
+               length(last(ls)) + 1, 1, "", onsubmit, allow_empty, String(suggest))
 end
 
 text(v::EditorView) = join(v.lines, "\n")
@@ -760,7 +764,9 @@ function render(v::EditorView, w::Int, h::Int)
     end
     push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
     foot = isempty(v.status) ?
-           "^s submit · ⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel" : v.status
+           string("^s submit · ",
+                  isempty(v.suggest) ? "" : "^r suggestion · ",
+                  "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel") : v.status
     push!(out, string(" "^pad, "\e[2m", afit(foot, box), "\e[0m"))
     top = max(0, (h - length(out)) ÷ 2)
     all = vcat([" "^w for _ in 1:top], out)
@@ -811,6 +817,31 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         end
         v.onsubmit(String(t))
         return :pop
+    elseif k == C_R                                 # drop the block in
+        if isempty(v.suggest)
+            v.status = "nothing to suggest here — this is not a line comment"
+        else
+            ins = String.(split(v.suggest, "\n"))
+            if length(v.lines) == 1 && isempty(v.lines[1])
+                # An empty composer takes the block whole, with a line under it
+                # to say why - which is the order GitHub's own box ends up in.
+                v.lines = vcat(ins, [""])
+                v.row = length(v.lines)
+            else
+                # Otherwise at the cursor, splitting the line it is on, which is
+                # what every other insertion here does - and what puts a second
+                # block under the first rather than inside it.
+                head, tail = String(first(l, v.col - 1)), String(l[nextind(l, 0, v.col):end])
+                v.lines[v.row] = head
+                for (j, x) in enumerate(ins)
+                    insert!(v.lines, v.row + j, x)
+                end
+                insert!(v.lines, v.row + length(ins) + 1, tail)
+                v.row += length(ins) + 1
+            end
+            v.col = 1
+            v.status = "suggestion inserted — edit the lines, they replace the ones commented on"
+        end
     elseif k in (K_EDIT, C_O)                       # hand it to $EDITOR
         (txt, note) = compose_external(ctrl, text(v))
         v.lines = isempty(txt) ? [""] : String.(split(replace(txt, "\r\n" => "\n"), "\n"))

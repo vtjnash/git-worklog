@@ -498,14 +498,22 @@ line number means nothing without the commit it was counted in.
 """
 function post_review_comment(url::AbstractString, commit_id::AbstractString,
                              path::AbstractString, line::Integer,
-                             side::AbstractString, body::AbstractString)
+                             side::AbstractString, body::AbstractString;
+                             start_line = nothing)
     r, n = _repo_num(url)
+    params = Dict{String,Any}("body" => String(body), "commit_id" => String(commit_id),
+                              "path" => String(path), "line" => Int(line),
+                              "side" => String(side))
+    # `line` is the *end* of a range and `start_line` its beginning, so a
+    # one-line comment is the same request with the start left out - which is
+    # why it is a keyword here rather than two ways of posting.
+    if start_line !== nothing && Int(start_line) < Int(line)
+        params["start_line"] = Int(start_line)
+        params["start_side"] = String(side)
+    end
     _write() do
         GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/comments";
-                            auth = auth(),
-                            params = Dict("body" => String(body), "commit_id" => String(commit_id),
-                                          "path" => String(path), "line" => Int(line),
-                                          "side" => String(side)))
+                            auth = auth(), params = params)
         _invalidate(url)
     end
 end

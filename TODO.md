@@ -54,6 +54,9 @@ long one listing its head and offering the rest as a picker you type into.
 
 `i` imports an item by url - so does `↵` on the row
 above the first item, which is the only row in the list that is not one -
+A drag over a diff makes `c` a comment on
+that range, and `^r` in the composer drops in GitHub's suggestion block filled
+with the lines it would replace.
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
@@ -348,7 +351,9 @@ untested:
   immediately, so five remarks are five notifications rather than one review.
   `POST /pulls/{n}/reviews` takes a `comments` array; the pending set wants to
   live on `BState` and be visible while it accumulates - a count in the footer,
-  a line in the metadata pane - with `A` submitting it.
+  a line in the metadata pane - with `A` submitting it. A pending comment is
+  also where a *range* and its suggestion would be carried, both of which the
+  single-comment path now has.
 - **A reply to an issue comment.** Only review comments carry a thread, so `c`
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
