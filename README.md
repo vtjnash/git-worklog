@@ -138,7 +138,9 @@ question about the one on screen.
 `/` searches. In the item list it narrows by title or ref, and a bare number is
 a jump — reaching past the filter that is hiding the item, since being unable to
 see it is exactly when you go looking for it by number. In the thread or the
-diff it marks every match and `n`/`N` step between them.
+diff it marks every match and `n`/`N` step between them — matching the line as it
+was written rather than as the pane wrapped it, so a phrase broken across a line
+break is still found, and reaching into folded blocks, which `↵` then opens.
 
 It owns the mouse rather than leaving selection to the terminal. That is not a
 flourish: the terminal only sees the lines *we* wrapped, so selecting a

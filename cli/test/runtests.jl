@@ -608,6 +608,68 @@ end
     @test st.mode === mode0 && st.search == "d"
 end
 
+@testset "/ searches the source, not the screen" begin
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    ctrl = W.Controller()
+    type!(v, x) = for c in x; W.handle!(v, Int(c), ctrl); end
+
+    # A phrase the pane wrapped in the middle is still found, on the first row
+    # of the line it belongs to.
+    st = mkstate()
+    st.nodes = [W.Node("a", "the quick brown fox jumps over the lazy dog and keeps running", :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    body = [r for r in W.rows(st.nodes, 30) if !r.header]
+    @test length(body) > 1                         # it really is wrapped
+    # ...one that genuinely spans the break, so no single row contains it.
+    st.search = "fox jumps over the lazy"
+    across = W.match_rows(st, 30)
+    @test length(across) == 1
+    @test !any(occursin(st.search, W.astrip(r.text)) for r in W.rows(st.nodes, 30))
+    st.search = "fox"
+    @test length(W.match_rows(st, 30)) == 1        # one per line, not per row
+    st.search = "nowhere"
+    @test isempty(W.match_rows(st, 30))
+
+    # Inside a folded block: found, counted, and opened on enter.
+    st = mkstate()
+    st.nodes = W.body_nodes("alice", "prose here\n\n<details><summary>Impacted</summary>\n" *
+                                     "a line holding zarquon inside\n</details>\n\ntail",
+                            "http://x", true)
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    iw = W.layout(150, 40, 0).riw
+    @test !st.nodes[2].open                        # the block starts folded
+    W.handle!(st, Int('/'), ctrl)
+    type!(st, "zarquon")
+    @test isempty(W.match_rows(st, iw))            # no row shows it...
+    @test st.hidden == 1                           # ...but it is known to be there
+    @test occursin("+1 folded", W.astrip(W.render(st, 150, 40)))
+    W.handle!(st, 13, ctrl)
+    @test st.nodes[2].open && occursin("opened 1 folded block", st.status)
+    @test length(W.match_rows(st, iw)) == 1 && st.hidden == 0
+
+    # Opening reaches through more than one level of nesting.
+    st = mkstate()
+    ns = [W.Node("top", "", :md, false), W.Node("mid", "", :md, false, 1),
+          W.Node("leaf", "zarquon lives here", :md, false, 2)]
+    st.nodes = ns
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    @test W.ancestors_of(st, 3) == [3, 2, 1]
+    W.handle!(st, Int('/'), ctrl); type!(st, "zarquon"); W.handle!(st, 13, ctrl)
+    @test all(n.open for n in st.nodes)
+    @test occursin("opened 3 folded blocks", st.status)
+
+    # Typing must not spring folds open on its own.
+    st = mkstate()
+    st.nodes = [W.Node("top", "", :md, true), W.Node("folded", "zarquon", :md, false, 1)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    W.handle!(st, Int('/'), ctrl); type!(st, "zarq")
+    @test !st.nodes[2].open && st.hidden == 1
+end
+
 @testset "span highlighting" begin
     s = "\e[31mred\e[0m and green"
     hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.HITBG)

@@ -169,47 +169,30 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### Search the source, not the screen
-`/` matches each row's *printed* text, which is what made highlighting possible
-— a character offset in what prints is an offset that can be given a background.
-It also means the search only finds what happens to be visible, and there are
-two ways that loses a real hit. Both are worth fixing even at the cost of the
-highlight, which is a nicety; finding the thing is the point.
+### Term eats the underscores in identifiers
+`deliver_result and connect_to_peer` renders as `deliverresult and
+connectto_peer`. `Markdown.parse` treats the underscores as emphasis and Term
+drops the markers, so every snake_case name in a comment that was not written
+inside backticks loses characters — which is most of them, since people type
+function names as prose.
 
-**A phrase broken across a wrap.** `perf_event_paranoid` split as `perf_event_`
-/ `paranoid` is not found by either half. Every row already carries `src`, the
-unwrapped line it came from, so this is a change of one predicate in
-`match_rows`: test `r.src` instead of `astrip(r.text)`, on the rows with
-`part == 0` — one per logical line, which is what stops a wrapped line matching
-three times.
+GitHub does not do this: GFM does not open emphasis inside a word, so a bare
+`deliver_result` renders literally there. This is a parser difference, and it
+disagrees with what the comment looks like on the site it came from.
 
-Highlighting need not be lost outright, and the hybrid is cheap because both
-halves already exist. Find on `src`; then highlight with the existing
-`findhits(astrip(r.text), q)`, which returns empty exactly for the rows where
-the match straddles a break. So every hit that *is* visible on one row keeps its
-marking, and only the split ones are found-but-unmarked. Those should still be
-reachable — the cursor lands on the row, and the footer count is honest about
-how many there are.
+Where it bites hardest is search: `src` holds the mangled text, so `/` cannot
+find a name the reader can see is there — the same text is wrong in the pane and
+in the copy.
 
-Note this changes what a match *is*: one per logical line rather than one per
-visible occurrence. That is the better unit for `n`/`N` anyway.
+The fix is at the parse boundary. `Markdown.parse` is Julia's, so either
+pre-process the body to escape intraword underscores before parsing (a scan for
+`_` with a word character on both sides, and no backtick span around it — the
+same shape as `split_details`), or post-process, which cannot work because by
+then the character is gone. The pre-pass is the one that can.
 
-**Content inside a folded node.** `rows` skips a closed node's body and the
-whole nested run beneath it, so no row exists to search — a search cannot see
-into a collapsed `<details>` or a comment you folded away. This is the bigger
-half. It means searching the nodes rather than the rows: each `Node` holds its
-`raw`, and `nodelines` has already computed `srcs` for any node that has been
-rendered at the current width (a never-opened one has not, so it would have to
-be rendered to be searched, which is the cost).
-
-Then a hit has to be *revealed*, and folding is depth-based rather than
-structural: there are no parent pointers, so opening the node holding the hit
-means also walking backwards to the nearest preceding node of each lower depth
-and opening those too, or the run stays hidden. Opening anything renumbers every
-row, so the sequence has to be: find the node, open it and its ancestors,
-rebuild the rows, then locate the row. Worth deciding whether a search should
-change fold state at all, or instead report "3 matches in folded blocks" and
-leave the opening to you.
+Worth checking whether Term or Julia's Markdown is the right place to report it;
+`Markdown.parse` following CommonMark on intraword emphasis would fix it for
+everyone, and Term's markdown is a thin layer over it.
 
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review

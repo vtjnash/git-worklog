@@ -281,6 +281,7 @@ Base.@kwdef mutable struct BState <: View
     undos::Vector{Undo} = Undo[]   # local actions, newest last
     search::String = ""    # the live query; "" when no search is running
     searchin::Symbol = :list  # the pane it was started in, and belongs to
+    hidden::Int = 0        # matches inside folded nodes, counted when re-aiming
     typing::Bool = false   # is the query still being typed?
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
@@ -1095,12 +1096,24 @@ function render_frame(st::BState, w::Int, h::Int)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
         # the terminal's being hidden for the whole run.
-        string(AB, "/", AR, st.search, "\e[7m \e[0m",
-               AD, "   ↵ keep · esc drop", AR)
+        #
+        # The count of what is folded away belongs *here*, while there is still
+        # a decision to make about it. After enter it is always zero, because
+        # committing is what opens them.
+        found = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
+        unit = st.searchin === :detail ? (found == 1 ? " match" : " matches") :
+                                         (found == 1 ? " item" : " items")
+        tally = isempty(st.search) ? "" :
+                string(found, unit,
+                       st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
+        string(AB, "/", AR, st.search, "\e[7m \e[0m", AD, "   ", tally,
+               st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", AR)
     elseif !isempty(st.search)
         nmatch = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
         string(AB, "/", st.search, AR, AD, "  ", nmatch,
-               st.searchin === :detail ? " matches · n/N steps them · " : " items · ",
+               st.searchin === :detail ?
+                   string(nmatch == 1 ? " match · " : " matches · n/N steps them · ") :
+                   (nmatch == 1 ? " item · " : " items · "),
                "/ to search again", AR)
     else
         string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
@@ -1592,6 +1605,7 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         st.typing = true
         st.search = ""
         st.searchin = st.focus === :detail ? :detail : :list
+        st.hidden = 0
         st.searchin === :list && refilter!(st)
         return :ok
     elseif k == Int('q')
@@ -1854,11 +1868,74 @@ end
 
 # --- search -----------------------------------------------------------------
 
-"Rows of the detail pane that contain the query, by what they actually print."
+"""Rows of the detail pane that contain the query.
+
+Matched against `src`, the line as it was written, not against what the row
+prints - so a phrase the pane broke across a wrap is still found. One row per
+logical line, which is what `part == 0` selects and what stops a wrapped line
+counting as three matches.
+
+The cost is that a match found this way cannot always be marked: an offset into
+the unwrapped line is not an offset into any one row. The marking is done
+separately, by looking for the query in what each row actually prints, and comes
+back empty for exactly the straddling matches. Found beats marked.
+"""
 function match_rows(st::BState, w::Int)
     isempty(st.search) && return Int[]
+    q = lowercase(st.search)
     [j for (j, r) in enumerate(rows(st.nodes, w))
-     if !isempty(findhits(astrip(r.text), st.search))]
+     if r.part == 0 && occursin(q, lowercase(r.src))]
+end
+
+"""A node's source lines, at the width `rows` would render it.
+
+`nodelines` caches per width, so asking a *closed* node costs one render the
+first time and nothing after. That is the price of searching what is folded
+away, and it is only paid when a search actually runs.
+"""
+node_srcs(n::Node, w::Int) = (nodelines(n, max(20, w - 2 * n.depth)); n.srcs)
+
+"Nodes containing the query, whether or not any of them is currently visible."
+function node_hits(st::BState, w::Int)
+    q = lowercase(st.search)
+    isempty(q) && return Int[]
+    [i for (i, n) in enumerate(st.nodes)
+     if occursin(q, lowercase(astrip(n.header))) ||
+        any(occursin(q, lowercase(src)) for (_, src) in node_srcs(n, w))]
+end
+
+"""Node `i` and the run it is nested inside, innermost first.
+
+Folding is depth rather than structure, so there are no parent pointers: what a
+node is nested inside is the nearest preceding node of each lower depth.
+"""
+function ancestors_of(st::BState, i::Int)
+    out = [i]
+    d = st.nodes[i].depth
+    for j in (i - 1):-1:1
+        if st.nodes[j].depth < d
+            push!(out, j)
+            d = st.nodes[j].depth
+            d == 0 && break
+        end
+    end
+    out
+end
+
+"""Open every node holding a match, and everything each is nested inside.
+
+Returns how many had to be opened. Only done when a search is *committed*, not
+while it is being typed - folds springing open under a half-finished query would
+be unreadable.
+"""
+function reveal_matches!(st::BState, w::Int)
+    opened = 0
+    for i in node_hits(st, w)
+        for j in ancestors_of(st, i)
+            st.nodes[j].open || (st.nodes[j].open = true; opened += 1)
+        end
+    end
+    opened
 end
 
 """Re-aim after the query changed.
@@ -1869,7 +1946,13 @@ back to the top of the thread.
 """
 function research!(st::BState, w::Int)
     if st.searchin === :detail
+        rs = rows(st.nodes, w)
         ms = match_rows(st, w)
+        # A node holding a match that contributes no visible matching row is
+        # folded away. Counted here rather than in `render`, which would pay for
+        # it on every frame.
+        seen = Set(rs[j].node for j in ms)
+        st.hidden = count(!in(seen), node_hits(st, w))
         isempty(ms) && return
         st.nrow = something(findfirst(>=(st.nrow), ms), 1) |> i -> ms[i]
     else
@@ -1886,7 +1969,13 @@ being unable to see it is exactly when you go looking for it by number.
 """
 function commit_search!(st::BState, w::Int)
     st.typing = false
-    st.searchin === :list || return
+    if st.searchin === :detail
+        opened = reveal_matches!(st, w)
+        research!(st, w)
+        opened > 0 && (st.status = string("opened ", opened, " folded block",
+                                          opened == 1 ? "" : "s"))
+        return
+    end
     n = tryparse(Int, strip(st.search))
     n === nothing && return
     k = findfirst(it -> it.number == n, st.all)
