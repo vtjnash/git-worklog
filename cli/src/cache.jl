@@ -16,19 +16,26 @@ cachedir() = (isempty(CACHE_DIR[]) && (CACHE_DIR[] = datapath("cache")); CACHE_D
 _slot(key) = joinpath(cachedir(), bytes2hex(sha256(key))[1:32] * ".json")
 
 """
-    cache_get(key, ttl_s) -> (value, age_s) or nothing
+    cache_get(key, ttl_s; keep_s = ttl_s) -> (value, age_s) or nothing
 
-`nothing` when absent, unreadable, or older than `ttl_s`. A damaged entry is a
+`nothing` when absent, unreadable, or older than `keep_s`. A damaged entry is a
 miss rather than an error: the cost of re-fetching is a delay, the cost of
 trusting it is wrong data on screen.
+
+Two thresholds and not one, for the caller that would rather show something old
+than nothing at all. `ttl_s` is how long the entry is *current*; `keep_s` is how
+long it is worth showing while a fresh copy is fetched behind it. The age comes
+back either way, so deciding between them is the caller's - this only refuses
+what is past both. Left alone they are the same number, which is the plain
+fresh-or-miss cache every other caller wants.
 """
-function cache_get(key::AbstractString, ttl_s::Real)
+function cache_get(key::AbstractString, ttl_s::Real; keep_s::Real = ttl_s)
     f = _slot(key)
     isfile(f) || return nothing
     try
         d = JSON3.read(read(f, String))
         age = time() - d.at
-        age > ttl_s && return nothing
+        age > max(ttl_s, keep_s) && return nothing
         (d.value, age)
     catch
         nothing
@@ -56,6 +63,15 @@ cached copy is now wrong, and a TTL that made it fast to re-read makes it slow
 to notice.
 """
 cache_drop(key::AbstractString) = (f = _slot(key); isfile(f) && rm(f; force = true); nothing)
+
+"""How long an entry is kept before the sweep drops it outright.
+
+Longer than anything shows a cached copy, so the sweep only ever collects
+entries nothing would have used. Without it `cache/` grows for as long as the
+program is used: every thread ever opened, kept for a repo that was archived
+months ago.
+"""
+const CACHE_SWEEP = Ref(21 * 86_400.0)
 
 "Drop everything, or only entries older than `older_than` seconds."
 function cache_clear(; older_than::Real = 0)

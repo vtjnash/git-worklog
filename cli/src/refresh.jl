@@ -525,6 +525,13 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
                               "items" => items]; indent = 1, sortkeys = true))
     write(snzp, json_dumps(snz; indent = 1, sortkeys = true))
     write(datapath("DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
+    # The one directory nothing else prunes. Swept here rather than in the
+    # browser because it is a walk of the whole folder and this run is already
+    # the slow, non-interactive one - and because everything it drops is older
+    # than anything the browser would have put on screen.
+    swept = cache_clear(; older_than = CACHE_SWEEP[])
+    swept > 0 && @printf(stderr, "  %-16s %d entries over %d days old\n",
+                         "cache", swept, round(Int, CACHE_SWEEP[] / 86_400))
     @printf(stderr, "  %d items, %d changes, %d rate-limit points\n",
             length(items), length(changes), spent)
     0

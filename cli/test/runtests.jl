@@ -2696,6 +2696,95 @@ end
     @test W.age(loaded[1], W.utcnow()) >= 0
 end
 
+@testset "a stale entry goes up while it is re-read" begin
+    # Two thresholds rather than one: a browser that opens should not be a
+    # browser that waits, and what was on the page ten minutes ago is a better
+    # answer than a spinner. Past the second one it is not, and the fetch blocks.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    keepttl, keepkeep = W.DETAIL_TTL[], W.DETAIL_KEEP[]
+    try
+        W.cache_put("a", "v")
+        @test W.cache_get("a", 60.0)[1] == "v"
+        @test W.cache_get("a", -1.0) === nothing              # one number: a miss
+        h = W.cache_get("a", -1.0; keep_s = 60.0)             # two: old, still shown
+        @test h !== nothing && h[1] == "v" && h[2] >= 0
+        @test W.cache_get("a", -1.0; keep_s = -1.0) === nothing   # past both
+
+        # The sweep only ever collects what nothing would have shown.
+        @test W.CACHE_SWEEP[] > W.DETAIL_KEEP[]
+        W.cache_put("b", "w")
+        @test W.cache_clear(; older_than = 3600.0) == 0
+        @test W.cache_clear(; older_than = 0.0) == 2
+        @test W.cache_get("a", 60.0) === nothing
+
+        # A thread out of date but worth showing goes up marked stale, which is
+        # what arms the re-read; inside the TTL nothing is marked at all.
+        it = W.Item(url = "https://github.com/o/r/pull/1", ref = "r#1", repo = "o/r",
+                    number = 1, title = "t")
+        W.cache_put("thread:" * it.url,
+                    (body = Dict("user" => Dict("login" => "a"), "body" => "hello",
+                                 "html_url" => it.url),
+                     comments = []))
+        W.DETAIL_TTL[] = -1.0
+        ns = W.comment_nodes(it, W.utcnow())
+        @test get(ns[1].meta, "stale", false) === true
+        @test occursin("hello", ns[1].raw)
+        W.DETAIL_TTL[] = 600.0
+        @test get(W.comment_nodes(it, W.utcnow())[1].meta, "stale", false) === false
+    finally
+        W.DETAIL_TTL[], W.DETAIL_KEEP[] = keepttl, keepkeep
+        W.CACHE_DIR[] = keepdir
+    end
+
+    # The debounce is a second of the item actually being on screen: holding `j`
+    # down passes twenty stale entries and must not fire twenty requests.
+    st = mkstate()
+    n = W.Node("cached", "body", :plain, true); n.meta["stale"] = true
+    st.nodes = [n]; st.loaded = "u:comments"; st.pendkey = ""; st.wake = nothing
+    @test W.arm_refresh!(st, 100.0)
+    @test st.refreshkey == "u:comments" && st.refreshat == 100.0 + W.REFRESH_AFTER[]
+    @test !W.due_refresh!(st, 100.0)                  # not yet
+    @test st.refreshkey == "u:comments"
+    # By the time the timer fires the selection may have moved, and the re-read
+    # belongs to whatever is on screen then rather than to what armed it.
+    st.loaded = "other:comments"
+    @test !W.due_refresh!(st, 200.0)
+    @test isempty(st.refreshkey)
+    # A load already in flight is not something to race.
+    st.loaded = "u:comments"
+    W.arm_refresh!(st, 100.0)
+    st.pendkey = "u:comments"
+    @test !W.due_refresh!(st, 200.0) && isempty(st.refreshkey)
+    # And a fresh entry arms nothing at all.
+    st.nodes = [W.Node("fresh", "b", :plain, true)]
+    @test !W.arm_refresh!(st, 100.0)
+    # Nor is anything re-read that is not what is loaded.
+    st.pendkey = ""; st.loaded = "nothing-like-this"
+    @test !W.refresh_nodes!(st)
+
+    # What lands from a refresh keeps the reader's place; what lands from a load
+    # they asked for goes back to the top.
+    st2 = mkstate()
+    st2.nodes = [W.Node("cached", "b", :plain, true)]
+    st2.nrow = 5; st2.ntop = 3
+    fin(t) = (wait(t); t)
+    st2.quiet = true; st2.pendkey = "k"
+    st2.pending = fin(@async [W.failednode("could not load thread", "boom")])
+    @test W.collect_pending!(st2)
+    @test st2.nodes[1].header == "cached"          # the cached copy stayed up
+    @test st2.nrow == 5 && st2.ntop == 3
+    @test occursin("cached copy", st2.status)
+    st2.quiet = true; st2.pendkey = "k"
+    st2.pending = fin(@async [W.Node("re-read", "b", :plain, true)])
+    @test W.collect_pending!(st2)
+    @test st2.nodes[1].header == "re-read" && st2.nrow == 5 && st2.ntop == 3
+    st2.quiet = false; st2.pendkey = "k"
+    st2.pending = fin(@async [W.Node("asked for", "b", :plain, true)])
+    @test W.collect_pending!(st2)
+    @test st2.nodes[1].header == "asked for" && st2.nrow == 1 && st2.ntop == 1
+end
+
 @testset "an operation is measured from when it started" begin
     # There is no global clock any more. The instant is an argument, so a test
     # can hand in one that is obviously not now and see it come back out - the

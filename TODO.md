@@ -339,27 +339,6 @@ These are the pieces of it that did not get built.
   dropping items whose repo is a fork. A noise control, not a cost one, and
   today it would filter nothing: `vtjnash/*` returns zero items in a month.
 
-### The cache wants two thresholds, not one
-
-Today a cache entry is either fresh or a miss, on one TTL, so a browser that
-opens is a browser that waits. Two numbers instead:
-
-- **Refresh-after**, short. The entry is shown *immediately* and re-fetched in
-  the background — after about a second of the item actually being on screen, so
-  that scrolling past twenty items does not fire twenty requests. That second is
-  a debounce, not a delay: the point is to spend requests on what is being read.
-- **Discard-after**, long. Beyond this the entry is not shown at all and the
-  fetch is blocking, because a month-old thread is worse than a pause.
-
-And a **sweep**: drop anything older than a few weeks outright, so `cache/`
-stops growing without bound. Nothing does that today.
-
-The machinery is mostly there — `cache_get(key, ttl)` already returns the entry
-*and its age*, and `load_nodes!` already fetches off the key loop and wakes the
-frame — so this is a policy change plus a timer, not new plumbing. The
-interesting part is where the debounce lives: it needs "this item has been
-selected continuously for N seconds", which nothing currently tracks.
-
 ### Importing one item by URL
 
 There is no way to say "watch this particular thing". Everything arrives through
@@ -628,6 +607,12 @@ Kept here so they can be written up in one pass rather than rediscovered.
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
   way to assign a reviewer, or to open the check your eye is actually on.
+- **Only the thread and the diff are shown stale while they are re-read.**
+  `check_contexts` and the Buildkite logs still have one TTL each, so a check
+  pane past its two minutes is a pause rather than a stale frame with a fetch
+  behind it. That is defensible - a check that is two minutes out of date is
+  wrong in a way a comment thread is not - but it is a difference in behaviour
+  between two panes and nothing says so on screen.
 - **Per-check counts come from the same cache the `C` pane uses.** So the
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `facts.json`

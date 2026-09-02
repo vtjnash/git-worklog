@@ -329,6 +329,10 @@ Base.@kwdef mutable struct BState <: View
     status::String = ""
     pending::Union{Nothing,Task} = nothing   # in-flight fetch; the key loop
     pendkey::String = ""                     # never blocks
+    quiet::Bool = false             # the fetch in flight is a background
+                                    # re-read: what is on screen stays there
+    refreshkey::String = ""         # the loaded key a stale entry wants re-read,
+    refreshat::Float64 = 0.0        # and the second it becomes due
     all::Vector{Item}               # unfiltered
     unread::Set{String} = Set{String}()
     filters::Filters = Filters()
@@ -1543,9 +1547,27 @@ end
 
 # --- content loading -------------------------------------------------------
 
-"TTL for a cached thread or diff. Short: these are things people are actively
-replying to, and a stale comment list is worse than a slow one."
+"""How long a cached thread or diff is current, and how long it is worth
+showing at all.
+
+Two numbers, because they answer different questions. Past `DETAIL_TTL` the
+entry is out of date and wants re-reading - but it is still what was on the page
+ten minutes ago, so it goes up at once and the fetch runs behind it: a browser
+that opens should not be a browser that waits. Past `DETAIL_KEEP` it is not
+worth showing at all and the fetch blocks, because a week-old thread on screen
+is worse than a pause in front of one.
+"""
 const DETAIL_TTL = Ref(600.0)
+const DETAIL_KEEP = Ref(7 * 86_400.0)
+
+"""How long an item has to stay selected before a stale entry is re-read.
+
+A debounce and not a delay. Holding `j` down passes twenty stale entries, and a
+request for each would spend the whole point of the cache on items nobody read;
+a second of the item actually being on screen is the difference between reading
+it and going past it.
+"""
+const REFRESH_AFTER = Ref(1.0)
 
 """
     split_details(md) -> Vector{Tuple{Symbol,String,String}}
@@ -1696,8 +1718,9 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
 end
 body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, url, open)
 
-function comment_nodes(it::Item, at::DateTime)
+function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     local body, cs
+    stale = false
     # When the fetch *started*, which is the whole reason `at` is threaded here
     # rather than read off a clock below. `r` marks the thread read up to this,
     # so a comment that arrived while the request was in flight has to stay
@@ -1706,12 +1729,13 @@ function comment_nodes(it::Item, at::DateTime)
     fetched = stamp(at)
     try
         key = "thread:" * it.url
-        hit = cache_get(key, DETAIL_TTL[])
+        hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
         if hit === nothing
             body, cs = Events.thread(it.url; limit = 30)
             cache_put(key, (body = body, comments = cs))
         else
             body, cs = hit[1].body, hit[1].comments
+            stale = hit[2] > DETAIL_TTL[]
             # When this thread was actually read from GitHub, not when it came
             # out of the cache. Measured back from the start of *this*
             # operation, so the answer errs early rather than late - the age
@@ -1720,7 +1744,7 @@ function comment_nodes(it::Item, at::DateTime)
             fetched = stamp(at - Millisecond(round(Int, 1000 * hit[2])))
         end
     catch e
-        return [Node("could not load thread", first(sprint(showerror, e), 200), :plain, true)]
+        return [failednode("could not load thread", first(sprint(showerror, e), 200))]
     end
     ns = Node[]
     who0 = get(something(get(body, "user", nothing), Dict{String,Any}()), "login", "?")
@@ -1756,7 +1780,9 @@ function comment_nodes(it::Item, at::DateTime)
         append!(ns, made)
     end
     isempty(ns) || (ns[1].meta["fetched"] = fetched)
-    isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
+    out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
+    stale && (out[1].meta["stale"] = true)
+    out
 end
 
 """One node per hunk, not per file.
@@ -1765,20 +1791,24 @@ A file-sized node makes n/N step over whole files, which is the wrong grain for
 reading a change: hunks are the units you actually move between. The file name
 stays in each hunk's header so the context is never lost.
 """
-function diff_nodes(it::Item)
+function diff_nodes(it::Item; fresh::Bool = false)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node("no diff - this is an issue, not a pull request",
                              "", :plain, true)]
+    stale = false
     txt = try
         key = string("diff:", it.repo, "#", it.number)
-        hit = cache_get(key, DETAIL_TTL[])
-        hit === nothing ?
-            cache_put(key, read(`gh pr diff $(it.number) --repo $(it.repo)`, String)) :
+        hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
+        if hit === nothing
+            cache_put(key, read(`gh pr diff $(it.number) --repo $(it.repo)`, String))
+        else
+            stale = hit[2] > DETAIL_TTL[]
             String(hit[1])
+        end
     catch e
-        return [Node("no diff (not a PR, or gh failed)",
-                     first(sprint(showerror, e), 200), :plain, true)]
+        return [failednode("no diff (not a PR, or gh failed)",
+                           first(sprint(showerror, e), 200))]
     end
     ns, file, buf, hdr = Node[], "", String[], ""
     pending_range, pending_old = (0, 0), (0, 0)
@@ -1820,7 +1850,9 @@ function diff_nodes(it::Item)
     end
     flush!()
     isempty(ns) && return [Node("empty diff", "", :plain, true)]
-    place_comments(ns, it)
+    out = place_comments(ns, it)
+    stale && !isempty(out) && (out[1].meta["stale"] = true)
+    out
 end
 
 """Where a review comment was pointing: `file.jl:544`, or empty for a plain one.
@@ -1941,9 +1973,22 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
     out
 end
 
-mode_nodes(mode::Symbol, it::Item, at::DateTime) =
-    mode === :comments ? comment_nodes(it, at) :
-    mode === :diff     ? diff_nodes(it) : check_nodes(it)
+"""A load that failed, marked as such.
+
+A background refresh has to be able to tell a fetch that came back from one that
+did not: what it does on failure is keep what is already on screen, and the
+alternative is replacing a thread somebody is reading with an error about a
+request they never asked for.
+"""
+function failednode(header::AbstractString, body::AbstractString)
+    n = Node(String(header), String(body), :plain, true)
+    n.meta["failed"] = true
+    n
+end
+
+mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
+    mode === :comments ? comment_nodes(it, at; fresh = fresh) :
+    mode === :diff     ? diff_nodes(it; fresh = fresh) : check_nodes(it)
 
 function load_nodes!(st::BState)
     isempty(st.items) && return
@@ -1965,25 +2010,107 @@ function load_nodes!(st::BState)
         r
     end
     st.pendkey = key
+    st.quiet = false
     st.nodes = Node[]
     st.nrow = 1; st.ntop = 1
     clearsel!(st)          # it indexed rows that are about to be replaced
     st.status = "loading " * it.ref * "…"
 end
 
+"""Start a background re-read of what is already on screen.
+
+What makes it a refresh is everything it does not do: the nodes stay, the cursor
+stays, the fold state stays, the status stays. One that the reader has to notice
+is not a refresh - it is being thrown back to the top of a thread they were in
+the middle of.
+
+Only ever for the item that is loaded and only when nothing else is in flight,
+so this can never be what a keystroke is waiting on.
+"""
+function refresh_nodes!(st::BState)
+    isempty(st.items) && return false
+    it = st.items[clamp(st.sel, 1, length(st.items))]
+    key = string(it.url, ":", st.mode)
+    (st.loaded == key && isempty(st.pendkey)) || return false
+    mode = st.mode
+    at = utcnow()
+    st.quiet = true
+    st.pendkey = key
+    st.pending = @async begin
+        r = try
+            mode_nodes(mode, it, at; fresh = true)
+        finally
+            st.wake === nothing || st.wake()
+        end
+        r
+    end
+    true
+end
+
+"""Arm the debounce for an entry that went up stale.
+
+The timer is a task that sleeps and then wakes the frame, because the event loop
+blocks on its channel and has no tick of its own. It decides nothing: by the time
+it fires the selection may have moved, and what gets re-read is whatever is on
+screen then rather than what was on screen when this was armed.
+"""
+function arm_refresh!(st::BState, at::Float64 = time())
+    (isempty(st.nodes) || get(st.nodes[1].meta, "stale", false) !== true) && return false
+    st.refreshkey = st.loaded
+    st.refreshat = at + REFRESH_AFTER[]
+    w = st.wake
+    w === nothing || @async begin
+        sleep(REFRESH_AFTER[])
+        w()
+    end
+    true
+end
+
+"""Re-read a stale entry whose debounce has run out, if it is still on screen.
+
+Returns false either way: nothing it does changes the frame. What lands from it
+does, in its own wake.
+"""
+function due_refresh!(st::BState, at::Float64 = time())
+    isempty(st.refreshkey) && return false
+    if st.refreshkey != st.loaded || !isempty(st.pendkey)
+        st.refreshkey = ""                  # it belongs to something else now
+        return false
+    end
+    at < st.refreshat && return false
+    st.refreshkey = ""
+    refresh_nodes!(st)
+    false
+end
+
 "Adopt a finished fetch. Returns true when the frame needs redrawing."
 function collect_pending!(st::BState)
     st.pending === nothing && return false
     istaskdone(st.pending) || return false
-    st.nodes = try
+    ns = try
         fetch(st.pending)
     catch e
-        [Node("load failed", first(sprint(showerror, e), 300), :plain, true)]
+        [failednode("load failed", first(sprint(showerror, e), 300))]
     end
+    quiet = st.quiet
+    st.quiet = false
     st.loaded = st.pendkey
     st.pending = nothing
     st.pendkey = ""
-    st.nrow = 1; st.ntop = 1; clearsel!(st); st.status = ""
+    if quiet && !isempty(ns) && get(ns[1].meta, "failed", false) === true
+        # A refresh nobody asked for must not take the thread away from someone
+        # reading it. The cached copy stayed on screen and stays there; only the
+        # status says the re-read did not land.
+        st.status = "could not re-read \u00b7 showing the cached copy"
+        return true
+    end
+    st.nodes = ns
+    # The cursor is only reset by a load the reader asked for. A refresh under
+    # them keeps their place - rows may have shifted by a comment, and that is a
+    # better answer than the top of the thread.
+    quiet || (st.nrow = 1; st.ntop = 1; st.status = "")
+    clearsel!(st)          # either way, it indexed rows that are gone
+    arm_refresh!(st)
     true
 end
 
@@ -2019,7 +2146,7 @@ end
 render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
 
 "Adopt whichever finished fetch woke us - the body, the metadata, or both."
-onwake!(st::BState) = collect_pending!(st) | collect_meta!(st)
+onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st)
 
 """
     browse(items, title, unread)
