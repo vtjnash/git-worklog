@@ -5,6 +5,7 @@ bulk.json
 queue.json
 read.json
 touched.json
+inbox.json
 cache/
 repos.toml
 

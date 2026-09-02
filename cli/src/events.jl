@@ -21,7 +21,7 @@ import ..cache_get, ..cache_put, ..cache_drop
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
-using ..Worklog: ROOT, stamp, json_dumps
+using ..Worklog: ROOT, stamp, ts, json_dumps
 
 const READ = joinpath(ROOT, "read.json")
 
@@ -222,90 +222,139 @@ function mark_read(urls, at::DateTime)
     length(urls)
 end
 
-"""Items touched in the lookback window that you have not marked read.
+"""The accumulated inbox: `cursors`, `polled` and `items`.
 
-One query per repo, nothing cached. An item you have never marked is unread only
-if it moved inside the window - otherwise turning this on would present every
-thread in the repo as new mail.
+Machine-owned. `cursors` is how far each source has been read, `polled` is when
+it was last asked, and `items` is everything seen and not yet marked read.
+"""
+const INBOX = Ref(joinpath(ROOT, "inbox.json"))
+
+function load_inbox()
+    d = Dict("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
+             "items" => Dict{String,Any}())
+    isfile(INBOX[]) || return d
+    try
+        raw = JSON3.read(read(INBOX[], String))
+        for k in ("cursors", "polled")
+            for (kk, vv) in get(raw, Symbol(k), (;))
+                d[k][String(kk)] = String(vv)
+            end
+        end
+        for (kk, vv) in get(raw, :items, (;))
+            d["items"][String(kk)] = OrderedDict{String,Any}(String(a) => b
+                                                             for (a, b) in vv)
+        end
+    catch
+        # A damaged inbox is an empty one: the cursors reset to now, which loses
+        # a poll's worth of history rather than every future poll.
+    end
+    d
+end
+
+save_inbox(d) = write(INBOX[], json_dumps(d; indent = 1, sortkeys = true))
+
+"""Everything seen on the tracked repos and not yet marked read.
+
+An **incremental** sync, not a window. Each source keeps a cursor, and a poll
+asks only for what has changed since it - so a repo seeing dozens of events a
+day costs a handful of rows per poll rather than a re-read of the last month,
+and nothing ages out unread because the window moved past it.
+
+A source seen for the first time starts at *now*, so turning this on is inbox
+zero rather than a month of history to dismiss. `backfill_days` moves that start
+back if some is wanted.
+
+The cursor advances to the start of the poll and not to the newest row it saw. A
+change landing while the fetch is in flight is then read again next time, which
+duplicates - and duplicates are free, because the inbox is keyed by url - where
+the other rounding would skip it. A failed fetch advances nothing.
+
+`read.json` remains the authority on what leaves: an item is dropped from the
+inbox once it has been marked read up to its latest change.
 """
 function unread(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = get(cfg, "events", Dict{String,Any}())
     repos = get(cfge, "repos", String[])
     isempty(repos) && return OrderedDict{String,Any}[]
-    since = Dates.format(at - Day(get(cfge, "lookback_days", 30)), "yyyy-mm-ddTHH:MM:SS") * "Z"
     auth()          # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.
-    rd = load_read()
-    out = OrderedDict{String,Any}[]
-    ttl = Float64(get(cfge, "activity_ttl_seconds", 120))
-    # An `owner/*` entry is every repo that owner has. Asked as one search per
-    # kind rather than as one poll per repo: `vtjnash/*` is a hundred repos, and
-    # a hundred requests on every browser launch is not a thing to do for a
-    # handful of comments. The cost is fidelity - search truncates at 1000 - so
-    # a repo that has to be seen exactly is still listed by name, and both may
-    # be listed at once.
     explicit, owners, bad = event_sources(repos)
     isempty(bad) || @printf(stderr, "    ignoring %s: only `owner/*` is a pattern\n",
                             join(bad, ", "))
-    sources = Tuple{String,Any}[]
+
+    # An `owner/*` entry is every repo that owner has. Asked as one search per
+    # kind rather than as one poll per repo: `vtjnash/*` is a hundred repos, and
+    # a hundred requests a poll is not a thing to do for a handful of comments.
+    # The cost is fidelity - search truncates at 1000 - so a repo that has to be
+    # seen exactly is still listed by name, and both may be listed at once.
+    srcs = Tuple{String,Any}[]
     for repo in explicit
-        ckey = string("activity:", repo, ":", since)
-        push!(sources, (repo, () -> api_paged("/repos/$repo/issues";
+        push!(srcs, (repo, since -> api_paged("/repos/$repo/issues";
             params = Dict{String,Any}("since" => since, "state" => "all",
                                       "sort" => "updated", "direction" => "asc"))))
     end
     for owner in owners, kind in ("is:issue", "is:pull-request")
-        q = "user:$owner $kind updated:>$(first(since, 10))"
-        push!(sources, (string(owner, "/* ", kind), () -> begin
-            items, total = search_issues(q)
+        push!(srcs, (string(owner, "/* ", kind), since -> begin
+            its, total = search_issues("user:$owner $kind updated:>$since")
             total >= 1000 && @printf(stderr,
-                "    %-24s truncated at 1000 of %d - narrow lookback_days\n",
+                "    %-24s truncated at 1000 of %d - poll more often\n",
                 string(owner, "/*"), total)
-            items
+            its
         end))
     end
 
-    seen = Set{String}()
-    for (label, fetch) in sources
-        # Persisted: this runs on every launch of the browser and is several
-        # paginated requests per source, which is most of the startup wait. Read
-        # state is applied below, after the cache, so marking something read is
-        # reflected immediately even against a warm entry.
-        ckey = string("activity:", label, ":", since)
+    inbox = load_inbox()
+    cursors, polled, items = inbox["cursors"], inbox["polled"], inbox["items"]
+    ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120)))
+    backfill = Day(get(cfge, "backfill_days", 0))
+    got = 0
+    for (label, fetch) in srcs
+        # Inbox zero on first sight, so switching this on is not a month of
+        # history to dismiss.
+        cur = get!(cursors, label, stamp(at - backfill))
+        last = get(polled, label, nothing)
+        t = last === nothing ? nothing : ts(last)
+        t === nothing || at - t >= ttl || continue
         rows = try
-            hit = cache_get(ckey, ttl)
-            hit === nothing ? cache_put(ckey, fetch()) : hit[1]
+            fetch(cur)
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
             continue
         end
         for r in rows
-            url = r["html_url"]
-            r["updated_at"] <= get(rd, url, "") && continue
-            # A repo named explicitly *and* covered by a glob is one item, and
-            # the explicit poll is the one that ran first and cannot truncate.
-            url in seen && continue
-            push!(seen, url)
-            push!(out, OrderedDict{String,Any}(
-                # Off the item, not off the source: a glob covers many repos
-                # and only the item knows which one it came from.
+            url = String(r["html_url"])
+            who = get(something(get(r, "user", nothing), Dict{String,Any}()),
+                      "login", nothing)
+            # Off the item, not off the source: a glob covers many repos and
+            # only the item knows which one it came from.
+            items[url] = OrderedDict{String,Any}(
                 "url" => url, "repo" => item_repo(r), "number" => r["number"],
                 "title" => r["title"],
                 "is_pr" => haskey(r, "pull_request"),
                 "state" => r["state"],
-                "author" => get(something(get(r, "user", nothing), Dict{String,Any}()), "login", nothing),
+                "author" => who,
                 "updated" => r["updated_at"],
                 "comments" => get(r, "comments", 0),
                 "labels" => [l["name"] for l in get(r, "labels", ())],
-                "mine" => get(something(get(r, "user", nothing), Dict{String,Any}()), "login", nothing) == login))
+                "mine" => who == login)
+            got += 1
         end
+        cursors[label] = stamp(at)
+        polled[label] = stamp(at)
     end
+
+    rd = load_read()
+    for (url, e) in collect(items)
+        String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
+    end
+    save_inbox(inbox)
+
+    out = collect(OrderedDict{String,Any}, values(items))
     sort!(out; by = e -> e["updated"], rev = true)
-    verbose && @printf(stderr, "  %-16s %4d unread across %d source(s), %d repo(s)\n",
-                       "activity", length(out), length(sources),
-                       length(unique(e["repo"] for e in out)))
+    verbose && @printf(stderr, "  %-16s %4d unread (%d new across %d source(s))\n",
+                       "activity", length(out), got, length(srcs))
     out
 end
 

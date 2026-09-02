@@ -54,7 +54,7 @@ linked against a newer glibc.
 | file | role |
 |---|---|
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
-| `cli/src/events.jl` | unread tracking and live thread fetch (submodule `Events`) |
+| `cli/src/events.jl` | the incremental inbox and live thread fetch (submodule `Events`) |
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, render |
 | `cli/src/touched.jl` | the interaction clock: when you last acted on an item |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
@@ -71,8 +71,8 @@ linked against a newer glibc.
 Owner rules for the data files matter: `config.toml`, `state.toml` and
 `repos.toml` are **yours** — `refresh` reads `state.toml` and never writes it,
 and only `wl` edits it, through a line-based editor that preserves comments.
-`facts.json`, `bulk.json`, `read.json`, `touched.json`, `queue.json`,
-`snooze.json` and `cache/` are machine-owned. `errors.log` is written by the
+`facts.json`, `bulk.json`, `read.json`, `touched.json`, `inbox.json`,
+`queue.json`, `snooze.json` and `cache/` are machine-owned. `errors.log` is written by the
 browser when something throws, and deleting it is how its standing footer
 warning is dismissed.
 
@@ -110,9 +110,13 @@ There is no TTY here, so the UI is tested by construction rather than by use:
 - The suite deletes `errors.log` at startup. The standing warning takes the
   footer's second row, so a log left from a previous run fails every test that
   asserts what is written there.
-- The events lane takes `owner/*` as well as `owner/name`. A glob is two
-  searches (`is:issue` and `is:pull-request` under `user:<owner>`), so it is
-  cheap to add one and it truncates at 1000 where a named repo does not.
+- The events lane is an **incremental sync**, not a window: `inbox.json` holds a
+  cursor per source and everything seen and not yet read. A source seen for the
+  first time starts at *now*, so turning one on is inbox zero. `read.json` is
+  still what decides an item leaves.
+- It takes `owner/*` as well as `owner/name`. A glob is two searches (`is:issue`
+  and `is:pull-request` under `user:<owner>`), so it is cheap to add one and it
+  truncates at 1000 where a named repo does not.
 - `cli/test/runtests.jl` holds all of the above; run it with
   `julia --project=cli cli/test/runtests.jl`.
 
@@ -142,7 +146,22 @@ Do not "simplify" any of these away.
 5. `gh api --paginate` is unsafe on a `sort=updated` list — it follows Link
    headers over a reordering collection and silently drops entries (168 vs 612
    on identical runs). Page explicitly with `direction=asc` and dedupe by id.
-6. A *successful* response can still be wrong: an `issueCount` of 0 alongside
+
+   **`since=` does not fix this and does not replace it.** The hazard is the
+   *direction*, not the window: an item's `updated_at` only ever increases, so
+   in ascending order it can only move toward the end — seen twice, never
+   skipped — while descending lets it jump back past a cursor already walked.
+   What the incremental cursor changed is the exposure: a poll is now one page
+   (34 rows over a six-hour gap on all eight sources) so the walk barely runs,
+   and because the cursor advances to the poll's *start* rather than to the
+   newest row, anything touched mid-fetch is read again next time. Keep the
+   explicit paging, keep `asc`, keep the dedupe.
+6. A search cursor must carry a *time*, not a date. `updated:>2026-09-02`
+   means after the end of that day, so a date-granularity cursor silently skips
+   everything that happened today: the same query returned 0 where
+   `updated:>2026-09-02T13:00:10Z` returned 1. Search takes the full ISO form,
+   so pass the cursor through unshortened.
+7. A *successful* response can still be wrong: an `issueCount` of 0 alongside
    100 nodes once overwrote a 957-item cached lane. `implausible()` guards this.
 
 **Term.jl**
@@ -439,6 +458,18 @@ note left it — revisit only if team mentions start mattering.
 **Order to build in.** Archive is all that is left of this plan, and it is the
 only piece that touches how items leave the lanes — which is what an adopted
 branch that came to nothing needs in order to go.
+
+### Ignoring forks in an owner glob
+
+Recorded 2026-09-02. `vtjnash/*` is 100 repos, 82 of them forks, and activity on
+a fork of someone else's project is usually not activity you care about.
+
+It would not save a request: a glob is two searches whatever the repo count, and
+GitHub's issue search has no fork qualifier — filtering would mean listing the
+owner's repos (one more call, cacheable for a day) and dropping items whose repo
+is a fork. So this is a *noise* control, not a cost one, and today it would
+filter nothing: `vtjnash/*` returns zero items in a month. Build it when a fork
+actually starts producing traffic worth suppressing.
 
 ### A filter axis you can search, and an author axis at all
 

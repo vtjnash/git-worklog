@@ -27,6 +27,7 @@ File ownership is strict, because it is what keeps the user's notes safe:
   | `bulk.json`   | machine | slow-lane cache, refetched every 6h|
   | `queue.json`  | machine | what the backlog queue has shown  |
   | `read.json`   | machine | one seen-up-to timestamp per item |
+  | `inbox.json`  | machine | the event cursors, and what is unread |
   | `touched.json`| machine | one last-interaction timestamp per item|
   | `snooze.json` | machine | armed "until it moves" fingerprints|
   | `DASHBOARD.md`| machine | overwritten every refresh         |

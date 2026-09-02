@@ -1688,6 +1688,30 @@ end
     # glob covers many repos - so the repo has to come off the item.
     @test E.item_repo(Dict("repository_url" => "https://api.github.com/repos/a/b")) == "a/b"
     @test E.item_repo(Dict{String,Any}()) == ""
+
+    # The inbox is incremental: a cursor per source, and what has been seen and
+    # not yet read. A source seen for the first time starts at now, so turning
+    # one on is inbox zero rather than a month of history to dismiss.
+    keep = E.INBOX[]
+    E.INBOX[] = joinpath(mktempdir(), "inbox.json")
+    try
+        d = E.load_inbox()
+        @test isempty(d["cursors"]) && isempty(d["items"]) && isempty(d["polled"])
+        d["cursors"]["r"] = "2026-09-02T13:00:10Z"
+        d["polled"]["r"] = "2026-09-02T13:00:10Z"
+        d["items"]["u"] = Dict{String,Any}("url" => "u", "updated" => "2026-09-02T12:00:00Z")
+        E.save_inbox(d)
+        back = E.load_inbox()
+        @test back["cursors"]["r"] == "2026-09-02T13:00:10Z"
+        @test back["items"]["u"]["updated"] == "2026-09-02T12:00:00Z"
+        # A damaged inbox is an empty one: the cursors reset to now, which loses
+        # one poll of history rather than every poll after it.
+        write(E.INBOX[], "{not json")
+        empty = E.load_inbox()
+        @test isempty(empty["cursors"]) && isempty(empty["items"])
+    finally
+        E.INBOX[] = keep
+    end
 end
 
 @testset "work that has already landed is still seen" begin
