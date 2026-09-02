@@ -993,10 +993,18 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     out
 end
 
-"""The widest the thread is ever drawn.
+"""The widest the item list is ever drawn.
 
-Half again what the item list wants, which is enough for a comment to read as
-prose and not so much that a line runs the width of a page.
+Refs and titles, and neither gets longer on a bigger screen. Past this the
+column is padding, and padding taken from the thread beside it.
+"""
+const LIST_MAX = 52
+
+"""The widest the thread is drawn *beside a child*.
+
+Half again the list's own cap, which is enough for a comment to read as prose
+and not so much that a line runs the width of a page. Only `split_box` uses it:
+with no child there, the thread is the column that fills.
 """
 const DETAIL_MAX = 78
 
@@ -1006,30 +1014,22 @@ const DETAIL_MAX = 78
 How wide the two columns are. `side` is false below the width where two columns
 are worth having, and then each pane is the full screen with the panes stacked.
 
-**No pane is ever more than half the screen.** Beside each other, one pane
-growing to fill a wide screen is the thing that makes the other useless, and
-the thread is the one that would - it takes whatever the list does not want, and
-the list has never wanted more than a third. So the thread is capped at half and
-at `DETAIL_MAX`, and the list takes what is left up to half of its own.
+**The left column is the one with a cap; the right fills what is left.** The
+list is bounded twice - never past half the screen, and never past `LIST_MAX` -
+because refs and titles do not get longer on a bigger display, and every column
+past that is padding taken from the thread. The thread has no cap here: it is
+what a wider screen is *for*, and giving it the remainder is what keeps the
+frame exactly as wide as the terminal.
 
-Above about 160 columns those two caps stop adding up to the screen, and the
-frame ends short of the right edge. That gap is not waste: it is exactly where
-`t` and `T` put a terminal, and `split_box` divides the same way when one is
-open.
+`split_box` divides on the same rule one level out, with the thread as the
+capped column and the terminal as the one that fills.
 """
 function panewidths(w::Int)
     w >= 110 || return (false, w, w)
-    half = cld(w, 2)
-    rw = min(w - clamp(w ÷ 3, 34, 52), half, DETAIL_MAX)
-    (true, min(w - rw, half), rw)
+    lw = min(w ÷ 2, LIST_MAX)
+    (true, lw, w - lw)
 end
 
-"""Left column width.
-
-Split out because the metadata pane sizes itself to its content, so it has to be
-rendered before the heights can be settled - and rendering it needs to know how
-wide it will be.
-"""
 leftw(w::Int) = panewidths(w)[2]
 
 """
@@ -1397,8 +1397,9 @@ function render_frame(st::BState, w::Int, h::Int)
         string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
     end
     foot2 = string(AD, afit(foot2, w), AR)
-    # Padded to the screen, not to the columns: neither pane may be more than
-    # half, so on a wide screen the two of them stop short of the right edge.
+    # Padded to the screen as well as laid out to it: the columns add up to `w`
+    # by construction, and this is what keeps a frame the width of the terminal
+    # if they ever stop.
     body = [apad(r, w) for r in
             (L.side ? [string(left[i], right[i])
                        for i in 1:min(length(left), length(right))] :

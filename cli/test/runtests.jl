@@ -1677,18 +1677,20 @@ end
 end
 
 @testset "reading beside the child" begin
-    # No pane is ever more than half the screen, split or not: one pane growing
-    # to fill a wide screen is what makes the other useless.
+    # The left column is the one with a cap; the right fills what is left. The
+    # same rule one level out, with the thread capped and the terminal filling.
     for w in (110, 120, 150, 165, 200, 250, 300, 400)
         side, lw, rw = W.panewidths(w)
         @test side
-        @test lw <= cld(w, 2) && rw <= cld(w, 2)
-        @test rw <= W.DETAIL_MAX
-        @test lw + rw <= w                     # short of the edge, never over
+        @test lw <= w ÷ 2 && lw <= W.LIST_MAX  # bounded twice
+        @test lw + rw == w                     # and the thread takes the rest
         r, t = W.split_box(w)
-        @test r <= cld(w, 2)
-        @test r + t == w                       # a child fills what is left
+        @test r <= w ÷ 2 && r <= W.DETAIL_MAX
+        @test r + t == w
     end
+    # A wider screen goes entirely to the column that fills.
+    @test W.panewidths(400)[3] - W.panewidths(200)[3] == 200
+    @test last(W.split_box(400)) - last(W.split_box(200)) == 200
     # Below the threshold there is one column, and it is the whole screen.
     @test W.panewidths(80) == (false, 80, 80)
     # The frame is padded to the screen even when the panes stop short of it.

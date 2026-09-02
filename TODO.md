@@ -566,14 +566,6 @@ Kept here so they can be written up in one pass rather than rediscovered.
   or be the thing `t` on an item asks first.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
-- **On a wide screen the frame stops short of the right edge.** No pane may be
-  more than half, and the thread is additionally capped at `DETAIL_MAX`, so
-  above about 160 columns the two of them no longer add up to the screen: at
-  200 the list is 100 and the thread 78, leaving 22; at 300 it is 150 and 78,
-  leaving 72. The gap is where `t` puts a terminal — `split_box` divides the
-  full width the same way — but with no session open it is simply blank. If it
-  reads as broken rather than as reserved, the fix is a cap on the list too, or
-  centring the frame.
 - **The metadata pane is a readout, not a control.** Clicking in it does
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
