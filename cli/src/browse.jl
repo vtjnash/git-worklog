@@ -965,12 +965,6 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
             push!(out, string("  ", l))
         end
     end
-    if !isempty(it.agent)
-        push!(out, string(AD, "agent", AR))
-        for l in awrap(it.agent, max(8, w - 2))
-            push!(out, string("  ", l))
-        end
-    end
     # A session is its own record that something is running: named after the
     # item, so nothing has to be stored to know it is there.
     # Matched on the item a session was tagged with, not on its name: the name
@@ -1325,7 +1319,7 @@ function render_frame(st::BState, w::Int, h::Int)
                    "y copy \u00b7 / search \u00b7 q quit")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" sessions \u00b7 m mouse ",
+                   " \u00b7 v note \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" sessions \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
@@ -2041,6 +2035,9 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         r = open_agent(it, ctrl)
         r === :needs_repo ? needs_repo(retry_agent) : (st.status = r isa String ? r : "")
         return :ok
+    elseif k == Int('v')
+        st.status = edit_note(st, it, ctrl)
+        return :ok
     elseif k == Int('"')
         # Not per-item: a session outlives the item it was opened on, and this
         # is the only place they can all be seen.
@@ -2580,6 +2577,66 @@ function open_editor(it::Item)
     string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
 end
 
+"""The editor to open a note in: `\$VISUAL`, then `\$EDITOR`, then `vi`.
+
+The same order `less` resolves for its own `v`, which is where the key comes
+from.
+"""
+noteeditor() = let e = get(ENV, "VISUAL", get(ENV, "EDITOR", ""))
+    isempty(e) ? "vi" : e
+end
+
+"""Edit this item's note in a real editor, and keep whatever comes back.
+
+The note is where a thought about an item goes - what to check, what to ask,
+the prompt being drafted for an agent. It was reachable only by leaving the
+browser and running `wl note`, which is enough friction that it went unused and
+`agent_task` got pressed into service instead.
+
+A file and `\$EDITOR`, rather than a text field of our own: notes run to
+paragraphs, they are worth keeping in a form that can be pasted, and the
+composer already showed that a homegrown editor is a lot of keybindings to
+reinvent badly. `less` binds `v` for exactly this and this borrows the key.
+
+An unchanged file writes nothing, so opening a note to read it cannot
+accidentally rewrite `state.toml`, and an emptied one clears the note rather
+than storing a blank.
+"""
+function edit_note(st::BState, it::Item, ctrl)
+    path = joinpath(mktempdir(), string(replace(it.ref, '/' => '-', '#' => '-'), ".md"))
+    before = it.note
+    write(path, isempty(before) ? "" : before)
+    ok = true
+    suspend(ctrl) do
+        try
+            # Through a shell, and with the path as an argument rather than
+            # interpolated: `$EDITOR` is a command line, not a program, and it
+            # is routinely one with arguments and quotes in it - `code --wait`,
+            # `emacsclient -a "" -c`. Splitting it on spaces mangles those.
+            run(`sh -c $(string(noteeditor(), " \"\$1\"")) sh $path`)
+        catch e
+            logerror!(e, catch_backtrace(), "edit_note")
+            ok = false
+        end
+    end
+    ok || return string("could not run ", noteeditor())
+    after = try
+        strip(read(path, String))
+    catch
+        return "the note could not be read back"
+    end
+    after == strip(before) && return "note unchanged"
+    set_fields(it.url, ["note" => isempty(after) ? nothing : String(after)])
+    # The pane reads the note off the item, so the item has to carry it before
+    # the next refresh rewrites `facts.json`.
+    st.items[st.sel] = Item(; (f => getfield(it, f) for f in fieldnames(Item))...,
+                            note = String(after))
+    push!(st.undos, Undo(string("note ", it.ref),
+                         () -> set_fields(it.url,
+                                          ["note" => isempty(before) ? nothing : before])))
+    isempty(after) ? "note cleared" : "note saved"
+end
+
 """Find or start this item's session of `kind` in its worktree, and show it.
 
 One path for both kinds, because a session of either is a *place*: the shell in
@@ -2622,11 +2679,7 @@ end
 """Open an agent on this item's worktree, and watch it work.
 
 Nothing has to be set up first, and nothing is said to it on the way in.
-Requiring an `agent_task` made the agent reachable only through a field the
-workflow has no reason to fill in - it exists to pull an item into the
-`needs-agents` bucket - and left `T` refusing to connect to a session sitting
-right there. Starting one is immediate, and what it should do is said in the
-pane.
+Starting one is immediate, and what it should do is said in the pane.
 
 The checkout is not described to it either. An agent already reads its working
 directory and the branch there from its own system prompt, so anything added

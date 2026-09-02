@@ -19,8 +19,7 @@ Work dashboard.
   wl snooze  julia#62452 on-change        or a date, or "off"
   wl note    julia#62452 "rebase after #62396 lands"
   wl deadline julia#62452 2026-09-30
-  wl agent   julia#62452 "rebase + rerun Compiler tests"
-  wl bucket  julia#62452 needs-agents
+  wl bucket  julia#62452 needs-review
   wl blocked julia#62452 JuliaLang/julia#62396
   wl clear   julia#62452
 """

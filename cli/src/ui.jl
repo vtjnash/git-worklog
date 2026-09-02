@@ -9,7 +9,6 @@ const LANES = [
     ("unread",         "Unread"),
     ("needs-reply",    "Needs a reply"),
     ("needs-edits",    "Needs edits"),
-    ("needs-agents",   "Needs agents"),
     ("needs-stacking", "Needs stacking"),
     ("needs-review",   "Needs review"),
     ("needs-merge",    "Ready to merge"),
@@ -38,7 +37,6 @@ Base.@kwdef struct Item
     bucket::String = ""
     track::String = "normal"
     note::String = ""
-    agent::String = ""
     backlog::Bool = false
     ci::String = ""
     unresolved::Int = 0
@@ -73,7 +71,7 @@ function loaditems()
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
             bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
-            note = nz(jget(r, :note), ""), agent = nz(jget(r, :agent_task), ""),
+            note = nz(jget(r, :note), ""),
             backlog = nz(jget(r, :backlog), false),
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             mergeable = nz(jget(r, :mergeable), ""),

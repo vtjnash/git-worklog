@@ -415,9 +415,13 @@ cursor and the mouse (4g). Two of those came out of a live session rather than
 a test: an uncaught error used to end the run, and a two-line footer message
 scrolled the screen and put every mouse click two rows out.
 
-**Not started: 4d**, dropping `agent_task` and giving the notes somewhere to
-live. It is the only stage of this plan that has not been begun. **5**, offering
-it upstream, is deliberately still gated.
+Every stage of this plan is now built except **5**, offering it upstream, which
+is deliberately still gated on real use and on someone checking the psmux and
+wezterm claims on an actual Windows machine.
+
+**`agent_task` values left in `state.toml` are now inert.** Nothing reads them,
+and the commented example at the top of that file still describes them. Neither
+is rewritten automatically, because that file is the user's.
 
 The stages, each of which stands on its own:
 
@@ -683,15 +687,31 @@ The stages, each of which stands on its own:
    *element*, so an element holding a newline is two rows and the clamp never
    sees it. `oneline` collapses them where such text is set.
 
-4d. **Next: drop `agent_task`, and give the notes a place instead.** Nothing
-   launches from it any more, so what is left is a `state.toml` field whose
-   only remaining job is to force an item into the `needs-agents` bucket. That
-   bucket, `wl agent`, the `agent` block in the metadata pane and the
-   `refresh.jl` rule all go with it. What people actually want that field for
-   is somewhere to keep a prompt they are drafting, which is a private note and
-   not a piece of workflow state — so a notes editor, on the `note` field that
-   already exists, is the replacement. Not started; it changes the dashboard's
-   buckets, so it wants doing deliberately.
+4d. **`agent_task` dropped, notes given a place. Done 2026-09-02.** Nothing
+   launched from it any more, so all that was left was a `state.toml` field
+   whose only remaining effect was forcing an item into `needs-agents`. Gone
+   with it: that bucket, `wl agent`, the `agent` alias in `state.jl`, the
+   `agent` block in the metadata pane, `Item.agent`, and the `refresh.jl` rule
+   and DASHBOARD line.
+   - **`v` opens the note in `\$EDITOR`**, the key `less` uses for the same
+     thing. `\$VISUAL` then `\$EDITOR` then `vi`, resolved in that order for the
+     same reason.
+   - **A file rather than a field of our own.** Notes run to paragraphs, they
+     are worth keeping in a form that can be pasted, and the composer already
+     showed that a homegrown editor is a lot of keybindings to reinvent badly.
+   - **`\$EDITOR` is a command line, not a program.** `code --wait` and
+     `emacsclient -a "" -c` are ordinary values, so it goes to a shell with the
+     path as `\$1`; splitting it on spaces mangles both.
+   - An unchanged file writes nothing, so opening a note to read it cannot
+     rewrite `state.toml`; an emptied one clears the note rather than storing a
+     blank; and both are undoable with `z`.
+   - **`set_fields` was taking a line out of `state.toml` on every write.** The
+     blank line separating one block from the next lives inside the block, and
+     it was being filtered out to stop new keys landing on the far side of it.
+     Held back and re-appended instead, so a key added and then removed now
+     leaves the file byte-identical — which is what "edited key-by-key, never
+     rewritten" is supposed to mean. Found by the notes editor, which made that
+     path routine.
 
 5. **Offer it upstream.** Only after it has carried `vi` and an agent for a
    while, and only backend-shaped rather than tmux-shaped. On Windows `psmux`
@@ -703,6 +723,20 @@ The stages, each of which stands on its own:
    covers macos, linux and freebsd only, so a Term.jl dependency would have to
    be optional in any case.
 
+
+## Issues to file upstream
+
+Kept here so they can be written up in one pass rather than rediscovered.
+
+- **Term.jl: a table inside a list or a block quote is a `MethodError`.**
+  `parse_md(::Markdown.Table)` takes `width` and nothing else, while Term's own
+  recursion passes `inline` to whatever it finds nested. The fix is one
+  `inline = false` in that signature. Worked around locally by `untable`, which
+  moves a nested table into a code block of its own source; a table at the top
+  level is left alone, since Term renders it properly there.
+- **Term.jl: the intraword-emphasis bug** — see its own section above.
+- **Term.jl: the brace bug** — see its own section above.
+- **Term.jl: a tmux-backed pane as a widget** — stage 5 below, gated.
 
 ## Known gaps in what has shipped
 

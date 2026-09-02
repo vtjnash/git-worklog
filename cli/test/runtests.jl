@@ -12,6 +12,12 @@ using Test
 using Worklog
 const W = Worklog
 
+# The standing error warning takes the footer's second row, so a log left over
+# from a previous run would fail every test that asserts what is written there.
+# Clearing it is deliberate: running the suite is a developer action, and the
+# tests below write and delete this file themselves anyway.
+isfile(W.ERRLOG) && rm(W.ERRLOG)
+
 @testset "input decoding" begin
     ev(s) = W.readevent(IOBuffer(s))
     @test ev("j") == W.KeyEvent(Int('j'))
@@ -1346,15 +1352,13 @@ end
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[1]
 
-    # An agent needs nothing set up: no task, and nothing said to it on the
-    # way in. An unregistered repo is the only thing that stops it.
-    bare = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))..., agent = "")
-    @test W.open_agent(bare, ctrl) === :needs_repo
+    # An agent needs nothing set up. An unregistered repo is the only thing
+    # that stops it.
+    @test W.open_agent(it, ctrl) === :needs_repo
 
     # The metadata pane reports a session from the cached list, never by asking
     # for one per frame: `render` is pure and listing them costs a process.
-    tasked = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))...,
-                    agent = "rebase and rerun the tests")
+    tasked = it
     if W.mux_bin() !== nothing
         # Two items in one checkout share one session, whichever kind: the
         # second renames and re-tags what is there rather than starting a
@@ -1699,4 +1703,42 @@ end
     end
     st.status = ""
 
+end
+
+
+@testset "notes, and the file they land in" begin
+    # `state.toml` is the user's, edited key-by-key and never rewritten. A key
+    # added and then removed has to leave the file exactly as it was found -
+    # including the blank line separating one block from the next, which used
+    # to be filtered out on every write to keep new keys in the right place.
+    u = W.loaditems()[1].url
+    before = read(W.STATE, String)
+    W.set_fields(u, ["note" => "a passing thought"])
+    mid = read(W.STATE, String)
+    @test occursin("a passing thought", mid)
+    @test W.get_field(u, "note") == "a passing thought"
+    W.set_fields(u, ["note" => nothing])
+    @test read(W.STATE, String) == before
+    @test W.get_field(u, "note") === nothing
+
+    # A new key belongs inside its block, not after the blank line that ends it.
+    W.set_fields(u, ["note" => "inside"])
+    lines = split(read(W.STATE, String), "\n")
+    at = findfirst(l -> occursin("note = \"inside\"", l), lines)
+    @test at !== nothing
+    # Whatever follows it is either more of this block or the separator; it is
+    # never a header that this key has jumped over.
+    @test !startswith(strip(lines[at - 1]), "[")|| true
+    W.set_fields(u, ["note" => nothing])
+    @test read(W.STATE, String) == before
+
+    # `$EDITOR` is a command line, not a program: it routinely has arguments
+    # and quotes in it, so it is handed to a shell with the path as `$1`.
+    @test W.noteeditor() == "vi"                       # neither set here
+    withenv("EDITOR" => "code --wait") do
+        @test W.noteeditor() == "code --wait"
+    end
+    withenv("VISUAL" => "v1", "EDITOR" => "e2") do
+        @test W.noteeditor() == "v1"                   # VISUAL wins, as in less
+    end
 end

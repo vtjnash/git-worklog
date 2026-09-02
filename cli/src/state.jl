@@ -8,8 +8,8 @@
 # wrote for themselves.
 
 const STATE = joinpath(ROOT, "state.toml")
-const FIELDS = ["agent_task", "blocked_on", "bucket", "deadline", "note", "snooze", "track"]
-const ALIAS = Dict("agent" => "agent_task", "blocked" => "blocked_on")
+const FIELDS = ["blocked_on", "bucket", "deadline", "note", "snooze", "track"]
+const ALIAS = Dict("blocked" => "blocked_on")
 const TRACK = ("close", "normal", "loose", "background")
 
 "A message for the user and a non-zero exit, the way `sys.exit(str)` behaved."
@@ -73,14 +73,28 @@ function set_fields(url::AbstractString, updates)
     end
     i, j = span
     body = lines[i+1:j-1]
+    # The blank line that separates this block from the next one belongs to the
+    # block, and a new key must not land on the far side of it. Hold it back,
+    # write into what is left, and put it on again - filtering it out instead
+    # kept new keys in the right place but took a line out of the user's file on
+    # every write, which "edited key-by-key, never rewritten" is meant to rule
+    # out.
+    tail = 0
+    while tail < length(body) && isempty(strip(body[end-tail]))
+        tail += 1
+    end
+    body, blanks = body[1:end-tail], body[end-tail+1:end]
     for (k, v) in updates
         pat = Regex("^\\s*\\Q" * k * "\\E\\s*=")
         body = [b for b in body if match(pat, b) === nothing]
         v === nothing || push!(body, "$k = $(fmt(v))")
     end
-    # An emptied block is removed entirely rather than left as a bare header.
+    # An emptied block is removed entirely rather than left as a bare header,
+    # and its separator goes with it.
     keep = [b for b in body if !isempty(strip(b))]
-    new = vcat(lines[1:i-1], isempty(keep) ? String[] : vcat([lines[i]], keep), lines[j:end])
+    new = vcat(lines[1:i-1],
+               isempty(keep) ? String[] : vcat([lines[i]], body, blanks),
+               lines[j:end])
     write(STATE, rstripnl(join(new, "\n")) * "\n")
     isempty(keep) ? "cleared" : "updated"
 end

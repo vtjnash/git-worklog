@@ -141,13 +141,12 @@ function derive_bucket(r, st, cfg)
     r["type"] == "Issue" && return ("issue", "assigned issue")
 
     if r["mine"]
-        claimed = any(truthy(get(st, k, nothing)) for k in ("note", "deadline", "agent_task", "snooze"))
+        claimed = any(truthy(get(st, k, nothing)) for k in ("note", "deadline", "snooze"))
         age = activity_age(r)
         if !claimed && age !== nothing && age >= cfg["thresholds"]["stale_days"]
             return ("stale", "quiet $(age)d, unclaimed")
         end
         "status: blocked by upstream" in L && return ("blocked", "labelled blocked by upstream")
-        truthy(get(st, "agent_task", nothing)) && return ("needs-agents", "you queued an agent task")
         get(r, "mergeable", nothing) == "CONFLICTING" && return ("needs-stacking", "merge conflict")
         get(r, "review_decision", nothing) == "CHANGES_REQUESTED" &&
             return ("needs-edits", "changes requested")
@@ -464,7 +463,6 @@ function refresh(args::Vector{String} = String[])
         r["note"] = get(st, "note", nothing)
         r["deadline"] = get(st, "deadline", nothing)
         r["blocked_on"] = get(st, "blocked_on", String[])
-        r["agent_task"] = get(st, "agent_task", nothing)
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # The backlog is everything you are not actively carrying: the stale pile,
@@ -525,7 +523,6 @@ pyrepr(v) = v === nothing ? "None" : v isa Bool ? (v ? "True" : "False") : strin
 const SECTIONS = [
     ("needs-reply",    "Needs a reply",     "You were mentioned and the last word is theirs."),
     ("needs-edits",    "Needs edits",       "Review feedback, red CI, or you're the blocker."),
-    ("needs-agents",   "Needs agents",      "Mechanical work you queued for delegation."),
     ("needs-stacking", "Needs stacking",    "Conflicts; rebase or restack with `gh stack`."),
     ("needs-review",   "Needs review",      "Waiting on you to review someone else."),
     ("needs-merge",    "Ready to merge",    "Approved and green."),
@@ -560,7 +557,6 @@ function line(r)
     s = "- $star[$tag]($(r["url"])) $(r["title"])"
     isempty(bits) || (s *= "  \n  <sub>" * join(bits, " · ") * "</sub>")
     truthy(get(r, "note", nothing)) && (s *= "  \n  > $(r["note"])")
-    truthy(get(r, "agent_task", nothing)) && (s *= "  \n  > agent: $(r["agent_task"])")
     s
 end
 
@@ -632,7 +628,7 @@ function render(items, changes, cfg, spent, unread = ())
     if !isempty(stale)
         append!(out, ["## Stale — decide ($(length(stale)))",
                       "_Yours, gone quiet, and you have not claimed them in `state.toml`. " *
-                      "Add a `note`, `deadline` or `agent_task` to pull one back into an " *
+                      "Add a `note` or `deadline` to pull one back into an " *
                       "active lane; otherwise close it._", "",
                       "<details><summary>expand</summary>", ""])
         for r in stale
