@@ -79,7 +79,7 @@ at the point of use and the answer is always the one being shown.
 age(it::Item, at::DateTime) = something(days_since(it.act, at), 0)
 
 function loaditems()
-    f = joinpath(ROOT, "facts.json")
+    f = datapath("facts.json")
     isfile(f) || die("no facts.json — run `wl refresh` first")
     raw = JSON3.read(read(f, String))
     out = Item[]

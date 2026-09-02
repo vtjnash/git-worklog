@@ -7,7 +7,9 @@
 # drops every comment in the file, which here are the instructions the user
 # wrote for themselves.
 
-const STATE = joinpath(ROOT, "state.toml")
+"Overridable so a test can write somewhere other than the user's own file."
+const STATE = Ref("")
+statefile() = isempty(STATE[]) ? datapath("state.toml") : STATE[]
 const FIELDS = ["adopted", "archive", "blocked_on", "bucket", "deadline", "note",
                 "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
@@ -23,7 +25,7 @@ die(msg) = throw(CliError(msg))
 "Accept a full URL, owner/repo#N, repo#N, or #N (Julia)."
 function resolve(ref::AbstractString)
     startswith(ref, "http") && return String(rstrip(ref, '/'))
-    facts = joinpath(ROOT, "facts.json")
+    facts = datapath("facts.json")
     isfile(facts) || die("no facts.json yet - run `wl refresh` first")
     items = JSON3.read(read(facts, String)).items
     occursin('#', ref) || die("cannot parse ref '$ref'")
@@ -40,7 +42,7 @@ function resolve(ref::AbstractString)
     hits[1]
 end
 
-load_lines() = isfile(STATE) ? String.(splitlines(read(STATE, String))) : String[]
+load_lines() = isfile(statefile()) ? String.(splitlines(read(statefile(), String))) : String[]
 
 """Every url `state.toml` has a block for, in the order they appear.
 
@@ -96,7 +98,7 @@ function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
         for (k, v) in updates
             v === nothing || push!(lines, "$k = $(fmt(v))")
         end
-        write(STATE, join(lines, "\n") * "\n")
+        write(statefile(), join(lines, "\n") * "\n")
         return "added"
     end
     i, j = span
@@ -123,7 +125,7 @@ function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
     new = vcat(lines[1:i-1],
                isempty(keep) ? String[] : vcat([lines[i]], body, blanks),
                lines[j:end])
-    write(STATE, rstripnl(join(new, "\n")) * "\n")
+    write(statefile(), rstripnl(join(new, "\n")) * "\n")
     isempty(keep) ? "cleared" : "updated"
 end
 
@@ -175,7 +177,7 @@ end
 
 "Drop any armed fingerprint so a re-snooze re-arms from the current state."
 function disarm(url::AbstractString)
-    f = joinpath(ROOT, "snooze.json")
+    f = datapath("snooze.json")
     isfile(f) || return
     d = Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(f, String)))
     if haskey(d, url)
@@ -192,11 +194,11 @@ ask for work when you want it. Items you have already tagged in state.toml are
 considered triaged and never come back here.
 """
 function next_batch(n::Int)
-    facts = joinpath(ROOT, "facts.json")
+    facts = datapath("facts.json")
     isfile(facts) || die("no facts.json yet - run `wl refresh` first")
     items = JSON3.read(read(facts, String)).items
     state = load_state()
-    seenp = joinpath(ROOT, "queue.json")
+    seenp = datapath("queue.json")
     seen = isfile(seenp) ?
            Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(seenp, String))) :
            Dict{String,Any}()

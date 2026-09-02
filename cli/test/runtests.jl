@@ -16,7 +16,7 @@ const W = Worklog
 # from a previous run would fail every test that asserts what is written there.
 # Clearing it is deliberate: running the suite is a developer action, and the
 # tests below write and delete this file themselves anyway.
-isfile(W.ERRLOG) && rm(W.ERRLOG)
+isfile(W.errlog()) && rm(W.errlog())
 
 # The interaction clock is redirected for the whole run. Several tests below
 # set a field, and setting a field stamps it - against the real file that would
@@ -948,7 +948,7 @@ end
     @test empty.status == "nothing to undo"
 
     # r/u against the real read.json, put back afterwards either way.
-    readfile = joinpath(W.ROOT, "read.json")
+    readfile = W.Events.readfile()
     before = read(readfile, String)
     try
         st = mkstate()
@@ -1770,7 +1770,7 @@ end
 
 @testset "archive lets work leave without deleting it" begin
     keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
-    before = read(W.STATE, String)
+    before = read(W.statefile(), String)
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
@@ -1807,7 +1807,7 @@ end
         W.handle!(st, Int('x'), ctrl)
         @test W.get_field(it.url, "note") == "why this ended"
     finally
-        write(W.STATE, before)
+        write(W.statefile(), before)
         W.TOUCHED[] = keept
     end
 
@@ -1835,7 +1835,7 @@ end
 
     W.REPOS_FILE[] = joinpath(root, "repos.toml")
     keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
-    before = read(W.STATE, String)
+    before = read(W.statefile(), String)
     try
         W.register_repo!("o/m", main)
         for b in ("landed", "inflight")
@@ -1863,7 +1863,7 @@ end
         @test occursin("x archives it", says())
         @test W.get_field(l.url, "archive") === nothing
     finally
-        write(W.STATE, before)
+        write(W.statefile(), before)
         W.REPOS_FILE[] = ""
         W.TOUCHED[] = keept
     end
@@ -1920,7 +1920,7 @@ end
 
     W.REPOS_FILE[] = joinpath(root, "repos.toml")
     keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
-    state = read(W.STATE, String)
+    state = read(W.statefile(), String)
     try
         W.register_repo!("o/main", main)
         items = W.loaditems()
@@ -2027,7 +2027,7 @@ end
         @test length(gone) == 1 && occursin("gone", gone[1].why)
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
-        write(W.STATE, state)
+        write(W.statefile(), state)
         W.REPOS_FILE[] = ""
         W.TOUCHED[] = keept
     end
@@ -2227,7 +2227,7 @@ W.handle!(v::ExplodingView, k::Int, ctrl) = (v.handles += 1; error("handle explo
 W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw exploded"))
 
 @testset "an error costs a frame, not the session" begin
-    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    isfile(W.errlog()) && rm(W.errlog())
     empty!(W.ERRSEEN)
     @test W.errnote() == ""
 
@@ -2248,26 +2248,26 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     @test v.handles == 2
 
     # The file is the warning, and it stands until it is deleted.
-    @test isfile(W.ERRLOG)
+    @test isfile(W.errlog())
     @test occursin("delete it to clear", W.errnote())
     # The warning has to survive being fitted to the footer, or it says that
     # something is wrong without saying what to do.
     @test W.awidth(W.errnote()) < 80
-    @test occursin("render exploded", read(W.ERRLOG, String))
-    @test occursin("handle exploded", read(W.ERRLOG, String))
+    @test occursin("render exploded", read(W.errlog(), String))
+    @test occursin("handle exploded", read(W.errlog(), String))
 
     # A bug on the render path runs every frame, so the same error is written
     # once rather than thousands of times.
-    before = filesize(W.ERRLOG)
+    before = filesize(W.errlog())
     W.safe_render(v, 80, 24); W.safe_render(v, 80, 24)
-    @test filesize(W.ERRLOG) == before
+    @test filesize(W.errlog()) == before
 
     # It is what the footer shows, ahead of the status.
     st = W.BState(W.loaditems(), "worklog", Set{String}())
     st.status = "something ordinary"
     @test occursin("delete it to clear", W.render(st, 120, 40))
 
-    rm(W.ERRLOG)
+    rm(W.errlog())
     @test W.errnote() == ""
     @test !occursin("delete it to clear", W.render(st, 120, 40))
 end
@@ -2313,7 +2313,7 @@ end
     # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
     # own recursion passes `inline` to whatever is inside a list or a quote. One
     # table in one bullet used to drop the whole comment back to raw text.
-    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    isfile(W.errlog()) && rm(W.errlog())
     empty!(W.ERRSEEN)
     for src in ("| a | b |\n|---|---|\n| 1 | 2 |\n",
                 "- point\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n",
@@ -2324,7 +2324,7 @@ end
     end
     # A failure now goes to the log, with its backtrace, rather than a sentence
     # in the footer that had room only to say a MethodError had happened.
-    @test !isfile(W.ERRLOG)
+    @test !isfile(W.errlog())
 
     # A table at the top level is left where it is, because Term renders it
     # properly there - box drawing and all.
@@ -2338,14 +2338,14 @@ end
     # `parse_md(::Markdown.List)` indexes [1] on every item, and Julia parses
     # `- a`/`-`/`- b` into items of length [1, 0, 1]. Ordered or not, nested or
     # top level, and a lone `-` is enough.
-    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    isfile(W.errlog()) && rm(W.errlog())
     empty!(W.ERRSEEN)
     for src in ("- a\n-\n- b\n", "1. one\n2.\n3. three\n", "-\n",
                 "- outer\n    -\n    - inner\n", "> - a\n> -\n")
         out = W.render_md(src, 60)
         @test !occursin("BoundsError", out)
     end
-    @test !isfile(W.ERRLOG)
+    @test !isfile(W.errlog())
     # Filled rather than dropped: the bullet was typed, so it is drawn, and an
     # ordered list is not renumbered behind the user's back.
     md = W.Markdown.parse("1. one\n2.\n3. three\n")
@@ -2648,7 +2648,7 @@ end
     end
 
     # And `r`'s fallback, for a thread carrying no fetch time at all.
-    readfile = joinpath(W.ROOT, "read.json")
+    readfile = W.Events.readfile()
     before = read(readfile, String)
     try
         st.nodes = W.Node[]
@@ -2703,7 +2703,7 @@ end
         @test W.touched_at(u) == "2026-01-02T03:04:05Z"
 
         # Setting any field stamps it, through the one point they all pass.
-        state = read(W.STATE, String)
+        state = read(W.statefile(), String)
         try
             W.set_fields(u, ["note" => "a passing thought"])
             @test W.touched_at(u) != "2026-01-02T03:04:05Z"
@@ -2713,7 +2713,7 @@ end
             @test W.touched_at(u) == "2000-01-02T03:04:05Z"
         finally
             W.set_fields(u, ["note" => nothing])
-            write(W.STATE, state)
+            write(W.statefile(), state)
         end
     finally
         W.TOUCHED[] = keep
@@ -2723,7 +2723,7 @@ end
 @testset "what the clock does not count" begin
     keep = W.TOUCHED[]
     W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
-    readfile = joinpath(W.ROOT, "read.json")
+    readfile = W.Events.readfile()
     before = read(readfile, String)
     try
         st = mkstate()
@@ -2754,7 +2754,7 @@ end
         # which for a first interaction means back to nothing at all. `s` opens
         # a picker now, so the interaction is the choice, not the key.
         snooze!(v) = (W.handle!(st, Int('s'), ctrl); pop!(ctrl.stack).onpick(v))
-        state = read(W.STATE, String)
+        state = read(W.statefile(), String)
         try
             snooze!("on-change")
             @test st.status == "snoozed on-change"
@@ -2770,7 +2770,7 @@ end
             W.handle!(st, Int('z'), ctrl)
             @test W.touched_at(it.url) == "2026-01-02T03:04:05Z"
         finally
-            write(W.STATE, state)
+            write(W.statefile(), state)
         end
     finally
         write(readfile, before)
@@ -2785,7 +2785,7 @@ end
     st = mkstate()
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
-    state = read(W.STATE, String)
+    state = read(W.statefile(), String)
     keep = W.TOUCHED[]
     W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
     try
@@ -2833,7 +2833,7 @@ end
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end
         @test W.get_field(it.url, "snooze") === nothing
     finally
-        write(W.STATE, state)
+        write(W.statefile(), state)
         W.TOUCHED[] = keep
     end
 end
@@ -2844,25 +2844,25 @@ end
     # including the blank line separating one block from the next, which used
     # to be filtered out on every write to keep new keys in the right place.
     u = W.loaditems()[1].url
-    before = read(W.STATE, String)
+    before = read(W.statefile(), String)
     W.set_fields(u, ["note" => "a passing thought"])
-    mid = read(W.STATE, String)
+    mid = read(W.statefile(), String)
     @test occursin("a passing thought", mid)
     @test W.get_field(u, "note") == "a passing thought"
     W.set_fields(u, ["note" => nothing])
-    @test read(W.STATE, String) == before
+    @test read(W.statefile(), String) == before
     @test W.get_field(u, "note") === nothing
 
     # A new key belongs inside its block, not after the blank line that ends it.
     W.set_fields(u, ["note" => "inside"])
-    lines = split(read(W.STATE, String), "\n")
+    lines = split(read(W.statefile(), String), "\n")
     at = findfirst(l -> occursin("note = \"inside\"", l), lines)
     @test at !== nothing
     # Whatever follows it is either more of this block or the separator; it is
     # never a header that this key has jumped over.
     @test !startswith(strip(lines[at - 1]), "[")|| true
     W.set_fields(u, ["note" => nothing])
-    @test read(W.STATE, String) == before
+    @test read(W.statefile(), String) == before
 
     # `v` opens in a pane beside the thread, the same as `t` and `T`. The note
     # is nearly always *about* what is on the other half, and taking the whole
@@ -2876,7 +2876,7 @@ end
         it = st.items[st.sel]
         keept = W.TOUCHED[]
         W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
-        before2 = read(W.STATE, String)
+        before2 = read(W.statefile(), String)
         try
             # An editor that writes and exits at once is gone before there is
             # anything to attach to. The note is still taken: being quick is
@@ -2918,7 +2918,7 @@ end
                 pop!(ctrl.stack)
             end
         finally
-            write(W.STATE, before2)
+            write(W.statefile(), before2)
             W.TOUCHED[] = keept
         end
     end

@@ -68,13 +68,25 @@ linked against a newer glibc.
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
 
-Owner rules for the data files matter: `config.toml`, `state.toml` and
-`repos.toml` are **yours** — `refresh` reads `state.toml` and never writes it,
-and only `wl` edits it, through a line-based editor that preserves comments.
-`facts.json`, `bulk.json`, `read.json`, `touched.json`, `inbox.json`,
-`queue.json`, `snooze.json` and `cache/` are machine-owned. `errors.log` is written by the
-browser when something throws, and deleting it is how its standing footer
-warning is dismissed.
+**The state lives in `data/`, which is its own git repository.** It stopped
+being ephemeral — `read.json`, `touched.json` and `inbox.json` are records of
+what has been read, acted on and seen, and `state.toml` holds the notes,
+snoozes, adoptions and archives — so it is worth a history, but not the code's:
+mixed into this one it buried the diffs that matter and dirtied the tree on
+every refresh. `datapath(name)` resolves it; `WORKLOG_DATA` points it elsewhere,
+which is how a test gets a disposable one. `config.toml` stays beside the code,
+being configuration rather than state.
+
+**Careful: `git rev-parse --show-toplevel` from inside `data/` answers with the
+data repo.** Run it from the code checkout, or keep an absolute path.
+
+Owner rules still matter: `config.toml`, `data/state.toml` and `data/repos.toml`
+are **yours** — `refresh` reads `state.toml` and never writes it, and only `wl`
+edits it, through a line-based editor that preserves comments. The rest of
+`data/` is machine-owned, and `facts.json`, `bulk.json`, `cache/` and
+`errors.log` are gitignored inside it as re-fetchable or noise. `errors.log` is
+written by the browser when something throws, and deleting it is how its
+standing footer warning is dismissed.
 
 ### Testing without a terminal
 There is no TTY here, so the UI is tested by construction rather than by use:
@@ -463,37 +475,20 @@ branch that came to nothing needs in order to go.
 
 Recorded 2026-09-02, with the findings; each is a decision rather than a task.
 
-**`DASHBOARD.md` is machine-owned and committed anyway.** `refresh` overwrites
-it every run, so every refresh dirties the tree and it has to be swept into
-whatever commit is being made — 24 commits touch it and 9 of those changed
-nothing else. Its only consumer is the `dash` skill, which reads it to triage,
-plus a human with no TTY. `wl show` covers the second case now and the browser
-covers the first, so the question is whether the *history* of it is still worth
-having: the `.gitignore` comment says `facts.json` is ignored precisely so that
-`DASHBOARD.md` diffs stay legible, which was the record of what changed back
-when a rendered file was the whole product. Either commit to that (and say so)
-or gitignore it like every other machine file.
+**Done.** The state moved to `data/` with a git repository of its own, which
+settled all of it at once: `DASHBOARD.md` and `snooze.json` are tracked there
+rather than inconsistently here, and the code repo no longer changes when a
+refresh runs. The vestigial root `Project.toml`/`Manifest.toml` are gone — they
+declared only `Term`, which `cli/Project.toml` already had, and both entry
+points run `--project=cli`. `skills/dash/SKILL.md` is rewritten: it had been
+telling agents to run `wl agent`, which has not existed since `agent_task` was
+removed.
 
-**`snooze.json` is tracked and `read.json`, `touched.json` and `inbox.json` are
-not.** Both ownership tables call all four machine-owned. That is a plain
-inconsistency, and the one-line fix is to ignore it — but check first whether
-its armed fingerprints are worth carrying between checkouts, since losing them
-re-arms every on-change snooze from scratch.
-
-**The root `Project.toml` and `Manifest.toml` look vestigial.** They declare
-only `Term`, which is already a dependency of `cli/Project.toml`, and both
-`cli/bin/wl` and `cli/bin/refresh` run with `--project=cli`. Nothing found that
-uses the root environment. Probably left from the port; delete after confirming
-no ad-hoc `julia --project=.` workflow depends on it.
-
-**`skills/dash/SKILL.md` predates the browser.** It points at
-`/root/.claude/worklog`, which is not where the checkout is any more, and
-describes a workflow where an agent reads `DASHBOARD.md` and edits `state.toml`
-through `wl`. Nothing in it knows about the browser, the worktree and branch
-lists, adoption, archive or the incremental inbox. Decide what the skill is
-*for* now: triage that an agent should still do on its own (in which case
-rewrite it around `wl next` and the lanes), or nothing, in which case delete it
-and let the CLI be the interface.
+**Left open: what the data repo is for beyond backup.** It has no remote, so it
+is a local history and nothing more. Worth deciding whether it should push
+somewhere private — the argument for is that `state.toml` is the only record of
+every judgement made about an item, and the argument against is that it is a
+log of what one person is working on.
 
 ### Ignoring forks in an owner glob
 

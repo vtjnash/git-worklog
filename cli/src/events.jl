@@ -21,9 +21,11 @@ import ..cache_get, ..cache_put, ..cache_drop
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
-using ..Worklog: ROOT, stamp, ts, json_dumps
+using ..Worklog: ROOT, datapath, stamp, ts, json_dumps
 
-const READ = joinpath(ROOT, "read.json")
+"Overridable so a test can write somewhere other than the real file."
+const READ = Ref("")
+readfile() = isempty(READ[]) ? datapath("read.json") : READ[]
 
 struct ApiError <: Exception
     msg::String
@@ -174,8 +176,8 @@ function item_repo(r)
     length(p) < 2 ? "" : String(p[end])
 end
 
-load_read() = isfile(READ) ?
-    Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(READ, String))) :
+load_read() = isfile(readfile()) ?
+    Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(readfile(), String))) :
     Dict{String,Any}()
 
 "The seen-up-to timestamp for one item, or `nothing` if it has never been read."
@@ -191,7 +193,7 @@ function set_read(url::AbstractString, at::Union{Nothing,AbstractString})
     r = load_read()
     u = String(url)
     at === nothing ? (haskey(r, u) && delete!(r, u)) : (r[u] = String(at))
-    write(READ, json_dumps(r; indent = 1, sortkeys = true))
+    write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     nothing
 end
 
@@ -208,7 +210,7 @@ function mark_unread(urls)
     for u in urls
         haskey(r, String(u)) && (delete!(r, String(u)); n += 1)
     end
-    n == 0 || write(READ, json_dumps(r; indent = 1, sortkeys = true))
+    n == 0 || write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     n
 end
 
@@ -218,7 +220,7 @@ function mark_read(urls, at::DateTime)
     for u in urls
         r[u] = s
     end
-    write(READ, json_dumps(r; indent = 1, sortkeys = true))
+    write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     length(urls)
 end
 
@@ -227,14 +229,15 @@ end
 Machine-owned. `cursors` is how far each source has been read, `polled` is when
 it was last asked, and `items` is everything seen and not yet marked read.
 """
-const INBOX = Ref(joinpath(ROOT, "inbox.json"))
+const INBOX = Ref("")
+inboxfile() = isempty(INBOX[]) ? datapath("inbox.json") : INBOX[]
 
 function load_inbox()
     d = Dict("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
              "items" => Dict{String,Any}())
-    isfile(INBOX[]) || return d
+    isfile(inboxfile()) || return d
     try
-        raw = JSON3.read(read(INBOX[], String))
+        raw = JSON3.read(read(inboxfile(), String))
         for k in ("cursors", "polled")
             for (kk, vv) in get(raw, Symbol(k), (;))
                 d[k][String(kk)] = String(vv)
@@ -251,7 +254,7 @@ function load_inbox()
     d
 end
 
-save_inbox(d) = write(INBOX[], json_dumps(d; indent = 1, sortkeys = true))
+save_inbox(d) = write(inboxfile(), json_dumps(d; indent = 1, sortkeys = true))
 
 """Everything seen on the tracked repos and not yet marked read.
 

@@ -12,7 +12,7 @@
 
 const REPOS_FILE = Ref("")
 repos_file() = (isempty(REPOS_FILE[]) &&
-                (REPOS_FILE[] = joinpath(ROOT, "repos.toml")); REPOS_FILE[])
+                (REPOS_FILE[] = datapath("repos.toml")); REPOS_FILE[])
 
 struct GitError <: Exception
     msg::String

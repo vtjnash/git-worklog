@@ -21,11 +21,12 @@
 # involves no reading here at all.
 
 "Overridable so a test can write somewhere other than the real file."
-const TOUCHED = Ref(joinpath(ROOT, "touched.json"))
+const TOUCHED = Ref("")
+touchedfile() = isempty(TOUCHED[]) ? datapath("touched.json") : TOUCHED[]
 
-load_touched() = isfile(TOUCHED[]) ?
+load_touched() = isfile(touchedfile()) ?
     Dict{String,String}(String(k) => String(v)
-                        for (k, v) in JSON3.read(read(TOUCHED[], String))) :
+                        for (k, v) in JSON3.read(read(touchedfile(), String))) :
     Dict{String,String}()
 
 "When this item was last acted on, or `nothing` if it never has been."
@@ -41,7 +42,7 @@ function set_touched(url::AbstractString, at::Union{Nothing,AbstractString})
     t = load_touched()
     u = String(url)
     at === nothing ? (haskey(t, u) && delete!(t, u)) : (t[u] = String(at))
-    write(TOUCHED[], json_dumps(t; indent = 1, sortkeys = true))
+    write(touchedfile(), json_dumps(t; indent = 1, sortkeys = true))
     nothing
 end
 

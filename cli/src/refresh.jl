@@ -322,7 +322,7 @@ and the slices unioned.
 """
 
 function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
-    cache = joinpath(ROOT, "bulk.json")
+    cache = datapath("bulk.json")
     hours = get(cfg["bulk"], "refresh_hours", 6)
     if isfile(cache) && !force
         c = JSON3.read(read(cache, String))
@@ -404,7 +404,7 @@ downstream compares and prints them as ISO strings, so flatten them here. The
 Python raised `TypeError` out of `json.dumps` on the same input.
 """
 function load_state()
-    p = joinpath(ROOT, "state.toml")
+    p = datapath("state.toml")
     isfile(p) || return Dict{String,Any}()
     raw = TOML.parse(read(p, String))
     Dict{String,Any}(u => Dict{String,Any}(
@@ -417,11 +417,11 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
     state = load_state()
-    factsp = joinpath(ROOT, "facts.json")
+    factsp = datapath("facts.json")
     prev_items = isfile(factsp) ? JSON3.read(read(factsp, String)).items : (;)
     # A default cap for on-change snoozes that carry none of their own.
     snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
-    snzp = joinpath(ROOT, "snooze.json")
+    snzp = datapath("snooze.json")
     snz = Dict{String,Any}()
     if isfile(snzp)
         for (k, v) in JSON3.read(read(snzp, String))
@@ -521,7 +521,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     write(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
                               "items" => items]; indent = 1, sortkeys = true))
     write(snzp, json_dumps(snz; indent = 1, sortkeys = true))
-    write(joinpath(ROOT, "DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
+    write(datapath("DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
     @printf(stderr, "  %d items, %d changes, %d rate-limit points\n",
             length(items), length(changes), spent)
     0

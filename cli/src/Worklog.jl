@@ -21,16 +21,19 @@ File ownership is strict, because it is what keeps the user's notes safe:
 
   | file          | owner   | lifetime                          |
   |---------------|---------|-----------------------------------|
-  | `config.toml` | you     | edited by hand, only ever read    |
-  | `state.toml`  | you     | edited key-by-key, never rewritten|
-  | `facts.json`  | machine | overwritten every refresh         |
-  | `bulk.json`   | machine | slow-lane cache, refetched every 6h|
-  | `queue.json`  | machine | what the backlog queue has shown  |
-  | `read.json`   | machine | one seen-up-to timestamp per item |
-  | `inbox.json`  | machine | the event cursors, and what is unread |
-  | `touched.json`| machine | one last-interaction timestamp per item|
-  | `snooze.json` | machine | armed "until it moves" fingerprints|
-  | `DASHBOARD.md`| machine | overwritten every refresh         |
+Everything but `config.toml` lives in `data/`, which is a git repository of its
+own - see `datadir()`.
+
+  | `config.toml`      | you     | edited by hand, only ever read    |
+  | `data/state.toml`  | you     | edited key-by-key, never rewritten|
+  | `data/facts.json`  | machine | overwritten every refresh         |
+  | `data/bulk.json`   | machine | slow-lane cache, refetched every 6h|
+  | `data/queue.json`  | machine | what the backlog queue has shown  |
+  | `data/read.json`   | machine | one seen-up-to timestamp per item |
+  | `data/inbox.json`  | machine | the event cursors, and what is unread |
+  | `data/touched.json`| machine | one last-interaction timestamp per item|
+  | `data/snooze.json` | machine | armed "until it moves" fingerprints|
+  | `data/DASHBOARD.md`| machine | overwritten every refresh         |
 """
 module Worklog
 
@@ -42,6 +45,32 @@ using SHA
 using Base64
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))
+
+"""Where the state lives, which is not where the code does.
+
+These files stopped being ephemeral. The interaction clock, the read cursors and
+the inbox are records of what you have *done*, and none of them can be
+re-derived from GitHub - so they are worth a history, and it is not the code's
+history. Kept together in one directory with a git repository of its own: mixed
+into this one they buried the diffs that matter in the diffs that do not, and
+dirtied the tree on every refresh.
+
+`config.toml` stays beside the code. It is configuration, hand-written, and
+versioned with the program that reads it.
+
+Resolved lazily and not at precompile time, so `WORKLOG_DATA` can point a test
+somewhere disposable without the answer having been baked into the image.
+"""
+const DATA_DIR = Ref("")
+function datadir()
+    isempty(DATA_DIR[]) || return DATA_DIR[]
+    d = get(ENV, "WORKLOG_DATA", joinpath(ROOT, "data"))
+    isdir(d) || mkpath(d)
+    DATA_DIR[] = d
+end
+
+"One file in the data directory."
+datapath(name::AbstractString) = joinpath(datadir(), name)
 
 include("pyjson.jl")
 include("util.jl")

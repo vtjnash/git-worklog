@@ -364,7 +364,8 @@ end
 # warning is dismissed, which means a bug cannot be silently lived with.
 
 """Where uncaught errors go. Deleting it clears the warning in the footer."""
-const ERRLOG = joinpath(ROOT, "errors.log")
+const ERRLOG = Ref("")
+errlog() = isempty(ERRLOG[]) ? datapath("errors.log") : ERRLOG[]
 
 """Errors already written this run, so a bug on the render path - which runs
 every frame - writes one entry rather than thousands."""
@@ -377,7 +378,7 @@ function logerror!(e, bt, what::AbstractString)
     if !(key in ERRSEEN)
         push!(ERRSEEN, key)
         try
-            open(ERRLOG, "a") do io
+            open(errlog(), "a") do io
                 println(io, "\n=== ", Dates.format(now(), "yyyy-mm-dd HH:MM:SS"),
                         "  in ", what, " ===")
                 showerror(io, e, bt)
@@ -432,8 +433,8 @@ end
 # that `afit` cut the sentence before "delete", leaving a warning that said
 # something was wrong and not what to do about it - and the file sits in the
 # directory `wl` is run from, so its name is enough to find it.
-errnote() = isfile(ERRLOG) ?
-    string("errors logged in ", basename(ERRLOG), " \u2014 read it, then delete it to clear this") : ""
+errnote() = isfile(errlog()) ?
+    string("errors logged in ", basename(errlog()), " \u2014 read it, then delete it to clear this") : ""
 
 """
     run!(ctrl, root)

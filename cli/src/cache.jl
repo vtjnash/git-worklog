@@ -11,7 +11,7 @@
 
 const CACHE_DIR = Ref("")
 
-cachedir() = (isempty(CACHE_DIR[]) && (CACHE_DIR[] = joinpath(ROOT, "cache")); CACHE_DIR[])
+cachedir() = (isempty(CACHE_DIR[]) && (CACHE_DIR[] = datapath("cache")); CACHE_DIR[])
 
 _slot(key) = joinpath(cachedir(), bytes2hex(sha256(key))[1:32] * ".json")
 

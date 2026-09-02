@@ -21,13 +21,13 @@ The split that makes it safe to let a model touch this:
 | file | owner | lifetime |
 |---|---|---|
 | `config.toml` | you | edited by hand |
-| `state.toml` | you + the model, via `wl` | **never machine-rewritten** |
-| `facts.json` | `wl refresh` | overwritten every run (gitignored, ~1MB) |
-| `bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h (gitignored) |
-| `queue.json` | `wl next` | what the backlog queue has shown you (gitignored) |
-| `read.json` | `wl read` | one seen-up-to timestamp per item (gitignored) |
-| `snooze.json` | `wl refresh` | overwritten every run |
-| `DASHBOARD.md` | `wl refresh` | overwritten every run |
+| `data/state.toml` | you + the model, via `wl` | **never machine-rewritten** |
+| `data/facts.json` | `wl refresh` | overwritten every run (not tracked; ~2MB) |
+| `data/bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h |
+| `data/queue.json` | `wl next` | what the backlog queue has shown you |
+| `data/read.json` | `wl read` | one seen-up-to timestamp per item |
+| `data/snooze.json` | `wl refresh` | armed "until it moves" fingerprints |
+| `data/DASHBOARD.md` | `wl refresh` | overwritten every run |
 
 The refresh reads `state.toml` and never writes it. Every snooze and note you
 set survives any refresh, and a confused model cannot erase your triage.
