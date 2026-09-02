@@ -48,7 +48,8 @@ labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
 last acted, `x` archives, `z` undoes the last local action. `f` opens the filter
 pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
 `backlog` / `archived` / `all`, with a second radio group for issues, pull
-requests or both.
+requests or both, and checkbox axes for category, repo, label and author — each
+long one listing its head and offering the rest as a picker you type into.
 
 `i` imports an item by url - so does `↵` on the row
 above the first item, which is the only row in the list that is not one -
@@ -332,38 +333,6 @@ shipped are not listed; `git log` is the record of those.
 Everything "where the work is" left behind has now shipped; `git log` is the
 record of it.
 
-### A filter axis you can search, and an author axis at all
-
-Recorded 2026-09-02, to plan properly later.
-
-**Filter by author.** There is no author axis, and it is the one most obviously
-missing: `bucket`, `repo` and `label` are all there and "whose is it" is not.
-
-**The reason it cannot simply be added is the same reason `repo` and `label` are
-already awkward.** The filter pane lists every value of every axis as a radio or
-checkbox row — hundreds of labels across this many repos, ~140 repos, and
-authors would be worse than either. A list you scroll past is not a control.
-
-**One mechanism fixes all three.** An axis gets an entry that stands for "add
-one of these": `↵` on it opens a prompt, what is typed narrows the values by
-`occursin`, and picking one adds it to that axis's set. The already-selected
-values stay listed as they are now, so the pane keeps showing what is *applied*
-and stops trying to show what is *available*.
-
-That is `ChooseView` almost exactly — it already has a query that filters its
-options by `occursin` and returns the picked value — so the work is wiring an
-axis into it, not building a picker. `axis_counts` already computes the counts
-each value would add, which is what the picked list should show.
-
-Worth deciding at the same time: whether the axis sets stay OR-within-axis (they
-do today) and whether an author axis wants a "not me" as well as a "me", since
-"someone else's pull request I am reviewing" is a common thing to want and
-`mine` only covers the other half.
-
-The `kind` axis that shipped is the shape *not* to copy for this: three values
-that fit on screen, so it is a radio group listed in full. Author has hundreds,
-which is exactly what the picker above is for.
-
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
@@ -563,6 +532,12 @@ Kept here so they can be written up in one pass rather than rediscovered.
   landed as a merge rather than a squash or a rebase.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
+- **A long filter axis shows a fixed eight values, whatever the pane height.**
+  `AXIS_SHOWN` is a constant, so a tall terminal wastes the room and a short one
+  still scrolls. It also orders by weight across the whole dashboard rather than
+  within the current filter — deliberately, so the pane does not reshuffle under
+  the cursor as the filter changes, but it means the head of the repo axis is
+  the same eight whatever else is selected.
 - **The metadata pane is a readout, not a control.** Clicking in it does
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no

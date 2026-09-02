@@ -71,16 +71,33 @@ is what made "issues only" impossible to ask for and obvious to want.
 """
 const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
 
+# Whose it is, as two values of the author axis that are not logins.
+#
+# `mine` answers half of the question - your own open pull requests - and nothing
+# answered the other half, which is the more common one: somebody else's work
+# that is in front of you. So the axis carries two members that are predicates
+# rather than names. They are OR-ed with any logins picked beside them, like
+# every other value in an axis, and `@` cannot begin a GitHub login, so neither
+# can collide with one.
+const AUTHOR_ME = "@me"
+const AUTHOR_OTHERS = "@anyone-else"
+
 mutable struct Filters
     state::Symbol
     buckets::Set{String}      # empty means every category
     repos::Set{String}        # empty means every repo
     labels::Set{String}       # empty means every label
     kind::Symbol              # :both | :pr | :issue
+    authors::Set{String}      # empty means anybody; @me and @anyone-else are
+                              # values here as well as logins
 end
-# Four arguments is the shape from before there was a kind, kept because every
-# caller of it means "whatever kind" - which is what the default says.
-Filters(state, buckets, repos, labels) = Filters(state, buckets, repos, labels, :both)
+# The shorter shapes are the ones from before there was a kind and before there
+# was an author, kept because every caller of them means "any of those" - which
+# is what the defaults say.
+Filters(state, buckets, repos, labels, kind) =
+    Filters(state, buckets, repos, labels, kind, Set{String}())
+Filters(state, buckets, repos, labels) =
+    Filters(state, buckets, repos, labels, :both, Set{String}())
 Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
 "Does this item belong to one of the five exclusive states?"
@@ -142,12 +159,26 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
 "Issue or pull request, with `:both` restricting nothing."
 kind_ok(kind::Symbol, it::Item) = kind === :both || (kind === :pr) == it.is_pr
 
+"""Whose it is. An empty set restricts nothing, as on every other axis.
+
+An adopted branch has no author and is therefore yours: it is in this dashboard
+because you claimed it, and nobody else wrote it.
+"""
+function author_ok(authors::Set{String}, it::Item)
+    isempty(authors) && return true
+    mine = it.author == login() || (isempty(it.author) && islocal(it))
+    (mine && AUTHOR_ME in authors) && return true
+    (!mine && AUTHOR_OTHERS in authors) && return true
+    it.author in authors
+end
+
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String},
                  touched::Dict{String,String} = EMPTY_TOUCHED,
                  archived::Dict{String,String} = EMPTY_TOUCHED)
     state_ok(f.state, it, unread, touched, archived) || return false
     kind_ok(f.kind, it) || return false
+    author_ok(f.authors, it) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
@@ -155,7 +186,7 @@ function matches(f::Filters, it::Item, unread::Set{String},
 end
 
 """
-    axis_counts(st) -> (states, kinds, buckets, repos, labels)
+    axis_counts(st) -> (states, kinds, buckets, repos, labels, authors)
 
 How many items each filter value would select, in one pass over the items.
 
@@ -174,6 +205,7 @@ function axis_counts(st)
     buckets = Dict{String,Int}()
     repos = Dict{String,Int}()
     labels = Dict{String,Int}()
+    authors = Dict{String,Int}()
     bump!(d, k) = d[k] = get(d, k, 0) + 1
     for it in st.all
         bok = isempty(f.buckets) || it.bucket in f.buckets
@@ -181,29 +213,61 @@ function axis_counts(st)
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
         sok = state_ok(f.state, it, st.unread, st.touched, st.archived)
         kok = kind_ok(f.kind, it)
-        if bok && rok && lok && kok
+        aok = author_ok(f.authors, it)
+        if bok && rok && lok && kok && aok
             for (k, _) in STATES
                 state_ok(k, it, st.unread, st.touched, st.archived) && bump!(states, k)
             end
         end
-        if sok && bok && rok && lok
+        if sok && bok && rok && lok && aok
             for (k, _) in KINDS
                 kind_ok(k, it) && bump!(kinds, k)
             end
         end
-        sok && rok && lok && kok && bump!(buckets, it.bucket)
-        sok && bok && lok && kok && bump!(repos, it.repo)
-        if sok && bok && rok && kok
+        if sok && bok && rok && lok && kok
+            # One item counts towards its own author *and* towards whichever of
+            # the two predicates it answers, since picking either would bring it.
+            isempty(it.author) || bump!(authors, it.author)
+            author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
+            author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
+        end
+        sok && rok && lok && kok && aok && bump!(buckets, it.bucket)
+        sok && bok && lok && kok && aok && bump!(repos, it.repo)
+        if sok && bok && rok && kok && aok
             for l in it.labels
                 bump!(labels, l)
             end
         end
     end
-    (states, kinds, buckets, repos, labels)
+    (states, kinds, buckets, repos, labels, authors)
 end
 
 apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED) =
     [it for it in all if matches(f, it, unread, touched, archived)]
+
+"""How many values of one axis the pane lists before it stops.
+
+The pane used to try to show what was *available*, and there is too much of it:
+~140 repos, several hundred labels, more authors than either. A list you scroll
+past is not a control. So a long axis shows what is applied, plus the few
+biggest of what is not, plus a row that opens the rest as a picker - and the
+pane goes back to being short enough to read.
+
+Category is exempt: thirteen values that are each a different kind of work, and
+the one nobody would think to search for by name.
+"""
+const AXIS_SHOWN = 8
+
+"The set an axis filters on, which is where a picked value lands."
+axis_set(f::Filters, axis::Symbol) =
+    axis === :bucket ? f.buckets : axis === :repo ? f.repos :
+    axis === :label ? f.labels : f.authors
+
+"How a value of `axis` is written in the pane. Only the author axis has any."
+axis_label(axis::Symbol, v::AbstractString) =
+    axis !== :author ? String(v) :
+    v == AUTHOR_ME ? string("me (", login(), ")") :
+    v == AUTHOR_OTHERS ? "anyone else" : String(v)
 
 """Rows for the filter pane: the radio group, then the two checkbox groups.
 
@@ -213,7 +277,7 @@ of the filter.
 """
 function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
-    (nstate, nkind, nbucket, nrepo, nlabel) = axis_counts(st)
+    (nstate, nkind, nbucket, nrepo, nlabel, nauthor) = axis_counts(st)
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
         n = get(nstate, k, 0)
@@ -229,19 +293,38 @@ function filter_rows(st)
     end
     for (axis, label, values, tally) in ((:bucket, "category", st.buckets, nbucket),
                                          (:repo, "repo", st.repos, nrepo),
-                                         (:label, "label", st.labels, nlabel))
+                                         (:label, "label", st.labels, nlabel),
+                                         (:author, "author", st.authors, nauthor))
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
-        sel = axis === :bucket ? f.buckets : axis === :repo ? f.repos : f.labels
+        sel = axis_set(f, axis)
+        shown = 0
         for v in values
             n = get(tally, v, 0)
+            on = v in sel
             # A label nothing here carries is noise - and there are hundreds of
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
-            n == 0 && !(v in sel) && continue
-            push!(rows, (axis, v, string(v in sel ? "[x] " : "[ ] ",
-                                         rpad(first(v, 22), 24), n)))
+            n == 0 && !on && continue
+            # What is applied is always listed; what is merely available is
+            # listed until the axis has had its share of the pane. `values` is
+            # ordered by how much of the dashboard each carries - of the whole
+            # of it, not of what is filtered, so that the pane does not reshuffle
+            # under the cursor as the filter changes - which makes the ones that
+            # stop being listed the rarest rather than an alphabetical accident.
+            if !on
+                axis !== :bucket && shown >= AXIS_SHOWN && continue
+                shown += 1
+            end
+            push!(rows, (axis, v, string(on ? "[x] " : "[ ] ",
+                                         rpad(first(axis_label(axis, v), 22), 24), n)))
         end
+        # The rest of them, behind a picker you can type into. Offered even when
+        # everything fits, so the row is in the same place every time.
+        axis === :bucket ||
+            push!(rows, (:pick, string(axis),
+                         string("  \u002b ", length(values), " ", label,
+                                length(values) == 1 ? "" : "s", ", pick one\u2026")))
     end
     rows
 end
@@ -262,8 +345,41 @@ function filter_groups(rows)
     starts
 end
 
-"Toggle whatever the filter cursor is on; radio rows replace, checkboxes flip."
-function toggle_filter!(st)
+"""Every value of one axis, as a picker you can type into.
+
+`ChooseView` already narrows its options by `occursin` and hands back the one
+picked, so this is a wiring job rather than a picker. The counts come from
+`axis_counts`, which computes what each value would *add* against the rest of
+the filter - the same number the listed rows show, and the one worth having
+while choosing.
+
+Values already applied are left out. They are on screen a few rows above, where
+`\u21b5` takes them off again.
+"""
+function pick_axis!(st, ctrl, axis::Symbol)
+    tallies = axis_counts(st)
+    tally = axis === :repo ? tallies[4] : axis === :label ? tallies[5] : tallies[6]
+    values = axis === :repo ? st.repos : axis === :label ? st.labels : st.authors
+    sel = axis_set(st.filters, axis)
+    opts = Tuple{String,Any}[(string(rpad(axis_label(axis, v), 30), " ",
+                                     get(tally, v, 0)), v)
+                             for v in values if !(v in sel)]
+    isempty(opts) && return false
+    push_view!(ctrl, ChooseView(string("Filter by ", axis), "type to narrow", opts,
+        v -> begin
+            push!(axis_set(st.filters, axis), String(v))
+            refilter!(st)
+            st.status = string("filtered: ", axis, " ", axis_label(axis, String(v)))
+        end))
+    true
+end
+
+"""Toggle whatever the filter cursor is on; radio rows replace, checkboxes flip.
+
+`ctrl` is only wanted by the row that opens a picker, and a caller that has none
+gets everything else.
+"""
+function toggle_filter!(st, ctrl = nothing)
     rows = filter_rows(st)
     st.frow = clamp(st.frow, 1, length(rows))
     (axis, val, _) = rows[st.frow]
@@ -271,15 +387,12 @@ function toggle_filter!(st)
         st.filters.state = Symbol(val)
     elseif axis === :kind
         st.filters.kind = Symbol(val)
-    elseif axis === :bucket
-        val in st.filters.buckets ? delete!(st.filters.buckets, val) :
-                                    push!(st.filters.buckets, val)
-    elseif axis === :repo
-        val in st.filters.repos ? delete!(st.filters.repos, val) :
-                                  push!(st.filters.repos, val)
-    elseif axis === :label
-        val in st.filters.labels ? delete!(st.filters.labels, val) :
-                                   push!(st.filters.labels, val)
+    elseif axis === :pick
+        ctrl === nothing && return false
+        return pick_axis!(st, ctrl, Symbol(val))
+    elseif axis in (:bucket, :repo, :label, :author)
+        set = axis_set(st.filters, axis)
+        val in set ? delete!(set, val) : push!(set, val)
     else
         return false
     end
@@ -326,6 +439,8 @@ function filter_summary(f, order::Symbol = :none)
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
     order === :none || push!(parts, order === :latest ? "by when it moved" :
                                     "by when you acted")
+    isempty(f.authors) ||
+        push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
@@ -377,6 +492,8 @@ Base.@kwdef mutable struct BState <: View
     buckets::Vector{String} = String[]
     repos::Vector{String} = String[]
     labels::Vector{String} = String[]
+    authors::Vector{String} = String[]   # busiest first, the two predicates
+                                         # ahead of every login
     sort::Symbol = :none            # how the list is ordered; see `SORTS`
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
@@ -416,11 +533,27 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     for it in all, l in it.labels
         lc[l] = get(lc, l, 0) + 1
     end
+    ac = Dict{String,Int}()
+    for it in all
+        # Your own login is left out: `@me` is that row, and it is the better
+        # one - it also carries the adopted branches, which have no author at
+        # all and are yours by definition.
+        (isempty(it.author) || it.author == login()) && continue
+        ac[it.author] = get(ac, it.author, 0) + 1
+    end
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = load_touched(), archived = field_map("archive"),
                   buckets = sort(unique(it.bucket for it in all)),
-                  repos = sort(unique(it.repo for it in all)),
-                  labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)))
+                  # Busiest first, like the labels and the authors: what the
+                  # pane lists of a long axis is its head, so the head has to be
+                  # the part worth listing.
+                  repos = sort(unique(it.repo for it in all);
+                               by = r -> (-count(it -> it.repo == r, all), r)),
+                  labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)),
+                  # The two predicates lead, because they are the two anybody
+                  # wants and neither is a name you would think to type.
+                  authors = vcat([AUTHOR_ME, AUTHOR_OTHERS],
+                                 sort(collect(keys(ac)); by = a -> (-ac[a], a))))
     refilter!(st)
     st
 end
@@ -2299,7 +2432,7 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
                           g[something(findfirst(>(st.frow), g), length(g))] :
                           g[something(findlast(<(st.frow), g), 1)]
             end
-        elseif k in (13, 10);           toggle_filter!(st)
+        elseif k in (13, 10);           toggle_filter!(st, ctrl)
         elseif k == Int('c');           st.filters = Filters(); refilter!(st)
         end
     elseif st.focus === :list
@@ -2551,7 +2684,7 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
         if st.lmode === :filters
             nf = length(filter_rows(st))
             st.frow = wheel ? clamp(st.frow + d, 1, nf) : clamp(st.top + row - 1, 1, nf)
-            wheel || toggle_filter!(st)
+            wheel || toggle_filter!(st, ctrl)
         else
             # `- 2`, not `- 1`: the drawn list carries the import row in front
             # of item 1, and `st.top` counts drawn rows.

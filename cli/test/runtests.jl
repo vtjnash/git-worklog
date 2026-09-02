@@ -448,11 +448,13 @@ end
     # What the counts used to be computed by: one full pass per value, with one
     # axis replaced. Slow, obviously correct, and the thing to check against.
     brute(f, axis, v) = begin
-        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels), f.kind)
+        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels), f.kind,
+                      copy(f.authors))
         axis === :state  ? (p.state = v) :
         axis === :kind   ? (p.kind = v) :
         axis === :bucket ? (p.buckets = Set([v])) :
-        axis === :repo   ? (p.repos = Set([v])) : (p.labels = Set([v]))
+        axis === :repo   ? (p.repos = Set([v])) :
+        axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
         count(it -> W.matches(p, it, st.unread), st.all)
     end
     configs = [W.Filters(),
@@ -463,10 +465,14 @@ end
                W.Filters(:all, Set(["issue"]), Set(["JuliaLang/julia"]), Set(["docs"])),
                W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :issue),
                W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]),
-                         Set{String}(), :pr)]
+                         Set{String}(), :pr),
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
+                         Set([W.AUTHOR_ME])),
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
+                         Set([W.AUTHOR_OTHERS, "Keno"]))]
     for f in configs
         st.filters = f
-        (ns, nk, nb, nr, nl) = W.axis_counts(st)
+        (ns, nk, nb, nr, nl, na) = W.axis_counts(st)
         for (k, _) in W.STATES
             @test get(ns, k, 0) == brute(f, :state, k)
         end
@@ -476,6 +482,7 @@ end
         for v in st.buckets;  @test get(nb, v, 0) == brute(f, :bucket, v); end
         for v in first(st.repos, 12);  @test get(nr, v, 0) == brute(f, :repo, v); end
         for v in first(st.labels, 12); @test get(nl, v, 0) == brute(f, :label, v); end
+        for v in first(st.authors, 12); @test get(na, v, 0) == brute(f, :author, v); end
     end
 
     # Three values and no fourth: both is the whole list, and the other two
@@ -492,6 +499,100 @@ end
     @test !occursin("pull requests", W.filter_summary(st.filters))
 end
 
+@testset "an axis you can search, and whose it is" begin
+    # The pane used to try to show what was available: ~140 repos, hundreds of
+    # labels, and authors would have been worse than either. Now it shows what
+    # is applied plus the head of what is not, and the rest is a picker.
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true
+    rows = W.filter_rows(st)
+    axis_rows(a) = [r for r in rows if r[1] === a]
+    @test length(axis_rows(:repo)) <= W.AXIS_SHOWN
+    @test length(axis_rows(:label)) <= W.AXIS_SHOWN
+    @test length(axis_rows(:author)) <= W.AXIS_SHOWN
+    # Category is exempt: a dozen values, each a different kind of work. It
+    # still drops the ones that would select nothing, as every axis does.
+    (_, _, nb, _, _, _) = W.axis_counts(st)
+    @test length(axis_rows(:bucket)) == count(b -> get(nb, b, 0) > 0, st.buckets)
+    @test length(axis_rows(:bucket)) > W.AXIS_SHOWN          # and so, uncapped
+    @test isempty([r for r in rows if r[1] === :pick && r[2] == "bucket"])
+    # A row per long axis that opens the rest, and it says how many there are.
+    picks = [r[2] for r in rows if r[1] === :pick]
+    @test picks == ["repo", "label", "author"]
+    @test occursin(string(length(st.repos)), first(r[3] for r in rows if r[1] === :pick))
+
+    # The head of a long axis is the part worth listing: what carries most of
+    # the dashboard, not what sorts first.
+    @test st.repos[1] == "JuliaLang/julia"
+    @test issorted([count(it -> it.repo == r, st.all) for r in st.repos]; rev = true)
+
+    # `↵` on the picker row opens a ChooseView over every value the axis has,
+    # minus what is already applied, and typing narrows it by `occursin`.
+    st.lmode = :filters
+    st.frow = findfirst(r -> r[1] === :pick && r[2] == "repo", rows)
+    @test W.toggle_filter!(st, ctrl)
+    cv = last(ctrl.stack)
+    @test cv isa W.ChooseView && length(cv.options) == length(st.repos)
+    cv.query = "libuv"
+    @test !isempty(W.shown(cv)) && all(occursin("libuv", o[1]) for o in W.shown(cv))
+    # Picking one applies it, and it is then a row of its own in the pane.
+    cv.onpick("libuv/libuv")
+    pop!(ctrl.stack)
+    @test st.filters.repos == Set(["libuv/libuv"])
+    @test all(x.repo == "libuv/libuv" for x in st.items)
+    @test any(r -> r[1] === :repo && r[2] == "libuv/libuv" && occursin("[x]", r[3]),
+              W.filter_rows(st))
+    # And what is applied is listed however little it carries, so `↵` can take
+    # it off again.
+    st.frow = findfirst(r -> r[1] === :repo && r[2] == "libuv/libuv", W.filter_rows(st))
+    @test W.toggle_filter!(st, ctrl)
+    @test isempty(st.filters.repos)
+    # A picker needs somewhere to push itself; without one the row does nothing.
+    st.frow = findfirst(r -> r[1] === :pick, W.filter_rows(st))
+    @test !W.toggle_filter!(st)
+
+    # Whose it is. `mine` answered half the question - your own pull requests -
+    # and the other half is the commoner one: somebody else's, in front of you.
+    me = W.Item(url = "u1", ref = "a#1", repo = "a/b", number = 1, title = "t",
+                author = W.login())
+    them = W.Item(url = "u2", ref = "a#2", repo = "a/b", number = 2, title = "t",
+                  author = "someone")
+    # An adopted branch has no author and is yours: nobody else wrote it.
+    local_ = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
+                    title = "t", author = "")
+    @test W.author_ok(Set{String}(), them)                    # empty restricts nothing
+    @test W.author_ok(Set([W.AUTHOR_ME]), me)
+    @test !W.author_ok(Set([W.AUTHOR_ME]), them)
+    @test W.author_ok(Set([W.AUTHOR_ME]), local_)
+    @test W.author_ok(Set([W.AUTHOR_OTHERS]), them)
+    @test !W.author_ok(Set([W.AUTHOR_OTHERS]), me)
+    @test !W.author_ok(Set([W.AUTHOR_OTHERS]), local_)
+    @test W.author_ok(Set(["someone"]), them)                 # a login is a value too
+    # OR within the axis, as on every other one.
+    @test W.author_ok(Set([W.AUTHOR_ME, "someone"]), them)
+    @test W.author_ok(Set([W.AUTHOR_ME, "someone"]), me)
+
+    # The two predicates partition the list, and your own login is not a row of
+    # its own - `@me` is that row, and it carries the adopted branches too.
+    st2 = mkstate()
+    st2.filters.state = :all; W.refilter!(st2)
+    all_ = length(st2.items)
+    st2.filters.authors = Set([W.AUTHOR_ME]); W.refilter!(st2)
+    mine = length(st2.items)
+    st2.filters.authors = Set([W.AUTHOR_OTHERS]); W.refilter!(st2)
+    @test mine + length(st2.items) == all_
+    @test !(W.login() in st2.authors)
+    @test st2.authors[1] == W.AUTHOR_ME && st2.authors[2] == W.AUTHOR_OTHERS
+    # And it says so where the filter says what it is.
+    @test occursin("anyone else", W.filter_summary(st2.filters))
+    st2.filters.authors = Set([W.AUTHOR_ME, "Keno"])
+    @test occursin("Keno", W.filter_summary(st2.filters))
+    # `c` clears every axis, this one included.
+    st2.lmode = :filters
+    W.handle!(st2, Int('c'), ctrl)
+    @test isempty(st2.filters.authors) && st2.filters.state === :active
+end
+
 @testset "n/N steps between filter groups" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
@@ -499,7 +600,7 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    @test length(g) == 5                        # state, kind, category, repo, label
+    @test length(g) == 6            # state, kind, category, repo, label, author
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
     st.frow = g[1]
