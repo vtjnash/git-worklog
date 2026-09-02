@@ -833,18 +833,52 @@ so they are not mistaken for bugs later:
 
 ## Infrastructure
 
-- **A PAT, for two separate things.** `origin` is now
+- **A PAT, for two separate things — and both are writes.** The notifications
+  one below is gone, so this is the only credential still outstanding. `origin` is now
   `vtjnash/git-worklog` and is readable, but its `master` is still at the last
   commit made before any of this - pushing has never been attempted, and the
   sandbox's App token is read-only for contents everywhere, so it is expected to
   fail. That needs `Contents: read/write`. Writing a review needs a *different*
   pair of permissions on the repositories being reviewed - `issues: write` and
   `pull_requests: write` - which the same fine-grained PAT can carry but which
-  are not implied by the first.
-- **Notifications lane.** Decided against twice now: `mentions:` and
-  `commenter:` cover the mention gap through ordinary search, and `user:owner`
-  searches cover whole-owner activity (see `[events].repos`), leaving only team
-  mentions (`@JuliaLang/compiler`) genuinely unreachable. Revisit only if those
-  matter enough to justify a *classic* PAT with the `notifications` scope, which
-  is a bigger credential than anything else here asks for — and build it as a
-  durable sync rather than a live lane if so.
+  are not implied by the first. A *fine-grained* PAT carries both; nothing here
+  needs a classic one any more.
+- **Notifications lane. Dropped, not deferred.** Every reason for it has been
+  answered by ordinary search, and the token could not reach it anyway — the one
+  in this sandbox is a GitHub *App installation* token (`X-OAuth-Scopes` empty,
+  `/notifications` is 403 "not accessible by integration"), so it would have
+  needed a *classic* PAT with the `notifications` scope, the largest credential
+  anything here has asked for.
+
+  What replaced it, measured rather than assumed:
+
+  | wanted | answer today |
+  |---|---|
+  | a merge seen between refreshes | the `is:closed` lanes |
+  | all activity on chosen repos | `since=` polling, one cheap page a poll |
+  | whole owners without listing repos | `owner/*` → `user:<owner>` searches |
+  | the repo list from GitHub | `/user/subscriptions` — works now, 51 repos |
+
+  What is left is thinner than the old note claimed. **Team mentions**:
+  `team:ORG/TEAM` turns out to be a real issue-search qualifier — it rejects
+  `JuliaLang/core` as "not a valid team name" while accepting
+  `JuliaLang/compiler` — so the *query* needs no notifications scope. But it
+  returns 0 for every team tried here and `/user/teams` is 403, so whether it
+  actually reports mentions cannot be settled with this token. Try it first with
+  a token that has org read; that is a far smaller ask than the alternative.
+
+  **What search genuinely cannot reach**: Discussions, releases, security
+  advisories, `ci_activity`. Only these would still need notifications, and CI
+  is already covered by the checks in `facts.json`.
+
+  **And one thing notifications would make worse.** It carries GitHub's own
+  read state, and this program deliberately owns its cursor — "the cursor is
+  ours, so nothing is missed because it was read somewhere else". Adopting
+  GitHub's would undo the property the whole events lane exists for.
+
+- **Auto-populating `[events].repos` from what you watch.** `/user/subscriptions`
+  is readable with the current token and lists 51 repos. That is the "read it
+  from GitHub" half of the request that `owner/*` only half answered — worth
+  doing as a `wl` command that *prints* the list to paste, rather than as a live
+  source, so the file stays the user's and a repo you stopped caring about does
+  not come back because you never unwatched it.
