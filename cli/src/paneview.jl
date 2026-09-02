@@ -31,6 +31,7 @@ mutable struct PaneView <: View
     beside::Any                    # the BState to read alongside, or nothing
     cursor::Tuple{Int,Int,Bool}    # the child's cursor: x, y (0-based), showing
     wantsmouse::Bool               # the child asked for mouse reporting
+    onend::Any                     # () -> Any, once, when the child exits
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -43,6 +44,15 @@ pane_box(w::Integer, h::Integer) = (max(1, w - 4), max(1, h - 3))
 """Below this there is no room to put two things side by side."""
 const SPLIT_MIN = 150
 
+"""The widest the reading column is ever drawn beside a child.
+
+Half again what the item list gets at its own cap, which is enough for a
+comment to read as prose and not so much that a line runs the width of a page.
+Everything above it goes to the terminal: on a wide screen the work is what
+should get the room, and a thread does not become more readable past this.
+"""
+const DETAIL_MAX = 78
+
 """
     split_box(w) -> (browser, terminal)
 
@@ -53,14 +63,15 @@ The child goes on the right. What is being read - a thread, a diff, the checks -
 is what the left already holds, so it stays where the eye expects it, and the
 thing that was not there before is what moves in beside it.
 
-Half each, bounded: below the bound both columns are too narrow to use, and on
-a very wide screen the child would otherwise be given far more than a terminal
-needs, starving nothing but the reading.
+The child is never given less than half, and the reading never more than
+`DETAIL_MAX`. Those two together are the whole rule: below the split minimum
+neither column is usable, at the minimum it is an even half each, and every
+column a wider screen adds goes to the terminal.
 """
 function split_box(w::Integer)
     w < SPLIT_MIN && return (0, Int(w))
-    tw = clamp(w ÷ 2, 60, 100)
-    (Int(w) - tw, tw)
+    read = min(Int(w) ÷ 2, DETAIL_MAX)
+    (read, Int(w) - read)
 end
 
 """The browser this is running under, if any: what to read beside the child.
@@ -79,11 +90,11 @@ caller can put a reason in its own status line rather than showing an empty
 pane that never explains itself.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
-                   beside = beside_of(ctrl))
+                   beside = beside_of(ctrl), onend = nothing)
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
     PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
-             (0, 0, false), false)
+             (0, 0, false), false, onend)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -103,6 +114,18 @@ function pane_sync!(v::PaneView)
     if v.client.dead
         v.status = "session ended"
         v.client = nothing
+        # Once, and never from a later sync: a note is read back when its
+        # editor exits, and reading it twice would undo an edit made in between.
+        if v.onend !== nothing
+            f, v.onend = v.onend, nothing
+            r = try
+                f()
+            catch e
+                logerror!(e, catch_backtrace(), "pane onend")
+                "the editor's result could not be taken"
+            end
+            r isa String && !isempty(r) && (v.status = r)
+        end
         return true
     end
     # Every row is closed off, or an unterminated colour would run out of the
@@ -377,7 +400,8 @@ struct WorktreeRow
     path::String
     name::String                    # the worktree's stem, as it is referred to
     branch::String                  # "" on a detached head
-    dirty::Bool
+    staged::Bool
+    unstaged::Bool
     ahead::Int
     behind::Int
     at::String                      # its branch's tip date
@@ -457,7 +481,7 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     for w in ws
         k = wtkey(w.path)
         push!(rows, WorktreeRow(w.repo, w.path, basename(rstrip(w.path, '/')), w.branch,
-                                w.dirty, w.ahead, w.behind, w.at, w.main, false,
+                                w.staged, w.unstaged, w.ahead, w.behind, w.at, w.main, false,
                                 get(ix, (w.repo, w.branch), nothing),
                                 sort!(pop!(live, k, SessionRow[]); by = r -> r.kind)))
     end
@@ -468,8 +492,8 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     # Whatever is left over is running somewhere that is no longer there.
     for (k, ss) in sort(collect(live); by = first)
         isempty(k) && continue
-        push!(rows, WorktreeRow("", k, basename(rstrip(k, '/')), "", false, 0, 0, "",
-                                false, true, nothing, sort!(ss; by = r -> r.kind)))
+        push!(rows, WorktreeRow("", k, basename(rstrip(k, '/')), "", false, false, 0, 0,
+                                "", false, true, nothing, sort!(ss; by = r -> r.kind)))
     end
     brows = [BranchRow(b.repo, b.name, b.at, b.ahead, b.behind, b.gone, b.upstream,
                        b.worktree, get(ix, (b.repo, b.name), nothing)) for b in bs]
@@ -544,9 +568,9 @@ function dirty_pass!(v::WorktreeView)
     isempty(paths) && return
     v.pending = @async begin
         r = try
-            Dict(p => dirty(p) for p in paths)
+            Dict(p => changes(p) for p in paths)
         catch
-            Dict{String,Bool}()
+            Dict{String,Tuple{Bool,Bool}}()
         finally
             v.wake === nothing || v.wake()
         end
@@ -560,21 +584,26 @@ function onwake!(v::WorktreeView)
     d = try
         fetch(v.pending)
     catch
-        Dict{String,Bool}()
+        Dict{String,Tuple{Bool,Bool}}()
     end
     v.pending = nothing
     isempty(d) && return false
-    v.rows = [haskey(d, r.path) && d[r.path] != r.dirty ?
-              WorktreeRow(r.repo, r.path, r.name, r.branch, d[r.path], r.ahead, r.behind,
-                          r.at, r.main, r.orphan, r.item, r.sessions) : r
+    v.rows = [haskey(d, r.path) && d[r.path] != (r.staged, r.unstaged) ?
+              WorktreeRow(r.repo, r.path, r.name, r.branch, d[r.path]..., r.ahead,
+                          r.behind, r.at, r.main, r.orphan, r.item, r.sessions) : r
               for r in v.rows]
     true
 end
 
+# Column widths, shared by the rows and the header that names them - the header
+# *is* the key to the marks, so the two cannot be allowed to drift apart.
+const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_TRACK = 3, 2, 18, 22, 10
+const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
+
 "The two session slots of one row: a shell and an agent, each present or not."
 function session_marks(r::WorktreeRow)
     out = ""
-    for (kind, ch) in ((:shell, 's'), (:agent, 'a'))
+    for (kind, ch) in ((:shell, 's'), (:agent, 'a'), (:note, 'n'))
         i = findfirst(x -> x.kind === kind, r.sessions)
         out *= i === nothing ? " " :
                r.sessions[i].attached ? string("\e[32m", ch, "\e[0m") :
@@ -605,19 +634,31 @@ function listwindow(n::Int, sel::Int, top::Int, inner::Int)
     (sel, top, top:min(n, top + inner - 1))
 end
 
+"""What is changed here: staged, unstaged, or both.
+
+Two marks and not one. A checkout with something staged and something else not
+is in the middle of a commit, which is a different thing to have walked away
+from than a checkout that was merely edited - and `+*` says so at a glance.
+"""
+function change_marks(r::WorktreeRow)
+    string(r.staged ? "\e[32m+\e[0m" : " ",
+           r.unstaged ? "\e[33m*\e[0m" : " ")
+end
+
+wt_label(iw::Int) = max(12, iw - WT_RUN - 1 - WT_CHG - 1 - WT_NAME - 1 -
+                             WT_BRANCH - 1 - WT_TRACK - 1)
+
 "One worktree row, drawn."
 function wt_line(r::WorktreeRow, iw::Int)
-    nw, bw = 18, 22
-    lw = max(12, iw - 2 - 1 - 1 - 1 - nw - 1 - bw - 1 - 5 - 1)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
             r.orphan ? "\e[31mworktree is gone\e[0m" :
             isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
-    string(session_marks(r), " ",
-           r.dirty ? "\e[33m*\e[0m" : " ", " ",
-           apad(afit(r.name, nw), nw), " ",
-           "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, bw), bw), "\e[0m ",
-           "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
-           apad(afit(label, lw), lw))
+    string(session_marks(r), " ", change_marks(r), " ",
+           apad(afit(r.name, WT_NAME), WT_NAME), " ",
+           "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
+                          WT_BRANCH), "\e[0m ",
+           "\e[2m", apad(afit(track_mark(r), WT_TRACK), WT_TRACK), "\e[0m ",
+           apad(afit(label, wt_label(iw)), wt_label(iw)))
 end
 
 """One branch row, drawn.
@@ -626,35 +667,58 @@ The leading mark is whether it has a place: `\u25cf` for a branch that is
 checked out somewhere, nothing for one that is only a ref. That column is the
 difference between the two lists, so it leads.
 """
+br_label(iw::Int) = max(12, iw - 1 - 1 - BR_NAME - 1 - BR_REPO - 1 -
+                             BR_DATE - 1 - BR_TRACK - 1)
+
 function br_line(r::BranchRow, iw::Int)
-    nw, rw = 30, 16
-    lw = max(12, iw - 1 - 1 - nw - 1 - rw - 1 - 10 - 1 - 5 - 1)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
             r.gone ? "\e[2mupstream is gone\e[0m" : ""
     string(isempty(r.worktree) ? " " : "\e[32m\u25cf\e[0m", " ",
-           "\e[36m", apad(afit(r.name, nw), nw), "\e[0m ",
-           "\e[2m", apad(afit(last(split(r.repo, '/')), rw), rw), "\e[0m ",
-           "\e[2m", apad(first(r.at, 10), 10), "\e[0m ",
-           "\e[2m", apad(afit(track_mark(r), 5), 5), "\e[0m ",
-           apad(afit(label, lw), lw))
+           "\e[36m", apad(afit(r.name, BR_NAME), BR_NAME), "\e[0m ",
+           "\e[2m", apad(afit(last(split(r.repo, '/')), BR_REPO), BR_REPO), "\e[0m ",
+           "\e[2m", apad(first(r.at, BR_DATE), BR_DATE), "\e[0m ",
+           "\e[2m", apad(afit(track_mark(r), BR_TRACK), BR_TRACK), "\e[0m ",
+           apad(afit(label, br_label(iw)), br_label(iw)))
+end
+
+"""The row that names the columns, which is also the key to the marks.
+
+It does not scroll with the list: a key you have to scroll back to is not a
+key. `s`/`a` and `+`/`*` are one character each and unguessable on their own,
+so the header carries their names and the colour carries the rest - green for a
+session you are attached to and for what is staged, yellow for what is not.
+"""
+function list_header(branches::Bool, iw::Int)
+    line = branches ?
+        string(apad("at", 2), " ", apad("branch", BR_NAME), " ",
+               apad("repo", BR_REPO), " ", apad("tip", BR_DATE), " ",
+               apad("\u00b1upstream", BR_TRACK), " ", apad("pull request", br_label(iw))) :
+        string(apad("san", WT_RUN), " ", apad("+*", WT_CHG), " ",
+               apad("worktree", WT_NAME), " ", apad("branch", WT_BRANCH), " ",
+               apad("\u00b1upstream", WT_TRACK), " ",
+               apad("pull request", wt_label(iw)))
+    string("\e[2m", afit(line, iw), "\e[0m")
 end
 
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather
     # than hunting for where each one starts.
     iw = w - 4
-    inner = h - 3          # the pane's border, plus the footer row
+    # The pane's border, the footer row, and the header that names the columns.
+    inner = max(1, h - 4)
     branches = v.mode === :branches
     n = branches ? length(v.brows) : length(v.rows)
     sel, top, win = listwindow(n, branches ? v.bsel : v.sel,
                                branches ? v.btop : v.top, inner)
     branches ? (v.bsel = sel; v.btop = top) : (v.sel = sel; v.top = top)
-    body = String[]
+    body = [list_header(branches, iw)]
     for i in win
         line = branches ? br_line(v.brows[i], iw) : wt_line(v.rows[i], iw)
         push!(body, i == sel ? hlrow(apad(line, iw), SELBG) : line)
     end
-    isempty(body) && push!(body, branches ?
+    # `n`, not `body`: the header is always in there, so an empty list is one
+    # that has no rows rather than one that drew nothing.
+    n == 0 && push!(body, branches ?
         "\e[2mno branches — none of the registered repos is here\e[0m" :
         "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
     keys = branches ? "↵ its worktree · i item · tab worktrees · r refresh · q back" :

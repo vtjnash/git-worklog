@@ -2137,19 +2137,7 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         st.filters.state === :unread && refilter!(st)
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
-        prev = get_field(it.url, "snooze")
-        prevtouch = touched_at(it.url)
-        disarm(it.url)
-        set_fields(it.url, ["snooze" => "on-change"], at)
-        # `set_fields` removes a key when handed nothing, so this is the undo
-        # whether or not there was a snooze here before. The clock goes back
-        # after it, not before: restoring the value writes through `set_fields`,
-        # which stamps on the way past.
-        push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
-            set_fields(it.url, ["snooze" => prev])
-            set_touched(it.url, prevtouch)
-        end))
-        st.status = "snoozed"
+        snooze_action(st, ctrl, it, at)
     elseif k == Int('z')
         if isempty(st.undos)
             st.status = "nothing to undo"
@@ -2515,6 +2503,69 @@ function review_action(st::BState, ctrl::Controller, it::Item)
     end))
 end
 
+"""Ask how long for, then snooze.
+
+`s` used to set `on-change` and say nothing. That is the right default and was
+the wrong only choice: `parse_snooze` has always taken spans and dates, and
+`wl snooze` could reach them from the shell where the browser could not - so
+the one place snoozing is actually done was the one place it could not be
+said how long for.
+
+The current value leads the note, because the common case for pressing this
+twice is wanting to know what it is already set to.
+"""
+function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
+    cur = get_field(it.url, "snooze")
+    opts = Tuple{String,Any}[
+        ("until it moves",                "on-change"),
+        ("until it moves, or 30 days",    "on-change/30d"),
+        ("3 days",                        "3d"),
+        ("1 week",                        "1w"),
+        ("2 weeks",                       "2w"),
+        ("1 month",                       "1mo"),
+        ("3 months",                      "3mo"),
+        ("a span or a date\u2026",         :ask)]
+    # Only offered when there is something to clear, so the list does not lead
+    # with an option that would do nothing.
+    cur === nothing || pushfirst!(opts, ("off \u2014 wake it now", nothing))
+    push_view!(ctrl, ChooseView(string("Snooze ", it.ref),
+        cur === nothing ? it.title : string("now: ", cur), opts,
+        v -> v === :ask ?
+            push_view!(ctrl, PromptView(string("Snooze ", it.ref),
+                "a span like 3d, 2w, 6mo, 1y - or a date like 2026-09-15",
+                b -> (st.status = apply_snooze!(st, it, strip(b), at)))) :
+            (st.status = apply_snooze!(st, it, v, at))))
+end
+
+"""Write one snooze value, with its undo. `nothing`, or an empty string, clears.
+
+Rejected here rather than written: a value `parse_snooze` cannot read leaves the
+item *not* snoozed, and the reason goes into a field only the snoozed section
+prints - so a bad one used to look like it had worked and quietly do nothing.
+"""
+function apply_snooze!(st::BState, it::Item, v, at::DateTime)
+    val = (v === nothing || (v isa AbstractString && isempty(v))) ? nothing : String(v)
+    val === nothing || parse_snooze(val) !== nothing ||
+        return string("bad snooze value '", val,
+                      "' - use on-change, a span like 3d/2w/6mo/1y, or a date")
+    prev = get_field(it.url, "snooze")
+    prevtouch = touched_at(it.url)
+    disarm(it.url)
+    set_fields(it.url, ["snooze" => val], at)
+    # `set_fields` removes a key when handed nothing, so this is the undo
+    # whether or not there was a snooze here before. The clock goes back after
+    # it, not before: restoring the value writes through `set_fields`, which
+    # stamps on the way past.
+    push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
+        set_fields(it.url, ["snooze" => prev])
+        set_touched(it.url, prevtouch)
+    end))
+    # The snoozed lane is a filter over this field, so the row has to be able to
+    # leave or arrive on the strength of it.
+    st.filters.state in (:snoozed, :active) && refilter!(st)
+    val === nothing ? "snooze cleared" : string("snoozed ", val)
+end
+
 """Toggle one label, chosen from this item's own plus every label seen."""
 function label_action(st::BState, ctrl::Controller, it::Item)
     have = Set(it.labels)
@@ -2704,6 +2755,39 @@ function edit_note(st::BState, it::Item, ctrl)
     before = it.note
     prevtouch = touched_at(it.url)
     write(path, isempty(before) ? "" : before)
+    finish = () -> adopt_note!(st, it, path, before, prevtouch)
+
+    # In a pane, beside the thread, the same as `t` and `T`. Taking the whole
+    # screen for it was the odd one out: the note is nearly always *about* what
+    # is on the other half, and writing it with the thread hidden meant leaving
+    # the editor to check what it said.
+    if mux_bin() !== nothing
+        target = something(first(item_checkout(it)), ROOT)
+        name = mux_name(basename(rstrip(String(target), '/')), "", string(it.number), :note)
+        # Never resumed, unlike a shell: this one is bound to a temp file that
+        # holds the note as it was when the key was pressed, so an editor left
+        # over from a previous `v` would be writing into a stale copy.
+        mux_kill(name)
+        ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)))
+        ok || return err
+        mux_tag!(name, target, :note, it.ref)
+        v = pane_view(name, string("note  ", it.ref), ctrl; onend = finish)
+        if v === nothing
+            # Still running means the attach really failed. Gone means the
+            # editor finished before we got there - which an editor configured
+            # to write and exit does every time - and the note is taken anyway
+            # rather than thrown away for having been quick.
+            mux_alive(name) || return finish()
+            mux_kill(name)
+            return "could not attach to " * name
+        end
+        pane_sync!(v)
+        push!(ctrl.stack, v)
+        return "editing the note — it is saved when the editor exits"
+    end
+
+    # No multiplexer: hand over the whole terminal, which is what this did
+    # before there was anywhere else to put it.
     ok = true
     suspend(ctrl) do
         try
@@ -2718,6 +2802,24 @@ function edit_note(st::BState, it::Item, ctrl)
         end
     end
     ok || return string("could not run ", noteeditor())
+    finish()
+end
+
+"""Single-quote for a shell, the only quoting that needs no other escaping.
+
+A temp path has no spaces today, but `\$EDITOR` is handed to a shell either way
+and a path that is not quoted is a path that is one `mktempdir` away from being
+two arguments.
+"""
+shquote(s::AbstractString) = string("'", replace(String(s), "'" => "'\\''"), "'")
+
+"""Take whatever the editor left in `path` and make it the item's note.
+
+Shared by both routes into the editor, and the reason `v` can be asynchronous
+at all: the pane calls this when the child exits, the full-screen path calls it
+when the editor returns, and neither has to know which.
+"""
+function adopt_note!(st::BState, it::Item, path, before, prevtouch)
     after = try
         strip(read(path, String))
     catch
@@ -2726,9 +2828,12 @@ function edit_note(st::BState, it::Item, ctrl)
     after == strip(before) && return "note unchanged"
     set_fields(it.url, ["note" => isempty(after) ? nothing : String(after)])
     # The pane reads the note off the item, so the item has to carry it before
-    # the next refresh rewrites `facts.json`.
-    st.items[st.sel] = Item(; (f => getfield(it, f) for f in fieldnames(Item))...,
-                            note = String(after))
+    # the next refresh rewrites `facts.json`. Found by url rather than by the
+    # cursor: with the editor in a pane the selection can have moved on by the
+    # time this runs.
+    i = findfirst(x -> x.url == it.url, st.items)
+    i === nothing || (st.items[i] = Item(; (f => getfield(it, f) for f in fieldnames(Item))...,
+                                           note = String(after)))
     push!(st.undos, Undo(string("note ", it.ref), () -> begin
         set_fields(it.url, ["note" => isempty(before) ? nothing : before])
         set_touched(it.url, prevtouch)

@@ -1492,14 +1492,14 @@ end
 
         # Dirty arrives behind the list rather than holding it up: the first
         # pass skips the tree walk entirely.
-        @test all(!r.dirty for r in W.worktree_rows(items; withdirty = false))
+        @test all(!(r.staged || r.unstaged) for r in W.worktree_rows(items; withdirty = false))
         write(joinpath(main, "a.txt"), "two\n")
         v2 = W.worktree_view(items)
-        @test all(!r.dirty for r in v2.rows)          # not walked yet
+        @test all(!(r.staged || r.unstaged) for r in v2.rows)          # not walked yet
         wait(v2.pending)
         @test W.onwake!(v2)
-        @test W.worktree_rows(items)[1].dirty         # and now it is known
-        @test any(r.dirty for r in v2.rows)
+        @test W.worktree_rows(items)[1].unstaged         # and now it is known
+        @test any((r.staged || r.unstaged) for r in v2.rows)
         @test !W.onwake!(v2)                          # nothing left pending
         W.git(main, "checkout", "--quiet", "--", "a.txt")
 
@@ -1682,11 +1682,17 @@ end
     @test W.split_box(80) == (0, 80)
     @test W.split_box(149) == (0, 149)
     @test W.split_box(150) == (75, 75)
-    @test W.split_box(200) == (100, 100)
-    # Bounded, so a very wide screen does not hand the child far more than a
-    # terminal needs and starve the reading.
-    @test W.split_box(400) == (300, 100)
-    @test last(W.split_box(150)) >= 60
+    @test W.split_box(200) == (78, 122)
+    # The child is never given less than half, and the reading never more than
+    # DETAIL_MAX - so every column a wider screen adds goes to the terminal,
+    # which is the thing being worked in.
+    @test W.split_box(400) == (78, 322)
+    for w in (150, 165, 200, 250, 400)
+        r, t = W.split_box(w)
+        @test r + t == w
+        @test t >= w / 2
+        @test r <= W.DETAIL_MAX
+    end
 
     if W.mux_bin() === nothing
         @info "no tmux; skipping the split render test"
@@ -1804,7 +1810,7 @@ end
 
 @testset "the child's cursor" begin
     mk(cur; beside = nothing) =
-        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false)
+        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false, nothing)
 
     # The terminal's own cursor is moved to the child's, rather than a block
     # being painted where it should be: a real one blinks, takes the shape the
@@ -2032,18 +2038,28 @@ end
         # branch's divergence and a detached one carries none.
         @test (sbyp[realpath(main)].ahead, sbyp[realpath(main)].behind) == (1, 0)
         @test sbyp[realpath(det)].upstream == "" && sbyp[realpath(det)].at == ""
-        @test all(!w.dirty for w in sw)
+        @test all(!(w.staged || w.unstaged) for w in sw)
         write(joinpath(main, "a.txt"), "three\n")
+        @test W.changes(main) == (false, true)      # edited, not staged
         @test W.dirty(main)
+        # Staged and unstaged are separate bits, because a half-staged checkout
+        # is in the middle of a commit - a different thing to have walked away
+        # from than one that was merely edited.
+        g(main, "add", "a.txt")
+        @test W.changes(main) == (true, false)
+        write(joinpath(main, "a.txt"), "four\n")
+        @test W.changes(main) == (true, true)       # staged, then edited again
         # An untracked file is not work in progress: a build tree is full of
         # them, and counting them would report every checkout dirty forever.
-        g(main, "checkout", "--quiet", "--", "a.txt")
+        g(main, "reset", "--quiet", "--hard")
         write(joinpath(main, "untracked.txt"), "x\n")
+        @test W.changes(main) == (false, false)
         @test !W.dirty(main)
         # The cheap survey skips the tree walk entirely.
         write(joinpath(main, "a.txt"), "three\n")
-        @test any(w.dirty for w in first(W.survey()))
-        @test all(!w.dirty for w in first(W.survey(; withdirty = false)))
+        @test any(w.unstaged for w in first(W.survey()))
+        @test all(!(w.staged || w.unstaged) for w in first(W.survey(; withdirty = false)))
+        g(main, "checkout", "--quiet", "--", "a.txt")
 
         # A registered repo whose folder has gone is skipped, not an error -
         # the same rule `repo_path` follows, since `repos.toml` is never pruned.
@@ -2235,11 +2251,13 @@ end
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
 
         # A snooze is, and undoing it puts the clock back to where it was -
-        # which for a first interaction means back to nothing at all.
+        # which for a first interaction means back to nothing at all. `s` opens
+        # a picker now, so the interaction is the choice, not the key.
+        snooze!(v) = (W.handle!(st, Int('s'), ctrl); pop!(ctrl.stack).onpick(v))
         state = read(W.STATE, String)
         try
-            W.handle!(st, Int('s'), ctrl)
-            @test st.status == "snoozed"
+            snooze!("on-change")
+            @test st.status == "snoozed on-change"
             @test W.touched_at(it.url) !== nothing
             W.handle!(st, Int('z'), ctrl)
             @test occursin("undid", st.status)
@@ -2247,7 +2265,7 @@ end
 
             # And an earlier interaction is restored as itself, not erased.
             W.set_touched(it.url, "2026-01-02T03:04:05Z")
-            W.handle!(st, Int('s'), ctrl)
+            snooze!("on-change")
             @test W.touched_at(it.url) != "2026-01-02T03:04:05Z"
             W.handle!(st, Int('z'), ctrl)
             @test W.touched_at(it.url) == "2026-01-02T03:04:05Z"
@@ -2256,6 +2274,66 @@ end
         end
     finally
         write(readfile, before)
+        W.TOUCHED[] = keep
+    end
+end
+
+@testset "s asks how long for" begin
+    # `s` used to write on-change and say nothing, which is the right default
+    # and was the wrong only choice - `parse_snooze` has always taken spans and
+    # dates, and only `wl snooze` could reach them.
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true
+    it = st.items[st.sel]
+    state = read(W.STATE, String)
+    keep = W.TOUCHED[]
+    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    try
+        W.handle!(st, Int('s'), ctrl)
+        v = pop!(ctrl.stack)
+        @test v isa W.ChooseView
+        vals = [o[2] for o in v.options]
+        @test "on-change" in vals && "2w" in vals && :ask in vals
+        # Nothing to clear yet, so "off" is not offered.
+        @test !(nothing in vals)
+        for (w, h) in ((80, 24), (165, 50))
+            ls = split(W.render(v, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+
+        # A span is written as given, and shows in the status.
+        @test W.apply_snooze!(st, it, "2w", W.utcnow()) == "snoozed 2w"
+        @test W.get_field(it.url, "snooze") == "2w"
+        # Now that there is one, clearing is offered and says what it is on.
+        W.handle!(st, Int('s'), ctrl)
+        v2 = pop!(ctrl.stack)
+        @test nothing in [o[2] for o in v2.options]
+        @test occursin("now: 2w", v2.note)
+
+        # A value parse_snooze cannot read is refused rather than written: it
+        # would leave the item not snoozed and look like it had worked.
+        @test occursin("bad snooze value", W.apply_snooze!(st, it, "3days", W.utcnow()))
+        @test W.get_field(it.url, "snooze") == "2w"
+        # A date is fine, and so is clearing.
+        @test W.apply_snooze!(st, it, "2099-01-01", W.utcnow()) == "snoozed 2099-01-01"
+        @test W.apply_snooze!(st, it, nothing, W.utcnow()) == "snooze cleared"
+        @test W.get_field(it.url, "snooze") === nothing
+        @test W.apply_snooze!(st, it, "", W.utcnow()) == "snooze cleared"
+
+        # `a span or a date…` asks, and what is typed goes the same way.
+        W.handle!(st, Int('s'), ctrl)
+        pop!(ctrl.stack).onpick(:ask)
+        p = pop!(ctrl.stack)
+        @test p isa W.PromptView
+        p.onsubmit("6mo")
+        @test W.get_field(it.url, "snooze") == "6mo"
+        @test st.status == "snoozed 6mo"
+
+        # Every write is undoable, back to nothing at all.
+        for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end
+        @test W.get_field(it.url, "snooze") === nothing
+    finally
+        write(W.STATE, state)
         W.TOUCHED[] = keep
     end
 end
@@ -2285,6 +2363,69 @@ end
     @test !startswith(strip(lines[at - 1]), "[")|| true
     W.set_fields(u, ["note" => nothing])
     @test read(W.STATE, String) == before
+
+    # `v` opens in a pane beside the thread, the same as `t` and `T`. The note
+    # is nearly always *about* what is on the other half, and taking the whole
+    # screen meant leaving the editor to check what the thread said.
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the note-in-a-pane test"
+    else
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true
+        push!(ctrl.stack, st)
+        it = st.items[st.sel]
+        keept = W.TOUCHED[]
+        W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+        before2 = read(W.STATE, String)
+        try
+            # An editor that writes and exits at once is gone before there is
+            # anything to attach to. The note is still taken: being quick is
+            # not a reason to throw the edit away.
+            withenv("EDITOR" => raw"""sh -c 'printf "instantly\n" >> "$1"' sh""") do
+                @test W.edit_note(st, it, ctrl) == "note saved"
+                @test W.get_field(it.url, "note") == "instantly"
+                @test last(ctrl.stack) === st          # no pane was left behind
+                W.handle!(st, Int('z'), ctrl)
+            end
+
+            withenv("EDITOR" =>
+                    raw"""sh -c 'sleep 1; printf "from the pane\n" >> "$1"' sh""") do
+                r = W.edit_note(st, it, ctrl)
+                @test occursin("editing the note", r)
+                v = last(ctrl.stack)
+                @test v isa W.PaneView
+                # Nothing is written yet: the note lands when the editor exits.
+                @test W.get_field(it.url, "note") === nothing
+                for _ in 1:60
+                    sleep(0.25); W.pane_sync!(v)
+                    v.client === nothing && break
+                end
+                @test v.client === nothing
+                @test v.status == "note saved"
+                @test W.get_field(it.url, "note") == "from the pane"
+                # The item carries it too, since the pane reads the note off
+                # the item and `facts.json` is not rewritten until a refresh.
+                i = findfirst(x -> x.url == it.url, st.items)
+                @test st.items[i].note == "from the pane"
+                # Undoable like any other local write.
+                @test !isempty(st.undos)
+                W.handle!(st, Int('z'), ctrl)
+                @test W.get_field(it.url, "note") === nothing
+                # Once only: a second sync must not read the file again and
+                # undo an edit made in between.
+                @test v.onend === nothing
+                @test !W.pane_sync!(v)
+                pop!(ctrl.stack)
+            end
+        finally
+            write(W.STATE, before2)
+            W.TOUCHED[] = keept
+        end
+    end
+
+    # Single quotes need no other escaping, which is why they are what is used.
+    @test W.shquote("/tmp/a b.md") == "'/tmp/a b.md'"
+    @test W.shquote("it's") == raw"'it'\''s'"
 
     # `$EDITOR` is a command line, not a program: it routinely has arguments
     # and quotes in it, so it is handed to a shell with the path as `$1`.

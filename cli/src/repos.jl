@@ -195,7 +195,8 @@ Base.@kwdef struct Worktree
     branch::String = ""
     head::String = ""
     at::String = ""
-    dirty::Bool = false
+    staged::Bool = false
+    unstaged::Bool = false
     upstream::String = ""
     ahead::Int = 0
     behind::Int = 0
@@ -237,21 +238,38 @@ function branches(repo::AbstractString, path::AbstractString)
     out
 end
 
-"""Is this worktree's tree different from its HEAD?
+"""What is different from HEAD here: `(staged, unstaged)`.
+
+Two bits rather than one, because a half-staged checkout is a state worth
+seeing: it means something was in the middle of being committed, which is not
+the same as having been edited and not the same as being clean.
+
+They come straight out of the porcelain's two status columns - `XY` per file,
+`X` the index and `Y` the working tree - so a file that is staged and then
+edited again sets both, which is exactly what happened to it.
 
 Untracked files do not count. A build tree is full of them and none of them is
 work in progress, so counting them would report every checkout dirty forever.
 `--no-optional-locks` keeps a read from taking the index lock out from under a
 git command the user is running in the same checkout.
 """
-function dirty(path::AbstractString)
+function changes(path::AbstractString)
+    staged = unstaged = false
     try
-        !isempty(strip(git(path, "--no-optional-locks", "status", "--porcelain",
-                           "--untracked-files=no")))
+        for l in split(git(path, "--no-optional-locks", "status", "--porcelain",
+                           "--untracked-files=no"), '\n')
+            length(l) >= 2 || continue
+            x, y = l[1], l[2]
+            x in (' ', '?') || (staged = true)
+            y in (' ', '?') || (unstaged = true)
+        end
     catch
-        false
     end
+    (staged, unstaged)
 end
+
+"Anything at all different from HEAD, staged or not."
+dirty(path::AbstractString) = any(changes(path))
 
 """
     survey(; withdirty = true) -> (worktrees, branches)
@@ -276,10 +294,11 @@ function survey(; withdirty::Bool = true)
             append!(bs, brs)
             for w in worktrees(p)
                 b = get(byname, w.branch, nothing)
+                st, un = withdirty ? changes(w.path) : (false, false)
                 push!(ws, Worktree(; repo = String(name), path = w.path,
                                      branch = w.branch, head = w.head,
                                      at = b === nothing ? "" : b.at,
-                                     dirty = withdirty && dirty(w.path),
+                                     staged = st, unstaged = un,
                                      upstream = b === nothing ? "" : b.upstream,
                                      ahead = b === nothing ? 0 : b.ahead,
                                      behind = b === nothing ? 0 : b.behind,

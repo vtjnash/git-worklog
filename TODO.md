@@ -15,8 +15,8 @@ diff.
 It also hosts programs. A tmux session per worktree can be opened on an item
 (`t` a shell, `T` an agent), drawn in a pane beside the thread and driven by
 forwarding the bytes you type, so the browser needs no model of what is running
-in it. `"` lists every worktree and what is running in each, `v` opens the
-item's note in `$EDITOR`.
+in it. `"` lists every worktree and what is running in each, and `v` opens the
+item's note in `$EDITOR` in a pane of its own.
 
 ### Where and how to run it
 The checkout is wherever the sandbox mounted it - it has been at
@@ -37,7 +37,8 @@ julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
-labels, `r` toggles read, `z` undoes the last local action. `v` edits the note,
+labels, `r` toggles read, `s` asks how long to snooze for, `z` undoes the last
+local action. `v` edits the note,
 `t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
 running; `tab` there swaps the worktrees for the branches, and `i` on a row of
 either goes to its pull request. Inside a hosted
@@ -300,6 +301,12 @@ a shell and an agent on the row, `i` goes to its pull request, `K` ends what is
 running there, and a session whose worktree has been deleted is an orphan row
 rather than a hidden one.
 
+Rows carry a header that names the columns and doubles as the key to the marks:
+`s`/`a`/`n` for a shell, an agent and a note editor running there, green when
+attached; `+`/`*` for staged and unstaged changes, so a half-staged checkout —
+something left in the middle of a commit — reads differently from one that was
+merely edited.
+
 Still missing from it: the last-commit date is collected but not drawn, there is
 no way to *make* a worktree from here, and the rows are not sortable — which is
 what list D wants and what `touched.json` is waiting for.
@@ -553,6 +560,12 @@ Kept here so they can be written up in one pass rather than rediscovered.
   or be the thing `t` on an item asks first.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
+- **The reading column is capped, and only when a child is beside it.**
+  `split_box` gives the terminal everything above `DETAIL_MAX`, which is what
+  makes a wide screen useful for working rather than for a very long line of
+  prose. The browser on its own is not capped — `leftw` still takes a third and
+  the thread takes the rest — so a wide screen with no session open still draws
+  a full-width thread.
 - **The metadata pane is a readout, not a control.** Clicking in it does
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
