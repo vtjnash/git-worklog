@@ -1150,48 +1150,20 @@ function findhits(text::AbstractString, q::AbstractString)
     out
 end
 
-"""
-    render(st, w, h) -> String
+"""The detail pane: the item's title, then whatever `st.mode` selected —
+the thread, the diff or the checks — wrapped to `w` and scrolled to `st.nrow`.
 
-Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
-narrow window degrades rather than truncating the detail into uselessness.
-"""
-function render_frame(st::BState, w::Int, h::Int)
-    st.sel = clamp(st.sel, 1, max(1, length(st.items)))
-    it = isempty(st.items) ? nothing : st.items[st.sel]
-    # The pane sizes to its content, so it is rendered before the heights are
-    # settled; only its width is known this early, and only its width is needed.
-    mlines = meta_lines(st, it, leftw(w) - 4)
-    st.nmeta = length(mlines)
-    L = layout(w, h, st.nmeta)
-    lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
-    if st.lmode === :filters
-        frows = filter_rows(st)
-        st.frow = clamp(st.frow, 1, max(1, length(frows)))
-        lrows = Row[]
-        for (j, (axis, _, text)) in enumerate(frows)
-            on = j == st.frow && st.focus === :list && axis !== :head
-            push!(lrows, Row(j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
-                                             afit(text, liw), AR), text, 0))
-        end
-        lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
-        ltitle = "filters"
-    else
-        lrows = Row[]
-        for i in 1:length(st.items)
-            it_ = st.items[i]
-            on = i == st.sel && st.focus === :list
-            txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title), liw)
-            styled = string(on ? "\e[1;37m" : AD, txt, AR)
-            (isempty(st.search) || st.searchin !== :list) ||
-                (styled = hlspan(styled, findhits(astrip(styled), st.search), HITBG))
-            push!(lrows, Row(i, true, styled,
-                             string(it_.ref, " ", it_.title), 0))
-        end
-        lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
-        ltitle = string(st.title, " ", st.sel, "/", length(st.items))
-    end
+Split out of `render_frame` so it can also be drawn on its own, beside a pane
+hosting a child program. There it is the whole left column rather than one of
+three stacked ones, which is the difference between four rows of a thread and
+twenty while a build runs next to it.
 
+It mutates `st`: `hdr` for the mouse, and the scroll offset it settles on. That
+is how it already worked as part of `render_frame`, and both callers want the
+same thing remembered.
+"""
+function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focused::Bool)
+    riw = rw - 4
     # The item title again, above the detail. The title bar is a row away at the
     # top of the screen and easy to lose track of once you have scrolled into a
     # long thread.
@@ -1258,11 +1230,56 @@ function render_frame(st::BState, w::Int, h::Int)
                                        min(total, st.ntop + rh - 3), "/", total) : "",
                     sr === nothing ? "" : string("  ", AB, sr[2] - sr[1] + 1, " selected", AR))
 
+    pane(rvis, rw, rh, rtitle, focused)
+end
+
+"""
+    render(st, w, h) -> String
+
+Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
+narrow window degrades rather than truncating the detail into uselessness.
+"""
+function render_frame(st::BState, w::Int, h::Int)
+    st.sel = clamp(st.sel, 1, max(1, length(st.items)))
+    it = isempty(st.items) ? nothing : st.items[st.sel]
+    # The pane sizes to its content, so it is rendered before the heights are
+    # settled; only its width is known this early, and only its width is needed.
+    mlines = meta_lines(st, it, leftw(w) - 4)
+    st.nmeta = length(mlines)
+    L = layout(w, h, st.nmeta)
+    lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
+    if st.lmode === :filters
+        frows = filter_rows(st)
+        st.frow = clamp(st.frow, 1, max(1, length(frows)))
+        lrows = Row[]
+        for (j, (axis, _, text)) in enumerate(frows)
+            on = j == st.frow && st.focus === :list && axis !== :head
+            push!(lrows, Row(j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
+                                             afit(text, liw), AR), text, 0))
+        end
+        lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
+        ltitle = "filters"
+    else
+        lrows = Row[]
+        for i in 1:length(st.items)
+            it_ = st.items[i]
+            on = i == st.sel && st.focus === :list
+            txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title), liw)
+            styled = string(on ? "\e[1;37m" : AD, txt, AR)
+            (isempty(st.search) || st.searchin !== :list) ||
+                (styled = hlspan(styled, findhits(astrip(styled), st.search), HITBG))
+            push!(lrows, Row(i, true, styled,
+                             string(it_.ref, " ", it_.title), 0))
+        end
+        lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
+        ltitle = string(st.title, " ", st.sel, "/", length(st.items))
+    end
+
     left = pane(lvis, lw, lh, ltitle, st.focus === :list)
     L.mh > 0 && append!(left, pane(first(mlines, L.mh - 2), lw, L.mh,
                                    it === nothing ? "meta" : string("meta  ", it.ref),
                                    false))
-    right = pane(rvis, rw, rh, rtitle, st.focus === :detail)
+    right = detail_pane(st, it, rw, rh, st.focus === :detail)
 
     links = Pair{String,String}[]
     for n in st.nodes, u in n.urls

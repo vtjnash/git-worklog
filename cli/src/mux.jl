@@ -429,15 +429,28 @@ function mux_close(c::MuxClient)
     nothing
 end
 
-"""Hand the terminal to `name` until the user leaves it.
+"""Show `name` full screen, however this program is being run.
 
-`suspend` is what makes this need no terminal work here: it drops raw mode,
-leaves the alternate screen and puts both back afterwards, so the child gets a
-normal terminal and the browser gets its screen back.
+Two different things, because attaching depends on where we already are.
+
+Outside tmux there is a terminal to give away, and `suspend` gives it: raw mode
+off, alternate screen left, both put back when the child is done.
+
+Inside tmux there is not. `tmux attach` refuses to nest, and would fail with
+`sessions should be nested with care` even though the session is right there on
+the same server. What is wanted is the client we are already running under
+pointed at the other session, which is `switch-client`, and it returns at once
+rather than blocking until the user is finished - tmux's own binding brings
+them back, and this program is left running in the session it was always in.
 """
 function mux_attach(name::AbstractString, ctrl)
     bin = mux_bin()
     bin === nothing && return false
+    if !isempty(get(ENV, "TMUX", ""))
+        first(mux("switch-client", "-t=" * name)) && return true
+        # A session on another server cannot be switched to; fall through and
+        # try to attach, which will at least say why.
+    end
     suspend(ctrl) do
         try
             run(`$bin attach -t=$name`)
@@ -475,4 +488,3 @@ function mux_list()
     sort!(rows; by = r -> r.name)
     rows
 end
-

@@ -1441,3 +1441,57 @@ end
     @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
     @test occursin("nothing running", join(ls, "\n"))
 end
+
+@testset "reading beside the child" begin
+    # Nothing is split below the threshold: two columns too narrow to use are
+    # worse than one that works.
+    @test W.split_box(80) == (0, 80)
+    @test W.split_box(149) == (0, 149)
+    @test W.split_box(150) == (75, 75)
+    @test W.split_box(200) == (100, 100)
+    # Bounded, so a very wide screen does not hand the child far more than a
+    # terminal needs and starve the reading.
+    @test W.split_box(400) == (300, 100)
+    @test last(W.split_box(150)) >= 60
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the split render test"
+    else
+        st = W.BState(W.loaditems(), "worklog", Set{String}())
+        ctrl = W.Controller(); ctrl.running = true
+        st.wake = () -> W.wake!(ctrl); push!(ctrl.stack, st)
+        n = "wl-test-split-1"; W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh -c 'printf MARKER; sleep 120'")
+        v = W.pane_view(n, "child", ctrl)
+        @test v !== nothing
+        @test v.beside === st                      # taken from the stack
+
+        withenv("LINES" => "24", "COLUMNS" => "200") do
+            W.pane_sync!(v)
+            # The child is sized to its own column, not to the screen.
+            @test v.sized == W.pane_box(last(W.split_box(200)), 24)
+            ls = split(W.render(v, 200, 24), "\n")
+            @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
+            @test occursin("MARKER", join(ls, "\n"))
+            # The detail pane is what sits beside it, at full height, so its
+            # title is on the first row rather than a list's.
+            @test occursin(String(st.mode), first(ls))
+        end
+
+        # Narrow: no split, and the child gets the screen back.
+        withenv("LINES" => "24", "COLUMNS" => "100") do
+            W.pane_sync!(v)
+            @test v.sized == W.pane_box(100, 24)
+            ls = split(W.render(v, 100, 24), "\n")
+            @test length(ls) == 24 && all(W.awidth(l) == 100 for l in ls)
+        end
+
+        # With no browser under it a pane still renders, undivided.
+        alone = W.pane_view(n, "child", ctrl; beside = nothing)
+        withenv("LINES" => "24", "COLUMNS" => "200") do
+            ls = split(W.render(alone, 200, 24), "\n")
+            @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
+        end
+        W.mux_close(alone.client); W.mux_close(v.client); W.mux_kill(n)
+    end
+end

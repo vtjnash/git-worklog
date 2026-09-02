@@ -28,6 +28,7 @@ mutable struct PaneView <: View
     sized::Tuple{Int,Int}          # what the child was last told it had
     status::String
     pending::Bool                  # the prefix has been seen, its key has not
+    beside::Any                    # the BState to read alongside, or nothing
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -37,16 +38,49 @@ and this view keeps one more row for its own footer.
 """
 pane_box(w::Integer, h::Integer) = (max(1, w - 4), max(1, h - 3))
 
+"""Below this there is no room to put two things side by side."""
+const SPLIT_MIN = 150
+
+"""
+    split_box(w) -> (browser, terminal)
+
+How to divide `w` between what is being read and the child. `browser` is zero
+when there is no room, and the child takes the screen.
+
+The child goes on the right. What is being read - a thread, a diff, the checks -
+is what the left already holds, so it stays where the eye expects it, and the
+thing that was not there before is what moves in beside it.
+
+Half each, bounded: below the bound both columns are too narrow to use, and on
+a very wide screen the child would otherwise be given far more than a terminal
+needs, starving nothing but the reading.
+"""
+function split_box(w::Integer)
+    w < SPLIT_MIN && return (0, Int(w))
+    tw = clamp(w ÷ 2, 60, 100)
+    (Int(w) - tw, tw)
+end
+
+"""The browser this is running under, if any: what to read beside the child.
+
+Taken from the bottom of the stack rather than passed in, because every route
+to a pane - `t`, `T`, the session list - is under the same browser, and a pane
+opened from any of them wants the same thing next to it.
+"""
+beside_of(ctrl) = isempty(ctrl.stack) ? nothing :
+                  (first(ctrl.stack) isa BState ? first(ctrl.stack) : nothing)
+
 """Open a view onto `name`, which must already be a running session.
 
 Returns `nothing` when there is no multiplexer or no such session, so the
 caller can put a reason in its own status line rather than showing an empty
 pane that never explains itself.
 """
-function pane_view(name::AbstractString, title::AbstractString, ctrl)
+function pane_view(name::AbstractString, title::AbstractString, ctrl;
+                   beside = beside_of(ctrl))
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
-    PaneView(String(name), String(title), c, String[], (0, 0), "", false)
+    PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -57,7 +91,8 @@ comes from `displaysize` here for the same reason `handle!` reads it there.
 function pane_sync!(v::PaneView)
     v.client === nothing && return false
     h, w = displaysize(stdout)
-    box = pane_box(w, h)
+    # Sized to its own column, not to the screen: beside a thread it has half.
+    box = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
     if box != v.sized
         mux_resize(v.client, box[1], box[2]) && (v.sized = box)
     end
@@ -73,24 +108,47 @@ function pane_sync!(v::PaneView)
     true
 end
 
-onwake!(v::PaneView) = pane_sync!(v)
+"""A wake is the child's, or a fetch landing for what is drawn beside it.
 
-function render(v::PaneView, w::Int, h::Int)
+Both are adopted: either can change what is on screen and neither says which.
+"""
+function onwake!(v::PaneView)
+    a = pane_sync!(v)
+    b = v.beside === nothing ? false : onwake!(v.beside)
+    a || b
+end
+
+"""The child's column: exactly `h` rows of exactly `w`."""
+function pane_column(v::PaneView, w::Int, h::Int)
     body = pane(v.frame, w, h - 1, v.title, true)
     note = if !isempty(v.status)
         v.status
     elseif v.client === nothing
         string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
     else
-        string(v.name, " \u00b7 ^] tab to leave it running \u00b7 ^] a full screen")
+        string(v.name, " \u00b7 ^]tab leaves it running \u00b7 ^]a full screen")
     end
     rows = vcat(body, [string("\e[2m", afit(note, w), "\e[0m")])
-    # Exactly `h` rows of exactly `w` columns, like every other view: the frame
-    # is printed as-is and a short row would leave the last one behind on it.
     while length(rows) < h
         push!(rows, "")
     end
-    join([apad(r, w) for r in rows[1:h]], "\n")
+    [apad(r, w) for r in rows[1:h]]
+end
+
+function render(v::PaneView, w::Int, h::Int)
+    lw, tw = v.beside === nothing ? (0, w) : split_box(w)
+    right = pane_column(v, tw, h)
+    lw == 0 && return join(right, "\n")
+    # Both sides are exactly `h` rows, so they lay against each other a row at
+    # a time. The left is padded in case its renderer gave back fewer: a short
+    # frame would otherwise pull the whole right column leftwards.
+    # The detail pane alone, and not the whole browser shrunk. While the child
+    # holds the keys the browser cannot be scrolled or moved, so a list beside
+    # it is a list nothing can be done with - and it would cost the thread
+    # three quarters of its rows to sit there.
+    it = isempty(v.beside.items) ? nothing : v.beside.items[v.beside.sel]
+    left = detail_pane(v.beside, it, lw, h, false)
+    join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
 
 """Ctrl-] is the prefix, and the only key this view keeps.
@@ -104,9 +162,12 @@ lone escape key leaves no way to reach anything else the view can do - killing
 the session, going full screen - which were reachable only after the child had
 already died. One prefix gives all of them back.
 
-`Tab` under it leaves the pane, since `tab` is already what moves between panes
-in the browser. `Tab` itself is not the prefix: it is the most-pressed key in a
-shell, and completion would cost two presses for the rest of time.
+`^]tab` leaves the pane, since `tab` is already what moves between panes in the
+browser. `Tab` itself is not the prefix: it is the most-pressed key in a shell,
+and completion would cost two presses for the rest of time.
+
+Written without a space - `^]a`, not `^] a` - because in a line of prose that
+names several of them, a lone `a` reads as the word.
 """
 const PANE_PREFIX = 0x1d
 
@@ -130,7 +191,7 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
     elseif b == PANE_PREFIX || b == UInt8(']')
         :literal
     else
-        v.status = "^] then tab leave \u00b7 K kill \u00b7 a full screen \u00b7 r reread \u00b7 ] literal"
+        v.status = "^]tab leave \u00b7 ^]K kill \u00b7 ^]a full screen \u00b7 ^]r reread \u00b7 ^]] literal"
         :ok
     end
 end

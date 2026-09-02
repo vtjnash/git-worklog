@@ -585,6 +585,30 @@ The stages, each of which stands on its own:
      path can contain the characters a format string is made of, and a comma in
      a checkout's name would otherwise quietly match nothing.
 
+4e. **Reading beside the child. Done 2026-09-02.** Above 150 columns the
+   detail pane keeps the left and the child takes the right, half each within
+   bounds, so a thread or a diff stays readable while a build runs. Below that
+   there is no split: two columns too narrow to use are worse than one that
+   works.
+   - **The detail pane alone, not the browser shrunk.** Drawing the whole
+     browser narrow was the first attempt and it was wrong: while the child
+     holds the keys the browser cannot be scrolled or moved, so the list beside
+     it is a list nothing can be done with — and it cost the thread three
+     quarters of its rows. `detail_pane` came out of `render_frame` for this,
+     unchanged otherwise, which the existing frame tests were enough to
+     confirm.
+   - The child is sized to its own column, not the screen, and `beside` is
+     taken from the bottom of the view stack, so a pane opened by `t`, `T` or
+     the session list all get the same thing next to them.
+   - **`^]a` inside tmux needed `switch-client`, not `attach`.** tmux refuses
+     to nest an attach, so the key did nothing on a host where the browser is
+     itself run inside tmux — which is the normal case. Attaching still applies
+     when there is a terminal to give away; inside tmux the client we are
+     already under is pointed at the other session and returns at once, and
+     tmux's own binding brings it back.
+   - Key hints are written `^]a` and not `^] a`: in a line naming several of
+     them, a lone `a` reads as a word.
+
 4d. **Next: drop `agent_task`, and give the notes a place instead.** Nothing
    launches from it any more, so what is left is a `state.toml` field whose
    only remaining job is to force an item into the `needs-agents` bucket. That
