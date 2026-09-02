@@ -86,12 +86,14 @@ repos = [
   "vtjnash/*",
   "libuv/*",
 ]
-# A glob skips the owner's forks: 171 of the repos under `vtjnash/*` are forks of
-# other people's projects, where an issue somebody filed is not work of yours. It costs one repo listing per owner per day, and a repo the
-# listing does not mention keeps its items - this only hides things, so anything
-# unknown is kept. Set true to see them; a fork you do want is better named
-# outright above, which is never filtered.
-include_forks = false
+# Whether a glob keeps the owner's forks. Keeping them is free: the sweep is the
+# same one search either way and spends no GraphQL points - those go on the
+# refresh lanes - while *skipping* them costs a repo listing per owner per day,
+# to tell which is which. So they are kept, and false is the noise control for
+# when a glob starts dragging in other people's projects: 171 of the repos under
+# `vtjnash/*` are forks, though none has produced an item in months. A repo
+# named outright above is never filtered either way.
+include_forks = true
 # How far back a source starts the *first* time it is seen. 0 is inbox zero:
 # turning one on brings nothing with it, and everything after that is caught by
 # the cursor. Only ever used once per source; after that `inbox.json` says where

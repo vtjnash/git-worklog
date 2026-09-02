@@ -217,6 +217,16 @@ function item_repo(r)
     length(p) < 2 ? "" : String(p[end])
 end
 
+"""Whether a glob keeps the owner's forks. It does unless told otherwise.
+
+Keeping them is the free direction. The sweep is the same one REST search either
+way and spends no GraphQL points at all - those go on the refresh lanes in
+`gh.jl` - while *skipping* them is what adds a request, one repo listing per
+owner per day to tell which repo is which. So the noise control is the opt-in
+side, and a config that says nothing pays nothing.
+"""
+keep_forks(cfge) = get(cfge, "include_forks", true) !== false
+
 """Drop the search results that came from a fork.
 
 Off the item and not off the source, the same way the repo is: a glob covers
@@ -346,17 +356,16 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
             params = Dict{String,Any}("since" => since, "state" => "all",
                                       "sort" => "updated", "direction" => "asc"))))
     end
-    # A fork of somebody else's project is usually not somewhere your work is,
-    # and a glob is where they arrive - a repo named by hand was meant. Looked
-    # up inside the closure, so it is paid only by a source that actually polls.
-    keep_forks = get(cfge, "include_forks", false) === true
+    # Looked up inside the closure, so the listing a filter needs is paid only
+    # by a source that actually polls.
+    keep = keep_forks(cfge)
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (string(owner, "/* ", kind), since -> begin
             its, total = search_issues("user:$owner $kind updated:>$since")
             total >= 1000 && @printf(stderr,
                 "    %-24s truncated at 1000 of %d - poll more often\n",
                 string(owner, "/*"), total)
-            keep_forks && return its
+            keep && return its
             kept = drop_forks(its, owner_forks(owner))
             length(kept) == length(its) ||
                 @printf(stderr, "    %-24s %d on forks skipped\n",

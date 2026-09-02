@@ -1772,8 +1772,15 @@ end
     @test E.item_repo(Dict("repository_url" => "https://api.github.com/repos/a/b")) == "a/b"
     @test E.item_repo(Dict{String,Any}()) == ""
 
-    # And a glob is where a fork arrives, so a glob is where one is dropped:
-    # eighty-two of vtjnash's hundred repos are forks of other people's work.
+    # Forks are kept unless the config says otherwise, because keeping them is
+    # the free direction: the sweep is one REST search either way and spends no
+    # GraphQL points, while skipping them costs a repo listing per owner a day.
+    @test E.keep_forks(Dict{String,Any}())
+    @test E.keep_forks(Dict{String,Any}("include_forks" => true))
+    @test !E.keep_forks(Dict{String,Any}("include_forks" => false))
+
+    # And when it is asked for, a glob is where a fork arrives and so a glob is
+    # where one is dropped: 171 of the repos under `vtjnash/*` are forks.
     row(r) = Dict{String,Any}("repository_url" => "https://api.github.com/repos/$r")
     rows = [row("o/mine"), row("o/theirs"), row("o/also")]
     @test length(E.drop_forks(rows, Set(["o/theirs"]))) == 2
