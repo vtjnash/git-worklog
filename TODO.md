@@ -331,16 +331,6 @@ That plan shipped whole — the interaction clock, the git survey, the worktree
 and branch lists, adoption, the two lanes and archive. `git log` is the record.
 These are the pieces of it that did not get built.
 
-- **The `w` sort is precedence, and `max` may be righter.** Decided to try it
-  before choosing (recorded 2026-09-02). Two different "when"s: *inbox time* is
-  when something last happened remotely, the order notification email would have
-  sorted in; the sort as shipped is your own last interaction *if there is one*
-  and the remote time only otherwise. So an item you touched in March that
-  someone commented on this morning sorts to March. `max` of the two sorts it to
-  this morning. Precedence answers "when did I last deal with this", `max`
-  answers "when did anything happen to it" — the worktree and branch lists want
-  the second and probably so does `mine`, while `touched` may want the first.
-  `max` needs no new data, only a different `sortkey`.
 - **Ignoring forks in an owner glob.** `vtjnash/*` is 100 repos, 82 of them
   forks, and activity on a fork of someone else's project is usually not
   activity you want. It would not save a request — a glob is two searches
@@ -715,6 +705,13 @@ actual TTY:
   against a live tmux - but not one keystroke has reached it from an actual tty.
   Specifically unknown: whether this terminal sends `0x1d` for `^]`, and whether
   anything between here and tmux binds it first.
+- Which reading of "when" you actually reach for. `w` now cycles three ways —
+  as fetched, by when you last acted, by when anything last happened — because
+  the two orders answer different questions and neither is righter in the
+  abstract. What use would settle is whether one of them should be the *default*
+  for a given lane (`mine` and `touched` are the candidates, and they probably
+  want different ones), which would mean an order per filter state rather than
+  one for the session.
 - The split layout at a real width. It is asserted to be `h` rows of `w` at
   several sizes, but how it *reads* at the sizes an actual screen has - and
   whether 150 columns is the right threshold - is a judgement only use can make.

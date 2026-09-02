@@ -59,7 +59,8 @@ axes instead of sitting beside them. `w` cycles it.
 `:none` is the order the lanes were fetched in, which is the order the dashboard
 has always had.
 """
-const SORTS = [(:none, "as fetched"), (:touched, "by when")]
+const SORTS = [(:none, "as fetched"), (:touched, "by when you last acted"),
+               (:latest, "by when anything last happened")]
 
 mutable struct Filters
     state::Symbol
@@ -96,19 +97,34 @@ end
 
 const EMPTY_TOUCHED = Dict{String,String}()
 
-"""The timestamp a sorted list is ordered by: when you last acted on it, and
-failing that when it last moved.
+"""The timestamp a sorted list is ordered by, under one of two readings of when.
 
-One key rather than two groups. A branch nothing has been done to but that was
-committed to this morning belongs above a pull request last touched in March,
-and splitting the list into touched-then-untouched would bury it.
+`:touched` is your own last interaction if there is one and the remote time only
+otherwise: it answers *when did I last deal with this*. `:latest` is the later
+of the two, which answers *when did anything happen to this* - the order
+notification mail would have arrived in, with your own work folded into it.
+
+They differ exactly where both exist. An item you touched in March that somebody
+commented on this morning sorts to March under the first and to this morning
+under the second. Neither is righter than the other - a to-do list wants the
+first and an inbox wants the second, and the same key gives both rather than
+choosing on the user's behalf.
+
+One key rather than two groups, under either reading. A branch nothing has been
+done to but that was committed to this morning belongs above a pull request last
+touched in March, and splitting the list into touched-then-untouched would bury
+it.
 """
-sortkey(it::Item, touched::Dict{String,String}) =
-    something(get(touched, it.url, nothing), isempty(it.act) ? nothing : it.act, "")
+function sortkey(it::Item, touched::Dict{String,String}, order::Symbol = :touched)
+    t = get(touched, it.url, "")
+    order === :latest && return max(t, it.act)
+    isempty(t) ? it.act : t
+end
 
 "Newest first, and stable - so an untimed item keeps the order it was fetched in."
 sortitems(items, mode::Symbol, touched::Dict{String,String}) =
-    mode === :touched ? sort(items; by = it -> sortkey(it, touched), rev = true) : items
+    mode === :none ? items :
+    sort(items; by = it -> sortkey(it, touched, mode), rev = true)
 
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String},
@@ -270,7 +286,8 @@ function filter_summary(f, order::Symbol = :none)
     parts = [string(f.state)]
     # Not `sort`: that is the name of the function two lines down, and shadowing
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
-    order === :none || push!(parts, "by when")
+    order === :none || push!(parts, order === :latest ? "by when it moved" :
+                                    "by when you acted")
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))

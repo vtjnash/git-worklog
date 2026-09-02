@@ -1654,8 +1654,27 @@ end
                                                !isempty(x.act))
         @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
         # And it says so where the filter says what it is.
-        @test occursin("by when", W.filter_summary(st.filters, st.sort))
+        @test occursin("by when you acted", W.filter_summary(st.filters, st.sort))
         @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
+
+        # The other reading of "when": the later of the two, which is what
+        # anything happening to an item sorts by. They differ exactly where
+        # both exist - `a` was acted on in 2020 and has moved since, so the
+        # first reading leaves it at the bottom and the second does not.
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :latest && occursin("anything last happened", st.status)
+        @test occursin("by when it moved", W.filter_summary(st.filters, st.sort))
+        @test length(st.items) == n
+        keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
+        @test issorted(keys2; rev = true)
+        @test W.sortkey(a, st.touched, :latest) == max(a.act, "2020-01-01T00:00:00Z")
+        @test W.sortkey(a, st.touched, :latest) != W.sortkey(a, st.touched)
+        # Your own work still counts under it: the clock on `b` is later than
+        # anything GitHub said about it, and it is what `b` sorts by.
+        @test W.sortkey(b, st.touched, :latest) == "2026-09-02T12:00:00Z"
+        pos2(u) = findfirst(x -> x.url == u, st.items)
+        @test pos2(a.url) < pos2(c.url)          # where precedence had it last
+
         W.handle!(st, Int('w'), ctrl)
         @test st.sort === :none
         @test !occursin("by when", W.filter_summary(st.filters, st.sort))
