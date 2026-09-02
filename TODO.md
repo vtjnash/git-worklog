@@ -329,11 +329,6 @@ That plan shipped whole — the interaction clock, the git survey, the worktree
 and branch lists, adoption, the two lanes and archive. `git log` is the record.
 These are the pieces of it that did not get built.
 
-- **`↵` on a branch with no worktree can only say there is nowhere to go.**
-  Making one is the missing half of the branch list, and it is also the control
-  the "worktree choice is automatic" gap below wants.
-- **The last-commit date is collected and not drawn.** `Branch.at` is in the
-  row already; the worktree list has no column for it.
 - **The `w` sort is precedence, and `max` may be righter.** Decided to try it
   before choosing (recorded 2026-09-02). Two different "when"s: *inbox time* is
   when something last happened remotely, the order notification email would have
@@ -630,9 +625,9 @@ Kept here so they can be written up in one pass rather than rediscovered.
   on the pull request's branch and otherwise falls back to the main clone. There
   is no way to pick a different one — and since a session is keyed by its
   worktree, that choice decides which session you land in as well as which files
-  `e` opens. `"` is where every worktree can be seen and started in, which is
-  half of it; what it cannot do is create one, or be what `t` on an item asks
-  first.
+  `e` opens. `"` is where every worktree can be seen, made and started in, which
+  is most of it; what is left is for `t` on an *item* to ask, rather than
+  landing you wherever the fallback went.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does

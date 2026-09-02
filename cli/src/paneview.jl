@@ -597,7 +597,7 @@ end
 
 # Column widths, shared by the rows and the header that names them - the header
 # *is* the key to the marks, so the two cannot be allowed to drift apart.
-const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_TRACK = 3, 2, 18, 22, 10
+const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_DATE, WT_TRACK = 3, 2, 18, 22, 10, 10
 const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
 
 "The two session slots of one row: a shell and an agent, each present or not."
@@ -645,8 +645,20 @@ function change_marks(r::WorktreeRow)
            r.unstaged ? "\e[33m*\e[0m" : " ")
 end
 
+"""The width the tip date costs on a worktree row, which is nothing when the
+row is too narrow to spare it.
+
+The date is collected for every branch and is the cheapest way to tell a
+checkout that is current from one abandoned in March, so it is drawn wherever
+there is room. Where there is not, the pull request is what the row is for: at
+eighty columns the fixed columns already leave the title sixteen, and taking
+eleven more would leave it a ref and an ellipsis. So this column comes and goes
+with the width, the way the browser's second pane does.
+"""
+wt_date(iw::Int) = iw >= 90 ? WT_DATE + 1 : 0
+
 wt_label(iw::Int) = max(12, iw - WT_RUN - 1 - WT_CHG - 1 - WT_NAME - 1 -
-                             WT_BRANCH - 1 - WT_TRACK - 1)
+                             WT_BRANCH - 1 - wt_date(iw) - WT_TRACK - 1)
 
 "One worktree row, drawn."
 function wt_line(r::WorktreeRow, iw::Int)
@@ -657,6 +669,8 @@ function wt_line(r::WorktreeRow, iw::Int)
            apad(afit(r.name, WT_NAME), WT_NAME), " ",
            "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
                           WT_BRANCH), "\e[0m ",
+           wt_date(iw) == 0 ? "" :
+               string("\e[2m", apad(first(r.at, WT_DATE), WT_DATE), "\e[0m "),
            "\e[2m", apad(afit(track_mark(r), WT_TRACK), WT_TRACK), "\e[0m ",
            apad(afit(label, wt_label(iw)), wt_label(iw)))
 end
@@ -695,6 +709,7 @@ function list_header(branches::Bool, iw::Int)
                apad("\u00b1upstream", BR_TRACK), " ", apad("pull request", br_label(iw))) :
         string(apad("san", WT_RUN), " ", apad("+*", WT_CHG), " ",
                apad("worktree", WT_NAME), " ", apad("branch", WT_BRANCH), " ",
+               wt_date(iw) == 0 ? "" : string(apad("tip", WT_DATE), " "),
                apad("\u00b1upstream", WT_TRACK), " ",
                apad("pull request", wt_label(iw)))
     string("\e[2m", afit(line, iw), "\e[0m")
@@ -721,7 +736,7 @@ function render(v::WorktreeView, w::Int, h::Int)
     n == 0 && push!(body, branches ?
         "\e[2mno branches — none of the registered repos is here\e[0m" :
         "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
-    keys = branches ? "↵ its worktree · i item · tab worktrees · r refresh · q back" :
+    keys = branches ? "↵ its worktree, or make one · i item · tab worktrees · r refresh · q back" :
                       "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
     rows = vcat(pane(body, w, h - 1, branches ? "branches" : "worktrees", true),
                 [string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
@@ -791,6 +806,55 @@ function adopt_row(v::WorktreeView, r)
     v.onadopt(repo, branch, get_field(localurl(repo, branch), "adopted") === nothing)
 end
 
+"""Ask where to put a worktree for a branch that has none.
+
+A prompt and not a silent `git worktree add`: where a checkout goes is the
+user's business - disks, build trees and naming habits all differ - so the
+suggestion arrives already typed, to be accepted, edited or thrown away. `note`
+carries why the last attempt failed, which is what makes correcting a path
+cheaper than typing it again.
+"""
+function ask_worktree(v::WorktreeView, r::BranchRow, ctrl; seed = "", note = "")
+    p = repo_path(r.repo)
+    p === nothing && return string("no local checkout registered for ", r.repo)
+    dest = isempty(seed) ? worktree_dest(p, r.name) : String(seed)
+    push_view!(ctrl, PromptView(
+        string("New worktree for ", r.name),
+        isempty(note) ? string("where to check it out · ", r.repo, " is at ", p) : note,
+        dest, length(dest) + 1,
+        b -> (v.status = make_worktree!(v, r, ctrl, b))))
+    ""
+end
+
+"""Make the place, and go to it.
+
+Landing on the new row rather than reporting a path is the point: a branch with
+nowhere to work was the one thing this list could see and not act on, and the
+row it becomes is where every session key already works.
+
+Failure re-opens the prompt with what was typed still in it and git's own
+complaint above it, because every way this fails is a path that wants
+correcting - the directory exists, its parent does not, the branch was checked
+out somewhere else a moment ago.
+"""
+function make_worktree!(v::WorktreeView, r::BranchRow, ctrl, at::AbstractString)
+    p = repo_path(r.repo)
+    p === nothing && return string("no local checkout registered for ", r.repo)
+    dest = try
+        add_worktree!(p, r.name, at)
+    catch e
+        e isa GitError || rethrow()
+        ask_worktree(v, r, ctrl; seed = at, note = oneline(first(sprint(showerror, e), 200)))
+        return ""
+    end
+    worktree_reload!(v)
+    i = findfirst(x -> wtkey(x.path) == wtkey(dest), v.rows)
+    i === nothing && return string("made ", dest, ", which is not in the list yet · r re-reads")
+    v.mode = :worktrees
+    v.sel = i
+    string("made ", dest, " · t opens a shell here")
+end
+
 """Go to the item on this row, which means leaving: the list underneath is
 where an item is shown."""
 function goto_item(v::WorktreeView, it::Union{Nothing,Item})
@@ -831,15 +895,20 @@ function handle!(v::WorktreeView, k::Int, ctrl)
     elseif k == 13 || k == 10 || k == Int('t') || k == Int('T')
         kind = k == Int('T') ? :agent : :shell
         if r isa BranchRow
-            # A branch is not a place. Enter goes to the worktree that has it
-            # out, and there is nothing yet for one that has none - making a
-            # worktree for a branch is the missing half of this view.
+            # A branch is not a place, but one can be made for it. Enter goes to
+            # the worktree that has it out, and offers to create one where there
+            # is none - the same destination reached two ways, so all three keys
+            # mean here what they always did.
             i = isempty(r.worktree) ? nothing :
                 findfirst(x -> wtkey(x.path) == wtkey(r.worktree), v.rows)
-            if i === nothing
-                v.status = string(r.name, " is not checked out anywhere")
-            else
+            if i !== nothing
                 v.mode = :worktrees; v.sel = i; v.status = ""
+            elseif isempty(r.worktree)
+                v.status = ask_worktree(v, r, ctrl)
+            else
+                # Checked out somewhere the survey did not report: another repo
+                # entirely, or one that has been unregistered since.
+                v.status = string(r.name, " is checked out at ", r.worktree)
             end
         else
             v.status = row_session(v, r, ctrl, kind)

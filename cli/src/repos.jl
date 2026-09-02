@@ -127,6 +127,45 @@ function worktrees(path::AbstractString)
     out
 end
 
+"""The primary checkout of the repository `path` belongs to.
+
+git lists the main worktree first and always, which is the only thing that
+tells it apart from the linked ones. It matters because a new worktree wants to
+be made beside the original rather than beside whichever copy the request came
+from - a directory of siblings, not a chain of them.
+"""
+main_worktree(path::AbstractString) =
+    (ws = worktrees(path); isempty(ws) ? String(path) : first(ws).path)
+
+"""Where a worktree for `branch` would go, unless the user says otherwise.
+
+Beside the main checkout and named after it, so `jn/fix` in `~/src/julia`
+suggests `~/src/julia-jn-fix`. Slashes become dashes: a branch name is a path
+of its own, and honouring that would put the checkout inside directories nobody
+asked for and leave `julia-jn` behind when the branch is gone.
+"""
+function worktree_dest(path::AbstractString, branch::AbstractString)
+    m = String(rstrip(main_worktree(path), '/'))
+    joinpath(dirname(m), string(basename(m), "-", replace(branch, "/" => "-")))
+end
+
+"""Check `branch` out in a new worktree at `at`, and say where it landed.
+
+Only for a branch that is checked out nowhere: git refuses a second worktree on
+the same branch, and that refusal is what lets the branch list claim a branch
+either has a place or has none.
+
+The path is resolved on the way out rather than on the way in - `realpath`
+wants the directory to exist, and a worktree is matched to its row and to its
+sessions by the resolved form, so the unresolved one would fail to find what it
+had just made.
+"""
+function add_worktree!(path::AbstractString, branch::AbstractString, at::AbstractString)
+    dest = abspath(expanduser(String(at)))
+    git(path, "worktree", "add", "--quiet", dest, String(branch))
+    try realpath(dest) catch; dest end
+end
+
 have_commit(path, sha) =
     try; git(path, "cat-file", "-e", string(sha, "^{commit}")); true; catch; false; end
 

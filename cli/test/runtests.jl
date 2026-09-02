@@ -1502,6 +1502,15 @@ end
         # The row says which pull request the work in it is.
         @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
 
+        # The tip date is drawn where there is room for it, and dropped where
+        # taking eleven columns would cost the title instead.
+        wide = W.astrip(W.render(v, 165, 24))
+        @test occursin("tip", wide)
+        @test occursin(first(W.worktree_rows(items)[1].at, 10), wide)
+        narrow = W.astrip(W.render(v, 80, 24))
+        @test !occursin("tip", narrow)
+        @test occursin(pr.branch, narrow)                 # what the room bought
+
         # Dirty arrives behind the list rather than holding it up: the first
         # pass skips the tree walk entirely.
         @test all(!(r.staged || r.unstaged) for r in W.worktree_rows(items; withdirty = false))
@@ -2087,14 +2096,43 @@ end
         v.bsel = findfirst(b -> b.name == pr.branch, v.brows)
         W.handle!(v, 13, ctrl)
         @test v.mode === :worktrees && v.rows[v.sel].name == "side"
-        # And says so for one that has none, rather than opening something.
+        # And offers to make one where there is none, which is the only thing
+        # this list could see and not act on. The suggestion is beside the main
+        # checkout, already typed and with the cursor after it.
         W.handle!(v, 9, ctrl)
         v.bsel = findfirst(b -> b.name == "homeless", v.brows)
         @test W.handle!(v, 13, ctrl) === :ok
-        @test v.mode === :branches && occursin("not checked out", v.status)
+        @test v.mode === :branches
+        pv = last(ctrl.stack)
+        @test pv isa W.PromptView
+        @test pv.buf == joinpath(root, "main-homeless")
+        @test pv.col == length(pv.buf) + 1
         # Nothing runs on a branch either.
         W.handle!(v, Int('K'), ctrl)
         @test occursin("nothing runs on a branch", v.status)
+
+        # A path git refuses asks again rather than losing what was typed, with
+        # git's own complaint where the note was.
+        pv.onsubmit(main)
+        pv2 = last(ctrl.stack)
+        @test pv2 isa W.PromptView && pv2 !== pv
+        @test pv2.buf == main && occursin("exists", lowercase(pv2.note))
+        @test v.mode === :branches
+        empty!(ctrl.stack)
+        # And one it accepts lands on the row it just made.
+        made = joinpath(root, "made")
+        pv.onsubmit(made)
+        @test isempty(ctrl.stack)
+        @test v.mode === :worktrees
+        @test v.rows[v.sel].name == "made" && v.rows[v.sel].branch == "homeless"
+        @test occursin("made", v.status)
+        @test ispath(joinpath(made, ".git"))
+        @test !isempty(first(b for b in v.brows if b.name == "homeless").worktree)
+        # Nowhere left to suggest: a second one is refused by git, not by us.
+        W.handle!(v, 9, ctrl)
+        v.bsel = findfirst(b -> b.name == "homeless", v.brows)
+        W.handle!(v, 13, ctrl)
+        @test v.mode === :worktrees && v.rows[v.sel].name == "made"
 
         # `i` works from either lens.
         st = W.BState(items, "worklog", Set{String}())
@@ -2510,6 +2548,20 @@ end
         # rather than skips.
         @test byp[realpath(det)].branch == ""
         @test length(byp[realpath(det)].head) == 40
+
+        # A new worktree is suggested beside the *main* checkout, whichever
+        # copy the request came from - siblings, not a chain of them.
+        @test W.main_worktree(wt) == realpath(main)
+        @test W.worktree_dest(main, "homeless") == joinpath(root, "main-homeless")
+        @test W.worktree_dest(wt, "jn/fix") == joinpath(root, "main-jn-fix")
+        @test_throws W.GitError W.add_worktree!(main, "homeless", main)
+        made = W.add_worktree!(main, "homeless", joinpath(root, "main-homeless"))
+        @test made == realpath(joinpath(root, "main-homeless"))
+        @test Dict(b.name => b for b in W.branches("t/one", main))["homeless"].worktree == made
+        # git refuses the second one, which is what lets the branch list treat
+        # a branch as having a place or having none.
+        @test_throws W.GitError W.add_worktree!(main, "homeless", joinpath(root, "again"))
+        W.git(main, "worktree", "remove", "--force", made)
 
         (sw, sb) = W.survey()
         @test length(sw) == 3 && length(sb) == 3
