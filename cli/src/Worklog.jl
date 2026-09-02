@@ -12,6 +12,8 @@ GitHub quirks live in exactly one place:
   * `refresh.jl` bucketing, snoozes, the snapshot diff, DASHBOARD.md
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the interactive navigator
+  * `mux.jl`     multiplexer sessions, for hosting a child program
+  * `paneview.jl` one of those sessions, drawn in a pane
   * `cli.jl`     the `wl <command>` surface
 
 File ownership is strict, because it is what keeps the user's notes safe:
@@ -50,7 +52,9 @@ include("refresh.jl")
 include("state.jl")
 include("controller.jl")
 include("ui.jl")
+include("mux.jl")
 include("browse.jl")
+include("paneview.jl")
 include("cli.jl")
 
 # `dispatch` reaches every code path in the program, so the first call to it

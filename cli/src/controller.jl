@@ -18,15 +18,33 @@ A screen. Implement:
     handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit | :redraw
     onmouse!(v, ev, ctrl) -> Symbol    the same, for a MouseEvent
     onwake!(v) -> Bool                 adopt background results; true to redraw
+    wantsraw(v) -> Bool                take input undecoded, as bytes
+    onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
 """
 abstract type View end
 
 onwake!(::View) = false
 
+"""Whether this view wants the bytes rather than the keys.
+
+Decoding exists so that views deal in characters, which is right for every view
+that reads input. A view that *forwards* input wants the opposite: a pane
+hosting another program has to hand over what was typed, unchanged, and
+re-encoding a decoded key back into bytes would be a second translation to get
+wrong. Such a view takes the stream as it arrived and passes it on.
+"""
+wantsraw(::View) = false
+onraw!(::View, ::Vector{UInt8}, ::Any) = :ok
+
 struct KeyEvent
     code::Int
 end
 struct WakeEvent end
+
+"""Input that was never decoded, for a view that asked to forward it."""
+struct RawEvent
+    bytes::Vector{UInt8}
+end
 
 """One mouse report.
 
@@ -109,6 +127,22 @@ function word_end(s::AbstractString, col::Int; alnum::Bool = false)
     while i <= length(cs) && !inword(cs[i]); i += 1; end
     while i <= length(cs) && inword(cs[i]); i += 1; end
     i
+end
+
+"""Read what is there, without looking at any of it.
+
+One blocking byte so the task parks rather than spins, then whatever else has
+already arrived. The draining is safe in a way that polling for input is not:
+it never waits, so it cannot hang on a stream that will send nothing more. It
+matters because an escape sequence, a paste and a mouse report are each several
+bytes that must reach the child together and in order.
+"""
+function readraw(io::IO)
+    b = read(io, UInt8)
+    buf = UInt8[b]
+    n = bytesavailable(io)
+    n > 0 && append!(buf, read(io, n))
+    RawEvent(buf)
 end
 
 """
@@ -244,13 +278,13 @@ end
 mutable struct Controller
     term::Any
     events::Channel{Any}
-    ready::Channel{Nothing}     # loop -> reader: "read one event now"
+    ready::Channel{Bool}        # loop -> reader: "read one event now", raw or not
     reader::Union{Nothing,Task}
     stack::Vector{View}
     running::Bool
     mouse::Bool
 end
-Controller() = Controller(nothing, Channel{Any}(64), Channel{Nothing}(1), nothing,
+Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
                           View[], false, false)
 
 "Called from a background task to ask for a redraw once its work has landed."
@@ -332,9 +366,9 @@ function run!(ctrl::Controller, root::View)
     # between events this task is parked on `ready`, not on the tty.
     ctrl.reader = @async while ctrl.running
         try
-            take!(ctrl.ready)
+            raw = take!(ctrl.ready)
             ctrl.running || break
-            put!(ctrl.events, readevent(stdin))
+            put!(ctrl.events, raw ? readraw(stdin) : readevent(stdin))
         catch
             break
         end
@@ -352,13 +386,17 @@ function run!(ctrl::Controller, root::View)
             # not consume the token: the reader is still waiting on the key it
             # was armed for, and arming twice would put it back on the tty
             # while the loop is busy.
-            armed || (put!(ctrl.ready, nothing); armed = true)
+            # The mode is decided here, where the top view is known, and not
+            # in the reader, which is parked between events and would be
+            # deciding it against whatever was on top last time.
+            armed || (put!(ctrl.ready, wantsraw(v)); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
             if ev isa WakeEvent
                 dirty = onwake!(v)
             else
                 armed = false
                 act = ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
+                      ev isa RawEvent   ? onraw!(v, ev.bytes, ctrl) :
                                           handle!(v, ev.code, ctrl)
                 act === :quit && break
                 # Pop the view that asked, not whatever is on top: a view may

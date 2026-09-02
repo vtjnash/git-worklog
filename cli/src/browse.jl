@@ -274,6 +274,9 @@ Base.@kwdef mutable struct BState <: View
     checks::Any = nothing  # check_contexts result, or nothing
     metakey::String = ""
     metapending::Union{Nothing,Task} = nothing
+    sessions::Vector{String} = String[]   # live multiplexer sessions, as of the
+                                          # last metadata fetch; asking costs a
+                                          # process, and `render` is pure
     anchor::Int = 0        # row a drag started on
     sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
     selb::Int = 0
@@ -810,10 +813,14 @@ function load_meta!(st::BState)
     st.checks = nothing
     st.metapending = @async begin
         r = try
+            # Listing sessions is a process, so it rides along with the fetch
+            # that is already off the key loop rather than happening per frame.
             (meta = Events.itemmeta(it.url, it.is_pr),
-             checks = it.is_pr ? check_contexts(it.repo, it.number) : nothing)
+             checks = it.is_pr ? check_contexts(it.repo, it.number) : nothing,
+             sessions = mux_sessions())
         catch e
-            (meta = nothing, checks = nothing, err = first(sprint(showerror, e), 120))
+            (meta = nothing, checks = nothing, sessions = String[],
+             err = first(sprint(showerror, e), 120))
         finally
             st.wake === nothing || st.wake()
         end
@@ -831,6 +838,7 @@ function collect_meta!(st::BState)
     end
     st.meta = r.meta
     st.checks = r.checks
+    hasproperty(r, :sessions) && (st.sessions = r.sessions)
     st.metapending = nothing
     true
 end
@@ -932,6 +940,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
         push!(out, string(AD, "agent", AR))
         for l in awrap(it.agent, max(8, w - 2))
             push!(out, string("  ", l))
+        end
+    end
+    # A session is its own record that something is running: named after the
+    # item, so nothing has to be stored to know it is there.
+    live = [(k, n) for (k, n) in ((:shell, mux_session(it)), (:agent, mux_session(it, :agent)))
+            if n in st.sessions]
+    if !isempty(live)
+        push!(out, string(AD, "running", AR))
+        for (k, _) in live
+            push!(out, string("  ", k === :agent ? "agent  T to watch" : "shell  t to open"))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))
@@ -1258,7 +1276,8 @@ function render_frame(st::BState, w::Int, h::Int)
                    "y copy \u00b7 / search \u00b7 q quit")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
+                   " \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" sessions \u00b7 m mouse ",
+                   st.mouse ? "on" : "off")
     msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
     foot1 = string(AD, afit(keys1, w), AR)
     foot2 = if st.typing
@@ -1958,6 +1977,21 @@ function handle!(st::BState, k::Int, ctrl::Controller)
         r = open_editor(it)
         r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
         return :ok
+    elseif k == Int('t')
+        retry_term = () -> (rr = open_terminal(it, ctrl); st.status = rr isa String ? rr : "")
+        r = open_terminal(it, ctrl)
+        r === :needs_repo ? needs_repo(retry_term) : (st.status = r isa String ? r : "")
+        return :ok
+    elseif k == Int('T')
+        retry_agent = () -> (rr = open_agent(it, ctrl); st.status = rr isa String ? rr : "")
+        r = open_agent(it, ctrl)
+        r === :needs_repo ? needs_repo(retry_agent) : (st.status = r isa String ? r : "")
+        return :ok
+    elseif k == Int('"')
+        # Not per-item: a session outlives the item it was opened on, and this
+        # is the only place they can all be seen.
+        push!(ctrl.stack, session_view(st.items))
+        return :ok
     end
 
     # Lowercase shows you something, uppercase changes something. `c` was the
@@ -2435,6 +2469,38 @@ end
 
 # --- editor -----------------------------------------------------------------
 
+"""The checkout to work in for an item, and the branch it is for.
+
+Prefers a worktree already on the pull request's branch, since that is the copy
+the user is most likely to have been working in; otherwise the main checkout.
+Returns `(nothing, "")` when the repo has never been registered.
+"""
+function item_checkout(it::Item)
+    repo = repo_path(it.repo)
+    repo === nothing && return (nothing, "")
+    branch = pr_branch(it)
+    for (path, br) in worktrees(repo)
+        if !isempty(branch) && br == branch
+            return (path, branch)
+        end
+    end
+    (repo, branch)
+end
+
+"""This pull request's head branch, or `""` when it has none or `gh` fails.
+
+An issue has no branch and a network hiccup should not stop a checkout from
+opening, so every failure is the same empty answer.
+"""
+function pr_branch(it::Item)
+    try
+        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefName -q .headRefName`,
+                   String))
+    catch
+        ""
+    end
+end
+
 """Open a checkout of this pull request's branch in VS Code.
 
 Prefers a worktree already on that branch, since that is the copy the user is
@@ -2444,12 +2510,7 @@ function open_editor(it::Item)
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
     Sys.which("code") === nothing && return "`code` is not on PATH"
-    branch = try
-        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefName -q .headRefName`,
-                   String))
-    catch
-        ""
-    end
+    branch = pr_branch(it)
     target = repo
     for (path, br) in worktrees(repo)
         if !isempty(branch) && br == branch
@@ -2463,6 +2524,65 @@ function open_editor(it::Item)
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
     string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
+end
+
+"""Run an agent on this item, in a session of its own, and watch it work.
+
+The task is the `agent_task` already on the item - what `wl agent <ref> "..."`
+wrote and what put the item in the `needs-agents` bucket. Until now that text
+was a note to yourself; this is the thing that runs it.
+
+The session is separate from the shell's so that both can exist for one item at
+once, and it is named after the item, so nothing has to be written down: the
+session either exists or it does not, and `mux_alive` is the whole of the
+bookkeeping. Leaving the pane leaves the agent running.
+"""
+function open_agent(it::Item, ctrl)
+    mux_bin() === nothing && return "no tmux on PATH"
+    isempty(it.agent) && return "no agent task - set one with `wl agent`"
+    Sys.which("claude") === nothing && return "`claude` is not on PATH"
+    target, branch = item_checkout(it)
+    target === nothing && return :needs_repo
+    name = mux_session(it, :agent)
+    started = !mux_alive(name)
+    if started
+        # The item, so the agent does not have to be told twice what it is
+        # working on, and the task exactly as it was written.
+        prompt = string(it.repo, "#", it.number, " - ", it.url, "\n\n", it.agent)
+        ok, err = mux_start(name, target, string("claude ", shquote(prompt)))
+        ok || return err
+    end
+    v = pane_view(name, string("agent  ", it.repo, "#", it.number), ctrl)
+    v === nothing && return "could not attach to " * name
+    pane_sync!(v)
+    push!(ctrl.stack, v)
+    string(started ? "started " : "watching ", name,
+           isempty(branch) ? "" : string(" (", branch, ")"))
+end
+
+"""Open a shell on this item's checkout, in a multiplexer session of its own,
+and show it in a pane.
+
+The session is named after the item and left running, so leaving the pane is
+not the same as ending it: come back to the same item and the same shell is
+still there, with whatever was half-typed still on the line.
+
+The pane can be watched but not yet typed into, so `a` inside it hands the
+terminal over for real.
+"""
+function open_terminal(it::Item, ctrl)
+    mux_bin() === nothing && return "no tmux on PATH"
+    target, branch = item_checkout(it)
+    target === nothing && return :needs_repo
+    name = mux_session(it)
+    started = !mux_alive(name)
+    ok, err = mux_start(name, target, get(ENV, "SHELL", "/bin/sh"))
+    ok || return err
+    v = pane_view(name, string(it.repo, "#", it.number, isempty(branch) ? "" : string("  ", branch)), ctrl)
+    v === nothing && return "could not attach to " * name
+    pane_sync!(v)
+    push!(ctrl.stack, v)
+    string(started ? "started " : "watching ", name)
 end
 
 # --- CI checks --------------------------------------------------------------

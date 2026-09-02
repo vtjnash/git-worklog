@@ -292,8 +292,9 @@ to fix".
 
 ### Agent integration — push an item into an agent and get it back
 
-**Half of this already exists, and it is the bookkeeping half.** What is missing
-is anything that runs.
+**Now largely built** — see *A tmux-backed pane, as a widget* below, whose
+stage 4 is this entry. What follows is the shape it was planned in; the one part
+still missing is step 4, taking the result.
 
 In place today:
 
@@ -326,12 +327,210 @@ What integration would mean, roughly in order of how much has to be decided:
    nowhere to put it yet; the composer (`C`) is where a draft would land, and it
    already accepts initial text.
 
-**None of it can be built in this sandbox.** Checked on 2026-09-01: `tmux`,
-`claudebox`, `docker` and `podman` are all absent from `PATH`, ClaudeBox.jl is in
-no environment here, and `$TMUX` is unset. Do not start this in a sandbox
-session expecting to test it. The two questions that were open before still are:
-whether ClaudeBox.jl can launch non-interactively into an existing pane, and
-whether sandbox-in-sandbox works at all — both answerable only on the host.
+**tmux is available here after all; the rest of the stack still is not.**
+Rechecked 2026-09-02. `claudebox`, `docker` and `podman` are still absent from
+`PATH`, ClaudeBox.jl is in no environment here, and `$TMUX` is unset, so the two
+questions that were open before still are: whether ClaudeBox.jl can launch
+non-interactively into an existing pane, and whether sandbox-in-sandbox works at
+all. Both remain answerable only on the host.
+
+tmux itself, though, is one `Pkg.add` away: **`tmux_jll` ships 3.5a as an
+artifact**, needing no apt and no build. Do not use the Debian package — it is
+3.1c, its `libutempter0` postinst cannot chown under this sandbox, and 3.1c
+drops OSC 8. Run the JLL binary through `tmux_jll.tmux()`, or with the
+`LD_LIBRARY_PATH` that carries.
+
+Verified on 2026-09-02, with the browser itself running in a pane:
+
+- **Headless works with no tty at all.** `tmux new-session -d -s wl -x 120 -y 40
+  -- ./cli/bin/wl` starts a server from a pipe-only shell, and the session
+  outlives the process that made it. Size is per-session and settable at will;
+  `new-window` has no `-x`/`-y` in 3.5a either, so it is one session per size.
+- **`capture-pane -p` returns the rendered frame** — both panels, box-drawing,
+  wide CJK and emoji intact. `-e` adds the SGR escapes, and on 3.5a keeps OSC 8
+  hyperlinks; 3.1c returns the link text with the URL dropped.
+- **Input goes in blind.** `send-keys` for keys, and raw SGR mouse as
+  `send-keys -H 1b 5b 3c 30 3b 31 30 3b 36 4d` — that clicks row 6, and the
+  browser selects the item under it.
+- **Control mode is the transport to build on.** `tmux -C attach` over two pipes
+  is one long-lived client: commands go in as lines, replies come back framed in
+  `%begin`/`%end` by command id, and screen updates arrive unsolicited as
+  `%output`. No process per key, and keys batch (`send-keys j j j j j`).
+  `%output` carries the application's own bytes, so OSC 8 survives there on any
+  version.
+- **Redraw on any update; do not wait for the screen to settle.** `%output` is
+  a wake-up and every `capture-pane` returns a coherent grid — tmux hands back a
+  whole consistent screen, so there is no tearing to guard against. Paint the
+  frames as they arrive. One `j` produced three, at 27ms, 307ms and 609ms: the
+  first already had the selection moved and the status on `loading julia#36605…`,
+  the last had the comment body filled in. That progression is what a human sees
+  anyway. A capture costs ~1ms through the control-mode client and ~5ms as a
+  separate process, so it is affordable at any frame rate worth having.
+- **Settle detection is only for wanting one final frame**, as a scraper might.
+  It takes two phases: wait for the first output *after* the input, then for the
+  stream to go quiet. Neither half works alone — quiet fired at 350ms before the
+  app had written a byte, and two matching `capture-pane` frames declared the
+  screen settled at 100ms with four keys still buffered.
+
+The same machinery is worth more than agents: a pane that runs *any* program and
+is scraped back is a general widget, and it means `e` could open a real `vi`
+without the browser having to understand or translate a single keystroke. That
+is the shape to offer Term.jl; it is planned just below.
+
+### A tmux-backed pane, as a widget
+
+A pane runs any program, `%output` says when it changed, and `capture-pane`
+hands back a coherent frame. Nothing in that is about agents, and the widget it
+implies — one that owns a child program and never interprets it — is what makes
+`e` able to open a real `vi`. An agent is then just another child.
+
+The browser is already the right shape to host it. `controller.jl` owns stdin
+for the whole run and dispatches to a `View` with `render(v, w, h)`,
+`handle!(v, k, ctrl)`, `onmouse!` and `onwake!(v)`; a landed fetch calls
+`wake!(ctrl)`, which is precisely the signal `%output` gives. So the widget is a
+`View` whose render is the last captured frame and whose wake is a pane update.
+
+Three things have to be built, and only the third is a real design problem.
+
+- **A control-mode client.** One `tmux -C attach` per session over a pipe pair,
+  replies routed by the `%begin`/`%end` command id, `%output` forwarded to
+  `wake!`. It is pure IO over pipes, so it tests with no terminal, like
+  everything else here.
+- **Sizing.** A pane is a whole session, because `new-window` has no `-x`/`-y`
+  in any version. The widget owns a session sized to its inner area and resizes
+  it with `refresh-client -C <w>,<h>` when the terminal changes.
+- **Raw input, which is the hard part.** `readevent` decodes bytes into
+  `KeyEvent` and `MouseEvent` precisely so that views deal in characters. A
+  pass-through pane wants the opposite — the bytes as typed, handed to
+  `send-keys -H` untouched — and re-encoding a decoded key back into bytes would
+  reintroduce the translation this whole design exists to avoid. The controller
+  needs a way for the top view to ask for undecoded bytes: a `wantsraw(v)` the
+  reader consults and a `RawEvent` beside `KeyEvent`, plus one key held back as
+  the escape hatch, since every other key now belongs to the child.
+
+The stages, each of which stands on its own:
+
+0. **Full-screen handoff, no widget. Done 2026-09-02.** `mux.jl` holds the
+   session bookkeeping — `mux_bin`, `mux_session`, `mux_start`, `mux_alive`,
+   `mux_kill`, `mux_sessions` — and `t` opens a shell on the item's checkout in
+   a session named after it, through the `suspend(ctrl)` that already drops raw
+   mode and leaves the alt screen. Leaving the session is not ending it: press
+   `t` on the same item and the same shell is still there. `WORKLOG_TMUX`
+   overrides `PATH`, which is how it is tested where the only tmux is an
+   artifact in the depot. Two things worth keeping:
+   - **tmux rewrites `.` and `:` in a session name to `_` without saying so.**
+     `wl-Distributed.jl-198` is created as `wl-Distributed_jl-198` and then
+     cannot be found under the name it was asked for, so `mux_session` does the
+     same substitution and holds the name the server holds.
+   - **`-t=name` is the exact form**; plain `-t name` is a pattern, and an item
+     whose name extends another's would answer for it.
+1. **The control-mode client. Done 2026-09-02.** `MuxProto`/`mux_feed!` parse
+   the protocol, `MuxClient` wires one `tmux -C attach` to a process pair, and
+   `mux_ask`, `mux_capture`, `mux_resize`, `mux_keys` sit on top. `mux_feed!` is
+   a pure function of one line and the state before it, so the protocol is
+   tested from a vector of strings the way `readevent` is tested from an
+   `IOBuffer`; the live half of the testset skips when there is no tmux. Read
+   against the running browser it returns 40 lines with 13 OSC 8 links intact,
+   and every line already measures within the width, so `astrip` and `awidth`
+   handle captured text as-is. Three things cost time and would cost it again:
+   - **Attaching answers with a reply block of its own**, before anything has
+     been asked. Left in the queue it puts every later reply one behind: the
+     first `capture-pane` returns empty and the *next* command returns the
+     screen, which reads as a capture that failed rather than a stream that has
+     slipped. `mux_sync!` drains up to a token nothing else could produce,
+     rather than a fixed number of blocks, so a version that emits a different
+     number of them changes nothing.
+   - **Do not quote the target.** Control mode does its own quote handling:
+     `-t='=name:'` comes back *successful and empty*, and `-t '=name:'` fails
+     looking for a session called `=name`. Unquoted `-t =name:` is right, and
+     the `=` exact form takes a session on `has-session` but wants the trailing
+     colon anywhere a pane is the target.
+   - **`%output` escapes only bytes below 0x20 and the backslash**, as three
+     octal digits — a tab is `\011`, a backslash `\134`. DEL and UTF-8
+     continuation bytes pass through raw, so `mux_unescape` works on bytes and
+     leaves anything it does not recognise alone.
+   A line inside a reply block is content and never protocol, or a captured
+   screen with a `%` at the start of a line would parse as a notification and
+   vanish from the reply.
+2. **A read-only `PaneView`. Done 2026-09-02.** `paneview.jl` holds a `View`
+   whose `render` is the last captured frame and whose `onwake!` is a pane
+   update, so `%output` reaches it by the same path a landed fetch does. `t`
+   now starts the session and pushes the pane; `q` leaves it running, `K` ends
+   it, `r` re-reads it, and `a` hands the terminal over full-screen, which is
+   the only way to type into it until the next stage.
+   - **The child is sized, not just the box around it.** `pane_box` is
+     `(w-4, h-3)` — two rows of border, one for the footer, four columns of
+     border and padding — and `pane_sync!` sends `refresh-client -C` when that
+     changes. It reads `displaysize` itself rather than taking the size from
+     `render`, which stays pure; with no tty that is `LINES`/`COLUMNS`, so the
+     resize path is drivable from a test.
+   - **Close every captured row.** A row ending mid-colour runs out of the
+     content and into the pane's own border and padding, so each one gets a
+     reset appended.
+   - Every row is padded to exactly `w` and the frame to exactly `h`, the same
+     invariant the other views are held to.
+3. **Raw pass-through. Done 2026-09-02.** `wantsraw(v)` and `RawEvent` beside
+   `KeyEvent`, `readraw` in the controller, `onraw!` on the view. The reader is
+   armed with the top view's mode from the loop, where the top view is known —
+   deciding it in the reader would decide it against whatever was on top last
+   time, since the reader is parked between events. `PaneView` forwards the
+   bytes to `send-keys -H` and interprets none of them, so a mouse report and a
+   paste need no more code than a letter does.
+   - **Proven by driving `vi`**: `G`, `o`, text, a literal escape byte and
+     `:wq\r` went through as bytes and the file on disk changed. Nothing in the
+     browser named a key or parsed a sequence.
+   - **Ctrl-] is the way out**, and only alone. Everything else belongs to the
+     child, Escape and Ctrl-C included, so the way out cannot be a key a program
+     would want; the same byte inside a longer burst is a paste or a sequence
+     and stays the child's. Leaving is not ending — the session runs on.
+   - `readraw` blocks for one byte, then takes what has already arrived. That
+     draining never waits, so it cannot hang the way polling for input would,
+     and it is what keeps a sequence together and in order.
+4. **The agent on top. Mostly done 2026-09-02.** `T` runs `claude` on the
+   item's `agent_task` in a session of its own, in the checkout `item_checkout`
+   picks, prompted with the item and its URL, and shows it in the same pane
+   everything else uses. Verified by running a real agent in it and watching it
+   answer. `t` and `T` are separate sessions — `wl-julia-62841` and
+   `wl-julia-62841-agent` — so a shell and an agent can both be open on one
+   item.
+   - **`review_session` in `state.toml` turned out to be unnecessary.** The
+     name is derived from the item, so there is nothing to write down: the
+     session either exists or it does not and `mux_alive` is the whole of the
+     bookkeeping. One less thing in a user-owned file.
+   - **The metadata pane reports a running session** from a list cached by
+     `load_meta!` on the async path. Listing them costs a process, and `render`
+     is pure and runs per frame, so it cannot be the thing that asks.
+   - **The task is shell-quoted** (`shquote`). It is a sentence someone typed,
+     interpolated into a command tmux hands to `sh`, so an apostrophe in it
+     would otherwise break the launch.
+   - **Still outstanding: taking the result.** An agent that has written a diff
+     or a comment draft still has nowhere to put it. The composer (`C`) accepts
+     initial text and the pane can already be read back as text, so the missing
+     piece is a key in the pane that hands a selection to it — and a decision
+     about what "the result" is, which is why it is not done.
+4b. **The session list. Done 2026-09-02.** `"` opens a `SessionView` over
+   every `wl-` session: what kind it is, which item it belongs to, what is
+   running in it, and whether anyone is attached. `\u21b5` opens one in a pane,
+   `K` ends it, `r` re-reads. A session outliving the view of it is the point,
+   and the cost of that is that they pile up somewhere unseen; this is the
+   somewhere.
+   - `mux_list` is one call, filtered to the active pane of each session, and
+     the view holds a snapshot — `render` is pure and per-frame.
+   - **Sessions are matched to items by generating names and comparing them.**
+     `mux_session` keeps only the short half of the repo, so `julia` cannot be
+     turned back into `JuliaLang/julia` without guessing; `mux_parse` recovers
+     enough to label an orphan, and nothing more.
+
+5. **Offer it upstream.** Only after it has carried `vi` and an agent for a
+   while, and only backend-shaped rather than tmux-shaped. On Windows `psmux`
+   claims the same control mode (`-C`/`-CC`, with `capture-pane` and
+   `send-keys`), and wezterm has the same two primitives under other names —
+   `wezterm cli get-text --escapes` and `send-text`, against a headless
+   `wezterm-mux-server`. Neither is verified: there is no Windows in this
+   sandbox. Treat it as a reason to keep the seam, not as a promise. `tmux_jll`
+   covers macos, linux and freebsd only, so a Term.jl dependency would have to
+   be optional in any case.
+
 
 ## Known gaps in what has shipped
 

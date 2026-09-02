@@ -1065,3 +1065,297 @@ end
     W.handle!(st, W.K_HOME, ctrl)
     @test st.nrow == 1
 end
+
+@testset "multiplexer sessions" begin
+    # Naming is pure, so it is tested whether or not a tmux exists here.
+    @test W.mux_session("JuliaLang/julia", 62841) == "wl-julia-62841"
+    @test W.mux_session("JuliaLang/julia", 1) == "wl-julia-1"
+
+    # tmux does not reject `.` or `:` in a session name, it rewrites them to
+    # `_` and says nothing. A name that did not do the same substitution would
+    # create a session and then never find it again.
+    @test W.mux_session("JuliaLang/Distributed.jl", 198) == "wl-Distributed_jl-198"
+    @test W.mux_session("a/b:c", 2) == "wl-b_c-2"
+    @test !occursin('.', W.mux_session("x/y.z.jl", 3))
+
+    # A missing binary has to be an answer, not an exception: every caller is
+    # on a keystroke path.
+    withenv("WORKLOG_TMUX" => "/nonexistent/tmux") do
+        @test W.mux_bin() === nothing
+        @test W.mux("list-sessions") == (false, "no tmux on PATH")
+        @test W.mux_alive("wl-nothing") === false
+        @test W.mux_sessions() == String[]
+    end
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the session lifecycle test"
+    else
+        n = W.mux_session("test/lifecycle.jl", 1)
+        W.mux_kill(n)                                   # from an earlier run
+        @test W.mux_alive(n) === false
+        @test first(W.mux_start(n, pwd(), "sleep 120")) === true
+        @test W.mux_alive(n) === true
+        @test first(W.mux_start(n, pwd(), "sleep 120")) === true   # idempotent
+        @test n in W.mux_sessions()
+        @test W.mux_kill(n) === true
+        @test W.mux_alive(n) === false
+    end
+end
+
+@testset "control-mode protocol" begin
+    # The parser is a pure function of one line and the state before it, so the
+    # protocol is driven from strings the way `readevent` is driven from bytes.
+    p = W.MuxProto()
+    @test W.mux_feed!(p, "%begin 1788 42 1") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "hello") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "%end 1788 42 1") == (:reply, true, ["hello"])
+
+    # A failed command closes its block with %error, and the lines it did emit
+    # are the error text.
+    @test W.mux_feed!(p, "%begin 1788 43 1") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "unknown command: nope") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "%error 1788 43 1") == (:reply, false, ["unknown command: nope"])
+
+    # A line inside a block is content, never protocol. A capture-pane of a
+    # screen with a percent sign at the start of a line would otherwise be
+    # parsed as a notification and vanish from the reply.
+    W.mux_feed!(p, "%begin 1788 44 1")
+    @test W.mux_feed!(p, "%output is just text here") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "100%") == (:more, nothing, nothing)
+    @test W.mux_feed!(p, "%end 1788 44 1") == (:reply, true, ["%output is just text here", "100%"])
+
+    # Outside a block, notifications are themselves.
+    @test W.mux_feed!(p, "%output %10 abc") == (:output, "%10", "abc")
+    @test W.mux_feed!(p, "%session-changed \$1 wl") == (:notice, "session-changed", "\$1 wl")
+    @test W.mux_feed!(p, "%exit")[1] === :notice
+
+    # tmux escapes bytes below 0x20 and the backslash as three octal digits,
+    # and passes everything from 0x20 up through raw.
+    @test W.mux_unescape("a\\011b") == "a\tb"
+    @test W.mux_unescape("back\\134slash") == "back\\slash"
+    @test W.mux_unescape("\\033[1m") == "\e[1m"
+    @test W.mux_unescape("\\015\\012") == "\r\n"
+    @test W.mux_unescape("plain") == "plain"
+    @test W.mux_unescape("e-é del\x7f pct-%") == "e-é del\x7f pct-%"
+    @test W.mux_unescape("\\9zz") == "\\9zz"           # not octal; left alone
+    @test W.mux_unescape("tail\\01") == "tail\\01"     # truncated; left alone
+    @test W.mux_feed!(p, "%output %3 \\033[H")[3] == "\e[H"
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the live control-mode test"
+    else
+        n = W.mux_session("test/control.jl", 1)
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh -c 'printf READY; sleep 120'")
+        woke = Ref(0)
+        c = W.mux_open(n; onoutput = _ -> (woke[] += 1))
+        @test c !== nothing
+        # Attaching emits a reply block of its own; if it were left in the
+        # queue every command here would return the previous one's answer.
+        @test W.mux_resize(c, 60, 8) === true
+        scr = W.mux_capture(c; escapes = false)
+        @test length(scr) == 8                          # the size just asked for
+        @test first(scr) == "READY"
+        @test W.mux_keys(c, "xyz") === true
+        sleep(0.5)
+        @test occursin("xyz", join(W.mux_capture(c; escapes = false)))
+        @test woke[] > 0                                # %output arrived unasked
+        # An error is an answer, and the client keeps working after one.
+        ok, lines = W.mux_ask(c, "no-such-command")
+        @test ok === false && occursin("unknown command", join(lines))
+        @test W.mux_ask(c, "display-message -p still-here") == (true, ["still-here"])
+        W.mux_close(c)
+        @test W.mux_ask(c, "display-message -p x")[1] === false
+        W.mux_kill(n)
+    end
+end
+
+@testset "a child program in a pane" begin
+    # The box the child is given: two rows of border plus this view's footer,
+    # and four columns of border and padding.
+    @test W.pane_box(80, 24) == (76, 21)
+    @test W.pane_box(120, 40) == (116, 37)
+    @test W.pane_box(2, 2) == (1, 1)              # never asks for a zero size
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the pane view test"
+    else
+        n = W.mux_session("test/paneview.jl", 1)
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh -c 'printf \"\\033[1;32mgreen\\033[0m plain\\n\"; sleep 120'")
+        ctrl = W.Controller(); ctrl.running = true
+        v = W.pane_view(n, "demo", ctrl)
+        @test v !== nothing
+
+        # `displaysize` is what the child is sized from, and with no tty that
+        # is LINES and COLUMNS, so the resize path is drivable here.
+        withenv("LINES" => "24", "COLUMNS" => "80") do
+            @test W.pane_sync!(v) === true
+            @test v.sized == W.pane_box(80, 24)
+            @test length(v.frame) == 21           # the height it was just given
+            @test occursin("green", join(v.frame))
+            @test occursin("\e[", join(v.frame))  # colour kept, not stripped
+            ls = split(W.render(v, 80, 24), "\n")
+            @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+        end
+        # A different size re-sizes the child, not just the box drawn round it.
+        withenv("LINES" => "40", "COLUMNS" => "120") do
+            W.pane_sync!(v)
+            @test v.sized == W.pane_box(120, 40)
+            @test length(v.frame) == 37
+            ls = split(W.render(v, 120, 40), "\n")
+            @test length(ls) == 40 && all(W.awidth(l) == 120 for l in ls)
+        end
+
+        # Every row is closed off, or an unterminated colour would run out of
+        # the content and into the border.
+        @test all(endswith(l, "\e[0m") for l in v.frame)
+
+        # `q` leaves the session running - that is what a session is for.
+        @test W.handle!(v, Int('q'), ctrl) === :pop
+        @test W.mux_alive(n) === true
+
+        # `K` ends it.
+        v2 = W.pane_view(n, "demo", ctrl)
+        @test v2 !== nothing
+        @test W.handle!(v2, Int('K'), ctrl) === :pop
+        @test W.mux_alive(n) === false
+    end
+end
+
+@testset "raw input pass-through" begin
+    # `readraw` is a pure function of a byte stream, like `readevent`.
+    @test W.readraw(IOBuffer("j")).bytes == UInt8['j']
+    # A sequence must reach the child whole and in order: one blocking byte,
+    # then whatever else had already arrived.
+    @test W.readraw(IOBuffer("\e[A")).bytes == UInt8['\e', '[', 'A']
+    @test W.readraw(IOBuffer("\e[<0;40;12M")).bytes == collect(codeunits("\e[<0;40;12M"))
+    @test W.readraw(IOBuffer("pasted text")).bytes == collect(codeunits("pasted text"))
+
+    # Only a view that asks gets bytes; everything else still gets characters.
+    @test W.wantsraw(W.PromptView("t", "", _ -> nothing)) === false
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the raw forwarding test"
+    else
+        n = W.mux_session("test/raw.jl", 1)
+        W.mux_kill(n)
+        tmp = joinpath(mktempdir(), "edit-me.txt")
+        write(tmp, "first line\n")
+        W.mux_start(n, dirname(tmp), "vi $tmp")
+        ctrl = W.Controller(); ctrl.running = true
+        v = W.pane_view(n, "vi", ctrl)
+        @test v !== nothing
+        @test W.wantsraw(v) === true
+        sleep(1.5)
+
+        # Bytes as typed, and nothing here knows what any of them mean: `G`,
+        # `o`, text, a literal escape and `:wq` drive an editor this code has
+        # no model of.
+        for s in ("G", "o", "typed through the pane", "\e", ":wq\r")
+            @test W.onraw!(v, collect(codeunits(s)), ctrl) === :ok
+            sleep(0.5)
+        end
+        sleep(1.0)
+        @test read(tmp, String) == "first line\ntyped through the pane\n"
+        @test W.mux_alive(n) === false            # vi quit, so the session ended
+
+        # Ctrl-] alone leaves; the same byte inside a burst is the child's.
+        n2 = W.mux_session("test/raw.jl", 2)
+        W.mux_kill(n2)
+        W.mux_start(n2, pwd(), "sh -c 'sleep 120'")
+        v2 = W.pane_view(n2, "sh", ctrl)
+        @test W.onraw!(v2, UInt8[0x61, W.PANE_ESCAPE, 0x62], ctrl) === :ok
+        @test W.onraw!(v2, UInt8[W.PANE_ESCAPE], ctrl) === :pop
+        @test W.mux_alive(n2) === true             # left running, not killed
+        W.mux_kill(n2)
+    end
+end
+
+@testset "an agent in a session" begin
+    # A shell and an agent can both exist for one item, so they cannot share a
+    # name; everything else about the naming is the same.
+    @test W.mux_session("JuliaLang/julia", 62841) == "wl-julia-62841"
+    @test W.mux_session("JuliaLang/julia", 62841, :agent) == "wl-julia-62841-agent"
+    @test W.mux_session("JuliaLang/Distributed.jl", 198, :agent) == "wl-Distributed_jl-198-agent"
+
+    # The task is a sentence someone typed and it is interpolated into a
+    # command a shell will read, so it has to survive one.
+    tricky = "it's \"quoted\" \$HOME and `x`"
+    @test read(`sh -c $("printf %s " * W.shquote(tricky))`, String) == tricky
+
+    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    ctrl = W.Controller(); ctrl.running = true
+    it = st.items[1]
+
+    # An item with no agent task has nothing to run, and says so rather than
+    # starting an agent with an empty prompt.
+    bare = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))..., agent = "")
+    @test W.open_agent(bare, ctrl) == "no agent task - set one with `wl agent`"
+
+    # The metadata pane reports a session from the cached list, never by asking
+    # for one per frame: `render` is pure and listing them costs a process.
+    tasked = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))...,
+                    agent = "rebase and rerun the tests")
+    st.sessions = String[]
+    @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
+    st.sessions = [W.mux_session(tasked, :agent)]
+    lines = join(W.meta_lines(st, tasked, 40), "\n")
+    @test occursin("running", lines) && occursin("agent", lines)
+    st.sessions = [W.mux_session(tasked)]
+    @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
+end
+
+@testset "the session list" begin
+    # A session name carries only the short half of the repo, so an item is
+    # matched by generating names and comparing, never by parsing one back.
+    @test W.mux_parse("wl-julia-62841") == (short = "julia", number = 62841, kind = :shell)
+    @test W.mux_parse("wl-julia-62841-agent") == (short = "julia", number = 62841, kind = :agent)
+    @test W.mux_parse("wl-Distributed_jl-198-agent").short == "Distributed_jl"
+    @test W.mux_parse("random-session") === nothing
+    @test W.mux_parse("wl-no-number") === nothing
+
+    items = W.loaditems()
+    ctrl = W.Controller(); ctrl.running = true
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the live session list test"
+    else
+        it = items[1]
+        for kind in (:shell, :agent)
+            W.mux_kill(W.mux_session(it, kind))
+            W.mux_start(W.mux_session(it, kind), pwd(), "sleep 120")
+        end
+        v = W.session_view(items)
+        names = [r.name for r in v.rows]
+        @test W.mux_session(it, :shell) in names
+        @test W.mux_session(it, :agent) in names
+
+        # A session that maps to an item is shown as that item, not as a name.
+        row = v.rows[findfirst(==(W.mux_session(it, :agent)), names)]
+        @test row.kind === :agent
+        @test occursin(it.repo, row.label) && occursin(string(it.number), row.label)
+
+        for (w, h) in ((80, 24), (120, 40))
+            ls = split(W.render(v, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+
+        # Moving the selection, and killing what it points at.
+        v.sel = findfirst(==(W.mux_session(it, :agent)), names)
+        before = length(v.rows)
+        W.handle!(v, Int('K'), ctrl)
+        @test W.mux_alive(W.mux_session(it, :agent)) === false
+        @test length(v.rows) == before - 1
+        @test W.mux_alive(W.mux_session(it, :shell)) === true   # only the one
+
+        @test W.handle!(v, Int('q'), ctrl) === :pop
+        W.mux_kill(W.mux_session(it, :shell))
+    end
+
+    # With nothing running the view still renders, and says so.
+    empty = W.SessionView(items, W.SessionRow[], 1, "")
+    ls = split(W.render(empty, 80, 24), "\n")
+    @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+    @test occursin("nothing running", join(ls, "\n"))
+end
