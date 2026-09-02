@@ -2321,6 +2321,14 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         load_nodes!(st); load_meta!(st)
         return :ok
     end
+    # For the same reason: `i` is about something that is *not* here yet, so
+    # wanting it and having nothing selected are the same situation. A list
+    # filtered down to nothing, or a dashboard whose lanes returned nothing, is
+    # exactly where the first import gets made.
+    if k == Int('i') && st.lmode !== :filters
+        import_action(st, ctrl, at)
+        return :ok
+    end
     (st.lmode === :filters || isempty(st.items)) && return :ok
     it = st.items[clamp(st.sel, 1, length(st.items))]
 
@@ -2461,8 +2469,6 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
-    elseif k == Int('i')
-        import_action(st, ctrl, at)
     end
     load_nodes!(st)
     load_meta!(st)

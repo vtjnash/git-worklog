@@ -2797,6 +2797,18 @@ end
         @test occursin("not the url", W.import_url!(st, "not a url", at))
         @test isempty(W.imported_urls())
 
+        # `i` is not a key about the selected item: an empty list is where the
+        # first import gets made, and every per-item key is dropped there.
+        empty_ = mkstate(); empty!(empty_.items)
+        @test W.handle!(empty_, Int('i'), ctrl) === :ok
+        @test last(ctrl.stack) isa W.PromptView
+        @test occursin("events poller", last(ctrl.stack).note)
+        pop!(ctrl.stack)
+        # The filter pane owns its own keys, the way it does for `z`.
+        empty_.lmode = :filters
+        W.handle!(empty_, Int('i'), ctrl)
+        @test isempty(ctrl.stack)
+
         url = "https://github.com/rust-lang/rust/issues/1"
         msg = W.import_url!(st, url * "#issuecomment-99", at)
         if occursin("could not import", msg)
