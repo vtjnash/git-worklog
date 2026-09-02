@@ -267,6 +267,55 @@ end
     end
 end
 
+@testset "a click on a url copies it" begin
+    # Owning the mouse is what makes this possible: a link can be acted on here
+    # rather than handed to a terminal that may or may not know what an OSC 8
+    # hyperlink is. `y` and this are the same copy.
+    st = mkstate()
+    u = "https://github.com/JuliaLang/julia/issues/18004#issuecomment-372112478"
+    # A footnote row shows an elided url and carries the whole one in its
+    # source, so anywhere on it is that link.
+    fn = W.Row(1, false, string("[1] ", W.shortlink(u, 30)), string("[1] ", u), 0)
+    @test W.link_at(st, fn, 1) == u
+    @test W.link_at(st, fn, 20) == u
+    # A url in prose is where it prints, and a click has to land inside it -
+    # the rest of the row is text somebody may want to select instead.
+    line = "see https://example.com/a here"
+    r = W.Row(1, false, line, line, 0)
+    @test W.link_at(st, r, 6) == "https://example.com/a"
+    @test W.link_at(st, r, 4) == ""                 # the space before it
+    @test W.link_at(st, r, 27) == ""                # "here"
+    # Wrapping cuts a long url in half, and half a url is useless pasted - so
+    # the answer comes off the written line rather than off the row.
+    cut = "the fix is in https://github.com/JuliaLang/"
+    r2 = W.Row(1, false, cut, string(cut, "julia/pull/17113 which landed"), 0)
+    @test W.link_at(st, r2, 20) == "https://github.com/JuliaLang/julia/pull/17113"
+    # Prose that merely contains a slash is not a link.
+    r3 = W.Row(1, false, "and/or something", "and/or something", 0)
+    @test isempty(W.link_at(st, r3, 4))
+
+    # End to end, through the geometry a real click goes through.
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st2 = mkstate()
+    st2.nodes = [W.Node("someone  2026-09-02", "see https://example.com/x here", :md, true)]
+    st2.loaded = string(st2.items[st2.sel].url, ":", st2.mode)
+    W.render(st2, 160, 50)
+    L = W.layout(160, 50, st2.nmeta)
+    ctrl = W.Controller()
+    rs = W.rows(st2.nodes, L.riw)
+    i = findfirst(x -> occursin("https://example.com/x", W.astrip(x.text)), rs)
+    @test i !== nothing
+    c = first(findfirst("https://", W.astrip(rs[i].text))) + 4
+    W.onmouse!(st2, W.MouseEvent(:press, 0, L.rx + c, L.ry + 1 + st2.hdr + i - 1, 0), ctrl)
+    @test occursin("copied", st2.status) && occursin("example.com/x", st2.status)
+    # Copying is not the start of a selection: a drag from here selects nothing.
+    @test st2.anchor == 0
+    # And a click on the prose beside it still starts one, as it always did.
+    st2.status = ""
+    W.onmouse!(st2, W.MouseEvent(:press, 0, L.rx + 2, L.ry + 1 + st2.hdr + i - 1, 0), ctrl)
+    @test isempty(st2.status) && st2.anchor == i
+end
+
 @testset "click maps to the row under it" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()

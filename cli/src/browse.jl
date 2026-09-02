@@ -1468,6 +1468,51 @@ function row_span(row::Row, indent::Int, from::Int)
     nothing
 end
 
+"""A url written in text. Deliberately not a parser: what is wanted is the run
+of characters somebody would have clicked on, and the closers are the ones that
+end a url in prose rather than the ones a url may not contain."""
+const URL_RE = r"https?://[^\s<>\"'`\)\]}]+"
+
+"""The url a click at display column `col` landed on, or empty.
+
+Two kinds of link reach a row and neither is an OSC 8 hyperlink, which is the
+point: owning the mouse means a link can be *acted on* rather than handed to a
+terminal that may or may not know what to do with it.
+
+A footnote row shows an elided url and carries the whole one in its source, so
+anywhere on that row is that link. Anything else is a url written in the text,
+where a click has to land inside it - the rest of the row is prose somebody may
+want to select instead.
+
+The answer comes out of `src` and not off the row, because wrapping cuts a long
+url in half and half a url is the one thing that is useless once pasted. That is
+the same reason `row_span` exists, and it is what maps the column back.
+"""
+function link_at(st::BState, r::Row, col::Int)
+    fn = match(r"^\[\d+\]\s+(\S+)\s*$", r.src)
+    fn === nothing || return String(fn[1])
+    txt = astrip(r.text)
+    isempty(txt) && return ""
+    ind = 2 * st.nodes[clamp(r.node, 1, length(st.nodes))].depth
+    # Display column to character index, walking widths rather than counting
+    # characters: one wide character earlier on the row moves everything after it.
+    ci, acc = 0, 0
+    for (k, c) in enumerate(txt)
+        acc += textwidth(c)
+        acc >= col && (ci = k; break)
+    end
+    ci == 0 && return ""
+    sp = row_span(r, ind, 1)
+    # Where the click is in the written line: through the span when the row is a
+    # piece of its source, and straight across when it is not.
+    j = sp === nothing ? ci : first(sp) + (ci - ind) - 1
+    for m in eachmatch(URL_RE, r.src)
+        lo = length(SubString(r.src, 1, prevind(r.src, m.offset))) + 1
+        lo <= j <= lo + length(m.match) - 1 && return String(m.match)
+    end
+    ""
+end
+
 "Every place `q` appears in `text`, as ranges of plain characters."
 function findhits(text::AbstractString, q::AbstractString)
     out = UnitRange{Int}[]
@@ -2716,6 +2761,17 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
             st.nodes[i].open = !st.nodes[i].open
             st.nrow = headerrow(st, i, L.riw)
             st.anchor = 0
+        else
+            # A click on a url copies it, which is what owning the mouse is
+            # for: the alternative was an OSC 8 hyperlink and a hope that the
+            # terminal on the other end knew what to do with one. `y` and this
+            # are the same copy, so whatever works for one works for both.
+            u = link_at(st, rs[idx], col)
+            if !isempty(u)
+                print("\e]52;c;", Base64.base64encode(u), "\a")
+                st.status = string("copied ", shortlink(u, 60))
+                st.anchor = 0          # copying is not the start of a selection
+            end
         end
     elseif ev.kind === :drag
         st.anchor == 0 && (st.anchor = idx)

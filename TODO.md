@@ -43,7 +43,8 @@ julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
-changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
+changes something on GitHub.** A click on a url copies it, whole even where
+the wrapping cut it. `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
 last acted, `x` archives, `z` undoes the last local action. `f` opens the filter
 pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
@@ -496,21 +497,29 @@ Kept here so they can be written up in one pass rather than rediscovered.
 
 ## Known gaps in what has shipped
 
-- **URL handling in the detail pane is inconsistent.** A comment's links
-  sometimes appear inline immediately before the following node's header rather
-  than where the text put them, so a header reads as
-  `https://…#issuecomment-372112478\u25be nalimilan  2018-03-11 …`. Reported
-  2026-09-02 from a real thread on julia#18004; the footnote rows and `linkify`
-  are the two things that touch this and it is not yet known which is wrong.
+- **A url sometimes prints where the header of the next node is.** Reported
+  2026-09-02 from julia#18004, as
+  `https://…#issuecomment-372112478\u25be nalimilan  2018-03-11 …`. **Not the
+  rows and not the parser**: over widths 40..200 no header row on that thread
+  ever contains a url, and the footnote rows land where they belong. What is
+  left is `linkify`, which wraps every rendered url in an OSC 8 hyperlink on the
+  *finished frame* — so the url is in the output as the escape's payload, and a
+  terminal that does not consume the sequence prints it and swallows what
+  follows, which is exactly the shape of the artifact. That fits it only
+  appearing in a real terminal, and tmux below 3.4 is one of the things that
+  does not forward OSC 8.
+
+  Click-to-copy has since made the hyperlinks unnecessary: `y` copies and now so
+  does a click, both through OSC 52, neither needing the terminal to understand
+  a link. **The fix is probably to drop `linkify` entirely** rather than to
+  chase the escape - it is the only thing left that needs OSC 8, and dropping it
+  would take the underline that marks a link with it. Worth one look in a real
+  terminal first, to confirm the artifact goes with it.
 - **A pane once reported `session ended` with an empty frame, unexplained.**
   Seen once, in a scripted launch on 2026-09-02. The first theory — that the
   wake channel filled and blocked the reader — was tested and is wrong: the
   client survives with 11 of 64 slots used. It has not recurred, including at
   the same shape, so it is recorded as a known-unknown rather than a fixed bug.
-- **Click-to-copy on a link is unconfirmed.** `y` copies and is known to work;
-  clicking a link to copy it may not, and may be the editor not acting on OSC 8
-  rather than anything here. Needs checking against a terminal that is known to
-  support OSC 8 clicks.
 
 - **Hunk context expands against the head commit.** Context around a `-` line
   therefore shows the post-change file, not the pre-change one. Fine for
