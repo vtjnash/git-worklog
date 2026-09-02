@@ -124,6 +124,22 @@ end
 # Every rule below is a fact GitHub already knows. Anything requiring judgement
 # is left to the model via a state.toml override.
 
+"""Everything about an item that comes from `state.toml` rather than GitHub.
+
+Its own function because a refresh is no longer the only place an item is built:
+an import arrives in the middle of a session and has to be bucketed by the same
+rule as everything else. A second copy of this is a bucket that drifts, and the
+bucket is what decides where a row shows up at all.
+"""
+function apply_state!(r, st, cfg, at::DateTime)
+    r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
+    r["track"] = resolve_track(st, r["bucket"])
+    r["note"] = get(st, "note", nothing)
+    r["deadline"] = get(st, "deadline", nothing)
+    r["blocked_on"] = get(st, "blocked_on", String[])
+    r
+end
+
 function derive_bucket(r, st, cfg, at::DateTime)
     truthy(get(st, "bucket", nothing)) && return (st["bucket"], "override")
     # Over, whichever lane found it. This has to come before every rule below,
@@ -137,6 +153,10 @@ function derive_bucket(r, st, cfg, at::DateTime)
     end
     L = Set(get(r, "labels", String[]))
     r["lane"] == "firehose" && return ("firehose", "discovery")
+    # Asked for by url, which is the whole reason it is here: no lane claimed it
+    # and no rule below should invent a reason for it. `done` still wins above -
+    # an import that merged is finished like anything else is.
+    r["lane"] == "imported" && return ("imported", "imported by url")
     if startswith(r["lane"], "mentioned") || startswith(r["lane"], "commented")
         # The only thing in this pile worth interrupting for: someone named you
         # recently and the last word is theirs, so a question is probably owed an
@@ -443,6 +463,27 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
     end
 
+    # Items no lane returns, tracked because they were asked for by url. They go
+    # in after the lanes and before the bulk pile, so a lane that does return one
+    # wins: an import is how an item is followed, not what it is.
+    imp = imported_urls()
+    if !isempty(imp)
+        kept = 0
+        for n in try
+                    fetch_urls(imp)
+                 catch e
+                    @printf(stderr, "  %-9s failed: %s\n", "imported",
+                            first(sprint(showerror, e), 120))
+                    Any[]
+                 end
+            u = String(n.url)
+            haskey(items, u) && continue
+            items[u] = normalize(n, "imported", login)
+            kept += 1
+        end
+        @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
+    end
+
     unread = Events.unread(cfg, login, at)
     bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
     spent += c
@@ -471,13 +512,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             carried = jget(jget(prev_items, Symbol(url)), :mergeable)
             r["mergeable"] = carried == "UNKNOWN" ? nothing : carried
         end
-        r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
-        r["track"] = resolve_track(st, r["bucket"])
+        apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])
         r["fp_full"] = fingerprint(r, "close")
-        r["note"] = get(st, "note", nothing)
-        r["deadline"] = get(st, "deadline", nothing)
-        r["blocked_on"] = get(st, "blocked_on", String[])
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # The backlog is everything you are not actively carrying: the stale pile,
@@ -553,6 +590,7 @@ const SECTIONS = [
     ("blocked",        "Blocked",           "Blocked upstream."),
     ("draft",          "Drafts",            "Yours, not yet proposed."),
     ("issue",          "Assigned issues",   ""),
+    ("imported",       "Imported",          "Followed by url; no lane returns these."),
     ("reviewed",       "Reviewed, waiting", "You reviewed; ball is with the author."),
     ("done",           "Recently landed",   "Merged or closed. `x` files one away."),
 ]

@@ -1499,7 +1499,7 @@ function render_frame(st::BState, w::Int, h::Int)
                    "q quit \u00b7 tab pane")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
+                   " \u00b7 v note \u00b7 x archive \u00b7 i import \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
@@ -2461,6 +2461,8 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
+    elseif k == Int('i')
+        import_action(st, ctrl, at)
     end
     load_nodes!(st)
     load_meta!(st)
@@ -3084,6 +3086,63 @@ function branch_index(items)
         better && (d[k] = it)
     end
     d
+end
+
+"""Follow one item that no lane returns, by pasting its url.
+
+The one thing the lanes cannot reach: an issue in a repo nobody watches that
+does not mention you matches nothing by construction. From here it is an
+ordinary item - notes, snoozes, the clock, the buckets and archive all work on
+it the moment it exists, because all of them are keyed by url.
+
+What it cannot have is the activity lane, and the prompt says so rather than
+leaving it to be found out: an item is imported *precisely because* its repo is
+not in `[events].repos`, so anything new on it will keep arriving by email the
+way it always did.
+"""
+function import_action(st::BState, ctrl::Controller, at::DateTime)
+    push_view!(ctrl, PromptView(
+        "Import an item",
+        "paste the url of an issue or pull request, in any repo. It is followed " *
+        "from now until you archive it - but not by the events poller, which " *
+        "only watches the repos in config.toml, so new activity on it will " *
+        "still reach you by email.",
+        u -> (st.status = import_url!(st, u, at))))
+end
+
+"""Write the import, fetch the item, and go to it.
+
+The fetch is on the key loop rather than behind it. An import is one request the
+user just asked for by hand and is waiting on the answer to, and a row that
+appears a second later somewhere in a list of two thousand is not an answer.
+
+Nothing is written until the item is known to exist: a url that resolves to
+nothing would otherwise leave a line in `state.toml` that fetches nothing on
+every refresh forever.
+"""
+function import_url!(st::BState, raw::AbstractString, at::DateTime)
+    u = item_url(raw)
+    u === nothing && return "not the url of an issue or a pull request"
+    i = findfirst(x -> x.url == u, st.all)
+    if i !== nothing
+        r = select_item!(st, st.all[i])
+        return r isa String && !isempty(r) ? r : string(st.all[i].ref, " is here already")
+    end
+    it = try
+        item_by_url(u, at)
+    catch e
+        return string("could not import it: ", first(oneline(sprint(showerror, e)), 100))
+    end
+    set_fields(u, ["imported" => string(Date(at))], at)
+    add_item!(st, it)
+    push!(st.undos, Undo(string("import ", it.ref), () -> begin
+        set_fields(u, ["imported" => nothing])
+        drop_item!(st, u)
+    end))
+    r = select_item!(st, it)
+    string("imported ", it.ref,
+           r isa String && !isempty(r) ? string(" \u00b7 ", r) : "",
+           " \u00b7 no events lane: its repo is not watched")
 end
 
 """Claim a local branch as work of yours, and make it an item.

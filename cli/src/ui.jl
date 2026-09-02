@@ -81,14 +81,16 @@ at the point of use and the answer is always the one being shown.
 """
 age(it::Item, at::DateTime) = something(days_since(it.act, at), 0)
 
-function loaditems()
-    f = datapath("facts.json")
-    isfile(f) || die("no facts.json — run `wl refresh` first")
-    raw = JSON3.read(read(f, String))
-    out = Item[]
-    for (_, r) in raw.items
+"""One item from one record, the way `facts.json` writes them.
+
+Its own function because a refresh is no longer the only source of a record: an
+import fetches one mid-session and has to become the same `Item` a lane would
+have made. Two mappings would drift, and the first thing to drift would be
+`act`, which every age and every order is worked out from.
+"""
+function item_of(r)
         act = something(jget(r, :head_at), jget(r, :last_comment_at), r.updated)
-        push!(out, Item(
+        Item(
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
             bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
@@ -111,9 +113,14 @@ function loaditems()
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
-            why = nz(jget(r, :why), "")))
-    end
-    out
+            why = nz(jget(r, :why), ""))
+end
+
+function loaditems()
+    f = datapath("facts.json")
+    isfile(f) || die("no facts.json — run `wl refresh` first")
+    raw = JSON3.read(read(f, String))
+    [item_of(r) for (_, r) in raw.items]
 end
 
 """The GitHub login from `config.toml`, read once.
@@ -206,6 +213,64 @@ function local_items()
     [local_item(u, get(byk, localparts(u), nothing)) for u in urls]
 end
 
+# --- work in a repo nobody is watching --------------------------------------
+#
+# Everything else arrives through a lane, so an issue in an untracked repo that
+# does not mention you cannot be followed at all. An import is the manual answer:
+# a url is written into `state.toml` and the item is fetched by it from then on.
+#
+# It composes with everything already keyed by url - notes, snoozes, the clock,
+# the buckets, archive - the same way adoption did, and archive is its exit.
+# What it cannot have is the activity lane: an item is imported *precisely
+# because* its repo is not watched, so new activity on it will keep arriving by
+# email the way it always did. That is worth saying in the prompt rather than
+# leaving to be discovered.
+
+"Urls that have been imported. Not the local ones - those are adoptions."
+imported_urls() = sort!([u for u in keys(field_map("imported")) if !islocal(u)])
+
+"""One item fetched by url, as a lane would have delivered it.
+
+The road is the one `facts.json` takes - `normalize`, then the `state.toml`
+fields, then the record `item_of` reads - because an imported item has to *be*
+an ordinary item rather than resemble one. Mapping a node straight to an `Item`
+here would be a second road, and the two would disagree first about the bucket.
+"""
+function item_by_url(url::AbstractString, at::DateTime = utcnow())
+    cfg = config()
+    r = normalize(fetch_url(url), "imported", cfg["login"])
+    apply_state!(r, get(load_state(), String(r["url"]), Dict{String,Any}()), cfg, at)
+    item_of(JSON3.read(json_dumps(r)))
+end
+
+"""Imports that `facts.json` has not caught up with, fetched now.
+
+An import has to be tracked from the moment it is made rather than from the next
+refresh, or quitting before one would lose it - and it is still in `state.toml`,
+so it would come back later as a row that appeared out of nowhere. One request
+covers all of them, and none at all when there is nothing missing. A url that
+answers with nothing is reported and skipped: a repository that went private
+should cost its own row and not the dashboard.
+"""
+function imported_items(have::Set{String}, at::DateTime = utcnow())
+    missing_ = [u for u in imported_urls() if !(u in have)]
+    isempty(missing_) && return Item[]
+    cfg = config()
+    state = load_state()
+    out = Item[]
+    for n in try
+                fetch_urls(missing_)
+             catch e
+                println(stderr, "  imported: ", first(sprint(showerror, e), 120))
+                Any[]
+             end
+        r = normalize(n, "imported", cfg["login"])
+        apply_state!(r, get(state, String(r["url"]), Dict{String,Any}()), cfg, at)
+        push!(out, item_of(JSON3.read(json_dumps(r))))
+    end
+    out
+end
+
 """Print one markdown body: links lifted to numbered footnotes, the rest
 rendered by Term, wrapped to the terminal."""
 function show_md(raw)
@@ -242,6 +307,9 @@ function ui(args = String[], at::DateTime = utcnow())
     # Adopted branches are items too, and everything keyed by url works on them
     # the moment they are: notes, snoozes, the clock, the buckets, the filters.
     items = vcat(loaditems(), local_items())
+    # And anything imported since the last refresh, which is how an import is
+    # tracked from the moment it is made rather than from the next one.
+    append!(items, imported_items(Set(x.url for x in items), at))
     cfg = config()
     DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
                               "detail_ttl_minutes", 10)

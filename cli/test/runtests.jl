@@ -536,7 +536,7 @@ end
     for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
               "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "L labels",
-              "r read/unread", "s snooze", "z undo", "v note", "e edit",
+              "r read/unread", "s snooze", "z undo", "v note", "i import", "e edit",
               "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
     end
@@ -2714,6 +2714,80 @@ end
     loaded = W.loaditems()
     @test all(!isempty(x.act) for x in loaded)
     @test W.age(loaded[1], W.utcnow()) >= 0
+end
+
+@testset "an item nobody's lane returns" begin
+    # A url is not a query, so an issue in a repo nobody watches that does not
+    # mention you matches no lane by construction. Importing is the manual way
+    # in, and from there it is an ordinary item.
+    u(x) = W.item_url(x)
+    @test u("https://github.com/JuliaLang/julia/pull/62802/files#issuecomment-1") ==
+          "https://github.com/JuliaLang/julia/pull/62802"
+    @test u("github.com/o/r/issues/7") == "https://github.com/o/r/issues/7"
+    @test u("https://github.com/o/r/pulls/7?w=1") == "https://github.com/o/r/pull/7"
+    # Not an issue and not a pull request, so not something this can hold.
+    @test u("https://github.com/o/r/discussions/3") === nothing
+    @test u("https://github.com/o/r") === nothing
+    @test u("nonsense") === nothing
+    # The url is a literal in a GraphQL query, so what is not matched is not
+    # trimmed - it is refused.
+    @test u("https://github.com/o/r\"){x}/issues/1") === nothing
+
+    # Its own bucket, because no lane claimed it and no rule should invent a
+    # reason for it being here.
+    cfg = W.config()
+    r = Dict{String,Any}("lane" => "imported", "type" => "Issue", "state" => "OPEN",
+                         "labels" => String[], "mine" => false,
+                         "updated" => "2026-09-01T00:00:00Z")
+    b, why = W.derive_bucket(r, Dict{String,Any}(), cfg, W.utcnow())
+    @test b == "imported" && occursin("url", why)
+    # Except that finishing still wins: an import that merged is done.
+    r["state"] = "MERGED"
+    @test first(W.derive_bucket(r, Dict{String,Any}(), cfg, W.utcnow())) == "done"
+
+    before = read(W.statefile(), String)
+    try
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true
+        at = W.utcnow()
+        @test isempty(W.imported_urls())
+        # Nothing is written for a url that is not one.
+        @test occursin("not the url", W.import_url!(st, "not a url", at))
+        @test isempty(W.imported_urls())
+
+        url = "https://github.com/rust-lang/rust/issues/1"
+        msg = W.import_url!(st, url * "#issuecomment-99", at)
+        if occursin("could not import", msg)
+            @info "no network; skipping the import itself"
+        else
+            # Followed from now on, and said to be outside the events lane -
+            # which is the one thing an import cannot have, since its repo is
+            # not one of the watched ones.
+            @test occursin("imported", msg) && occursin("events lane", msg)
+            @test W.imported_urls() == [url]
+            @test W.get_field(url, "imported") == string(W.Date(at))
+            it = st.all[findfirst(x -> x.url == url, st.all)]
+            @test it.repo == "rust-lang/rust" && it.number == 1 && !it.is_pr
+            @test !isempty(it.title)
+            @test st.items[st.sel].url == url          # and it goes to it
+            # A second import of the same thing is not a second row.
+            n0 = length(st.all)
+            @test occursin("already", W.import_url!(st, url, at))
+            @test length(st.all) == n0
+            # It is local work, so `z` takes it back - the row and the line in
+            # state.toml both.
+            W.handle!(st, Int('z'), ctrl)
+            @test isempty(W.imported_urls())
+            @test findfirst(x -> x.url == url, st.all) === nothing
+        end
+        # An adopted branch is not an import, however alike the two look.
+        W.set_fields(W.localurl("o/r", "br"), ["imported" => "2026-09-02"])
+        @test isempty(W.imported_urls())
+        # And nothing is fetched for what is already here.
+        @test isempty(W.imported_items(Set(x.url for x in st.all)))
+    finally
+        write(W.statefile(), before)
+    end
 end
 
 @testset "a stale entry goes up while it is re-read" begin

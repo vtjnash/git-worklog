@@ -50,6 +50,7 @@ pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
 `backlog` / `archived` / `all`, with a second radio group for issues, pull
 requests or both.
 
+`i` imports an item by url,
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
@@ -339,33 +340,6 @@ These are the pieces of it that did not get built.
   means listing the owner's repos (one more call, cacheable for a day) and
   dropping items whose repo is a fork. A noise control, not a cost one, and
   today it would filter nothing: `vtjnash/*` returns zero items in a month.
-
-### Importing one item by URL
-
-There is no way to say "watch this particular thing". Everything arrives through
-a lane, so an issue in a repo that is not tracked, and that does not mention you,
-cannot be followed at all.
-
-Wanted: a way to paste a URL and have that item tracked until it is archived.
-The shape that fits is **a row in the list that is selected rather than a
-command** — the same move `f` makes for filters — since this is the browser's
-job and not the shell's.
-
-It composes with what exists: an imported item is an ordinary item keyed by url,
-so notes, snoozes, the clock, buckets and archive all work on it already, the
-same way adoption made a branch an item. Archive is its exit.
-
-**The one thing it cannot have is the activity lane.** An archived item normally
-comes back on its own because the events poller is watching its repo; an
-imported one is imported *precisely because* its repo is not watched, so new
-activity on it will arrive by email like it always did. Worth saying in the UI
-rather than discovering.
-
-Related: **where team and @-mentions actually matter is the repos we were not
-expecting to track** — a mention drags in something from a repo nowhere in
-`config.toml`. The team lanes now cover that for the teams listed. Where they do
-not reach, importing by URL is the manual answer, and that is an acceptable
-floor.
 
 ### A filter axis you can search, and an author axis at all
 

@@ -97,6 +97,75 @@ query(\$q: String!, \$cursor: String) {
 }
 """
 
+"""
+    item_url(text) -> canonical url, or nothing
+
+The one issue or pull request a pasted string names, or `nothing` when it names
+none. Everything after a `#` or a `?` goes, so the url copied off a comment
+anchor or out of the files tab is the same item as the url copied off the title;
+`/pulls/` becomes `/pull/`, which is what `resource` will answer to.
+
+It is also the guard on what reaches the query, which is why it is a whitelist
+rather than a trim: these urls come out of `state.toml`, which is a file the
+user edits, and they are interpolated into GraphQL as literals.
+"""
+function item_url(text::AbstractString)
+    t = replace(strip(String(text)), r"[#?].*$" => "")
+    m = match(r"^(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(pull|pulls|issues)/(\d+)/?", t)
+    m === nothing && return nothing
+    string("https://github.com/", m[1], "/", m[2],
+           m[3] == "issues" ? "/issues/" : "/pull/", m[4])
+end
+
+"""Items by url, in one request: what no lane can return.
+
+`search` cannot do this at all - a url is not a query, and an item in a repo
+nobody watches matches no lane by construction, which is exactly why it had to
+be asked for by hand. `resource` is GraphQL's lookup by url and takes the same
+two shapes the lanes already select, so what comes back normalizes identically.
+
+One aliased field per url rather than a request each: this runs on every refresh
+once anything has been imported, and a request per row is the thing the rest of
+this file exists to avoid. A url that names nothing - deleted, or moved to a
+repository you cannot see - comes back null and is skipped rather than thrown,
+because one dead import must not cost the refresh the live ones.
+"""
+function fetch_urls(urls)
+    us = String[]
+    for u in urls
+        c = item_url(u)
+        c === nothing || push!(us, c)
+    end
+    isempty(us) && return Any[]
+    parts = [string("  r", i, ": resource(url: ", json_dumps(u), ") {\n",
+                    "    __typename\n    ... on PullRequest {", PR_FIELDS, "    }\n",
+                    "    ... on Issue {", ISSUE_FIELDS, "    }\n  }\n")
+             for (i, u) in enumerate(us)]
+    q = string("query {\n  rateLimit { cost remaining }\n", join(parts), "}\n")
+    rc, o, e = gh_run(["api", "graphql", "--input", "-"], json_dumps(["query" => q]))
+    rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " *
+                                first(isempty(e) ? o : e, 300)))
+    d = JSON3.read(o)
+    haskey(d, :errors) &&
+        throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
+    out = Any[]
+    for i in eachindex(us)
+        n = jget(d.data, Symbol("r", i))
+        # Null for a url that resolves to nothing, and field-less for one that
+        # resolves to something else - a discussion, a commit, a repository.
+        (n === nothing || jget(n, :url) === nothing) && continue
+        push!(out, n)
+    end
+    out
+end
+
+"One item by url. Throws when there is nothing there to have."
+function fetch_url(url::AbstractString)
+    ns = fetch_urls([url])
+    isempty(ns) && throw(FetchError("no issue or pull request at $url"))
+    ns[1]
+end
+
 "Run `gh` with `input` on stdin, capturing both streams instead of raising."
 function gh_run(args::Vector{String}, input::AbstractString = "")
     out, err = IOBuffer(), IOBuffer()
