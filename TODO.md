@@ -462,6 +462,17 @@ Kept here so they can be written up in one pass rather than rediscovered.
   `inline = false` in that signature. Worked around locally by `untable`, which
   moves a nested table into a code block of its own source; a table at the top
   level is left alone, since Term renders it properly there.
+- **Term.jl: an empty list item is a `BoundsError`.**
+  `parse_md(::Markdown.List)` indexes `[1]` on every item, but Julia's markdown
+  parses `- a`/`-`/`- b` into items `[1, 0, 1]`, so any empty bullet throws
+  `BoundsError: attempt to access 0-element Vector{Any} at index [1]`
+  (`Term/src/markdown.jl:265`). Ordered or unordered, nested or top level, and
+  a lone `-` on its own is enough. Caught on 2026-09-02 from a real comment; the
+  whole comment falls back to raw text.
+
+  Needs the same local treatment as `untable`: drop or fill empty items before
+  Term sees the AST. Both workarounds are AST rewrites for the same reason, and
+  are worth writing as one pass over the tree rather than two.
 - **Term.jl: the intraword-emphasis bug** — see its own section above.
 - **Term.jl: the brace bug** — see its own section above.
 - **Term.jl: a tmux-backed pane as a widget.** Built here and in use: a session
@@ -477,6 +488,20 @@ Kept here so they can be written up in one pass rather than rediscovered.
 
 ## Known gaps in what has shipped
 
+- **The key help line is missing `g`/`G`, and is ordered worst-first.**
+  `g`/`G` (top and bottom) are bound in the list and the detail but appear in
+  neither footer row. And the row leads with the keys that need explaining least.
+  The obvious navigation keys should move to the *end* of the first row, with
+  `n`/`N` leading that group and `q`/`tab` closing it — so the line reads
+  `f filters · d diff · o comments · c checks · [/] context · l log · y copy ·
+  / search · ↵ fold · n/N node · g/G top/bottom · j/k line · space/b page ·
+  q quit · tab pane`, leaving what is worth reading at the front.
+- **`g`, `G` and `b` do nothing in the filters view.** The filters branch of
+  `handle!` binds `j`/`k`/`space`/`n`/`N`/`↵`/`c` and stops there, while the
+  items branch immediately below it also has `b` and `PgUp` for page-up and
+  `g`/`Home`, `G`/`End` for the ends. The filter list is long enough to need
+  all three. They are one `elseif` each, taking `nf` as the bound the way the
+  items branch takes `length(st.items)`.
 - **URL handling in the detail pane is inconsistent.** A comment's links
   sometimes appear inline immediately before the following node's header rather
   than where the text put them, so a header reads as
