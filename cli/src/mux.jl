@@ -87,8 +87,29 @@ function mux_start(name::AbstractString, dir::AbstractString, cmd::AbstractStrin
     mux_alive(name) && return (true, "")
     # One trailing argument, so tmux hands the whole thing to a shell. Passing
     # it pre-split would make the caller quote for a shell it cannot see.
-    ok, err = mux("new-session", "-d", "-s", name, "-c", dir, cmd)
+    ok, err = mux("new-session", "-d", "-s", name, "-c", dir, standalone(cmd))
     ok ? (true, "") : (false, isempty(err) ? "could not start session" : err)
+end
+
+"""Wrap `cmd` so its child starts as if from a plain terminal.
+
+Run the browser from inside an agent and every child inherits that agent's
+session: `CLAUDE_CODE_CHILD_SESSION`, which silently turns the child's
+transcript saving off, and `CLAUDE_CODE_MESSAGING_SOCKET` and its token, which
+are the parent's control channel. An agent started in a pane is meant to be its
+own session, answerable to the person watching it and to nobody else, and a
+shell has no more business holding another session's credentials.
+
+The names are read from this process rather than listed, so whatever a future
+version inherits is scrubbed too, and nothing is scrubbed that was not actually
+there. `env -u` does it at exec, which is the only place that certainly
+applies: the tmux *server* keeps the environment it was started with, and every
+session it is asked for later would otherwise be handed a copy.
+"""
+function standalone(cmd::AbstractString)
+    vars = sort!([k for k in keys(ENV) if startswith(k, "CLAUDE")])
+    isempty(vars) && return String(cmd)
+    string("env ", join(("-u " * v for v in vars), ' '), ' ', cmd)
 end
 
 mux_kill(name::AbstractString) = first(mux("kill-session", "-t=" * name))

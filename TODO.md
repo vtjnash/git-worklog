@@ -526,6 +526,18 @@ The stages, each of which stands on its own:
    - The three things it is actually for — `/review`, reading a buildkite log,
      making the edit — are all typed in the pane, and none of them want to be
      preceded by a reply to a preamble.
+   - **A child must be started standalone, or it joins the parent's bridge.**
+     Remote Control looked uninvolved — it is opt-in per invocation
+     (`--remote-control`) and no setting turns it on — and that was the wrong
+     place to look. A child started from inside an agent inherits the whole
+     `CLAUDE_*` family, `CLAUDE_CODE_MESSAGING_SOCKET`, its token and
+     `CLAUDE_CODE_BRIDGE_SESSION_ID` among them, and joins that bridge without
+     any flag being passed: agents launched in a pane showed up in the parent's
+     remote list for as long as they lived. The same inheritance silently turns
+     the child's transcript saving off. `standalone` scrubs whatever this
+     process actually holds — the identity when it holds none, so it costs
+     nothing when the browser was started from a plain terminal. Verified by
+     reading a child's environment back: ten such variables here, none in it.
 
 4b. **The session list. Done 2026-09-02.** `"` opens a `SessionView` over
    every `wl-` session: what kind it is, which item it belongs to, what is

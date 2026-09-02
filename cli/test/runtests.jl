@@ -1086,6 +1086,19 @@ end
     # A worktree with no branch known still gets a usable name.
     @test W.mux_name("julia", "", "62841") == "wl-julia-62841"
 
+    # A child starts as its own session. Only what this process actually
+    # inherited is scrubbed, so on a machine where the browser was not started
+    # from inside an agent this is the identity and costs nothing.
+    withenv("CLAUDE_CODE_MESSAGING_TOKEN" => "x", "CLAUDE_CODE_CHILD_SESSION" => "y") do
+        w = W.standalone("claude")
+        @test startswith(w, "env -u ") && endswith(w, " claude")
+        @test occursin("-u CLAUDE_CODE_MESSAGING_TOKEN", w)
+        @test occursin("-u CLAUDE_CODE_CHILD_SESSION", w)
+    end
+    withenv((k => nothing for k in filter(x -> startswith(x, "CLAUDE"), collect(keys(ENV))))...) do
+        @test W.standalone("claude") == "claude"
+    end
+
     # A missing binary has to be an answer, not an exception: every caller is
     # on a keystroke path.
     withenv("WORKLOG_TMUX" => "/nonexistent/tmux") do
