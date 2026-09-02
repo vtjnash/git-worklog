@@ -670,6 +670,38 @@ end
     @test !st.nodes[2].open && st.hidden == 1
 end
 
+@testset "underscores in identifiers survive" begin
+    render(t) = strip(W.astrip(join(W.nodelines(W.Node("h", t, :md, true), 100), " ")))
+    # Julia's Markdown opens emphasis on an intraword underscore and it takes
+    # two to pair, so a single identifier was never the failing case.
+    @test render("call deliver_result and connect_to_peer here") ==
+          "call deliver_result and connect_to_peer here"
+    @test render("snake_case_name alone") == "snake_case_name alone"
+    @test render("one_two three_four") == "one_two three_four"
+    # Real emphasis - an underscore with a space before it - still works.
+    @test render("a _real emphasis_ here") == "a real emphasis here"
+    # Code is left alone: a backslash inside a span would print.
+    @test render("`deliver_result` in code stays") == "`deliver_result` in code stays"
+    @test render("mixed `a_b` and c_d_e here") == "mixed `a_b` and c_d_e here"
+
+    esc = W.escape_intraword
+    @test esc("a_b") == "a\\_b"
+    @test esc("_leading and trailing_") == "_leading and trailing_"
+    @test esc("```\nkeep_me\n```") == "```\nkeep_me\n```"          # fenced
+    @test esc("    keep_me indented") == "    keep_me indented"    # indented
+    @test esc("`keep_me` but not_this") == "`keep_me` but not\\_this"
+    @test esc("") == ""
+
+    # And the name is findable, which is the point.
+    st = mkstate()
+    st.nodes = [W.Node("h", "guard the raw stderr writes in deliver_result and connect_to_peer",
+                       :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail
+    st.search = "deliver_result"
+    @test length(W.match_rows(st, 100)) == 1
+end
+
 @testset "span highlighting" begin
     s = "\e[31mred\e[0m and green"
     hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.HITBG)

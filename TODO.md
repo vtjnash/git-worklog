@@ -120,10 +120,17 @@ Do not "simplify" any of these away.
     hands a copy the box's padding - 1992 columns of spaces with a border on the
     end, for the gdb log on Distributed.jl#196.
 
+**Markdown (Julia's stdlib)**
+11. `Markdown.parse` opens emphasis on an underscore inside a word, which
+    CommonMark forbids, so `deliver_result and connect_to_peer` loses both
+    underscores and italicises what is between them. It takes two to pair, so a
+    single identifier looks fine and a real comment does not. Every parse goes
+    through `escape_intraword` first.
+
 **Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
-11. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
+12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
     jobs array to an anonymous caller, with no error.
-12. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
+13. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
     numeric entities (`&#47;`) as well as named ones.
 
 ### Conventions
@@ -169,30 +176,45 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### Term eats the underscores in identifiers
+### File the intraword-emphasis bug upstream
 `deliver_result and connect_to_peer` renders as `deliverresult and
-connectto_peer`. `Markdown.parse` treats the underscores as emphasis and Term
-drops the markers, so every snake_case name in a comment that was not written
-inside backticks loses characters — which is most of them, since people type
-function names as prose.
+connectto_peer`. Every snake_case name in a comment that was not written inside
+backticks loses characters — which is most of them, since people type function
+names as prose.
 
-GitHub does not do this: GFM does not open emphasis inside a word, so a bare
-`deliver_result` renders literally there. This is a parser difference, and it
-disagrees with what the comment looks like on the site it came from.
+**It is Julia's `Markdown`, not Term.** Term was the first suspect and is
+innocent; `parse_md` passes the text through untouched. The mangling is already
+in the AST:
 
-Where it bites hardest is search: `src` holds the mangled text, so `/` cannot
-find a name the reader can see is there — the same text is wrong in the pane and
-in the copy.
+```julia
+julia> Markdown.parse("call deliver_result and connect_to_peer here").content[1].content
+3-element Vector{Any}:
+ "call deliver"
+ Markdown.Italic(Any["result and connect"])
+ "to_peer here"
+```
 
-The fix is at the parse boundary. `Markdown.parse` is Julia's, so either
-pre-process the body to escape intraword underscores before parsing (a scan for
-`_` with a word character on both sides, and no backtick span around it — the
-same shape as `split_details`), or post-process, which cannot work because by
-then the character is gone. The pre-pass is the one that can.
+Note it takes **two** underscores to pair. `deliver_result` alone comes back
+intact, which is why a one-word test looks fine and a real comment does not —
+worth putting in the report, since it is what makes the bug easy to miss.
 
-Worth checking whether Term or Julia's Markdown is the right place to report it;
-`Markdown.parse` following CommonMark on intraword emphasis would fix it for
-everyone, and Term's markdown is a thin layer over it.
+CommonMark forbids this: a `_` may open emphasis only if it is left-flanking and
+either not right-flanking or preceded by punctuation. An underscore with a
+letter on both sides is both-flanking and unpunctuated, so it cannot open —
+which is why GitHub renders `snake_case_name` literally and we do not. The
+disagreement is with the page the comment came from.
+
+**Not filed yet, and there is no existing issue.** Searched JuliaLang/julia for
+markdown + emphasis/underscore/intraword/italic; the closest is #57265, which is
+`@md_str` interpolation and closed as a duplicate of something else. `Markdown`
+is still a stdlib inside JuliaLang/julia (`stdlib/Markdown`), so that is where it
+goes, with the snippet above.
+
+**The workaround has shipped** — `escape_intraword` escapes such an underscore
+before `Markdown.parse` sees it, skipping fenced blocks, indented blocks and
+inline code spans, where a backslash would print. So this repo is no longer
+waiting on the fix; what remains is filing it, so that everyone else's rendered
+docstrings and READMEs stop losing characters too.
 
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review
