@@ -1505,7 +1505,13 @@ function render_frame(st::BState, w::Int, h::Int)
     # runs at the end and what is worth reading is at the front.
     keys1 = string("[", filter_summary(st.filters, st.sort), "]  f filters \u00b7 w sort \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
-                   "y copy \u00b7 / search \u00b7 \u21b5 fold \u00b7 n/N node \u00b7 ",
+                   "y copy \u00b7 / search \u00b7 ",
+                   # What `\u21b5` does depends on where the cursor is, and a
+                   # footer that names only one of the three is why the row at
+                   # the top of the list needed explaining twice.
+                   st.focus === :detail ? "\u21b5 fold \u00b7 " :
+                   st.sel == 0 ? "\u21b5 import \u00b7 " : "\u21b5 read \u00b7 ",
+                   "n/N node \u00b7 ",
                    "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
                    "q quit \u00b7 tab pane")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",

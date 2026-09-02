@@ -538,6 +538,17 @@ end
 
 @testset "the key help says what is bound" begin
     st = mkstate()
+    # `↵` does three different things, so the footer names the one it would do
+    # from where the cursor is rather than the one it does somewhere else.
+    hint(x) = (m = match(r"(\S+ \S+) \u00b7 n/N", W.astrip(W.render(x, 200, 40)));
+               m === nothing ? "" : m[1])
+    e = mkstate()
+    @test hint(e) == "\u21b5 read"
+    e.sel = 0
+    @test hint(e) == "\u21b5 import"
+    e.sel = 1; e.focus = :detail
+    @test hint(e) == "\u21b5 fold"
+
     line = W.astrip(W.render(st, 200, 40))
     # Every key the list and the detail bind should be findable in the footer.
     for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
