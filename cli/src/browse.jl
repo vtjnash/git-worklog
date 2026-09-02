@@ -292,7 +292,7 @@ hits(it::Item, q::AbstractString) =
     occursin(lowercase(q), lowercase(it.title)) || occursin(lowercase(q), lowercase(it.ref))
 
 function refilter!(st)
-    keep = isempty(st.items) ? "" : st.items[st.sel].url
+    keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
     # has to be current for a row to arrive in it.
@@ -310,7 +310,11 @@ function refilter!(st)
     (isempty(st.search) || st.searchin !== :list) ||
         (st.items = [it for it in st.items if hits(it, st.search)])
     i = findfirst(x -> x.url == keep, st.items)
-    st.sel = i === nothing ? 1 : i          # stay on the same item when possible
+    # Stay on the same item when possible, failing that the first one - and the
+    # import row only when there is no item at all to be on. Deliberately not
+    # sticky: you land on that row by moving to it, and a rebuilt list that has
+    # work in it should open on the work rather than on the way to add more.
+    st.sel = isempty(st.items) ? 0 : something(i, 1)
     st.top = 1
 end
 
@@ -963,7 +967,7 @@ between the thread, the diff and the checks re-reads the body three times, but
 the reviewers and the labels are the same each time.
 """
 function load_meta!(st::BState)
-    isempty(st.items) && return
+    (isempty(st.items) || st.sel == 0) && return
     it = st.items[st.sel]
     (st.metakey == it.url || (st.metapending !== nothing && st.metakey == it.url)) && return
     st.metakey = it.url
@@ -1440,8 +1444,9 @@ Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
 narrow window degrades rather than truncating the detail into uselessness.
 """
 function render_frame(st::BState, w::Int, h::Int)
-    st.sel = clamp(st.sel, 1, max(1, length(st.items)))
-    it = isempty(st.items) ? nothing : st.items[st.sel]
+    # Zero is the import row, which is why this is not the usual clamp to 1.
+    st.sel = clamp(st.sel, 0, length(st.items))
+    it = st.sel == 0 ? nothing : st.items[st.sel]
     # The pane sizes to its content, so it is rendered before the heights are
     # settled; only its width is known this early, and only its width is needed.
     mlines = meta_lines(st, it, leftw(w) - 4)
@@ -1460,7 +1465,11 @@ function render_frame(st::BState, w::Int, h::Int)
         lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
         ltitle = "filters"
     else
-        lrows = Row[]
+        # The import row leads, always: a list of two thousand rows is not
+        # somewhere a control can be discovered at the bottom of.
+        lrows = Row[Row(0, true,
+                        string(st.sel == 0 && st.focus === :list ? "\e[1;37m" : AD,
+                               afit(NEWROW, liw), AR), NEWROW, 0)]
         for i in 1:length(st.items)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
@@ -1471,7 +1480,9 @@ function render_frame(st::BState, w::Int, h::Int)
             push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end
-        lvis, st.top = window(lrows, st.sel, st.top, lh - 2)
+        # One row further down than the selection, since the import row is at
+        # the front of the drawn list and in front of index 1.
+        lvis, st.top = window(lrows, st.sel + 1, st.top, lh - 2)
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
@@ -2025,7 +2036,19 @@ mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
     mode === :diff     ? diff_nodes(it; fresh = fresh) : check_nodes(it)
 
 function load_nodes!(st::BState)
-    isempty(st.items) && return
+    # The import row has nothing to fetch and says so itself. Keyed like any
+    # other load, so moving away and back does not rebuild it.
+    if st.sel == 0 || isempty(st.items)
+        st.loaded == "new:" && return
+        st.nodes = newnodes()
+        st.loaded = "new:"
+        st.pending = nothing; st.pendkey = ""; st.quiet = false
+        st.nrow = 1; st.ntop = 1; clearsel!(st)
+        # The status is not touched. There is no fetch here to announce, and
+        # this runs after every key - including the ones on an empty list, whose
+        # message it would otherwise write over on the way past.
+        return
+    end
     it = st.items[st.sel]
     mode = st.mode
     key = string(it.url, ":", mode)
@@ -2062,7 +2085,7 @@ Only ever for the item that is loaded and only when nothing else is in flight,
 so this can never be what a keystroke is waiting on.
 """
 function refresh_nodes!(st::BState)
-    isempty(st.items) && return false
+    (isempty(st.items) || st.sel == 0) && return false
     it = st.items[clamp(st.sel, 1, length(st.items))]
     key = string(it.url, ":", st.mode)
     (st.loaded == key && isempty(st.pendkey)) || return false
@@ -2274,15 +2297,22 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         elseif k == Int('c');           st.filters = Filters(); refilter!(st)
         end
     elseif st.focus === :list
+        # Zero is the import row, which is why the floor here is not one. `g`
+        # stops at the first item rather than on it: the top of the list is
+        # where the work is, and the row above the top is asked for by moving
+        # up off it.
         if k in (Int('j'), K_DOWN);          st.sel = min(length(st.items), st.sel + 1)
-        elseif k in (Int('k'), K_UP);        st.sel = max(1, st.sel - 1)
+        elseif k in (Int('k'), K_UP);        st.sel = max(0, st.sel - 1)
         elseif k in (Int(' '), 6, K_PGDN);   st.sel = min(length(st.items), st.sel + lpage)
-        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(1, st.sel - lpage)
-        elseif k in (Int('g'), K_HOME);      st.sel = 1
+        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(0, st.sel - lpage)
+        elseif k in (Int('g'), K_HOME);      st.sel = min(1, length(st.items))
         elseif k in (Int('G'), K_END);       st.sel = length(st.items)
-        elseif k in (13, 10);                st.focus = :detail
+        elseif k in (13, 10)
+            # The row that is not an item does the one thing it is for; every
+            # other row hands the keys to the pane beside it.
+            st.sel == 0 ? import_action(st, ctrl, at) : (st.focus = :detail)
         end
-        isempty(st.items) ||
+        (isempty(st.items) || st.sel == 0) ||
             st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
     else
         n = length(rows(st.nodes, iw))
@@ -2329,7 +2359,14 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         import_action(st, ctrl, at)
         return :ok
     end
-    (st.lmode === :filters || isempty(st.items)) && return :ok
+    # `st.sel == 0` is the import row, which is not an item and answers to none
+    # of the keys below. The pane beside it still has to catch up with whatever
+    # the cursor has just moved onto, which for that row is its own text - and
+    # the per-item path below does this at its end for the same reason.
+    if st.lmode === :filters || st.sel == 0 || isempty(st.items)
+        load_nodes!(st)
+        return :ok
+    end
     it = st.items[clamp(st.sel, 1, length(st.items))]
 
     # Context expansion and the editor both need a local checkout. Ask for it the
@@ -2509,9 +2546,11 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
             nf = length(filter_rows(st))
             st.frow = wheel ? clamp(st.frow + d, 1, nf) : clamp(st.top + row - 1, 1, nf)
             wheel || toggle_filter!(st)
-        elseif !isempty(st.items)
-            st.sel = wheel ? clamp(st.sel + d, 1, length(st.items)) :
-                             clamp(st.top + row - 1, 1, length(st.items))
+        else
+            # `- 2`, not `- 1`: the drawn list carries the import row in front
+            # of item 1, and `st.top` counts drawn rows.
+            st.sel = wheel ? clamp(st.sel + d, 0, length(st.items)) :
+                             clamp(st.top + row - 2, 0, length(st.items))
             load_nodes!(st)         # clears any selection with the old nodes
         end
         return :ok
@@ -3097,6 +3136,39 @@ function branch_index(items)
     end
     d
 end
+
+"""The one row in the list that is not an item.
+
+Importing is not an action on whatever happens to be selected - it is how
+something that is *not* here gets in - so it is a row you move onto and press
+`\u21b5` on rather than a key you have to have been told about. `i` still does it
+from anywhere, and this is what tells you that.
+
+It is not in `st.items`. A row that is not an item, in the vector every filter,
+sort, count and per-item key reads, would have to be excluded from all of them
+one by one. Instead the list is drawn with this row in front of it and the
+cursor is allowed one place further up: `st.sel == 0` is this row, and every
+item index stays exactly what it was. That also makes the empty list right for
+free - nothing selected and nothing to select is precisely when importing is
+what you came to do.
+"""
+const NEWROW = "\u002b import an item by url"
+
+"What the detail pane says while the import row is selected."
+newnodes() = [Node("import an item by url",
+                   "`\u21b5` here, or `i` from anywhere, asks for a url.\n\n" *
+                   "Everything else in this list arrived through a lane - your " *
+                   "pull requests, review requests, mentions, the repos in " *
+                   "`config.toml`. An issue in a repo nobody watches that does " *
+                   "not mention you matches none of them, and a url is not a " *
+                   "query, so this is the way in.\n\n" *
+                   "It is followed from then until you archive it, with notes, " *
+                   "snoozes, the clock and the buckets all working on it as they " *
+                   "do on anything else. The one thing it cannot have is the " *
+                   "events poller, which only watches the repos named in " *
+                   "`config.toml` - so new activity on an imported item will " *
+                   "still reach you by email.",
+                   :md, true)]
 
 """Follow one item that no lane returns, by pasting its url.
 

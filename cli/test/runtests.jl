@@ -274,10 +274,17 @@ end
     L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
 
-    # A click on the list pane's third content row selects the third item.
+    # A click on the list pane's third content row selects the second item: the
+    # import row is drawn in front of item 1, so the drawn rows are one ahead
+    # of the item indices.
     press(x, y) = W.onmouse!(st, W.MouseEvent(:press, 0, x, y, 0), ctrl)
     press(L.lx + 3, L.ly + 3)
-    @test st.focus === :list && st.sel == st.top + 2
+    @test st.focus === :list && st.sel == st.top + 1
+    # And the first row is that import row, which is selection zero.
+    press(L.lx + 3, L.ly + 1)
+    @test st.focus === :list && st.sel == 0
+    press(L.lx + 3, L.ly + 2)
+    @test st.sel == 1
 
     # Clicking the detail pane's first content row lands on the first title row,
     # which is header, not content - so nrow stays put and focus moves.
@@ -959,7 +966,11 @@ end
     # archiving or snoozing the last row of a lane empties it, and `z` used to
     # be swallowed along with every per-item key.
     empty = mkstate()
-    empty.items = W.Item[]
+    # Emptied at the source, not just in the filtered list: `undo!` rebuilds the
+    # membership lanes, so a list emptied only downstream comes straight back.
+    empty.all = W.Item[]; W.refilter!(empty)
+    @test isempty(empty.items) && empty.sel == 0    # nothing to be on but the
+                                                    # row that is not an item
     hit = false
     push!(empty.undos, W.Undo("gone", () -> (hit = true)))
     W.handle!(empty, Int('z'), ctrl)
@@ -2796,6 +2807,41 @@ end
         # Nothing is written for a url that is not one.
         @test occursin("not the url", W.import_url!(st, "not a url", at))
         @test isempty(W.imported_urls())
+
+        # The row that is not an item. It leads the drawn list, and the cursor
+        # is allowed one place above item 1 to reach it - which is what keeps
+        # it out of st.items, and out of every filter, sort and count.
+        r = mkstate()
+        @test r.sel == 1                            # a list with work opens on work
+        drawn() = W.astrip(W.render(r, 160, 40))
+        @test occursin("import an item by url", drawn())
+        W.handle!(r, Int('k'), ctrl)
+        @test r.sel == 0
+        W.handle!(r, Int('k'), ctrl)
+        @test r.sel == 0                            # and there is nothing above it
+        # Its own text in the pane beside it, rather than the item it came from.
+        @test occursin("a url is not a query", drawn())
+        @test !occursin(r.items[1].title, drawn())
+        # Every per-item key is inert here: this row is not an item.
+        r.status = ""
+        for k in (Int('x'), Int('s'), Int('r'), Int('d'), Int('o'), Int('L'))
+            @test W.handle!(r, k, ctrl) === :ok
+        end
+        @test isempty(r.status) && r.sel == 0
+        # `↵` does the one thing it is for; on an item it hands over to the
+        # pane beside it, as it always did.
+        @test W.handle!(r, 13, ctrl) === :ok
+        @test last(ctrl.stack) isa W.PromptView
+        pop!(ctrl.stack)
+        @test r.focus === :list
+        W.handle!(r, Int('j'), ctrl)
+        @test r.sel == 1
+        W.handle!(r, 13, ctrl)
+        @test r.focus === :detail && isempty(ctrl.stack)
+        # `g` is the top of the *list*; the row above the top is asked for.
+        r.focus = :list
+        W.handle!(r, Int('G'), ctrl); W.handle!(r, Int('g'), ctrl)
+        @test r.sel == 1
 
         # `i` is not a key about the selected item: an empty list is where the
         # first import gets made, and every per-item key is dropped there.

@@ -50,7 +50,8 @@ pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
 `backlog` / `archived` / `all`, with a second radio group for issues, pull
 requests or both.
 
-`i` imports an item by url,
+`i` imports an item by url - so does `↵` on the row
+above the first item, which is the only row in the list that is not one -
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
