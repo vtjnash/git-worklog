@@ -125,6 +125,12 @@ cli/bin/wl              # lane -> item -> thread -> action
 cli/bin/wl --refresh    # re-fetch first
 ```
 
+A fenced code block becomes a foldable block of its own rather than prose, so a
+pasted log folds away to one line and never gets drawn as a box wider than the
+pane. Inline code is a quiet grey span instead of yellow punctuation, and
+`snake_case` names keep their underscores — Julia's Markdown reads them as
+emphasis, which CommonMark forbids and GitHub does not do.
+
 Under the item list is a metadata pane: who has reviewed and who was asked,
 labels, the check tally, milestone, mergeable state, and the tracking level and
 note from `state.toml`. It sits there rather than beside the detail because ten

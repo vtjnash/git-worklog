@@ -101,8 +101,10 @@ Do not "simplify" any of these away.
    100 nodes once overwrote a 957-item cached lane. `implausible()` guards this.
 
 **Term.jl**
-7. `parse_md` escapes braces by doubling them and nothing downstream collapses
-   them — Julia type signatures arrive as `Tuple{{Type{{S{{N, Tup}}}`.
+7. `parse_md` doubles braces **inside a code span** and nothing downstream
+   collapses them, so a signature arrives as `Tuple{{Type{{S{{N, Tup}}}`; we
+   undo it in `render_md`. In prose it does *not* double them, and `apply_style`
+   then eats them as markup — see the entry above, which is not fixed.
 8. `parse_md` does not wrap lines containing inline code (232 display columns
    for a requested 90). We wrap with `awrap`. Term's own wrapping is known to be
    shaky - FedeClaudi/Term.jl#247 is open on it - so this is not a workaround
@@ -216,21 +218,30 @@ inline code spans, where a backslash would print. So this repo is no longer
 waiting on the fix; what remains is filing it, so that everyone else's rendered
 docstrings and READMEs stop losing characters too.
 
-### Code blocks in comments are boxes, and long lines break them
-Term draws a fenced code block as a bordered panel sized to its longest line,
-not to the width it was asked for. A pasted gdb log or stack trace routinely
-runs to 130-250 columns, so in a 96-column pane the panel is wider than the pane
-and `awrap` hard-breaks it: the left border, some content, then the rest of that
-line on the following rows with the closing border landing in the middle of
-nothing. Distributed.jl#196 is the case to look at - its longest log line is 135
-columns against a 91-column panel.
+### `apply_style` eats braces written as prose
+`a Tuple{Type{S{N}}} sig` renders as `a Tuple sig`. Not doubled — **deleted**.
+Invariant 7 says `parse_md` doubles braces and nothing collapses them, which is
+true *inside a code span* and not true in prose, where they are left alone and
+`apply_style` then consumes them as an unknown markup tag. Julia type signatures
+are the obvious casualty, and they are common in the comments this reads.
 
-The content is readable; the box is the problem. Options, roughly in order of
-how much they change: stop letting Term draw the panel at all and render a
-fenced block as plain indented text, clipped at the pane width with the overflow
-reachable some other way; or keep the panel and truncate its contents to fit,
-which loses the ends of exactly the lines somebody pasted a log to show; or let
-a code node scroll horizontally, which nothing else in the pane does.
+What the pipeline actually does, measured:
+
+| input | `parse_md` | then `apply_style` |
+|---|---|---|
+| `Tuple{Type{S{N}}}` in prose | unchanged | **gone** |
+| `` `Dict{String,Int}` `` in code | doubled to `{{` | kept as `{{`, undoubled by us |
+| a lone `{` | unchanged | kept (not a valid tag) |
+
+The obvious fix does not work: doubling every brace before `apply_style` also
+doubles Term's *own* tags — `parse_md` emits `{#FFF59D italic}` for styling —
+and they then print literally instead of colouring anything. So a fix has to
+distinguish content braces from markup braces, which means either recognising
+Term's tag grammar (fragile, and it is not ours) or getting `parse_md` to escape
+prose braces the way it already escapes them in code spans, which looks like the
+actual bug and belongs upstream with the intraword-underscore one.
+
+Both are the same failure: a markup layer consuming characters that were text.
 
 ### Offer the composer to Term.jl
 Term has no text input at all - no line editor, no text area, nothing that takes
@@ -318,6 +329,10 @@ at all.
   shows an elided form and its source is the whole URL. Those fall back to
   marking whatever of the query is visible on the row, which is the old
   behaviour and is right for them.
+- **A fenced code block is a node, not part of its comment.** Lifting it out of
+  the markdown is what stops Term boxing it, but it means folding the comment
+  and folding the block are two actions, and a block appears after all the prose
+  of the segment it interrupted rather than exactly where it was written.
 - **A code span Term wrapped gets no background.** `style_code_spans` pairs
   delimiters within a line, and Term breaks a long span across two — so those
   fall back to a dim backtick. Drawing a background across the break would need

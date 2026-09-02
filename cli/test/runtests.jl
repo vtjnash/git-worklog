@@ -701,6 +701,36 @@ end
     @test !st.nodes[2].open && st.hidden == 1
 end
 
+@testset "fenced code blocks are lifted out of Term" begin
+    segs = W.split_fences("before\n\n```julia\nf(x)\n  g\n```\n\nafter")
+    @test [(k, sm) for (k, sm, _) in segs] == [(:text, ""), (:code, "julia"), (:text, "")]
+    @test segs[2][3] == "f(x)\n  g"
+    @test W.split_fences("no code here") == [(:text, "", "no code here")]
+    # An unclosed fence gives its lines back rather than swallowing them.
+    @test occursin("dangling", W.split_fences("a\n```\ndangling")[1][3])
+    @test W.split_fences("~~~\nx\n~~~")[1][1] === :code
+
+    ns = W.body_nodes("alice", "before\n\n```julia\nf(x)\n```\n\nafter", "http://x", true)
+    code = [n for n in ns if n.kind === :plain]
+    @test length(code) == 1
+    @test code[1].depth == 1 && occursin("julia", code[1].header)
+    @test code[1].open                                  # short blocks stay open
+    long = W.body_nodes("a", string("```\n", join(["l$i" for i in 1:40], "\n"), "\n```"),
+                        "", true)
+    @test !first(n for n in long if n.kind === :plain).open   # long ones fold away
+
+    # No box, and nothing wider than the pane - the whole point.
+    wide = W.body_nodes("a", string("```\n", "x"^250, "\n```"), "", true)
+    for n in wide; n.kind === :plain && (n.open = true); end
+    rs = W.rows(wide, 96)
+    @test all(W.awidth(r.text) <= 96 for r in rs)
+    @test !any(occursin("│", W.astrip(r.text)) || occursin("└", W.astrip(r.text)) for r in rs)
+
+    # A plain node must not double its braces: it never reaches Term.
+    n = W.Node("h", "f() { Dict{String,Int}() }", :plain, true)
+    @test W.astrip(join(W.nodelines(n, 80), "")) == "f() { Dict{String,Int}() }"
+end
+
 @testset "inline code is a background, not a shout" begin
     lines(t, w) = W.nodelines(W.Node("h", t, :md, true), w)
     plain(t, w) = strip(join([W.astrip(l) for l in lines(t, w)], " "))

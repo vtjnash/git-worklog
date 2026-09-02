@@ -531,7 +531,7 @@ function render_md(body::AbstractString, w::Int)
         style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
     catch e
         MD_WARN[] = first(sprint(showerror, e), 120)
-        esc(body)
+        String(body)          # the raw text; this path bypasses Term entirely
     end
 end
 
@@ -630,7 +630,10 @@ function nodelines(n::Node, w::Int)
     elseif n.kind === :diff
         txt = join((diffline(l) for l in split(n.raw, "\n")), "\n")
     else
-        txt = esc(n.raw)
+        # Not `esc`: a plain node never reaches Term, so doubling its braces is
+        # doubling them on screen. It showed `Dict{{String,Int}}` in a code
+        # block, and had been doing the same to Buildkite logs all along.
+        txt = String(n.raw)
     end
     lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
     # A diff or a plain block is already one line per line of its source, so
@@ -1376,6 +1379,57 @@ function split_details(md::AbstractString)
     out
 end
 
+"""
+    split_fences(md) -> Vector{Tuple{Symbol,String,String}}
+
+Break prose apart from fenced code blocks: `(:text, "", prose)` and
+`(:code, language, contents)`.
+
+Term draws a fenced block as a bordered panel sized to its *longest line*, not
+to the width it was asked for. A pasted gdb log or stack trace routinely runs to
+250 columns, so in a 96-column pane the panel is wider than the pane and the
+wrapping breaks it: the left border, some content, then the rest of that line on
+following rows with the closing border landing in the middle of nothing.
+
+Lifting the block out means it never reaches Term at all - it becomes a node of
+its own, rendered as plain text, which wraps like everything else and keeps its
+borders because it has none. A long log also becomes foldable, which is what a
+long log wants to be.
+"""
+function split_fences(md::AbstractString)
+    out = Tuple{Symbol,String,String}[]
+    buf, code = String[], String[]
+    lang, opener, fenced = "", "", false
+    flushtext!() = begin
+        t = strip(join(buf, "\n"))
+        isempty(t) || push!(out, (:text, "", String(t)))
+        empty!(buf)
+    end
+    for line in split(md, '\n')
+        m = match(r"^\s*(?:```|~~~)\s*([A-Za-z0-9_+-]*)\s*$", line)
+        if m !== nothing
+            if fenced
+                # Flush the prose here rather than at the opening fence, so the
+                # segments come out in the order they were written.
+                flushtext!()
+                push!(out, (:code, lang, join(code, "\n")))
+                empty!(code); fenced = false
+            else
+                lang, opener, fenced = String(m[1]), String(line), true
+            end
+            continue
+        end
+        fenced ? push!(code, String(line)) : push!(buf, String(line))
+    end
+    if fenced
+        # Never closed, so it was not a fence: give every line back as prose,
+        # in one piece rather than as two segments either side of nothing.
+        push!(buf, opener); append!(buf, code)
+    end
+    flushtext!()
+    out
+end
+
 "How far a `<details>` chain is followed before its contents are left as text."
 const MAX_DEPTH = 3
 
@@ -1392,15 +1446,31 @@ closing the comment left its own tail on screen as a stray `…`, and the block
 after that tail hung off the tail rather than off the comment.
 """
 function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int = 0)
-    segs = depth >= MAX_DEPTH ? [(:text, "", String(body))] : split_details(body)
+    segs = depth >= MAX_DEPTH ? [(:text, "", String(body))] :
+           collect(Iterators.flatten(
+               (k === :text ? split_fences(c) : [(k, sm, c)]
+                for (k, sm, c) in split_details(body))))
     lead = (!isempty(segs) && segs[1][1] === :text) ? segs[1][3] : ""
     n = Node(String(header), lead, :md, open, depth)
     isempty(url) || (n.meta["url"] = url)
     push!(ns, n)
     for (k, (kind, summary, content)) in enumerate(segs)
         (k == 1 && kind === :text) && continue
-        kind === :details ? body_nodes!(ns, summary, content, url, false, depth + 1) :
-                            body_nodes!(ns, "…", content, url, true, depth + 1)
+        if kind === :details
+            body_nodes!(ns, summary, content, url, false, depth + 1)
+        elseif kind === :code
+            # Its own node, and never through Term: plain text wraps like
+            # everything else, and a block with no border cannot have a broken
+            # one. Folded when it is long enough to be in the way.
+            nl = count(==('\n'), content) + 1
+            c = Node(string(isempty(summary) ? "code" : summary, "  ",
+                            nl, nl == 1 ? " line" : " lines"),
+                     content, :plain, nl <= 12, depth + 1)
+            isempty(url) || (c.meta["url"] = url)
+            push!(ns, c)
+        else
+            body_nodes!(ns, "…", content, url, true, depth + 1)
+        end
     end
     ns
 end
