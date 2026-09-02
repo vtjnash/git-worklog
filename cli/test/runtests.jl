@@ -441,8 +441,9 @@ end
     # What the counts used to be computed by: one full pass per value, with one
     # axis replaced. Slow, obviously correct, and the thing to check against.
     brute(f, axis, v) = begin
-        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels))
+        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels), f.kind)
         axis === :state  ? (p.state = v) :
+        axis === :kind   ? (p.kind = v) :
         axis === :bucket ? (p.buckets = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) : (p.labels = Set([v]))
         count(it -> W.matches(p, it, st.unread), st.all)
@@ -452,17 +453,36 @@ end
                W.Filters(:backlog, Set{String}(), Set{String}(), Set{String}()),
                W.Filters(:all, Set(["needs-review"]), Set{String}(), Set{String}()),
                W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]), Set{String}()),
-               W.Filters(:all, Set(["issue"]), Set(["JuliaLang/julia"]), Set(["docs"]))]
+               W.Filters(:all, Set(["issue"]), Set(["JuliaLang/julia"]), Set(["docs"])),
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :issue),
+               W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]),
+                         Set{String}(), :pr)]
     for f in configs
         st.filters = f
-        (ns, nb, nr, nl) = W.axis_counts(st)
+        (ns, nk, nb, nr, nl) = W.axis_counts(st)
         for (k, _) in W.STATES
             @test get(ns, k, 0) == brute(f, :state, k)
+        end
+        for (k, _) in W.KINDS
+            @test get(nk, k, 0) == brute(f, :kind, k)
         end
         for v in st.buckets;  @test get(nb, v, 0) == brute(f, :bucket, v); end
         for v in first(st.repos, 12);  @test get(nr, v, 0) == brute(f, :repo, v); end
         for v in first(st.labels, 12); @test get(nl, v, 0) == brute(f, :label, v); end
     end
+
+    # Three values and no fourth: both is the whole list, and the other two
+    # partition it.
+    st.filters = W.Filters(:all, Set{String}(), Set{String}(), Set{String}())
+    both = length(W.apply_filters(st.filters, st.all, st.unread))
+    st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all, st.unread))
+    st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all, st.unread))
+    @test prs + iss == both && prs > 0 && iss > 0
+    @test occursin("issues", W.filter_summary(st.filters))
+    st.filters.kind = :pr
+    @test occursin("pull requests", W.filter_summary(st.filters))
+    st.filters.kind = :both
+    @test !occursin("pull requests", W.filter_summary(st.filters))
 end
 
 @testset "n/N steps between filter groups" begin
@@ -472,7 +492,7 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    @test length(g) == 4                        # state, category, repo, label
+    @test length(g) == 5                        # state, kind, category, repo, label
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
     st.frow = g[1]

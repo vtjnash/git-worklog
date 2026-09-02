@@ -62,12 +62,25 @@ has always had.
 const SORTS = [(:none, "as fetched"), (:touched, "by when you last acted"),
                (:latest, "by when anything last happened")]
 
+"""Issue, pull request, or both - the third radio group.
+
+A radio and not a fourth tag axis: the values are exhausted by three and they
+are mutually exclusive, so a set of them would only ever hold one thing or say
+nothing. `Item.is_pr` was already there and every lane carries both kinds, which
+is what made "issues only" impossible to ask for and obvious to want.
+"""
+const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
+
 mutable struct Filters
     state::Symbol
     buckets::Set{String}      # empty means every category
     repos::Set{String}        # empty means every repo
     labels::Set{String}       # empty means every label
+    kind::Symbol              # :both | :pr | :issue
 end
+# Four arguments is the shape from before there was a kind, kept because every
+# caller of it means "whatever kind" - which is what the default says.
+Filters(state, buckets, repos, labels) = Filters(state, buckets, repos, labels, :both)
 Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
 "Does this item belong to one of the five exclusive states?"
@@ -126,11 +139,15 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
     mode === :none ? items :
     sort(items; by = it -> sortkey(it, touched, mode), rev = true)
 
+"Issue or pull request, with `:both` restricting nothing."
+kind_ok(kind::Symbol, it::Item) = kind === :both || (kind === :pr) == it.is_pr
+
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String},
                  touched::Dict{String,String} = EMPTY_TOUCHED,
                  archived::Dict{String,String} = EMPTY_TOUCHED)
     state_ok(f.state, it, unread, touched, archived) || return false
+    kind_ok(f.kind, it) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
@@ -138,7 +155,7 @@ function matches(f::Filters, it::Item, unread::Set{String},
 end
 
 """
-    axis_counts(st) -> (states, buckets, repos, labels)
+    axis_counts(st) -> (states, kinds, buckets, repos, labels)
 
 How many items each filter value would select, in one pass over the items.
 
@@ -153,6 +170,7 @@ keystroke, which made the filter pane the only part of the UI with visible lag -
 function axis_counts(st)
     f = st.filters
     states = Dict{Symbol,Int}()
+    kinds = Dict{Symbol,Int}()
     buckets = Dict{String,Int}()
     repos = Dict{String,Int}()
     labels = Dict{String,Int}()
@@ -162,20 +180,26 @@ function axis_counts(st)
         rok = isempty(f.repos)   || it.repo in f.repos
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
         sok = state_ok(f.state, it, st.unread, st.touched, st.archived)
-        if bok && rok && lok
+        kok = kind_ok(f.kind, it)
+        if bok && rok && lok && kok
             for (k, _) in STATES
                 state_ok(k, it, st.unread, st.touched, st.archived) && bump!(states, k)
             end
         end
-        sok && rok && lok && bump!(buckets, it.bucket)
-        sok && bok && lok && bump!(repos, it.repo)
-        if sok && bok && rok
+        if sok && bok && rok && lok
+            for (k, _) in KINDS
+                kind_ok(k, it) && bump!(kinds, k)
+            end
+        end
+        sok && rok && lok && kok && bump!(buckets, it.bucket)
+        sok && bok && lok && kok && bump!(repos, it.repo)
+        if sok && bok && rok && kok
             for l in it.labels
                 bump!(labels, l)
             end
         end
     end
-    (states, buckets, repos, labels)
+    (states, kinds, buckets, repos, labels)
 end
 
 apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED) =
@@ -189,12 +213,19 @@ of the filter.
 """
 function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
-    (nstate, nbucket, nrepo, nlabel) = axis_counts(st)
+    (nstate, nkind, nbucket, nrepo, nlabel) = axis_counts(st)
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
         n = get(nstate, k, 0)
         push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
                                               rpad(name, 10), n)))
+    end
+    push!(rows, (:head, "", ""))
+    push!(rows, (:head, "", "kind"))
+    for (k, name) in KINDS
+        n = get(nkind, k, 0)
+        push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
+                                              rpad(name, 14), n)))
     end
     for (axis, label, values, tally) in ((:bucket, "category", st.buckets, nbucket),
                                          (:repo, "repo", st.repos, nrepo),
@@ -238,6 +269,8 @@ function toggle_filter!(st)
     (axis, val, _) = rows[st.frow]
     if axis === :state
         st.filters.state = Symbol(val)
+    elseif axis === :kind
+        st.filters.kind = Symbol(val)
     elseif axis === :bucket
         val in st.filters.buckets ? delete!(st.filters.buckets, val) :
                                     push!(st.filters.buckets, val)
@@ -284,6 +317,7 @@ end
 "One-line summary of what is applied, for the frame title."
 function filter_summary(f, order::Symbol = :none)
     parts = [string(f.state)]
+    f.kind === :both || push!(parts, f.kind === :pr ? "pull requests" : "issues")
     # Not `sort`: that is the name of the function two lines down, and shadowing
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
     order === :none || push!(parts, order === :latest ? "by when it moved" :

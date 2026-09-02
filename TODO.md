@@ -47,7 +47,8 @@ changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
 last acted, `x` archives, `z` undoes the last local action. `f` opens the filter
 pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
-`backlog` / `archived` / `all`.
+`backlog` / `archived` / `all`, with a second radio group for issues, pull
+requests or both.
 
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
@@ -366,13 +367,6 @@ expecting to track** — a mention drags in something from a repo nowhere in
 not reach, importing by URL is the manual answer, and that is an acceptable
 floor.
 
-### A filter for issue / pull request / both
-
-There is no way to say "issues only" or "pull requests only". `Item.is_pr` is
-right there and every lane carries both kinds. It is a third radio group beside
-`state` and the sort, not a fourth tag axis — the values are exhausted by three
-and they are mutually exclusive.
-
 ### A filter axis you can search, and an author axis at all
 
 Recorded 2026-09-02, to plan properly later.
@@ -400,6 +394,10 @@ Worth deciding at the same time: whether the axis sets stay OR-within-axis (they
 do today) and whether an author axis wants a "not me" as well as a "me", since
 "someone else's pull request I am reviewing" is a common thing to want and
 `mine` only covers the other half.
+
+The `kind` axis that shipped is the shape *not* to copy for this: three values
+that fit on screen, so it is a radio group listed in full. Author has hundreds,
+which is exactly what the picker above is for.
 
 ### What review writing still cannot do
 
