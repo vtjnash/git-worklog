@@ -8,7 +8,8 @@
 # wrote for themselves.
 
 const STATE = joinpath(ROOT, "state.toml")
-const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "note", "snooze", "track"]
+const FIELDS = ["adopted", "archive", "blocked_on", "bucket", "deadline", "note",
+                "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
 const TRACK = ("close", "normal", "loose", "background")
 
@@ -124,6 +125,32 @@ function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
                lines[j:end])
     write(STATE, rstripnl(join(new, "\n")) * "\n")
     isempty(keep) ? "cleared" : "updated"
+end
+
+"""Every block's value for one key, in one pass over the file.
+
+`get_field` re-reads and re-scans for a single lookup, which is right for one
+and quadratic for a question about every item - and the browser asks two of
+those (`adopted`, `archive`) every time it rebuilds the list.
+
+Unquoted the same way `get_field` unquotes, so the two agree about what a value
+is.
+"""
+function field_map(key::AbstractString)
+    out = Dict{String,String}()
+    url = ""
+    pat = Regex("^\\s*\\Q" * key * "\\E\\s*=\\s*(.*?)\\s*\$")
+    for l in load_lines()
+        h = match(r"^\[\"(.*)\"\]\s*$", strip(l))
+        if h !== nothing
+            url = String(h[1])
+            continue
+        end
+        isempty(url) && continue
+        m = match(pat, l)
+        m === nothing || (out[url] = String(strip(String(m[1]), '"')))
+    end
+    out
 end
 
 """One field of one item's block, as it is written, or `nothing`.

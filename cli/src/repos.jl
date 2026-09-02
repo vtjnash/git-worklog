@@ -322,6 +322,24 @@ end
 # their work. So automatic adoption asks one question first: is there a commit
 # of yours on this branch?
 
+"""Has every commit on `branch` already landed in its base?
+
+The only signal a local branch has that its work is over. A pull request is told
+by GitHub; a branch that was rebased and merged keeps no other trace of it, and
+`--is-ancestor` is true however the work got there - merge, squash or rebase.
+"""
+function merged_here(path::AbstractString, branch::AbstractString; base = nothing)
+    isempty(branch) && return false
+    b = base === nothing ? default_base(path) : base
+    b === nothing && return false
+    try
+        git(path, "merge-base", "--is-ancestor", branch, b)
+        true
+    catch
+        false
+    end
+end
+
 "Does `rev` name something in this repo?"
 has_rev(path::AbstractString, rev::AbstractString) =
     try; git(path, "rev-parse", "--verify", "--quiet", string(rev, "^{commit}")); true

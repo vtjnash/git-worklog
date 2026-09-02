@@ -935,6 +935,18 @@ end
     W.handle!(st, Int('z'), ctrl)
     @test occursin("could not undo", st.status) && isempty(st.undos)
 
+    # And it works on an empty list, which is exactly when it is wanted:
+    # archiving or snoozing the last row of a lane empties it, and `z` used to
+    # be swallowed along with every per-item key.
+    empty = mkstate()
+    empty.items = W.Item[]
+    hit = false
+    push!(empty.undos, W.Undo("gone", () -> (hit = true)))
+    W.handle!(empty, Int('z'), ctrl)
+    @test hit && occursin("undid: gone", empty.status)
+    W.handle!(empty, Int('z'), ctrl)
+    @test empty.status == "nothing to undo"
+
     # r/u against the real read.json, put back afterwards either way.
     readfile = joinpath(W.ROOT, "read.json")
     before = read(readfile, String)
@@ -1652,6 +1664,107 @@ end
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
     finally
+        W.TOUCHED[] = keept
+    end
+end
+
+@testset "archive lets work leave without deleting it" begin
+    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    before = read(W.STATE, String)
+    try
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true
+        n(s) = (st.filters.state = s; W.refilter!(st); length(st.items))
+        a0, m0, all0 = n(:active), n(:mine), n(:all)
+        @test n(:archived) == 0
+        st.filters.state = :active; W.refilter!(st)
+        it = st.items[st.sel]
+
+        W.handle!(st, Int('x'), ctrl)
+        @test st.status == string("archived ", it.ref)     # and not clobbered
+        @test W.get_field(it.url, "archive") == string(Date(W.utcnow()))
+        # Out of the two lanes that answer "what should I be doing", and in the
+        # one that is a record. `all` is everything, so it is unchanged.
+        @test n(:active) == a0 - 1
+        @test n(:archived) == 1
+        @test n(:all) == all0
+        st.filters.state = :archived; W.refilter!(st)
+        @test st.items[1].url == it.url
+        # Where the item's facts are, with the way back out.
+        lines = W.astrip(join(W.meta_lines(st, it, 50), "\n"))
+        @test occursin("archived", lines) && occursin("takes it back out", lines)
+
+        # A toggle, and undoable either way.
+        W.handle!(st, Int('x'), ctrl)
+        @test occursin("back out", st.status)
+        @test W.get_field(it.url, "archive") === nothing
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "archive") !== nothing
+        W.handle!(st, Int('x'), ctrl)
+
+        # Nothing written about it is lost - archiving is not deleting.
+        W.set_fields(it.url, ["note" => "why this ended"])
+        W.handle!(st, Int('x'), ctrl)
+        @test W.get_field(it.url, "note") == "why this ended"
+    finally
+        write(W.STATE, before)
+        W.TOUCHED[] = keept
+    end
+
+    # A merge is news until it has been read, and only then is it filing.
+    root = mktempdir(); main = joinpath(root, "m"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@e.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "a"), "x"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    bare = joinpath(root, "o.git"); g("init", "--quiet", "--bare", bare)
+    g("remote", "add", "origin", bare); g("push", "--quiet", "-u", "origin", "master")
+    g("checkout", "--quiet", "-b", "landed"); write(joinpath(main, "a"), "l")
+    g("commit", "--quiet", "-am", "landed work")
+    g("checkout", "--quiet", "master"); g("merge", "--quiet", "--no-ff", "-m", "m", "landed")
+    g("push", "--quiet", "origin", "master")
+    g("checkout", "--quiet", "-b", "inflight"); write(joinpath(main, "a"), "i")
+    g("commit", "--quiet", "-am", "wip"); g("checkout", "--quiet", "master")
+
+    # However the work got there - merge, squash or rebase - every commit being
+    # in the base is what says it landed.
+    @test W.merged_here(main, "landed")
+    @test !W.merged_here(main, "inflight")
+    @test !W.merged_here(main, "")
+    @test !W.merged_here(main, "landed"; base = "no-such-base")
+
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    before = read(W.STATE, String)
+    try
+        W.register_repo!("o/m", main)
+        for b in ("landed", "inflight")
+            W.set_fields(W.localurl("o/m", b), ["adopted" => "2026-09-02"])
+        end
+        its = Dict(x.ref => x for x in W.local_items())
+        @test its["m#landed"].state == "MERGED"
+        @test occursin("merged into the base", its["m#landed"].why)
+        @test isempty(its["m#inflight"].state)
+        @test W.isdone(its["m#landed"]) && !W.isdone(its["m#inflight"])
+        # An unknown state is not a closed one: a facts.json written before the
+        # field existed must not offer to archive the whole dashboard.
+        @test !W.isdone(W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t"))
+
+        st = W.BState(vcat(W.loaditems(), collect(values(its))), "worklog", Set{String}())
+        l = its["m#landed"]
+        says() = W.astrip(join([x for x in W.meta_lines(st, l, 50) if occursin("state", x)], " "))
+        # Merged and not yet looked at is news - a merge you did not do is
+        # exactly the thing to be told about, so it stays in the unread lane.
+        push!(st.unread, l.url)
+        @test occursin("new since you last looked", says())
+        @test !occursin("x archives", says())
+        # Read, and it becomes something to file. Offered, never done silently.
+        delete!(st.unread, l.url)
+        @test occursin("x archives it", says())
+        @test W.get_field(l.url, "archive") === nothing
+    finally
+        write(W.STATE, before)
+        W.REPOS_FILE[] = ""
         W.TOUCHED[] = keept
     end
 end

@@ -347,6 +347,23 @@ into touched-then-untouched would bury a branch committed to this morning under
 a pull request last touched in March, which is the opposite of what the lane is
 for.
 
+**Decide after a few days of use: precedence or `max`?** There are two different
+"when"s here and they are not the same question.
+
+- **Inbox time** is when the last thing happened *remotely* — the order
+  notification emails would have arrived in. That is `act`, and it is what the
+  item list has always been about.
+- **The `w` sort** as shipped is *precedence*: your own last interaction if
+  there is one, and the remote time only when there is not. So an item you
+  touched in March but that someone commented on this morning sorts to March.
+
+`max` of the two would sort it to this morning instead. Precedence answers
+"when did I last deal with this", `max` answers "when did anything happen to
+it". The worktree and branch lists want the second, and probably so does `mine`;
+`touched` may well want the first. Recorded 2026-09-02 — try it for a few days
+before choosing, and note that `max` needs no new data, only a different
+`sortkey`.
+
 **Adoption — shipped.** `a` in either lens of `"` claims the row's branch or
 gives it back, and opening a shell or an agent in a worktree whose branch has no
 pull request claims it too. Undoable with `z` like any other local write.
@@ -370,13 +387,31 @@ the work is not yours does not undo a note, and re-adopting finds it again.
 `adopted` is a `state.toml` field like any other, so `wl adopted <ref> <date>`
 works from the shell too.
 
-**Archive, as a state tag.** Work that is done, rejected or merged should leave
-without being deleted: an `archive` field in `state.toml` carrying the date it
-was set, a state in `STATES` to look at it, and `active` excluding it. It is
-what closes the loop for adopted branches especially — a merged pull request
-already leaves the active lanes on its own, but a local branch that came to
-nothing has no other way out. A merged or closed item is worth *offering* to
-archive rather than archiving silently.
+**Archive — shipped.** `x` toggles it. An `archive` field in `state.toml`
+carrying the date, an `archived` state to look at it, and `active` *and* `mine`
+excluding it — both answer "what should I be doing", and neither should answer
+with work that is over. `touched` and `all` keep it, being records rather than
+to-do lists. Nothing written about the item is lost: archiving is not deleting,
+and the note stays.
+
+**A merge is news before it is filing.** Nothing is ever archived silently. A
+merged or closed item that is still *unread* says "new since you last looked"
+and stays where it is; only once the notice has been read does the metadata pane
+offer `x archives it`. A merge someone else did is exactly the thing to be told
+about, and every active lane is `is:open`, so a merged pull request leaves
+`facts.json` at the next refresh and comes back through the unread path — which
+is the "rebump to unread" that has to be allowed to happen first.
+
+An adopted branch has no such signal from GitHub, so it is asked of git:
+`merged_here` is true when every commit on the branch is already in its base,
+however it got there — merge, squash or rebase.
+
+**Still to decide: "I merged it" should skip the wait.** When *you* did the
+merge there is no notice to read, so the offer could come straight away. The
+merger is not known today: the active lanes are `is:open` so a merged pull
+request is gone before `mergedBy` could be read from it, and a local branch has
+no record of who pushed the merge. Needs either a lane that keeps recently
+merged pull requests, or reading the merge commit's committer.
 
 **Order to build in.** Archive is all that is left of this plan, and it is the
 only piece that touches how items leave the lanes — which is what an adopted

@@ -48,7 +48,7 @@ Node(h, raw, kind, open, depth = 0) =
 
 const STATES = [(:active, "active"), (:unread, "unread"), (:mine, "mine"),
                 (:touched, "touched"), (:snoozed, "snoozed"),
-                (:backlog, "backlog"), (:all, "all")]
+                (:backlog, "backlog"), (:archived, "archived"), (:all, "all")]
 
 """How the list is ordered. Its own control, deliberately.
 
@@ -71,11 +71,16 @@ Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
 "Does this item belong to one of the five exclusive states?"
 function state_ok(state::Symbol, it::Item, unread::Set{String},
-                  touched::Dict{String,String} = EMPTY_TOUCHED)
+                  touched::Dict{String,String} = EMPTY_TOUCHED,
+                  archived::Dict{String,String} = EMPTY_TOUCHED)
     state === :unread  && return it.url in unread
     state === :snoozed && return it.snoozed
     state === :backlog && return it.backlog
-    state === :active  && return !(it.snoozed || it.backlog)
+    # Archived work is out of the two lanes that answer "what should I be doing"
+    # and stays in the rest: `touched` is a record of what happened and `all` is
+    # everything, and neither is a to-do list.
+    state === :archived && return haskey(archived, it.url)
+    state === :active  && return !(it.snoozed || it.backlog || haskey(archived, it.url))
     # Everything you have actually done something to, which is what the
     # interaction clock is a record of - and nothing else writes to it, so this
     # is work rather than browsing.
@@ -83,8 +88,9 @@ function state_ok(state::Symbol, it::Item, unread::Set{String},
     # Yours: an open pull request you wrote, or a branch you have claimed.
     # Both are things you are expected to carry, which is what makes them one
     # list rather than two.
-    state === :mine    && return (it.is_pr && !isempty(it.author) &&
-                                  it.author == login()) || islocal(it)
+    state === :mine    && return !haskey(archived, it.url) &&
+                                 ((it.is_pr && !isempty(it.author) &&
+                                   it.author == login()) || islocal(it))
     true                                              # :all
 end
 
@@ -106,8 +112,9 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
 
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String},
-                 touched::Dict{String,String} = EMPTY_TOUCHED)
-    state_ok(f.state, it, unread, touched) || return false
+                 touched::Dict{String,String} = EMPTY_TOUCHED,
+                 archived::Dict{String,String} = EMPTY_TOUCHED)
+    state_ok(f.state, it, unread, touched, archived) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
@@ -138,10 +145,10 @@ function axis_counts(st)
         bok = isempty(f.buckets) || it.bucket in f.buckets
         rok = isempty(f.repos)   || it.repo in f.repos
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
-        sok = state_ok(f.state, it, st.unread, st.touched)
+        sok = state_ok(f.state, it, st.unread, st.touched, st.archived)
         if bok && rok && lok
             for (k, _) in STATES
-                state_ok(k, it, st.unread, st.touched) && bump!(states, k)
+                state_ok(k, it, st.unread, st.touched, st.archived) && bump!(states, k)
             end
         end
         sok && rok && lok && bump!(buckets, it.bucket)
@@ -155,8 +162,8 @@ function axis_counts(st)
     (states, buckets, repos, labels)
 end
 
-apply_filters(f, all, unread, touched = EMPTY_TOUCHED) =
-    [it for it in all if matches(f, it, unread, touched)]
+apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED) =
+    [it for it in all if matches(f, it, unread, touched, archived)]
 
 """Rows for the filter pane: the radio group, then the two checkbox groups.
 
@@ -241,7 +248,9 @@ function refilter!(st)
     # and `render` is pure. The `touched` lane is membership in this map, so it
     # has to be current for a row to arrive in it.
     st.touched = load_touched()
-    st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched),
+    st.archived = field_map("archive")
+    st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched,
+                                       st.archived),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,
     # so the counts in the filter pane keep describing the tags alone - which is
@@ -313,6 +322,8 @@ Base.@kwdef mutable struct BState <: View
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
                                     # than per frame
+    archived::Dict{String,String} = Dict{String,String}()  # url -> the date it
+                                    # was put away, from `state.toml`
     lmode::Symbol = :items          # :items | :filters
     frow::Int = 2
     wake::Any = nothing             # set by the controller; called when a fetch lands
@@ -347,7 +358,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
         lc[l] = get(lc, l, 0) + 1
     end
     st = BState(; all = collect(all), title = String(title), unread = unread,
-                  touched = load_touched(),
+                  touched = load_touched(), archived = field_map("archive"),
                   buckets = sort(unique(it.bucket for it in all)),
                   repos = sort(unique(it.repo for it in all)),
                   labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)))
@@ -1012,6 +1023,21 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
     it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?
                                 string(RED, "conflicting", AR) : lowercase(it.mergeable))
+    if haskey(st.archived, it.url)
+        kv("archived", string(st.archived[it.url], "  ", AD, "x takes it back out", AR))
+    elseif isdone(it) && it.url in st.unread
+        # Merged, and you have not looked at it since. That is news, not
+        # filing: a merge you did not do is exactly the thing to be told about,
+        # so it is left in the unread lane rather than offered as done.
+        kv("state", string(lowercase(it.state), "  ", AD, "new since you last looked", AR))
+    elseif isdone(it)
+        # Offered once the notice has been read, and never done silently: a
+        # merged pull request is usually finished with and occasionally the one
+        # thing you still owe a reply on, and this cannot tell the difference.
+        kv("state", string(lowercase(it.state), "  ", AD, "x archives it", AR))
+    elseif !isempty(it.state) && it.state != "OPEN"
+        kv("state", lowercase(it.state))
+    end
     it.draft && kv("state", "draft")
     push!(out, "")
 
@@ -1415,7 +1441,7 @@ function render_frame(st::BState, w::Int, h::Int)
                    "q quit \u00b7 tab pane")
     keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 v note \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
+                   " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
@@ -2105,6 +2131,15 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
             end
         end
     end
+    # Before the guard below, and deliberately: `z` is not a key about the
+    # selected item, and an empty list is exactly when it is wanted - archiving
+    # or snoozing the last row of a lane empties it, and the way back used to be
+    # swallowed along with every per-item key.
+    if k == Int('z') && st.lmode !== :filters
+        st.status = undo!(st)
+        load_nodes!(st); load_meta!(st)
+        return :ok
+    end
     (st.lmode === :filters || isempty(st.items)) && return :ok
     it = st.items[clamp(st.sel, 1, length(st.items))]
 
@@ -2155,6 +2190,13 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         return :ok
     elseif k == Int('v')
         st.status = edit_note(st, it, ctrl)
+        return :ok
+    elseif k == Int('x')
+        # Its own return, because archiving refilters and the selection can move
+        # - and `load_nodes!` would put "loading …" over what this has to say.
+        msg = archive!(st, it, at)
+        load_nodes!(st); load_meta!(st)
+        st.status = msg
         return :ok
     elseif k == Int('w')
         i = findfirst(x -> x[1] === st.sort, SORTS)
@@ -2238,19 +2280,6 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
-    elseif k == Int('z')
-        if isempty(st.undos)
-            st.status = "nothing to undo"
-        else
-            u = pop!(st.undos)
-            st.status = try
-                u.undo()
-                st.filters.state === :unread && refilter!(st)
-                string("undid: ", u.what)
-            catch e
-                string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
-            end
-        end
     end
     load_nodes!(st)
     load_meta!(st)
@@ -2602,6 +2631,59 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             end; allow_empty = ev == "APPROVE"))
     end))
 end
+
+"""Take back the newest local action, and say what it was.
+
+Reports rather than throwing: an undo that fails over the frame would take the
+browser down for the sake of a line in `state.toml`.
+"""
+function undo!(st::BState)
+    isempty(st.undos) && return "nothing to undo"
+    u = pop!(st.undos)
+    try
+        u.undo()
+        # The lanes that are membership in something have to be rebuilt for the
+        # row to come back.
+        st.filters.state in (:unread, :archived, :touched, :mine, :active) && refilter!(st)
+        string("undid: ", u.what)
+    catch e
+        string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
+    end
+end
+
+"""Put work away, or take it back out. `x` toggles.
+
+Done, rejected or merged work should be able to leave without being deleted:
+the note, the snooze and everything else written about it stay in `state.toml`,
+and the `archived` lane is where it can still be found. `active` and `mine`
+stop showing it, which is the whole point - they are the two lanes that answer
+"what should I be doing", and neither should be answering with work that is
+over.
+
+It closes the loop for an adopted branch especially. A merged pull request
+leaves the active lanes on its own once GitHub says so; a local branch that came
+to nothing has no other way out.
+"""
+function archive!(st::BState, it::Item, at::DateTime)
+    was = get_field(it.url, "archive")
+    prevtouch = touched_at(it.url)
+    set_fields(it.url, ["archive" => was === nothing ? string(Date(at)) : nothing], at)
+    push!(st.undos, Undo(string(was === nothing ? "archive " : "unarchive ", it.ref),
+                         () -> begin
+        set_fields(it.url, ["archive" => was])
+        set_touched(it.url, prevtouch)
+    end))
+    refilter!(st)
+    was === nothing ? string("archived ", it.ref) : string("back out: ", it.ref)
+end
+
+"""Is this item over, as far as GitHub is concerned?
+
+`state` is empty on a `facts.json` written before the lanes were asked for it,
+which reads as "not known to be closed" rather than as closed - the wrong way
+round would offer to archive the whole dashboard after an upgrade.
+"""
+isdone(it::Item) = it.state == "CLOSED" || it.state == "MERGED"
 
 """Ask how long for, then snooze.
 

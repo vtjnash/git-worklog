@@ -14,7 +14,7 @@ end
 Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
 
 const PR_FIELDS = "\n" * """
-      url number title isDraft createdAt updatedAt
+      url number title isDraft createdAt updatedAt state
       headRefName
       repository { nameWithOwner }
       author { login }
@@ -32,7 +32,7 @@ const PR_FIELDS = "\n" * """
 """
 
 const ISSUE_FIELDS = "\n" * """
-      url number title createdAt updatedAt
+      url number title createdAt updatedAt state
       repository { nameWithOwner }
       author { login }
       milestone { title dueOn }
@@ -57,7 +57,7 @@ query(\$q: String!, \$cursor: String) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes { __typename ... on PullRequest {
-      url number title isDraft createdAt updatedAt
+      url number title isDraft createdAt updatedAt state
       headRefName
       repository { nameWithOwner }
       author { login }
@@ -68,7 +68,7 @@ query(\$q: String!, \$cursor: String) {
       comments(last: 1) { nodes { author { login } createdAt } }
     }
     ... on Issue {
-      url number title createdAt updatedAt
+      url number title createdAt updatedAt state
       repository { nameWithOwner }
       author { login }
       milestone { title dueOn }

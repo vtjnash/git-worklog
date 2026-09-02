@@ -46,6 +46,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         "title" => n.title,
         "repo" => n.repository.nameWithOwner,
         "author" => truthy(author) ? author : "?",
+        "state" => jget(n, :state),
         "created" => n.createdAt,
         "updated" => n.updatedAt,
         "labels" => String[l.name for l in n.labels.nodes],

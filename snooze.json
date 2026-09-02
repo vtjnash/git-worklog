@@ -6,5 +6,9 @@
  "https://github.com/JuliaLang/Distributed.jl/pull/198": {
   "at": "2026-09-02T14:45:37Z",
   "fp": "02a9a438a5521d4f"
+ },
+ "https://github.com/quinnj/JSON3.jl/pull/320": {
+  "at": "2026-09-02T18:21:51Z",
+  "fp": "beb16853b39eab6f"
  }
 }

@@ -55,6 +55,10 @@ Base.@kwdef struct Item
     milestone::String = ""
     milestone_due::String = ""
     review_decision::String = ""
+    state::String = ""     # OPEN | CLOSED | MERGED, as the lanes reported it.
+                           # Empty for a facts.json written before it was asked
+                           # for, and for a synthetic item, which has no such
+                           # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
     draft::Bool = false
@@ -98,6 +102,7 @@ function loaditems()
             milestone = nz(jget(r, :milestone), ""),
             milestone_due = first(String(nz(jget(r, :milestone_due), "")), 10),
             review_decision = nz(jget(r, :review_decision), ""),
+            state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
@@ -147,8 +152,7 @@ function localparts(url::AbstractString)
 end
 
 "Urls of every branch that has been adopted, whether or not it still exists."
-adopted_urls() = [u for u in state_urls()
-                  if islocal(u) && get_field(u, "adopted") !== nothing]
+adopted_urls() = sort!([u for u in keys(field_map("adopted")) if islocal(u)])
 
 """One synthetic item for an adopted branch.
 
@@ -158,6 +162,8 @@ still something you wrote a note on and still something to be told about.
 """
 function local_item(url::AbstractString, b = nothing)
     repo, branch = localparts(url)
+    p = repo_path(repo)
+    landed = p !== nothing && merged_here(p, branch)
     Item(url = String(url), ref = localref(repo, branch), repo = String(repo),
          number = 0, is_pr = false, branch = String(branch),
          # The tip's subject, which is the only title unlanded work has. The
@@ -169,7 +175,12 @@ function local_item(url::AbstractString, b = nothing)
          note = nz(get_field(url, "note"), ""),
          deadline = nz(get_field(url, "deadline"), ""),
          act = b === nothing ? "" : b.at,
+         # A branch whose commits are all in the base has landed, however it got
+         # there. That is what makes it archivable - and, until the notice has
+         # been read, what makes it news.
+         state = landed ? "MERGED" : "",
          why = b === nothing ? "adopted; the branch is gone" :
+               landed ? "adopted; merged into the base" :
                isempty(b.worktree) ? "adopted; no worktree" :
                string("adopted; ", basename(rstrip(b.worktree, '/'))))
 end
