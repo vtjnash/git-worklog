@@ -5,12 +5,16 @@
 Read this first if you are picking this up cold.
 
 ### What it is
-A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2000
-items (own PRs, review requests, assigned issues, plus mention/comment history
-and every open JuliaLang/julia PR as a background pile), tracks which threads
-are unread so per-event email notification can stay off, and browses them in a
-terminal UI of three panes - the item list, its metadata, and the thread or
-diff.
+A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2100
+items - own PRs, review requests, assigned issues, recently merged or closed
+ones, personal and team mentions, comment history, and every open
+JuliaLang/julia PR as a background pile - tracks which threads are unread so
+per-event email notification can stay off, and browses them in a terminal UI of
+three panes: the item list, its metadata, and the thread or diff.
+
+Beyond GitHub it also knows about *local* work: a branch with no pull request
+can be adopted and becomes an item like any other, and finished work is archived
+rather than deleted.
 
 It also hosts programs. A tmux session per worktree can be opened on an item
 (`t` a shell, `T` an agent), drawn in a pane beside the thread and driven by
@@ -21,9 +25,11 @@ item's note in `$EDITOR` in a pane of its own.
 ### Where and how to run it
 The checkout is wherever the sandbox mounted it - it has been at
 `/root/.claude/worklog` and at `.../claude_home/git-worklog`, so take the path
-from `git rev-parse --show-toplevel` rather than from here. It persists; the
-rest of the home directory is a throwaway overlay. `origin` is
-`vtjnash/git-worklog` (see Infrastructure - pushing has never been tried).
+from `git rev-parse --show-toplevel` rather than from here — **but run that from
+the code checkout, not from inside `data/`, which is a git repository of its
+own and will answer with itself.** It persists; the rest of the home directory
+is a throwaway overlay. `origin` is `vtjnash/git-worklog` (see Infrastructure -
+pushing has never been tried).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -32,16 +38,21 @@ cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view
 ./cli/bin/wl next 10           # pull untagged backlog to triage
+./cli/bin/wl watching          # repos you watch, and which are tracked
 julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
-last acted, `z` undoes the last local action. `v` edits the note,
-`t` and `T` open a shell and an agent on the item's worktree, `"` lists what is
-running; `tab` there swaps the worktrees for the branches, `i` on a row of
-either goes to its pull request, and `a` adopts a local branch as work of yours. Inside a hosted
+last acted, `x` archives, `z` undoes the last local action. `f` opens the filter
+pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
+`backlog` / `archived` / `all`.
+
+`v` edits the note in a pane, `t` and `T` open a shell and an agent on the
+item's worktree, and `"` lists every worktree with what is running in each -
+`tab` there swaps the worktrees for the branches, `i` goes to a row's pull
+request, and `a` adopts a local branch as work of yours. Inside a hosted
 pane every key belongs to the child except the prefix
 `^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
 re-reads, `^]]` sends a literal `^]`.
@@ -312,198 +323,94 @@ shipped are not listed; `git log` is the record of those.
 
 ## Outstanding work
 
-### Where the work is — worktrees, branches, interactions, and what is mine
+### Left over from "where the work is"
 
-Four lists the browser cannot show today, planned together because they share
-two things underneath and because two of them turn out to be the same list.
+That plan shipped whole — the interaction clock, the git survey, the worktree
+and branch lists, adoption, the two lanes and archive. `git log` is the record.
+These are the pieces of it that did not get built.
 
-**Both prerequisites have shipped.** Nothing reads either of them yet — the
-lists below are what they are for.
+- **`↵` on a branch with no worktree can only say there is nowhere to go.**
+  Making one is the missing half of the branch list, and it is also the control
+  the "worktree choice is automatic" gap below wants.
+- **The last-commit date is collected and not drawn.** `Branch.at` is in the
+  row already; the worktree list has no column for it.
+- **The `w` sort is precedence, and `max` may be righter.** Decided to try it
+  before choosing (recorded 2026-09-02). Two different "when"s: *inbox time* is
+  when something last happened remotely, the order notification email would have
+  sorted in; the sort as shipped is your own last interaction *if there is one*
+  and the remote time only otherwise. So an item you touched in March that
+  someone commented on this morning sorts to March. `max` of the two sorts it to
+  this morning. Precedence answers "when did I last deal with this", `max`
+  answers "when did anything happen to it" — the worktree and branch lists want
+  the second and probably so does `mine`, while `touched` may want the first.
+  `max` needs no new data, only a different `sortkey`.
+- **"I merged it" should skip the wait before archive is offered.** When you did
+  the merge there is no notice to read. `mergedBy` is now reachable — the
+  `landed` lane returns merged pull requests, so it is one GraphQL field — which
+  makes this small rather than blocked. An adopted local branch still has no
+  record of who pushed the merge; that would want the merge commit's committer.
+- **Ignoring forks in an owner glob.** `vtjnash/*` is 100 repos, 82 of them
+  forks, and activity on a fork of someone else's project is usually not
+  activity you want. It would not save a request — a glob is two searches
+  whatever the repo count, and issue search has no fork qualifier, so filtering
+  means listing the owner's repos (one more call, cacheable for a day) and
+  dropping items whose repo is a fork. A noise control, not a cost one, and
+  today it would filter nothing: `vtjnash/*` returns zero items in a month.
 
-- **The interaction clock**, `touched.json` and `touched.jl`. The reasoning
-  about what does and does not write to it is in that file's header.
-- **The local git survey**, `survey()` in `repos.jl`, returning `Worktree` and
-  `Branch` for every repo in `repos.toml` at once: the branch, dirty or clean,
-  ahead/behind upstream, the tip's date, and for a branch whether anything has
-  it checked out. Three git invocations per repo plus one `git status` per
-  worktree, and `survey(; withdirty = false)` drops even those — the tree walk
-  is the only part that is not instant.
-- **Branch → item**, which is what joins them: the lanes now fetch
-  `headRefName`, so `facts.json` carries it and `branch_index(items)` keys an
-  item by `(repo, branch)`. Verified against a live refresh — 1133 of 1133
-  pull requests carry a branch and no issue does. `pr_branch` reads the field
-  and only falls back to `gh` for a `facts.json` written before it existed.
+### The cache wants two thresholds, not one
 
-**The lists.**
+Today a cache entry is either fresh or a miss, on one TTL, so a browser that
+opens is a browser that waits. Two numbers instead:
 
-**A. Worktrees, by name — shipped.** `WorktreeView` in `paneview.jl`, on the
-`"` the session list used to have. A session is *keyed* by its worktree, so
-every one already belonged to exactly one worktree row: they are a column now,
-not a list, which left one view fewer rather than one more. `↵`/`t` and `T` open
-a shell and an agent on the row, `i` goes to its pull request, `K` ends what is
-running there, and a session whose worktree has been deleted is an orphan row
-rather than a hidden one.
+- **Refresh-after**, short. The entry is shown *immediately* and re-fetched in
+  the background — after about a second of the item actually being on screen, so
+  that scrolling past twenty items does not fire twenty requests. That second is
+  a debounce, not a delay: the point is to spend requests on what is being read.
+- **Discard-after**, long. Beyond this the entry is not shown at all and the
+  fetch is blocking, because a month-old thread is worse than a pause.
 
-Rows carry a header that names the columns and doubles as the key to the marks:
-`s`/`a`/`n` for a shell, an agent and a note editor running there, green when
-attached; `+`/`*` for staged and unstaged changes, so a half-staged checkout —
-something left in the middle of a commit — reads differently from one that was
-merely edited.
+And a **sweep**: drop anything older than a few weeks outright, so `cache/`
+stops growing without bound. Nothing does that today.
 
-Still missing from it: the last-commit date is collected but not drawn, there is
-no way to *make* a worktree from here, and the rows are not sortable — which is
-what list D wants and what `touched.json` is waiting for.
+The machinery is mostly there — `cache_get(key, ttl)` already returns the entry
+*and its age*, and `load_nodes!` already fetches off the key loop and wakes the
+frame — so this is a policy change plus a timer, not new plumbing. The
+interesting part is where the debounce lives: it needs "this item has been
+selected continuously for N seconds", which nothing currently tracks.
 
-**B. Branches, as a second lens — shipped.** `tab` inside `"` switches between
-them, the way `tab` already changes pane in the browser, and each lens keeps its
-own cursor. Worktrees are places that exist; branches are work that exists
-without one, so the leading column is whether anything has the branch checked
-out and `↵` on a branch goes to the worktree that does. Sorted newest tip first
-across every repo, which is what `git branch --sort=-committerdate` shows.
+### Importing one item by URL
 
-`a` adopts the row's branch, or gives it back. What the list still cannot do is
-*make* a worktree for a branch that has none — today `↵` on one can only say
-that there is nowhere to go.
+There is no way to say "watch this particular thing". Everything arrives through
+a lane, so an issue in a repo that is not tracked, and that does not mention you,
+cannot be followed at all.
 
-**C. Everything touched, by when — shipped.** A `touched` state beside the
-others, which is membership in `touched.json` and therefore a record of what you
-have *done* rather than of what you have looked at.
+Wanted: a way to paste a URL and have that item tracked until it is archived.
+The shape that fits is **a row in the list that is selected rather than a
+command** — the same move `f` makes for filters — since this is the browser's
+job and not the shell's.
 
-The order is its own control, as planned: `SORTS` beside `Filters`, cycled with
-`w`, and named in the tag the footer already shows. It is not a fourth filter
-axis — any order makes sense over any lane, and putting it inside `Filters`
-would have multiplied the axes rather than sitting beside them.
+It composes with what exists: an imported item is an ordinary item keyed by url,
+so notes, snoozes, the clock, buckets and archive all work on it already, the
+same way adoption made a branch an item. Archive is its exit.
 
-**D. What is mine, by when — shipped.** A `mine` state: an open pull request you
-wrote, or a branch you have adopted. Both are things you are expected to carry,
-which is what makes them one lane rather than two. `w` is the "by when" half.
+**The one thing it cannot have is the activity lane.** An archived item normally
+comes back on its own because the events poller is watching its repo; an
+imported one is imported *precisely because* its repo is not watched, so new
+activity on it will arrive by email like it always did. Worth saying in the UI
+rather than discovering.
 
-The sort key is one value and not two groups: `touched.json` if there is an
-entry, and the item's own last-moved timestamp otherwise. Splitting the list
-into touched-then-untouched would bury a branch committed to this morning under
-a pull request last touched in March, which is the opposite of what the lane is
-for.
+Related: **where team and @-mentions actually matter is the repos we were not
+expecting to track** — a mention drags in something from a repo nowhere in
+`config.toml`. The team lanes now cover that for the teams listed. Where they do
+not reach, importing by URL is the manual answer, and that is an acceptable
+floor.
 
-**Decide after a few days of use: precedence or `max`?** There are two different
-"when"s here and they are not the same question.
+### A filter for issue / pull request / both
 
-- **Inbox time** is when the last thing happened *remotely* — the order
-  notification emails would have arrived in. That is `act`, and it is what the
-  item list has always been about.
-- **The `w` sort** as shipped is *precedence*: your own last interaction if
-  there is one, and the remote time only when there is not. So an item you
-  touched in March but that someone commented on this morning sorts to March.
-
-`max` of the two would sort it to this morning instead. Precedence answers
-"when did I last deal with this", `max` answers "when did anything happen to
-it". The worktree and branch lists want the second, and probably so does `mine`;
-`touched` may well want the first. Recorded 2026-09-02 — try it for a few days
-before choosing, and note that `max` needs no new data, only a different
-`sortkey`.
-
-**Adoption — shipped.** `a` in either lens of `"` claims the row's branch or
-gives it back, and opening a shell or an agent in a worktree whose branch has no
-pull request claims it too. Undoable with `z` like any other local write.
-
-The guard is `mine_on_branch` in `repos.jl`: `gh pr checkout` leaves someone
-else's branch in your checkout, so the automatic route asks whether you have a
-commit over `base..branch` — authored, or on a `Co-authored-by:` trailer. Every
-uncertainty refuses, including a base that cannot be found, because this only
-ever *grants* adoption and `a` is always still there. `a` itself is unguarded:
-asking for it is the deliberate act the guard exists to require.
-
-**One deviation from the plan above.** The synthetic item is keyed
-`local:<repo>#<branch>`, not `local:<worktree>#<branch>`. A branch with no
-worktree is exactly the case adoption is for — work that has no place yet — so
-a key naming a place cannot address it, and a branch moved to another checkout
-would lose whatever was written about it. Repo and branch are also what
-`branch_index` already joins on.
-
-Releasing a branch leaves everything written about it in `state.toml`: deciding
-the work is not yours does not undo a note, and re-adopting finds it again.
-`adopted` is a `state.toml` field like any other, so `wl adopted <ref> <date>`
-works from the shell too.
-
-**Archive — shipped.** `x` toggles it. An `archive` field in `state.toml`
-carrying the date, an `archived` state to look at it, and `active` *and* `mine`
-excluding it — both answer "what should I be doing", and neither should answer
-with work that is over. `touched` and `all` keep it, being records rather than
-to-do lists. Nothing written about the item is lost: archiving is not deleting,
-and the note stays.
-
-**A merge is news before it is filing.** Nothing is ever archived silently. A
-merged or closed item that is still *unread* says "new since you last looked"
-and stays where it is; only once the notice has been read does the metadata pane
-offer `x archives it`. A merge someone else did is exactly the thing to be told
-about, and every active lane is `is:open`, so a merged pull request leaves
-`facts.json` at the next refresh and comes back through the unread path — which
-is the "rebump to unread" that has to be allowed to happen first.
-
-An adopted branch has no such signal from GitHub, so it is asked of git:
-`merged_here` is true when every commit on the branch is already in its base,
-however it got there — merge, squash or rebase.
-
-**Closed lanes, so a fast merge is not missed.** Every other lane is `is:open`,
-so a pull request that merged between two refreshes stopped being returned and
-was never seen at all. `landed`, `reviewed` and `resolved` in `config.toml` are
-the closed halves of the three open lanes, bounded by `{since:N}` — the date N
-days before the run, expanded by `expand_lane` so the window moves rather than
-being a literal in the user's file. They land in the `done` bucket, which
-short-circuits every "what next" rule and tracks loosely. 9 rate-limit points
-for the three of them; the first run surfaced 18.
-
-First sighting counts as news alongside unread, because the unread lane only
-covers `[events].repos` and a merge anywhere else would otherwise be offered for
-filing before it had ever been on screen.
-
-**Still to decide: "I merged it" should skip the wait.** When *you* did the
-merge there is no notice to read, so the offer could come straight away.
-`mergedBy` is now reachable — the `landed` lane returns merged pull requests, so
-the field could simply be selected — which makes this a small change rather than
-a blocked one. A local branch still has no record of who pushed the merge; that
-would want the merge commit's committer.
-
-**The alternative considered: the notifications API.** It would answer this and
-the team-mention gap in one, but it needs a *classic* PAT with the
-`notifications` scope, which is a bigger credential than anything else here asks
-for. The closed lanes cover the "merged too fast to see" case through ordinary
-search and no new credential, so notifications stays where the Infrastructure
-note left it — revisit only if team mentions start mattering.
-
-**Order to build in.** Archive is all that is left of this plan, and it is the
-only piece that touches how items leave the lanes — which is what an adopted
-branch that came to nothing needs in order to go.
-
-### Repo hygiene: what is tracked, and what the skill is for
-
-Recorded 2026-09-02, with the findings; each is a decision rather than a task.
-
-**Done.** The state moved to `data/` with a git repository of its own, which
-settled all of it at once: `DASHBOARD.md` and `snooze.json` are tracked there
-rather than inconsistently here, and the code repo no longer changes when a
-refresh runs. The vestigial root `Project.toml`/`Manifest.toml` are gone — they
-declared only `Term`, which `cli/Project.toml` already had, and both entry
-points run `--project=cli`. `skills/dash/SKILL.md` is rewritten: it had been
-telling agents to run `wl agent`, which has not existed since `agent_task` was
-removed.
-
-**Left open: what the data repo is for beyond backup.** It has no remote, so it
-is a local history and nothing more. Worth deciding whether it should push
-somewhere private — the argument for is that `state.toml` is the only record of
-every judgement made about an item, and the argument against is that it is a
-log of what one person is working on.
-
-### Ignoring forks in an owner glob
-
-Recorded 2026-09-02. `vtjnash/*` is 100 repos, 82 of them forks, and activity on
-a fork of someone else's project is usually not activity you care about.
-
-It would not save a request: a glob is two searches whatever the repo count, and
-GitHub's issue search has no fork qualifier — filtering would mean listing the
-owner's repos (one more call, cacheable for a day) and dropping items whose repo
-is a fork. So this is a *noise* control, not a cost one, and today it would
-filter nothing: `vtjnash/*` returns zero items in a month. Build it when a fork
-actually starts producing traffic worth suppressing.
+There is no way to say "issues only" or "pull requests only". `Item.is_pr` is
+right there and every lane carries both kinds. It is a third radio group beside
+`state` and the sort, not a fourth tag axis — the values are exhausted by three
+and they are mutually exclusive.
 
 ### A filter axis you can search, and an author axis at all
 
@@ -719,14 +626,13 @@ Kept here so they can be written up in one pass rather than rediscovered.
   therefore shows the post-change file, not the pre-change one. Fine for
   reading a change; wrong if you want the base side. Needs a second fetch and a
   decision about which side to show per hunk.
-- **Worktree choice is automatic, and now decides more than it used to.**
-  `item_checkout` prefers a worktree already on the pull request's branch and
-  otherwise falls back to the main clone. There is no way to pick a different
-  one and no offer to create a worktree for the branch — and since a session is
-  keyed by its worktree, that choice now decides which session you land in as
-  well as which files `e` opens. `"` is now where every worktree can be *seen*
-  and started in, which is half of it; what it still cannot do is create one,
-  or be the thing `t` on an item asks first.
+- **Worktree choice is automatic.** `item_checkout` prefers a worktree already
+  on the pull request's branch and otherwise falls back to the main clone. There
+  is no way to pick a different one — and since a session is keyed by its
+  worktree, that choice decides which session you land in as well as which files
+  `e` opens. `"` is where every worktree can be seen and started in, which is
+  half of it; what it cannot do is create one, or be what `t` on an item asks
+  first.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does
