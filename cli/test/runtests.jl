@@ -1321,6 +1321,27 @@ end
     # for one per frame: `render` is pure and listing them costs a process.
     tasked = W.Item(; (k => getfield(it, k) for k in fieldnames(W.Item))...,
                     agent = "rebase and rerun the tests")
+    if W.mux_bin() !== nothing
+        # Two items in one checkout share one session, whichever kind: the
+        # second renames and re-tags what is there rather than starting a
+        # second one beside it. An agent is a place too - it can be cleared and
+        # pointed somewhere else exactly as a shell can be `cd`-ed.
+        for kind in (:shell, :agent)
+            wt = mktempdir()
+            n1 = W.mux_name(wt, "main", "1", kind)
+            W.mux_start(n1, wt, "sleep 120")
+            W.mux_tag!(n1, wt, kind, "a#1")
+            @test W.mux_find(wt, kind).item == "a#1"
+            n2 = W.mux_name(wt, "main", "2", kind)
+            W.mux_rename(W.mux_find(wt, kind).name, n2)
+            W.mux_tag!(n2, wt, kind, "b#2")
+            @test count(r -> r.worktree == wt, W.mux_list()) == 1
+            @test W.mux_find(wt, kind).item == "b#2"
+            @test W.mux_find(wt, kind).name == n2
+            W.mux_kill(n2)
+        end
+    end
+
     row(kind, ref) = (name = "wl-x", command = "sh", attached = false,
                       worktree = "/tmp/x", kind = kind, item = ref)
     st.sessions = NamedTuple[]

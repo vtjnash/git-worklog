@@ -2528,83 +2528,71 @@ function open_editor(it::Item)
     string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
 end
 
-"""Run an agent on this item, in a session of its own, and watch it work.
+"""Find or start this item's session of `kind` in its worktree, and show it.
+
+One path for both kinds, because a session of either is a *place*: the shell in
+a checkout is the shell in that checkout whoever asked for it, and an agent can
+be cleared and pointed at something else as easily as a shell can be `cd`-ed.
+So both are renamed to whatever item was last opened on them, and both are
+re-tagged with it.
+
+What differs is only what gets run when there is nothing there yet.
+"""
+function enter_session(it::Item, ctrl, kind::Symbol, cmd::AbstractString)
+    mux_bin() === nothing && return "no tmux on PATH"
+    target, branch = item_checkout(it)
+    target === nothing && return :needs_repo
+    found = mux_find(target, kind)
+    name = mux_name(target, branch, it, kind)
+    if found === nothing
+        ok, err = mux_start(name, target, cmd)
+        ok || return err
+    else
+        mux_rename(found.name, name)
+    end
+    mux_tag!(name, target, kind, it.ref)
+    v = pane_view(name, string(kind === :agent ? "agent  " : "", it.ref,
+                               isempty(branch) ? "" : string("  ", branch)), ctrl)
+    v === nothing && return "could not attach to " * name
+    pane_sync!(v)
+    push!(ctrl.stack, v)
+    if found === nothing
+        string("started ", name)
+    elseif !isempty(found.item) && found.item != it.ref
+        # Not a refusal - the session is yours to redirect - but the
+        # conversation in it is about something else until you say otherwise.
+        string("back in ", basename(target), " \u00b7 was on ", found.item)
+    else
+        string("back in ", name)
+    end
+end
+
+"""Run an agent on this item, in its worktree, and watch it work.
 
 The task is the `agent_task` already on the item - what `wl agent <ref> "..."`
 wrote and what put the item in the `needs-agents` bucket. Until now that text
 was a note to yourself; this is the thing that runs it.
 
-The session is separate from the shell's so that both can exist for one item at
-once, and it is named after the item, so nothing has to be written down: the
-session either exists or it does not, and `mux_alive` is the whole of the
-bookkeeping. Leaving the pane leaves the agent running.
+Refusing without one is deliberate: `T` means run my task, and there is nothing
+to run. Watching an agent that is already busy in that worktree is what the
+session list is for.
 """
 function open_agent(it::Item, ctrl)
-    mux_bin() === nothing && return "no tmux on PATH"
     isempty(it.agent) && return "no agent task - set one with `wl agent`"
     Sys.which("claude") === nothing && return "`claude` is not on PATH"
-    target, branch = item_checkout(it)
-    target === nothing && return :needs_repo
-    found = mux_find(target, :agent)
-    # Unlike a shell, an agent is not renamed to whoever asked for it last. It
-    # has a task, and one already at work in this checkout is working on some
-    # other item; two of them editing one worktree would fight, so this says
-    # whose it is rather than quietly presenting it as yours.
-    name = found === nothing ? mux_name(target, branch, it, :agent) : found.name
-    if found === nothing
-        # The item, so the agent does not have to be told twice what it is
-        # working on, and the task exactly as it was written.
-        prompt = string(it.repo, "#", it.number, " - ", it.url, "\n\n", it.agent)
-        ok, err = mux_start(name, target, string("claude ", shquote(prompt)))
-        ok || return err
-        mux_tag!(name, target, :agent, it.ref)
-    end
-    v = pane_view(name, string("agent  ", found === nothing || found.item == it.ref ?
-                                          it.ref : found.item), ctrl)
-    v === nothing && return "could not attach to " * name
-    pane_sync!(v)
-    push!(ctrl.stack, v)
-    if found !== nothing && found.item != it.ref
-        return string("an agent is already running in ", basename(target),
-                      ", on ", isempty(found.item) ? "another item" : found.item)
-    end
-    string(found === nothing ? "started " : "watching ", name)
+    # The item, so the agent does not have to be told twice what it is working
+    # on, and the task exactly as it was written.
+    prompt = string(it.repo, "#", it.number, " - ", it.url, "\n\n", it.agent)
+    enter_session(it, ctrl, :agent, string("claude ", shquote(prompt)))
 end
 
-"""Open a shell on this item's checkout, in a multiplexer session of its own,
-and show it in a pane.
+"""Open a shell on this item's checkout, in its worktree's session, and show it.
 
-The session is named after the item and left running, so leaving the pane is
-not the same as ending it: come back to the same item and the same shell is
-still there, with whatever was half-typed still on the line.
-
-The pane can be watched but not yet typed into, so `a` inside it hands the
-terminal over for real.
+Leaving the pane is not ending it: come back to the same checkout and the same
+shell is still there, with whatever was half-typed still on the line.
 """
-function open_terminal(it::Item, ctrl)
-    mux_bin() === nothing && return "no tmux on PATH"
-    target, branch = item_checkout(it)
-    target === nothing && return :needs_repo
-    name = mux_name(target, branch, it)
-    found = mux_find(target, :shell)
-    started = found === nothing
-    if started
-        ok, err = mux_start(name, target, get(ENV, "SHELL", "/bin/sh"))
-        ok || return err
-    else
-        # A shell is a place, not a task, so the one already in this worktree
-        # is the right one to come back to whichever item asked for it. Rename
-        # it so the list says what it is being used for now.
-        mux_rename(found.name, name)
-    end
-    mux_tag!(name, target, :shell, it.ref)
-    v = pane_view(name, string(it.repo, "#", it.number,
-                               isempty(branch) ? "" : string("  ", branch)), ctrl)
-    v === nothing && return "could not attach to " * name
-    pane_sync!(v)
-    push!(ctrl.stack, v)
-    string(started ? "started " : "back in ", name)
-end
+open_terminal(it::Item, ctrl) =
+    enter_session(it, ctrl, :shell, get(ENV, "SHELL", "/bin/sh"))
 
 # --- CI checks --------------------------------------------------------------
 

@@ -535,11 +535,17 @@ The stages, each of which stands on its own:
    - **The name is a label**, `wl-<worktree>-<branch>-<ref>`, all three because
      each answers a different question and the list is unreadable without any
      one of them. `/` survives, so a branch keeps its owner prefix.
-   - **A shell is renamed to whatever item was opened on it; an agent is not.**
-     A shell is a place. An agent has a task, so one already at work in a
-     checkout is on some other item, and `T` says whose it is rather than
-     presenting it as yours. Two agents editing one worktree would fight, and
-     this makes that impossible to express rather than merely unwise.
+   - **Both kinds are renamed to whatever item was last opened on them**, and
+     there is one code path for the two. An agent looked like the exception —
+     it has a task, where a shell is only a place — and it is not one: an agent
+     can be cleared and pointed at something else as easily as a shell can be
+     `cd`-ed, and the pane is where that happens. Coming back to a session that
+     was on another item says so in the status line, which is information and
+     not a refusal; the session is yours to redirect. All that differs between
+     the kinds is what gets run when there is nothing there yet.
+   - Two agents editing one worktree is still impossible to express, which is
+     the point of keying on the worktree, but that falls out of the key rather
+     than needing a rule of its own.
    - **`@wl_item` is neither name nor identity.** It is what the metadata pane
      matches on, so an item can be told a session exists for it without the
      pane working out which worktree it would land in — that costs a `git`
