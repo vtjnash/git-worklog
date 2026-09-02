@@ -216,21 +216,6 @@ inline code spans, where a backslash would print. So this repo is no longer
 waiting on the fix; what remains is filing it, so that everyone else's rendered
 docstrings and READMEs stop losing characters too.
 
-### Long node headers are cut, not wrapped
-A comment's header is the byline plus a peek at the body — and for a review
-comment, now also the file and line it points at. `rows` runs it through `afit`,
-so on a narrow pane it is truncated mid-sentence with an ellipsis instead of
-wrapping onto a second row. Seen on julia#18004, whose headers run to 91 columns
-before the pane is even involved.
-
-The work is not the wrapping, it is that `rows` currently emits exactly one row
-per node header and several things rely on it: `headerrow` takes the first match
-(fine), the fold-marker hit test treats columns 1-2 of any header row as the
-marker (a continuation row would toggle the fold, which probably wants
-restricting to the first row), and the `▾`/`▸` marker itself should not repeat
-on continuation rows. `Row` already carries `part`, which is exactly the flag
-needed to tell them apart.
-
 ### Code blocks in comments are boxes, and long lines break them
 Term draws a fenced code block as a bordered panel sized to its longest line,
 not to the width it was asked for. A pasted gdb log or stack trace routinely
@@ -283,18 +268,6 @@ Worth reading first, since they bear on how much of ours would be welcome:
 escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
-
-### Should `r` mark read up to what is on screen?
-It marks read up to *now*. Read a thread, walk away, come back to comments that
-arrived while you were gone, and they are already marked seen — `mark_read`
-stamps the current time rather than the timestamp of the last comment you
-actually looked at.
-
-`Events.thread` already returns each comment's `created_at`, and the detail pane
-has them on screen; stamping the newest one that was rendered is the fix. The
-awkward part is that the pane may have been scrolled to the middle of a long
-thread, so "what was on screen" and "what was fetched" differ, and it is the
-second that `r` currently means.
 
 ### Inline code should not shout
 Term renders a markdown code span as `md_code`-styled backticks around

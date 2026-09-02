@@ -655,19 +655,27 @@ function rows(nodes::Vector{Node}, w::Int)
         end
         pad = " "^(2 * n.depth)
         iw = max(20, w - 2 * n.depth)
-        htxt = afit(string(n.open ? "▾ " : "▸ ", n.header), iw)
+        full = string(n.open ? "▾ " : "▸ ", n.header)
+        # Wrapped, not cut: a header is a byline plus a peek at the body, and on
+        # a narrow pane cutting it loses the half that says what the comment is
+        # about. Continuations are indented under the text, so the fold marker
+        # still reads as belonging to one row.
+        hls = awidth(full) <= iw ? [full] : awrap(full, iw - 2)
+        hsrc = get(n.meta, "src", astrip(n.header))
         u = get(n.meta, "url", "")
-        core = string(AB, isempty(u) ? htxt : osc8(u, htxt), AR)
-        # A rule out to the edge of the pane, so where one comment ends and the
-        # next begins is visible at a glance rather than found by reading. Only
-        # at the top level: a nested block should stay subordinate to the
-        # comment it was written in, not compete with it.
-        if n.depth == 0
-            gap = iw - awidth(htxt) - 1
-            gap > 2 && (core = string(core, " ", AD, "─"^gap, AR))
+        for (k, hl) in enumerate(hls)
+            txt = k == 1 ? hl : string("  ", hl)
+            core = string(AB, isempty(u) ? txt : osc8(u, txt), AR)
+            # A rule out to the edge of the pane on the last row of the header,
+            # so where one comment ends and the next begins is visible at a
+            # glance rather than found by reading. Only at the top level: a
+            # nested block stays subordinate to the comment it was written in.
+            if n.depth == 0 && k == length(hls)
+                gap = iw - awidth(txt) - 1
+                gap > 2 && (core = string(core, " ", AD, "─"^gap, AR))
+            end
+            push!(out, Row(i, true, string(pad, core), hsrc, k == 1 ? 0 : 1))
         end
-        push!(out, Row(i, true, string(pad, core),
-                       get(n.meta, "src", astrip(n.header)), 0))
         if !n.open
             hide = n.depth
             continue
@@ -1190,7 +1198,7 @@ function render_frame(st::BState, w::Int, h::Int)
                    "space/b page \u00b7 n/N node \u00b7 \u21b5 fold \u00b7 tab pane \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 q quit")
-    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r/u read \u00b7 s snooze \u00b7 ",
+    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 e edit \u00b7 m mouse ", st.mouse ? "on" : "off")
     msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
@@ -1351,6 +1359,7 @@ body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, ur
 
 function comment_nodes(it::Item)
     local body, cs
+    fetched = stamp()
     try
         key = "thread:" * it.url
         hit = cache_get(key, DETAIL_TTL[])
@@ -1359,6 +1368,11 @@ function comment_nodes(it::Item)
             cache_put(key, (body = body, comments = cs))
         else
             body, cs = hit[1].body, hit[1].comments
+            # When this thread was actually read from GitHub, not when it came
+            # out of the cache. `r` marks read up to this, so a comment that
+            # arrived after the fetch stays unread.
+            fetched = Dates.format(NOW[] - Second(round(Int, hit[2])),
+                                   "yyyy-mm-ddTHH:MM:SS") * "Z"
         end
     catch e
         return [Node("could not load thread", first(sprint(showerror, e), 200), :plain, true)]
@@ -1396,6 +1410,7 @@ function comment_nodes(it::Item)
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
         append!(ns, made)
     end
+    isempty(ns) || (ns[1].meta["fetched"] = fetched)
     isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
 end
 
@@ -1634,7 +1649,7 @@ end
 "Row index of node `i`'s header - where the cursor lands after folding."
 function headerrow(st::BState, i::Int, w::Int)
     rs = rows(st.nodes, w)
-    j = findfirst(r -> r.node == i && r.header, rs)
+    j = findfirst(r -> r.node == i && r.header && r.part == 0, rs)
     j === nothing ? 1 : j
 end
 
@@ -1642,7 +1657,7 @@ end
 function jumpnode(st::BState, dir::Int, w::Int)
     rs = rows(st.nodes, w)
     isempty(rs) && return
-    hdrs = [j for j in eachindex(rs) if rs[j].header]
+    hdrs = [j for j in eachindex(rs) if rs[j].header && rs[j].part == 0]
     isempty(hdrs) && return
     st.nrow = if dir > 0
         something(findfirst(>(st.nrow), hdrs), length(hdrs)) |> i -> hdrs[i]
@@ -1849,12 +1864,24 @@ function handle!(st::BState, k::Int, ctrl::Controller)
     elseif k == Int('A'); review_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
     elseif k in (Int('r'), Int('u'))
-        # Undoing a mark is not marking it the other way - it is putting back
-        # whatever was there, which may have been nothing at all.
-        seen = k == Int('r')
-        prev = Events.read_at(it.url)
+        # `r` toggles: on something unread it marks it read, on something read
+        # it puts it back. `u` is the unconditional half, for when what is on
+        # screen is not the state you meant to act on.
         was = it.url in st.unread
-        seen ? Events.mark_read([it.url]) : Events.mark_unread([it.url])
+        seen = k == Int('r') ? was : false
+        # Read up to when the thread was *fetched*, not to now. A comment that
+        # arrived while you were reading - or while you were away from a pane
+        # loaded ten minutes ago - was never in front of you, and stamping now
+        # would mark it seen. Not the newest comment's own time either: an item
+        # whose `updated_at` moved for a label edit would then be permanently
+        # unread, because marking it read could never catch up to it.
+        at = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
+        prev = Events.read_at(it.url)
+        if seen
+            Events.set_read(it.url, at === nothing ? stamp() : st.nodes[at].meta["fetched"])
+        else
+            Events.mark_unread([it.url])
+        end
         seen ? delete!(st.unread, it.url) : push!(st.unread, it.url)
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
             Events.set_read(it.url, prev)
@@ -1950,7 +1977,7 @@ function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
         st.nrow = idx
         st.anchor = idx
         st.sela = 0; st.selb = 0
-        if rs[idx].header && col <= 2          # the ▾/▸ marker and its space
+        if rs[idx].header && rs[idx].part == 0 && col <= 2   # the ▾/▸ marker
             i = rs[idx].node
             st.nodes[i].open = !st.nodes[i].open
             st.nrow = headerrow(st, i, L.riw)

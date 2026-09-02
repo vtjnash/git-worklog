@@ -332,6 +332,37 @@ end
     @test W.selrange(st) === nothing
 end
 
+@testset "a long header wraps instead of being cut" begin
+    long = "nalimilan  2018-03-16T21:13   Sorry, I do not really understand your example"
+    n = W.Node(long, "body text", :md, true)
+    nested = W.Node("a nested header long enough that it will not fit either", "b", :md, true, 1)
+
+    for w in (30, 40, 60, 96)
+        rs = W.rows([n, nested], w)
+        @test all(W.awidth(r.text) <= w for r in rs)      # nothing overflows
+        hdr = [r for r in rs if r.node == 1 && r.header]
+        # Every word of the header survives somewhere.
+        joined = replace(W.astrip(join([r.text for r in hdr], " ")), r"[─]+" => "")
+        @test all(occursin(word, joined) for word in split(long))
+        @test !occursin("…", joined)                      # not truncated
+        @test hdr[1].part == 0 && all(r.part == 1 for r in hdr[2:end])
+        @test occursin("▾", W.astrip(hdr[1].text))
+        length(hdr) > 1 && @test !any(occursin("▾", W.astrip(r.text)) for r in hdr[2:end])
+    end
+    @test length([r for r in W.rows([n, nested], 30) if r.node == 1 && r.header]) > 1
+    @test length([r for r in W.rows([n, nested], 200) if r.node == 1 && r.header]) == 1
+
+    # The things that assumed one row per header still find the first one.
+    st = mkstate()
+    st.nodes = [n, nested]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    rs = W.rows(st.nodes, 40)
+    @test W.headerrow(st, 1, 40) == 1
+    st.nrow = 1
+    W.jumpnode(st, 1, 40)
+    @test rs[st.nrow].node == 2 && rs[st.nrow].part == 0   # skips continuations
+end
+
 @testset "folding takes what is nested under it" begin
     ns = [W.Node("comment", "body", :md, true), W.Node("folded", "hidden", :md, true, 1),
           W.Node("deeper", "also hidden", :md, true, 2), W.Node("sibling", "shown", :md, true)]
@@ -798,14 +829,20 @@ end
         st = mkstate()
         it = st.items[st.sel]
         prev = W.Events.read_at(it.url)
+        # `r` toggles against what is on screen.
+        push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
         @test W.Events.read_at(it.url) !== nothing
         @test !(it.url in st.unread)
-        W.handle!(st, Int('z'), ctrl)
+        W.handle!(st, Int('r'), ctrl)                   # ...and back again
+        @test st.status == "marked unread" && it.url in st.unread
+        W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
         @test W.Events.read_at(it.url) == prev          # exactly what was there
         @test read(readfile, String) == before          # byte for byte
 
+        # `u` is unconditional: unread stays unread.
+        delete!(st.unread, it.url)
         W.handle!(st, Int('u'), ctrl)
         @test st.status == "marked unread" && it.url in st.unread
         @test W.Events.read_at(it.url) === nothing
@@ -813,8 +850,18 @@ end
         @test W.Events.read_at(it.url) == prev
         @test read(readfile, String) == before
 
+        # Read is stamped to when the thread was fetched, not to now.
+        st.nodes = [W.Node("h", "b", :md, true)]
+        st.nodes[1].meta["fetched"] = "2020-01-02T03:04:05Z"
+        push!(st.unread, it.url)
+        W.handle!(st, Int('r'), ctrl)
+        @test W.Events.read_at(it.url) == "2020-01-02T03:04:05Z"
+        W.handle!(st, Int('z'), ctrl)
+        st.nodes = W.Node[]
+
         # A run of them unwinds in order.
         for _ in 1:3
+            push!(st.unread, st.items[st.sel].url)
             W.handle!(st, Int('r'), ctrl)
             st.sel = min(st.sel + 1, length(st.items))
         end
