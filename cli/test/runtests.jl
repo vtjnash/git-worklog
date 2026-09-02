@@ -1495,3 +1495,118 @@ end
         W.mux_close(alone.client); W.mux_close(v.client); W.mux_kill(n)
     end
 end
+
+# A view that throws whatever it is asked to do, to prove the run survives it.
+mutable struct ExplodingView <: W.View
+    renders::Int
+    handles::Int
+end
+W.render(v::ExplodingView, w::Int, h::Int) = (v.renders += 1; error("render exploded"))
+W.handle!(v::ExplodingView, k::Int, ctrl) = (v.handles += 1; error("handle exploded"))
+W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw exploded"))
+
+@testset "an error costs a frame, not the session" begin
+    isfile(W.ERRLOG) && rm(W.ERRLOG)
+    empty!(W.ERRSEEN)
+    @test W.errnote() == ""
+
+    v = ExplodingView(0, 0)
+
+    # A view that cannot draw itself says so where the frame would have been,
+    # in exactly the shape every other frame has.
+    for (w, h) in ((80, 24), (120, 40))
+        ls = split(W.safe_render(v, w, h), "\n")
+        @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        @test occursin("could not be drawn", join(ls, "\n"))
+    end
+
+    # The keystroke is lost; the run is not.
+    ctrl = W.Controller(); ctrl.running = true
+    @test W.safe_dispatch!(v, W.KeyEvent(Int('j')), ctrl) === :ok
+    @test W.safe_dispatch!(v, W.RawEvent(UInt8['j']), ctrl) === :ok
+    @test v.handles == 2
+
+    # The file is the warning, and it stands until it is deleted.
+    @test isfile(W.ERRLOG)
+    @test occursin("delete it to clear", W.errnote())
+    # The warning has to survive being fitted to the footer, or it says that
+    # something is wrong without saying what to do.
+    @test W.awidth(W.errnote()) < 80
+    @test occursin("render exploded", read(W.ERRLOG, String))
+    @test occursin("handle exploded", read(W.ERRLOG, String))
+
+    # A bug on the render path runs every frame, so the same error is written
+    # once rather than thousands of times.
+    before = filesize(W.ERRLOG)
+    W.safe_render(v, 80, 24); W.safe_render(v, 80, 24)
+    @test filesize(W.ERRLOG) == before
+
+    # It is what the footer shows, ahead of the status.
+    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st.status = "something ordinary"
+    @test occursin("delete it to clear", W.render(st, 120, 40))
+
+    rm(W.ERRLOG)
+    @test W.errnote() == ""
+    @test !occursin("delete it to clear", W.render(st, 120, 40))
+end
+
+@testset "the metadata fetch result fits the field it lands in" begin
+    # This is the bug that killed a live session: `load_meta!` handed
+    # `mux_sessions()` - names - to a field holding what `mux_list()` returns.
+    # Every test set `st.sessions` by hand, so none of them ever saw it.
+    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st.sessions = W.mux_list()
+    @test st.sessions isa Vector{NamedTuple}
+    if W.mux_bin() !== nothing
+        n = "wl-test-fetchtype-1"; W.mux_kill(n)
+        W.mux_start(n, pwd(), "sleep 60")
+        st.sessions = W.mux_list()
+        @test any(r -> r.name == n, st.sessions)
+        @test W.meta_lines(st, st.items[1], 40) isa Vector{String}
+        W.mux_kill(n)
+    end
+end
+
+@testset "the child's cursor" begin
+    # `hlspan` closes a span with whatever it is told to, so reverse video can
+    # be undone; a background colour's `\e[49m` would not touch it.
+    @test W.hlspan("abc", [2:2], "\e[7m"; off = "\e[27m") == "a\e[7mb\e[27mc"
+    @test W.hlspan("abc", [2:2], "\e[7m") == "a\e[7mb\e[49mc"     # default close
+
+    mk(frame, cur) = W.PaneView("n", "t", nothing, frame, (0, 0), "", false, nothing, cur)
+
+    # Hidden: the frame is handed back untouched.
+    @test W.cursor_frame(mk(["abc"], (1, 0, false))) == ["abc"]
+    # Off the end of what was captured: nothing to draw on.
+    @test W.cursor_frame(mk(["abc"], (0, 9, true))) == ["abc"]
+
+    # On a character, counted in what prints and not in bytes: the escapes in
+    # a captured row are not columns.
+    @test W.cursor_frame(mk(["abc"], (1, 0, true)))[1] == "a\e[7mb\e[27mc"
+    # The span opens immediately before the cell. Its close may land after the
+    # row's own trailing reset, which has already ended the reverse video - so
+    # what matters is where it starts.
+    got = W.cursor_frame(mk(["\e[32mabc\e[0m"], (2, 0, true)))[1]
+    @test occursin("\e[7mc", got)
+
+    # Past the end of the row - a prompt with nothing typed after it - there is
+    # no character to invert, so one is made.
+    out = W.cursor_frame(mk(["ab"], (4, 0, true)))[1]
+    @test W.awidth(W.astrip(out)) == 5 && occursin("\e[7m \e[27m", out)
+
+    if W.mux_bin() !== nothing
+        n = "wl-test-cursor-1"; W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh -c 'printf \"prompt> \"; sleep 60'")
+        ctrl = W.Controller(); ctrl.running = true
+        v = W.pane_view(n, "cursor", ctrl); sleep(1.0)
+        withenv("LINES" => "8", "COLUMNS" => "48") do
+            W.pane_sync!(v)
+            x, y, showing = v.cursor
+            @test showing === true          # quoted format, or tmux answers about the session
+            @test (x, y) == (8, 0)          # just past "prompt> "
+            @test occursin("\e[7m", W.render(v, 48, 8))
+        end
+        W.mux_close(v.client); W.mux_kill(n)
+    end
+end

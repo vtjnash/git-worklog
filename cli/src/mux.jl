@@ -401,6 +401,28 @@ function mux_capture(c::MuxClient; escapes::Bool = true)
     ok ? lines : String[]
 end
 
+"""Where the child's cursor is, and whether it is showing.
+
+`(x, y)` are zero-based, as tmux counts them. It has to be asked for separately:
+`capture-pane` returns the grid and says nothing about the cursor, and the real
+one is hidden for the whole run - the browser draws its own - so a scraped child
+would otherwise have no cursor at all and no way to see where typing goes.
+"""
+function mux_cursor(c::MuxClient)
+    # The format is quoted and the target is not, which is the opposite way
+    # round from everywhere else and is not a preference: `#` starts a comment
+    # in tmux's command syntax, so an unquoted format is discarded and the
+    # default message comes back instead - successfully, and about the session
+    # rather than the cursor. A quoted *target* meanwhile succeeds and matches
+    # nothing.
+    ok, lines = mux_ask(c, string("display-message -p -t =", c.name,
+                                  ": '#{cursor_x},#{cursor_y},#{cursor_flag}'"))
+    (ok && !isempty(lines)) || return (0, 0, false)
+    f = split(strip(lines[1]), ',')
+    length(f) == 3 || return (0, 0, false)
+    (something(tryparse(Int, f[1]), 0), something(tryparse(Int, f[2]), 0), f[3] == "1")
+end
+
 """Size the session to `w` by `h`.
 
 A pane is a whole session because `new-window` has no `-x`/`-y` in any version,

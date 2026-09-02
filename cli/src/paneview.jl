@@ -29,6 +29,7 @@ mutable struct PaneView <: View
     status::String
     pending::Bool                  # the prefix has been seen, its key has not
     beside::Any                    # the BState to read alongside, or nothing
+    cursor::Tuple{Int,Int,Bool}    # the child's cursor: x, y (0-based), showing
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -80,7 +81,8 @@ function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl))
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
-    PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside)
+    PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
+             (0, 0, false))
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -105,6 +107,7 @@ function pane_sync!(v::PaneView)
     # Every row is closed off, or an unterminated colour would run out of the
     # content and into the pane's own border and padding.
     v.frame = [string(l, "\e[0m") for l in lines]
+    v.cursor = mux_cursor(v.client)
     true
 end
 
@@ -118,9 +121,30 @@ function onwake!(v::PaneView)
     a || b
 end
 
+"""The captured frame with the child's cursor drawn into it.
+
+The terminal's own cursor is hidden for the whole run, so this is the only one
+there is. Reverse video rather than a background colour, because the cell under
+it keeps whatever colour it had and a block has to read as a block over any of
+them - which is why `hlspan` had to learn how to close a span it did not open
+with a background.
+"""
+function cursor_frame(v::PaneView)
+    cx, cy, showing = v.cursor
+    (showing && 1 <= cy + 1 <= length(v.frame)) || return v.frame
+    out = copy(v.frame)
+    line = out[cy + 1]
+    # Past the end of what was captured - a prompt with nothing typed after it -
+    # there is no character to invert, so one is made.
+    pad = cx + 1 - awidth(astrip(line))
+    pad > 0 && (line = string(line, " "^pad))
+    out[cy + 1] = hlspan(line, [(cx + 1):(cx + 1)], "\e[7m"; off = "\e[27m")
+    out
+end
+
 """The child's column: exactly `h` rows of exactly `w`."""
 function pane_column(v::PaneView, w::Int, h::Int)
-    body = pane(v.frame, w, h - 1, v.title, true)
+    body = pane(cursor_frame(v), w, h - 1, v.title, true)
     note = if !isempty(v.status)
         v.status
     elseif v.client === nothing

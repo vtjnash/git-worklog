@@ -6,3 +6,6 @@ queue.json
 read.json
 cache/
 repos.toml
+
+# Uncaught errors, appended by the browser. Delete it to clear the warning.
+errors.log

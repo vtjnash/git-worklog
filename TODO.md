@@ -609,6 +609,34 @@ The stages, each of which stands on its own:
    - Key hints are written `^]a` and not `^] a`: in a line naming several of
      them, a lone `a` reads as a word.
 
+4f. **Surviving a bug, and the cursor. Done 2026-09-02.** Two things a live
+   session found that no test had.
+   - **An uncaught error ended the run**, taking raw mode, the alternate screen
+     and every open pane with it — a bad trade when nearly every such bug costs
+     one frame. `safe_render` and `safe_dispatch!` catch, append to
+     `errors.log`, and carry on; the same error is written once, since a bug on
+     the render path runs every frame. The file *is* the warning: the footer
+     says so while it exists and deleting it is how the warning is dismissed, so
+     a bug cannot be quietly lived with. The note names the file relatively and
+     puts the instruction first — with the absolute path in it, `afit` cut the
+     sentence before "delete" and left a warning that said something was wrong
+     without saying what to do.
+   - **The bug it caught was mine**: `load_meta!` still fetched `mux_sessions()`
+     — names — into a field that had become what `mux_list()` returns. Every
+     test set `st.sessions` by hand, so none of them ever ran the fetch. There
+     is now one that does.
+   - **The child's cursor has to be drawn.** `capture-pane` returns the grid and
+     says nothing about the cursor, and the real one is hidden for the whole
+     run, so a scraped child had none at all. `mux_cursor` asks for it and
+     `cursor_frame` inverts that cell, in reverse video rather than a colour so
+     it reads as a block over whatever was underneath — which is why `hlspan`
+     learned to close a span with something other than a background reset.
+   - **A tmux format must be quoted and a target must not.** `#` starts a
+     comment in tmux's command syntax, so an unquoted `#{cursor_x}` is
+     discarded and the default message comes back — successfully, about the
+     session rather than the cursor. A quoted *target* meanwhile succeeds and
+     matches nothing. The two rules are opposite and both are silent.
+
 4d. **Next: drop `agent_task`, and give the notes a place instead.** Nothing
    launches from it any more, so what is left is a `state.toml` field whose
    only remaining job is to force an item into the `needs-agents` bucket. That

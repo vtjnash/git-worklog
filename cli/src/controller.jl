@@ -340,6 +340,90 @@ function suspend(f, ctrl::Controller)
     end
 end
 
+# --- surviving a bug ---------------------------------------------------------
+#
+# An exception out of `handle!` or `render` used to end the run, taking the
+# terminal's raw mode and alternate screen with it and leaving a backtrace over
+# whatever was on screen. That is the wrong trade for a dashboard: nearly every
+# such bug costs one frame, and losing the session costs everything that was
+# open - including, now, the multiplexer panes being watched.
+#
+# So it is caught, appended to a file, and the run continues. The file is the
+# warning: while it exists the footer says so, and deleting it is how the
+# warning is dismissed, which means a bug cannot be silently lived with.
+
+"""Where uncaught errors go. Deleting it clears the warning in the footer."""
+const ERRLOG = joinpath(ROOT, "errors.log")
+
+"""Errors already written this run, so a bug on the render path - which runs
+every frame - writes one entry rather than thousands."""
+const ERRSEEN = Set{UInt64}()
+
+"""Record an error and carry on. Returns the one-line summary."""
+function logerror!(e, bt, what::AbstractString)
+    line = first(sprint(showerror, e), 200)
+    key = hash((line, what))
+    if !(key in ERRSEEN)
+        push!(ERRSEEN, key)
+        try
+            open(ERRLOG, "a") do io
+                println(io, "\n=== ", Dates.format(now(), "yyyy-mm-dd HH:MM:SS"),
+                        "  in ", what, " ===")
+                showerror(io, e, bt)
+                println(io)
+            end
+        catch
+            # A log that cannot be written must not be the thing that ends the
+            # run either.
+        end
+    end
+    line
+end
+
+"""Draw `v`, or a frame saying why it could not be drawn.
+
+Split out of the loop so it can be tested: a view that throws is the case that
+matters and there is no terminal here to drive the loop with.
+"""
+function safe_render(v::View, w::Int, h::Int)
+    try
+        render(v, w, h)
+    catch e
+        line = logerror!(e, catch_backtrace(), "render")
+        rows = vcat(["\e[31mthis view could not be drawn\e[0m"], awrap(line, w),
+                    [""], awrap(errnote(), w))
+        while length(rows) < h
+            push!(rows, "")
+        end
+        join([apad(r, w) for r in rows[1:h]], "\n")
+    end
+end
+
+"""Hand `ev` to `v`, or log and carry on. Returns the view's action.
+
+A lost keystroke is a smaller loss than a lost session, which is what an
+exception out of here used to cost - and now costs every pane that was open
+under it as well.
+"""
+function safe_dispatch!(v::View, ev, ctrl)
+    try
+        ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
+        ev isa RawEvent   ? onraw!(v, ev.bytes, ctrl) :
+                            handle!(v, ev.code, ctrl)
+    catch e
+        logerror!(e, catch_backtrace(), "handle!")
+        :ok
+    end
+end
+
+"""The footer's standing warning, or `""` when the log has been deleted."""
+# Named relatively, and the useful half first. The absolute path is long enough
+# that `afit` cut the sentence before "delete", leaving a warning that said
+# something was wrong and not what to do about it - and the file sits in the
+# directory `wl` is run from, so its name is enough to find it.
+errnote() = isfile(ERRLOG) ?
+    string("errors logged in ", basename(ERRLOG), " \u2014 read it, then delete it to clear this") : ""
+
 """
     run!(ctrl, root)
 
@@ -379,7 +463,7 @@ function run!(ctrl::Controller, root::View)
             v = last(ctrl.stack)
             if dirty
                 h, w = displaysize(stdout)
-                print("\e[H", replace(render(v, w, h), "\n" => "\e[K\n"), "\e[J")
+                print("\e[H", replace(safe_render(v, w, h), "\n" => "\e[K\n"), "\e[J")
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
@@ -392,12 +476,15 @@ function run!(ctrl::Controller, root::View)
             armed || (put!(ctrl.ready, wantsraw(v)); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
             if ev isa WakeEvent
-                dirty = onwake!(v)
+                dirty = try
+                    onwake!(v)
+                catch e
+                    logerror!(e, catch_backtrace(), "onwake!")
+                    true                      # redraw, to show the warning
+                end
             else
                 armed = false
-                act = ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
-                      ev isa RawEvent   ? onraw!(v, ev.bytes, ctrl) :
-                                          handle!(v, ev.code, ctrl)
+                act = safe_dispatch!(v, ev, ctrl)
                 act === :quit && break
                 # Pop the view that asked, not whatever is on top: a view may
                 # push its successor while handling the key it pops on - the

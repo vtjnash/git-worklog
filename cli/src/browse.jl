@@ -817,7 +817,7 @@ function load_meta!(st::BState)
             # that is already off the key loop rather than happening per frame.
             (meta = Events.itemmeta(it.url, it.is_pr),
              checks = it.is_pr ? check_contexts(it.repo, it.number) : nothing,
-             sessions = mux_sessions())
+             sessions = mux_list())
         catch e
             (meta = nothing, checks = nothing, sessions = String[],
              err = first(sprint(showerror, e), 120))
@@ -1080,7 +1080,8 @@ offset into the string. This walks it, counting only what would appear, and ends
 each span with `\\e[49m` rather than a reset - so a match inside coloured text
 keeps its colour, and `hlrow` can still lay the cursor's background over the top.
 """
-function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractString)
+function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractString;
+               off::AbstractString = NOBG)
     isempty(ranges) && return s
     io, i, n, open_ = IOBuffer(), firstindex(s), 0, false
     while i <= lastindex(s)
@@ -1091,11 +1092,11 @@ function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractS
         n += 1
         inspan = any(r -> n in r, ranges)
         inspan && !open_ && write(io, bg)
-        !inspan && open_ && write(io, NOBG)
+        !inspan && open_ && write(io, off)
         open_ = inspan
         write(io, s[i]); i = nextind(s, i)
     end
-    open_ && write(io, NOBG)
+    open_ && write(io, off)
     String(take!(io))
 end
 
@@ -1297,7 +1298,10 @@ function render_frame(st::BState, w::Int, h::Int)
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" sessions \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
-    msg = !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
+    # A logged error outranks both: it is standing, and stays until the file
+    # naming it is deleted.
+    msg = !isempty(errnote()) ? errnote() :
+          !isempty(MD_WARN[]) ? "markdown: " * MD_WARN[] : st.status
     foot1 = string(AD, afit(keys1, w), AR)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
