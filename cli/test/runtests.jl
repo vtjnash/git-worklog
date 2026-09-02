@@ -2716,6 +2716,31 @@ end
     @test W.age(loaded[1], W.utcnow()) >= 0
 end
 
+@testset "a label shows the moment it is set" begin
+    # facts.json is the item's source and the browser cannot write it, so an
+    # item that changes mid-session has to be rebuilt and put back.
+    st = mkstate()
+    it = first(x for x in st.items if !isempty(x.labels))
+    l = "a-brand-new-label"
+    @test !(l in st.labels)
+    n = W.withlabels(it, sort(vcat(it.labels, l)))
+    # Everything else about it is the same object's contents, field for field.
+    @test n.url == it.url && n.title == it.title && n.act == it.act && n.state == it.state
+    @test n.labels == sort(vcat(it.labels, l)) && it.labels != n.labels
+    @test W.replace_item!(st, n)
+    @test st.all[findfirst(x -> x.url == it.url, st.all)].labels == n.labels
+    # The pane that shows labels shows it, and the axis that filters by them
+    # can offer it.
+    @test occursin(l, W.astrip(join(W.meta_lines(st, n, 50), "\n")))
+    @test l in st.labels
+    # Taking it off again is the same move.
+    @test W.replace_item!(st, W.withlabels(n, it.labels))
+    @test !occursin(l, W.astrip(join(W.meta_lines(st, it, 50), "\n")))
+    # And nothing is put back that was never here.
+    @test !W.replace_item!(st, W.withlabels(
+        W.Item(url = "nope", ref = "n#1", repo = "a/b", number = 1, title = "t"), [l]))
+end
+
 @testset "an item nobody's lane returns" begin
     # A url is not a query, so an issue in a repo nobody watches that does not
     # mention you matches no lane by construction. Importing is the manual way

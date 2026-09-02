@@ -2958,11 +2958,15 @@ function label_action(st::BState, ctrl::Controller, it::Item)
         l -> begin
             on = l in have
             r = Events.toggle_label(it.url, l, !on)
-            isempty(r) && touch!(it.url)
-            # `Item` comes from facts.json and is not rewritten here, so the
-            # metadata pane keeps showing the old set until the next refresh.
-            st.status = isempty(r) ? string(on ? "removed " : "added ", l,
-                                            " — shows here after `wl refresh`") : r
+            isempty(r) || (st.status = r; return)
+            touch!(it.url)
+            # The item is rewritten in place. It came from facts.json, which
+            # this cannot write - so without this the metadata pane went on
+            # showing the old set until the next refresh, and the status line
+            # had to apologise for it.
+            replace_item!(st, withlabels(it, on ? filter(!=(l), it.labels) :
+                                             sort(vcat(it.labels, l))))
+            st.status = string(on ? "removed " : "added ", l)
         end))
 end
 
@@ -3211,6 +3215,33 @@ function add_item!(st::BState, it::Item)
     push!(st.all, it)
     it.bucket in st.buckets || push!(st.buckets, it.bucket)
     it.repo in st.repos || push!(st.repos, it.repo)
+    refilter!(st)
+    true
+end
+
+"""A copy of `it` with different labels.
+
+`Item` is immutable - it is built from `facts.json` and read from everywhere -
+so anything that changes one between refreshes hands back a new one. Rebuilt
+from `fieldnames` with the one field swapped, rather than field by field: two
+dozen names written out here would be a list to keep in step with the struct.
+"""
+withlabels(it::Item, labels::Vector{String}) =
+    Item((f === :labels ? labels : getfield(it, f) for f in fieldnames(Item))...)
+
+"""Put a changed copy of an item back where the old one was.
+
+Keyed by url, and it extends the label axis the way `add_item!` does: a label
+that has just been put on something is a label this dashboard now has, and the
+filter pane has to be able to offer it.
+"""
+function replace_item!(st::BState, it::Item)
+    i = findfirst(x -> x.url == it.url, st.all)
+    i === nothing && return false
+    st.all[i] = it
+    for l in it.labels
+        l in st.labels || push!(st.labels, l)
+    end
     refilter!(st)
     true
 end

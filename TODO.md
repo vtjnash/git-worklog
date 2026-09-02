@@ -388,9 +388,6 @@ untested:
   `POST /pulls/{n}/reviews` takes a `comments` array; the pending set wants to
   live on `BState` and be visible while it accumulates - a count in the footer,
   a line in the metadata pane - with `A` submitting it.
-- **A label toggle does not show until the next refresh.** `Item` is built from
-  `facts.json` and is not rewritten in place, so the metadata pane keeps the old
-  set; the status line says so. Either patch the item in memory or re-read it.
 - **A reply to an issue comment.** Only review comments carry a thread, so `c`
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
