@@ -51,6 +51,8 @@ Base.@kwdef struct Item
     milestone::String = ""
     milestone_due::String = ""
     review_decision::String = ""
+    branch::String = ""    # the pull request's head branch, from the lanes:
+                           # what joins an item to a local checkout
     draft::Bool = false
     deadline::String = ""
     blocked_on::Vector{String} = String[]
@@ -83,6 +85,7 @@ function loaditems()
             milestone = nz(jget(r, :milestone), ""),
             milestone_due = first(String(nz(jget(r, :milestone_due), "")), 10),
             review_decision = nz(jget(r, :review_decision), ""),
+            branch = nz(jget(r, :branch), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],

@@ -2536,26 +2536,55 @@ function item_checkout(it::Item)
     repo = repo_path(it.repo)
     repo === nothing && return (nothing, "")
     branch = pr_branch(it)
-    for (path, br) in worktrees(repo)
-        if !isempty(branch) && br == branch
-            return (path, branch)
+    for w in worktrees(repo)
+        if !isempty(branch) && w.branch == branch
+            return (w.path, branch)
         end
     end
     (repo, branch)
 end
 
-"""This pull request's head branch, or `""` when it has none or `gh` fails.
+"""This pull request's head branch, or `""` when it has none.
 
-An issue has no branch and a network hiccup should not stop a checkout from
-opening, so every failure is the same empty answer.
+Comes off the item, which the search lanes now fill in - so the whole list of
+them is known without a single request, which is what makes a worktree or
+branch list possible at all. The `gh` call is only the fallback for a
+`facts.json` written before the field existed; an issue has no branch and a
+network hiccup should not stop a checkout from opening, so every failure is the
+same empty answer.
 """
 function pr_branch(it::Item)
+    isempty(it.branch) || return it.branch
+    it.is_pr || return ""
     try
         strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefName -q .headRefName`,
                    String))
     catch
         ""
     end
+end
+
+"""Items by the branch they are the pull request for, as `(repo, branch)`.
+
+The join the survey is for: `facts.json` carries `headRefName`, a local branch
+knows its repo from the checkout it was found in, and between them a worktree
+row can say which pull request is the work in it.
+
+Keyed by both halves because branch names are not distinctive - every one of
+these repos has a `master`, and several have the same topic branch name pushed
+from different forks.
+"""
+function branch_index(items)
+    d = Dict{Tuple{String,String},Item}()
+    for it in items
+        it.is_pr && !isempty(it.branch) || continue
+        k = (it.repo, it.branch)
+        # A branch is reused: an older closed pull request on the same name
+        # should not shadow the one that is open now.
+        prev = get(d, k, nothing)
+        (prev === nothing || it.number > prev.number) && (d[k] = it)
+    end
+    d
 end
 
 """Open a checkout of this pull request's branch in VS Code.
@@ -2569,9 +2598,9 @@ function open_editor(it::Item)
     Sys.which("code") === nothing && return "`code` is not on PATH"
     branch = pr_branch(it)
     target = repo
-    for (path, br) in worktrees(repo)
-        if !isempty(branch) && br == branch
-            target = path
+    for w in worktrees(repo)
+        if !isempty(branch) && w.branch == branch
+            target = w.path
             break
         end
     end

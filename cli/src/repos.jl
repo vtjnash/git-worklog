@@ -19,10 +19,16 @@ struct GitError <: Exception
 end
 Base.showerror(io::IO, e::GitError) = print(io, e.msg)
 
-"Run git in `dir`, returning stdout. Throws GitError with stderr on failure."
+"""Run git in `dir`, returning stdout. Throws GitError with stderr on failure.
+
+Under `LC_ALL=C`, because everything git says here is read by this program
+rather than by a person: `%(upstream:track)` in particular comes back as
+`[ahead 3, behind 1]` through gettext, and would be parsed wrong - silently,
+as no divergence at all - in any locale that translates it.
+"""
 function git(dir::AbstractString, args...)
     out, err = IOBuffer(), IOBuffer()
-    cmd = Cmd(`git $(collect(String, args))`; dir = String(dir))
+    cmd = addenv(Cmd(`git $(collect(String, args))`; dir = String(dir)), "LC_ALL" => "C")
     try
         run(pipeline(cmd; stdout = out, stderr = err))
     catch
@@ -93,16 +99,26 @@ function register_repo!(name::AbstractString, path::AbstractString)
     (path = p, gitdir = gd, matched = String(name) in rs)
 end
 
-"Worktrees of this repo as (path, branch), skipping ones git calls prunable."
+"""Worktrees of this repo, skipping ones git calls prunable.
+
+Each is `(path, branch, head, main)`, which destructures as `(path, branch)` for
+the callers that only want somewhere to work. `branch` is empty on a detached
+head - a real state for a worktree, and one the survey has to be able to show
+rather than skip. `main` marks the primary checkout, which git always lists
+first.
+"""
 function worktrees(path::AbstractString)
-    out = Tuple{String,String}[]
-    cur, br, prunable = "", "", false
-    flush!() = (!isempty(cur) && !prunable && push!(out, (cur, br)))
+    out = NamedTuple{(:path, :branch, :head, :main),Tuple{String,String,String,Bool}}[]
+    cur, br, hd, prunable = "", "", "", false
+    flush!() = (!isempty(cur) && !prunable &&
+                push!(out, (path = cur, branch = br, head = hd, main = isempty(out))))
     for l in split(git(path, "worktree", "list", "--porcelain"), "\n")
         if startswith(l, "worktree ")
-            flush!(); cur = String(l[10:end]); br = ""; prunable = false
+            flush!(); cur = String(l[10:end]); br = ""; hd = ""; prunable = false
         elseif startswith(l, "branch ")
             br = replace(String(l[8:end]), "refs/heads/" => "")
+        elseif startswith(l, "HEAD ")
+            hd = String(l[6:end])
         elseif startswith(l, "prunable")
             prunable = true
         end
@@ -138,4 +154,140 @@ function file_at(path, sha, file)
     catch
         nothing
     end
+end
+
+# --- the local survey -------------------------------------------------------
+#
+# What is checked out, and what work exists without a place to be. Two lists
+# built from three git invocations per repo plus one per worktree, because a
+# list wants every repo at once and per-item shelling does not scale to that -
+# it is the same reason `branch` now rides along in `facts.json` rather than
+# being asked for one pull request at a time.
+
+"""One local branch, whether or not anything is checked out on it.
+
+`ahead`/`behind` are against its upstream and are both zero when it has none,
+which `upstream` being empty is how to tell apart from being in sync. `gone`
+is the upstream that was deleted underneath it - a merged pull request's branch
+looks exactly like this, so it is the strongest hint the survey has that
+something is finished.
+"""
+Base.@kwdef struct Branch
+    repo::String
+    name::String
+    head::String = ""
+    at::String = ""          # committer date of its tip, ISO 8601
+    upstream::String = ""
+    ahead::Int = 0
+    behind::Int = 0
+    gone::Bool = false
+    worktree::String = ""    # the worktree that has it out, "" for none
+end
+
+"""One checked-out worktree.
+
+`branch` is empty on a detached head. `ahead`/`behind`/`upstream` are its
+branch's, joined from `branches`, so a detached worktree reports none.
+"""
+Base.@kwdef struct Worktree
+    repo::String
+    path::String
+    branch::String = ""
+    head::String = ""
+    at::String = ""
+    dirty::Bool = false
+    upstream::String = ""
+    ahead::Int = 0
+    behind::Int = 0
+    main::Bool = false
+end
+
+"""Parse `%(upstream:track)`: `[ahead 3, behind 1]`, `[gone]`, or empty.
+
+Read rather than recomputed, because `for-each-ref` already knows: asking for
+the counts instead means a `rev-list` per branch, which is the per-row shelling
+this whole file exists to avoid.
+"""
+function track_counts(s::AbstractString)
+    occursin("gone", s) && return (0, 0, true)
+    a = match(r"ahead (\d+)", s)
+    b = match(r"behind (\d+)", s)
+    (a === nothing ? 0 : parse(Int, a[1]), b === nothing ? 0 : parse(Int, b[1]), false)
+end
+
+"Every local branch of one checkout, in one `for-each-ref`."
+function branches(repo::AbstractString, path::AbstractString)
+    # %09 is a tab: a branch name cannot contain one, and neither can any of the
+    # other fields, so nothing here needs escaping. Dates are ISO strict so they
+    # sort as strings, and object names are full, to match what `worktree list`
+    # reports - shortening is the display's job, not two different lengths here.
+    fmt = join(("%(refname:short)", "%(objectname)", "%(committerdate:iso-strict)",
+                "%(upstream:short)", "%(upstream:track)", "%(worktreepath)"), "%09")
+    out = Branch[]
+    for l in split(git(path, "for-each-ref", "--format=" * fmt, "refs/heads"), "\n")
+        isempty(strip(l)) && continue
+        f = split(l, '\t')
+        length(f) < 6 && continue
+        ahead, behind, gone = track_counts(f[5])
+        push!(out, Branch(; repo = String(repo), name = String(f[1]), head = String(f[2]),
+                            at = String(f[3]), upstream = String(f[4]),
+                            ahead = ahead, behind = behind, gone = gone,
+                            worktree = String(f[6])))
+    end
+    out
+end
+
+"""Is this worktree's tree different from its HEAD?
+
+Untracked files do not count. A build tree is full of them and none of them is
+work in progress, so counting them would report every checkout dirty forever.
+`--no-optional-locks` keeps a read from taking the index lock out from under a
+git command the user is running in the same checkout.
+"""
+function dirty(path::AbstractString)
+    try
+        !isempty(strip(git(path, "--no-optional-locks", "status", "--porcelain",
+                           "--untracked-files=no")))
+    catch
+        false
+    end
+end
+
+"""
+    survey(; withdirty = true) -> (worktrees, branches)
+
+Every registered repo at once. A repo whose folder has gone is skipped rather
+than reported, matching `repo_path`; anything that throws inside one repo costs
+that repo and not the survey.
+
+`withdirty = false` skips the one `git status` per worktree, which is the only
+part that walks a tree - on a checkout the size of julia that is the difference
+between instant and noticeable, and a caller drawing a list before the user has
+asked about any particular row may want the cheap version first.
+"""
+function survey(; withdirty::Bool = true)
+    ws, bs = Worktree[], Branch[]
+    for (name, d) in sort(collect(load_repos()); by = first)
+        p = get(d, "worktree", "")
+        isdir(p) || continue
+        try
+            brs = branches(name, p)
+            byname = Dict(b.name => b for b in brs)
+            append!(bs, brs)
+            for w in worktrees(p)
+                b = get(byname, w.branch, nothing)
+                push!(ws, Worktree(; repo = String(name), path = w.path,
+                                     branch = w.branch, head = w.head,
+                                     at = b === nothing ? "" : b.at,
+                                     dirty = withdirty && dirty(w.path),
+                                     upstream = b === nothing ? "" : b.upstream,
+                                     ahead = b === nothing ? 0 : b.ahead,
+                                     behind = b === nothing ? 0 : b.behind,
+                                     main = w.main))
+            end
+        catch e
+            e isa GitError || rethrow()
+        end
+    end
+    (ws, bs)
 end

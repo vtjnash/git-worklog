@@ -58,7 +58,7 @@ linked against a newer glibc.
 | `cli/src/browse.jl` | the two-pane browser: filters, panes, folding, diffs, checks |
 | `cli/src/ansi.jl` | escape-aware width, truncate, wrap |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
-| `cli/src/repos.jl` | repo → local checkout mapping, worktrees, `git show` |
+| `cli/src/repos.jl` | repo → local checkout mapping, the worktree/branch survey, `git show` |
 | `cli/src/mux.jl` | tmux sessions and the control-mode client |
 | `cli/src/paneview.jl` | a hosted program drawn in a pane; the session list |
 | `cli/src/cache.jl` | on-disk cache with TTL |
@@ -203,6 +203,12 @@ Do not "simplify" any of these away.
     Filtering it out to keep new keys in the right place took a line out of the
     user's file on every write; hold it back and re-append it instead.
 
+**git**
+26. `%(upstream:track)` is a *translated* string — `[ahead 3, behind 1]` comes
+    through gettext, so in a translating locale it parses as no divergence at
+    all, silently. Every git call here is read by this program rather than by a
+    person, so `git()` runs them all under `LC_ALL=C`.
+
 **The clock**
 25. `NOW[]` is frozen for the whole run, which is right for a refresh — one
     instant for every age and expiry, so a run cannot straddle midnight and
@@ -244,20 +250,22 @@ shipped are not listed; `git log` is the record of those.
 Four lists the browser cannot show today, planned together because they share
 two things underneath and because two of them turn out to be the same list.
 
-**What has to exist first.** The interaction clock has shipped — `touched.json`
-and `touched.jl`, with the reasoning about what does and does not write to it
-in that file's header. Nothing reads it yet; lists C and D below are what it is
-for. What is still missing:
+**Both prerequisites have shipped.** Nothing reads either of them yet — the
+lists below are what they are for.
 
-1. **A local git survey.** `repos.jl` has `worktrees(path)`; what is missing is
-   every repo in `repos.toml` at once and, per worktree, the branch, whether it
-   is dirty, ahead/behind upstream, the last commit date, and the item for its
-   branch if there is one.
-
-   That mapping is the enabling change and belongs in `gh.jl`: the GraphQL
-   lanes should fetch `headRefName` for every pull request so `facts.json`
-   carries branch → item. `pr_branch` asks `gh` per item, which is one process
-   per row and hopeless for a list.
+- **The interaction clock**, `touched.json` and `touched.jl`. The reasoning
+  about what does and does not write to it is in that file's header.
+- **The local git survey**, `survey()` in `repos.jl`, returning `Worktree` and
+  `Branch` for every repo in `repos.toml` at once: the branch, dirty or clean,
+  ahead/behind upstream, the tip's date, and for a branch whether anything has
+  it checked out. Three git invocations per repo plus one `git status` per
+  worktree, and `survey(; withdirty = false)` drops even those — the tree walk
+  is the only part that is not instant.
+- **Branch → item**, which is what joins them: the lanes now fetch
+  `headRefName`, so `facts.json` carries it and `branch_index(items)` keys an
+  item by `(repo, branch)`. Verified against a live refresh — 1133 of 1133
+  pull requests carry a branch and no issue does. `pr_branch` reads the field
+  and only falls back to `gh` for a `facts.json` written before it existed.
 
 **The lists.**
 
@@ -316,10 +324,11 @@ already leaves the active lanes on its own, but a local branch that came to
 nothing has no other way out. A merged or closed item is worth *offering* to
 archive rather than archiving silently.
 
-**Order to build in.** The git survey with `headRefName` is next, and it
-unblocks everything else. Then the worktree view by folding the session list
-into it, then branches beside it, then adoption and the synthetic items, and
-archive last — it is the only piece that touches how items leave the lanes.
+**Order to build in.** The worktree view is next — fold the session list into
+it, since a session is keyed by its worktree and every one already belongs to
+exactly one row. Then branches beside it, then adoption and the synthetic
+items, and archive last: it is the only piece that touches how items leave the
+lanes.
 
 ### What review writing still cannot do
 

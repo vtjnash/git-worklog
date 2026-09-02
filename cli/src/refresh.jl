@@ -69,6 +69,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         threads === nothing && (threads = ())
         mine_reviews = [r for r in reviews
                         if jget(jget(r, :author), :login) == login && jget(r, :submittedAt) !== nothing]
+        rec["branch"] = something(jget(n, :headRefName), "")
         rec["draft"] = n.isDraft
         rec["review_decision"] = jget(n, :reviewDecision)
         rec["mergeable"] = jget(n, :mergeable)
