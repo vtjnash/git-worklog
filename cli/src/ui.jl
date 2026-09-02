@@ -61,6 +61,9 @@ Base.@kwdef struct Item
                            # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
+    merged_by::String = "" # who merged it, empty unless it is merged. The one
+                           # thing that tells a merge you have to be told about
+                           # from one you did yourself.
     draft::Bool = false
     deadline::String = ""
     blocked_on::Vector{String} = String[]
@@ -104,6 +107,7 @@ function loaditems()
             review_decision = nz(jget(r, :review_decision), ""),
             state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
+            merged_by = nz(jget(r, :merged_by), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],

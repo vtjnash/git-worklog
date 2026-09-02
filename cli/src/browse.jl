@@ -1025,7 +1025,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                                 string(RED, "conflicting", AR) : lowercase(it.mergeable))
     if haskey(st.archived, it.url)
         kv("archived", string(st.archived[it.url], "  ", AD, "x takes it back out", AR))
-    elseif isdone(it) && (it.url in st.unread || it.new)
+    elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
         # Merged, and you have not looked at it since - or this is the first
         # refresh that has seen it at all, which is the same thing for a repo
         # the event poller does not cover. That is news, not filing: a merge you
@@ -1035,7 +1035,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
         # Offered once the notice has been read, and never done silently: a
         # merged pull request is usually finished with and occasionally the one
         # thing you still owe a reply on, and this cannot tell the difference.
-        kv("state", string(lowercase(it.state), "  ", AD, "x archives it", AR))
+        kv("state", string(lowercase(it.state), "  ", AD,
+                           mergedbyme(it) ? "you merged it \u00b7 x archives it" :
+                                            "x archives it", AR))
     elseif !isempty(it.state) && it.state != "OPEN"
         kv("state", lowercase(it.state))
     end
@@ -2685,6 +2687,24 @@ which reads as "not known to be closed" rather than as closed - the wrong way
 round would offer to archive the whole dashboard after an upgrade.
 """
 isdone(it::Item) = it.state == "CLOSED" || it.state == "MERGED"
+
+"""Merged by you: the one ending that is not news.
+
+The wait before archive is offered exists so that a merge is read before it is
+filed - somebody else finished your work, or finished with it, and that is worth
+being told. When you pushed the button yourself there is nothing to be told, so
+the notice is skipped and the offer stands on the first frame.
+
+Empty for a `facts.json` written before the field was asked for, and for every
+open item, which reads as "not known to have been merged by you" - the wrong way
+round would have offered to file half the dashboard unread after an upgrade.
+
+An adopted local branch has no record of this at all: `merged_here` says the
+work landed and says nothing about who pushed it, which would want the merge
+commit's committer.
+"""
+mergedbyme(it::Item) = it.state == "MERGED" && !isempty(it.merged_by) &&
+                       it.merged_by == login()
 
 """Ask how long for, then snooze.
 

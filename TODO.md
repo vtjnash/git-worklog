@@ -304,9 +304,11 @@ Do not "simplify" any of these away.
 
 ### Conventions
 Commit as `worklog: brief summary`, prose body explaining the purpose (not a
-file list, not a test plan), ending with:
+file list, not a test plan), ending with whatever trailer the session is told
+to use — currently:
 
-    Assisted-by: Claude Code (Opus 5)
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+    Claude-Session: <the session URL>
 
 Write commit bodies to a file and use `git commit -F` — backticks in a heredoc
 get interpreted by the shell and silently mangle the message.
@@ -339,11 +341,6 @@ These are the pieces of it that did not get built.
   answers "when did anything happen to it" — the worktree and branch lists want
   the second and probably so does `mine`, while `touched` may want the first.
   `max` needs no new data, only a different `sortkey`.
-- **"I merged it" should skip the wait before archive is offered.** When you did
-  the merge there is no notice to read. `mergedBy` is now reachable — the
-  `landed` lane returns merged pull requests, so it is one GraphQL field — which
-  makes this small rather than blocked. An adopted local branch still has no
-  record of who pushed the merge; that would want the merge commit's committer.
 - **Ignoring forks in an owner glob.** `vtjnash/*` is 100 repos, 82 of them
   forks, and activity on a fork of someone else's project is usually not
   activity you want. It would not save a request — a glob is two searches
@@ -628,6 +625,13 @@ Kept here so they can be written up in one pass rather than rediscovered.
   `e` opens. `"` is where every worktree can be seen, made and started in, which
   is most of it; what is left is for `t` on an *item* to ask, rather than
   landing you wherever the fallback went.
+- **An adopted branch's merge has no author.** A pull request you merged
+  yourself skips the wait before archive is offered, because `mergedBy` says
+  who pushed the button. A local branch has no such record: `merged_here` says
+  every commit is in the base and says nothing about how it got there, so an
+  adopted branch that landed is still news until it has been read. The merge
+  commit's committer is where that would come from, and only when the work
+  landed as a merge rather than a squash or a rebase.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does

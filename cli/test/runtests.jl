@@ -1871,6 +1871,27 @@ end
         delete!(st.unread, l.url)
         @test occursin("x archives it", says())
         @test W.get_field(l.url, "archive") === nothing
+
+        # A merge you pushed yourself is not news at all, so the wait is
+        # skipped: unread or not, the offer stands on the first frame.
+        mine = W.Item(url = "u1", ref = "m#1", repo = "o/m", number = 1, title = "t",
+                      state = "MERGED", merged_by = W.login())
+        theirs = W.Item(url = "u2", ref = "m#2", repo = "o/m", number = 2, title = "t",
+                        state = "MERGED", merged_by = "someone-else")
+        old = W.Item(url = "u3", ref = "m#3", repo = "o/m", number = 3, title = "t",
+                     state = "MERGED")
+        @test W.mergedbyme(mine)
+        # Not known to have been merged by you reads as not yours, which is the
+        # way round that leaves an upgrade offering nothing new.
+        @test !W.mergedbyme(theirs) && !W.mergedbyme(old)
+        @test !W.mergedbyme(W.Item(url = "u4", ref = "m#4", repo = "o/m", number = 4,
+                                   title = "t", merged_by = W.login()))
+        st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog",
+                       Set(["u1", "u2", "u3"]))
+        line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50) if occursin("state", r)], " "))
+        @test occursin("you merged it", line(mine)) && occursin("x archives it", line(mine))
+        @test occursin("new since you last looked", line(theirs))
+        @test occursin("new since you last looked", line(old))
     finally
         write(W.statefile(), before)
         W.REPOS_FILE[] = ""

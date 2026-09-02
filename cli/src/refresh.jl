@@ -71,6 +71,9 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         mine_reviews = [r for r in reviews
                         if jget(jget(r, :author), :login) == login && jget(r, :submittedAt) !== nothing]
         rec["branch"] = something(jget(n, :headRefName), "")
+        # Who pushed the button, and only ever asked of the closed lanes -
+        # every other lane is is:open, where it is null by definition.
+        rec["merged_by"] = jget(jget(n, :mergedBy), :login)
         rec["draft"] = n.isDraft
         rec["review_decision"] = jget(n, :reviewDecision)
         rec["mergeable"] = jget(n, :mergeable)
