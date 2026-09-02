@@ -1668,6 +1668,28 @@ end
     end
 end
 
+@testset "all activity on a whole owner" begin
+    # An entry is a repo, polled exactly, or `owner/*`, swept with a search.
+    # `vtjnash/*` is a hundred repos and a hundred requests on every launch is
+    # not a thing to do for a handful of comments.
+    E = W.Events
+    ex, ow, bad = E.event_sources(["JuliaLang/julia", "vtjnash/*", "libuv/*",
+                                   "libuv/libuv"])
+    @test ex == ["JuliaLang/julia", "libuv/libuv"]
+    @test ow == ["vtjnash", "libuv"]
+    @test isempty(bad)
+    # Only `owner/*` is a pattern; anything else is reported rather than guessed.
+    _, _, bad2 = E.event_sources(["a/b*", "*/c", "ok/*"])
+    @test Set(bad2) == Set(["a/b*", "*/c"])
+    # One owner named twice is one sweep.
+    @test E.event_sources(["x/*", "x/*"])[2] == ["x"]
+
+    # A search result names its repo only by the API url it came from, and a
+    # glob covers many repos - so the repo has to come off the item.
+    @test E.item_repo(Dict("repository_url" => "https://api.github.com/repos/a/b")) == "a/b"
+    @test E.item_repo(Dict{String,Any}()) == ""
+end
+
 @testset "work that has already landed is still seen" begin
     # Every open lane is `is:open`, so a pull request that merges between two
     # refreshes stops being returned and the merge goes unnoticed. The closed

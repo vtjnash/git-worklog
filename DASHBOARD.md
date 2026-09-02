@@ -1,8 +1,8 @@
 # Work dashboard
 
-_2026-09-02 18:32 UTC · 2069 items · 21 rate-limit points_
+_2026-09-02 18:48 UTC · 2069 items · 21 rate-limit points_
 
-## Unread (788)
+## Unread (789)
 _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to zero the inbox._
 
 - [julia#62589](https://github.com/JuliaLang/julia/pull/62589) Define atomic get/setindex ops on AtomicMemoryRef  
@@ -85,7 +85,7 @@ _`wl show <ref>` to read a thread, `wl read <ref>` when done, `wl read all` to z
   <sub>50 comments · **needs-review** · 1d</sub>
 - [julia#62952](https://github.com/JuliaLang/julia/pull/62952) types: fix declared field type of TypeName.linearcache  
   <sub>no comments · **needs-review** · 1d</sub>
-- _...and 748 more_
+- _...and 749 more_
 
 ## Needs a reply (7)
 _You were mentioned and the last word is theirs._
@@ -137,7 +137,7 @@ _Conflicts; rebase or restack with `gh stack`._
 - [ClaudeBox.jl#30](https://github.com/Keno/ClaudeBox.jl/pull/30) Mount external git worktree dir read-only in the sandbox  
   <sub>conflicts · 50d</sub>
 - [libuv#5189](https://github.com/libuv/libuv/pull/5189) linux: synthesize events for always-ready fds  
-  <sub>CI failure · conflicts · 53d</sub>
+  <sub>CI failure · conflicts · 54d</sub>
 
 ## Needs review (42)
 _Waiting on you to review someone else._
@@ -276,13 +276,13 @@ _Yours, not yet proposed._
 - [julia#40793](https://github.com/JuliaLang/julia/issues/40793) readbytes!: support the `all` keyword for all methods  
   <sub>track:loose · 1819d</sub>
 - [julia#41538](https://github.com/JuliaLang/julia/issues/41538) Function attributes for `jl.get_pgcstack`  
-  <sub>track:loose · 1877d</sub>
+  <sub>track:loose · 1878d</sub>
 - [julia#6661](https://github.com/JuliaLang/julia/issues/6661) introduce va_list  
   <sub>track:loose · 2514d</sub>
 - [julia#18004](https://github.com/JuliaLang/julia/issues/18004) show(io, x) vs show(io, "text/plain", x) -- docs?  
   <sub>track:loose · 3091d</sub>
 - [julia#26107](https://github.com/JuliaLang/julia/issues/26107) windows libuv req bug  
-  <sub>track:loose · 3115d</sub>
+  <sub>track:loose · 3116d</sub>
 - [julia#22884](https://github.com/JuliaLang/julia/issues/22884) Serialize dynamically generated anonymous functions closing over any module (not just Main)   
   <sub>track:loose · 3330d</sub>
 - [julia#13359](https://github.com/JuliaLang/julia/issues/13359) Call-site splatting optimization  
@@ -294,41 +294,41 @@ _Yours, not yet proposed._
 _Merged or closed. `x` files one away._
 
 - [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) Load Pkg only when a lazy artifact needs installing  
-  <sub>track:loose · moved · 0d</sub>
+  <sub>track:loose · 0d</sub>
 - [julia#62942](https://github.com/JuliaLang/julia/pull/62942) staticdata: deduplicate types with deferred supertypes  
-  <sub>track:loose · NEW · 1d</sub>
+  <sub>track:loose · 1d</sub>
 - [julia#62704](https://github.com/JuliaLang/julia/pull/62704) codegen: place tbaa for array and memory under `jtbaa_value`  
-  <sub>track:loose · NEW · CI failure · 1 unresolved · 2d</sub>
+  <sub>track:loose · CI failure · 1 unresolved · 2d</sub>
 - [julia#62934](https://github.com/JuliaLang/julia/pull/62934) precompile: don't re-infer image-compiled callees when generating a pkgimage  
-  <sub>track:loose · NEW · 1.13 · 2d</sub>
+  <sub>track:loose · 1.13 · 2d</sub>
 - [julia#62733](https://github.com/JuliaLang/julia/pull/62733) gf: hash missing-method backedges by signature per typename  
-  <sub>track:loose · NEW · 2d</sub>
+  <sub>track:loose · 2d</sub>
 - [julia#62802](https://github.com/JuliaLang/julia/pull/62802) codegen: implement better tbaa+noalias info  
-  <sub>track:loose · NEW · 7d</sub>
+  <sub>track:loose · 7d</sub>
 - [julia#62872](https://github.com/JuliaLang/julia/pull/62872) Compiler: don't crash `return_type_tfunc` on signatures without a function type  
-  <sub>track:loose · NEW · CI failure · 7d</sub>
+  <sub>track:loose · CI failure · 7d</sub>
 - [julia#62771](https://github.com/JuliaLang/julia/pull/62771) Fix how `ReinterpretArray` handles padding  
-  <sub>track:loose · NEW · CI failure · 1 unresolved · 11d</sub>
+  <sub>track:loose · CI failure · 1 unresolved · 11d</sub>
 - [julia#62563](https://github.com/JuliaLang/julia/pull/62563) llvm: Update to LLVM 22.1.8  
-  <sub>track:loose · NEW · CI failure · 12d</sub>
+  <sub>track:loose · CI failure · 12d</sub>
 - [julia#62697](https://github.com/JuliaLang/julia/pull/62697) Revert "codegen: Propagate `ipo_purity_bits` to LLVM function attributes (#61394)"  
-  <sub>track:loose · NEW · CI failure · 16d</sub>
+  <sub>track:loose · CI failure · 16d</sub>
 - [julia#62693](https://github.com/JuliaLang/julia/pull/62693) Revert "runtime: Make exit signals safe during startup and bound the teardown"  
-  <sub>track:loose · NEW · CI failure · 16d</sub>
+  <sub>track:loose · CI failure · 16d</sub>
 - [julia#62685](https://github.com/JuliaLang/julia/pull/62685) RFC: clarify our AGENTS to align with our current policies  
-  <sub>track:loose · NEW · CI failure · 3 unresolved · 16d</sub>
+  <sub>track:loose · CI failure · 3 unresolved · 16d</sub>
 - [julia#62752](https://github.com/JuliaLang/julia/pull/62752) codegen: give RMW fields a slot when splitting an allocation  
-  <sub>track:loose · NEW · CI failure · 18d</sub>
+  <sub>track:loose · CI failure · 18d</sub>
 - [llvm-project#215152](https://github.com/llvm/llvm-project/pull/215152) [CodeGen] Take the executable stack from a module flag  
-  <sub>track:loose · NEW · 20d</sub>
+  <sub>track:loose · 20d</sub>
 - [julia#62448](https://github.com/JuliaLang/julia/pull/62448) EscapeAnalysis: correct annotation of setfield into object  
-  <sub>track:loose · NEW · CI failure · 20d</sub>
+  <sub>track:loose · CI failure · 20d</sub>
 - [julia#62694](https://github.com/JuliaLang/julia/pull/62694) build: fix regression of `DEPS_GIT` checkouts of git-external dependencies  
-  <sub>track:loose · NEW · 21d</sub>
+  <sub>track:loose · 21d</sub>
 - [julia#62405](https://github.com/JuliaLang/julia/pull/62405) derive detect_unbound_args from subtyping's updated parameter-assignment rule  
-  <sub>track:loose · NEW · CI failure · 23d</sub>
+  <sub>track:loose · CI failure · 23d</sub>
 - [libuv#5211](https://github.com/libuv/libuv/pull/5211) test: close file descriptors leaked by tests  
-  <sub>track:loose · NEW · 35d</sub>
+  <sub>track:loose · 35d</sub>
 
 ## Stale — decide (44)
 _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` or `deadline` to pull one back into an active lane; otherwise close it._
@@ -395,25 +395,4 @@ _Yours, gone quiet, and you have not claimed them in `state.toml`. Add a `note` 
 - [JSON3.jl#320](https://github.com/quinnj/JSON3.jl/pull/320) Fix compatibility with Julia 1.13+ memhash removal <sub>until it moves</sub>
 
 </details>
-
-## Changed since last refresh (18)
-
-- [julia#62802](https://github.com/JuliaLang/julia/pull/62802) — new
-- [julia#62752](https://github.com/JuliaLang/julia/pull/62752) — new
-- [julia#62704](https://github.com/JuliaLang/julia/pull/62704) — new
-- [julia#62697](https://github.com/JuliaLang/julia/pull/62697) — new
-- [julia#62694](https://github.com/JuliaLang/julia/pull/62694) — new
-- [julia#62693](https://github.com/JuliaLang/julia/pull/62693) — new
-- [julia#62685](https://github.com/JuliaLang/julia/pull/62685) — new
-- [llvm-project#215152](https://github.com/llvm/llvm-project/pull/215152) — new
-- [julia#62563](https://github.com/JuliaLang/julia/pull/62563) — new
-- [libuv#5211](https://github.com/libuv/libuv/pull/5211) — new
-- [julia#62448](https://github.com/JuliaLang/julia/pull/62448) — new
-- [julia#62405](https://github.com/JuliaLang/julia/pull/62405) — new
-- [julia#62942](https://github.com/JuliaLang/julia/pull/62942) — new
-- [julia#62934](https://github.com/JuliaLang/julia/pull/62934) — new
-- [julia#62872](https://github.com/JuliaLang/julia/pull/62872) — new
-- [julia#62771](https://github.com/JuliaLang/julia/pull/62771) — new
-- [julia#62733](https://github.com/JuliaLang/julia/pull/62733) — new
-- [LazyArtifacts.jl#1](https://github.com/JuliaPackaging/LazyArtifacts.jl/pull/1) — unresolved None->0, new comment
 

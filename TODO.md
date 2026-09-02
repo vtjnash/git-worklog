@@ -110,6 +110,9 @@ There is no TTY here, so the UI is tested by construction rather than by use:
 - The suite deletes `errors.log` at startup. The standing warning takes the
   footer's second row, so a log left from a previous run fails every test that
   asserts what is written there.
+- The events lane takes `owner/*` as well as `owner/name`. A glob is two
+  searches (`is:issue` and `is:pull-request` under `user:<owner>`), so it is
+  cheap to add one and it truncates at 1000 where a named repo does not.
 - `cli/test/runtests.jl` holds all of the above; run it with
   `julia --project=cli cli/test/runtests.jl`.
 
@@ -437,6 +440,34 @@ note left it — revisit only if team mentions start mattering.
 only piece that touches how items leave the lanes — which is what an adopted
 branch that came to nothing needs in order to go.
 
+### A filter axis you can search, and an author axis at all
+
+Recorded 2026-09-02, to plan properly later.
+
+**Filter by author.** There is no author axis, and it is the one most obviously
+missing: `bucket`, `repo` and `label` are all there and "whose is it" is not.
+
+**The reason it cannot simply be added is the same reason `repo` and `label` are
+already awkward.** The filter pane lists every value of every axis as a radio or
+checkbox row — hundreds of labels across this many repos, ~140 repos, and
+authors would be worse than either. A list you scroll past is not a control.
+
+**One mechanism fixes all three.** An axis gets an entry that stands for "add
+one of these": `↵` on it opens a prompt, what is typed narrows the values by
+`occursin`, and picking one adds it to that axis's set. The already-selected
+values stay listed as they are now, so the pane keeps showing what is *applied*
+and stops trying to show what is *available*.
+
+That is `ChooseView` almost exactly — it already has a query that filters its
+options by `occursin` and returns the picked value — so the work is wiring an
+axis into it, not building a picker. `axis_counts` already computes the counts
+each value would add, which is what the picked list should show.
+
+Worth deciding at the same time: whether the axis sets stay OR-within-axis (they
+do today) and whether an author axis wants a "not me" as well as a "me", since
+"someone else's pull request I am reviewing" is a common thing to want and
+`mine` only covers the other half.
+
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
@@ -748,8 +779,10 @@ so they are not mistaken for bugs later:
   pair of permissions on the repositories being reviewed - `issues: write` and
   `pull_requests: write` - which the same fine-grained PAT can carry but which
   are not implied by the first.
-- **Notifications lane.** Decided against: `mentions:` and `commenter:` cover
-  the gap through ordinary search, leaving only team mentions
-  (`@JuliaLang/compiler`) genuinely unreachable. Revisit only if those matter
-  enough to justify a classic PAT, and build it as a durable sync rather than a
-  live lane if so.
+- **Notifications lane.** Decided against twice now: `mentions:` and
+  `commenter:` cover the mention gap through ordinary search, and `user:owner`
+  searches cover whole-owner activity (see `[events].repos`), leaving only team
+  mentions (`@JuliaLang/compiler`) genuinely unreachable. Revisit only if those
+  matter enough to justify a *classic* PAT with the `notifications` scope, which
+  is a bigger credential than anything else here asks for — and build it as a
+  durable sync rather than a live lane if so.

@@ -61,11 +61,19 @@ batch = 10
 # per-event email notifications can be turned off. Polled with `since=`, which
 # is lossless - the cursor is ours, so nothing is missed because it was read
 # somewhere else. Volume is ~300 events/week across these.
+# An entry is either a repo, polled exactly with `since=`, or `owner/*`, which
+# is every repo that owner has. A glob is asked as two searches - one for issues
+# and one for pull requests - rather than as a poll per repo: `vtjnash/*` is a
+# hundred repos, and a hundred requests on every browser launch is not a thing
+# to do for a handful of comments. The cost is fidelity, since search truncates
+# at 1000 results, so a repo that has to be seen exactly is still named here.
 repos = [
   "JuliaLang/julia",
   "libuv/libuv",
   "JuliaCI/julia-buildkite",
   "JuliaLang/Distributed.jl",
+  "vtjnash/*",
+  "libuv/*",
 ]
 # How far back an untouched item still counts as "new mail". Nothing is stored
 # but read.json (one timestamp per item), so this is just the query window.

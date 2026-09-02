@@ -130,6 +130,50 @@ function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
     out
 end
 
+"""One issue search, paged explicitly. Returns `(items, total_count)`.
+
+Search is the only way to ask about a whole owner at once, and it needs
+`is:issue` or `is:pull-request` - a query with neither is a 422. It is capped at
+1000 results, which `total` is reported for so the caller can say when a window
+is too wide rather than silently seeing part of it.
+
+Ascending by update, for the same reason `api_paged` is: a concurrent edit moves
+an item toward the end, which can duplicate but never skip.
+"""
+function search_issues(q::AbstractString; per_page::Int = 100, max_pages::Int = 10)
+    out, total = Any[], 0
+    for page in 1:max_pages
+        d = first(api_get("/search/issues"; params = Dict{String,Any}(
+            "q" => String(q), "per_page" => per_page, "page" => page,
+            "sort" => "updated", "order" => "asc")))
+        page == 1 && (total = get(d, "total_count", 0))
+        items = get(d, "items", Any[])
+        append!(out, items)
+        length(items) < per_page && break
+    end
+    (out, total)
+end
+
+"""Split the configured entries into the two kinds of source.
+
+`(explicit, owners, bad)`: repos to poll by name, owners to sweep with a search,
+and anything shaped like a pattern that is not `owner/*`, which is reported
+rather than guessed at.
+"""
+function event_sources(repos)
+    explicit = [String(r) for r in repos if !occursin('*', r)]
+    owners = unique([String(first(split(r, '/'))) for r in repos if endswith(r, "/*")])
+    bad = [String(r) for r in repos if occursin('*', r) && !endswith(r, "/*")]
+    (explicit, owners, bad)
+end
+
+"`owner/name` out of a search result, which names the repo only by its API url."
+function item_repo(r)
+    u = String(get(r, "repository_url", ""))
+    p = split(u, "/repos/")
+    length(p) < 2 ? "" : String(p[end])
+end
+
 load_read() = isfile(READ) ?
     Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(READ, String))) :
     Dict{String,Any}()
@@ -195,29 +239,59 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     rd = load_read()
     out = OrderedDict{String,Any}[]
     ttl = Float64(get(cfge, "activity_ttl_seconds", 120))
-    for repo in repos
+    # An `owner/*` entry is every repo that owner has. Asked as one search per
+    # kind rather than as one poll per repo: `vtjnash/*` is a hundred repos, and
+    # a hundred requests on every browser launch is not a thing to do for a
+    # handful of comments. The cost is fidelity - search truncates at 1000 - so
+    # a repo that has to be seen exactly is still listed by name, and both may
+    # be listed at once.
+    explicit, owners, bad = event_sources(repos)
+    isempty(bad) || @printf(stderr, "    ignoring %s: only `owner/*` is a pattern\n",
+                            join(bad, ", "))
+    sources = Tuple{String,Any}[]
+    for repo in explicit
+        ckey = string("activity:", repo, ":", since)
+        push!(sources, (repo, () -> api_paged("/repos/$repo/issues";
+            params = Dict{String,Any}("since" => since, "state" => "all",
+                                      "sort" => "updated", "direction" => "asc"))))
+    end
+    for owner in owners, kind in ("is:issue", "is:pull-request")
+        q = "user:$owner $kind updated:>$(first(since, 10))"
+        push!(sources, (string(owner, "/* ", kind), () -> begin
+            items, total = search_issues(q)
+            total >= 1000 && @printf(stderr,
+                "    %-24s truncated at 1000 of %d - narrow lookback_days\n",
+                string(owner, "/*"), total)
+            items
+        end))
+    end
+
+    seen = Set{String}()
+    for (label, fetch) in sources
         # Persisted: this runs on every launch of the browser and is several
-        # paginated requests per repo, which is most of the startup wait. Read
+        # paginated requests per source, which is most of the startup wait. Read
         # state is applied below, after the cache, so marking something read is
         # reflected immediately even against a warm entry.
-        ckey = string("activity:", repo, ":", since)
+        ckey = string("activity:", label, ":", since)
         rows = try
             hit = cache_get(ckey, ttl)
-            hit === nothing ?
-                cache_put(ckey, api_paged("/repos/$repo/issues"; params = Dict{String,Any}(
-                    "since" => since, "state" => "all", "sort" => "updated",
-                    "direction" => "asc"))) :
-                hit[1]
+            hit === nothing ? cache_put(ckey, fetch()) : hit[1]
         catch e
             e isa ApiError || rethrow()
-            @printf(stderr, "    %-24s FAILED: %s\n", repo, e.msg)
+            @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
             continue
         end
         for r in rows
             url = r["html_url"]
             r["updated_at"] <= get(rd, url, "") && continue
+            # A repo named explicitly *and* covered by a glob is one item, and
+            # the explicit poll is the one that ran first and cannot truncate.
+            url in seen && continue
+            push!(seen, url)
             push!(out, OrderedDict{String,Any}(
-                "url" => url, "repo" => repo, "number" => r["number"],
+                # Off the item, not off the source: a glob covers many repos
+                # and only the item knows which one it came from.
+                "url" => url, "repo" => item_repo(r), "number" => r["number"],
                 "title" => r["title"],
                 "is_pr" => haskey(r, "pull_request"),
                 "state" => r["state"],
@@ -229,8 +303,9 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
         end
     end
     sort!(out; by = e -> e["updated"], rev = true)
-    verbose && @printf(stderr, "  %-16s %4d unread across %d repo(s)\n",
-                       "activity", length(out), length(repos))
+    verbose && @printf(stderr, "  %-16s %4d unread across %d source(s), %d repo(s)\n",
+                       "activity", length(out), length(sources),
+                       length(unique(e["repo"] for e in out)))
     out
 end
 
