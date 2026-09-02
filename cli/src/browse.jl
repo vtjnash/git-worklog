@@ -1013,6 +1013,38 @@ function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractS
     String(take!(io))
 end
 
+"""Character range of a row's own text within the line it came from.
+
+A row shows a *contiguous* piece of `src`: the wrapping only ever cut the line,
+it never rewrote it. So the piece can be found by looking for it, and neither
+`awrap` nor `unwrap_map` has to be taught to report offsets - which for
+`unwrap_map` would have meant recording spans through an alignment that compares
+whitespace-collapsed text, where the offsets do not survive.
+
+`from` carries a cursor along the logical line so that a row repeating text from
+earlier in the same line lands on its own copy. `indent` is the depth padding
+`rows` added, which is not part of the source. Trailing space is not either:
+`src` is stripped of it and a row may be padded out to the pane.
+
+`nothing` when the row is not a piece of its source at all - a footnote row
+shows an elided URL - and the caller falls back to marking what is visible.
+"""
+function row_span(row::Row, indent::Int, from::Int)
+    full = collect(astrip(row.text))
+    length(full) > indent || return nothing
+    body = collect(rstrip(String(full[(indent + 1):end])))
+    hay, m = collect(row.src), length(body)
+    m == 0 && return nothing
+    for i in max(1, from):(length(hay) - m + 1)
+        ok = true
+        for j in 1:m
+            hay[i + j - 1] == body[j] || (ok = false; break)
+        end
+        ok && return i:(i + m - 1)
+    end
+    nothing
+end
+
 "Every place `q` appears in `text`, as ranges of plain characters."
 function findhits(text::AbstractString, q::AbstractString)
     out = UnitRange{Int}[]
@@ -1093,9 +1125,28 @@ function render_frame(st::BState, w::Int, h::Int)
     st.nrow = clamp(st.nrow, 1, max(1, length(nrows)))
     sr = selrange(st)
     if !isempty(st.search) && st.searchin === :detail
+        # Marked against the source rather than against the row, so that a match
+        # the wrapping cut in half is marked on both of the rows it landed on.
+        # Hits are found once per logical line; several rows share one.
+        srchits = Dict{String,Vector{UnitRange{Int}}}()
+        cursor = 1
         for i in 1:length(nrows)
             r = rrows[i + st.hdr]
-            hs = findhits(astrip(r.text), st.search)
+            r.part == 0 && (cursor = 1)
+            ind = 2 * st.nodes[r.node].depth
+            sp = r.header ? nothing : row_span(r, ind, cursor)
+            hs = if sp === nothing
+                findhits(astrip(r.text), st.search)
+            else
+                cursor = last(sp) + 1
+                out = UnitRange{Int}[]
+                for mr in get!(() -> findhits(r.src, st.search), srchits, r.src)
+                    lo, hi = max(first(mr), first(sp)), min(last(mr), last(sp))
+                    lo <= hi &&
+                        push!(out, (lo - first(sp) + 1 + ind):(hi - first(sp) + 1 + ind))
+                end
+                out
+            end
             isempty(hs) && continue
             rrows[i + st.hdr] = Row(r.node, r.header, hlspan(r.text, hs, HITBG),
                                     r.src, r.part)
@@ -1926,10 +1977,9 @@ prints - so a phrase the pane broke across a wrap is still found. One row per
 logical line, which is what `part == 0` selects and what stops a wrapped line
 counting as three matches.
 
-The cost is that a match found this way cannot always be marked: an offset into
-the unwrapped line is not an offset into any one row. The marking is done
-separately, by looking for the query in what each row actually prints, and comes
-back empty for exactly the straddling matches. Found beats marked.
+Marking such a match is `row_span`'s job: a row is a contiguous piece of its
+source, so the piece can be located and the match intersected with it, and a
+match cut in half is marked on both of the rows it landed on.
 """
 function match_rows(st::BState, w::Int)
     isempty(st.search) && return Int[]

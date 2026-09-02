@@ -702,6 +702,60 @@ end
     @test length(W.match_rows(st, 100)) == 1
 end
 
+@testset "a match cut by the wrap is marked on both rows" begin
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    # The highlight markers, made visible without astrip eating them first.
+    seen(f) = W.astrip(replace(replace(f, W.HITBG => "<"), W.NOBG => ">"))
+    detail(st) = [l for l in split(seen(W.render(st, 150, 40)), "\n") if occursin("<", l)]
+
+    st = mkstate()
+    # Long enough to wrap in a 96-column pane, with the query spanning the break.
+    st.nodes = [W.Node("a", "alpha beta gamma delta epsilon zeta eta theta iota kappa " *
+                            "lambda mu nu xi omicron pi rho sigma tau upsilon phi chi", :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.focus = :detail; st.searchin = :detail
+    iw = W.layout(150, 40, st.nmeta).riw
+    body = [r for r in W.rows(st.nodes, iw) if !r.header]
+    @test length(body) > 1                          # it really does wrap
+    # The two words either side of the break.
+    tail = split(W.astrip(body[1].text))[end]
+    head = split(W.astrip(body[2].text))[1]
+    st.search = string(tail, " ", head)
+    @test !any(occursin(st.search, W.astrip(r.text)) for r in W.rows(st.nodes, iw))
+    marked = detail(st)
+    @test length(marked) == 2                       # both halves marked
+    joined = join(marked, "\n")
+    @test occursin(string("<", tail, ">"), joined) && occursin(string("<", head, ">"), joined)
+
+    # An ordinary match is marked once, exactly.
+    st.search = "gamma"
+    one = join(detail(st), "\n")
+    @test occursin("<gamma>", one) && count(==('<'), one) == 1
+
+    # Nothing invented, and the pane's printable text is untouched.
+    st.search = "zzzz"
+    @test isempty(detail(st))
+    st.search = "gamma"
+    pane_of(f) = [String(first(l, 100)) for l in split(W.astrip(f), "\n")[2:end-2]]
+    lit = deepcopy(st); lit.search = ""
+    @test pane_of(W.render(st, 150, 40)) == pane_of(W.render(lit, 150, 40))
+
+    # Indented rows: the depth padding is not part of the source.
+    st2 = mkstate()
+    st2.nodes = [W.Node("top", "", :md, true),
+                 W.Node("in", "alpha beta gamma delta epsilon", :md, true, 1)]
+    st2.loaded = string(st2.items[st2.sel].url, ":", st2.mode)
+    st2.focus = :detail; st2.searchin = :detail; st2.search = "gamma"
+    @test occursin("<gamma>", join(detail(st2), "\n"))
+
+    # row_span itself: a piece of the line, located with a moving cursor.
+    r1 = W.Row(1, false, "alpha beta", "alpha beta gamma alpha beta", 0)
+    @test W.row_span(r1, 0, 1) == 1:10
+    @test W.row_span(r1, 0, 11) == 18:27            # the second copy, not the first
+    @test W.row_span(W.Row(1, false, "nope", "alpha beta", 0), 0, 1) === nothing
+    @test W.row_span(W.Row(1, false, "  beta  ", "alpha beta", 0), 2, 1) == 7:10
+end
+
 @testset "span highlighting" begin
     s = "\e[31mred\e[0m and green"
     hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.HITBG)

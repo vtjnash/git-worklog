@@ -216,47 +216,6 @@ inline code spans, where a backslash would print. So this repo is no longer
 waiting on the fix; what remains is filing it, so that everyone else's rendered
 docstrings and READMEs stop losing characters too.
 
-### Give each row the slice of `src` it shows, so matches can be marked
-`/` finds a phrase broken across a line break, because it matches `src` — the
-line as it was written. It cannot *mark* one, because an offset into that line
-is not an offset into any single row, so the highlight falls back to looking for
-the query in what each row prints and comes back empty for exactly the straddling
-case. Found-but-unmarked was the right trade to ship; it is not the right place
-to stop.
-
-The fix is to record, per row, which part of `src` that row is displaying:
-`Row` gains a `srcrange`, in plain characters, and marking becomes intersecting
-each match range with it and shifting into row-local coordinates. `hlspan`
-already takes plain-character ranges and already skips escapes while counting,
-so it needs no change at all — only better ranges than `findhits` can give it.
-
-**Two wraps have to be inverted, not one**, and this is the part to know before
-starting. A row is the result of Term wrapping the paragraph *and then* `awrap`
-wrapping whatever Term left too long:
-
-- **`awrap`** is ours and the easy half. It walks the input and emits a line
-  whenever the width would overflow, so it already knows where each output line
-  begins and ends; it just discards it. Have it return those spans alongside the
-  lines.
-- **`unwrap_map`** is the other half and the reason most straddling matches
-  exist. For `:md` nodes `src` is the *wide* render's line and the display rows
-  are Term's narrow ones, aligned by comparing whitespace-collapsed text. That
-  alignment walk is where each narrow line's span within the wide line is known,
-  and it has to be recorded there rather than reconstructed afterwards —
-  normalisation collapses runs of spaces, so the offsets cannot be recovered by
-  searching for the narrow text in the wide line later.
-
-Which of the two applies depends on the line: Term wraps prose at the pane
-width, so `awrap` usually does nothing and the `unwrap_map` half carries most of
-the value. Doing only the `awrap` half would leave ordinary wrapped prose
-unmarked, which is the common case.
-
-Two things fall out for free. `Row.part` becomes derivable — a row starts a
-logical line exactly when its `srcrange` starts at 1 — so the flag can go. And
-matches could then be counted and stepped per *occurrence* rather than per line,
-if that turns out to be the better unit for `n`/`N`; today it cannot be, because
-one row cannot say which occurrence it holds.
-
 ### Long node headers are cut, not wrapped
 A comment's header is the byline plus a peek at the body — and for a review
 comment, now also the file and line it points at. `rows` runs it through `afit`,
@@ -403,6 +362,12 @@ at all.
   thirty-day cap, wrong if you wanted the day you typed it. Entries written
   before arming times existed adopt one on first sight rather than counting as
   infinitely old, so an upgrade wakes nothing.
+- **A row whose text is not a piece of its source cannot mark a match exactly.**
+  `row_span` locates a row inside the line it came from by looking for it, which
+  works because wrapping only ever cuts. A URL footnote row breaks that: it
+  shows an elided form and its source is the whole URL. Those fall back to
+  marking whatever of the query is visible on the row, which is the old
+  behaviour and is right for them.
 - **Nesting is depth, not structure.** `Node.depth` draws a block inset and
   `rows` hides the run of deeper nodes under a closed one, which is enough to
   behave like a tree when reading. It is not one: nothing can be moved or
