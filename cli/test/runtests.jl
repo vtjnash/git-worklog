@@ -676,6 +676,41 @@ end
     @test isempty(st2.filters.authors) && st2.filters.state === :active
 end
 
+@testset "the row that clears every filter" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    st.lmode = :filters; st.focus = :list
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+
+    # `c` has always done this and nothing on screen said so.
+    @test W.isdefault(W.Filters())
+    rows = W.filter_rows(st)
+    @test rows[1][1] === :reset
+    @test occursin("clear every filter", W.astrip(W.render(st, 160, 50)))
+    # Nothing to clear, so the row says only what it is - and refuses, rather
+    # than spending the one `\`` slot on a move that changed nothing.
+    st.frow = 1
+    @test W.toggle_filter!(st, ctrl) === false
+    @test st.prev === nothing
+
+    st.filters.labels = Set(["docs"]); st.filters.state = :all
+    st.filters.kind = :issue; W.refilter!(st)
+    @test !W.isdefault(st.filters)
+    # Once there is something to clear, the row names the key that also does it.
+    @test occursin("(c)", W.filter_rows(st)[1][3])
+    st.frow = 1
+    @test W.toggle_filter!(st, ctrl) === true
+    @test W.isdefault(st.filters)
+    # The same jump `c` makes, remembered the same way: `\`` from the item list
+    # goes back to whatever was applied before, which is what makes clearing
+    # safe to try.
+    @test st.prev !== nothing
+    @test st.prev.labels == Set(["docs"]) && st.prev.kind === :issue
+    st.lmode = :items
+    W.handle!(st, Int('`'), ctrl)
+    @test st.filters.labels == Set(["docs"]) && st.filters.kind === :issue
+end
+
 @testset "n/N steps between filter groups" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
@@ -683,7 +718,9 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    @test length(g) == 6            # state, kind, category, repo, label, author
+    # reset, then state, kind, category, repo, label, author
+    @test length(g) == 7
+    @test rows[1][1] === :reset && g[1] == 1    # the way out leads the pane
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
     st.frow = g[1]
@@ -775,6 +812,9 @@ end
     # away and needs no name.
     names = [n for (n, _) in W.views(Dict{String,Any}())]
     @test "waiting on me" in names && "ready to merge" in names
+    # Except the first, which is the way back to nothing and leads for the same
+    # reason the import row leads the item list.
+    @test occursin("default", first(names))
     # config.toml adds to them, and replaces one of the same name rather than
     # listing it twice.
     cfg = Dict{String,Any}("views" => Dict{String,Any}(
@@ -793,6 +833,20 @@ end
     # A single value is as good as a list of one.
     W.apply_view!(st, Dict("state" => "all", "repo" => "JuliaLang/julia"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
+
+    # The sort is an axis like the rest: a view that names one sets it, and a
+    # view that names none puts it back. A name has to mean the same list from
+    # wherever it is pressed, and an order carried over from the list you were
+    # in is not that.
+    W.apply_view!(st, Dict("state" => "all", "sort" => "latest"))
+    @test st.sort === :latest
+    W.apply_view!(st, Dict("state" => "all"))
+    @test st.sort === :none
+
+    # And the first view is the whole default, sort included.
+    st.sort = :touched; st.filters.labels = Set(["docs"])
+    W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
+    @test W.isdefault(st.filters) && st.sort === :none
 
     # `\`` is the way back out, and back in again: one slot, which is the depth
     # the move actually has.
@@ -2303,17 +2357,19 @@ end
         # The row says which pull request the work in it is.
         @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
 
-        # `san` and `+*` are as much as a three-column header can say, so the
-        # legend under the list says the rest - and stays there.
+        # `tTv` and `+*` are as much as a three-column header can say, so the
+        # legend under the list says the rest - and stays there. The letters are
+        # the keys that open each slot, so the column is its own key.
         for (w, h) in ((80, 24), (165, 50))
             leg = W.astrip(W.render(v, w, h))
-            @test occursin("s shell", leg) && occursin("a agent", leg)
-            @test occursin("n note", leg) && occursin("* unstaged", leg)
+            @test occursin("tTv", leg)
+            @test occursin("t shell", leg) && occursin("T agent", leg)
+            @test occursin("v note", leg) && occursin("* unstaged", leg)
         end
         # It is not the status line: a message does not take it away.
         v.status = "something happened"
         shown = W.astrip(W.render(v, 165, 24))
-        @test occursin("s shell", shown) && occursin("something happened", shown)
+        @test occursin("t shell", shown) && occursin("something happened", shown)
         v.status = ""
 
         # The tip date is drawn where there is room for it, and dropped where

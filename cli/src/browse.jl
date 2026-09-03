@@ -101,6 +101,17 @@ Filters(state, buckets, repos, labels) =
     Filters(state, buckets, repos, labels, :both, Set{String}())
 Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
+"""Is this the filter the browser opens with - nothing asked of it?
+
+Asked of the value rather than tracked, so it stays true however the filter got
+here: a view, a picker, `\`` going back, or every checkbox toggled off one at a
+time all reach the same place, and the row that offers to clear it should say
+so in all four.
+"""
+isdefault(f::Filters) =
+    f.state === :active && f.kind === :both && isempty(f.buckets) &&
+    isempty(f.repos) && isempty(f.labels) && isempty(f.authors)
+
 "Does this item belong to one of the five exclusive states?"
 function state_ok(state::Symbol, it::Item, unread::Set{String},
                   touched::Dict{String,String} = EMPTY_TOUCHED,
@@ -288,6 +299,13 @@ already established what this program does when it wants to suggest a line for
 it - it prints one to paste.
 """
 const VIEWS = [
+    # The way back to nothing, and the first row for the same reason the import
+    # row leads the item list: `c` already clears the filter pane, and a control
+    # nobody can find is a control nobody uses. It names no axis but `state`,
+    # which - since a view clears every axis it does not name, sort included -
+    # is exactly what a fresh `Filters()` is.
+    ("the default — active, unfiltered, as fetched",
+                        Dict("state" => "active")),
     ("waiting on me",  Dict("state" => "second", "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("state" => "second", "author" => [AUTHOR_ME])),
@@ -327,7 +345,11 @@ function apply_view!(st, d)
     end
     st.prev = st.filters                # `\`` is the way back out
     st.filters = f
-    haskey(d, "sort") && (st.sort = Symbol(d["sort"]))
+    # Cleared like every other axis when the view names none, and for the same
+    # reason: a name has to mean the same list from wherever it is pressed, and
+    # an order left over from the list you were in is not that. It also makes
+    # "as fetched" nameable, which nothing else could say.
+    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : :none
     refilter!(st)
     string("[", filter_summary(f, st.sort), "]")
 end
@@ -362,6 +384,12 @@ of the filter.
 function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
     (nstate, nkind, nbucket, nrepo, nlabel, nauthor) = axis_counts(st)
+    # The way out, at the top, for the same argument the import row won: `c`
+    # has always done this and nothing on screen said so. It leads because a
+    # filter you want to abandon is one you are already lost in, and the top of
+    # the pane is the one place the cursor can reach without reading anything.
+    push!(rows, (:reset, "", string("  ↺ clear every filter",
+                                    isdefault(f) ? "" : "  (c)")))
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
         n = get(nstate, k, 0)
@@ -480,6 +508,12 @@ function toggle_filter!(st, ctrl = nothing)
         st.filters.state = Symbol(val)
     elseif axis === :kind
         st.filters.kind = Symbol(val)
+    elseif axis === :reset
+        # The same jump `c` makes, remembered the same way: `\`` goes back to
+        # whatever was applied before, which is what makes clearing safe to try.
+        isdefault(st.filters) && return false
+        st.prev = st.filters
+        st.filters = Filters()
     elseif axis === :pick
         ctrl === nothing && return false
         return pick_axis!(st, ctrl, Symbol(val))
@@ -598,7 +632,7 @@ Base.@kwdef mutable struct BState <: View
     archived::Dict{String,String} = Dict{String,String}()  # url -> the date it
                                     # was put away, from `state.toml`
     lmode::Symbol = :items          # :items | :filters
-    frow::Int = 2
+    frow::Int = 3        # the first state row; 1 is the reset row and 2 its head
     wake::Any = nothing             # set by the controller; called when a fetch lands
     hdr::Int = 0           # rows of item title above the nodes in the detail
                            # pane; the mouse needs it to turn a screen row into

@@ -603,7 +603,7 @@ const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
 "The two session slots of one row: a shell and an agent, each present or not."
 function session_marks(r::WorktreeRow)
     out = ""
-    for (kind, ch) in ((:shell, 's'), (:agent, 'a'), (:note, 'n'))
+    for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
         i = findfirst(x -> x.kind === kind, r.sessions)
         out *= i === nothing ? " " :
                r.sessions[i].attached ? string("\e[32m", ch, "\e[0m") :
@@ -698,7 +698,7 @@ end
 """The row that names the columns, which is also the key to the marks.
 
 It does not scroll with the list: a key you have to scroll back to is not a
-key. `s`/`a` and `+`/`*` are one character each and unguessable on their own,
+key. `t`/`T` and `+`/`*` are one character each and unguessable on their own,
 so the header carries their names and the colour carries the rest - green for a
 session you are attached to and for what is staged, yellow for what is not.
 """
@@ -707,7 +707,7 @@ function list_header(branches::Bool, iw::Int)
         string(apad("at", 2), " ", apad("branch", BR_NAME), " ",
                apad("repo", BR_REPO), " ", apad("tip", BR_DATE), " ",
                apad("\u00b1upstream", BR_TRACK), " ", apad("pull request", br_label(iw))) :
-        string(apad("san", WT_RUN), " ", apad("+*", WT_CHG), " ",
+        string(apad("tTv", WT_RUN), " ", apad("+*", WT_CHG), " ",
                apad("worktree", WT_NAME), " ", apad("branch", WT_BRANCH), " ",
                wt_date(iw) == 0 ? "" : string(apad("tip", WT_DATE), " "),
                apad("\u00b1upstream", WT_TRACK), " ",
@@ -719,7 +719,7 @@ end
 
 The marks have to be one character wide - three session slots in three columns
 is what lets a row show every repo, branch and pull request beside them - so the
-header can only name the column, and `san` is not something anyone guesses. This
+header can only name the column, and `tTv` is not something anyone guesses. This
 is the other half of it, and it stays on screen: a key you have to already know
 to ask for is no better than no key at all.
 
@@ -728,7 +728,7 @@ the branch list draws, and none of the session or change marks appear in it.
 """
 list_legend(branches::Bool) = branches ?
     "\u25cf checked out somewhere \u00b7 \u00b1upstream is +ahead/-behind" :
-    "s shell \u00b7 a agent \u00b7 n note (green: attached) \u00b7 + staged \u00b7 * unstaged"
+    "t shell \u00b7 T agent \u00b7 v note (green: attached) \u00b7 + staged \u00b7 * unstaged"
 
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather

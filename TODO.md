@@ -755,8 +755,11 @@ so they are not mistaken for bugs later:
 
 ## Where we were at just now before context reset:
 
-`t` is done — see "The `t` design, built" below. So is the `STATE[]` redirect
-the suite wanted. What is left of the list is below and unstarted.
+Done since this list was written: `t` (see "The `t` design, built" below), the
+`STATE[]` redirect the suite wanted, the reset row in the filter pane, the reset
+view at the head of `'`, a view clearing the sort it does not name, and `san` →
+`tTv`. What is left of the list is below; "What I already know about the asks
+above" says which of them are answered rather than open.
 
 Next asks: Collapse author/label/repo in filter to only show the ones that are
 currently active, but always show author:me and author:not-me. Sort those
@@ -825,11 +828,11 @@ not have to make them again:
   `needs-merge` had **0 items** when the views landed: that bucket is "approved
   and green" and nothing was. The view is right and the dashboard was empty.
   Worth checking `axis_counts` still says 0 before treating it as a bug.
-- **"Does views include sort (it should)?"** It does: `apply_view!` reads
-  `d["sort"]` and `view_toml` writes it. What it does *not* do is reset the sort
-  when a view names none - every other axis is cleared, and that one is left
-  alone. Making it symmetric is probably what is wanted, and would mean a view
-  can pin "as fetched" as well as change it.
+- **"Does views include sort (it should)?"** It did, half way: `apply_view!`
+  read `d["sort"]` and `view_toml` wrote it, but a view naming no sort left the
+  order alone where every other axis was cleared. Symmetric now, so a view can
+  pin "as fetched" as well as change it - which is what let the reset view be
+  written as a view rather than as a special case.
 - **"Always show me/not me in authors."** Done - and it was worse than it
   looked: narrowed to a repo with none of your work in it the *whole* author
   axis vanished, not only those two rows. They are listed now whether or not
@@ -845,15 +848,20 @@ not have to make them again:
   `AXIS_SHOWN` (8) of what is not, with anything a filter would select nothing
   from skipped already. Showing *only* what is applied is a smaller list again,
   and the picker row is what makes it reachable.
-- **"An option at the top of filters to clear all / reset."** `c` already does
-  exactly that in the filter pane (`st.filters = Filters()`), and now also
-  remembers the previous filter for `` ` ``. What is missing is the *row*, which
-  is the same argument the import row won: a control nobody can find is a
-  control nobody uses. Same for "the first view option should be reset/default".
-- **"The 'san' key should be 'tTv'."** Right: `s`/`a`/`n` are the three session
-  slots (shell, agent, note) and `t`/`T`/`v` are the keys that open them, so the
-  header should name the keys. `list_header` and `list_legend` in `paneview.jl`,
-  and the legend text under the list says the same thing twice.
+- **"An option at the top of filters to clear all / reset."** Done, both halves.
+  `filter_rows` leads with a `:reset` row that makes the jump `c` makes and
+  remembers it for `` ` ``, and it names the key once there is something to
+  clear. `VIEWS` leads with "the default — active, unfiltered, as fetched",
+  which is a view like any other: it names only `state`, and since a view now
+  clears the sort it does not name, that *is* `Filters()` plus `:none`.
+  `isdefault(f)` is asked of the value rather than tracked, so the row says the
+  same thing however the filter got there.
+  (Still open, and deliberately not touched: `` ` `` and `'` are both guarded by
+  `st.lmode !== :filters`, so the way back out is only reachable from the item
+  list. Whether that guard is worth keeping is a question of its own.)
+- **"The 'san' key should be 'tTv'."** Done - the marks themselves as well as
+  the header and the legend, so the column is its own key: `session_marks`,
+  `list_header` and `list_legend` in `paneview.jl`.
 - **`^]tab` and escape.** `pane_command!` in `paneview.jl` is the whole prefix
   vocabulary; `^]tab` currently pops the pane and leaves it running.
 - **SIGHUP / stdin EOF.** `cli/bin/wl` is a shell wrapper around `julia`, so the
