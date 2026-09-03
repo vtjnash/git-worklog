@@ -140,8 +140,8 @@ detail_ttl_minutes = 10
 # expansion off, and with `exec` in front the alias would not be looked up at
 # all, since aliases expand in command position only.
 #
-# Set this to anything that runs in a terminal - a wrapper script, a different
-# agent, a command with flags. It is the right answer whenever the default has
-# to guess: `type claude` in your own shell says what the alias expands to, and
-# putting that here means neither program has to read the other's config.
+# Leave it unset if your `claude` is a shell alias you want to stay in sync -
+# reading it is the whole point, and a copy here would be a second definition to
+# drift. Set it when the agent is not what your shell calls `claude` at all: a
+# different agent, a wrapper script, a command with flags.
 # command = "/opt/homebrew/bin/claude --continue"

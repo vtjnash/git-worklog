@@ -252,10 +252,15 @@ on.
 reads no `.bashrc` *and* has `expand_aliases` off, which are two independent
 reasons and mean `BASH_ENV` alone does not help. And `exec claude` defines the
 alias and then does not use it: aliases expand in command position only, so the
-command there is `exec`. Measured against bash 5.1, not remembered. The real
-answer for anyone whose agent is not a plain binary is `[agent] command` in
-`config.toml` — asking one program to read another program's interactive shell
-configuration is a long way round.
+command there is `exec`. Measured against bash 5.1, not remembered.
+
+Reading the alias *is* the point when the alias is the thing being kept in
+sync — copying it into `config.toml` would be a second definition to drift.
+Verified end to end through a real pane, with the alias in the shape that
+prompted this (`alias claude='~/.julia/bin/claudebox --preserve '`): the `~`
+expands, the trailing space carries alias expansion on to any argument, and it
+survives the `env -u` scrub `standalone` puts in front. `[agent] command` is for
+the other case — an agent that is not what your shell calls `claude` at all.
 
 **A hyperlink is not somewhere to write another one.** `linkify` runs last, on
 the finished frame, and used to `replace` over the whole of it. Every comment
