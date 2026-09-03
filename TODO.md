@@ -914,14 +914,21 @@ not have to make them again:
   guarded too — the usual way to reach it is the terminal having gone away, and
   every write in it is then to a closed descriptor.
 
-### `STATE[]` is redirected for the suite — done
+### Every path the suite writes through is redirected — done
 
-`runtests.jl` now points `STATE[]` at a copy of `data/state.toml` in a temp
-directory, the way `TOUCHED[]` was already redirected. A run that ends part-way
-through can no longer leave an adoption behind for the next run to fail on, and
-there is no `finally` that has to run for that to hold. It is seeded from the
-real file rather than started empty, because the read-only testsets are tests of
-whatever is actually in there.
+`runtests.jl` points all of them at a temp directory at the top of the run:
+`STATE`, `READ`, `INBOX` and `REPOS_FILE` seeded from the real files, and
+`CACHE_DIR` started empty, alongside the `TOUCHED` redirect that was already
+there. The rule is that *all* of them go, not that each leak is fixed as it
+turns up — `state.toml` was found by an adoption testset with a `finally` that
+did not run, and `read.json` by a test that pressed `r` and stamped a real item
+as read. A run that ends part-way through can now leave nothing behind, and no
+`finally` has to run for that to hold.
+
+The testsets that point `REPOS_FILE` at a temp repo put it back to
+`REPOS_SANDBOX` rather than to `""`, since `""` means the user's own file again.
+`errors.log` is the deliberate exception: the suite deletes the real one at
+startup, and several tests assert on the footer warning it produces.
 
 (The mechanism that ended those runs early was *not* SIGPIPE: julia disables it,
 so `| head` closing the pipe does not kill the process that way. The fix did not

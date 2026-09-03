@@ -35,6 +35,30 @@ let d = joinpath(mktempdir(), "state.toml")
     W.STATE[] = d
 end
 
+# And the rest of them, found the same way: a test that pressed `r` stamped a
+# real item as read a moment ago. Every path this program writes through is a
+# `Ref`, and the rule is that all of them are pointed somewhere else for the
+# whole run - not that each leak is fixed as it turns up. Seeded from the real
+# files, because the read-only testsets are tests of whatever is in them; the
+# cache is not, since a cache is rebuildable by definition and starting empty is
+# the honest state for one.
+#
+# `errors.log` is the deliberate exception: the suite deletes the real one at
+# startup and several tests assert on the footer warning it produces.
+let d = mktempdir()
+    for (r, real, empty) in ((W.Events.READ, W.Events.readfile(), "{}"),
+                             (W.Events.INBOX, W.Events.inboxfile(), "{}"),
+                             (W.REPOS_FILE, W.repos_file(), ""))
+        to = joinpath(d, basename(real))
+        isfile(real) ? cp(real, to) : write(to, empty)
+        r[] = to
+    end
+    W.CACHE_DIR[] = joinpath(d, "cache")
+end
+# Where the testsets that point `REPOS_FILE` at a temp repo put it back, since
+# "" would mean the user's own file again.
+const REPOS_SANDBOX = W.REPOS_FILE[]
+
 @testset "input decoding" begin
     ev(s) = W.readevent(IOBuffer(s))
     @test ev("j") == W.KeyEvent(Int('j'))
@@ -2542,7 +2566,7 @@ end
             end
         end
     finally
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
         W.TOUCHED[] = keept
     end
 end
@@ -2694,7 +2718,7 @@ end
 
         @test W.handle!(W.worktree_view(items), Int('q'), ctrl) === :pop
     finally
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
     end
 end
 
@@ -3044,7 +3068,7 @@ end
         @test occursin("new since you last looked", line(old))
     finally
         write(W.statefile(), before)
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
         W.TOUCHED[] = keept
     end
 end
@@ -3208,7 +3232,7 @@ end
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
         write(W.statefile(), state)
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
         W.TOUCHED[] = keept
     end
 end
@@ -3331,7 +3355,7 @@ end
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))
     finally
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
     end
 
     # With nothing registered the view still renders, and says so.
@@ -3343,7 +3367,7 @@ end
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no worktrees", join(ls, "\n"))
     finally
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
     end
 end
 
@@ -3778,7 +3802,7 @@ end
         W.save_repos(d)
         @test all(w.repo == "t/one" for w in first(W.survey(; withdirty = false)))
     finally
-        W.REPOS_FILE[] = ""
+        W.REPOS_FILE[] = REPOS_SANDBOX
     end
 
     # The parse of `%(upstream:track)`, which is why git is run under LC_ALL=C.
