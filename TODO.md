@@ -827,9 +827,12 @@ not have to make them again:
 
 - **"What is 'ready to merge' — it doesn't seem to select any filters."** It is
   `state = "active", bucket = ["needs-merge"]`, and it selects nothing because
-  `needs-merge` had **0 items** when the views landed: that bucket is "approved
-  and green" and nothing was. The view is right and the dashboard was empty.
-  Worth checking `axis_counts` still says 0 before treating it as a bug.
+  `needs-merge` had **0 items**: that bucket is "approved and green" and nothing
+  was. Re-measured against the current `facts.json` and it is still 0 — the
+  bucket does not appear in `axis_counts` at all. The view is right and the
+  dashboard is empty. (The bucket axis lists what is *applied* whatever its
+  count, so pressing the view does show the row selecting nothing, which is the
+  answer rather than a silence.)
 - **"Does views include sort (it should)?"** It did, half way: `apply_view!`
   read `d["sort"]` and `view_toml` wrote it, but a view naming no sort left the
   order alone where every other axis was cleared. Symmetric now, so a view can
