@@ -1,0 +1,230 @@
+# The lanes that decide what is on the dashboard at all.
+
+@testset "two more lanes, and an order of their own" begin
+    keept = W.TOUCHED[]
+    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    try
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true
+        st.filters.state = :all; W.refilter!(st)
+        n = length(st.items)
+
+        # Everything you have actually done something to. Nothing but an action
+        # writes to the clock, so this is work rather than browsing.
+        a, b, c = st.all[1], st.all[2], st.all[3]
+        W.set_touched(a.url, "2020-01-01T00:00:00Z")
+        W.set_touched(b.url, "2026-09-02T12:00:00Z")
+        W.set_touched(c.url, "2024-06-01T00:00:00Z")
+        st.filters.state = :touched; W.refilter!(st)
+        @test length(st.items) == 3
+        @test Set(x.url for x in st.items) == Set([a.url, b.url, c.url])
+        # Looking at one does not put it in the lane.
+        W.handle!(st, Int('j'), ctrl); W.handle!(st, Int('\t'), ctrl)
+        W.refilter!(st)
+        @test length(st.items) == 3
+
+        # Yours: an open pull request you wrote, or a branch you have claimed.
+        st.filters.state = :mine; W.refilter!(st)
+        @test !isempty(st.items)
+        @test all(x.is_pr && x.author == W.login() for x in st.items)
+        local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
+                          title = "t", is_pr = false, branch = "x", bucket = "local")
+        W.add_item!(st, local_it)
+        st.filters.state = :mine; W.refilter!(st)
+        @test any(x.url == local_it.url for x in st.items)
+        # A pull request that is somebody else's is not.
+        theirs = first(x for x in st.all if x.is_pr && x.author != W.login())
+        @test !any(x.url == theirs.url for x in st.items)
+        W.drop_item!(st, local_it.url)
+
+        # The order is its own control: any of it makes sense over any of the
+        # lanes, so it sits beside the filter rather than inside it.
+        st.filters.state = :all
+        st.sort = :none; W.refilter!(st)
+        @test [x.url for x in st.items] == [x.url for x in st.all]   # as fetched
+        @test length(st.items) == n
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :touched && occursin("by when", st.status)
+        keys = [W.sortkey(x, st.touched) for x in st.items]
+        @test issorted(keys; rev = true)
+        @test length(st.items) == n                    # an order, not a filter
+        # Touched and untouched interleave by their timestamps: a branch
+        # committed to this morning belongs above a pull request touched in
+        # March, and two blocks would bury it.
+        pos(u) = findfirst(x -> x.url == u, st.items)
+        @test pos(b.url) < pos(c.url) < pos(a.url)
+        @test W.sortkey(b, st.touched) == "2026-09-02T12:00:00Z"     # the clock
+        untouched = first(x for x in st.all if !haskey(st.touched, x.url) &&
+                                               !isempty(x.act))
+        @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
+        # And it says so where the filter says what it is.
+        @test occursin("by when you acted", W.filter_summary(st.filters, st.sort))
+        @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
+
+        # The other reading of "when": the later of the two, which is what
+        # anything happening to an item sorts by. They differ exactly where
+        # both exist - `a` was acted on in 2020 and has moved since, so the
+        # first reading leaves it at the bottom and the second does not.
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :latest && occursin("anything last happened", st.status)
+        @test occursin("by when it moved", W.filter_summary(st.filters, st.sort))
+        @test length(st.items) == n
+        keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
+        @test issorted(keys2; rev = true)
+        @test W.sortkey(a, st.touched, :latest) == max(a.act, "2020-01-01T00:00:00Z")
+        @test W.sortkey(a, st.touched, :latest) != W.sortkey(a, st.touched)
+        # Your own work still counts under it: the clock on `b` is later than
+        # anything GitHub said about it, and it is what `b` sorts by.
+        @test W.sortkey(b, st.touched, :latest) == "2026-09-02T12:00:00Z"
+        pos2(u) = findfirst(x -> x.url == u, st.items)
+        @test pos2(a.url) < pos2(c.url)          # where precedence had it last
+
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :none
+        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
+
+        # Both new lanes are pickable in the filter pane, with their counts.
+        st.lmode = :filters
+        rows = W.filter_rows(st)
+        txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
+        @test occursin("touched", txt) && occursin("mine", txt)
+        states, _, _, _ = W.axis_counts(st)
+        @test states[:touched] == 3
+        @test states[:mine] >= 1
+        for (w, h) in ((80, 24), (200, 50))
+            ls = split(W.render(st, w, h), "\n")
+            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        end
+    finally
+        W.TOUCHED[] = keept
+    end
+end
+
+@testset "all activity on a whole owner" begin
+    # An entry is a repo, polled exactly, or `owner/*`, swept with a search.
+    # `vtjnash/*` is a hundred repos and a hundred requests on every launch is
+    # not a thing to do for a handful of comments.
+    E = W.Events
+    ex, ow, bad = E.event_sources(["JuliaLang/julia", "vtjnash/*", "libuv/*",
+                                   "libuv/libuv"])
+    @test ex == ["JuliaLang/julia", "libuv/libuv"]
+    @test ow == ["vtjnash", "libuv"]
+    @test isempty(bad)
+    # Only `owner/*` is a pattern; anything else is reported rather than guessed.
+    _, _, bad2 = E.event_sources(["a/b*", "*/c", "ok/*"])
+    @test Set(bad2) == Set(["a/b*", "*/c"])
+    # One owner named twice is one sweep.
+    @test E.event_sources(["x/*", "x/*"])[2] == ["x"]
+
+    # A search result names its repo only by the API url it came from, and a
+    # glob covers many repos - so the repo has to come off the item.
+    @test E.item_repo(Dict("repository_url" => "https://api.github.com/repos/a/b")) == "a/b"
+    @test E.item_repo(Dict{String,Any}()) == ""
+
+    # Forks are kept unless the config says otherwise, because keeping them is
+    # the free direction: the sweep is one REST search either way and spends no
+    # GraphQL points, while skipping them costs a repo listing per owner a day.
+    @test E.keep_forks(Dict{String,Any}())
+    @test E.keep_forks(Dict{String,Any}("include_forks" => true))
+    @test !E.keep_forks(Dict{String,Any}("include_forks" => false))
+
+    # And when it is asked for, a glob is where a fork arrives and so a glob is
+    # where one is dropped: 171 of the repos under `vtjnash/*` are forks.
+    row(r) = Dict{String,Any}("repository_url" => "https://api.github.com/repos/$r")
+    rows = [row("o/mine"), row("o/theirs"), row("o/also")]
+    @test length(E.drop_forks(rows, Set(["o/theirs"]))) == 2
+    @test E.item_repo(E.drop_forks(rows, Set(["o/theirs"]))[2]) == "o/also"
+    # Nothing known to be a fork is nothing dropped, and the rows come back as
+    # they were rather than as a copy.
+    @test E.drop_forks(rows, Set{String}()) === rows
+
+    # The listing is one request a day, and unknown is not a fork: a repo the
+    # listing does not mention keeps its items, because this only hides things.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        W.cache_put("forks:o", ["o/theirs"])
+        @test E.owner_forks("o") == Set(["o/theirs"])       # read, not fetched
+        @test !("o/mine" in E.owner_forks("o"))
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+
+    # The inbox is incremental: a cursor per source, and what has been seen and
+    # not yet read. A source seen for the first time starts at now, so turning
+    # one on is inbox zero rather than a month of history to dismiss.
+    keep = E.INBOX[]
+    E.INBOX[] = joinpath(mktempdir(), "inbox.json")
+    try
+        d = E.load_inbox()
+        @test isempty(d["cursors"]) && isempty(d["items"]) && isempty(d["polled"])
+        d["cursors"]["r"] = "2026-09-02T13:00:10Z"
+        d["polled"]["r"] = "2026-09-02T13:00:10Z"
+        d["items"]["u"] = Dict{String,Any}("url" => "u", "updated" => "2026-09-02T12:00:00Z")
+        E.save_inbox(d)
+        back = E.load_inbox()
+        @test back["cursors"]["r"] == "2026-09-02T13:00:10Z"
+        @test back["items"]["u"]["updated"] == "2026-09-02T12:00:00Z"
+        # A damaged inbox is an empty one: the cursors reset to now, which loses
+        # one poll of history rather than every poll after it.
+        write(E.INBOX[], "{not json")
+        empty = E.load_inbox()
+        @test isempty(empty["cursors"]) && isempty(empty["items"])
+    finally
+        E.INBOX[] = keep
+    end
+end
+
+@testset "work that has already landed is still seen" begin
+    # Every open lane is `is:open`, so a pull request that merges between two
+    # refreshes stops being returned and the merge goes unnoticed. The closed
+    # lanes are what catch it, bounded by a date that has to move with the run.
+    at = W.DateTime(2026, 9, 2)
+    @test W.expand_lane("is:pr is:closed closed:>{since:21}", at) ==
+          "is:pr is:closed closed:>2026-08-12"
+    @test W.expand_lane("a {since} b", at) == "a 2026-08-19 b"     # 14 by default
+    @test W.expand_lane("nothing to fill", at) == "nothing to fill"
+    @test W.expand_lane("{since:1}", at) == "2026-09-01"
+    # It moves with the run, which is the whole reason it is not written into
+    # config.toml as a literal date.
+    @test W.expand_lane("{since:1}", at + Dates.Day(5)) == "2026-09-06"
+
+    # Over, whichever lane found it: none of the rules about what to do next
+    # apply to a merged pull request.
+    cfg = W.config()
+    base = Dict{String,Any}("lane" => "mine", "type" => "PullRequest", "mine" => true,
+                            "labels" => String[], "head_at" => W.stamp(at - Dates.Day(2)),
+                            "updated" => W.stamp(at - Dates.Day(2)))
+    for (state, word) in (("MERGED", "merged"), ("CLOSED", "closed"))
+        r = merge(base, Dict("state" => state))
+        b, why = W.derive_bucket(r, Dict{String,Any}(), cfg, at)
+        @test b == "done" && occursin(word, why) && occursin("2d ago", why)
+    end
+    # An open one is bucketed by the rules as before, and an unknown state is
+    # not treated as closed.
+    @test W.derive_bucket(merge(base, Dict("state" => "OPEN")), Dict{String,Any}(),
+                          cfg, at)[1] != "done"
+    @test W.derive_bucket(base, Dict{String,Any}(), cfg, at)[1] != "done"
+    # An explicit bucket still wins, and nothing about finished work should wake
+    # you, so it tracks loosely.
+    @test W.derive_bucket(merge(base, Dict("state" => "MERGED")),
+                          Dict{String,Any}("bucket" => "needs-review"), cfg, at)[1] ==
+          "needs-review"
+    @test W.resolve_track(Dict{String,Any}(), "done") == "loose"
+    # And it has somewhere to be printed.
+    @test "done" in [s[1] for s in W.SECTIONS]
+
+    # First sighting is news even where the event poller does not reach: the
+    # unread lane only covers `[events].repos`, and a merge in any other repo
+    # would otherwise be offered for filing before it had been seen.
+    st = mkstate()
+    done = W.Item(url = "https://example.invalid/x/y/pull/1", ref = "y#1", repo = "x/y",
+                  number = 1, title = "t", state = "MERGED", new = true)
+    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
+                              if occursin("state", l)], " "))
+    @test occursin("new since you last looked", says(done))
+    seen = W.Item(; (f => getfield(done, f) for f in fieldnames(W.Item))..., new = false)
+    @test occursin("x archives it", says(seen))
+    push!(st.unread, seen.url)
+    @test occursin("new since you last looked", says(seen))
+end

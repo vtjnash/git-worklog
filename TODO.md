@@ -802,14 +802,9 @@ standing backlog they were picked out of.
 0. **The precompile wrapper's dependencies.** Done — see "The precompile
    wrapper" below for what was actually heavy and why it was not
    `PrecompileTools`. One decision is still open there and is flagged.
-1. **Split `browse.jl`.** It is 4,576 lines and holds at least five separable
-   things: the filter and view model, the node building for threads and diffs,
-   the composer and review writing, the session and worktree glue, and the
-   render. Every session spends real time grepping it for where something
-   lives. Invisible from outside, and the suite is thorough enough to make it
-   low-risk. `runtests.jl` is 4,673 lines and has the same problem; splitting it
-   the same way is the obvious follow-on, and worth doing in the same pass so
-   the two halves keep matching.
+1. **Split `browse.jl`.** Done — `src/browse/` is seventeen files and
+   `test/suite/` is twenty, and the two lists read against each other. See "The
+   split, and how to keep it" below for the rule that keeps them honest.
 2. **The small unblocked wins.** `wl watching` printing a suggested
    `[events].repos` from `/user/subscriptions` (specced under Infrastructure — a
    command that *prints* a line to paste, never a live source); a default sort
@@ -875,6 +870,8 @@ what the program now believes about itself.
 - **A pane has scrollback.** The wheel reports a child never asked for used to
   be dropped; they now move this view's own window over the pane's history.
 - **`wl` starts through `cli/precompile`.** See below.
+- **`browse.jl` and `runtests.jl` are gone**, into `src/browse/` and
+  `test/suite/`. See "The split, and how to keep it".
 - **One fetch in the air per thing being fetched.** `INFLIGHT` is a locked map
   from what is being fetched to the task fetching it, and `fetching(f, key)`
   joins a run already under way instead of starting a second. A view can only
@@ -956,6 +953,39 @@ empty `PATH` makes `run` throw before it forks, and `WORKLOG_TMUX` at a path
 that does not exist makes `mux_bin` answer `nothing`. That is a property of the
 environment rather than of which keys the workload presses, which is what makes
 it survive somebody adding one. `drain_fetches!` at the end is the second half.
+
+### The split, and how to keep it
+
+`src/browse/` and `test/suite/`. `Worklog.jl` and `runtests.jl` are now lists of
+includes with a line of description each, which is the index: to find something,
+read the list rather than grepping four and a half thousand lines.
+
+**Both splits moved nothing.** Every file is a contiguous slice of the original,
+in the original order, and that was checked rather than assumed — reassembling
+them gives back every non-blank line, identical and in the same order (4,244 for
+the source, 4,335 for the tests). The two deliberate exceptions are written down
+here so nobody goes looking for a third: a dangling docstring at the top of
+`browse.jl` that documented a global removed long ago, deleted; and `items` /
+`mkstate` in the tests, which sat between two testsets and moved to the driver
+where a shared helper belongs.
+
+**Cut above a definition, never into it.** A naive slice at a section marker
+leaves a docstring at the end of one file and its binding at the start of the
+next. Seven of them did, and nothing complained: a stranded docstring is a legal
+no-op and the tests still passed. The check is one line —
+
+```bash
+for f in cli/src/browse/*.jl; do
+  [ "$(grep -v '^$' "$f" | tail -1)" = '"""' ] && echo "$f strands a docstring"
+done
+```
+
+— and the same trap catches a comment block that introduces the next thing.
+
+**Order is not cosmetic in either list.** In the source, a type or a constant has
+to exist before the methods annotated on it are defined. In the tests, several
+testsets leave a file, a session or a filter behind that the next one reads.
+Adding a file means putting it where it belongs, not at the end.
 
 ### Nested tmux and the mouse: measured, and not this program's
 
