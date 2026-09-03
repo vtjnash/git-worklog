@@ -1922,14 +1922,40 @@ Done last, on the finished frame, because OSC 8 sequences are invisible to the
 terminal but not to Term's width accounting - injecting them earlier would wrap
 lines that fit. The display form is kept short enough that Term never splits it
 across lines, which is what makes a plain textual replacement safe here.
+
+Only in what *prints*, though, which a plain `replace` over the frame was not.
+Every comment header is already an OSC 8 hyperlink to its own permalink, and a
+url written in one comment is very often the permalink of another - nanosoldier
+replies with a link to the `runbenchmarks()` comment that asked. Replacing
+inside that payload put a second `\e]8;;` in the middle of the first, which
+terminates the outer sequence early and prints the rest of the url as literal
+characters that nothing has measured: a row 224 columns wide in a 150-column
+terminal, which is the screen tearing.
+
+So the frame is cut on its OSC sequences and only the pieces between them are
+substituted. Cut on those alone and not on every escape, because a colour code
+splitting a display form is a match that was already missed before this and is
+none of this function's business.
 """
+const OSC = r"\e\][^\e]*\e[\\]"
+
 function linkify(frame::AbstractString, links)
     isempty(links) && return frame
-    for (disp, full) in links
-        (isempty(disp) || !occursin(disp, frame)) && continue
-        frame = replace(frame, disp => osc8(full, disp))
+    sub(s) = begin
+        for (disp, full) in links
+            (isempty(disp) || !occursin(disp, s)) && continue
+            s = replace(s, disp => osc8(full, disp))
+        end
+        s
     end
-    frame
+    out, at = IOBuffer(), firstindex(frame)
+    for m in eachmatch(OSC, frame)
+        write(out, sub(SubString(frame, at, prevind(frame, m.offset))))
+        write(out, m.match)
+        at = m.offset + ncodeunits(m.match)
+    end
+    write(out, sub(SubString(frame, at)))
+    String(take!(out))
 end
 
 # --- content loading -------------------------------------------------------

@@ -205,6 +205,17 @@ Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
 ### Invariants that were each found by debugging a real failure
 Do not "simplify" any of these away.
 
+**A hyperlink is not somewhere to write another one.** `linkify` runs last, on
+the finished frame, and used to `replace` over the whole of it. Every comment
+header is already an OSC 8 hyperlink to its own permalink, and a url written in
+one comment is very often the permalink of another — nanosoldier replies with a
+link to the `runbenchmarks()` comment that asked. So the replacement landed
+*inside* the outer sequence's payload, and the inner `\e]8;;` terminated it
+early: the rest of the url printed as literal characters nothing had measured,
+and the row came out 224 columns wide in a 150-column terminal. That is what the
+screen tearing in VS Code was. It now cuts the frame on its OSC sequences and
+substitutes only between them.
+
 **GitHub**
 1. `mergeable` is computed lazily — a cold read returns `UNKNOWN` and only
    schedules the work. Carry the last known value forward.

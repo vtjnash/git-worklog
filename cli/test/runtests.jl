@@ -279,6 +279,39 @@ end
     end
 end
 
+@testset "a hyperlink is not somewhere to write another one" begin
+    # Every comment header is an OSC 8 hyperlink to its own permalink, and a url
+    # written in one comment is very often the permalink of another - nanosoldier
+    # replies with a link to the `runbenchmarks()` comment that asked for the
+    # run. `linkify` used to `replace` over the whole finished frame, so it put a
+    # second `\e]8;;` inside the first, which terminates the outer sequence early
+    # and prints the rest of the url as literal characters nothing has measured:
+    # a row 224 columns wide in a 150-column terminal.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    u = "https://github.com/JuliaLang/julia/pull/62396#issuecomment-5073694899"
+    asked = W.Node("vtjnash  2026-07-24T19:39   @nanosoldier `runbenchmarks()`",
+                   "", :md, false)
+    asked.meta["url"] = u                       # its own permalink, as a header link
+    answered = W.Node("nanosoldier  2026-07-25T03:37   The benchmark job",
+                      string("The benchmark job [you requested](", u, ") is done."),
+                      :md, false)
+    answered.urls = [u]                         # ...and the same url in the body
+    st.nodes = [asked, answered]
+    for open in (false, true)
+        answered.open = open
+        f = W.render(st, 150, 40)
+        for l in split(f, "\n")
+            @test W.awidth(l) == 150
+        end
+        @test !occursin("\e]8;;\e]8;;", f)      # never one inside another
+    end
+    # And the substitution it was there to make still happens: a url in the body
+    # is still a link, it is only the sequences around it that are left alone.
+    @test occursin(string("\e]8;;", u, "\e\\\e[4m", u),
+                   W.render(st, 150, 40))
+end
+
 @testset "a click on a url copies it" begin
     # Owning the mouse is what makes this possible: a link can be acted on here
     # rather than handed to a terminal that may or may not know what an OSC 8
