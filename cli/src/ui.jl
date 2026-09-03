@@ -61,6 +61,9 @@ Base.@kwdef struct Item
                            # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
+    secondlook::String = "" # why this wants looking at again, empty when it does
+                            # not. Derived every refresh and never stored: it is
+                            # a fact about silence, and silence keeps changing
     merged_by::String = "" # who merged it, empty unless it is merged. The one
                            # thing that tells a merge you have to be told about
                            # from one you did yourself.
@@ -110,6 +113,7 @@ function item_of(r)
             state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
             merged_by = nz(jget(r, :merged_by), ""),
+            secondlook = nz(jget(r, :second_look), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],

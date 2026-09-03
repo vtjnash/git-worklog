@@ -10,6 +10,17 @@ nudge_days = 7
 stale_days = 60
 # A mention this recent, with the last word not yours, is a question owed a reply.
 reply_days = 30
+# Silence this long, in *working* days, wants a second look: the author spoke or
+# pushed and nobody answered, or somebody approved it and nothing happened after.
+# Unlike a snooze this needs no asking for - the failure it catches is work going
+# quiet without anyone deciding it should - and unlike `nudge_days` it is about
+# an answer being owed rather than about a pull request being old.
+second_look_days = 2
+# And the far end of the same window: past this the quiet is not news. A pull
+# request nobody has touched since last spring is a different problem - that is
+# what `stale` and a search are for - and a reminder firing on forty of them
+# every day is one nobody reads.
+second_look_max_days = 20
 
 [lanes]
 # GitHub search syntax. Each lane is one paginated GraphQL search.

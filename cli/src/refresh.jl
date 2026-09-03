@@ -86,6 +86,12 @@ function normalize(n, lane::AbstractString, login::AbstractString)
                                    maximum(r.submittedAt for r in mine_reviews)
         rec["my_last_review_state"] = isempty(mine_reviews) ? nothing :
             sort(mine_reviews; by = r -> r.submittedAt)[end].state
+        # The newest approval by anybody, which is a thing that *happened* and
+        # so has a time - unlike `reviewDecision`, which is the current verdict
+        # and says nothing about when it was reached.
+        approvals = [jget(r, :submittedAt) for r in reviews
+                     if jget(r, :state) == "APPROVED" && jget(r, :submittedAt) !== nothing]
+        rec["approved_at"] = isempty(approvals) ? nothing : maximum(approvals)
     end
     rec
 end
@@ -118,6 +124,88 @@ function resolve_track(st, bucket)
     bucket in ("stale", "firehose", "mentioned") && return "background"
     bucket in ("issue", "reviewed", "blocked") && return "loose"
     "normal"
+end
+
+"""Whole working days between two instants, counting Monday to Friday.
+
+Two days of silence over a weekend is not silence, it is a weekend. Everything
+this measures is somebody being expected to answer, and nobody is expected to
+answer on Saturday - so the clock that decides whether a thing has gone quiet
+has to skip the days when quiet is the normal state.
+
+Counted by day and not by hour: a comment at nine on Monday morning and one at
+five on Monday evening have both had the same number of working days go past by
+Wednesday, and pretending otherwise would make the answer depend on the hour
+somebody happened to be typing.
+"""
+function workdays_since(from::AbstractString, at::DateTime)
+    t = ts(from)
+    t === nothing && return 0
+    d, last_ = Date(t) + Day(1), Date(at)
+    n = 0
+    while d <= last_ && n < 500
+        Dates.dayofweek(d) <= 5 && (n += 1)
+        d += Day(1)
+    end
+    n
+end
+workdays_since(::Nothing, ::DateTime) = 0
+
+"""Why this wants a second look, or `""`.
+
+Snooze answers "not now" and has to be asked for. This is the other half of
+that, and asking for it would defeat it: the whole failure it addresses is work
+that goes quiet without anybody deciding it should. So it is derived, on by
+default, and never stored.
+
+It fires on the two shapes of silence that mean nobody is coming:
+
+  * **The author spoke last.** They commented, or they pushed and nothing has
+    been said since - so the ball is in somebody else's court and it has not
+    moved. On your own pull request that is a reviewer who never came back; on
+    somebody else's it is a reply you never answered. The same rule reads both,
+    which is why it is written about "the author" rather than about you.
+  * **Somebody approved it and nothing happened after.** Approved and idle is
+    not waiting on review, it is waiting on a button.
+
+Measured in *working* days, from whichever of those happened last, and only for
+things you are actually carrying - the background pile is full of other people's
+pull requests where the author spoke last, and none of them is yours to nudge.
+
+Labels do not count as an answer, which is the point of measuring against the
+comment rather than against `updated`. A bot's comment is not an answer either,
+but a bot commenting *after* the author leaves us unable to see the author's
+comment at all - `comments(last: 1)` is one comment - so that case quietly
+does not fire rather than firing on a stale reading.
+"""
+function second_look(r, at::DateTime, days::Int, cap::Int = 20)
+    get(r, "state", nothing) in ("MERGED", "CLOSED") && return ""
+    truthy(get(r, "backlog", false)) && return ""
+    hd, lc = ts(get(r, "head_at", nothing)), ts(get(r, "last_comment_at", nothing))
+    ap = ts(get(r, "approved_at", nothing))
+    events = [x for x in (hd, lc, ap) if x !== nothing]
+    isempty(events) && return ""
+    last_ = maximum(events)
+    n = workdays_since(stamp(last_), at)
+    # A window, not a floor. Below it nobody is late yet; above it the silence
+    # is not news - a pull request nobody has touched since last spring is a
+    # different problem, and a reminder that fires on forty of those every day
+    # is one nobody reads. That is what `stale` is for, and what a search is for.
+    (n < days || n > cap) && return ""
+    day(n) = string(n, n == 1 ? " work day" : " work days")
+    # An approval that is the last thing to have happened. Checked first: it is
+    # the more specific reading of the same silence, and the more actionable.
+    ap === nothing || ap < last_ || return string("approved, then quiet for ", day(n))
+    author = String(nz(get(r, "author", nothing), ""))
+    who = isempty(author) || author == "?" ? "the author" : author
+    # The author had the last word: they commented and nobody answered, or they
+    # pushed and nobody has said anything since.
+    if lc !== nothing && lc == last_
+        get(r, "last_comment_by", nothing) == author || return ""
+        return string(who, " asked, then quiet for ", day(n))
+    end
+    hd !== nothing && hd == last_ || return ""
+    string(who, " pushed, then quiet for ", day(n))
 end
 
 # --- bucketing -------------------------------------------------------------
@@ -444,6 +532,8 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     prev_items = isfile(factsp) ? JSON3.read(read(factsp, String)).items : (;)
     # A default cap for on-change snoozes that carry none of their own.
     snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
+    second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
+    second_cap = Int(get(cfg["thresholds"], "second_look_max_days", 20))
     snzp = datapath("snooze.json")
     snz = Dict{String,Any}()
     if isfile(snzp)
@@ -521,6 +611,11 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # the discovery feed, and anything you explicitly pushed to background.
         r["backlog"] = r["bucket"] in ("stale", "firehose", "mentioned") ||
                        r["track"] == "background"
+        # After the backlog is known, since the pile is not a to-do list, and
+        # after the snooze, since an item you have said "not now" about is not
+        # one to be reminded of.
+        r["second_look"] = r["snoozed"] ? "" :
+                           second_look(r, at, second_days, second_cap)
         old = jget(prev_items, Symbol(url))
         r["moved"] = old !== nothing && jget(old, :fp_full) != r["fp_full"]
         if old === nothing
@@ -672,6 +767,24 @@ function render(items, changes, cfg, spent, at::DateTime, unread = ())
                        join(bits, " · ") * "</sub>")
         end
         length(unread) > 40 && push!(out, "- _...and $(length(unread) - 40) more_")
+        push!(out, "")
+    end
+
+    # Cuts across the buckets rather than being one, which is why it is up here
+    # with the deadlines and the unread rather than down among them: a pull
+    # request nobody answered is still waiting on a reviewer, and a merged-ready
+    # one is still approved. What is new is that it has gone quiet.
+    quiet = sort([r for r in vis if truthy(get(r, "second_look", nothing))];
+                 by = r -> activity_at(r))
+    if !isempty(quiet)
+        append!(out, ["## Second look ($(length(quiet)))",
+                      "_Nobody answered, or nobody merged. Each is also in its own " *
+                      "section below._", ""])
+        for r in first(quiet, 20)
+            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"])  \n  " *
+                       "<sub>$(r["second_look"])</sub>")
+        end
+        length(quiet) > 20 && push!(out, "- _...and $(length(quiet) - 20) more_")
         push!(out, "")
     end
 

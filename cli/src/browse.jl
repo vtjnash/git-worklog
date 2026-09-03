@@ -47,6 +47,7 @@ Node(h, raw, kind, open, depth = 0) =
 # additive and behave as checkboxes.
 
 const STATES = [(:active, "active"), (:unread, "unread"), (:mine, "mine"),
+                (:second, "second look"),
                 (:touched, "touched"), (:snoozed, "snoozed"),
                 (:backlog, "backlog"), (:archived, "archived"), (:all, "all")]
 
@@ -112,6 +113,9 @@ function state_ok(state::Symbol, it::Item, unread::Set{String},
     # everything, and neither is a to-do list.
     state === :archived && return haskey(archived, it.url)
     state === :active  && return !(it.snoozed || it.backlog || haskey(archived, it.url))
+    # Work that has gone quiet on somebody. Derived rather than asked for - see
+    # `second_look` - so this lane is never empty because you forgot to fill it.
+    state === :second  && return !isempty(it.secondlook) && !haskey(archived, it.url)
     # Everything you have actually done something to, which is what the
     # interaction clock is a record of - and nothing else writes to it, so this
     # is work rather than browsing.
@@ -282,7 +286,7 @@ function filter_rows(st)
     for (k, name) in STATES
         n = get(nstate, k, 0)
         push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
-                                              rpad(name, 10), n)))
+                                              rpad(name, 13), n)))
     end
     push!(rows, (:head, "", ""))
     push!(rows, (:head, "", "kind"))
@@ -1230,6 +1234,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
     it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?
                                 string(RED, "conflicting", AR) : lowercase(it.mergeable))
+    isempty(it.secondlook) || kv("quiet", string(YEL, it.secondlook, AR))
     b = batch_of(st, it)
     b === nothing ||
         kv("draft", string(YEL, b.n, b.n == 1 ? " comment" : " comments", AR, "  ", AD,

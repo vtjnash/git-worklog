@@ -732,6 +732,71 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "work that has gone quiet on somebody" begin
+    # Two days of silence over a weekend is not silence, it is a weekend.
+    @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1
+    @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 9, 1, 9)) == 2
+    @test W.workdays_since("2026-08-31T09:00:00Z", W.DateTime(2026, 9, 2, 9)) == 2
+    # By day and not by hour: the answer must not depend on the hour somebody
+    # happened to be typing.
+    @test W.workdays_since("2026-08-31T09:00:00Z", W.DateTime(2026, 9, 2, 23)) ==
+          W.workdays_since("2026-08-31T23:00:00Z", W.DateTime(2026, 9, 2, 9))
+    @test W.workdays_since(nothing, W.DateTime(2026, 9, 3)) == 0
+    @test W.workdays_since("2026-09-03T09:00:00Z", W.DateTime(2026, 9, 3, 17)) == 0
+
+    at = W.DateTime(2026, 9, 3, 12)
+    base() = Dict{String,Any}("state" => "OPEN", "backlog" => false, "author" => "alice")
+    look(r) = W.second_look(r, at, 2, 20)
+
+    # The author spoke and nobody answered.
+    r = base(); r["last_comment_by"] = "alice"
+    r["last_comment_at"] = "2026-08-28T17:00:00Z"
+    r["head_at"] = "2026-08-20T00:00:00Z"
+    @test occursin("alice asked", look(r)) && occursin("4 work days", look(r))
+    # Somebody did answer, so nobody is waiting on anybody.
+    r2 = copy(r); r2["last_comment_by"] = "bob"
+    @test isempty(look(r2))
+    # A push with nothing said since is the same silence.
+    r3 = base(); r3["head_at"] = "2026-09-01T00:00:00Z"
+    @test occursin("alice pushed", look(r3))
+    # An approval that is the last thing to have happened outranks both: that is
+    # not waiting on review, it is waiting on a button.
+    r4 = copy(r); r4["approved_at"] = "2026-08-31T10:00:00Z"
+    @test occursin("approved", look(r4))
+    # An older approval does not, since something happened after it.
+    r5 = copy(r); r5["approved_at"] = "2026-08-01T10:00:00Z"
+    @test occursin("alice asked", look(r5))
+
+    # A window and not a floor, at both ends.
+    @test isempty(W.second_look(r3, W.DateTime(2026, 9, 2, 9), 2, 20))   # not late yet
+    old = base(); old["head_at"] = "2025-01-02T00:00:00Z"
+    @test isempty(look(old))                                   # not news any more
+    # And nothing fires on work that is over, or on the pile that is not a
+    # to-do list.
+    done_ = copy(r); done_["state"] = "MERGED"
+    @test isempty(look(done_))
+    pile = copy(r); pile["backlog"] = true
+    @test isempty(look(pile))
+    # Nothing to measure at all is not silence.
+    @test isempty(look(base()))
+
+    # It is a lane of its own in the filter pane, and it needs no enabling -
+    # which is the whole difference from a snooze.
+    st = mkstate()
+    @test any(x -> x[1] === :second, W.STATES)
+    quiet = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
+                   secondlook = "alice asked, then quiet for 3 work days")
+    @test W.state_ok(:second, quiet, Set{String}())
+    @test !W.state_ok(:second, W.Item(url = "u2", ref = "a#2", repo = "a/b",
+                                      number = 2, title = "t"), Set{String}())
+    # Archived work is not waiting on anybody.
+    @test !W.state_ok(:second, quiet, Set{String}(), W.EMPTY_TOUCHED,
+                      Dict("u" => "2026-09-01"))
+    # And the reason is shown where the item's facts are.
+    @test any(l -> occursin("quiet", l) && occursin("3 work days", l),
+              W.astrip.(W.meta_lines(st, quiet, 60)))
+end
+
 @testset "a settled thread is out of the way, not gone" begin
     # Comments are placed against the hunk they point into. Resolution is a
     # property of the *thread* and REST carries no trace of it, so a

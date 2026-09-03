@@ -49,7 +49,7 @@ last acted, `x` archives, `z` undoes the last local action. A click on a url
 copies it, whole even where the wrapping cut it.
 
 `f` opens the filter pane, whose states are `active` / `unread` / `mine` /
-`touched` / `snoozed` / `backlog` / `archived` / `all`, with a second radio group
+`second look` / `touched` / `snoozed` / `backlog` / `archived` / `all`, with a second radio group
 for issues, pull requests or both, and checkbox axes for category, repo, label
 and author — each long one listing its head and offering the rest as a picker
 you type into.
@@ -117,6 +117,23 @@ edits it, through a line-based editor that preserves comments. The rest of
 `errors.log` are gitignored inside it as re-fetchable or noise. `errors.log` is
 written by the browser when something throws, and deleting it is how its
 standing footer warning is dismissed.
+
+### The second look
+Derived every refresh, never stored, and the opposite of a snooze: it needs no
+asking for, because the failure it catches is work going quiet without anybody
+deciding it should. It fires on two shapes of silence - the author spoke or
+pushed and nobody answered, or somebody approved it and nothing happened after -
+measured in *working* days, in a window (`second_look_days` to
+`second_look_max_days`, 2 to 20). Below the window nobody is late yet; above it
+the quiet is not news and `stale` is the right pile. Only for work you are
+carrying: the background pile is full of other people's pull requests where the
+author spoke last.
+
+It cuts across the buckets rather than being one - a pull request nobody
+answered is still waiting on a reviewer - so it is a filter state and a
+dashboard section, not a bucket. A bot commenting after the author hides the
+author's comment from `comments(last: 1)`, so that case does not fire rather
+than firing on a stale reading.
 
 ### Testing without a terminal
 There is no TTY here, so the UI is tested by construction rather than by use:
