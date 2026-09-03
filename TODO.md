@@ -756,3 +756,123 @@ so they are not mistaken for bugs later:
   doing as a `wl` command that *prints* the list to paste, rather than as a live
   source, so the file stays the user's and a repo you stopped caring about does
   not come back because you never unwatched it.
+
+## Where we were at just now before context reset:
+
+First need to continue that work also on `t` improvements.
+
+Next asks: Collapse author/label/repo in filter to only show the ones that are
+currently active, but always show author:me and author:not-me. Sort those
+filter lists alphabetically too. Add a key to refresh the current item --
+either R (browser) or u (gmail). Change how ^]tab works -- use to toggle
+between left/right panes, so I can operate in terminal or agent while also
+navigating in the github comments. Bind escape to restore the list view (also
+perhaps t/T toggles that state too)? What is 'ready to merge' -- it doesn't
+seem to select any filters. Can you add an option at the top of filters to
+clear all / reset? Always show me/not me in authors. Does views include sort
+(it should)? The first view option should also always be reset / default.
+The 'san' key should be 'tTv' to correspond to the shortcuts there. Can we
+ignore SIGHUP in cli before starting julia, then exit gracefully when stdin
+disappears (aka gets EOF / EPIPE / EIO)?
+
+I think nested tmux has some issues with handling mouse. Maybe a tmux issue,
+but mouse-in-nvim-in-tmux-in-wl-tmux, but doesn't work in tmux pane itself
+(notably for activating scrolling, since ^b^b[ doesn't seem to reach there either).
+
+### The `t` design, worked out and not yet built
+
+The ask, in the words it was given in: `t` prompts for which worktree to open,
+or to make a new one (default fill with the path to the main repo) — **unless**
+that branch is already checked out in one, or there is already a tmux running
+on that item, in which case use it without asking.
+
+So three questions in order, and only the third one asks:
+
+1. **A worktree already on the item's branch.** That is the copy the work is in,
+   and `item_checkout` already prefers it. No prompt.
+2. **A session already tagged with this item.** `mux_list()` rows carry `.item`
+   (from the `@wl_item` tag, which is the item's `ref`) and `.worktree`, so a
+   session says where the work is happening whatever branch happens to be out.
+   Kind does not matter here: `t` should land in the worktree an *agent* of this
+   item is already running in. No prompt.
+3. **Otherwise ask.** A `ChooseView` over `worktrees(repo)` — main first, each
+   labelled with the branch it has out and whether a session is live in it —
+   plus a last entry that makes a new one. That entry opens a `PromptView`, and
+   the prefill is `worktree_dest(p, branch)` when the item has a branch (which
+   is `<main>-<branch with slashes dashed>`, the same suggestion the branch list
+   makes) and the main checkout's own path when it does not, which is what the
+   ask asked for. `add_worktree!` does the rest and already re-prompts with
+   git's own complaint when a path is refused.
+
+Where it goes: `enter_session(it, ctrl, kind, mkcmd)` in `browse.jl` is the
+thing that currently calls `item_checkout` and goes; `open_agent` and
+`open_terminal` are its two callers, and `t`/`T` in `handle_key!` are theirs.
+Because asking means pushing a view and returning, those have to become
+"decide, then either enter or push a chooser whose callback enters" - the same
+shape `needs_repo` already uses for the checkout prompt, and the same shape
+`row_session` in `paneview.jl` has on the other side (that one already opens a
+session on a *chosen* worktree, so it needs none of this).
+
+Two things to decide while building it, neither settled:
+
+- **Whether `e` shares the answer.** The known gap says the automatic choice
+  decides which files `e` opens as well as which session you land in. If the
+  chooser only serves `t`/`T`, the two can disagree about the same item.
+- **Whether the choice is remembered.** Asked once per item per session, or
+  every time? Remembering wants somewhere to put it; a session tagged with the
+  item *is* that memory, since rule 2 then answers on the second press.
+
+This closes the "Worktree choice is automatic" known gap when it lands.
+
+### What I already know about the asks above
+
+Answers that took a measurement or a read of the code, so the next session does
+not have to make them again:
+
+- **"What is 'ready to merge' — it doesn't seem to select any filters."** It is
+  `state = "active", bucket = ["needs-merge"]`, and it selects nothing because
+  `needs-merge` had **0 items** when the views landed: that bucket is "approved
+  and green" and nothing was. The view is right and the dashboard was empty.
+  Worth checking `axis_counts` still says 0 before treating it as a bug.
+- **"Does views include sort (it should)?"** It does: `apply_view!` reads
+  `d["sort"]` and `view_toml` writes it. What it does *not* do is reset the sort
+  when a view names none - every other axis is cleared, and that one is left
+  alone. Making it symmetric is probably what is wanted, and would mean a view
+  can pin "as fetched" as well as change it.
+- **"Always show me/not me in authors."** They are already pinned to the front
+  of `st.authors` (`AUTHOR_ME`, `AUTHOR_OTHERS` lead the list). What drops them
+  is the zero-count skip in `filter_rows` - `n == 0 && !on && continue` - which
+  is right for a label nothing carries and wrong for these two. The fix is to
+  exempt them there, not to reorder anything.
+- **"Collapse author/label/repo to only the active ones, sorted alphabetically."**
+  `AXIS_SHOWN` is the cap (8) and the head is currently ordered *by weight*
+  rather than alphabetically, deliberately: the ordering is over the whole
+  dashboard rather than the filtered view so the pane does not reshuffle under
+  the cursor as the filter changes. Alphabetical is stable in the same way, so
+  the reason survives the change - but the head stops being "the ones that would
+  select most", which is what made `JuliaLang/julia` lead the repo axis. Both
+  halves of the ask are in `filter_rows` and `BState`'s builder.
+- **"An option at the top of filters to clear all / reset."** `c` already does
+  exactly that in the filter pane (`st.filters = Filters()`), and now also
+  remembers the previous filter for `` ` ``. What is missing is the *row*, which
+  is the same argument the import row won: a control nobody can find is a
+  control nobody uses. Same for "the first view option should be reset/default".
+- **"The 'san' key should be 'tTv'."** Right: `s`/`a`/`n` are the three session
+  slots (shell, agent, note) and `t`/`T`/`v` are the keys that open them, so the
+  header should name the keys. `list_header` and `list_legend` in `paneview.jl`,
+  and the legend text under the list says the same thing twice.
+- **`^]tab` and escape.** `pane_command!` in `paneview.jl` is the whole prefix
+  vocabulary; `^]tab` currently pops the pane and leaves it running.
+- **SIGHUP / stdin EOF.** `cli/bin/wl` is a shell wrapper around `julia`, so the
+  trap belongs there; the graceful side is `run!` in `controller.jl`, whose
+  reader task is what would see the EOF.
+
+### One trap that bit this session
+
+The test suite writes the **real** `data/state.toml` and puts it back in a
+`finally`. A run killed part-way - `| head` closing the pipe is enough, since
+that SIGPIPEs julia - leaves whatever the adoption testset wrote behind, and the
+next run fails with counts that are one too high. `git -C data checkout
+state.toml` is the fix. Redirecting `STATE[]` for the whole suite the way
+`TOUCHED[]` is redirected at the top would make it impossible; that is a small
+change and worth doing.
