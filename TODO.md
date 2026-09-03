@@ -785,6 +785,40 @@ so they are not mistaken for bugs later:
   source, so the file stays the user's and a repo you stopped caring about does
   not come back because you never unwatched it.
 
+## The plan, in order
+
+Agreed 2026-09-03. Do these in this order; the rest of this file is the
+standing backlog they were picked out of.
+
+0. **The precompile wrapper's dependencies.** Done — see "The precompile
+   wrapper" below for what was actually heavy and why it was not
+   `PrecompileTools`. One decision is still open there and is flagged.
+1. **Split `browse.jl`.** It is 4,576 lines and holds at least five separable
+   things: the filter and view model, the node building for threads and diffs,
+   the composer and review writing, the session and worktree glue, and the
+   render. Every session spends real time grepping it for where something
+   lives. Invisible from outside, and the suite is thorough enough to make it
+   low-risk. `runtests.jl` is 4,673 lines and has the same problem; splitting it
+   the same way is the obvious follow-on, and worth doing in the same pass so
+   the two halves keep matching.
+2. **The small unblocked wins.** `wl watching` printing a suggested
+   `[events].repos` from `/user/subscriptions` (specced under Infrastructure — a
+   command that *prints* a line to paste, never a live source); a default sort
+   per lane rather than one for the session (see "Unverified", which says `mine`
+   and `touched` probably want different ones); and pruning `repos.toml` entries
+   that point at directories which are gone.
+3. **Then decide whether the two pane inconsistencies are worth fixing** — the
+   first two entries under "Known gaps". Both are real and both are small, but
+   neither has been hit in use yet, so the question is whether they are worth a
+   change to keys that have just settled.
+
+Not on the list because it is blocked: **every write is still unexercised**.
+`post_comment`, `add_review_thread`, `submit_review`, `delete_review` and the
+label toggle are written and none has ever been sent, because the token here is
+read-only. It is the only part of the program where a failure loses work, and it
+needs a fine-grained PAT with `issues: write` and `pull_requests: write` on the
+repositories being reviewed. See Infrastructure.
+
 ## Where this session got to
 
 Everything on the previous session's list is done. What is left below is the
@@ -862,6 +896,34 @@ To extend it, add to the workload in `precompile/src/WorklogPrecompile.jl` — a
 keep the two rules it already follows: nothing that spawns a process, and
 `load_nodes!`/`load_meta!` satisfied before any `handle!` call, or the workload
 starts a fetch and hangs.
+
+**Its manifest is `cli/Manifest.toml` plus one entry, and must stay that way.**
+Resolved fresh it was not: `Pkg.resolve()` in an empty project picked a newer
+`Term`, which pulls a newer `Highlights`, which depends on `Pkg` and
+`TreeSitter` — and with them `LibGit2`, `Downloads`, `Tar`, `LibCURL` and four
+jlls. None of that came from `PrecompileTools`, which `Term` has depended on all
+along (`cli/Manifest.toml`), and which therefore costs this package nothing at
+all. The cure is to copy `cli/Manifest.toml` over and `Pkg.resolve()`, which
+keeps every version already pinned and adds only `WorklogPrecompile`. Check it
+with:
+
+```bash
+diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
+     <(grep '^\[\[deps\.' cli/precompile/Manifest.toml | sort)
+```
+
+which should print exactly one line, for `WorklogPrecompile` itself.
+
+**Open decision: whether to drop `PrecompileTools` anyway.** Measured on the
+comment-thread path: 4.33s with no wrapper, 1.99s with the workload run as a
+bare `let` block, 1.37s with `@compile_workload`. So the macro is worth another
+0.6s on every launch, because plain execution does not get everything cached
+against the downstream image. Base has no equivalent — `Base.Experimental` has
+only `@force_compile` and `@compiler_options` — so removing it means either
+losing that 0.6s or hand-rolling the `jl_set_newly_inferred` bookkeeping, which
+is exactly the version-fragile thing to avoid on 1.12/1.13. And it cannot be
+removed from the *tree* while `Term` is the markdown renderer. Kept for now on
+those grounds; the bare-`let` version is a three-line edit if that changes.
 
 ### Nested tmux and the mouse: measured, and not this program's
 
