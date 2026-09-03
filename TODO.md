@@ -62,7 +62,10 @@ Reviewing: a drag over a diff makes `c` a comment on that range, `^r` in the
 composer drops in GitHub's suggestion block filled with the lines it would
 replace, and the comments accumulate into a **draft review held on GitHub**
 rather than posting one at a time. `A` sends it, and leaving the item asks
-whether to.
+whether to - "leave it" keeps the draft and re-asks the next time you walk off
+it, since nothing but this program mentions one anywhere else. Existing review
+comments are placed against the hunk they point into, with a resolved thread
+folded away under it rather than dropped.
 
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -

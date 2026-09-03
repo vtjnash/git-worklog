@@ -1145,9 +1145,9 @@ function collect_meta!(st::BState)
     if st.meta !== nothing && !isempty(get(st.meta, :pending, "")) &&
        (st.batch === nothing || st.batch.url == st.metakey)
         i = findfirst(x -> x.url == st.metakey, st.all)
-        i === nothing || (st.batch = (url = st.metakey, ref = st.all[i].ref,
-                                      review = st.meta.pending,
-                                      n = st.batch === nothing ? 0 : st.batch.n))
+        i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref,
+                                            st.meta.pending,
+                                            st.batch === nothing ? 0 : st.batch.n))
     end
     st.metapending = nothing
     true
@@ -2151,11 +2151,20 @@ function place_comments(hunks::Vector{Node}, it::Item)
     catch
         return hunks                # the diff is still worth reading without them
     end
-    attach_comments(hunks, cs, it.url)
+    # Which of them are settled. Its own request because REST does not know -
+    # resolution is a property of the thread and only GraphQL carries it - and
+    # its own failure, because a diff with every comment shown is still a diff.
+    done_ = try
+        Events.resolved_comments(it.url)
+    catch
+        Set{Int}()
+    end
+    attach_comments(hunks, cs, it.url, done_)
 end
 
 "The placement itself, given the comments - so it can be tested without GitHub."
-function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
+function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
+                         resolved::Set{Int} = Set{Int}())
     isempty(cs) && return hunks
     replies = Dict{Any,Vector{Any}}()
     tops = Any[]
@@ -2199,23 +2208,53 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString)
         i === nothing ? push!(orphans, c) : push!(get!(byhunk, i, Any[]), c)
     end
 
+    isdone(c) = Int(something(get(c, "id", 0), 0)) in resolved
+
     out = Node[]
     for (i, n) in enumerate(hunks)
-        haskey(byhunk, i) &&
-            (n.header = string(n.header, "  ", CYA, "💬", length(byhunk[i]), AR))
+        here = get(byhunk, i, ())
+        live = [c for c in here if !isdone(c)]
+        settled = [c for c in here if isdone(c)]
+        # Two marks, because they say different things: a conversation waiting
+        # for an answer is why you are reading the hunk, and one that was
+        # answered is why you can stop.
+        n.header = string(n.header,
+                          isempty(live) ? "" : string("  ", CYA, "💬", length(live), AR),
+                          isempty(settled) ? "" : string("  ", AD, "✓", length(settled), AR))
         push!(out, n)
-        for c in get(byhunk, i, ())
+        for c in live
             emit!(out, c, n.depth + 1)
         end
+        if !isempty(settled)
+            # Under the hunk they belong to rather than in a pile at the end:
+            # resolved is not the same as irrelevant, and the code it was about
+            # is the thing that makes it readable at all. Closed, so it costs a
+            # row rather than a screen.
+            h = Node(string(AD, "\u2713 ", length(settled), " resolved",
+                            length(settled) == 1 ? "" : " threads", AR),
+                     "", :plain, false, n.depth + 1)
+            push!(out, h)
+            for c in settled
+                emit!(out, c, n.depth + 2)
+            end
+        end
     end
-    if !isempty(orphans)
+    # Comments whose line is gone. Split the same way, because the two are not
+    # the same thing to walk past: a settled conversation about code that has
+    # since changed is over twice over, while an open one is a remark nobody
+    # answered and the line moving out from under it did not make it moot.
+    for (group, label) in ((filter(!isdone, orphans),
+                            string(count(!isdone, orphans), " comment",
+                                   count(!isdone, orphans) == 1 ? "" : "s",
+                                   " on lines that have since changed")),
+                           (filter(isdone, orphans),
+                            string("\u2713 ", count(isdone, orphans), " resolved, on lines",
+                                   " that have since changed")))
+        isempty(group) && continue
         # Folded, and folding now hides the run nested under it, so this really
         # does put them away.
-        h = Node(string(AD, length(orphans), " comment",
-                        length(orphans) == 1 ? "" : "s",
-                        " on lines that have since changed", AR), "", :plain, false)
-        push!(out, h)
-        for c in orphans
+        push!(out, Node(string(AD, label, AR), "", :plain, false))
+        for c in group
             emit!(out, c, 1)
         end
     end
@@ -2441,8 +2480,25 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     before = curl(st)
     r = handle_key!(st, k, ctrl, at)
     r === :quit && batch_prompt!(st, ctrl, "") && return :ok
-    curl(st) == before || batch_prompt!(st, ctrl, curl(st))
+    if curl(st) != before
+        rearm_batch!(st, before)
+        batch_prompt!(st, ctrl, curl(st))
+    end
     r
+end
+
+"""Leaving the draft's item again makes it a question again.
+
+The draft is durable and this program is the only thing that keeps mentioning
+it, so "leave it" has to mean *not now* rather than *never ask again*. What says
+you are still working on it is having gone back to it - so the question is
+re-armed by walking off it, and moving between two other items asks nothing.
+"""
+function rearm_batch!(st::BState, before::AbstractString)
+    b = st.batch
+    (b === nothing || !get(b, :asked, false) || b.url != before) && return false
+    st.batch = mkbatch(b.url, b.ref, b.review, b.n)
+    true
 end
 
 function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
@@ -2753,7 +2809,10 @@ next keystroke.
 function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
     before = curl(st)
     r = onmouse_at!(st, ev, ctrl)
-    curl(st) == before || batch_prompt!(st, ctrl, curl(st))
+    if curl(st) != before
+        rearm_batch!(st, before)
+        batch_prompt!(st, ctrl, curl(st))
+    end
     r
 end
 
@@ -3142,7 +3201,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
                                                    target.side, b;
                                                    start_line = target.start)
              stt === nothing && return err
-             st.batch = (url = it.url, ref = it.ref, review = stt.review, n = stt.n)
+             st.batch = mkbatch(it.url, it.ref, stt.review, stt.n)
              ""
          end)
     else
@@ -3159,6 +3218,16 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         isempty(r) && (touch!(it.url); kind === :line || reread!(st))
     end; suggest = suggest))
 end
+
+"""One draft review, as the browser holds it.
+
+`asked` is whether leaving the item has already put the question, and it is part
+of the batch rather than beside it so that nothing can hold one without the
+other - the pair is what makes "leave it" mean *not now* instead of *never*.
+"""
+mkbatch(url, ref, review, n; asked::Bool = false) =
+    (url = String(url), ref = String(ref), review = String(review),
+     n = Int(n), asked = asked)
 
 "The draft review on this item, or `nothing` - a batch belongs to one item."
 batch_of(st::BState, it::Item) =
@@ -3227,7 +3296,12 @@ than quitting out from under it.
 """
 function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
     b = st.batch
-    (b === nothing || b.url == leaving) && return false
+    b === nothing && return false
+    b.url == leaving && return false
+    # Asked once and answered "leave it". Quitting asks anyway - it is the last
+    # moment there is - and so does walking away from it a second time, which is
+    # what going back to the item re-arms.
+    (get(b, :asked, false) && !isempty(leaving)) && return false
     # The item it belongs to, and no fallback: prompting about the wrong one
     # would offer to submit a review to a pull request nobody was writing about.
     i = findfirst(x -> x.url == b.url, st.all)
@@ -3239,8 +3313,14 @@ function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
                " written and not sent"),
         [("submit it now", :yes), ("leave it as a draft on GitHub", :no)],
         v -> v === :yes ? review_action(st, ctrl, it) :
-             (st.batch = nothing;
-              st.status = string("left the draft on ", b.ref, " — A submits it there"))))
+             # Not forgotten - only asked. The draft stays on the footer and in
+             # the metadata pane, `A` still sends it from the item it belongs
+             # to, and going back to that item arms the question again. Dropping
+             # it here is how a draft ends up remembered by nobody: this program
+             # would have stopped mentioning it, and it is invisible from
+             # everywhere except the pull request itself.
+             (st.batch = mkbatch(b.url, b.ref, b.review, b.n; asked = true);
+              st.status = string("draft kept on ", b.ref, " \u00b7 A submits it there"))))
     true
 end
 

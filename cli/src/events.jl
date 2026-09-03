@@ -719,6 +719,45 @@ function review_comments(url::AbstractString; ttl = 300.0)
     cs
 end
 
+"""Which review comments belong to a thread somebody has resolved.
+
+Resolution is a property of the *thread*, and the REST comment carries no trace
+of it - `/pulls/{n}/comments` will hand you a conversation settled six weeks ago
+in exactly the shape of one waiting for an answer. Only GraphQL knows, so this
+is one query for the whole pull request, cached beside the comments themselves.
+
+Returns the comment ids, not the threads: the diff places comments, and matching
+by id is what lets a REST comment be recognised as part of a settled thread.
+
+Bounded at 100 threads of 100 comments. Past that the tail reads as unresolved,
+which is the safe way round - an unresolved comment shown is noise, a resolved
+one hidden that was not resolved is a remark nobody answers.
+"""
+function resolved_comments(url::AbstractString; ttl = 300.0)
+    key = string("resolved:", url)
+    hit = cache_get(key, ttl)
+    hit === nothing || return Set{Int}(Int(x) for x in hit[1])
+    out = Int[]
+    try
+        d = gh_graphql(
+            "query(\$u: URI!) { resource(url: \$u) { ... on PullRequest " *
+            "{ reviewThreads(first: 100) { nodes { isResolved " *
+            "comments(first: 100) { nodes { databaseId } } } } } } }";
+            vars = Dict{String,Any}("u" => String(url)))
+        r = get(d, :resource, nothing)
+        for t in get(get(r === nothing ? (;) : r, :reviewThreads, (; nodes = ())), :nodes, ())
+            t.isResolved || continue
+            for c in t.comments.nodes
+                c.databaseId === nothing || push!(out, Int(c.databaseId))
+            end
+        end
+    catch
+        return Set{Int}()          # unknown, so nothing is hidden
+    end
+    cache_put(key, out)
+    Set{Int}(out)
+end
+
 """
     itemmeta(url, is_pr) -> (requested, reviews, assignees, teams)
 

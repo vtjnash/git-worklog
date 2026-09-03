@@ -732,6 +732,62 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "a settled thread is out of the way, not gone" begin
+    # Comments are placed against the hunk they point into. Resolution is a
+    # property of the *thread* and REST carries no trace of it, so a
+    # conversation settled six weeks ago arrived in the shape of one waiting for
+    # an answer.
+    hunk = W.Node("a.jl  @@ 10,3 @@", " ctx\n+added", :diff, true)
+    merge!(hunk.meta, Dict{String,Any}("file" => "a.jl", "start" => 10, "count" => 3,
+                                       "ostart" => 40, "ocount" => 2))
+    cs = [Dict{String,Any}("id" => 1, "path" => "a.jl", "line" => 11, "side" => "RIGHT",
+                           "body" => "still wondering", "user" => Dict("login" => "a"),
+                           "created_at" => "2026-01-01T00:00:00Z"),
+          Dict{String,Any}("id" => 2, "path" => "a.jl", "line" => 11, "side" => "RIGHT",
+                           "body" => "settled long ago", "user" => Dict("login" => "b"),
+                           "created_at" => "2026-01-02T00:00:00Z")]
+    # With nothing known to be resolved, both are inline, as before.
+    ns = W.attach_comments([deepcopy(hunk)], cs, "u")
+    @test occursin("💬2", ns[1].header) && !occursin("✓", ns[1].header)
+    @test length(ns) > 2
+
+    ns2 = W.attach_comments([deepcopy(hunk)], cs, "u", Set([2]))
+    # Two marks, because they say different things: what is waiting for an
+    # answer is why you are reading the hunk, what was answered is why you can
+    # stop.
+    @test occursin("💬1", ns2[1].header) && occursin("✓1", ns2[1].header)
+    # The open one is inline; the settled one is under a closed node of its own,
+    # beneath the hunk it belongs to rather than in a pile at the end.
+    txt = [W.astrip(n.header) for n in ns2]
+    i = findfirst(h -> occursin("resolved", h), txt)
+    @test i !== nothing && !ns2[i].open
+    @test any(n -> occursin("still wondering", n.raw), ns2[1:i-1])
+    @test all(!occursin("settled long ago", n.raw) for n in ns2[1:i])
+    @test any(n -> occursin("settled long ago", n.raw), ns2[i+1:end])
+    @test ns2[i+1].depth > ns2[i].depth          # so folding the node hides it
+    # Everything resolved is a hunk with nothing waiting on it.
+    ns3 = W.attach_comments([deepcopy(hunk)], cs, "u", Set([1, 2]))
+    @test !occursin("💬", ns3[1].header) && occursin("✓2", ns3[1].header)
+
+    # A comment whose line is gone has nowhere to be placed, and the same split
+    # applies to those: settled *and* outdated is over twice over, while an open
+    # one is a remark nobody answered and the line moving did not make it moot.
+    gone = [Dict{String,Any}("id" => 3, "path" => "a.jl", "line" => nothing,
+                             "body" => "open, and adrift", "user" => Dict("login" => "a"),
+                             "created_at" => "2026-01-03T00:00:00Z"),
+            Dict{String,Any}("id" => 4, "path" => "a.jl", "line" => nothing,
+                             "body" => "settled, and adrift", "user" => Dict("login" => "b"),
+                             "created_at" => "2026-01-04T00:00:00Z")]
+    ns4 = W.attach_comments([deepcopy(hunk)], gone, "u", Set([4]))
+    heads = [W.astrip(n.header) for n in ns4]
+    j = findfirst(h -> occursin("on lines that have since changed", h) &&
+                       !occursin("resolved", h), heads)
+    k = findfirst(h -> occursin("resolved, on lines", h), heads)
+    @test j !== nothing && k !== nothing && j < k
+    @test !ns4[j].open && !ns4[k].open              # both put away
+    @test occursin("1 comment on lines", heads[j])
+end
+
 @testset "five remarks are one review" begin
     # GitHub's own answer to batching is a pending review: a draft that lives on
     # GitHub, is visible only to its author, and is submitted later as one
@@ -740,7 +796,7 @@ end
     st = mkstate()
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
-    st.batch = (url = it.url, ref = it.ref, review = "PRR_x", n = 3)
+    st.batch = W.mkbatch(it.url, it.ref, "PRR_x", 3)
     # It is visible while it accumulates, in both places that say what is going
     # on: the footer count and the metadata pane.
     @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))
@@ -764,13 +820,30 @@ end
     @test v isa W.ChooseView && occursin("Draft review on", v.title)
     @test occursin("3 comments are written and not sent", v.note)
     # Taking no for an answer leaves it where it is - it is durable, and this is
-    # a reminder rather than a deadline.
+    # a reminder rather than a deadline. The draft is *kept*, not forgotten:
+    # this program is the only thing that mentions it anywhere but the pull
+    # request itself, so dropping it here is how one ends up remembered by
+    # nobody.
     v.onpick(:no); pop!(ctrl.stack)
-    @test st.batch === nothing && occursin("left the draft", st.status)
-    @test occursin(it.ref, st.status)
+    @test st.batch !== nothing && st.batch.asked
+    @test occursin("draft kept", st.status) && occursin(it.ref, st.status)
+    st.status = ""                       # the status row is the keys row's own
+    @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))   # still shown
 
-    # `q` with one in hand asks instead of quitting, and quits on the next press.
-    st.batch = (url = it.url, ref = it.ref, review = "PRR_x", n = 1)
+    # Having answered once, moving between other items asks nothing.
+    W.handle!(st, Int('j'), ctrl)
+    @test isempty(ctrl.stack) && st.batch.asked
+    # Walking off it again is what re-arms the question, which is to say: going
+    # back to the item is what says you are still working on it.
+    st.sel = findfirst(x -> x.url == it.url, st.items)
+    W.handle!(st, Int('j'), ctrl)
+    @test last(ctrl.stack) isa W.ChooseView
+    last(ctrl.stack).onpick(:no); pop!(ctrl.stack)
+    @test st.batch !== nothing && st.batch.asked
+
+    # `q` asks whatever has been answered before - it is the last moment there
+    # is - and quits on the next press.
+    st.batch = W.mkbatch(it.url, it.ref, "PRR_x", 1; asked = true)
     st.sel = findfirst(x -> x.url == it.url, st.items)
     @test W.handle!(st, Int('q'), ctrl) === :ok
     v2 = last(ctrl.stack)
@@ -788,8 +861,7 @@ end
     # A draft on an item this dashboard no longer carries is left alone rather
     # than offered against whatever happens to be first: submitting a review to
     # the wrong pull request is not a recoverable mistake.
-    st.batch = (url = "https://github.com/o/r/pull/9", ref = "r#9",
-                review = "PRR_y", n = 2)
+    st.batch = W.mkbatch("https://github.com/o/r/pull/9", "r#9", "PRR_y", 2)
     @test !W.batch_prompt!(st, ctrl, "")
     @test isempty(ctrl.stack)
     st.batch = nothing
