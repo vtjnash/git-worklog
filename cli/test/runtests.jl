@@ -732,6 +732,50 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "a batch in one process, not a loop of them" begin
+    # `-` is the ref that means stdin. One mechanism for every command that
+    # takes one, no new flag, and nothing a variadic ref list would have to be
+    # told apart from the value argument.
+    # The stream is an argument, so this is driven from an IOBuffer the way
+    # `readevent` is rather than by taking stdin away from the test runner.
+    @test W.stdin_lines(IOBuffer("julia#62841\n\n# a note\nhttps://github.com/o/r/pull/7  x\n")) ==
+          ["julia#62841", "https://github.com/o/r/pull/7"]
+    # A url needs no resolving, which is the difference between the two readers:
+    # requiring one to be in facts.json would refuse exactly what `import` is for.
+    @test W.refs("-", IOBuffer("https://github.com/o/r/pull/7\n")) ==
+          ["https://github.com/o/r/pull/7"]
+    # And an argument that is not `-` is still just that one ref.
+    @test W.refs("https://github.com/o/r/pull/9") == ["https://github.com/o/r/pull/9"]
+    # Nothing to act on says so rather than doing nothing quietly.
+    @test_throws W.CliError W.refs("-", IOBuffer("\n#only comments\n"))
+
+    # An inbox entry is how an imported item reaches the unread lane: no poll
+    # will ever find one, since its repo is not watched - which is why it was
+    # imported.
+    keepi, keepr = W.Events.INBOX[], W.Events.READ[]
+    d = mktempdir()
+    W.Events.INBOX[] = joinpath(d, "inbox.json")
+    W.Events.READ[] = joinpath(d, "read.json")
+    try
+        u = "https://github.com/o/r/issues/3"
+        W.Events.mark_read([u], W.utcnow())          # read from some earlier life
+        @test W.Events.read_at(u) !== nothing
+        n = W.Events.inbox_add!([Dict{String,Any}(
+            "url" => u, "repo" => "o/r", "number" => 3, "title" => "t",
+            "is_pr" => false, "state" => "open", "author" => "a",
+            "updated" => "2026-09-03T00:00:00Z", "comments" => 0,
+            "labels" => String[], "mine" => false)])
+        @test n == 1
+        @test haskey(W.Events.load_inbox()["items"], u)
+        # The read stamp is cleared, or it would hide the thing just delivered.
+        @test W.Events.read_at(u) === nothing
+        # Nothing is claimed to have been polled: no cursor moves.
+        @test isempty(W.Events.load_inbox()["cursors"])
+    finally
+        W.Events.INBOX[] = keepi; W.Events.READ[] = keepr
+    end
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

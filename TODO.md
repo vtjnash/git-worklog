@@ -39,6 +39,9 @@ cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/wl show julia#62841  # non-interactive thread view
 ./cli/bin/wl next 10           # pull untagged backlog to triage
 ./cli/bin/wl watching          # repos you watch, and which are tracked
+./cli/bin/wl import <url>...   # follow items no lane returns, landed unread
+cat urls | ./cli/bin/wl import -    # `-` is "read them from stdin" everywhere:
+printf '%s\n' julia#1 julia#2 | ./cli/bin/wl snooze - 3d
 julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
 
@@ -384,23 +387,6 @@ missing is *recall*.
 
 Both keys are free, and they sit next to `"` on the keyboard, which is where the
 other view-opening key already is.
-
-### Bulk updates from the command line, for agents
-
-Recorded 2026-09-03. The write commands take one ref at a time, which makes an
-agent handing over a batch of work write a loop of processes.
-
-- **`-` as the ref means "read them from stdin"**, one per line, for every
-  command that takes one: `wl archive - 2026-09-03`, `wl snooze - 3d`,
-  `wl read -`, `wl track - loose`. One mechanism, no new flags, and no ambiguity
-  with the value argument that a variadic ref list would have.
-- **`wl import <url>… ` (or `-`), which lands them as unread.** The manual answer
-  to "an agent found these, look at them": one batched `fetch_urls` for the lot,
-  an `imported` line each in `state.toml`, and an inbox entry each so they arrive
-  in the unread lane. The events poller will never deliver them - their repos are
-  not watched, which is *why* they are being imported - so this is the
-  hand-delivery. Unread is the difference from `i` in the browser, which puts you
-  on the item because you are already looking at it.
 
 ### What review writing still cannot do
 

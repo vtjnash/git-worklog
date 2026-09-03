@@ -430,6 +430,32 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     out
 end
 
+"""Put items into the inbox as unread, without a poll having found them.
+
+The activity lane only watches the repos in `config.toml`, and an imported item
+is imported *because* its repo is not one of them - so no poll will ever put it
+in front of you. This is the hand-delivery: the same entry a poll would have
+written, and the read stamp cleared, so it arrives in the unread lane and leaves
+it the same way everything else does.
+
+Deliberately not a cursor: nothing is advanced and nothing is claimed to have
+been seen. One entry per row, and the row is whatever the caller could learn
+about the item.
+"""
+function inbox_add!(rows)
+    inbox = load_inbox()
+    items = inbox["items"]
+    urls = String[]
+    for r in rows
+        u = String(r["url"])
+        items[u] = r
+        push!(urls, u)
+    end
+    save_inbox(inbox)
+    mark_unread(urls)          # a read stamp from last time would hide it again
+    length(urls)
+end
+
 "Fetch a thread's recent comments live - the part email used to hand you."
 function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
