@@ -34,6 +34,10 @@ mutable struct PaneView <: View
     onend::Any                     # () -> Any, once, when the child exits
     focus::Symbol                  # :child forwards every byte to it; :read
                                    # gives the keys to the thread drawn beside
+    scroll::Int                    # rows back into the pane's history; 0 is live
+    history::Int                   # how many rows there are to go back into
+    alt::Bool                      # the child is on the alternate screen, where
+                                   # scrolling back shows only its own redraws
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -87,7 +91,7 @@ function pane_view(name::AbstractString, title::AbstractString, ctrl;
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
     PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
-             (0, 0, false), false, onend, :child)
+             (0, 0, false), false, onend, :child, 0, 0, false)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -103,7 +107,7 @@ function pane_sync!(v::PaneView)
     if box != v.sized
         mux_resize(v.client, box[1], box[2]) && (v.sized = box)
     end
-    lines = mux_capture(v.client)
+    lines = mux_capture(v.client; scroll = v.scroll, rows = last(v.sized))
     if v.client.dead
         v.status = "session ended"
         v.client = nothing
@@ -124,8 +128,13 @@ function pane_sync!(v::PaneView)
     # Every row is closed off, or an unterminated colour would run out of the
     # content and into the pane's own border and padding.
     v.frame = [string(l, "\e[0m") for l in lines]
-    cx, cy, showing, mouse = mux_pane_state(v.client)
+    cx, cy, showing, mouse, hist, alt = mux_pane_state(v.client)
     v.cursor, v.wantsmouse = (cx, cy, showing), mouse
+    v.history, v.alt = hist, alt
+    # The child rewriting its screen can shorten the history under a scroll that
+    # was valid a moment ago, and the alternate screen going up ends the whole
+    # question.
+    v.scroll = alt ? 0 : clamp(v.scroll, 0, hist)
     true
 end
 
@@ -157,7 +166,7 @@ than none.
 """
 function viewcursor(v::PaneView, w::Int, h::Int)
     cx, cy, showing = v.cursor
-    (showing && v.client !== nothing) || return nothing
+    (showing && v.client !== nothing && v.scroll == 0) || return nothing
     cols, rows = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
     (0 <= cx < cols && 0 <= cy < rows) || return nothing
     ox, oy = pane_origin(v, w)
@@ -167,7 +176,13 @@ end
 """The child's column: exactly `h` rows of exactly `w`."""
 function pane_column(v::PaneView, w::Int, h::Int)
     body = pane(v.frame, w, h - 1, v.title, v.focus === :child)
-    note = if !isempty(v.status)
+    note = if v.scroll > 0
+        # Ahead of `status`, and it is the one thing that outranks it: a message
+        # about something that just happened matters less than not knowing you
+        # are looking at the past.
+        string(v.name, " \u00b7 ", v.scroll, " rows back of ", v.history,
+               " \u00b7 wheel down or any key returns")
+    elseif !isempty(v.status)
         v.status
     elseif v.client === nothing
         string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
@@ -317,7 +332,30 @@ shell that would beep at it.
 """
 wantsraw(v::PaneView) = v.client !== nothing && v.focus === :child
 
-"""Rewrite the mouse reports in `bytes` for the child, or drop them.
+"""How far one notch of the wheel moves, in rows."""
+const WHEEL_ROWS = 3
+
+"""Answer a wheel report the child did not want, by moving our own window.
+
+The modifier bits are stripped rather than matched, so shift- and ctrl-wheel
+scroll like the plain one instead of falling through as nothing - a modifier is
+a refinement of a request and never a different request.
+
+Refused on the alternate screen, and that is the point rather than a caveat:
+what is behind a full-screen program is the wreckage of its own redraws, and
+scrolling into it shows something that was never a screen. It is why terminals
+stop offering scrollback while one is up, and why the nested-tmux case gets
+nothing from this.
+"""
+function wheel!(v::PaneView, b::Int)
+    v.alt && return false
+    d = (b & ~0x1c)                    # shift, meta and ctrl are not the button
+    d == 64 ? (v.scroll = clamp(v.scroll + WHEEL_ROWS, 0, v.history); true) :
+    d == 65 ? (v.scroll = clamp(v.scroll - WHEEL_ROWS, 0, v.history); true) :
+              false
+end
+
+"""Rewrite the mouse reports in `bytes` for the child, or answer them here.
 
 This is the one thing that cannot be forwarded untouched, and both reasons are
 worth stating.
@@ -355,9 +393,17 @@ function retarget_mouse(v::PaneView, bytes::Vector{UInt8}, w::Int, h::Int)
                 if nums !== nothing && !any(isnothing, nums)
                     b, sx, sy = nums
                     cx, cy = sx - ox, sy - oy      # 0-based within the child
-                    if v.wantsmouse && 0 <= cx < cols && 0 <= cy < rows
+                    inside = 0 <= cx < cols && 0 <= cy < rows
+                    if v.wantsmouse && inside
                         append!(out, codeunits(string("\e[<", b, ";", cx + 1, ";",
                                                       cy + 1, Char(bytes[j]))))
+                    elseif inside && bytes[j] == UInt8('M')
+                        # The child did not ask for the mouse, so a wheel over it
+                        # is ours to answer - and this is the only scrollback a
+                        # pane has. Nothing else here can offer one: `capture-pane`
+                        # reads the grid, so a pane showing a shell that has just
+                        # printed a build log had no way at all to look back at it.
+                        wheel!(v, b)
                     end
                     i = j + 1
                     continue
@@ -379,9 +425,24 @@ bursts: it can arrive alone, or ahead of its key in the same read.
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     v.client === nothing && return :pop
     h, w = displaysize(stdout)
+    was = v.scroll
     bytes = retarget_mouse(v, bytes, w, h)
+    # A scroll is only a different window on the same pane, so nothing wakes to
+    # say it happened: the re-read has to be asked for here.
+    v.scroll == was || pane_sync!(v)
     out = UInt8[]
-    flush!() = (isempty(out) || (mux_keys(v.client, out); empty!(out)))
+    flush!() = begin
+        isempty(out) && return
+        # Typing snaps back to the live screen, the way every terminal does -
+        # what you type is going to the bottom of it, so that is where you want
+        # to be looking.
+        if v.scroll != 0
+            v.scroll = 0
+            pane_sync!(v)
+        end
+        mux_keys(v.client, out)
+        empty!(out)
+    end
     for b in bytes
         if v.pending
             v.pending = false

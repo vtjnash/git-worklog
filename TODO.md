@@ -768,18 +768,41 @@ the item on screen, `^]tab` as a focus toggle with escape/`t`/`T` restoring the
 list, and the SIGHUP/EOF pair. "What I already know about the asks above" says
 what each one turned into and why.
 
-One thing from it is *not* done, because it is probably not this program's:
+### Nested tmux and the mouse: measured, and not this program's
 
-**Nested tmux and the mouse.** "mouse-in-nvim-in-tmux-in-wl-tmux works, but the
-tmux pane itself does not — notably for activating scrolling, since `^b^b[`
-does not seem to reach there either." Not investigated, but the shape of it is
-visible from here: `retarget_mouse` rewrites a report into the child's
-coordinates and *drops* it unless the child asked for mouse reporting through
-`mouse_any_flag` — which an inner tmux does not set on its own behalf, only on
-behalf of whatever is running inside it. So the inner tmux's own scrollback
-never sees a wheel event, while nvim inside it does. The prefix half is a
-different question and nothing to do with this file: `^b` is forwarded as a byte
-like every other, so where `^b^b[` ends up is the outer tmux's business.
+"mouse-in-nvim-in-tmux-in-wl-tmux works, but the tmux pane itself does not —
+notably for activating scrolling, since `^b^b[` does not seem to reach there
+either." Both halves reproduced against a real tmux 3.5a, and both are answers
+rather than bugs. There is a testset pinning each.
+
+- **`^b^b[` is one prefix too many; `^b[` works.** `onraw!` sends bytes into the
+  pane's pty with `send-keys -H`, so the *hosting* session never sees them as
+  keys of its own — there is no outer prefix to escape. The second `^b` is the
+  inner tmux's `send-prefix`, which puts a literal `^b` into the shell, and the
+  `[` follows it there. This program's own prefix is `^]`, and it is the only
+  byte held back.
+- **The mouse is the inner tmux's `mouse` setting.** A tmux with `mouse on` sets
+  button-event and SGR tracking (1002 + 1006) on the pane it is drawn in, so the
+  outer sees a child that wants the mouse, `retarget_mouse` hands the wheel over,
+  and the inner tmux enters copy mode — measured working end to end. With
+  `mouse off` it sets nothing on its own behalf, only on behalf of whatever runs
+  inside it: so the wheel reaches nvim and the tmux itself does nothing with it,
+  which is exactly the reported symptom. `set -g mouse on` in the inner tmux is
+  the whole fix.
+- **`#{mouse_any_flag}` is the disjunction**, not 1003 alone: measured 1 for
+  each of `?1000h`, `?1002h` and `?1003h`, and 0 for SGR-only. So the gate is
+  the right one and was never the problem.
+
+What *was* missing is on our side, and is now built: a pane whose child ignores
+the mouse had **no scrollback at all** — `capture-pane` reads the grid, so a
+shell that had just printed a build log could not be looked back at, and the
+wheel reports were arriving and being dropped. Those are the ones nobody wanted,
+so the wheel now moves this view's own window instead: `capture-pane -S -n -E
+rows-1-n` is a window `rows` tall scrolled back `n`, `#{history_size}` bounds
+it, typing snaps back to live, and the cursor is not drawn while looking at the
+past. Refused on the alternate screen (`#{alternate_on}`), because what is
+behind a full-screen program is the wreckage of its own redraws — which is also
+why the nested-tmux case gets nothing from this and wants `mouse on` instead.
 
 ### The `t` design, built
 

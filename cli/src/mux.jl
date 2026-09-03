@@ -394,8 +394,17 @@ outright looking for a session called `=name`. A session name is sanitised to
 word characters and a hyphen by `mux_session`, so there is nothing here that
 would need quoting anyway.
 """
-function mux_capture(c::MuxClient; escapes::Bool = true)
-    ok, lines = mux_ask(c, string("capture-pane -p", escapes ? " -e" : "", " -t =", c.name, ":"))
+function mux_capture(c::MuxClient; escapes::Bool = true,
+                     scroll::Int = 0, rows::Int = 0)
+    # `-S`/`-E` count lines from the top of the visible screen: 0 is the first
+    # row of it and negative numbers are history. So a window of `rows` lines
+    # scrolled up by `scroll` is exactly `-scroll` to `rows - 1 - scroll`, and
+    # the end going negative too is not a special case - it is a window entirely
+    # in the history. Omitted at rest, so the common call is the one it was.
+    win = (scroll > 0 && rows > 0) ?
+          string(" -S -", scroll, " -E ", rows - 1 - scroll) : ""
+    ok, lines = mux_ask(c, string("capture-pane -p", escapes ? " -e" : "", win,
+                                  " -t =", c.name, ":"))
     ok ? lines : String[]
 end
 
@@ -412,6 +421,12 @@ hidden for the whole run.
 mouse report forwarded to a program that never asked for one is printed as the
 control characters it is.
 
+`history` and `alt` are what the pane's own scrollback is worth. How far back it
+goes bounds the scroll; whether the child is on the alternate screen decides
+whether there is anything back there worth showing - a full-screen program's
+history is the wreckage of its redraws, which is why terminals stop offering
+scrollback while one is up.
+
 The format is quoted and the target is not, which is the opposite way round
 from everywhere else and is not a preference: `#` starts a comment in tmux's
 command syntax, so an unquoted format is discarded and the default message
@@ -420,12 +435,14 @@ A quoted *target* meanwhile succeeds and matches nothing.
 """
 function mux_pane_state(c::MuxClient)
     ok, lines = mux_ask(c, string("display-message -p -t =", c.name,
-        ": '#{cursor_x},#{cursor_y},#{cursor_flag},#{mouse_any_flag}'"))
-    (ok && !isempty(lines)) || return (0, 0, false, false)
+        ": '#{cursor_x},#{cursor_y},#{cursor_flag},#{mouse_any_flag}," *
+        "#{history_size},#{alternate_on}'"))
+    none = (0, 0, false, false, 0, false)
+    (ok && !isempty(lines)) || return none
     f = split(strip(lines[1]), ',')
-    length(f) == 4 || return (0, 0, false, false)
+    length(f) == 6 || return none
     (something(tryparse(Int, f[1]), 0), something(tryparse(Int, f[2]), 0),
-     f[3] == "1", f[4] == "1")
+     f[3] == "1", f[4] == "1", something(tryparse(Int, f[5]), 0), f[6] == "1")
 end
 
 """Size the session to `w` by `h`.
