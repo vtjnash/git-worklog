@@ -296,7 +296,10 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         v.beside.focus = :detail
         v.status = ""
         :ok
-    elseif b == UInt8('\t') || b == UInt8('q')
+    elseif b == UInt8('\t') || b == UInt8('q') || b == 0x1b
+        # Escape too, and not only `q`: it is what leaves on the reading side,
+        # and a key that means "out of here" everywhere else in this program
+        # should not be the one key the prefix has no answer for.
         mux_close(v.client)
         :pop
     elseif b == UInt8('K')
@@ -331,6 +334,12 @@ other view's - which is what lets `j` scroll a thread rather than reaching a
 shell that would beep at it.
 """
 wantsraw(v::PaneView) = v.client !== nothing && v.focus === :child
+
+# Both are places rather than dialogs: a terminal is somewhere you work and the
+# worktree list is somewhere you look, and neither is a question asked of the
+# view underneath.
+isdialog(::PaneView) = false
+closeview!(v::PaneView) = (v.client === nothing || mux_close(v.client); nothing)
 
 """How far one notch of the wheel moves, in rows."""
 const WHEEL_ROWS = 3
@@ -937,17 +946,22 @@ end
 "Open a session of `kind` on the row, which may have no item at all."
 function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     r.orphan && return "that worktree is gone; K removes what is left running"
-    kind === :agent && Sys.which("claude") === nothing && return "`claude` is not on PATH"
-    cmd = kind === :agent ? "claude" : get(ENV, "SHELL", "/bin/sh")
+    # The same command `T` runs on an item: through a shell, so an alias or a
+    # function resolves, and refused nowhere - a name that is not a file on
+    # `PATH` is not a name that is not there.
+    cmd = kind === :agent ? agent_cmd() : get(ENV, "SHELL", "/bin/sh")
     title = string(kind === :agent ? "agent  " : "",
                    r.item === nothing ? r.name : r.item.ref,
                    isempty(r.branch) ? "" : string("  ", r.branch))
-    n = length(ctrl.stack)
+    # The view this was opened from is a place too, so opening a pane replaces
+    # it: what says one opened is what is on top now, never how tall the stack
+    # is.
+    was = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
     out = enter_session(r.path, r.branch,
                         r.item === nothing ? "" : r.item.ref,
                         r.item === nothing ? "" : string(r.item.number),
                         title, ctrl, kind, (_, _) -> cmd)
-    length(ctrl.stack) > n || return out
+    (!isempty(ctrl.stack) && last(ctrl.stack) !== was) || return out
     # The same rule the item keys follow: starting work on something is what
     # the clock records.
     r.item === nothing || touch!(r.item.url)
@@ -962,6 +976,8 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     end
     out
 end
+
+isdialog(::WorktreeView) = false
 
 "The row the cursor is on, in whichever list is showing, or `nothing`."
 function currow(v::WorktreeView)

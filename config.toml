@@ -132,3 +132,16 @@ activity_ttl_seconds = 120
 # you move over the same items. Short by design: these are things people are
 # actively replying to.
 detail_ttl_minutes = 10
+
+[agent]
+# What `T` runs in a pane. The default is `$SHELL -c 'exec claude'` rather than
+# `claude`, because an agent is more often a shell alias or a function than a
+# file on `PATH` - and looking the name up before running it refused it before
+# it was ever tried.
+#
+# An alias defined only in an *interactive* rc file needs an interactive shell
+# to resolve, which is what this line is for: set it to `bash -ic 'exec claude'`
+# (or your shell's equivalent) if the default starts a pane that exits at once.
+# Anything that runs in a terminal will do here - a different agent, a wrapper
+# script, a command with flags.
+# command = "bash -ic 'exec claude'"

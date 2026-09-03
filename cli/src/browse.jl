@@ -2943,7 +2943,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # be seen at once.
         # Every item, not the filtered ones: a row should not lose the pull
         # request it belongs to because a filter is hiding it elsewhere.
-        push!(ctrl.stack, worktree_view(st.all;
+        push_place!(ctrl, worktree_view(st.all;
                                         source = () -> st.all,
                                         wake = () -> wake!(ctrl),
                                         onitem = x -> select_item!(st, x),
@@ -3385,10 +3385,28 @@ reports instead.
 """
 function select_item!(st::BState, it::Item)
     i = findfirst(x -> x.url == it.url, st.items)
+    cleared = false
     if i === nothing
-        return findfirst(x -> x.url == it.url, st.all) === nothing ?
-               string(it.ref, " is not in this dashboard") :
-               string(it.ref, " is filtered out — f to change what is shown")
+        findfirst(x -> x.url == it.url, st.all) === nothing &&
+            return string(it.ref, " is not in this dashboard")
+        # Asking to go to an item is asking to *see* it, and a filter that hides
+        # it is the thing in the way rather than the answer. Told to go to the
+        # pull request a worktree belongs to, "it is filtered out" is a refusal
+        # to do the one thing that was asked.
+        #
+        # Cleared rather than widened by whichever axis is hiding it: which one
+        # that is is not a question anybody wants answered, and `\`` is the way
+        # back from this the same as from every other jump. `:all` and not the
+        # default `:active`, because archived and snoozed work still has a
+        # worktree and is exactly what you would be going to look at.
+        st.prev = st.filters
+        st.filters = Filters(); st.filters.state = :all
+        # A list search narrows on top of the axes, so it can hide it too.
+        st.searchin === :list && (st.search = "")
+        refilter!(st)
+        cleared = true
+        i = findfirst(x -> x.url == it.url, st.items)
+        i === nothing && return string(it.ref, " could not be shown")
     end
     st.sel = i
     st.focus = :list
@@ -3397,9 +3415,14 @@ function select_item!(st::BState, it::Item)
     # caller is another view, so there is no `handle!` about to finish and do
     # it, and arriving on an item showing the previous one's thread is worse
     # than arriving a moment later.
-    st.status = string("went to ", it.ref)
     load_nodes!(st)
     load_meta!(st)
+    # After the loads and not before, which is the same rule `\`` follows:
+    # `load_nodes!` writes "loading …" over whatever is there, and a message
+    # about the jump the user just made is exactly what it would write over.
+    # It said "went to …" and nobody ever saw it.
+    st.status = string("went to ", it.ref,
+                       cleared ? " · cleared the filter to show it, ` goes back" : "")
     ""
 end
 
@@ -4206,7 +4229,7 @@ function edit_note(st::BState, it::Item, ctrl)
             return "could not attach to " * name
         end
         pane_sync!(v)
-        push!(ctrl.stack, v)
+        push_place!(ctrl, v)
         return "editing the note — it is saved when the editor exits"
     end
 
@@ -4307,7 +4330,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
-    push!(ctrl.stack, v)
+    push_place!(ctrl, v)
     if found === nothing
         string("started ", name)
     elseif !isempty(found.item) && !isempty(ref) && found.item != ref
@@ -4343,7 +4366,10 @@ end
 """Open the item's session in a checkout that has already been settled on."""
 function item_session!(it::Item, target::AbstractString, branch::AbstractString,
                        ctrl, kind::Symbol, mkcmd)
-    n = length(ctrl.stack)
+    # What was on top before, and not how tall the stack was: a pane *replaces*
+    # the place it was opened from, so the depth can be the same on both sides
+    # of a session that opened perfectly well.
+    was = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
     r = enter_session(target, branch, it.ref, string(it.number),
                       string(kind === :agent ? "agent  " : "", it.ref,
                              isempty(branch) ? "" : string("  ", branch)),
@@ -4353,7 +4379,7 @@ function item_session!(it::Item, target::AbstractString, branch::AbstractString,
     # agent on an item is the strongest signal of work there is, stronger than
     # any amount of reading it, which is why the clock has a hand in a view that
     # does no reading at all.
-    length(ctrl.stack) > n && touch!(it.url)
+    (!isempty(ctrl.stack) && last(ctrl.stack) !== was) && touch!(it.url)
     r
 end
 
@@ -4463,6 +4489,24 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     r isa String ? string("made ", dest, " · ", r) : r
 end
 
+"""What to run for `T`, as a shell command line.
+
+Through the login shell rather than as a bare name, because `claude` is often a
+shell alias or a function rather than a file on `PATH` - and a name this looked
+up with `Sys.which` was refused before it was ever tried. `exec` so the shell
+does not sit between the pane and the agent as a second process to signal.
+
+`config.toml` overrides it, which is the escape hatch for the case this cannot
+guess: an alias defined only in an interactive rc file needs `-ic`, and where
+the agent lives is the user's business rather than something to keep guessing
+at.
+"""
+function agent_cmd()
+    c = get(get(config(), "agent", Dict{String,Any}()), "command", "")
+    isempty(c) || return String(c)
+    string(shquote(get(ENV, "SHELL", "/bin/sh")), " -c ", shquote("exec claude"))
+end
+
 """Open an agent on this item's worktree, and watch it work.
 
 Nothing has to be set up first, and nothing is said to it on the way in.
@@ -4475,8 +4519,7 @@ survives `/clear`, so a stale copy would outlive every correction made from
 inside.
 """
 function open_agent(it::Item, ctrl, say = _ -> nothing)
-    Sys.which("claude") === nothing && return "`claude` is not on PATH"
-    enter_session(it, ctrl, :agent, (_, _) -> "claude", say)
+    enter_session(it, ctrl, :agent, (_, _) -> agent_cmd(), say)
 end
 
 """Open a shell on this item's checkout, in its worktree's session, and show it.

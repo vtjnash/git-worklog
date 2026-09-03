@@ -330,7 +330,42 @@ function mouse!(ctrl::Controller, on::Bool)
     on
 end
 
+"""Is this view a dialog, or a place?
+
+A **dialog** answers a question and hands the keys back to whatever asked - a
+picker, a prompt, a composer - so it stacks on top of what is underneath and
+that is the whole of what it is for.
+
+A **place** is somewhere you work: a terminal, an agent, the worktree list. Two
+of those on the stack at once is not a state anybody meant to be in, and it is
+how `t` from `"` left four views between the shell and the dashboard - so a
+place replaces the place you were in rather than covering it.
+
+Dialogs are the default, because a view that has not thought about this is one
+that returns to its caller.
+"""
+isdialog(::View) = true
+
+"""What a view has to let go of when it is closed out from under itself.
+
+Only a hosted pane has anything: its control-mode client is a process and a
+pipe pair, and dropping the view without closing it leaks both.
+"""
+closeview!(::View) = nothing
+
 push_view!(ctrl::Controller, v::View) = push!(ctrl.stack, v)
+
+"""Go somewhere, leaving wherever you were.
+
+The root is never a place in this sense - it is the thing every place is
+somewhere *from* - so it is the one view this will not close.
+"""
+function push_place!(ctrl::Controller, v::View)
+    while length(ctrl.stack) > 1 && !isdialog(last(ctrl.stack))
+        closeview!(pop!(ctrl.stack))
+    end
+    push!(ctrl.stack, v)
+end
 
 """
     suspend(f, ctrl)

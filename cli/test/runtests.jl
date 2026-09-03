@@ -2405,6 +2405,56 @@ end
     end
 end
 
+@testset "a place replaces a place; a dialog stacks on one" begin
+    # `t` from `"` used to leave four views between the shell and the dashboard,
+    # so getting back out was ^]tab, esc, esc, ^]tab, esc. Two terminals - or a
+    # terminal on top of the worktree list - is not a state anybody meant to be
+    # in: a place is somewhere you work, and going somewhere means leaving where
+    # you were. A dialog is the exception, because answering a question is the
+    # one thing that does return to what asked.
+    @test W.isdialog(W.PromptView("t", "", identity)) === true
+    @test W.isdialog(W.ChooseView("t", "", Tuple{String,Any}[], identity)) === true
+
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    v = W.worktree_view(W.Item[])
+    @test W.isdialog(v) === false
+    W.push_place!(ctrl, v)
+    @test length(ctrl.stack) == 2
+    # A second place takes the first one's slot rather than covering it.
+    W.push_place!(ctrl, W.worktree_view(W.Item[]))
+    @test length(ctrl.stack) == 2 && last(ctrl.stack) !== v
+    # A dialog over a place keeps the place, which is what makes it a dialog.
+    W.push_view!(ctrl, W.PromptView("t", "", identity))
+    @test length(ctrl.stack) == 3
+    # ...and a place opened from under a dialog still only replaces places.
+    W.push_place!(ctrl, W.worktree_view(W.Item[]))
+    @test length(ctrl.stack) == 4
+    # The root is never a place: it is what every place is somewhere from.
+    while length(ctrl.stack) > 1; pop!(ctrl.stack); end
+    W.push_place!(ctrl, W.worktree_view(W.Item[]))
+    @test length(ctrl.stack) == 2 && first(ctrl.stack) === st
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the pane-replaces-pane test"
+    else
+        n = "wl-test-place"
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sleep 120")
+        pv = W.pane_view(n, "sh", ctrl)
+        @test W.isdialog(pv) === false
+        W.push_place!(ctrl, pv)
+        @test length(ctrl.stack) == 2       # took the worktree list's slot
+        # Escape after the prefix leaves, the same as `q`: a key that means
+        # "out of here" everywhere else should not be the one the prefix has no
+        # answer for.
+        @test W.onraw!(pv, [W.PANE_PREFIX, 0x1b], ctrl) === :pop
+        @test W.mux_alive(n) === true       # left running, not killed
+        W.mux_kill(n)
+        pop!(ctrl.stack)
+    end
+end
+
 @testset "one view on one session, however you get to it" begin
     # `^]t` and `^]T` reach `enter_session` from inside a pane, which is how a
     # shell gets to the agent on the same item and back. The press that names
@@ -2428,11 +2478,15 @@ end
         @test occursin("already in", out2)
         @test length(ctrl.stack) == depth
 
-        # The other kind is a different session, so it opens beside it.
+        # The other kind is a different session, so it opens - but as a place
+        # rather than on top: two terminals on the stack at once is not a state
+        # anybody meant to be in, and it is how `t` from `"` left four views
+        # between the shell and the dashboard.
         out3 = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :agent,
                                (_, _) -> "sleep 120")
         @test occursin("started", out3)
-        @test length(ctrl.stack) == depth + 1
+        @test length(ctrl.stack) == depth
+        @test last(ctrl.stack) isa W.PaneView
 
         for r in W.mux_list()
             r.worktree == wt && W.mux_kill(r.name)
@@ -2809,13 +2863,28 @@ end
         v3.sel = findfirst(r -> r.name == "main", v3.rows)
         @test W.handle!(v3, Int('i'), ctrl) === :ok
         @test occursin("no pull request", v3.status)
-        # Filtered out is a message, not a silent change of what is shown.
+        # Asking to go to an item is asking to *see* it, so a filter hiding it
+        # is the thing in the way and not the answer. It used to refuse with
+        # "filtered out", which is a refusal to do the one thing that was asked.
         st2 = W.BState(items, "worklog", Set{String}())
-        st2.items = [x for x in st2.items if x.url != pr.url]
+        st2.filters.repos = Set(["nothing/here"])
+        st2.search = "zzzz-no-such-item"; st2.searchin = :list
+        W.refilter!(st2)
+        @test isempty(st2.items)
         v4 = W.worktree_view(items; onitem = x -> W.select_item!(st2, x))
         v4.sel = findfirst(r -> r.name == "side", v4.rows)
-        @test W.handle!(v4, Int('i'), ctrl) === :ok
-        @test occursin("filtered out", v4.status)
+        @test W.handle!(v4, Int('i'), ctrl) === :pop
+        @test st2.items[st2.sel].url == pr.url
+        @test W.isdefault(st2.filters) || st2.filters.state === :all
+        @test isempty(st2.search)
+        # And `\`` is the way back, the same as from every other jump.
+        @test st2.prev !== nothing && st2.prev.repos == Set(["nothing/here"])
+        @test occursin("cleared the filter", st2.status)
+        # An item that is not in the dashboard at all is still a message: there
+        # is no filter to clear that would bring it.
+        gone = W.Item(url = "https://example.invalid/x/y/pull/9", ref = "y#9",
+                      repo = "x/y", number = 9, title = "not here")
+        @test occursin("not in this dashboard", W.select_item!(st2, gone))
 
         if W.mux_bin() === nothing
             @info "no tmux; skipping the live worktree session test"
