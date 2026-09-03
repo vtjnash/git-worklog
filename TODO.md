@@ -877,6 +877,24 @@ not have to make them again:
   running — `^]q` is the way out from the child's side. Below `SPLIT_MIN` there
   is no second column, so there `^]tab` keeps its old meaning: a focus nobody
   can see is worse than no focus at all.
+- **A side without the focus gets no keys at all.** The first cut of the above
+  kept `K`, `a` and `r` for the pane on the *reading* side, which quietly took
+  `r` away from the browser, where it means "mark this read". Which keys belong
+  to which side has to be answerable by looking at which side is lit, and not
+  by remembering a list — so the reading side keeps exactly three (`tab` back
+  to the child, `esc`/`t`/`T` out to the list) and the child gets nothing.
+- **Unknown keys after `^]` go to the browser.** `^]` means "this one is not the
+  child's", and having said that, the sensible place for a key the pane layer
+  has no use for is the other side of the screen. Six are the prefix's own
+  (`tab`, `q`, `K`, `a`, `r`, `]`) plus `^]?` for the list of them; the rest are
+  forwarded, so `^]m` toggles the mouse capture over the pane, `^]o` switches to
+  the comments and `^]j` walks a line — none of which had to be named, and none
+  of which can now be forgotten. The browser's reply is copied into the note
+  under the child, because its own footer is not on screen there.
+  `^]t`/`^]T` ride along, which is how a shell reaches the agent on the same
+  item and back. `enter_session` refuses to stack a second view on the session
+  already showing, so pressing the kind you are looking at says so instead of
+  doubling the pane.
 - **A key to re-read the current item.** Done, as `R`; `u` was already taken by
   "mark unread". `refresh_item!` drops the thread cache and the checks'
   two-minute window and re-asks for the metadata, quietly — the nodes, the

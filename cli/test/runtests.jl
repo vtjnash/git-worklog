@@ -2152,6 +2152,23 @@ end
             W.handle!(v, Int('o'), ctrl)           # and the mode keys work too
             @test st.mode === :comments
 
+            # And the child gets *nothing* while it does not have the focus -
+            # not even the keys that reach it from the other side. `r` used to
+            # re-read the child's screen from here, which is one key of the
+            # pane's in the middle of a run of the browser's: the reader would
+            # have had to hold a list instead of looking at which side is lit.
+            it = st.items[st.sel]
+            was_unread = it.url in st.unread
+            W.handle!(v, Int('r'), ctrl)           # the browser's read toggle
+            @test (it.url in st.unread) != was_unread
+            W.handle!(v, Int('r'), ctrl)           # put it back
+            @test (it.url in st.unread) == was_unread
+            # `K` is the pane's, so from here it is the browser's - and the
+            # browser does not bind it, so nothing happens and nothing dies.
+            @test W.handle!(v, Int('K'), ctrl) === :ok
+            @test W.mux_alive(n) === true
+            @test v.focus === :read
+
             # `tab` goes back to the child, the way `^]tab` came out of it.
             @test W.handle!(v, 9, ctrl) === :ok
             @test v.focus === :child && W.wantsraw(v) === true
@@ -2176,6 +2193,32 @@ end
             v3 = W.pane_view(n, "demo", ctrl)
             @test W.onraw!(v3, [W.PANE_PREFIX, UInt8('q')], ctrl) === :pop
             @test W.mux_alive(n) === true
+
+            # Six keys are the prefix's own and the rest are the browser's:
+            # having said "this one is not the child's", the sensible place for
+            # a key this layer has no use for is the other side of the screen.
+            v5 = W.pane_view(n, "demo", ctrl)
+            push!(ctrl.stack, v5)
+            was = st.mode
+            st.mode = :diff
+            @test W.onraw!(v5, [W.PANE_PREFIX, UInt8('o')], ctrl) === :ok
+            @test st.mode === :comments            # reached the browser
+            @test v5.focus === :child              # without leaving the child
+            @test W.wantsraw(v5) === true
+            st.mode = was
+            # `^]m` was the ask that made this worth doing: toggling the mouse
+            # capture over the pane is the browser's `m`, and nothing here had
+            # to know that.
+            before = ctrl.mouse
+            W.onraw!(v5, [W.PANE_PREFIX, UInt8('m')], ctrl)
+            @test ctrl.mouse != before
+            # The browser's answer shows where the key was pressed: its own
+            # footer is not on screen here.
+            @test occursin("mouse", v5.status)
+            W.onraw!(v5, [W.PANE_PREFIX, UInt8('m')], ctrl)
+            @test ctrl.mouse == before
+            pop!(ctrl.stack)
+            W.mux_close(v5.client)
         end
         # With no room for two columns there is nothing to move to, so the key
         # keeps the meaning it always had.
@@ -2186,6 +2229,45 @@ end
         end
         W.mux_kill(n)
         pop!(ctrl.stack)
+    end
+end
+
+@testset "one view on one session, however you get to it" begin
+    # `^]t` and `^]T` reach `enter_session` from inside a pane, which is how a
+    # shell gets to the agent on the same item and back. The press that names
+    # the kind already showing must not open a second view onto one session and
+    # leave two `^]q`s between there and the browser.
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the one-view-per-session test"
+    else
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        wt = mktempdir()
+        out = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :shell,
+                              (_, _) -> "sleep 120")
+        @test occursin("started", out)
+        @test last(ctrl.stack) isa W.PaneView
+        depth = length(ctrl.stack)
+
+        # The same kind again, from the pane it is already showing in.
+        out2 = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :shell,
+                               (_, _) -> "sleep 120")
+        @test occursin("already in", out2)
+        @test length(ctrl.stack) == depth
+
+        # The other kind is a different session, so it opens beside it.
+        out3 = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :agent,
+                               (_, _) -> "sleep 120")
+        @test occursin("started", out3)
+        @test length(ctrl.stack) == depth + 1
+
+        for r in W.mux_list()
+            r.worktree == wt && W.mux_kill(r.name)
+        end
+        while length(ctrl.stack) > 1
+            v = pop!(ctrl.stack)
+            v.client === nothing || W.mux_close(v.client)
+        end
     end
 end
 
@@ -2273,9 +2355,15 @@ end
         sleep(0.4)
         @test occursin("ab", join(W.mux_capture(v2.client; escapes = false)))
 
-        # An unknown key after the prefix says what the prefix takes.
+        # With no browser underneath there is nowhere to pass a key on to, so
+        # an unknown one after the prefix says what the prefix takes instead.
+        @test v2.beside === nothing
         W.onraw!(v2, [W.PANE_PREFIX, UInt8('Z')], ctrl)
         @test occursin("kill", v2.status)
+        # And `^]?` asks for that list wherever it is pressed.
+        v2.status = ""
+        W.onraw!(v2, [W.PANE_PREFIX, UInt8('?')], ctrl)
+        @test occursin("full screen", v2.status)
 
         # tab leaves it running; the browser already uses tab to change pane.
         @test W.onraw!(v2, [W.PANE_PREFIX, UInt8('\t')], ctrl) === :pop

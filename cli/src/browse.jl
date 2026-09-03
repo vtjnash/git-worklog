@@ -4286,6 +4286,16 @@ function enter_session(target::AbstractString, branch::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return "no tmux on PATH"
     found = mux_find(target, kind)
+    # Already looking at it. `^]t` and `^]T` reach here from inside a pane -
+    # which is how a shell gets to the agent on the same item and back - and the
+    # press that names the kind already showing would otherwise open a second
+    # view onto one session and leave two `^]q`s between here and the browser.
+    # Asked before the rename below, because that is what makes the name on the
+    # view and the name on the session the same string.
+    if found !== nothing && !isempty(ctrl.stack) &&
+       last(ctrl.stack) isa PaneView && last(ctrl.stack).name == found.name
+        return string("already in ", found.name)
+    end
     name = mux_name(basename(rstrip(String(target), '/')), branch, num, kind)
     if found === nothing
         ok, err = mux_start(name, target, mkcmd(target, branch))

@@ -172,9 +172,10 @@ function pane_column(v::PaneView, w::Int, h::Int)
     elseif v.client === nothing
         string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
     elseif v.focus === :read
-        string(v.name, " \u00b7 reading \u00b7 tab back to it \u00b7 esc/t the list \u00b7 K kill")
+        string(v.name, " \u00b7 reading \u00b7 tab back to it \u00b7 esc/t/T the list",
+               " \u00b7 every other key is the browser's")
     else
-        string(v.name, " \u00b7 ^]tab read beside it \u00b7 ^]q leave it running \u00b7 ^]a full screen")
+        string(v.name, " \u00b7 ^]tab read beside it \u00b7 ^]q leave it running \u00b7 ^]? keys")
     end
     rows = vcat(body, [string("\e[2m", afit(note, w), "\e[0m")])
     while length(rows) < h
@@ -237,8 +238,40 @@ function readable(v::PaneView)
     first(split_box(w)) > 0
 end
 
-"""One key after the prefix. Returns `:pop`, `:literal` to send the prefix
-through to the child, or `:ok`."""
+"""Hand one key to the browser underneath, and show what it said.
+
+The browser's own footer is not on screen here - the pane took the columns it
+was drawn in - so a message it wrote in answer would go nowhere. It is copied
+into the note under the child instead, which is the row nearest the key that
+was pressed.
+"""
+function forward!(v::PaneView, k::Int, ctrl)
+    v.beside === nothing && return :ok
+    act = handle!(v.beside, k, ctrl)
+    v.status = v.beside.status
+    act === :quit ? :quit : :ok
+end
+
+"""What the prefix is for, spelled out. `^]?` asks for it."""
+pane_keys(v::PaneView) =
+    string(readable(v) ? "^]tab read beside it \u00b7 " : "",
+           "^]q leave \u00b7 ^]K kill \u00b7 ^]a full screen \u00b7 ^]r reread \u00b7 ^]] literal",
+           v.beside === nothing ? "" : " \u00b7 anything else is the browser's")
+
+"""One key after the prefix. Returns `:pop`, `:quit`, `:literal` to send the
+prefix through to the child, or `:ok`.
+
+Six keys are the pane's own and the rest belong to the browser underneath: `^]`
+means "this one is not the child's", and having said that, the sensible place
+for a key this layer has no use for is the other side of the screen. That is
+what makes `^]m` reach the mouse toggle, `^]o` the comments and `^]j` a line of
+the thread without leaving the child - none of which had to be named here, and
+none of which can now be forgotten to be.
+
+`^]t` and `^]T` go with them, which is how a shell reaches the agent on the same
+item and back; `enter_session` refuses to stack a second view on the session
+already showing, so the same-kind press says so rather than doubling the pane.
+"""
 function pane_command!(v::PaneView, b::UInt8, ctrl)
     if b == UInt8('\t') && readable(v)
         # The keys go to the thread; the child keeps running and keeps being
@@ -264,11 +297,15 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         :ok
     elseif b == PANE_PREFIX || b == UInt8(']')
         :literal
-    else
-        v.status = string(readable(v) ? "^]tab read beside it" : "^]tab leave",
-                          " \u00b7 ^]q leave \u00b7 ^]K kill \u00b7 ^]a full screen",
-                          " \u00b7 ^]r reread \u00b7 ^]] literal")
+    elseif b == UInt8('?') || v.beside === nothing
+        v.status = pane_keys(v)
         :ok
+    else
+        # As a key code, which for one byte it is: control bytes and escape
+        # arrive as the numbers the browser already binds. A multi-byte
+        # character after the prefix would not survive this, and is not
+        # something any of these keys is.
+        forward!(v, Int(b), ctrl)
     end
 end
 
@@ -355,6 +392,7 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
                 pane_command!(v, b, ctrl)
             end
             act === :pop && return :pop
+            act === :quit && return :quit
             act === :literal && push!(out, PANE_PREFIX)
         elseif b == PANE_PREFIX
             v.pending = true
@@ -366,26 +404,47 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     :ok
 end
 
-"""Keys, for the reading side and for when the child has gone.
+"""Keys, while the thread beside the child has the focus.
 
-Two cases in one function because they want the same four keys. What differs is
-where everything *else* goes: while the child is alive and the focus is on the
-thread beside it, the rest are the browser's - which is the whole point of the
-focus, and why they are handed on rather than named here. A key this view
-started naming would be a key the thread quietly lost.
+The child gets *nothing* here, not even the keys that would reach it from the
+other side. Which keys belong to which side has to be answerable by looking at
+which side has the focus; a pane that still answered `r` by re-reading its own
+screen, while the thread beside it read `r` as "mark this one read", would be
+asking the reader to hold a list instead - some keys and not others, for a side
+that does not have the focus.
 
-`q` and escape leave the session running; `K` is the one that ends it,
-uppercase because it is the one that destroys something. `t` and `T` leave too:
-the key that put the pane on the screen is the one that takes it off again.
+So what is kept here is about the focus and nothing else. `tab` goes back to the
+child. Escape leaves for the list, and so do `t` and `T`, because the key that
+put the pane on the screen is the one that takes it off again - and because
+handing those two on would open a second pane on the session already showing.
+Everything else, `q` and `K` and `r` included, is the browser's and does there
+exactly what it does there.
+
+Killing the session is `^]K` from the child's side, and full screen is `^]a`.
+Both were reachable from here and neither should have been: they are things done
+*to* the pane, and the pane is not what the keys are pointed at.
 """
 function handle!(v::PaneView, k::Int, ctrl)
-    reading = v.client !== nothing && v.focus === :read
-    if reading && (k == 9 || k == K_STAB)
-        # Back to the child, the same way `^]tab` came out of it.
-        v.focus = :child
-        v.status = ""
+    if v.client !== nothing && v.focus === :read
+        if k == 9 || k == K_STAB
+            v.focus = :child
+            v.status = ""
+        elseif k == 27 || k == Int('t') || k == Int('T')
+            mux_close(v.client)
+            return :pop
+        else
+            # `:pop` from the browser would take *this* view off the stack,
+            # which is not what a key aimed at the reading asked for, so only
+            # `:quit` is passed on.
+            return forward!(v, k, ctrl)
+        end
         return :ok
-    elseif k == Int('q') || k == 27 || (reading && k in (Int('t'), Int('T')))
+    end
+    # The child has gone and its bytes have nowhere to go, so this view answers
+    # for itself. `q` and escape leave the session running - there is nothing
+    # left running here - and `K` is the one that ends it, uppercase because it
+    # is the one that destroys something.
+    if k == Int('q') || k == 27
         v.client === nothing || mux_close(v.client)
         return :pop
     elseif k == Int('K')
@@ -397,12 +456,6 @@ function handle!(v::PaneView, k::Int, ctrl)
         pane_sync!(v)
     elseif k == Int('r')
         pane_sync!(v)
-    elseif reading
-        # Everything the four above did not claim is the thread's. `:pop` from
-        # there would take this view off the stack, which is not what a key
-        # aimed at the reading was asking for, so only `:quit` is passed on.
-        act = handle!(v.beside, k, ctrl)
-        act === :quit && return :quit
     end
     :ok
 end
