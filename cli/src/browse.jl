@@ -1235,7 +1235,7 @@ Separate from `load_nodes!` because it does not change with the mode: switching
 between the thread, the diff and the checks re-reads the body three times, but
 the reviewers and the labels are the same each time.
 """
-function load_meta!(st::BState)
+function load_meta!(st::BState; fresh::Bool = false)
     (isempty(st.items) || st.sel == 0) && return
     it = st.items[st.sel]
     (st.metakey == it.url || (st.metapending !== nothing && st.metakey == it.url)) && return
@@ -1247,7 +1247,11 @@ function load_meta!(st::BState)
             # Listing sessions is a process, so it rides along with the fetch
             # that is already off the key loop rather than happening per frame.
             (meta = Events.itemmeta(it.url, it.is_pr),
-             checks = it.is_pr ? check_contexts(it.repo, it.number) : nothing,
+             # `R` asks for the answer GitHub has now, so the checks are read
+             # past their own two-minute window: the whole reason to press it is
+             # that a build finished since the window opened.
+             checks = it.is_pr ?
+                 check_contexts(it.repo, it.number; ttl = fresh ? 0.0 : 120.0) : nothing,
              sessions = mux_list())
         catch e
             (meta = nothing, checks = nothing, sessions = String[],
@@ -1844,9 +1848,13 @@ function render_frame(st::BState, w::Int, h::Int)
                    "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
                    "q quit \u00b7 tab pane")
     nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
-    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
+    # `i import` is not in here, and is the only key that is not: its control is
+    # the row at the top of the list, permanently on screen and saying what it
+    # does. A second copy of it costs the row that the keys which have no such
+    # row are competing for.
+    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 R reload \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 v note \u00b7 x archive \u00b7 i import \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
+                   " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
     # naming it is deleted.
@@ -2511,6 +2519,33 @@ function refresh_nodes!(st::BState)
     true
 end
 
+"""Re-read everything about the item on screen, cache and all.
+
+The one key that says "what is on the page is out of date". Everything else
+here decides for itself when to re-read - the thread has a ten-minute window,
+the checks two minutes, the metadata is re-read when the selection moves - and
+each of those is a guess about how fast that thing changes. `R` is for when the
+guess is wrong: you pushed a moment ago, or commented from the web, and what is
+wanted is the answer GitHub has now.
+
+Only this item. The dashboard is `wl refresh`, which takes minutes and re-reads
+two thousand items to answer a question about one.
+
+The metadata is asked for by clearing the key that decides whether it needs
+asking for, and started here rather than left to the caller so that the
+`load_meta!` at the end of the key loop finds it already in flight.
+"""
+function refresh_item!(st::BState)
+    (isempty(st.items) || st.sel == 0) && return "nothing selected to re-read"
+    it = st.items[clamp(st.sel, 1, length(st.items))]
+    st.metakey = ""; st.metapending = nothing
+    load_meta!(st; fresh = true)
+    # Refuses while something is already in flight, which is not a failure -
+    # the answer being fetched is the fresh one either way.
+    refresh_nodes!(st) || return string("re-reading ", it.ref, "…")
+    string("re-reading ", it.ref, "…")
+end
+
 """Arm the debounce for an entry that went up stale.
 
 The timer is a task that sleeps and then wakes the frame, because the event loop
@@ -2977,6 +3012,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         st.status = seen ? "marked read" : "marked unread"
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
+    elseif k == Int('R')
+        # Its own return: `load_nodes!` below would find the key unchanged and
+        # do nothing, but `st.status` is what this key is for and the message
+        # should not be at the mercy of what runs after it.
+        st.status = refresh_item!(st)
+        return :ok
     end
     load_nodes!(st)
     load_meta!(st)

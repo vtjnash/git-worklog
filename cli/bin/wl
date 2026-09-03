@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # The work dashboard. No arguments opens the interactive navigator; anything
 # else is a command - `wl refresh`, `wl note <ref> "..."`, `wl next 10`, ...
+#
+# SIGHUP is ignored here and not inside julia, because an *ignored* disposition
+# is the one thing that survives `exec` - a handler installed in this shell
+# would be reset by it, and there is no point in the julia process early enough
+# to install one before the terminal can go away. Losing the terminal must not
+# kill a browser mid-write when it is holding tmux sessions and a half-typed
+# comment; the read side sees stdin end and unwinds through its own `finally`,
+# which is what hands raw mode and the alternate screen back.
+trap '' HUP
 exec julia --startup-file=no --project="$(dirname "$0")/.." \
      -e 'using Worklog; exit(Worklog.main(ARGS))' -- "$@"

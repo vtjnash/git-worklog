@@ -760,29 +760,26 @@ so they are not mistaken for bugs later:
 
 ## Where we were at just now before context reset:
 
-Done since this list was written: `t` (see "The `t` design, built" below), the
+The whole of that list is done: `t` (see "The `t` design, built" below), the
 `STATE[]` redirect the suite wanted, the reset row in the filter pane, the reset
 view at the head of `'`, a view clearing the sort it does not name, `san` →
-`tTv`, and collapsing the repo/label/author axes to what is applied. What is left of the list is below; "What I already know about the asks
-above" says which of them are answered rather than open.
+`tTv`, collapsing the repo/label/author axes to what is applied, `R` to re-read
+the item on screen, `^]tab` as a focus toggle with escape/`t`/`T` restoring the
+list, and the SIGHUP/EOF pair. "What I already know about the asks above" says
+what each one turned into and why.
 
-Next asks: Collapse author/label/repo in filter to only show the ones that are
-currently active, but always show author:me and author:not-me. Sort those
-filter lists alphabetically too. Add a key to refresh the current item --
-either R (browser) or u (gmail). Change how ^]tab works -- use to toggle
-between left/right panes, so I can operate in terminal or agent while also
-navigating in the github comments. Bind escape to restore the list view (also
-perhaps t/T toggles that state too)? What is 'ready to merge' -- it doesn't
-seem to select any filters. Can you add an option at the top of filters to
-clear all / reset? Always show me/not me in authors. Does views include sort
-(it should)? The first view option should also always be reset / default.
-The 'san' key should be 'tTv' to correspond to the shortcuts there. Can we
-ignore SIGHUP in cli before starting julia, then exit gracefully when stdin
-disappears (aka gets EOF / EPIPE / EIO)?
+One thing from it is *not* done, because it is probably not this program's:
 
-I think nested tmux has some issues with handling mouse. Maybe a tmux issue,
-but mouse-in-nvim-in-tmux-in-wl-tmux, but doesn't work in tmux pane itself
-(notably for activating scrolling, since ^b^b[ doesn't seem to reach there either).
+**Nested tmux and the mouse.** "mouse-in-nvim-in-tmux-in-wl-tmux works, but the
+tmux pane itself does not — notably for activating scrolling, since `^b^b[`
+does not seem to reach there either." Not investigated, but the shape of it is
+visible from here: `retarget_mouse` rewrites a report into the child's
+coordinates and *drops* it unless the child asked for mouse reporting through
+`mouse_any_flag` — which an inner tmux does not set on its own behalf, only on
+behalf of whatever is running inside it. So the inner tmux's own scrollback
+never sees a wheel event, while nvim inside it does. The prefix half is a
+different question and nothing to do with this file: `^b` is forwarded as a byte
+like every other, so where `^b^b[` ends up is the outer tmux's business.
 
 ### The `t` design, built
 
@@ -869,11 +866,32 @@ not have to make them again:
 - **"The 'san' key should be 'tTv'."** Done - the marks themselves as well as
   the header and the legend, so the column is its own key: `session_marks`,
   `list_header` and `list_legend` in `paneview.jl`.
-- **`^]tab` and escape.** `pane_command!` in `paneview.jl` is the whole prefix
-  vocabulary; `^]tab` currently pops the pane and leaves it running.
-- **SIGHUP / stdin EOF.** `cli/bin/wl` is a shell wrapper around `julia`, so the
-  trap belongs there; the graceful side is `run!` in `controller.jl`, whose
-  reader task is what would see the EOF.
+- **`^]tab` and escape.** Done. `PaneView` gained a `focus` of `:child` or
+  `:read`, and `wantsraw` is what it means: on the reading side the keys arrive
+  decoded and everything this view does not name is handed to the thread beside
+  it, so `j` walks the comments while the agent works. `^]tab` goes in, `tab`
+  comes back out, and `esc`/`t`/`T` leave for the list with the session still
+  running — `^]q` is the way out from the child's side. Below `SPLIT_MIN` there
+  is no second column, so there `^]tab` keeps its old meaning: a focus nobody
+  can see is worse than no focus at all.
+- **A key to re-read the current item.** Done, as `R`; `u` was already taken by
+  "mark unread". `refresh_item!` drops the thread cache and the checks'
+  two-minute window and re-asks for the metadata, quietly — the nodes, the
+  cursor and the fold state all stay, because a refresh the reader has to notice
+  is being thrown back to the top of a thread they were in the middle of. Not
+  the dashboard; that is still `wl refresh`.
+  It cost `i import` its place in the footer, which was already truncating at
+  150 columns. That is the one key whose control is on screen anyway: the import
+  row leads the list and says what it does.
+- **SIGHUP / stdin EOF.** Done, and it is two halves. `trap '' HUP` in
+  `cli/bin/wl` before the `exec` — an *ignored* disposition is the one thing
+  that survives `exec`, which is exactly why it cannot be done from inside julia
+  (verified: `SigIgn` in the julia process's `/proc/self/status` has bit 1 set).
+  Then `EndEvent` in `controller.jl`: the reader task used to `break` on EOF and
+  leave the main loop parked on its channel forever, so it now posts one on its
+  way out and the loop leaves through its own `finally`. That `finally` is
+  guarded too — the usual way to reach it is the terminal having gone away, and
+  every write in it is then to a closed descriptor.
 
 ### `STATE[]` is redirected for the suite — done
 

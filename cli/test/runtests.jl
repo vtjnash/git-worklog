@@ -813,10 +813,16 @@ end
     for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
               "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "L labels",
-              "r read/unread", "s snooze", "z undo", "v note", "i import", "e edit",
+              "r read/unread", "R reload", "s snooze", "z undo", "v note", "e edit",
               "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
     end
+    # Except `i`, which is the one key whose control is on screen already: the
+    # import row leads the list, permanently, and says what it does. A second
+    # copy of it in the footer costs the room a key with no such row needs -
+    # which is what it cost when `R` arrived and the row was cut at 150 columns.
+    @test !occursin("i import", line)
+    @test occursin("import an item by url", W.astrip(W.render(st, 200, 40)))
     # The navigation runs at the end, so a narrow screen keeps what is worth
     # reading rather than cutting it first.
     @test findfirst("d diff", line)[1] < findfirst("j/k line", line)[1]
@@ -2107,6 +2113,106 @@ end
     end
 end
 
+@testset "^]tab moves between the child and what is beside it" begin
+    # An agent worth watching is one you want to read the pull request against
+    # while it works, and every key belonged to the child - so watching it meant
+    # not reading, and reading meant leaving. `^]tab` used to be the leaving.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the pane focus test"
+    else
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        n = "wl-test-focus-1"
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sleep 120")
+        v = W.pane_view(n, "demo", ctrl)
+        @test v !== nothing && v.beside === st
+        push!(ctrl.stack, v)
+        withenv("LINES" => "40", "COLUMNS" => "170") do
+            W.pane_sync!(v)
+            # The child has the keyboard, and that is what `wantsraw` says.
+            @test v.focus === :child
+            @test W.wantsraw(v) === true
+
+            # `^]tab` hands the keys to the thread instead of leaving.
+            @test W.onraw!(v, [W.PANE_PREFIX, UInt8('\t')], ctrl) === :ok
+            @test v.focus === :read
+            @test W.wantsraw(v) === false          # decoded keys now, not bytes
+            @test W.mux_alive(n) === true          # and the child is still there
+            @test st.focus === :detail             # aimed at the thread, not the list
+            ls = split(W.render(v, 170, 40), "\n")
+            @test length(ls) == 40 && all(W.awidth(l) == 170 for l in ls)
+
+            # Keys this view does not name are the thread's: `j` walks the
+            # comments rather than reaching a shell that would beep at it.
+            was = st.nrow
+            W.handle!(v, Int('j'), ctrl)
+            @test st.nrow >= was
+            W.handle!(v, Int('o'), ctrl)           # and the mode keys work too
+            @test st.mode === :comments
+
+            # `tab` goes back to the child, the way `^]tab` came out of it.
+            @test W.handle!(v, 9, ctrl) === :ok
+            @test v.focus === :child && W.wantsraw(v) === true
+
+            # Escape restores the list view - from the reading side only, since
+            # on the child's side escape is the child's.
+            W.onraw!(v, [W.PANE_PREFIX, UInt8('\t')], ctrl)
+            @test W.handle!(v, 27, ctrl) === :pop
+            @test W.mux_alive(n) === true
+
+            # And so do `t` and `T`: the key that put the pane on the screen is
+            # the one that takes it off again.
+            for k in (Int('t'), Int('T'))
+                v2 = W.pane_view(n, "demo", ctrl)
+                W.onraw!(v2, [W.PANE_PREFIX, UInt8('\t')], ctrl)
+                @test v2.focus === :read
+                @test W.handle!(v2, k, ctrl) === :pop
+                @test W.mux_alive(n) === true
+            end
+
+            # `^]q` is the one that leaves from the child's side.
+            v3 = W.pane_view(n, "demo", ctrl)
+            @test W.onraw!(v3, [W.PANE_PREFIX, UInt8('q')], ctrl) === :pop
+            @test W.mux_alive(n) === true
+        end
+        # With no room for two columns there is nothing to move to, so the key
+        # keeps the meaning it always had.
+        withenv("LINES" => "24", "COLUMNS" => "80") do
+            v4 = W.pane_view(n, "demo", ctrl)
+            @test W.readable(v4) === false
+            @test W.onraw!(v4, [W.PANE_PREFIX, UInt8('\t')], ctrl) === :pop
+        end
+        W.mux_kill(n)
+        pop!(ctrl.stack)
+    end
+end
+
+@testset "R re-reads the item on screen" begin
+    # Everything else here decides for itself when to re-read, and each of those
+    # windows is a guess about how fast the thing changes. `R` is for when the
+    # guess is wrong - you pushed a moment ago, and what is wanted is the answer
+    # GitHub has now.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    it = st.items[st.sel]
+    # The metadata is asked for again by clearing the key that decides whether
+    # it needs asking for, and this starts it rather than leaving it to the
+    # `load_meta!` at the end of the key loop.
+    W.load_meta!(st)
+    @test st.metakey == it.url
+    msg = W.refresh_item!(st)
+    @test occursin("re-reading", msg) && occursin(it.ref, msg)
+    @test st.metakey == it.url && st.metapending !== nothing
+    # It is in the footer, because a key nobody can find is a key nobody uses.
+    @test occursin("R reload", W.astrip(W.render(st, 150, 40)))
+    # Nothing selected is not a failure, it is nothing to do.
+    st.sel = 0
+    @test occursin("nothing selected", W.refresh_item!(st))
+end
+
 @testset "raw input pass-through" begin
     # `readraw` is a pure function of a byte stream, like `readevent`.
     @test W.readraw(IOBuffer("j")).bytes == UInt8['j']
@@ -3310,7 +3416,8 @@ end
 
 @testset "the child's cursor" begin
     mk(cur; beside = nothing) =
-        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false, nothing)
+        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false,
+                   nothing, :child)
 
     # The terminal's own cursor is moved to the child's, rather than a block
     # being painted where it should be: a real one blinks, takes the shape the

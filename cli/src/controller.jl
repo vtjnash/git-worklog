@@ -52,6 +52,16 @@ struct KeyEvent
 end
 struct WakeEvent end
 
+"""Input has ended: the terminal went away and nothing more will ever arrive.
+
+Its own event and not an exception, because the loop is parked on a channel and
+an exception in the reader task would leave it parked there forever - which is
+what a closed terminal used to do. The process is being wound up either way; the
+difference is whether the alternate screen, the mouse mode and raw mode are
+handed back on the way out.
+"""
+struct EndEvent end
+
 """Input that was never decoded, for a view that asked to forward it."""
 struct RawEvent
     bytes::Vector{UInt8}
@@ -461,13 +471,24 @@ function run!(ctrl::Controller, root::View)
     # The reader reads one event per token and then waits for the next, rather
     # than looping on `read`. That is what lets `suspend` hand stdin to a child:
     # between events this task is parked on `ready`, not on the tty.
-    ctrl.reader = @async while ctrl.running
-        try
-            raw = take!(ctrl.ready)
-            ctrl.running || break
-            put!(ctrl.events, raw ? readraw(stdin) : readevent(stdin))
+    ctrl.reader = @async begin
+        while ctrl.running
+            try
+                raw = take!(ctrl.ready)
+                ctrl.running || break
+                put!(ctrl.events, raw ? readraw(stdin) : readevent(stdin))
+            catch
+                break
+            end
+        end
+        # Whatever ended the reading - EOF because the terminal closed, EIO
+        # because the pty is gone, a `ready` closed at shutdown - the loop is
+        # blocked on its channel and nothing else is coming. Say so. Only when
+        # the controller still thinks it is running: at shutdown the loop has
+        # already left and there is nobody to tell.
+        ctrl.running && try
+            put!(ctrl.events, EndEvent())
         catch
-            break
         end
     end
     try
@@ -497,7 +518,11 @@ function run!(ctrl::Controller, root::View)
             # deciding it against whatever was on top last time.
             armed || (put!(ctrl.ready, wantsraw(v)); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
-            if ev isa WakeEvent
+            if ev isa EndEvent
+                # Nothing to ask and nobody to ask: leave through the `finally`
+                # below, which is what hands the terminal back.
+                break
+            elseif ev isa WakeEvent
                 dirty = try
                     onwake!(v)
                 catch e
@@ -522,9 +547,17 @@ function run!(ctrl::Controller, root::View)
     finally
         ctrl.running = false
         isopen(ctrl.ready) && close(ctrl.ready)    # release the parked reader
-        ctrl.mouse && mouse!(ctrl, false)
-        REPL.Terminals.raw!(ctrl.term, false)
-        print("\e[?25h\e[?1049l")
+        # Guarded, because the commonest way to get here is the terminal having
+        # gone away - and then every one of these writes to a descriptor that is
+        # closed. An exception thrown from a `finally` replaces whatever brought
+        # us here with a stack trace about giving back a terminal that no longer
+        # exists.
+        try
+            ctrl.mouse && mouse!(ctrl, false)
+            REPL.Terminals.raw!(ctrl.term, false)
+            print("\e[?25h\e[?1049l")
+        catch
+        end
     end
     0
 end

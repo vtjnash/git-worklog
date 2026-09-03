@@ -32,6 +32,8 @@ mutable struct PaneView <: View
     cursor::Tuple{Int,Int,Bool}    # the child's cursor: x, y (0-based), showing
     wantsmouse::Bool               # the child asked for mouse reporting
     onend::Any                     # () -> Any, once, when the child exits
+    focus::Symbol                  # :child forwards every byte to it; :read
+                                   # gives the keys to the thread drawn beside
 end
 
 """The child's usable size inside a frame of `w` by `h`.
@@ -85,7 +87,7 @@ function pane_view(name::AbstractString, title::AbstractString, ctrl;
     c = mux_open(name; onoutput = _ -> wake!(ctrl))
     c === nothing && return nothing
     PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
-             (0, 0, false), false, onend)
+             (0, 0, false), false, onend, :child)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -164,13 +166,15 @@ end
 
 """The child's column: exactly `h` rows of exactly `w`."""
 function pane_column(v::PaneView, w::Int, h::Int)
-    body = pane(v.frame, w, h - 1, v.title, true)
+    body = pane(v.frame, w, h - 1, v.title, v.focus === :child)
     note = if !isempty(v.status)
         v.status
     elseif v.client === nothing
         string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
+    elseif v.focus === :read
+        string(v.name, " \u00b7 reading \u00b7 tab back to it \u00b7 esc/t the list \u00b7 K kill")
     else
-        string(v.name, " \u00b7 ^]tab leaves it running \u00b7 ^]a full screen")
+        string(v.name, " \u00b7 ^]tab read beside it \u00b7 ^]q leave it running \u00b7 ^]a full screen")
     end
     rows = vcat(body, [string("\e[2m", afit(note, w), "\e[0m")])
     while length(rows) < h
@@ -190,8 +194,10 @@ function render(v::PaneView, w::Int, h::Int)
     # holds the keys the browser cannot be scrolled or moved, so a list beside
     # it is a list nothing can be done with - and it would cost the thread
     # three quarters of its rows to sit there.
-    it = isempty(v.beside.items) ? nothing : v.beside.items[v.beside.sel]
-    left = detail_pane(v.beside, it, lw, h, false)
+    # `sel` is zero on the import row, which is not an item and has no thread.
+    it = (isempty(v.beside.items) || v.beside.sel == 0) ? nothing :
+         v.beside.items[clamp(v.beside.sel, 1, length(v.beside.items))]
+    left = detail_pane(v.beside, it, lw, h, v.focus === :read)
     join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
 
@@ -206,19 +212,43 @@ lone escape key leaves no way to reach anything else the view can do - killing
 the session, going full screen - which were reachable only after the child had
 already died. One prefix gives all of them back.
 
-`^]tab` leaves the pane, since `tab` is already what moves between panes in the
-browser. `Tab` itself is not the prefix: it is the most-pressed key in a shell,
-and completion would cost two presses for the rest of time.
+`^]tab` moves between the child and the thread drawn beside it, since `tab` is
+already what moves between panes in the browser - and moving is the point: an
+agent worth watching is one you want to read the pull request against while it
+works. `^]q` is the one that leaves. `Tab` itself is not the prefix: it is the
+most-pressed key in a shell, and completion would cost two presses for the rest
+of time.
 
 Written without a space - `^]a`, not `^] a` - because in a line of prose that
 names several of them, a lone `a` reads as the word.
 """
 const PANE_PREFIX = 0x1d
 
+"""Is there a thread beside the child to give the keys to?
+
+Two conditions and both are about the screen: something to read, and a column
+wide enough that it was drawn. Below `SPLIT_MIN` the child has the whole
+screen, and a focus nobody can see is worse than no focus at all - so there
+`^]tab` keeps the meaning it always had.
+"""
+function readable(v::PaneView)
+    v.beside === nothing && return false
+    _, w = displaysize(stdout)
+    first(split_box(w)) > 0
+end
+
 """One key after the prefix. Returns `:pop`, `:literal` to send the prefix
 through to the child, or `:ok`."""
 function pane_command!(v::PaneView, b::UInt8, ctrl)
-    if b == UInt8('\t') || b == UInt8('q')
+    if b == UInt8('\t') && readable(v)
+        # The keys go to the thread; the child keeps running and keeps being
+        # drawn. Aimed at the detail rather than at the item list, because the
+        # list is not what is on screen here.
+        v.focus = :read
+        v.beside.focus = :detail
+        v.status = ""
+        :ok
+    elseif b == UInt8('\t') || b == UInt8('q')
         mux_close(v.client)
         :pop
     elseif b == UInt8('K')
@@ -235,12 +265,20 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
     elseif b == PANE_PREFIX || b == UInt8(']')
         :literal
     else
-        v.status = "^]tab leave \u00b7 ^]K kill \u00b7 ^]a full screen \u00b7 ^]r reread \u00b7 ^]] literal"
+        v.status = string(readable(v) ? "^]tab read beside it" : "^]tab leave",
+                          " \u00b7 ^]q leave \u00b7 ^]K kill \u00b7 ^]a full screen",
+                          " \u00b7 ^]r reread \u00b7 ^]] literal")
         :ok
     end
 end
 
-wantsraw(v::PaneView) = v.client !== nothing
+"""The child takes bytes only while it has the focus.
+
+On the reading side the keys are the browser's, and they arrive decoded like any
+other view's - which is what lets `j` scroll a thread rather than reaching a
+shell that would beep at it.
+"""
+wantsraw(v::PaneView) = v.client !== nothing && v.focus === :child
 
 """Rewrite the mouse reports in `bytes` for the child, or drop them.
 
@@ -328,13 +366,26 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     :ok
 end
 
-"""Keys, for when the child has gone and its bytes have nowhere to go.
+"""Keys, for the reading side and for when the child has gone.
 
-`q` leaves the session running and `K` is the one that ends it, uppercase
-because it is the one that destroys something.
+Two cases in one function because they want the same four keys. What differs is
+where everything *else* goes: while the child is alive and the focus is on the
+thread beside it, the rest are the browser's - which is the whole point of the
+focus, and why they are handed on rather than named here. A key this view
+started naming would be a key the thread quietly lost.
+
+`q` and escape leave the session running; `K` is the one that ends it,
+uppercase because it is the one that destroys something. `t` and `T` leave too:
+the key that put the pane on the screen is the one that takes it off again.
 """
 function handle!(v::PaneView, k::Int, ctrl)
-    if k == Int('q') || k == 27
+    reading = v.client !== nothing && v.focus === :read
+    if reading && (k == 9 || k == K_STAB)
+        # Back to the child, the same way `^]tab` came out of it.
+        v.focus = :child
+        v.status = ""
+        return :ok
+    elseif k == Int('q') || k == 27 || (reading && k in (Int('t'), Int('T')))
         v.client === nothing || mux_close(v.client)
         return :pop
     elseif k == Int('K')
@@ -346,6 +397,12 @@ function handle!(v::PaneView, k::Int, ctrl)
         pane_sync!(v)
     elseif k == Int('r')
         pane_sync!(v)
+    elseif reading
+        # Everything the four above did not claim is the thread's. `:pop` from
+        # there would take this view off the stack, which is not what a key
+        # aimed at the reading was asking for, so only `:quit` is passed on.
+        act = handle!(v.beside, k, ctrl)
+        act === :quit && return :quit
     end
     :ok
 end
