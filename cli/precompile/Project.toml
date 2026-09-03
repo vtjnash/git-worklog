@@ -1,0 +1,12 @@
+name = "WorklogPrecompile"
+uuid = "86e45d7f-a73d-4491-8db5-cce8b18d7b41"
+version = "0.1.0"
+authors = ["Jameson Nash <vtjnash@gmail.com>"]
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+Worklog = "b1a7f0de-4c2e-4f8a-9c31-7d5e6a2b9c04"
+
+[sources]
+Worklog = { path = ".." }

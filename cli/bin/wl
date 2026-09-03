@@ -10,5 +10,9 @@
 # comment; the read side sees stdin end and unwinds through its own `finally`,
 # which is what hands raw mode and the alternate screen back.
 trap '' HUP
-exec julia --startup-file=no --project="$(dirname "$0")/.." \
-     -e 'using Worklog; exit(Worklog.main(ARGS))' -- "$@"
+# `precompile/` and not `..`: it is `Worklog` with the browser's own work
+# already compiled into a package image, which is worth about two and a half
+# seconds on the first frame that draws a comment. The suite runs against the
+# `Worklog` package directly, so nothing about that workload is in its way.
+exec julia --startup-file=no --project="$(dirname "$0")/../precompile" \
+     -e 'using WorklogPrecompile; exit(Worklog.main(ARGS))' -- "$@"
