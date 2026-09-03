@@ -562,22 +562,30 @@ end
 
 @testset "an axis you can search, and whose it is" begin
     # The pane used to try to show what was available: ~140 repos, hundreds of
-    # labels, and authors would have been worse than either. Now it shows what
-    # is applied plus the head of what is not, and the rest is a picker.
+    # labels, and authors would have been worse than either. Showing the first
+    # eight was a compromise that served neither purpose. Now the long axes are
+    # a readout of what is *on*, and the picker row below is where choosing
+    # happens - so the pane is as long as the answer, not as the question.
     st = mkstate()
     ctrl = W.Controller(); ctrl.running = true
     rows = W.filter_rows(st)
     axis_rows(a) = [r for r in rows if r[1] === a]
-    @test length(axis_rows(:repo)) <= W.AXIS_SHOWN
-    @test length(axis_rows(:label)) <= W.AXIS_SHOWN
-    # Two more on the author axis: its two controls are always listed and do
-    # not spend its share of the pane.
-    @test length(axis_rows(:author)) <= W.AXIS_SHOWN + 2
-    # Category is exempt: a dozen values, each a different kind of work. It
-    # still drops the ones that would select nothing, as every axis does.
+    @test isempty(axis_rows(:repo)) && isempty(axis_rows(:label))
+    # Except the author axis's two controls, which are controls rather than
+    # values and are always there.
+    @test length(axis_rows(:author)) == 2
+    # What is applied is listed, on every axis, and that is the whole of it.
+    st.filters.repos = Set([first(st.repos)])
+    st.filters.labels = Set([first(st.labels)]); W.refilter!(st)
+    r2 = W.filter_rows(st)
+    @test [r[2] for r in r2 if r[1] === :repo] == [first(st.repos)]
+    @test [r[2] for r in r2 if r[1] === :label] == [first(st.labels)]
+    st.filters = W.Filters(); W.refilter!(st)
+    # Category is exempt: a dozen values, each a different kind of work, short
+    # enough to read whole. It still drops the ones that would select nothing.
     (_, _, nb, _, _, _) = W.axis_counts(st)
     @test length(axis_rows(:bucket)) == count(b -> get(nb, b, 0) > 0, st.buckets)
-    @test length(axis_rows(:bucket)) > W.AXIS_SHOWN          # and so, uncapped
+    @test length(axis_rows(:bucket)) > 8                     # and so, uncapped
     @test isempty([r for r in rows if r[1] === :pick && r[2] == "bucket"])
     # A row per long axis that opens the rest, and it says how many there are.
     picks = [r[2] for r in rows if r[1] === :pick]
@@ -603,11 +611,8 @@ end
                  if all(x.author != W.login() for x in quiet.all if x.repo == r))
     quiet.filters.repos = Set([away]); W.refilter!(quiet)
     arows = [r for r in W.filter_rows(quiet) if r[1] === :author]
-    @test length(arows) >= 2
+    @test length(arows) == 2
     @test occursin("me (", arows[1][3]) && occursin("anyone else", arows[2][3])
-    # Nor do they spend the axis's share of the pane, which would be paying for
-    # two rows that are always there twice.
-    @test count(r -> r[1] === :author, W.filter_rows(st)) == W.AXIS_SHOWN + 2
 
     # `↵` on the picker row opens a ChooseView over every value the axis has,
     # minus what is already applied, and typing narrows it by `occursin`.

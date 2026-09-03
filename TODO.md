@@ -572,12 +572,6 @@ Kept here so they can be written up in one pass rather than rediscovered.
   landed as a merge rather than a squash or a rebase.
 - **`repos.toml` is never pruned.** Entries pointing at deleted folders are
   ignored at read time but never removed or re-prompted.
-- **A long filter axis shows a fixed eight values, whatever the pane height.**
-  `AXIS_SHOWN` is a constant, so a tall terminal wastes the room and a short one
-  still scrolls. It also orders by weight across the whole dashboard rather than
-  within the current filter — deliberately, so the pane does not reshuffle under
-  the cursor as the filter changes, but it means the head of the repo axis is
-  the same eight whatever else is selected.
 - **The metadata pane is a readout, not a control.** Clicking in it does
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
@@ -757,8 +751,8 @@ so they are not mistaken for bugs later:
 
 Done since this list was written: `t` (see "The `t` design, built" below), the
 `STATE[]` redirect the suite wanted, the reset row in the filter pane, the reset
-view at the head of `'`, a view clearing the sort it does not name, and `san` →
-`tTv`. What is left of the list is below; "What I already know about the asks
+view at the head of `'`, a view clearing the sort it does not name, `san` →
+`tTv`, and collapsing the repo/label/author axes to what is applied. What is left of the list is below; "What I already know about the asks
 above" says which of them are answered rather than open.
 
 Next asks: Collapse author/label/repo in filter to only show the ones that are
@@ -843,11 +837,13 @@ not have to make them again:
   which value would select most - so the head of the list was in an order that
   could be neither predicted nor looked up. The stability that ordering was for
   survives, since alphabetical does not reshuffle under the cursor either.
-- **"Collapse author/label/repo to only the ones currently active."** Not done.
-  The rest of the ask: today an axis lists what is applied plus the first
-  `AXIS_SHOWN` (8) of what is not, with anything a filter would select nothing
-  from skipped already. Showing *only* what is applied is a smaller list again,
-  and the picker row is what makes it reachable.
+- **"Collapse author/label/repo to only the ones currently active."** Done.
+  `AXIS_APPLIED_ONLY` is the three axes that now list only what is applied, plus
+  the author axis's two controls; the picker row below each is where every other
+  value lives, and it narrows by typing, which is the only thing that scales to
+  several hundred labels. Category keeps its whole list — thirteen values, each
+  a different kind of work. This also closed the "fixed eight values" gap, which
+  was a compromise that served neither purpose.
 - **"An option at the top of filters to clear all / reset."** Done, both halves.
   `filter_rows` leads with a `:reset` row that makes the jump `c` makes and
   remembers it for `` ` ``, and it names the key once there is something to

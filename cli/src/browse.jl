@@ -260,18 +260,23 @@ end
 apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED) =
     [it for it in all if matches(f, it, unread, touched, archived)]
 
-"""How many values of one axis the pane lists before it stops.
+"""Which axes list only what is applied, and reach the rest through the picker.
 
 The pane used to try to show what was *available*, and there is too much of it:
-~140 repos, several hundred labels, more authors than either. A list you scroll
-past is not a control. So a long axis shows what is applied, plus the first few
-of what is not, plus a row that opens the rest as a picker - and the pane goes
-back to being short enough to read.
+~140 repos, several hundred labels, more authors than either. Showing the first
+eight of them was a compromise that served neither purpose - too many rows to
+skim and too few to choose from, in an order nobody could predict.
 
-Category is exempt: thirteen values that are each a different kind of work, and
-the one nobody would think to search for by name.
+So these axes are a readout of what is *on*, and the picker row underneath is
+where choosing happens. It has every value and it narrows by typing, which is
+the only thing that scales to several hundred; and the pane collapses to the
+length of the answer rather than the length of the question.
+
+Category is exempt, and is the whole axis: thirteen values that are each a
+different kind of work, short enough to read at a glance and the one nobody
+would think to search for by name.
 """
-const AXIS_SHOWN = 8
+const AXIS_APPLIED_ONLY = (:repo, :label, :author)
 
 "The set an axis filters on, which is where a picked value lands."
 axis_set(f::Filters, axis::Symbol) =
@@ -410,7 +415,6 @@ function filter_rows(st)
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
         sel = axis_set(f, axis)
-        shown = 0
         for v in values
             n = get(tally, v, 0)
             on = v in sel
@@ -424,19 +428,12 @@ function filter_rows(st)
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
             n == 0 && !on && !always && continue
-            # What is applied is always listed; what is merely available is
-            # listed until the axis has had its share of the pane. `values` is
-            # alphabetical, so where a name would be is where it is, and what
-            # falls off the end is the tail of the alphabet rather than a
-            # judgement about importance that the reader was never told about.
-            # The picker below has all of them either way.
-            # Neither do they spend the axis's share of the pane: they are two
-            # rows that are always there, and taking two of the eight from the
-            # authors worth listing would be paying for them twice.
-            if !on && !always
-                axis !== :bucket && shown >= AXIS_SHOWN && continue
-                shown += 1
-            end
+            # What is applied is listed, and on the long axes that is all that
+            # is: the picker row below has every value and narrows by typing,
+            # which is the only thing that scales to several hundred labels.
+            # The pane is then as long as the answer rather than as long as the
+            # question.
+            (!on && !always && axis in AXIS_APPLIED_ONLY) && continue
             push!(rows, (axis, v, string(on ? "[x] " : "[ ] ",
                                          rpad(first(axis_label(axis, v), 22), 24), n)))
         end
