@@ -237,6 +237,15 @@ Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
 ### Invariants that were each found by debugging a real failure
 Do not "simplify" any of these away.
 
+**A background fetch has to be findable, not just started.** `@async` with the
+task dropped into a field is not enough: the next load overwrites the field, and
+what was started is then unreachable — it cannot be joined, waited for, or asked
+whether it failed. Everything that runs in the background goes through
+`fetching`, which keys it by what it is fetching. The three things that broke
+without it were duplicate `gh` processes while scrolling, silent failures in
+abandoned tasks, and package precompilation hanging on IO nothing held a handle
+on.
+
 **A hyperlink is not somewhere to write another one.** `linkify` runs last, on
 the finished frame, and used to `replace` over the whole of it. Every comment
 header is already an OSC 8 hyperlink to its own permalink, and a url written in
@@ -866,6 +875,18 @@ what the program now believes about itself.
 - **A pane has scrollback.** The wheel reports a child never asked for used to
   be dropped; they now move this view's own window over the pane's history.
 - **`wl` starts through `cli/precompile`.** See below.
+- **One fetch in the air per thing being fetched.** `INFLIGHT` is a locked map
+  from what is being fetched to the task fetching it, and `fetching(f, key)`
+  joins a run already under way instead of starting a second. A view can only
+  hold one `pending`, so holding `j` down the list used to start a
+  `gh api graphql` per row and abandon all but the last — a process each, a rate
+  limit spent on answers nobody reads, and the winner decided by whichever
+  finished last. An abandoned task's value is never fetched either, so anything
+  that escaped its own error handling escaped silently; those are logged now.
+  And `drain_fetches!` is how anything can ask "is something still running",
+  which is what the precompile workload needed and what nothing could answer.
+  Timers are deliberately not in the map: `arm_refresh!` starts a task that
+  *sleeps*, and a drain that waited on one would hang for the debounce.
 
 ### The precompile wrapper
 
@@ -873,10 +894,10 @@ what the program now believes about itself.
 `@compile_workload` of the browser's own path. `bin/wl` loads it; the test suite
 loads `Worklog` directly and never sees it.
 
-Measured on the path that draws a comment thread: **4.33s → 1.83s**, so about
-two and a half seconds off every launch. Nearly all of it is the markdown
-renderer — a comment body goes to Term, and nothing had ever run that before the
-user did.
+Measured on the path that draws a comment thread, interleaved against the same
+path with no wrapper: **4.33s → 1.36s**, so about three seconds off every
+launch. Nearly all of it is the markdown renderer — a comment body goes to Term,
+and nothing had ever run that before the user did.
 
 Three decisions worth not re-litigating:
 
@@ -914,16 +935,27 @@ diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
 
 which should print exactly one line, for `WorklogPrecompile` itself.
 
-**Open decision: whether to drop `PrecompileTools` anyway.** Measured on the
-comment-thread path: 4.33s with no wrapper, 1.99s with the workload run as a
-bare `let` block, 1.37s with `@compile_workload`. So the macro is worth another
-0.6s on every launch, because plain execution does not get everything cached
-against the downstream image. Base has no equivalent — `Base.Experimental` has
-only `@force_compile` and `@compiler_options` — so removing it means either
-losing that 0.6s or hand-rolling the `jl_set_newly_inferred` bookkeeping, which
-is exactly the version-fragile thing to avoid on 1.12/1.13. And it cannot be
-removed from the *tree* while `Term` is the markdown renderer. Kept for now on
-those grounds; the bare-`let` version is a three-line edit if that changes.
+**Open decision: whether to drop `PrecompileTools` anyway.** Measured in one
+batch on the comment-thread path: 1.37s with `@compile_workload`, 1.99s with the
+same workload run as a bare `let` block. So the macro is worth about 0.6s on
+every launch, because plain execution does not get everything cached against the
+downstream image. Base has no equivalent — `Base.Experimental` has only
+`@force_compile` and `@compiler_options` — so removing it means either losing
+that 0.6s or hand-rolling the `jl_set_newly_inferred` bookkeeping, which is
+exactly the version-fragile thing the 1.12/1.13 concern is about. And it cannot
+be removed from the *tree* while `Term` is the markdown renderer. Kept on those
+grounds; the bare-`let` version is a three-line edit if that changes.
+
+**It must not leave a process running.** A package that does stops precompilation
+dead with "waiting for IO to finish", and this one did: `load_nodes!` and
+`load_meta!` start a fetch the moment the selection moves to an item they have
+not loaded, so a single `j` in the workload left two `gh` processes and two
+pipes with nothing holding a handle. Pinning `st.loaded` was not the fix — the
+pin moves with the selection. `hermetic` takes the *binaries* away instead: an
+empty `PATH` makes `run` throw before it forks, and `WORKLOG_TMUX` at a path
+that does not exist makes `mux_bin` answer `nothing`. That is a property of the
+environment rather than of which keys the workload presses, which is what makes
+it survive somebody adding one. `drain_fetches!` at the end is the second half.
 
 ### Nested tmux and the mouse: measured, and not this program's
 

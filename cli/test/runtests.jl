@@ -2405,6 +2405,56 @@ end
     end
 end
 
+@testset "one fetch in the air per thing being fetched" begin
+    # A view holds one `pending`, and the next load overwrites it - so holding
+    # `j` down the list started a `gh api graphql` per row and abandoned all but
+    # the last: a process each, a rate limit spent on answers nobody reads, and
+    # the winner decided by whichever finished last. It is also what stopped
+    # package precompilation dead, because nothing held a handle on any of them.
+    # Drained first, because the map is the whole process's: testsets above
+    # have driven `load_nodes!` and left their fetches in the air, and that is
+    # the state this is about.
+    W.drain_fetches!()
+    @test isempty(W.INFLIGHT)
+
+    started = Ref(0)
+    slow(key) = W.fetching(key) do
+        started[] += 1
+        sleep(0.3)
+        key
+    end
+
+    # Asking five times for something already in the air joins it.
+    ts = [slow("a") for _ in 1:5]
+    @test all(t -> t === ts[1], ts)
+    @test length(W.INFLIGHT) == 1
+    W.drain_fetches!()
+    @test isempty(W.INFLIGHT)          # the task takes itself out when it ends
+    @test istaskdone(ts[1]) && fetch(ts[1]) == "a"
+    @test started[] == 1
+
+    # A different key is a different fetch, and once one is done, asking again
+    # starts a new one rather than handing back the finished task.
+    slow("b"); W.drain_fetches!()
+    t3 = slow("a"); W.drain_fetches!()
+    @test started[] == 3 && t3 !== ts[1]
+
+    # A failure is logged rather than swallowed - an abandoned task's value is
+    # never fetched, so this is the last place it could be noticed at all - and
+    # it does not wedge the map.
+    isfile(W.errlog()) && rm(W.errlog())
+    bad = W.fetching("boom") do; error("nope"); end
+    try; wait(bad); catch; end
+    W.drain_fetches!()
+    @test isempty(W.INFLIGHT)
+    @test isfile(W.errlog()) && occursin("nope", read(W.errlog(), String))
+    rm(W.errlog())
+
+    # Draining nothing is not an error, and is what the precompile workload
+    # calls when the keys it pressed happened to start nothing.
+    @test W.drain_fetches!() === nothing
+end
+
 @testset "a place replaces a place; a dialog stacks on one" begin
     # `t` from `"` used to leave four views between the shell and the dashboard,
     # so getting back out was ^]tab, esc, esc, ^]tab, esc. Two terminals - or a

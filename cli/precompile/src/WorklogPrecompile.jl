@@ -36,20 +36,40 @@ using PrecompileTools: @compile_workload, @setup_workload
 # so `bin/wl` can name one module rather than two.
 export Worklog
 
-"""Run `f` against a disposable data directory, and put the real one back.
+"""Run `f` somewhere it can neither read the user's dashboard nor start a process.
 
-The same discipline `runtests.jl` follows, and for a stronger reason: this runs
-during *precompilation*, where reading the user's dashboard would make the image
-depend on it and writing to it would be indefensible. Every path the program
-persists through is a `Ref`, so redirecting all of them is the whole of it.
+The data half is the discipline `runtests.jl` follows, for a stronger reason:
+this runs during *precompilation*, where reading the real dashboard would make
+the image depend on it and writing to it would be indefensible. Every path the
+program persists through is a `Ref`, so redirecting all of them is the whole of
+it.
 
-Restored to `""` rather than to what they were, because `""` is what they hold
-in a freshly loaded module: the point is that nothing about this workload is
-still set when `wl` runs.
+The process half is not hygiene, it is the difference between precompiling and
+hanging. `load_nodes!` and `load_meta!` start a fetch in an `@async` task the
+moment the selection moves to an item they have not loaded - `gh api graphql`
+for the thread and the metadata, `tmux list-panes` for the sessions - and a
+package that leaves live subprocesses behind stops precompilation dead with
+"waiting for IO to finish". Pinning `st.loaded` was not enough: a single `j`
+moves the selection and leaves the pin behind.
+
+So the binaries are taken away rather than the calls avoided. An empty `PATH`
+makes `run` throw before it forks, and `WORKLOG_TMUX` at a path that does not
+exist makes `mux_bin` answer `nothing` without looking. Every fetch then fails
+instantly, in the ordinary way the program already handles, and there is nothing
+left running to wait for. That is a property of the *environment* rather than of
+which keys this workload happens to press, which is what makes it survive
+somebody adding a key to it.
+
+Everything is restored in a `finally`, the `Ref`s to `""` rather than to what
+they held: `""` is what a freshly loaded module has, and the point is that
+nothing about this workload is still set when `wl` runs.
 """
 function hermetic(f)
     d = mktempdir()
+    path, mux = get(ENV, "PATH", nothing), get(ENV, "WORKLOG_TMUX", nothing)
     try
+        ENV["PATH"] = ""
+        ENV["WORKLOG_TMUX"] = joinpath(d, "no-tmux-here")
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.STATE[] = joinpath(d, "state.toml")
@@ -61,6 +81,9 @@ function hermetic(f)
             f()
         end
     finally
+        path === nothing ? delete!(ENV, "PATH") : (ENV["PATH"] = path)
+        mux === nothing ? delete!(ENV, "WORKLOG_TMUX") : (ENV["WORKLOG_TMUX"] = mux)
+        Worklog.LOGIN[] = ""
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
         Worklog.STATE[] = ""
@@ -156,18 +179,20 @@ end
                 Worklog.meta_lines(st, items[1], 44)
                 Worklog.selrange(st)
 
-                # Keys, with the two loads that end every one of them already
-                # satisfied: `load_nodes!` and `load_meta!` would otherwise start
-                # a fetch, and a workload that talks to GitHub is a workload that
-                # hangs. Only keys that move neither the selection nor the mode,
-                # so the keys stay satisfied.
+                # Keys. Every one of these ends in `load_nodes!` and
+                # `load_meta!`, which start a fetch whenever the selection has
+                # moved - so this is only safe because `hermetic` has taken the
+                # binaries away and the fetch fails before it forks.
                 ctrl = Worklog.Controller()
-                st.loaded = string(items[1].url, ":", st.mode)
-                st.metakey = items[1].url
                 for k in (Int('j'), Int('k'), Int('w'), Int('g'), Int('G'),
                           9, Int('f'), Int('f'), Int('m'), Int('`'))
                     Worklog.handle!(st, k, ctrl)
                 end
+                # And nothing outlives the workload. `INFLIGHT` is what knows
+                # which fetches are still in the air - a view only ever holds
+                # the last one it started - so this is the whole of it however
+                # many keys are pressed above.
+                Worklog.drain_fetches!()
 
                 # Input decoding, which is a pure function of a byte stream.
                 for s in ("j", "\e", "\e[A", "\e[6;5~", "\e[Z", "\eb", "\e\x7f",

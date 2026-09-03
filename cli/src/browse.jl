@@ -1242,14 +1242,13 @@ function load_meta!(st::BState; fresh::Bool = false)
     st.metakey = it.url
     st.meta = nothing
     st.checks = nothing
-    st.metapending = @async begin
-        r = try
+    # `R` reads past the checks' own window, so it cannot join the ordinary
+    # read of the same item - that is the read it was pressed to go past.
+    st.metapending = fetching(string("meta ", it.url, fresh ? " fresh" : "")) do
+        try
             # Listing sessions is a process, so it rides along with the fetch
             # that is already off the key loop rather than happening per frame.
             (meta = Events.itemmeta(it.url, it.is_pr),
-             # `R` asks for the answer GitHub has now, so the checks are read
-             # past their own two-minute window: the whole reason to press it is
-             # that a build finished since the window opened.
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = fresh ? 0.0 : 120.0) : nothing,
              sessions = mux_list())
@@ -1259,7 +1258,6 @@ function load_meta!(st::BState; fresh::Bool = false)
         finally
             st.wake === nothing || st.wake()
         end
-        r
     end
 end
 
@@ -2450,6 +2448,78 @@ mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
     mode === :comments ? comment_nodes(it, at; fresh = fresh) :
     mode === :diff     ? diff_nodes(it; fresh = fresh) : check_nodes(it)
 
+"""Every fetch this process has in the air, by what it is fetching.
+
+A map under a lock rather than a field on the view, for three reasons that are
+all the same reason - a view can only hold one.
+
+**Duplicates.** `st.pending` is overwritten by the next load, so holding `j`
+down the list starts a `gh api graphql` per row and abandons all but the last:
+a process each, a rate limit spent on answers nobody will read, and the winner
+decided by whichever finishes last. Keyed by what is being fetched, a second ask
+for something already in the air *joins* it instead.
+
+**Results nobody watches.** An abandoned task's value is never fetched, so
+anything that escaped its own error handling escaped silently. They are logged
+here, which is the only place that still sees them.
+
+**Nothing that can wait.** There was no way to ask "is anything still running",
+which is what stopped package precompilation dead when the workload moved the
+selection: two `gh` processes and two pipes, with nothing holding a handle.
+
+Timers are deliberately *not* in here. `arm_refresh!` starts a task that sleeps
+and then wakes the frame, and a drain that waited on one would hang for as long
+as the debounce.
+"""
+const INFLIGHT = Dict{String,Task}()
+const INFLIGHT_LOCK = ReentrantLock()
+
+"""Run `f` in the background as `key`, or join the run already under way.
+
+The task takes itself out of the map when it finishes, so what is in there is
+what is *in flight* rather than a history of everything ever asked for.
+"""
+function fetching(f, key::AbstractString)
+    k = String(key)
+    lock(INFLIGHT_LOCK) do
+        t = get(INFLIGHT, k, nothing)
+        (t !== nothing && !istaskdone(t)) && return t
+        t = @async begin
+            try
+                f()
+            catch e
+                # Nobody may ever `fetch` this one - the cursor moves on - so
+                # this is the last place its failure can be noticed at all.
+                logerror!(e, catch_backtrace(), string("fetch ", k))
+                rethrow()
+            finally
+                lock(INFLIGHT_LOCK) do
+                    get(INFLIGHT, k, nothing) === current_task() && delete!(INFLIGHT, k)
+                end
+            end
+        end
+        INFLIGHT[k] = t
+        t
+    end
+end
+
+"""Wait for every fetch in the air, ignoring what they answered.
+
+For shutting something down cleanly rather than for using a result: the
+precompile workload calls it so that no `gh` or `tmux` outlives the package
+image being built. Loops rather than snapshotting, because a fetch can start
+another.
+"""
+function drain_fetches!()
+    while true
+        t = lock(INFLIGHT_LOCK) do
+            isempty(INFLIGHT) ? nothing : first(values(INFLIGHT))
+        end
+        t === nothing && return
+        try; wait(t); catch; end
+    end
+end
+
 function load_nodes!(st::BState)
     # The import row has nothing to fetch and says so itself. Keyed like any
     # other load, so moving away and back does not rebuild it.
@@ -2473,13 +2543,12 @@ function load_nodes!(st::BState)
     # `fetched` decides what `r` can mark seen, and too early leaves a comment
     # unread rather than hiding one.
     at = utcnow()
-    st.pending = @async begin
-        r = try
+    st.pending = fetching(key) do
+        try
             mode_nodes(mode, it, at)
         finally
             st.wake === nothing || st.wake()   # redraw as soon as this lands
         end
-        r
     end
     st.pendkey = key
     st.quiet = false
@@ -2508,13 +2577,14 @@ function refresh_nodes!(st::BState)
     at = utcnow()
     st.quiet = true
     st.pendkey = key
-    st.pending = @async begin
-        r = try
+    # Its own key: a re-read that joined the cached read already in the air
+    # would come back with exactly the answer it was asked to go past.
+    st.pending = fetching(string(key, " fresh")) do
+        try
             mode_nodes(mode, it, at; fresh = true)
         finally
             st.wake === nothing || st.wake()
         end
-        r
     end
     true
 end
