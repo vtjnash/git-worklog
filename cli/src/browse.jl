@@ -273,6 +273,86 @@ axis_label(axis::Symbol, v::AbstractString) =
     v == AUTHOR_ME ? string("me (", login(), ")") :
     v == AUTHOR_OTHERS ? "anyone else" : String(v)
 
+"""The views `\'` offers, from `config.toml`, in the order they were written.
+
+A view is a whole filter set under a name. The pane composes state × kind × repo
+× label × author, which is enough to ask almost anything and far too much to
+retype - so what was missing was never expressiveness, it was *recall*.
+
+The defaults are deliberately composites. A single bucket is already one `f`
+away and needs no name; what needs one is the pair of axes nobody assembles
+twice.
+
+Read and never written: `config.toml` is the user's file, and `wl watching`
+already established what this program does when it wants to suggest a line for
+it - it prints one to paste.
+"""
+const VIEWS = [
+    ("waiting on me",  Dict("state" => "second", "kind" => "pr",
+                            "author" => [AUTHOR_OTHERS])),
+    ("waiting on them", Dict("state" => "second", "author" => [AUTHOR_ME])),
+    ("ready to merge", Dict("state" => "active", "bucket" => ["needs-merge"])),
+    ("red CI, mine",   Dict("state" => "mine", "bucket" => ["needs-edits"])),
+    ("unanswered",     Dict("state" => "active", "bucket" => ["needs-reply"])),
+    ("unread",         Dict("state" => "unread")),
+]
+
+"Every view: the built-in ones, then whatever `config.toml` adds or replaces."
+function views(cfg = config())
+    out = Tuple{String,Any}[(n, d) for (n, d) in VIEWS]
+    for (name, d) in get(cfg, "views", Dict{String,Any}())
+        i = findfirst(x -> x[1] == String(name), out)
+        i === nothing ? push!(out, (String(name), d)) : (out[i] = (String(name), d))
+    end
+    out
+end
+
+"""Apply one view, and answer with what it did.
+
+A view sets every axis it names and clears every axis it does not, because half
+of a remembered filter is worse than none: the point of a name is that pressing
+it twice from different places lands in the same list.
+"""
+function apply_view!(st, d)
+    f = Filters()
+    haskey(d, "state") && (f.state = Symbol(d["state"]))
+    haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
+    for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
+                     ("label", f.labels), ("author", f.authors))
+        haskey(d, k) || continue
+        v = d[k]
+        for x in (v isa AbstractString ? [v] : v)
+            push!(set, String(x))
+        end
+    end
+    st.prev = st.filters                # `\`` is the way back out
+    st.filters = f
+    haskey(d, "sort") && (st.sort = Symbol(d["sort"]))
+    refilter!(st)
+    string("[", filter_summary(f, st.sort), "]")
+end
+
+"""The current filter written as the TOML line that would name it.
+
+The browser does not write `config.toml`; this is the paste-able form, which is
+the same answer `wl watching` gives for the repos you watch. A filter you got to
+by hand is the one worth keeping, and it is also the one you cannot reconstruct
+from memory an hour later.
+"""
+function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
+    lines = [string("[views.", repr(String(name)), "]"),
+             string("state = ", repr(String(f.state)))]
+    f.kind === :both || push!(lines, string("kind = ", repr(String(f.kind))))
+    for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
+                     ("label", f.labels), ("author", f.authors))
+        isempty(set) && continue
+        push!(lines, string(k, " = [",
+                            join([repr(x) for x in sort(collect(set))], ", "), "]"))
+    end
+    order === :none || push!(lines, string("sort = ", repr(String(order))))
+    join(lines, "\n")
+end
+
 """Rows for the filter pane: the radio group, then the two checkbox groups.
 
 Counts are computed against the other axes only, so a category shows how many
@@ -493,6 +573,10 @@ Base.@kwdef mutable struct BState <: View
     all::Vector{Item}               # unfiltered
     unread::Set{String} = Set{String}()
     filters::Filters = Filters()
+    prev::Union{Nothing,Filters} = nothing   # one slot deep, for `\``: diving
+                                             # into a view and getting back out
+                                             # is the move, and `z` is for
+                                             # actions rather than for looking
     buckets::Vector{String} = String[]
     repos::Vector{String} = String[]
     labels::Vector{String} = String[]
@@ -1705,7 +1789,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # Worst-first is the wrong order for a line that gets cut on a narrow
     # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
     # runs at the end and what is worth reading is at the front.
-    keys1 = string("[", filter_summary(st.filters, st.sort), "]  f filters \u00b7 w sort \u00b7 ",
+    keys1 = string("[", filter_summary(st.filters, st.sort), "]  f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a
@@ -2576,7 +2660,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                           g[something(findlast(<(st.frow), g), 1)]
             end
         elseif k in (13, 10);           toggle_filter!(st, ctrl)
-        elseif k == Int('c');           st.filters = Filters(); refilter!(st)
+        elseif k == Int('c')
+            st.prev = st.filters        # clearing is a jump like any other
+            st.filters = Filters(); refilter!(st)
         end
     elseif st.focus === :list
         # Zero is the import row, which is why the floor here is not one. `g`
@@ -2628,6 +2714,29 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # selected item, and an empty list is exactly when it is wanted - archiving
     # or snoozing the last row of a lane empties it, and the way back used to be
     # swallowed along with every per-item key.
+    # Neither of these is about the selected item, so both sit above the guard
+    # that wants one - the same reason `z` and `i` are here.
+    if k == Int('\'') && st.lmode !== :filters
+        view_action(st, ctrl)
+        return :ok
+    elseif k == Int('`') && st.lmode !== :filters
+        if st.prev === nothing
+            st.status = "no filter to go back to"
+        else
+            was = st.filters
+            st.filters = st.prev
+            st.prev = was
+            refilter!(st)
+            # After the loads, not before: `load_nodes!` writes "loading …" over
+            # whatever is there, and a message about a jump the user just made
+            # is exactly what it would write over.
+            load_nodes!(st); load_meta!(st)
+            st.status = string("back to [", filter_summary(st.filters, st.sort), "]")
+            return :ok
+        end
+        load_nodes!(st); load_meta!(st)
+        return :ok
+    end
     if k == Int('z') && st.lmode !== :filters
         st.status = undo!(st)
         load_nodes!(st); load_meta!(st)
@@ -3287,6 +3396,50 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                 isempty(r) && (touch!(it.url); st.batch = nothing; reread!(st))
             end; allow_empty = ev == "APPROVE"))
     end))
+end
+
+"""Pick a view, or write down the one you are in.
+
+A list rather than a key each: six of them would be six bindings nobody
+remembers, and the seventh would have nowhere to go. `ChooseView` narrows by
+typing, so a name is enough to reach one however many there are.
+
+The last entry is the way *out* of the list of names - the current filter,
+written as the TOML that would name it, for pasting into `config.toml`. The
+browser does not write that file.
+"""
+function view_action(st::BState, ctrl::Controller)
+    vs = try
+        views()
+    catch e
+        st.status = string("could not read the views: ", first(sprint(showerror, e), 80))
+        return
+    end
+    opts = Tuple{String,Any}[(n, d) for (n, d) in vs]
+    push!(opts, ("\u2026 write this filter down as a view", :save))
+    push_view!(ctrl, ChooseView("Views", "\u21b5 applies one \u00b7 ` goes back", opts,
+        v -> begin
+            if v === :save
+                push_view!(ctrl, PromptView(
+                    "Name this view",
+                    "prints the TOML to paste into config.toml - this program " *
+                    "does not write that file",
+                    n -> begin
+                        # Copied rather than printed: it is several lines of
+                        # TOML and the status is one row, and pasting is the
+                        # whole of what anybody wants to do with it. The same
+                        # OSC 52 `y` uses, so whatever works for one works here.
+                        t = view_toml(st.filters, st.sort, n)
+                        print("\e]52;c;", Base64.base64encode(t), "\a")
+                        st.status = string("copied [views.", repr(n),
+                                           "] \u00b7 paste it into config.toml")
+                    end))
+            else
+                msg = apply_view!(st, v)
+                load_nodes!(st); load_meta!(st)
+                st.status = string("view: ", msg)
+            end
+        end))
 end
 
 """Ask about a draft the cursor has just walked away from.

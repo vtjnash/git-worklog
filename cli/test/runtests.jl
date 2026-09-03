@@ -732,6 +732,78 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "a filter worth a name, and the way back out" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true
+
+    # The defaults are composites on purpose: a single bucket is already one `f`
+    # away and needs no name.
+    names = [n for (n, _) in W.views(Dict{String,Any}())]
+    @test "waiting on me" in names && "ready to merge" in names
+    # config.toml adds to them, and replaces one of the same name rather than
+    # listing it twice.
+    cfg = Dict{String,Any}("views" => Dict{String,Any}(
+        "mine, all of it" => Dict("state" => "mine"),
+        "waiting on me" => Dict("state" => "unread")))
+    vs = W.views(cfg)
+    @test length(vs) == length(names) + 1
+    @test Dict(vs)["waiting on me"]["state"] == "unread"
+
+    # A view sets every axis it names and clears every axis it does not: half a
+    # remembered filter is worse than none.
+    st.filters.labels = Set(["docs"]); st.filters.kind = :issue
+    W.apply_view!(st, Dict("state" => "all", "bucket" => ["needs-review"]))
+    @test st.filters.state === :all && st.filters.buckets == Set(["needs-review"])
+    @test isempty(st.filters.labels) && st.filters.kind === :both
+    # A single value is as good as a list of one.
+    W.apply_view!(st, Dict("state" => "all", "repo" => "JuliaLang/julia"))
+    @test st.filters.repos == Set(["JuliaLang/julia"])
+
+    # `\`` is the way back out, and back in again: one slot, which is the depth
+    # the move actually has.
+    was = W.filter_summary(st.filters, st.sort)
+    W.handle!(st, Int('`'), ctrl)
+    @test W.filter_summary(st.filters, st.sort) != was
+    @test occursin("back to", st.status)
+    W.handle!(st, Int('`'), ctrl)
+    @test W.filter_summary(st.filters, st.sort) == was
+    # With nothing to go back to it says so rather than doing nothing.
+    st.prev = nothing
+    W.handle!(st, Int('`'), ctrl)
+    @test occursin("no filter to go back to", st.status)
+
+    # `\'` opens the list, and picking one applies it.
+    @test occursin("' views", W.astrip(W.render(st, 160, 50)))
+    W.handle!(st, Int('\''), ctrl)
+    v = last(ctrl.stack)
+    @test v isa W.ChooseView && v.title == "Views"
+    @test any(o -> o[2] === :save, v.options)          # the way out of the list
+    v.onpick(Dict("state" => "all", "kind" => "issue"))
+    @test st.filters.state === :all && st.filters.kind === :issue
+    @test occursin("view:", st.status)
+
+    # Writing one down is a paste, not a write: config.toml is the user's file.
+    # What it prints parses back into the filter it came from, which is the only
+    # property worth having of it.
+    v.onpick(:save)
+    pv = last(ctrl.stack)
+    @test pv isa W.PromptView
+    pv.onsubmit("mine, quiet")
+    @test occursin("paste it into config.toml", st.status)
+    pop!(ctrl.stack)
+    toml = W.view_toml(st.filters, st.sort, "issues, all of them")
+    parsed = W.TOML.parse(toml)["views"]["issues, all of them"]
+    st2 = mkstate()
+    W.apply_view!(st2, parsed)
+    @test st2.filters.state === st.filters.state && st2.filters.kind === st.filters.kind
+    st.filters.repos = Set(["a/b", "c/d"]); st.filters.authors = Set([W.AUTHOR_ME])
+    round2 = W.TOML.parse(W.view_toml(st.filters, st.sort, "x"))["views"]["x"]
+    W.apply_view!(st2, round2)
+    @test st2.filters.repos == Set(["a/b", "c/d"])
+    @test st2.filters.authors == Set([W.AUTHOR_ME])
+end
+
 @testset "a batch in one process, not a loop of them" begin
     # `-` is the ref that means stdin. One mechanism for every command that
     # takes one, no new flag, and nothing a variadic ref list would have to be

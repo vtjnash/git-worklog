@@ -51,7 +51,10 @@ labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
 last acted, `x` archives, `z` undoes the last local action. A click on a url
 copies it, whole even where the wrapping cut it.
 
-`f` opens the filter pane, whose states are `active` / `unread` / `mine` /
+`'` is the named views - six built in, more from `config.toml`, and its last
+entry copies the current filter as the TOML that would name it - and `` ` ``
+goes back to the filter you were in before. `f` opens the filter pane, whose
+states are `active` / `unread` / `mine` /
 `second look` / `touched` / `snoozed` / `backlog` / `archived` / `all`, with a second radio group
 for issues, pull requests or both, and checkbox axes for category, repo, label
 and author — each long one listing its head and offering the rest as a picker
@@ -366,27 +369,6 @@ shipped are not listed; `git log` is the record of those.
 
 Everything "where the work is" left behind has now shipped; `git log` is the
 record of it.
-
-### Saved views, and the way back out
-
-Recorded 2026-09-03. The filter pane composes state × kind × repo × label ×
-author, which is enough to ask almost anything and too much to retype. What is
-missing is *recall*.
-
-- **`'` opens a list of named views**, each a whole filter set applied in one
-  keystroke. Read from `config.toml`; the browser never writes that file, so
-  saving the current filter **prints the TOML to paste**, the way `wl watching`
-  prints the repos to paste. The value is in the composites - a single bucket is
-  already one `f` away - so the defaults worth shipping are: *waiting on me*
-  (review-requested ∩ second look), *waiting on them* (mine ∩ second look),
-  *ready to merge*, *red CI on mine* (needs-edits ∩ mine), *unanswered*
-  (needs-reply), *this repo*.
-- **`` ` `` goes back to the previous filter**, one slot deep. Diving into a view
-  and getting out again is the move that would be made constantly, and `z` does
-  not cover it on purpose: `z` is for local *actions*, and a filter is not one.
-
-Both keys are free, and they sit next to `"` on the keyboard, which is where the
-other view-opening key already is.
 
 ### What review writing still cannot do
 
