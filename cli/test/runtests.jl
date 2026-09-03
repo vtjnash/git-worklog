@@ -804,6 +804,75 @@ end
     @test st2.filters.authors == Set([W.AUTHOR_ME])
 end
 
+@testset "an answer to a key press outranks a standing line" begin
+    # A live search wrote its own summary over the status row, so the answer to
+    # a key press - "`claude` is not on PATH" - never appeared, and the key
+    # looked broken rather than refused. A search is standing information, and
+    # is re-derived every frame; a message is something that just happened.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    st.search = "the"; st.searchin = :list; W.refilter!(st)
+    foot() = W.astrip(last(split(W.render(st, 150, 40), "\n")))
+    @test occursin("/the", foot()) && occursin("to search again", foot())
+    st.status = "`claude` is not on PATH"
+    @test occursin("claude", foot())
+    # And the search line comes back when there is nothing to say, rather than
+    # being lost for the rest of the session.
+    st.status = ""
+    @test occursin("/the", foot())
+    # The keys row is still what shows with neither.
+    st.search = ""
+    @test occursin("T agent", foot())
+end
+
+@testset "a path written by hand still means what it says" begin
+    # `register_repo!` expands on the way in, so anything this program wrote is
+    # absolute already - but repos.toml invites editing at the top of itself,
+    # and read raw a hand-written `~/src/julia` is not a directory at all: the
+    # repo reads as unregistered and the browser asks for the path again.
+    @test W.userpath("~/x") == joinpath(homedir(), "x")
+    @test W.userpath("/already/absolute") == "/already/absolute"
+    @test W.userpath("relative/on/purpose") == "relative/on/purpose"   # not abspath
+    @test W.userpath("") == ""
+
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@e.com"); W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a"), "x")
+    W.git(main, "add", "a"); W.git(main, "commit", "--quiet", "-m", "first")
+
+    keepr, keeph = W.REPOS_FILE[], get(ENV, "HOME", "")
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    try
+        # Written the way a person writes it, not the way the program does.
+        write(W.REPOS_FILE[], "[\"o/r\"]\nworktree = \"~/main\"\n")
+        ENV["HOME"] = root
+        @test W.repo_path("o/r") == main
+        # And the survey sees it too, which is what the worktree list is built
+        # from - the two used to disagree with each other about the same file.
+        ws, _ = W.survey(; withdirty = false)
+        @test any(w -> w.repo == "o/r", ws)
+    finally
+        ENV["HOME"] = keeph
+        W.REPOS_FILE[] = keepr
+    end
+
+    # WORKLOG_DATA is not always set by a shell, and an unexpanded `~` there
+    # would have mkpath create a directory *called* `~`.
+    keepd, keepe = W.DATA_DIR[], get(ENV, "WORKLOG_DATA", nothing)
+    try
+        W.DATA_DIR[] = ""
+        ENV["HOME"] = root
+        ENV["WORKLOG_DATA"] = "~/somewhere"
+        @test W.datadir() == joinpath(root, "somewhere")
+        @test !ispath(joinpath(pwd(), "~"))
+    finally
+        ENV["HOME"] = keeph
+        keepe === nothing ? delete!(ENV, "WORKLOG_DATA") : (ENV["WORKLOG_DATA"] = keepe)
+        W.DATA_DIR[] = keepd
+    end
+end
+
 @testset "a batch in one process, not a loop of them" begin
     # `-` is the ref that means stdin. One mechanism for every command that
     # takes one, no new flag, and nothing a variadic ref list would have to be

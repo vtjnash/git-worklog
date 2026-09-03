@@ -1827,7 +1827,13 @@ function render_frame(st::BState, w::Int, h::Int)
                        st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
         string(AB, "/", AR, st.search, "\e[7m \e[0m", AD, "   ", tally,
                st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", AR)
-    elseif !isempty(st.search)
+    elseif !isempty(st.search) && isempty(msg)
+        # Only when there is nothing to say. A live search is *standing*
+        # information - it is re-derived every frame and the query is on screen
+        # anyway - while a status is something that just happened and will not
+        # happen again. Held the other way round, an answer to a key press
+        # ("`claude` is not on PATH") never appeared at all, and the key looked
+        # broken rather than refused.
         nmatch = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
         string(AB, "/", st.search, AR, AD, "  ", nmatch,
                st.searchin === :detail ?
