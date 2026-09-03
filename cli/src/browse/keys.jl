@@ -91,7 +91,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     load_nodes!(st)
     load_meta!(st)
     L = layout(w, h, st.nmeta)
-    iw, page, lpage = L.riw, L.page, L.lpage
+    # From the last frame, not from `layout`: those agree in the browser and do
+    # not when a hosted pane has taken half the screen. `lpage` is the item
+    # list's and stays `layout`'s, since the list is not drawn beside a pane.
+    iw = st.diw > 0 ? st.diw : L.riw
+    page = st.dpage > 0 ? st.dpage : L.page
+    lpage = L.lpage
     # While the query is being typed it takes every key, so that `/julia` is a
     # search and not four commands. Enter keeps it, escape drops it.
     if st.typing

@@ -225,6 +225,46 @@ function mux_feed!(p::MuxProto, line::AbstractString)
     (:more, nothing, nothing)          # a stray line outside any block
 end
 
+"""What the child wrote that the screen cannot carry, to be sent on unchanged.
+
+`capture-pane` reads the *grid*, and a grid is made of cells. A sequence that
+paints no cell is not in it and never can be: the clipboard (OSC 52) is the one
+that matters, because a program several terminals down that copies something has
+no other way to reach the terminal a person is looking at. It arrives in
+`%output` all the same - tmux passes it to a control-mode client whatever
+`set-clipboard` is set to, which was measured rather than assumed - so the whole
+of the fix is to notice it there and print it.
+
+Only OSC 52, and deliberately so. `%output` is the child's entire byte stream,
+and echoing any of the rest of it would be writing over a screen this program
+lays out itself - cursor moves, colours and clears would land wherever the child
+thought it was. A title or a bell would be defensible additions; anything that
+draws is not.
+
+Returns the sequences found, in order, with their terminators intact.
+"""
+function passthrough(bytes::AbstractString)
+    isempty(bytes) && return String[]
+    out = String[]
+    i = firstindex(bytes)
+    n = lastindex(bytes)
+    while true
+        j = findnext("\e]52;", bytes, i)
+        j === nothing && break
+        k = first(j)
+        # OSC ends at BEL or at ST (ESC backslash), whichever comes first.
+        b = findnext('\a', bytes, k)
+        st = findnext("\e\\", bytes, k)
+        stop = b === nothing ? (st === nothing ? nothing : last(st)) :
+               st === nothing ? b : min(b, last(st))
+        stop === nothing && break        # truncated; the rest may arrive next time
+        push!(out, String(SubString(bytes, k, stop)))
+        i = nextind(bytes, stop)
+        i > n && break
+    end
+    out
+end
+
 """Undo the escaping tmux applies to `%output` data.
 
 Only bytes below 0x20 and the backslash itself are escaped, as three octal
@@ -254,9 +294,10 @@ end
 
 """An attached control-mode client.
 
-`onoutput` is called with the pane id whenever that pane changes. It runs on
-the reader task, so it does the least possible: in the browser it is
-`wake!(ctrl)`, which only pushes an event.
+`onoutput` is called with the pane id and the bytes the child wrote whenever
+that pane changes. It runs on the reader task, so it does the least possible: in
+the browser it wakes the frame and passes on anything the child said that the
+*screen* cannot carry - see `passthrough`.
 """
 mutable struct MuxClient
     name::String
@@ -291,7 +332,7 @@ function mux_open(name::AbstractString; onoutput = nothing)
                 if kind === :reply
                     put!(c.replies, (a, b))
                 elseif kind === :output
-                    c.onoutput === nothing || c.onoutput(a)
+                    c.onoutput === nothing || c.onoutput(a, b)
                 elseif kind === :notice && a == "exit"
                     break
                 end

@@ -262,6 +262,29 @@ expands, the trailing space carries alias expansion on to any argument, and it
 survives the `env -u` scrub `standalone` puts in front. `[agent] command` is for
 the other case — an agent that is not what your shell calls `claude` at all.
 
+**`capture-pane` reads cells, so anything that paints none is lost.** A hosted
+pane is drawn by reading the grid back, and a grid is made of cells — so a
+sequence that paints nothing is not in it and no amount of `-e` will put it
+there. OSC 52 is the one that matters: an agent several terminals down that
+copies something has no other way to reach the terminal a person is looking at.
+It *does* arrive in control mode's `%output` (measured: tmux passes it to a
+control-mode client whatever `set-clipboard` is set to), and it was being
+decoded and thrown away — `onoutput` took only the pane id. It now takes the
+bytes too, and `passthrough` relays OSC 52 and nothing else. Only that one,
+because `%output` is the child's whole byte stream and echoing the rest would
+write over a screen this program lays out itself. It is also why relaying from
+the reader task is safe: the sequence paints nothing and moves no cursor, so
+landing in the middle of a frame changes nothing about what the frame draws.
+
+**A row index is only meaningful against the width it was measured at.** Keys
+that index rows — `n`/`N`, the search, page down, the highlight — used to ask
+`layout` how wide the detail pane would be. That is right in the browser and
+wrong beside a hosted pane, which takes half the screen: at 170 columns the two
+answers are 114 and 74, and the same comment wraps to eight rows or twelve
+depending which you ask. `detail_pane` now records the width and page it was
+actually drawn at, the same way it already recorded `hdr`, and the keys read
+that. Only the thing that draws it knows how wide it got.
+
 **A hyperlink is not somewhere to write another one.** `linkify` runs last, on
 the finished frame, and used to `replace` over the whole of it. Every comment
 header is already an OSC 8 hyperlink to its own permalink, and a url written in

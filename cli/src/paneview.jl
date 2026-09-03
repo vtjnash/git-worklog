@@ -88,7 +88,28 @@ pane that never explains itself.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl), onend = nothing)
-    c = mux_open(name; onoutput = _ -> wake!(ctrl))
+    # Two things per burst of output: redraw, and send on what the redraw cannot
+    # carry. A clipboard sequence from a program several terminals down has no
+    # other way out - `capture-pane` reads cells and it paints none - so it is
+    # relayed here, to this program's own stdout, where the terminal a person is
+    # actually looking at is the next thing up.
+    #
+    # This runs on the reader task, so it can land in the middle of the main
+    # loop writing a frame. That is safe for exactly the reason only OSC 52 is
+    # relayed: the sequence paints nothing and moves no cursor, so wherever it
+    # arrives in the stream it changes nothing about what the frame draws.
+    c = mux_open(name; onoutput = (_, bytes) -> begin
+        try
+            for seq in passthrough(bytes)
+                print(seq)
+            end
+        catch
+            # A closed stdout is the terminal going away, which the loop will
+            # find out about on its own. It must not take the pane's reader
+            # down with it.
+        end
+        wake!(ctrl)
+    end)
     c === nothing && return nothing
     PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
              (0, 0, false), false, onend, :child, 0, 0, false)

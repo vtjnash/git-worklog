@@ -100,6 +100,49 @@ end
     end
 end
 
+@testset "what the screen cannot carry is sent on" begin
+    # `capture-pane` reads the grid, and a grid is made of cells - so a sequence
+    # that paints no cell is not in it and never can be. OSC 52 is the one that
+    # matters: an agent several terminals down that copies something has no
+    # other way to reach the terminal a person is looking at. It does arrive in
+    # `%output` (measured: tmux passes it to a control-mode client whatever
+    # `set-clipboard` says), and it was being read and thrown away.
+    p = W.passthrough
+    @test p("\e]52;c;aGk=\a") == ["\e]52;c;aGk=\a"]
+    @test p("\e]52;c;aGk=\e\\") == ["\e]52;c;aGk=\e\\"]      # ST, not BEL
+    @test p("hello\e[31m\e]52;c;YQ==\aworld") == ["\e]52;c;YQ==\a"]
+    @test length(p("\e]52;c;YQ==\a\e]52;c;Yg==\a")) == 2
+    # Only OSC 52. `%output` is the child's whole byte stream and echoing the
+    # rest would write over a screen this program lays out itself.
+    @test isempty(p("just text \e[1m bold \e[0m"))
+    @test isempty(p("\e]0;a window title\a"))
+    @test isempty(p(""))
+    # Cut off mid-sequence: nothing, rather than half a sequence. The rest of it
+    # arrives in the next burst.
+    @test isempty(p("\e]52;c;abc"))
+    # And the shell echoing the *text* `\033]52;...` is not a sequence at all,
+    # which is what tells a real copy from a command line that mentions one.
+    @test isempty(p(raw"printf '\033]52;c;aGk=\007'"))
+
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the live clipboard relay"
+    else
+        n = "wl-test-osc52"
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh")
+        got = String[]
+        c = W.mux_open(n; onoutput = (_, b) -> append!(got, W.passthrough(b)))
+        @test c !== nothing
+        sleep(1.0)
+        W.mux_keys(c, codeunits("printf '\\033]52;c;d29ya2xvZyBjb3BpZWQ=\\007'\r"))
+        sleep(1.5)
+        @test length(got) == 1          # the emitted one, not the echoed text
+        @test occursin("d29ya2xvZyBjb3BpZWQ=", got[1])
+        W.mux_close(c)
+        W.mux_kill(n)
+    end
+end
+
 @testset "control-mode protocol" begin
     # The parser is a pure function of one line and the state before it, so the
     # protocol is driven from strings the way `readevent` is driven from bytes.
@@ -146,7 +189,9 @@ end
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf READY; sleep 120'")
         woke = Ref(0)
-        c = W.mux_open(n; onoutput = _ -> (woke[] += 1))
+        # Two arguments: the pane, and what it wrote. The bytes are what the
+        # clipboard relay above reads; a redraw only needs to know it happened.
+        c = W.mux_open(n; onoutput = (_, _) -> (woke[] += 1))
         @test c !== nothing
         # Attaching emits a reply block of its own; if it were left in the
         # queue every command here would return the previous one's answer.

@@ -51,6 +51,47 @@
     @test W.drain_fetches!() === nothing
 end
 
+@testset "the keys measure against the width the frame was drawn at" begin
+    # Reading a thread beside a hosted pane, `n`/`N` and the highlight landed on
+    # the wrong lines. `render` drew the detail at half the screen; `handle_key!`
+    # asked `layout` what width it would have had *alone* and indexed rows
+    # against that. At 170 columns those are 114 and 74, and the same comment
+    # wraps to eight rows or twelve depending which you ask.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    st = mkstate()
+    long = repeat("a long sentence that has to wrap several times over ", 6)
+    st.nodes = [W.Node("alice  2026-09-01   first", long, :md, true),
+                W.Node("bob  2026-09-02   second", long, :md, true)]
+    st.metakey = st.items[st.sel].url
+    st.focus = :detail                # or the keys below move the list instead
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+
+    L = W.layout(170, 40, st.nmeta)
+    lw, _ = W.split_box(170)
+    wide, narrow = length(W.rows(st.nodes, L.riw)), length(W.rows(st.nodes, lw - 4))
+    @test wide != narrow              # or this test proves nothing
+
+    # Drawn alone, the keys measure against the browser's own width.
+    W.render(st, 170, 40)
+    @test st.diw == L.riw
+    W.handle!(st, Int('G'), ctrl)
+    @test st.nrow == wide
+
+    # Drawn beside a pane, they measure against what the reader is looking at.
+    W.detail_pane(st, st.items[st.sel], lw, 40, true)
+    @test st.diw == lw - 4 && st.dpage == 40 - 3
+    W.handle!(st, Int('G'), ctrl)
+    @test st.nrow == narrow
+
+    # And a page is the pane's height, not the height the detail would have had
+    # stacked under a metadata pane.
+    st.nrow = 1
+    W.detail_pane(st, st.items[st.sel], lw, 40, true)
+    W.handle!(st, Int(' '), ctrl)
+    @test st.nrow == min(narrow, 1 + (40 - 3))
+    pop!(ctrl.stack)
+end
+
 @testset "a place replaces a place; a dialog stacks on one" begin
     # `t` from `"` used to leave four views between the shell and the dashboard,
     # so getting back out was ^]tab, esc, esc, ^]tab, esc. Two terminals - or a

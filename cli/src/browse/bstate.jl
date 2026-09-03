@@ -66,6 +66,13 @@ Base.@kwdef mutable struct BState <: View
                            # an `nrow`, and only `render` knows how tall it got
     nmeta::Int = 0         # metadata lines the pane last drew; it sizes to its
                            # content, so the heights depend on it
+    diw::Int = 0           # the detail pane's inner width and page, as it was
+    dpage::Int = 0         # last *drawn*. Not what `layout` would give: with a
+                           # hosted pane beside it the detail gets half the
+                           # screen and the full height, and every key that
+                           # indexes a row - n/N, the search, page down - has to
+                           # measure against the wrapping the reader is looking
+                           # at rather than the one it would have had alone
     meta::Any = nothing    # Events.itemmeta result for `metakey`, or nothing
     checks::Any = nothing  # check_contexts result, or nothing
     metakey::String = ""

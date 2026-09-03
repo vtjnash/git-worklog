@@ -15,6 +15,12 @@ same thing remembered.
 """
 function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focused::Bool)
     riw = rw - 4
+    # What the keys have to measure against, recorded for the same reason `hdr`
+    # is: only the thing that draws it knows how wide it got. `render_frame`
+    # hands over what `layout` said, but a hosted pane hands over half the
+    # screen - and a row index taken against the other number lands on a line
+    # that was wrapped somewhere else.
+    st.diw, st.dpage = riw, max(1, rh - 3)
     # The item title again, above the detail. The title bar is a row away at the
     # top of the screen and easy to lose track of once you have scrolled into a
     # long thread.
