@@ -441,15 +441,21 @@ it the same way everything else does.
 Deliberately not a cursor: nothing is advanced and nothing is claimed to have
 been seen. One entry per row, and the row is whatever the caller could learn
 about the item.
+
+`overwrite = false` leaves an entry a *poll* already wrote. Much of what gets
+imported is an old issue in a repo that is tracked anyway, or a pull request of
+yours in one that is not - so the url is often already in here, with a comment
+count and a state this caller does not have. Marking it unread is the whole of
+what is wanted in that case; replacing it with a thinner row is not.
 """
-function inbox_add!(rows)
+function inbox_add!(rows; overwrite::Bool = true)
     inbox = load_inbox()
     items = inbox["items"]
     urls = String[]
     for r in rows
         u = String(r["url"])
-        items[u] = r
-        push!(urls, u)
+        (overwrite || !haskey(items, u)) && (items[u] = r)
+        u in urls || push!(urls, u)
     end
     save_inbox(inbox)
     mark_unread(urls)          # a read stamp from last time would hide it again

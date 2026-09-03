@@ -247,6 +247,23 @@ function item_by_url(url::AbstractString, at::DateTime = utcnow())
     item_of(JSON3.read(json_dumps(r)))
 end
 
+"""The inbox entry for an item already known, in the shape a poll writes.
+
+Importing something the dashboard already carries is the common case rather than
+the odd one - an old issue in a repo that is tracked anyway, a pull request of
+yours somewhere that is not - so there has to be a way to say "unread again"
+without a request and without inventing a second row for it.
+
+`act` is what the item last moved at, which is what the unread lane compares
+against a read stamp. Anything else would either hide it at once or never let it
+leave.
+"""
+inbox_row(it::Item, at::DateTime = utcnow()) = OrderedDict{String,Any}(
+    "url" => it.url, "repo" => it.repo, "number" => it.number, "title" => it.title,
+    "is_pr" => it.is_pr, "state" => lowercase(isempty(it.state) ? "open" : it.state),
+    "author" => it.author, "updated" => isempty(it.act) ? stamp(at) : it.act,
+    "comments" => 0, "labels" => it.labels, "mine" => it.author == login())
+
 """Imports that `facts.json` has not caught up with, fetched now.
 
 An import has to be tracked from the moment it is made rather than from the next

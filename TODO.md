@@ -39,7 +39,8 @@ cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/wl show julia#62841  # non-interactive thread view
 ./cli/bin/wl next 10           # pull untagged backlog to triage
 ./cli/bin/wl watching          # repos you watch, and which are tracked
-./cli/bin/wl import <url>...   # follow items no lane returns, landed unread
+./cli/bin/wl import <url>...   # follow items, landed unread; `i` in the browser
+                               # is the same thing, one at a time
 cat urls | ./cli/bin/wl import -    # `-` is "read them from stdin" everywhere:
 printf '%s\n' julia#1 julia#2 | ./cli/bin/wl snooze - 3d
 julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
@@ -62,7 +63,10 @@ you type into.
 
 Two ways in for work no lane returns: `i` imports an item by url, and so does
 `↵` on the row above the first item, which is the only row in the list that is
-not one.
+not one. Either way it lands **unread**, and importing something the dashboard
+already carries adds no second row - it marks it unread again, which is what an
+import of it means. Much of what gets imported is like that: an old issue in a
+repo that is tracked anyway, or a pull request of yours in one that is not.
 
 Reviewing: a drag over a diff makes `c` a comment on that range, `^r` in the
 composer drops in GitHub's suggestion block filled with the lines it would

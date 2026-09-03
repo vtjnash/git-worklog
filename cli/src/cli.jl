@@ -89,11 +89,26 @@ function import_urls(urls::Vector{String}, at::DateTime)
         c === nothing ? println(stderr, "not an issue or pull request url: ", u) :
                         push!(want, c)
     end
+    # The same url twice is one import. Cheap to say here, and it keeps the
+    # batched request from carrying the same node twice.
+    unique!(want)
     isempty(want) && return 1
-    nodes = fetch_urls(want)
+    # What is already carried needs no request: an old issue in a tracked repo
+    # or a pull request of yours somewhere else is usually in facts.json
+    # already, and importing it means "unread again", not "fetch it again".
+    known = Dict(x.url => x for x in (isfile(datapath("facts.json")) ? loaditems() : Item[]))
+    fresh = [u for u in want if !haskey(known, u)]
+    nodes = isempty(fresh) ? Any[] : fetch_urls(fresh)
     got = Dict(String(n.url) => n for n in nodes)
     rows = OrderedDict{String,Any}[]
     for u in want
+        it = get(known, u, nothing)
+        if it !== nothing
+            set_fields(u, ["imported" => string(Date(at))], at)
+            push!(rows, inbox_row(it, at))
+            println("already tracked, unread again ", u)
+            continue
+        end
         n = get(got, u, nothing)
         if n === nothing
             println(stderr, "nothing there: ", u)
@@ -112,7 +127,7 @@ function import_urls(urls::Vector{String}, at::DateTime)
         println("imported ", u)
     end
     isempty(rows) && return 1
-    Events.inbox_add!(rows)
+    Events.inbox_add!(rows; overwrite = false)
     @printf(stderr, "%d imported, unread. `wl refresh` folds them into the dashboard.\n",
             length(rows))
     0

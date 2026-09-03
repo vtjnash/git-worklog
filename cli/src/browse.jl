@@ -3827,26 +3827,37 @@ every refresh forever.
 function import_url!(st::BState, raw::AbstractString, at::DateTime)
     u = item_url(raw)
     u === nothing && return "not the url of an issue or a pull request"
-    i = findfirst(x -> x.url == u, st.all)
-    if i !== nothing
-        r = select_item!(st, st.all[i])
-        return r isa String && !isempty(r) ? r : string(st.all[i].ref, " is here already")
-    end
-    it = try
-        item_by_url(u, at)
-    catch e
-        return string("could not import it: ", first(oneline(sprint(showerror, e)), 100))
+    was = findfirst(x -> x.url == u, st.all)
+    it = if was === nothing
+        try
+            item_by_url(u, at)
+        catch e
+            return string("could not import it: ", first(oneline(sprint(showerror, e)), 100))
+        end
+    else
+        # Already here, which is the common case rather than the odd one: an old
+        # issue in a repo that is tracked anyway, a pull request of yours in one
+        # that is not. No second row, no second request - what an import of it
+        # means is that it should be in front of you again.
+        st.all[was]
     end
     set_fields(u, ["imported" => string(Date(at))], at)
-    add_item!(st, it)
+    # Unread either way, and the same unread the poller writes. An import is
+    # somebody - you a minute ago, or an agent - saying this wants looking at,
+    # and the lane that answers "what have I not looked at" is the one it
+    # belongs in. `inbox_add!` leaves a poll's own richer entry alone.
+    Events.inbox_add!([inbox_row(it, at)]; overwrite = false)
+    push!(st.unread, u)
+    was === nothing && add_item!(st, it)
     push!(st.undos, Undo(string("import ", it.ref), () -> begin
         set_fields(u, ["imported" => nothing])
-        drop_item!(st, u)
+        delete!(st.unread, u)
+        was === nothing && drop_item!(st, u)
     end))
     r = select_item!(st, it)
-    string("imported ", it.ref,
+    string(was === nothing ? "imported " : "already here, marked unread: ", it.ref,
            r isa String && !isempty(r) ? string(" \u00b7 ", r) : "",
-           " \u00b7 no events lane: its repo is not watched")
+           was === nothing ? " \u00b7 no events lane: its repo is not watched" : "")
 end
 
 """Claim a local branch as work of yours, and make it an item.

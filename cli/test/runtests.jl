@@ -839,6 +839,26 @@ end
             "labels" => String[], "mine" => false)])
         @test n == 1
         @test haskey(W.Events.load_inbox()["items"], u)
+        # A second delivery of the same url is not a second entry, and with
+        # `overwrite = false` it leaves what a *poll* wrote: much of what gets
+        # imported is already in here with a comment count this caller does not
+        # have, and marking it unread is the whole of what is wanted.
+        rich = W.Events.load_inbox()["items"][u]
+        rich["comments"] = 12
+        inbox = W.Events.load_inbox(); inbox["items"][u] = rich
+        W.Events.save_inbox(inbox)
+        W.Events.mark_read([u], W.utcnow())
+        thin = Dict{String,Any}("url" => u, "repo" => "o/r", "number" => 3,
+                                "title" => "t", "is_pr" => false, "state" => "open",
+                                "author" => "a", "updated" => "2026-09-03T00:00:00Z",
+                                "comments" => 0, "labels" => String[], "mine" => false)
+        @test W.Events.inbox_add!([thin]; overwrite = false) == 1
+        @test length(W.Events.load_inbox()["items"]) == 1
+        @test W.Events.load_inbox()["items"][u]["comments"] == 12   # the poll's
+        @test W.Events.read_at(u) === nothing                       # still unread
+        # And overwriting is what a caller that knows better asks for.
+        W.Events.inbox_add!([thin])
+        @test W.Events.load_inbox()["items"][u]["comments"] == 0
         # The read stamp is cleared, or it would hide the thing just delivered.
         @test W.Events.read_at(u) === nothing
         # Nothing is claimed to have been polled: no cursor moves.
@@ -3400,6 +3420,30 @@ end
         W.handle!(r, Int('G'), ctrl); W.handle!(r, Int('g'), ctrl)
         @test r.sel == 1
 
+        # Both import paths land the thing unread, and importing what is
+        # already carried is the common case rather than the odd one: an old
+        # issue in a repo that is tracked anyway, a pull request of yours in one
+        # that is not. No second row, no second request, and unread either way.
+        keepi = W.Events.INBOX[]
+        W.Events.INBOX[] = joinpath(mktempdir(), "inbox.json")
+        try
+            here = st.all[1]
+            n0 = length(st.all)
+            msg = W.import_url!(st, here.url, at)
+            @test occursin("already here", msg) && occursin(here.ref, msg)
+            @test length(st.all) == n0                      # not twice
+            @test here.url in st.unread
+            @test haskey(W.Events.load_inbox()["items"], here.url)
+            @test W.get_field(here.url, "imported") == string(W.Date(at))
+            # And the undo takes back what it did: the mark, and the line in
+            # state.toml, but not a row it never added.
+            W.handle!(st, Int('z'), ctrl)
+            @test !(here.url in st.unread) && length(st.all) == n0
+            @test W.get_field(here.url, "imported") === nothing
+        finally
+            W.Events.INBOX[] = keepi
+        end
+
         # `i` is not a key about the selected item: an empty list is where the
         # first import gets made, and every per-item key is dropped there.
         empty_ = mkstate(); empty!(empty_.items)
@@ -3427,14 +3471,19 @@ end
             @test it.repo == "rust-lang/rust" && it.number == 1 && !it.is_pr
             @test !isempty(it.title)
             @test st.items[st.sel].url == url          # and it goes to it
-            # A second import of the same thing is not a second row.
+            @test url in st.unread                     # and lands unread
+            # A second import of the same thing is not a second row, and says
+            # what it did do: put it back in front of you.
             n0 = length(st.all)
-            @test occursin("already", W.import_url!(st, url, at))
+            @test occursin("already here", W.import_url!(st, url, at))
             @test length(st.all) == n0
-            # It is local work, so `z` takes it back - the row and the line in
-            # state.toml both.
+            # `z` takes back what each one did, and no more. The second import
+            # added no row, so undoing it removes none.
             W.handle!(st, Int('z'), ctrl)
-            @test isempty(W.imported_urls())
+            @test isempty(W.imported_urls()) && !(url in st.unread)
+            @test findfirst(x -> x.url == url, st.all) !== nothing
+            # The first one did, so undoing that one does.
+            W.handle!(st, Int('z'), ctrl)
             @test findfirst(x -> x.url == url, st.all) === nothing
         end
         # An adopted branch is not an import, however alike the two look.
