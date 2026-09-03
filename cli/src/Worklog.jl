@@ -89,7 +89,28 @@ include("state.jl")
 include("controller.jl")
 include("ui.jl")
 include("mux.jl")
-include("browse.jl")
+# The browser, in the order the pieces depend on each other: a type or a
+# constant has to exist before the methods annotated on it are defined, and
+# everything below that is a function and could go anywhere. Split because one
+# file of four and a half thousand lines is a file nobody can find anything in -
+# the names are the index.
+include("browse/nodes.jl")        # `Node`, which the rest of this is about
+include("browse/filters.jl")      # the filter and view model
+include("browse/bstate.jl")       # `Undo` and `BState`
+include("browse/markdown.jl")     # a comment body becomes styled rows
+include("browse/meta.jl")         # the metadata pane
+include("browse/layout.jl")       # geometry, selection, hit-testing, links
+include("browse/frame.jl")        # the detail pane, and the whole frame
+include("browse/content.jl")      # threads and diffs become nodes
+include("browse/fetch.jl")        # what runs in the background, and who waits
+include("browse/keys.jl")         # `handle_key!`
+include("browse/mouse.jl")        # `onmouse!`
+include("browse/search.jl")       # `/`
+include("browse/writing.jl")      # comments, reviews, labels, snoozes, archive
+include("browse/checkout.jl")     # which local checkout an item's work is in
+include("browse/items.jl")        # imported items and adopted branches
+include("browse/sessions.jl")     # the editor, the note, and hosted programs
+include("browse/checks.jl")       # CI
 include("paneview.jl")
 include("cli.jl")
 
