@@ -37,6 +37,21 @@ function git(dir::AbstractString, args...)
     String(take!(out))
 end
 
+"""A path as the user wrote it, with `~` meaning what they meant by it.
+
+`register_repo!` expands on the way in, so anything this program wrote is
+already absolute - but `repos.toml` says at the top of itself to edit it freely,
+and a hand-written `~/src/julia` is exactly what somebody would put there. Read
+raw it is not a directory, so the repo silently reads as unregistered and the
+browser asks for the path again.
+
+Not `abspath` as well: that would resolve a *relative* entry against whatever
+directory `wl` happens to have been started in, which is a wrong answer that
+looks like a right one. `~` is the one that has a meaning independent of where
+you are standing.
+"""
+userpath(p::AbstractString) = isempty(p) ? String(p) : expanduser(String(p))
+
 load_repos() = isfile(repos_file()) ? TOML.parsefile(repos_file()) : Dict{String,Any}()
 
 function save_repos(d)
@@ -74,8 +89,8 @@ end
 function repo_path(name::AbstractString)
     d = get(load_repos(), String(name), nothing)
     d === nothing && return nothing
-    p = get(d, "worktree", "")
-    isdir(p) ? String(p) : nothing
+    p = userpath(get(d, "worktree", ""))
+    isdir(p) ? p : nothing
 end
 
 """Pin `name` to `path`, resolving worktrees and checking the remote matches.
@@ -329,7 +344,7 @@ asked about any particular row may want the cheap version first.
 function survey(; withdirty::Bool = true)
     ws, bs = Worktree[], Branch[]
     for (name, d) in sort(collect(load_repos()); by = first)
-        p = get(d, "worktree", "")
+        p = userpath(get(d, "worktree", ""))
         isdir(p) || continue
         try
             brs = branches(name, p)

@@ -64,7 +64,10 @@ somewhere disposable without the answer having been baked into the image.
 const DATA_DIR = Ref("")
 function datadir()
     isempty(DATA_DIR[]) || return DATA_DIR[]
-    d = get(ENV, "WORKLOG_DATA", joinpath(ROOT, "data"))
+    # Expanded, because a shell is not the only thing that sets this: a `~` that
+    # arrives unexpanded would have `mkpath` quietly create a directory *called*
+    # `~` under whatever the working directory happens to be.
+    d = expanduser(get(ENV, "WORKLOG_DATA", joinpath(ROOT, "data")))
     isdir(d) || mkpath(d)
     DATA_DIR[] = d
 end
