@@ -168,6 +168,9 @@ There is no TTY here, so the UI is tested by construction rather than by use:
             using tmux_jll; println(tmux_jll.tmux_path)'
   export WORKLOG_TMUX=<that path>       # and its artifact LD_LIBRARY_PATH
   ```
+  The `LD_LIBRARY_PATH` is not optional and is three directories, not one; see
+  "Running the tmux testsets in this sandbox" below for the `find` that builds
+  it. Without it every session test fails rather than skipping.
   The protocol itself needs none of that: `mux_feed!` is a pure function of one
   line and the state before it, driven from a vector of strings the way
   `readevent` is driven from an `IOBuffer`.
@@ -560,13 +563,6 @@ Kept here so they can be written up in one pass rather than rediscovered.
   therefore shows the post-change file, not the pre-change one. Fine for
   reading a change; wrong if you want the base side. Needs a second fetch and a
   decision about which side to show per hunk.
-- **Worktree choice is automatic.** `item_checkout` prefers a worktree already
-  on the pull request's branch and otherwise falls back to the main clone. There
-  is no way to pick a different one — and since a session is keyed by its
-  worktree, that choice decides which session you land in as well as which files
-  `e` opens. `"` is where every worktree can be seen, made and started in, which
-  is most of it; what is left is for `t` on an *item* to ask, rather than
-  landing you wherever the fallback went.
 - **An adopted branch's merge has no author.** A pull request you merged
   yourself skips the wait before archive is offered, because `mergedBy` says
   who pushed the button. A local branch has no such record: `merged_here` says
@@ -759,7 +755,8 @@ so they are not mistaken for bugs later:
 
 ## Where we were at just now before context reset:
 
-First need to continue that work also on `t` improvements.
+`t` is done — see "The `t` design, built" below. So is the `STATE[]` redirect
+the suite wanted. What is left of the list is below and unstarted.
 
 Next asks: Collapse author/label/repo in filter to only show the ones that are
 currently active, but always show author:me and author:not-me. Sort those
@@ -779,50 +776,44 @@ I think nested tmux has some issues with handling mouse. Maybe a tmux issue,
 but mouse-in-nvim-in-tmux-in-wl-tmux, but doesn't work in tmux pane itself
 (notably for activating scrolling, since ^b^b[ doesn't seem to reach there either).
 
-### The `t` design, worked out and not yet built
+### The `t` design, built
 
-The ask, in the words it was given in: `t` prompts for which worktree to open,
-or to make a new one (default fill with the path to the main repo) — **unless**
-that branch is already checked out in one, or there is already a tmux running
-on that item, in which case use it without asking.
+`item_worktree(it)` in `browse.jl` is the three rules, and it returns the flag
+that says whether the third one was reached:
 
-So three questions in order, and only the third one asks:
+1. **A worktree already on the item's branch.** No prompt.
+2. **A session already tagged with this item** (`mux_list` rows carry `.item`
+   and `.worktree`), whatever branch that checkout happens to have out, and
+   whichever kind the session is - `t` lands where this item's *agent* is. No
+   prompt.
+3. **Otherwise the main checkout, and a flag saying it was a guess.**
 
-1. **A worktree already on the item's branch.** That is the copy the work is in,
-   and `item_checkout` already prefers it. No prompt.
-2. **A session already tagged with this item.** `mux_list()` rows carry `.item`
-   (from the `@wl_item` tag, which is the item's `ref`) and `.worktree`, so a
-   session says where the work is happening whatever branch happens to be out.
-   Kind does not matter here: `t` should land in the worktree an *agent* of this
-   item is already running in. No prompt.
-3. **Otherwise ask.** A `ChooseView` over `worktrees(repo)` — main first, each
-   labelled with the branch it has out and whether a session is live in it —
-   plus a last entry that makes a new one. That entry opens a `PromptView`, and
-   the prefill is `worktree_dest(p, branch)` when the item has a branch (which
-   is `<main>-<branch with slashes dashed>`, the same suggestion the branch list
-   makes) and the main checkout's own path when it does not, which is what the
-   ask asked for. `add_worktree!` does the rest and already re-prompts with
-   git's own complaint when a path is refused.
+Both of the questions the plan left open are answered, and by the same move:
 
-Where it goes: `enter_session(it, ctrl, kind, mkcmd)` in `browse.jl` is the
-thing that currently calls `item_checkout` and goes; `open_agent` and
-`open_terminal` are its two callers, and `t`/`T` in `handle_key!` are theirs.
-Because asking means pushing a view and returning, those have to become
-"decide, then either enter or push a chooser whose callback enters" - the same
-shape `needs_repo` already uses for the checkout prompt, and the same shape
-`row_session` in `paneview.jl` has on the other side (that one already opens a
-session on a *chosen* worktree, so it needs none of this).
+- **`e` shares the answer.** `item_checkout` is now `item_worktree` without the
+  flag, so `e` reads the same first two rules. It never asks - an editor that
+  refused to open would be worse than one that guessed - but once `t` has
+  started a session, rule 2 answers for `e` too, so the two cannot disagree
+  about an item you have actually worked on.
+- **The choice is remembered by the session, and nowhere else.** Opening one
+  tags it with the item, and that tag *is* rule 2 on the next press. No new
+  state, and it expires exactly when the work does.
 
-Two things to decide while building it, neither settled:
+On the asking side: `ask_checkout` pushes a `ChooseView` of every worktree of
+the repo, main first as git lists them, each row carrying the branch it has out
+and what is running in it, plus a last row that makes a new place.
+`ask_worktree_for` is that row's `PromptView` - prefilled with
+`worktree_dest(repo, branch)`, or the main checkout's own path when the item has
+no branch - and `make_checkout!` takes a typed path that is *already* a worktree
+as a way of picking it rather than as an error, which is what makes a list
+longer than the box reachable. Failure re-prompts with git's own complaint, the
+way `ask_worktree` already did on the `"` side.
 
-- **Whether `e` shares the answer.** The known gap says the automatic choice
-  decides which files `e` opens as well as which session you land in. If the
-  chooser only serves `t`/`T`, the two can disagree about the same item.
-- **Whether the choice is remembered.** Asked once per item per session, or
-  every time? Remembering wants somewhere to put it; a session tagged with the
-  item *is* that memory, since rule 2 then answers on the second press.
-
-This closes the "Worktree choice is automatic" known gap when it lands.
+Because asking means pushing a view and returning, the answer arrives after the
+key press is over: `enter_session`, `open_terminal` and `open_agent` take a
+`say` callback, and `t`/`T` in `handle_key!` pass one that writes `st.status`.
+The direct route still returns its string, so nothing that does not ask had to
+change.
 
 ### What I already know about the asks above
 
@@ -869,19 +860,34 @@ not have to make them again:
   trap belongs there; the graceful side is `run!` in `controller.jl`, whose
   reader task is what would see the EOF.
 
-### A test fix worth making: redirect `STATE[]` for the suite
+### `STATE[]` is redirected for the suite — done
 
-The suite writes the **real** `data/state.toml` and puts it back in a `finally`,
-so a run that ends part-way through leaves whatever the adoption testset wrote
-behind, and the *next* run fails on counts that are one too high. It happened
-once this session and cost twenty minutes of looking at the wrong thing:
-`git -C data checkout state.toml` is the cure, and the counts being "one too
-high" is the tell.
+`runtests.jl` now points `STATE[]` at a copy of `data/state.toml` in a temp
+directory, the way `TOUCHED[]` was already redirected. A run that ends part-way
+through can no longer leave an adoption behind for the next run to fail on, and
+there is no `finally` that has to run for that to hold. It is seeded from the
+real file rather than started empty, because the read-only testsets are tests of
+whatever is actually in there.
 
-**Do this rather than explain it:** redirect `STATE[]` at the top of
-`runtests.jl` the way `TOUCHED[]` already is, and the whole class goes away -
-no `finally` to fail to run, and no way for a test to touch the file at all.
+(The mechanism that ended those runs early was *not* SIGPIPE: julia disables it,
+so `| head` closing the pipe does not kill the process that way. The fix did not
+depend on knowing which.)
 
-(The mechanism was *not* SIGPIPE: julia disables it, so `| head` closing the
-pipe does not kill the process that way. Whatever ends a run early, the fix is
-the same and does not depend on knowing which.)
+### Running the tmux testsets in this sandbox
+
+The hosted-pane testsets skip themselves without a real tmux, and there is one
+in the depot — but it needs its dependencies' artifact directories on
+`LD_LIBRARY_PATH` or it dies with `libutf8proc.so.3: cannot open shared object
+file` and every session test fails as "could not start". Three libraries, and
+`find` is how to locate each after a sandbox reset:
+
+```bash
+export WORKLOG_TMUX=$(find ~/.julia/artifacts -name tmux -type f | head -1)
+export LD_LIBRARY_PATH=$(dirname $(find ~/.julia/artifacts -name 'libutf8proc.so.3' | head -1)):\
+$(dirname $(find ~/.julia/artifacts -name 'libevent-2.1.so.7' | head -1)):\
+$(dirname $(find ~/.julia/artifacts -name 'libncursesw.so.6' | head -1))
+julia --project=cli cli/test/runtests.jl
+```
+
+Worth doing rather than skipping: without it the whole session, pane and
+worktree-chooser half of the suite silently does not run.

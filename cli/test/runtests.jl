@@ -23,6 +23,18 @@ isfile(W.errlog()) && rm(W.errlog())
 # reorder the user's own lists as a side effect of running the suite.
 W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
 
+# And the same for `state.toml`, for a stronger reason. Several testsets below
+# adopt a branch or write a note, and each one reads the file first and writes
+# it back in a `finally` - so a run that ends part-way through never reaches
+# that, and the *next* run fails on counts that are one too high. Redirected,
+# there is no `finally` to fail to run and no way for a test to reach the
+# user's file at all. Seeded from the real one, because the read-only tests are
+# tests of whatever is actually in there.
+let d = joinpath(mktempdir(), "state.toml")
+    isfile(W.statefile()) ? cp(W.statefile(), d) : write(d, "")
+    W.STATE[] = d
+end
+
 @testset "input decoding" begin
     ev(s) = W.readevent(IOBuffer(s))
     @test ev("j") == W.KeyEvent(Int('j'))
@@ -2128,6 +2140,125 @@ end
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
+end
+
+@testset "t asks which checkout, unless something has already said" begin
+    # Three questions in order, and only the last one asks. The point of the
+    # first two is that the answer is already on disk or already running, and
+    # asking about something that is not in doubt is worse than guessing.
+    items = W.loaditems()
+    shown = W.BState(items, "worklog", Set{String}())
+    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a.txt"), "one\n")
+    W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
+
+    # Same repo, no branch of its own: an issue is the case rule 1 cannot see.
+    issue = W.Item(url = "https://example.invalid/i/9", ref = "wt#9",
+                   repo = pr.repo, number = 9, title = "an issue", is_pr = false)
+
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    try
+        W.register_repo!(pr.repo, main)
+
+        # Rule 3: nothing on disk and nothing running says where, so the main
+        # checkout is a guess - and the flag is how the caller knows to ask.
+        t, b, ask = W.item_worktree(pr)
+        @test W.wtkey(t) == W.wtkey(main) && b == pr.branch && ask
+        t, b, ask = W.item_worktree(issue)
+        @test W.wtkey(t) == W.wtkey(main) && isempty(b) && ask
+
+        # Rule 1: a worktree on the branch is the copy the work is in, and no
+        # answer beats it.
+        side = joinpath(root, "side")
+        W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
+        t, b, ask = W.item_worktree(pr)
+        @test W.wtkey(t) == W.wtkey(side) && b == pr.branch && !ask
+        # `e` reads the same rules, so the two cannot disagree about one item.
+        @test W.item_checkout(pr) == (t, b)
+        # The issue still has nothing to go on: a worktree on somebody else's
+        # branch is not a claim about this item.
+        t, b, ask = W.item_worktree(issue)
+        @test W.wtkey(t) == W.wtkey(main) && isempty(b) && ask
+
+        # The prompt behind the last row of the chooser. Its prefill is the
+        # suggestion the branch list makes, and the main checkout for an item
+        # with no branch to check out - the only honest offer there.
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, shown)
+        @test W.ask_worktree_for(pr, ctrl, :shell, (_, _) -> "sleep 120",
+                                 _ -> nothing) == ""
+        pv = pop!(ctrl.stack)
+        @test pv isa W.PromptView && pv.buf == W.worktree_dest(main, pr.branch)
+        @test W.ask_worktree_for(issue, ctrl, :shell, (_, _) -> "sleep 120",
+                                 _ -> nothing) == ""
+        pv = pop!(ctrl.stack)
+        @test pv isa W.PromptView && W.wtkey(pv.buf) == W.wtkey(main)
+        # And a path that would have to be made cannot be, without a branch.
+        @test occursin("no branch",
+                       W.make_checkout!(issue, ctrl, :shell, (_, _) -> "sleep 120",
+                                        _ -> nothing, joinpath(root, "nope")))
+
+        if W.mux_bin() === nothing
+            @info "no tmux; skipping the chooser and the session rule"
+        else
+            # The chooser: every worktree, main first as git lists them, plus
+            # the row that makes a new one.
+            said = Ref{Any}(nothing)
+            say = x -> (said[] = x)
+            @test W.enter_session(issue, ctrl, :shell,
+                                  (_, _) -> "sleep 120", say) == ""
+            ch = last(ctrl.stack)
+            @test ch isa W.ChooseView && length(ch.options) == 3
+            @test occursin("main", ch.options[1][1])
+            @test occursin("side", ch.options[2][1])
+            @test occursin(pr.branch, ch.options[2][1])
+            @test occursin("new worktree", ch.options[end][1])
+            for (w, h) in ((80, 24), (165, 50))
+                ls = split(W.render(ch, w, h), "\n")
+                @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            end
+
+            # Picking a row works there, and says so through `say`: the answer
+            # arrives long after the key press that asked for it returned.
+            ch.sel = 2
+            W.handle!(ch, 13, ctrl)
+            @test last(ctrl.stack) isa W.PaneView
+            @test occursin("side", string(said[]))
+            pop!(ctrl.stack)
+
+            # Rule 2: the session it started is tagged with the item, so the
+            # next press knows where the work is and does not ask again - even
+            # though no branch here ever mentioned this issue.
+            t, b, ask = W.item_worktree(issue)
+            @test W.wtkey(t) == W.wtkey(side) && b == pr.branch && !ask
+            @test W.item_checkout(issue) == (t, b)
+            said[] = nothing
+            @test W.enter_session(issue, ctrl, :shell,
+                                  (_, _) -> "sleep 120", say) isa String
+            @test last(ctrl.stack) isa W.PaneView
+            @test said[] === nothing         # nothing was asked, so nothing reported
+            pop!(ctrl.stack)
+
+            # A typed path that is already a worktree is a way of picking it,
+            # not an error - which is what makes the list's overflow reachable.
+            said[] = nothing
+            r = W.make_checkout!(issue, ctrl, :shell, (_, _) -> "sleep 120", say, main)
+            @test r isa String && occursin("main", r)
+            @test last(ctrl.stack) isa W.PaneView
+            pop!(ctrl.stack)
+
+            for r in W.mux_list()
+                r.item == issue.ref && W.mux_kill(r.name)
+            end
+        end
+    finally
+        W.REPOS_FILE[] = ""
+        W.TOUCHED[] = keept
+    end
 end
 
 @testset "worktrees, with the sessions folded in" begin

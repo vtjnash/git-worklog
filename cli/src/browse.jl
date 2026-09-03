@@ -2814,14 +2814,19 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
         return :ok
     elseif k == Int('t')
-        retry_term = () -> (rr = open_terminal(it, ctrl); st.status = rr isa String ? rr : "")
-        r = open_terminal(it, ctrl)
-        r === :needs_repo ? needs_repo(retry_term) : (st.status = r isa String ? r : "")
+        # `say` and not the return value alone: `t` may have to ask which
+        # checkout, and the answer to that arrives long after this call has
+        # returned. Both routes report through the same line.
+        say = rr -> (st.status = rr isa String ? rr : "")
+        retry_term = () -> say(open_terminal(it, ctrl, say))
+        r = open_terminal(it, ctrl, say)
+        r === :needs_repo ? needs_repo(retry_term) : say(r)
         return :ok
     elseif k == Int('T')
-        retry_agent = () -> (rr = open_agent(it, ctrl); st.status = rr isa String ? rr : "")
-        r = open_agent(it, ctrl)
-        r === :needs_repo ? needs_repo(retry_agent) : (st.status = r isa String ? r : "")
+        say = rr -> (st.status = rr isa String ? rr : "")
+        retry_agent = () -> say(open_agent(it, ctrl, say))
+        r = open_agent(it, ctrl, say)
+        r === :needs_repo ? needs_repo(retry_agent) : say(r)
         return :ok
     elseif k == Int('v')
         st.status = edit_note(st, it, ctrl)
@@ -3711,22 +3716,59 @@ end
 
 # --- editor -----------------------------------------------------------------
 
-"""The checkout to work in for an item, and the branch it is for.
+"""Where to work on this item: a checkout, its branch, and whether that was a
+guess rather than an answer.
 
-Prefers a worktree already on the pull request's branch, since that is the copy
-the user is most likely to have been working in; otherwise the main checkout.
-Returns `(nothing, "")` when the repo has never been registered.
+Three questions in order, and only the last one is a guess:
+
+1. **A worktree already on the pull request's branch.** That is the copy the
+   work is in, and no other answer can beat it.
+2. **A session already tagged with this item.** `mux_list` rows carry the item
+   they were opened on and the worktree they are in, so a session says where
+   the work is happening whatever branch happens to be checked out there - and
+   an *agent* left running in a scratch copy is exactly the case rule 1 cannot
+   see. Kind does not matter: a shell should land where this item's agent is.
+3. **Otherwise the main checkout**, which is where the work is *not* yet. That
+   is the flag: the caller who can ask the user should, and the callers who
+   cannot go there anyway.
+
+The flag is the whole reason this is not two functions. `t` asks and `e` does
+not, but they must not disagree about the same item - so both read the same
+first two rules here, and answering one of them for `t` (by starting a session,
+which tags it) answers it for `e` on the next press.
+
+Returns `(nothing, "", false)` when the repo has never been registered.
 """
-function item_checkout(it::Item)
+function item_worktree(it::Item)
     repo = repo_path(it.repo)
-    repo === nothing && return (nothing, "")
+    repo === nothing && return (nothing, "", false)
     branch = pr_branch(it)
-    for w in worktrees(repo)
-        if !isempty(branch) && w.branch == branch
-            return (w.path, branch)
+    ws = worktrees(repo)
+    if !isempty(branch)
+        for w in ws
+            w.branch == branch && return (w.path, branch, false)
         end
     end
-    (repo, branch)
+    if !isempty(it.ref)
+        here = Dict(wtkey(w.path) => w for w in ws)
+        for r in mux_list()
+            (r.item == it.ref && !isempty(r.worktree)) || continue
+            w = get(here, wtkey(r.worktree), nothing)
+            w === nothing && continue
+            return (w.path, w.branch, false)
+        end
+    end
+    (repo, branch, true)
+end
+
+"""The checkout to work in for an item, and the branch it is for.
+
+The same answer without the flag, for the callers that have nowhere to ask
+from: an editor opens on the best guess rather than refusing to open.
+"""
+function item_checkout(it::Item)
+    target, branch, _ = item_worktree(it)
+    (target, branch)
 end
 
 """This pull request's head branch, or `""` when it has none.
@@ -4170,11 +4212,29 @@ function enter_session(target::AbstractString, branch::AbstractString,
     end
 end
 
-"""The same, for an item: its worktree is where its session lives."""
-function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
+"""The same, for an item: its worktree is where its session lives.
+
+`item_worktree` answers where when it can, and this goes there without a word.
+When it cannot - no worktree on the branch and no session already on the item -
+the answer is the user's, so a chooser is pushed and the session opens from its
+callback. That is why `say` exists: the string this returns is only the answer
+for the route that did not ask, and the asked route has to report much later,
+after this call has already come back.
+
+Asked once, not once per press: opening the session tags it with the item, and
+that tag is rule 2 next time.
+"""
+function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing)
     mux_bin() === nothing && return "no tmux on PATH"
-    target, branch = item_checkout(it)
+    target, branch, ask = item_worktree(it)
     target === nothing && return :needs_repo
+    ask && return ask_checkout(it, ctrl, kind, mkcmd, say)
+    item_session!(it, target, branch, ctrl, kind, mkcmd)
+end
+
+"""Open the item's session in a checkout that has already been settled on."""
+function item_session!(it::Item, target::AbstractString, branch::AbstractString,
+                       ctrl, kind::Symbol, mkcmd)
     n = length(ctrl.stack)
     r = enter_session(target, branch, it.ref, string(it.number),
                       string(kind === :agent ? "agent  " : "", it.ref,
@@ -4189,6 +4249,112 @@ function enter_session(it::Item, ctrl, kind::Symbol, mkcmd)
     r
 end
 
+"""One line for a checkout, in the list of places this item could be worked on.
+
+The branch is what tells two copies of one repo apart, and a live session is
+what says somebody is already in there - both of which are reasons to pick a
+row, so both are on it. The marks are the worktree list's own, so a reader who
+has seen `"` already knows them.
+"""
+function checkout_option(w, rows)
+    live = sort!(unique(String[string(r.kind) for r in rows
+                              if !isempty(r.worktree) &&
+                                 wtkey(r.worktree) == wtkey(w.path)]))
+    string(apad(afit(basename(rstrip(String(w.path), '/')), 30), 30), "  ",
+           apad(afit(isempty(w.branch) ? "(detached)" : w.branch, 26), 26), "  ",
+           w.main ? "main" : "    ",
+           isempty(live) ? "" : string("  · ", join(live, " + "), " running"))
+end
+
+"""Ask which checkout to work in, then work in it.
+
+Every worktree of the repo, main first as git lists them, and a last row that
+makes a new place. Nothing is pre-selected on the user's behalf: this is only
+reached when neither the branch nor a running session said where the work is,
+and picking the main checkout by default is exactly the guess that made the
+answer wrong often enough to be worth asking about.
+"""
+function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say)
+    repo = repo_path(it.repo)
+    repo === nothing && return :needs_repo
+    ws = worktrees(repo)
+    rows = mux_list()
+    opts = Tuple{String,Any}[(checkout_option(w, rows), w.path) for w in ws]
+    push!(opts, ("+ a new worktree …", ""))
+    push_view!(ctrl, ChooseView(
+        string(kind === :agent ? "Agent for " : "Shell for ", it.ref),
+        "where to work · the last row makes a place",
+        opts,
+        p -> begin
+            if isempty(String(p))
+                say(ask_worktree_for(it, ctrl, kind, mkcmd, say))
+            else
+                i = findfirst(w -> w.path == p, ws)
+                say(item_session!(it, String(p),
+                                  i === nothing ? "" : ws[i].branch,
+                                  ctrl, kind, mkcmd))
+            end
+        end))
+    ""
+end
+
+"""Ask where to put a new worktree for this item, and open the session in it.
+
+The prefill is the same suggestion the branch list makes - beside the main
+checkout, named for the branch - and the main checkout's own path when the item
+has no branch to check out, since then the only thing "a new place" can honestly
+offer is somewhere already on disk.
+
+A path that is already a worktree of this repo is taken as a choice of that
+worktree rather than an error, which is what makes typing a path a way of
+reaching one that the list drew off the bottom.
+"""
+function ask_worktree_for(it::Item, ctrl, kind::Symbol, mkcmd, say;
+                          seed = "", note = "")
+    repo = repo_path(it.repo)
+    repo === nothing && return "no local checkout registered for " * it.repo
+    branch = pr_branch(it)
+    dest = !isempty(seed) ? String(seed) :
+           isempty(branch) ? main_worktree(repo) : worktree_dest(repo, branch)
+    push_view!(ctrl, PromptView(
+        string("New worktree for ", it.ref),
+        isempty(note) ? string("where to check ",
+                               isempty(branch) ? "it" : branch,
+                               " out · ", it.repo, " is at ", repo) : note,
+        dest, length(dest) + 1,
+        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at))))
+    ""
+end
+
+"""Make the place the prompt named, and open the session there.
+
+Failure re-opens the prompt with what was typed still in it and git's own
+complaint above it: every way this fails is a path that wants correcting - the
+directory exists, its parent does not, the branch is checked out somewhere else.
+"""
+function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractString)
+    repo = repo_path(it.repo)
+    repo === nothing && return "no local checkout registered for " * it.repo
+    want = wtkey(abspath(expanduser(String(at))))
+    for w in worktrees(repo)
+        wtkey(w.path) == want &&
+            return item_session!(it, w.path, w.branch, ctrl, kind, mkcmd)
+    end
+    branch = pr_branch(it)
+    isempty(branch) &&
+        return string(it.ref, " has no branch to check out · pick a worktree that exists")
+    dest = try
+        add_worktree!(repo, branch, at)
+    catch e
+        e isa GitError || rethrow()
+        ask_worktree_for(it, ctrl, kind, mkcmd, say;
+                         seed = at, note = oneline(first(sprint(showerror, e), 200)))
+        return ""
+    end
+    r = item_session!(it, dest, branch, ctrl, kind, mkcmd)
+    r isa String ? string("made ", dest, " · ", r) : r
+end
+
 """Open an agent on this item's worktree, and watch it work.
 
 Nothing has to be set up first, and nothing is said to it on the way in.
@@ -4200,9 +4366,9 @@ here would be a second, staler copy of what it can see - and a system prompt
 survives `/clear`, so a stale copy would outlive every correction made from
 inside.
 """
-function open_agent(it::Item, ctrl)
+function open_agent(it::Item, ctrl, say = _ -> nothing)
     Sys.which("claude") === nothing && return "`claude` is not on PATH"
-    enter_session(it, ctrl, :agent, (_, _) -> "claude")
+    enter_session(it, ctrl, :agent, (_, _) -> "claude", say)
 end
 
 """Open a shell on this item's checkout, in its worktree's session, and show it.
@@ -4210,8 +4376,8 @@ end
 Leaving the pane is not ending it: come back to the same checkout and the same
 shell is still there, with whatever was half-typed still on the line.
 """
-open_terminal(it::Item, ctrl) =
-    enter_session(it, ctrl, :shell, (_, _) -> get(ENV, "SHELL", "/bin/sh"))
+open_terminal(it::Item, ctrl, say = _ -> nothing) =
+    enter_session(it, ctrl, :shell, (_, _) -> get(ENV, "SHELL", "/bin/sh"), say)
 
 # --- CI checks --------------------------------------------------------------
 
