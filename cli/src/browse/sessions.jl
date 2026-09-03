@@ -345,20 +345,34 @@ end
 
 """What to run for `T`, as a shell command line.
 
-Through the login shell rather than as a bare name, because `claude` is often a
-shell alias or a function rather than a file on `PATH` - and a name this looked
-up with `Sys.which` was refused before it was ever tried. `exec` so the shell
-does not sit between the pane and the agent as a second process to signal.
+Through the shell rather than as a bare name, because `claude` is more often a
+shell alias or a function than a file on `PATH` - and a name looked up with
+`Sys.which` was refused before it was ever tried.
 
-`config.toml` overrides it, which is the escape hatch for the case this cannot
-guess: an alias defined only in an interactive rc file needs `-ic`, and where
-the agent lives is the user's business rather than something to keep guessing
-at.
+Both halves of `-ic` are load-bearing, and each was got wrong once:
+
+- **`-i`, or the alias is not even defined.** A non-interactive bash reads no
+  `.bashrc` (only `\$BASH_ENV`), and - separately - has `expand_aliases` *off*,
+  so setting `BASH_ENV` is not enough on its own either. Two reasons, and `-i`
+  is the one thing that answers both. zsh is the same shape: `.zshrc` is read
+  when it is interactive and not otherwise.
+- **No `exec`, or the alias is defined and still not used.** Aliases are
+  expanded in command position only, so in `exec claude` the command is `exec`
+  and `claude` is its argument - never looked up. (The documented escape is an
+  alias whose value ends in a space, which is why `alias sudo='sudo '` is a
+  thing people write.) Dropping `exec` costs nothing here: tmux follows the
+  foreground process group, so `#{pane_current_command}` still says `claude`
+  and not `bash`.
+
+`config.toml` overrides the lot, and is the honest answer for anything this
+cannot guess - a wrapper script, a different agent, flags. An alias is a
+convenience for a person typing, and asking one program to read another
+program's interactive configuration is a long way round.
 """
 function agent_cmd()
     c = get(get(config(), "agent", Dict{String,Any}()), "command", "")
     isempty(c) || return String(c)
-    string(shquote(get(ENV, "SHELL", "/bin/sh")), " -c ", shquote("exec claude"))
+    string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ", shquote("claude"))
 end
 
 """Open an agent on this item's worktree, and watch it work.

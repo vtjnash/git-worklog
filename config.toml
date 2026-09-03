@@ -134,14 +134,14 @@ activity_ttl_seconds = 120
 detail_ttl_minutes = 10
 
 [agent]
-# What `T` runs in a pane. The default is `$SHELL -c 'exec claude'` rather than
-# `claude`, because an agent is more often a shell alias or a function than a
-# file on `PATH` - and looking the name up before running it refused it before
-# it was ever tried.
+# What `T` runs in a pane. The default is `$SHELL -ic claude`, because an agent
+# is more often a shell alias or a function than a file on `PATH`. Both parts of
+# `-ic` matter: without `-i` the shell reads no rc file *and* has alias
+# expansion off, and with `exec` in front the alias would not be looked up at
+# all, since aliases expand in command position only.
 #
-# An alias defined only in an *interactive* rc file needs an interactive shell
-# to resolve, which is what this line is for: set it to `bash -ic 'exec claude'`
-# (or your shell's equivalent) if the default starts a pane that exits at once.
-# Anything that runs in a terminal will do here - a different agent, a wrapper
-# script, a command with flags.
-# command = "bash -ic 'exec claude'"
+# Set this to anything that runs in a terminal - a wrapper script, a different
+# agent, a command with flags. It is the right answer whenever the default has
+# to guess: `type claude` in your own shell says what the alias expands to, and
+# putting that here means neither program has to read the other's config.
+# command = "/opt/homebrew/bin/claude --continue"

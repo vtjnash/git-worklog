@@ -1,5 +1,29 @@
 # Which checkout an item's work is in, and the list of every one of them.
 
+@testset "what T runs, and why it is not a bare name" begin
+    # `claude` is more often a shell alias than a file on PATH, and both halves
+    # of `-ic` are load-bearing. Measured against bash 5.1 rather than assumed:
+    #
+    #   bash -c  'claude'        expand_aliases off, no .bashrc read
+    #   bash -ic 'claude'        the alias runs
+    #   bash -ic 'exec claude'   the alias does NOT run
+    #
+    # The last one is the trap: aliases expand in command position only, so in
+    # `exec claude` the command is `exec` and `claude` is an argument to it.
+    cmd = W.agent_cmd()
+    @test occursin("-ic", cmd)
+    @test !occursin("exec", cmd)
+    @test occursin("claude", cmd)
+    # Quoted, because `$SHELL` is a path and a path is one `mktempdir` away from
+    # being two arguments.
+    @test startswith(cmd, "'")
+    withenv("SHELL" => "/opt/weird path/zsh") do
+        @test occursin("'/opt/weird path/zsh'", W.agent_cmd())
+    end
+    # And it is what the worktree list runs too, so the two cannot drift.
+    @test occursin("claude", W.agent_cmd())
+end
+
 @testset "t asks which checkout, unless something has already said" begin
     # Three questions in order, and only the last one asks. The point of the
     # first two is that the answer is already on disk or already running, and
