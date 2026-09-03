@@ -400,6 +400,37 @@ end
     @test st2.filters.authors == Set([W.AUTHOR_ME])
 end
 
+@testset "a lane brings its order with it" begin
+    # Not a preference, a definition: the `touched` lane *is* the interaction
+    # clock - membership in it is having acted on something - so arriving in it
+    # sorted by anything else asks the reader to press `w` to see what they came
+    # for. Every other lane is deliberately absent from the table, which reads
+    # as "as fetched", because which order those want is a question use has to
+    # answer rather than one to argue about.
+    @test W.lane_sort(:touched) === :touched
+    @test W.lane_sort(:active) === :none && W.lane_sort(:unread) === :none
+
+    st = mkstate()
+    pick(name) = (st.frow = findfirst(r -> r[1] === :state && r[2] == name,
+                                      W.filter_rows(st)); W.toggle_filter!(st))
+    @test st.sort === :none
+    pick("touched"); @test st.sort === :touched
+    pick("active");  @test st.sort === :none
+    # `w` overrides, and the override lasts until the lane changes - which is
+    # the only rule here that can be said in one sentence.
+    st.sort = :latest
+    pick("unread"); @test st.sort === :none
+
+    # A view naming a state gets that lane's order too, since it is clearing
+    # every axis it does not name and the order is one of them.
+    W.apply_view!(st, Dict("state" => "touched"))
+    @test st.sort === :touched
+    # ...unless the view says otherwise, which is what makes "as fetched"
+    # nameable even where a lane would have implied an order.
+    W.apply_view!(st, Dict("state" => "touched", "sort" => "none"))
+    @test st.sort === :none
+end
+
 @testset "an answer to a key press outranks a standing line" begin
     # A live search wrote its own summary over the status row, so the answer to
     # a key press - "`claude` is not on PATH" - never appeared, and the key

@@ -16,6 +16,7 @@ Work dashboard.
   wl show    julia#62891                  state + the thread's recent comments
   wl next    [n]                          pull the next untagged backlog items
   wl watching                             repos you watch, and which are tracked
+  wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 close            close | normal | loose | background
   wl dismiss julia#62452                  retire from the backlog until it moves
   wl snooze  julia#62452 on-change        or a date, or "off"
@@ -165,15 +166,43 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         covers(r) = r in explicit ? "listed" :
                     first(split(r, '/')) in owners ? "covered" : ""
         untracked = [r for r in subs if isempty(covers(r))]
+        # Written as the TOML it is going to become, not as bare names: what is
+        # wanted from this is a paste, and a list of names is a list of names
+        # somebody then has to quote and comma one at a time.
         for r in subs
             c = covers(r)
-            println(isempty(c) ? "  " : "# ", r, isempty(c) ? "" : "   ($c)")
+            println(isempty(c) ? "  " : "# ", repr(r), ",",
+                    isempty(c) ? "" : "   ($c)")
         end
         @printf(stderr, "\n%d watched, %d already tracked, %d not.\n",
                 length(subs), length(subs) - length(untracked), length(untracked))
         isempty(untracked) ||
-            println(stderr, "The unprefixed lines are the ones to paste into ",
-                    "[events].repos in config.toml.")
+            println(stderr, "The uncommented lines go inside [events].repos ",
+                    "in config.toml. `wl watching | grep -v '^#'` is just them.")
+        return 0
+    end
+    if cmd == "repos"
+        rs = pinned_repos()
+        if isempty(rs)
+            println(stderr, "No repos pinned yet. The browser asks for one the ",
+                    "first time it needs file content.")
+            return 0
+        end
+        prune = length(args) > 1 && args[2] == "--prune"
+        gone = prune ? prune_repos!() : [r.name for r in rs if !r.there]
+        w = maximum(length(r.name) for r in rs)
+        for r in rs
+            prune && !r.there && continue
+            println("  ", rpad(r.name, w), "  ", r.path, r.there ? "" : "   (gone)")
+        end
+        if prune
+            @printf(stderr, "\n%d forgotten.\n", length(gone))
+        elseif isempty(gone)
+            @printf(stderr, "\n%d pinned, all present.\n", length(rs))
+        else
+            @printf(stderr, "\n%d pinned, %d gone. `wl repos --prune` forgets those.\n",
+                    length(rs), length(gone))
+        end
         return 0
     end
     if cmd == "thread"

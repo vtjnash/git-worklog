@@ -36,6 +36,23 @@ is what made "issues only" impossible to ask for and obvious to want.
 """
 const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
 
+"""The order a lane opens in, where the lane implies one.
+
+Not a preference, a definition: the `touched` lane *is* the interaction clock -
+membership in it is having acted on something - so the clock is the order it
+means, and arriving in it sorted by anything else asks the reader to press `w`
+to see the thing they came for.
+
+Every other lane is deliberately absent, which reads as "as fetched", because
+which order they want is a question use has to answer rather than an argument.
+This table is where the answer goes when it does. `w` still overrides, until
+the lane changes.
+"""
+const LANE_SORT = Dict(:touched => :touched)
+
+"""The order to open `state` in - `:none`, "as fetched", when it implies none."""
+lane_sort(state::Symbol) = get(LANE_SORT, state, :none)
+
 # Whose it is, as two values of the author axis that are not logins.
 #
 # `mine` answers half of the question - your own open pull requests - and nothing
@@ -317,8 +334,9 @@ function apply_view!(st, d)
     # Cleared like every other axis when the view names none, and for the same
     # reason: a name has to mean the same list from wherever it is pressed, and
     # an order left over from the list you were in is not that. It also makes
-    # "as fetched" nameable, which nothing else could say.
-    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : :none
+    # "as fetched" nameable, which nothing else could say - a view that names
+    # `sort = "none"` gets it even where the lane would have implied an order.
+    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f.state)
     refilter!(st)
     string("[", filter_summary(f, st.sort), "]")
 end
@@ -467,6 +485,10 @@ function toggle_filter!(st, ctrl = nothing)
     (axis, val, _) = rows[st.frow]
     if axis === :state
         st.filters.state = Symbol(val)
+        # The lane brings its order with it. `w` is still the override, and it
+        # lasts until the lane changes again - which is the only rule here that
+        # can be stated in one sentence, and the reason it is this one.
+        st.sort = lane_sort(st.filters.state)
     elseif axis === :kind
         st.filters.kind = Symbol(val)
     elseif axis === :reset

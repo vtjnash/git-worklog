@@ -93,6 +93,37 @@ function repo_path(name::AbstractString)
     isdir(p) ? p : nothing
 end
 
+"""Every pinned repo, with whether its checkout is still there.
+
+`(name, path, there)`, sorted, and the path as it was written rather than as it
+resolves - a `~` in a hand-edited entry is the user's text and worth showing
+back to them unchanged.
+"""
+function pinned_repos()
+    [(name = k, path = String(get(v, "worktree", "")),
+      there = isdir(userpath(get(v, "worktree", ""))))
+     for (k, v) in sort(collect(load_repos()); by = first)]
+end
+
+"""Forget the pinned repos whose checkouts are gone, and say which.
+
+Never automatic, and that is the whole design: an entry can be missing because
+the directory was deleted, or because an external disk is unplugged and will be
+back this afternoon. `repo_path` already ignores what is not there, so nothing
+is broken by leaving a stale entry - which means removing one can wait for
+somebody to ask.
+"""
+function prune_repos!()
+    d = load_repos()
+    gone = [name for (name, _, there) in pinned_repos() if !there]
+    isempty(gone) && return String[]
+    for name in gone
+        delete!(d, name)
+    end
+    save_repos(d)
+    gone
+end
+
 """Pin `name` to `path`, resolving worktrees and checking the remote matches.
 
 The mismatch check is a warning rather than a refusal: forks, mirrors and

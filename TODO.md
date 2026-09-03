@@ -653,8 +653,6 @@ Kept here so they can be written up in one pass rather than rediscovered.
   adopted branch that landed is still news until it has been read. The merge
   commit's committer is where that would come from, and only when the work
   landed as a merge rather than a squash or a rebase.
-- **`repos.toml` is never pruned.** Entries pointing at deleted folders are
-  ignored at read time but never removed or re-prompted.
 - **The metadata pane is a readout, not a control.** Clicking in it does
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
@@ -750,13 +748,12 @@ actual TTY:
   the report that `^]tab` and `^]esc` behaved wrongly is a report from somebody
   whose prefix was reaching the pane. What is still unknown is only whether the
   *title-bar* row settles tmux copy-mode scrolling, which is listed above.
-- Which reading of "when" you actually reach for. `w` now cycles three ways —
-  as fetched, by when you last acted, by when anything last happened — because
-  the two orders answer different questions and neither is righter in the
-  abstract. What use would settle is whether one of them should be the *default*
-  for a given lane (`mine` and `touched` are the candidates, and they probably
-  want different ones), which would mean an order per filter state rather than
-  one for the session.
+- Which reading of "when" you actually reach for. `w` cycles three ways — as
+  fetched, by when you last acted, by when anything last happened — and the
+  mechanism for a default per lane now exists (`LANE_SORT`), with `touched` the
+  only entry in it. That one is a definition rather than a preference. Whether
+  `mine`, `second` or `unread` want one, and which, is still a question only use
+  can answer; the table is a one-line change when it does.
 - The split layout at a real width. It is asserted to be `h` rows of `w` at
   several sizes, but how it *reads* at the sizes an actual screen has - and
   whether 150 columns is the right threshold - is a judgement only use can make.
@@ -826,12 +823,12 @@ so they are not mistaken for bugs later:
   ours, so nothing is missed because it was read somewhere else". Adopting
   GitHub's would undo the property the whole events lane exists for.
 
-- **Auto-populating `[events].repos` from what you watch.** `/user/subscriptions`
-  is readable with the current token and lists 51 repos. That is the "read it
-  from GitHub" half of the request that `owner/*` only half answered — worth
-  doing as a `wl` command that *prints* the list to paste, rather than as a live
-  source, so the file stays the user's and a repo you stopped caring about does
-  not come back because you never unwatched it.
+- **Auto-populating `[events].repos` from what you watch.** Done as far as it
+  should go: `wl watching` reads `/user/subscriptions` and prints the untracked
+  ones as quoted TOML lines, ready to paste into `[events].repos`, with the
+  tracked ones commented out beside them. Deliberately not a live source — the
+  file stays the user's, and a repo you stopped caring about does not come back
+  because you never got round to unwatching it.
 
 ## The plan, in order
 
@@ -844,12 +841,15 @@ standing backlog they were picked out of.
 1. **Split `browse.jl`.** Done — `src/browse/` is seventeen files and
    `test/suite/` is twenty, and the two lists read against each other. See "The
    split, and how to keep it" below for the rule that keeps them honest.
-2. **The small unblocked wins.** `wl watching` printing a suggested
-   `[events].repos` from `/user/subscriptions` (specced under Infrastructure — a
-   command that *prints* a line to paste, never a live source); a default sort
-   per lane rather than one for the session (see "Unverified", which says `mine`
-   and `touched` probably want different ones); and pruning `repos.toml` entries
-   that point at directories which are gone.
+2. **The small unblocked wins.** Done, all three. `wl watching` now prints the
+   untracked repos as the TOML they are about to become rather than as bare
+   names — a paste, not a list to quote by hand. `wl repos [--prune]` lists the
+   pinned checkouts and marks the ones whose directory is gone; pruning is never
+   automatic, because "gone" and "on an unplugged disk" look identical from
+   here, and `repo_path` already ignores what is not there so a stale entry
+   breaks nothing. And `LANE_SORT` gives a lane its order: only `touched` is in
+   it, because that lane *is* the interaction clock and the rest are a question
+   for use rather than an argument — the table is where the answer goes.
 3. **Then decide whether the two pane inconsistencies are worth fixing** — the
    first two entries under "Known gaps". Both are real and both are small, but
    neither has been hit in use yet, so the question is whether they are worth a

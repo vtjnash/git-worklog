@@ -47,3 +47,50 @@
         W.DATA_DIR[] = keepd
     end
 end
+
+@testset "a pinned checkout that is gone is forgotten only when asked" begin
+    # An entry can be missing because the directory was deleted, or because an
+    # external disk is unplugged and will be back this afternoon. `repo_path`
+    # already ignores what is not there, so nothing is broken by a stale entry -
+    # which is exactly why removing one waits to be asked for.
+    root = mktempdir()
+    here = joinpath(root, "here"); mkpath(here)
+    keepr = W.REPOS_FILE[]
+    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    try
+        write(W.REPOS_FILE[], """
+              ["o/here"]
+              worktree = $(repr(here))
+
+              ["o/gone"]
+              worktree = $(repr(joinpath(root, "not-there")))
+              """)
+        rs = W.pinned_repos()
+        @test [r.name for r in rs] == ["o/gone", "o/here"]      # sorted
+        @test [r.there for r in rs] == [false, true]
+        # The path comes back as written, not as resolved: a `~` somebody typed
+        # is their text and worth showing back to them unchanged.
+        write(W.REPOS_FILE[], """
+              ["o/tilde"]
+              worktree = "~/nowhere-at-all"
+              """)
+        @test first(W.pinned_repos()).path == "~/nowhere-at-all"
+        @test !first(W.pinned_repos()).there
+
+        # Pruning takes the missing ones and leaves the rest.
+        write(W.REPOS_FILE[], """
+              ["o/here"]
+              worktree = $(repr(here))
+
+              ["o/gone"]
+              worktree = $(repr(joinpath(root, "not-there")))
+              """)
+        @test W.prune_repos!() == ["o/gone"]
+        @test [r.name for r in W.pinned_repos()] == ["o/here"]
+        @test W.repo_path("o/here") !== nothing
+        # And nothing to do is not an error.
+        @test isempty(W.prune_repos!())
+    finally
+        W.REPOS_FILE[] = keepr
+    end
+end
