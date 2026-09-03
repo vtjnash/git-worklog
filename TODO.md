@@ -19,8 +19,11 @@ rather than deleted.
 It also hosts programs. A tmux session per worktree can be opened on an item
 (`t` a shell, `T` an agent), drawn in a pane beside the thread and driven by
 forwarding the bytes you type, so the browser needs no model of what is running
-in it. `"` lists every worktree and what is running in each, and `v` opens the
-item's note in `$EDITOR` in a pane of its own.
+in it. `^]tab` moves the keyboard between the child and the thread beside it, so
+an agent can be watched and the pull request read at the same time; the wheel
+scrolls the pane's own history when the child has no use for it. `"` lists every
+worktree and what is running in each, and `v` opens the item's note in `$EDITOR`
+in a pane of its own.
 
 ### Where and how to run it
 The checkout is wherever the sandbox mounted it - it has been at
@@ -45,6 +48,13 @@ cat urls | ./cli/bin/wl import -    # `-` is "read them from stdin" everywhere:
 printf '%s\n' julia#1 julia#2 | ./cli/bin/wl snooze - 3d
 julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
+
+`bin/wl` runs `--project=cli/precompile`, which is `Worklog` with the browser's
+own work already compiled into a package image — about two and a half seconds
+off every launch. **The tests use `--project=cli` and must keep doing so**: that
+split is the whole point of the wrapper. After changing anything under
+`cli/src`, the first `wl` pays to re-run the workload (~18s) and everything
+after it is fast; the suite pays nothing.
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
@@ -168,9 +178,31 @@ There is no TTY here, so the UI is tested by construction rather than by use:
             using tmux_jll; println(tmux_jll.tmux_path)'
   export WORKLOG_TMUX=<that path>       # and its artifact LD_LIBRARY_PATH
   ```
-  The `LD_LIBRARY_PATH` is not optional and is three directories, not one; see
-  "Running the tmux testsets in this sandbox" below for the `find` that builds
-  it. Without it every session test fails rather than skipping.
+  The `LD_LIBRARY_PATH` is **not optional** and is three directories, not one:
+  without it the binary dies with `libutf8proc.so.3: cannot open shared object
+  file` and every session test *fails* rather than skipping. After a sandbox
+  reset, `find` builds it:
+  ```bash
+  export WORKLOG_TMUX=$(find ~/.julia/artifacts -name tmux -type f | head -1)
+  export LD_LIBRARY_PATH=$(dirname $(find ~/.julia/artifacts -name 'libutf8proc.so.3' | head -1)):\
+  $(dirname $(find ~/.julia/artifacts -name 'libevent-2.1.so.7' | head -1)):\
+  $(dirname $(find ~/.julia/artifacts -name 'libncursesw.so.6' | head -1))
+  ```
+  Worth doing rather than skipping: without it the whole session, pane and
+  worktree half of the suite silently does not run.
+- **Every path the program writes through is redirected at the top of the run**
+  — `STATE`, `READ`, `INBOX` and `REPOS_FILE` seeded from the real files,
+  `CACHE_DIR` started empty, alongside `TOUCHED`. The rule is that *all* of them
+  go, not that each leak is fixed as it turns up: `state.toml` was found by an
+  adoption testset whose `finally` did not run, and `read.json` by a test that
+  pressed `r` and stamped a real item as read. A testset that points
+  `REPOS_FILE` at a temp repo puts it back to `REPOS_SANDBOX`, never to `""`,
+  which means the user's own file again. `errors.log` is the deliberate
+  exception — the suite deletes the real one at startup and several tests assert
+  on the footer warning it produces.
+- **The suite runs against `Worklog` directly** (`--project=cli`), never through
+  `cli/precompile`. That is the point of the wrapper being a separate package:
+  the workload is `wl`'s tax and not the edit-test loop's.
   The protocol itself needs none of that: `mux_feed!` is a pure function of one
   line and the state before it, driven from a vector of strings the way
   `readevent` is driven from an `IOBuffer`.
@@ -546,24 +578,16 @@ Kept here so they can be written up in one pass rather than rediscovered.
 
 ## Known gaps in what has shipped
 
-- **A url sometimes prints where the header of the next node is.** Reported
-  2026-09-02 from julia#18004, as
-  `https://…#issuecomment-372112478\u25be nalimilan  2018-03-11 …`. **Not the
-  rows and not the parser**: over widths 40..200 no header row on that thread
-  ever contains a url, and the footnote rows land where they belong. What is
-  left is `linkify`, which wraps every rendered url in an OSC 8 hyperlink on the
-  *finished frame* — so the url is in the output as the escape's payload, and a
-  terminal that does not consume the sequence prints it and swallows what
-  follows, which is exactly the shape of the artifact. That fits it only
-  appearing in a real terminal, and tmux below 3.4 is one of the things that
-  does not forward OSC 8.
-
-  Click-to-copy has since made the hyperlinks unnecessary: `y` copies and now so
-  does a click, both through OSC 52, neither needing the terminal to understand
-  a link. So `linkify` could go, and with it the underline that marks a link -
-  but it is kept for now (decided 2026-09-03) on the grounds that nothing has
-  been seen to render wrong since, and the axe is there whenever something does.
-  If the artifact comes back, that is the thing to remove.
+- **`^]t`/`^]T` from a pane, and `t`/`T` from the reading side, disagree.** From
+  the child's side the prefix forwards them, so `^]T` in a shell pane reaches
+  the agent on the same item — which is the useful thing. From the reading side
+  they leave for the list, which is the toggle that was asked for. Both are
+  defensible on their own and nothing on screen says they differ.
+- **The reading side forwards `f` and `q` to the browser.** `f` switches the
+  browser to its filter pane, which is not drawn there — so nothing visibly
+  happens and the change is waiting when you pop back. `q` quits the program
+  from inside a pane, which is consistent (the reading side *is* the browser)
+  but is not what `q` does in any other view here.
 - **A pane once reported `session ended` with an empty frame, unexplained.**
   Seen once, in a scripted launch on 2026-09-02. The first theory — that the
   wake channel filled and blocked the reader — was tested and is wrong: the
@@ -635,10 +659,13 @@ actual TTY:
   that produces them is driven directly from an `IOBuffer` in the tests, so the
   byte-to-keycode step is covered; what is not is whether this terminal sends
   the bytes the tests feed it.
-- Mouse reporting end to end. `\e[?1006h\e[?1002h` going out, SGR reports
-  coming back, and whether they survive tmux. Click-to-row, drag-to-select and
-  the wheel are all tested by handing `onmouse!` synthetic events against a
-  rendered frame, which pins the geometry but not the terminal.
+- Click-to-row and drag-to-select in the *browser's* panes. The mouse round
+  trip itself is answered — `\e[?1006h\e[?1002h` goes out, SGR reports come
+  back, they survive the user's tmux, and `retarget_mouse` lands them inside a
+  hosted pane correctly enough for an editor two multiplexers down to respond
+  (2026-09-03, from the nested-tmux report). What that does not pin is the
+  browser's own geometry: `onmouse!` maps a click through `layout(w, h)` and
+  `st.hdr`, and only synthetic events have ever gone through it.
 - Whether giving up the terminal's own selection is the right trade in practice.
   `m` turns mouse reporting off and hands it back, which is the escape hatch,
   but only real use will say whether that toggle is reached for constantly.
@@ -670,11 +697,11 @@ actual TTY:
   worktree list.
 - `ensure_commit!`'s fetch path: every PR tried so far already had its head
   commit locally, so the fetch fallback has never run.
-- A hosted pane through a real terminal. Every part is driven directly in the
-  tests - `onraw!` with bytes, `render` at fixed sizes, the mouse and cursor
-  against a live tmux - but not one keystroke has reached it from an actual tty.
-  Specifically unknown: whether this terminal sends `0x1d` for `^]`, and whether
-  anything between here and tmux binds it first.
+- ~~A hosted pane through a real terminal.~~ Answered on 2026-09-03: `^]` does
+  arrive as `0x1d` and nothing between the terminal and here binds it first —
+  the report that `^]tab` and `^]esc` behaved wrongly is a report from somebody
+  whose prefix was reaching the pane. What is still unknown is only whether the
+  *title-bar* row settles tmux copy-mode scrolling, which is listed above.
 - Which reading of "when" you actually reach for. `w` now cycles three ways —
   as fetched, by when you last acted, by when anything last happened — because
   the two orders answer different questions and neither is righter in the
@@ -758,220 +785,99 @@ so they are not mistaken for bugs later:
   source, so the file stays the user's and a repo you stopped caring about does
   not come back because you never unwatched it.
 
-## Where we were at just now before context reset:
+## Where this session got to
 
-The whole of that list is done: `t` (see "The `t` design, built" below), the
-`STATE[]` redirect the suite wanted, the reset row in the filter pane, the reset
-view at the head of `'`, a view clearing the sort it does not name, `san` →
-`tTv`, collapsing the repo/label/author axes to what is applied, `R` to re-read
-the item on screen, `^]tab` as a focus toggle with escape/`t`/`T` restoring the
-list, and the SIGHUP/EOF pair. "What I already know about the asks above" says
-what each one turned into and why.
+Everything on the previous session's list is done. What is left below is the
+standing backlog — "Outstanding work", "Known gaps", "Unverified" and
+"Infrastructure" — plus the one item that turned out not to be this program's.
+
+### What shipped, and the argument each one rests on
+
+Read the commits for the detail; this is the shape, so the next session knows
+what the program now believes about itself.
+
+- **`t`/`T` ask which checkout.** Three rules in `item_worktree`: a worktree
+  already on the item's branch, then a session already tagged with the item
+  (whatever branch it has out, whichever kind — so `t` lands where this item's
+  agent is), then the main checkout *and a flag saying that was a guess*. Only
+  the flag's holder asks. `item_checkout` is the same answer without the flag,
+  so `e` reads the same first two rules and the two cannot disagree; and the
+  session's tag *is* the memory, so it asks once per item and never again.
+- **The way back to nothing.** A `:reset` row leads the filter pane and a
+  default view leads `'`. The latter is a view like any other because a view now
+  clears the sort it does not name, the way it already cleared every other axis
+  it does not name — so `state = "active"` and nothing else *is* a fresh
+  `Filters()`.
+- **A filter axis is a readout, not a menu.** Repo, label and author list only
+  what is applied, plus the author axis's two controls; the picker row under
+  each is where choosing happens, and it narrows by typing, which is the only
+  thing that scales to several hundred labels. Category keeps its whole list.
+- **`R` re-reads the item on screen** — the thread past its ten-minute window,
+  the checks past their two-minute one, the metadata that otherwise only reloads
+  when the selection moves. Quiet on purpose: nodes, cursor and fold state all
+  stay.
+- **A pane and the thread beside it share the keyboard.** `PaneView` has a
+  `focus`, and `wantsraw` is what it means. `^]tab` gives the keys to the
+  thread; `tab` gives them back; `esc`/`t`/`T` leave for the list. The side
+  without the focus gets *nothing* — which keys belong to which side has to be
+  answerable by looking at which side is lit, not by remembering a list. And
+  unknown keys after `^]` go to the browser, which is what makes `^]m` reach the
+  mouse toggle without anything in `paneview.jl` naming it.
+- **Places replace places; dialogs stack.** `isdialog` is the distinction and
+  `push_place!` enforces it. A terminal on top of the worktree list was never a
+  state anybody meant to be in.
+- **Losing the terminal is an exit.** `trap '' HUP` in `bin/wl` before the
+  `exec`, and `EndEvent` so the reader task cannot leave the loop parked on its
+  channel forever.
+- **A pane has scrollback.** The wheel reports a child never asked for used to
+  be dropped; they now move this view's own window over the pane's history.
+- **`wl` starts through `cli/precompile`.** See below.
+
+### The precompile wrapper
+
+`cli/precompile` is `WorklogPrecompile`: `Worklog` re-exported, plus a
+`@compile_workload` of the browser's own path. `bin/wl` loads it; the test suite
+loads `Worklog` directly and never sees it.
+
+Measured on the path that draws a comment thread: **4.33s → 1.83s**, so about
+two and a half seconds off every launch. Nearly all of it is the markdown
+renderer — a comment body goes to Term, and nothing had ever run that before the
+user did.
+
+Three decisions worth not re-litigating:
+
+- **Separate package, not a workload in `Worklog`.** A workload runs whenever
+  the package holding it is precompiled, and `Worklog` is precompiled every time
+  one of its own files is touched. Downstream, the tax lands only on `wl`.
+- **A hand-written workload, not the test suite.** The suite was tried first. It
+  spawns tmux servers, `vi` and half a dozen git repositories, which would then
+  be happening inside package precompilation — parallel, in a subprocess, output
+  captured. And a failing test would stop `wl` from starting at all.
+- **Invented items and nodes, hermetic paths, and a `catch` around everything.**
+  So the image does not depend on what was in the dashboard the day it was
+  built, so nothing reads or writes the real data, and so a workload that breaks
+  cannot stop the program from being installed.
+
+To extend it, add to the workload in `precompile/src/WorklogPrecompile.jl` — and
+keep the two rules it already follows: nothing that spawns a process, and
+`load_nodes!`/`load_meta!` satisfied before any `handle!` call, or the workload
+starts a fetch and hangs.
 
 ### Nested tmux and the mouse: measured, and not this program's
 
 "mouse-in-nvim-in-tmux-in-wl-tmux works, but the tmux pane itself does not —
 notably for activating scrolling, since `^b^b[` does not seem to reach there
-either." Both halves reproduced against a real tmux 3.5a, and both are answers
-rather than bugs. There is a testset pinning each.
+either." Both halves reproduced against a real tmux 3.5a, and there is a testset
+pinning each.
 
-- **`^b^b[` is one prefix too many; `^b[` works.** `onraw!` sends bytes into the
-  pane's pty with `send-keys -H`, so the *hosting* session never sees them as
-  keys of its own — there is no outer prefix to escape. The second `^b` is the
-  inner tmux's `send-prefix`, which puts a literal `^b` into the shell, and the
-  `[` follows it there. This program's own prefix is `^]`, and it is the only
-  byte held back.
-- **The mouse is the inner tmux's `mouse` setting.** A tmux with `mouse on` sets
-  button-event and SGR tracking (1002 + 1006) on the pane it is drawn in, so the
-  outer sees a child that wants the mouse, `retarget_mouse` hands the wheel over,
-  and the inner tmux enters copy mode — measured working end to end. With
-  `mouse off` it sets nothing on its own behalf, only on behalf of whatever runs
-  inside it: so the wheel reaches nvim and the tmux itself does nothing with it,
-  which is exactly the reported symptom. `set -g mouse on` in the inner tmux is
-  the whole fix.
-- **`#{mouse_any_flag}` is the disjunction**, not 1003 alone: measured 1 for
-  each of `?1000h`, `?1002h` and `?1003h`, and 0 for SGR-only. So the gate is
-  the right one and was never the problem.
-
-What *was* missing is on our side, and is now built: a pane whose child ignores
-the mouse had **no scrollback at all** — `capture-pane` reads the grid, so a
-shell that had just printed a build log could not be looked back at, and the
-wheel reports were arriving and being dropped. Those are the ones nobody wanted,
-so the wheel now moves this view's own window instead: `capture-pane -S -n -E
-rows-1-n` is a window `rows` tall scrolled back `n`, `#{history_size}` bounds
-it, typing snaps back to live, and the cursor is not drawn while looking at the
-past. Refused on the alternate screen (`#{alternate_on}`), because what is
-behind a full-screen program is the wreckage of its own redraws — which is also
-why the nested-tmux case gets nothing from this and wants `mouse on` instead.
-
-### The `t` design, built
-
-`item_worktree(it)` in `browse.jl` is the three rules, and it returns the flag
-that says whether the third one was reached:
-
-1. **A worktree already on the item's branch.** No prompt.
-2. **A session already tagged with this item** (`mux_list` rows carry `.item`
-   and `.worktree`), whatever branch that checkout happens to have out, and
-   whichever kind the session is - `t` lands where this item's *agent* is. No
-   prompt.
-3. **Otherwise the main checkout, and a flag saying it was a guess.**
-
-Both of the questions the plan left open are answered, and by the same move:
-
-- **`e` shares the answer.** `item_checkout` is now `item_worktree` without the
-  flag, so `e` reads the same first two rules. It never asks - an editor that
-  refused to open would be worse than one that guessed - but once `t` has
-  started a session, rule 2 answers for `e` too, so the two cannot disagree
-  about an item you have actually worked on.
-- **The choice is remembered by the session, and nowhere else.** Opening one
-  tags it with the item, and that tag *is* rule 2 on the next press. No new
-  state, and it expires exactly when the work does.
-
-On the asking side: `ask_checkout` pushes a `ChooseView` of every worktree of
-the repo, main first as git lists them, each row carrying the branch it has out
-and what is running in it, plus a last row that makes a new place.
-`ask_worktree_for` is that row's `PromptView` - prefilled with
-`worktree_dest(repo, branch)`, or the main checkout's own path when the item has
-no branch - and `make_checkout!` takes a typed path that is *already* a worktree
-as a way of picking it rather than as an error, which is what makes a list
-longer than the box reachable. Failure re-prompts with git's own complaint, the
-way `ask_worktree` already did on the `"` side.
-
-Because asking means pushing a view and returning, the answer arrives after the
-key press is over: `enter_session`, `open_terminal` and `open_agent` take a
-`say` callback, and `t`/`T` in `handle_key!` pass one that writes `st.status`.
-The direct route still returns its string, so nothing that does not ask had to
-change.
-
-### What I already know about the asks above
-
-Answers that took a measurement or a read of the code, so the next session does
-not have to make them again:
-
-- **"What is 'ready to merge' — it doesn't seem to select any filters."** It is
-  `state = "active", bucket = ["needs-merge"]`, and it selects nothing because
-  `needs-merge` had **0 items**: that bucket is "approved and green" and nothing
-  was. Re-measured against the current `facts.json` and it is still 0 — the
-  bucket does not appear in `axis_counts` at all. The view is right and the
-  dashboard is empty. (The bucket axis lists what is *applied* whatever its
-  count, so pressing the view does show the row selecting nothing, which is the
-  answer rather than a silence.)
-- **"Does views include sort (it should)?"** It did, half way: `apply_view!`
-  read `d["sort"]` and `view_toml` wrote it, but a view naming no sort left the
-  order alone where every other axis was cleared. Symmetric now, so a view can
-  pin "as fetched" as well as change it - which is what let the reset view be
-  written as a view rather than as a special case.
-- **"Always show me/not me in authors."** Done - and it was worse than it
-  looked: narrowed to a repo with none of your work in it the *whole* author
-  axis vanished, not only those two rows. They are listed now whether or not
-  they would select anything, since that they select nothing is the answer, and
-  they do not spend the axis's share of the pane.
-- **"Sorted alphabetically."** Done, on every axis: ordering by weight put the
-  busiest first, which sounds useful and is not, because nobody holds a model of
-  which value would select most - so the head of the list was in an order that
-  could be neither predicted nor looked up. The stability that ordering was for
-  survives, since alphabetical does not reshuffle under the cursor either.
-- **"Collapse author/label/repo to only the ones currently active."** Done.
-  `AXIS_APPLIED_ONLY` is the three axes that now list only what is applied, plus
-  the author axis's two controls; the picker row below each is where every other
-  value lives, and it narrows by typing, which is the only thing that scales to
-  several hundred labels. Category keeps its whole list — thirteen values, each
-  a different kind of work. This also closed the "fixed eight values" gap, which
-  was a compromise that served neither purpose.
-- **"An option at the top of filters to clear all / reset."** Done, both halves.
-  `filter_rows` leads with a `:reset` row that makes the jump `c` makes and
-  remembers it for `` ` ``, and it names the key once there is something to
-  clear. `VIEWS` leads with "the default — active, unfiltered, as fetched",
-  which is a view like any other: it names only `state`, and since a view now
-  clears the sort it does not name, that *is* `Filters()` plus `:none`.
-  `isdefault(f)` is asked of the value rather than tracked, so the row says the
-  same thing however the filter got there.
-  (Still open, and deliberately not touched: `` ` `` and `'` are both guarded by
-  `st.lmode !== :filters`, so the way back out is only reachable from the item
-  list. Whether that guard is worth keeping is a question of its own.)
-- **"The 'san' key should be 'tTv'."** Done - the marks themselves as well as
-  the header and the legend, so the column is its own key: `session_marks`,
-  `list_header` and `list_legend` in `paneview.jl`.
-- **`^]tab` and escape.** Done. `PaneView` gained a `focus` of `:child` or
-  `:read`, and `wantsraw` is what it means: on the reading side the keys arrive
-  decoded and everything this view does not name is handed to the thread beside
-  it, so `j` walks the comments while the agent works. `^]tab` goes in, `tab`
-  comes back out, and `esc`/`t`/`T` leave for the list with the session still
-  running — `^]q` is the way out from the child's side. Below `SPLIT_MIN` there
-  is no second column, so there `^]tab` keeps its old meaning: a focus nobody
-  can see is worse than no focus at all.
-- **A side without the focus gets no keys at all.** The first cut of the above
-  kept `K`, `a` and `r` for the pane on the *reading* side, which quietly took
-  `r` away from the browser, where it means "mark this read". Which keys belong
-  to which side has to be answerable by looking at which side is lit, and not
-  by remembering a list — so the reading side keeps exactly three (`tab` back
-  to the child, `esc`/`t`/`T` out to the list) and the child gets nothing.
-- **Unknown keys after `^]` go to the browser.** `^]` means "this one is not the
-  child's", and having said that, the sensible place for a key the pane layer
-  has no use for is the other side of the screen. Six are the prefix's own
-  (`tab`, `q`, `K`, `a`, `r`, `]`) plus `^]?` for the list of them; the rest are
-  forwarded, so `^]m` toggles the mouse capture over the pane, `^]o` switches to
-  the comments and `^]j` walks a line — none of which had to be named, and none
-  of which can now be forgotten. The browser's reply is copied into the note
-  under the child, because its own footer is not on screen there.
-  `^]t`/`^]T` ride along, which is how a shell reaches the agent on the same
-  item and back. `enter_session` refuses to stack a second view on the session
-  already showing, so pressing the kind you are looking at says so instead of
-  doubling the pane.
-- **A key to re-read the current item.** Done, as `R`; `u` was already taken by
-  "mark unread". `refresh_item!` drops the thread cache and the checks'
-  two-minute window and re-asks for the metadata, quietly — the nodes, the
-  cursor and the fold state all stay, because a refresh the reader has to notice
-  is being thrown back to the top of a thread they were in the middle of. Not
-  the dashboard; that is still `wl refresh`.
-  It cost `i import` its place in the footer, which was already truncating at
-  150 columns. That is the one key whose control is on screen anyway: the import
-  row leads the list and says what it does.
-- **SIGHUP / stdin EOF.** Done, and it is two halves. `trap '' HUP` in
-  `cli/bin/wl` before the `exec` — an *ignored* disposition is the one thing
-  that survives `exec`, which is exactly why it cannot be done from inside julia
-  (verified: `SigIgn` in the julia process's `/proc/self/status` has bit 1 set).
-  Then `EndEvent` in `controller.jl`: the reader task used to `break` on EOF and
-  leave the main loop parked on its channel forever, so it now posts one on its
-  way out and the loop leaves through its own `finally`. That `finally` is
-  guarded too — the usual way to reach it is the terminal having gone away, and
-  every write in it is then to a closed descriptor.
-
-### Every path the suite writes through is redirected — done
-
-`runtests.jl` points all of them at a temp directory at the top of the run:
-`STATE`, `READ`, `INBOX` and `REPOS_FILE` seeded from the real files, and
-`CACHE_DIR` started empty, alongside the `TOUCHED` redirect that was already
-there. The rule is that *all* of them go, not that each leak is fixed as it
-turns up — `state.toml` was found by an adoption testset with a `finally` that
-did not run, and `read.json` by a test that pressed `r` and stamped a real item
-as read. A run that ends part-way through can now leave nothing behind, and no
-`finally` has to run for that to hold.
-
-The testsets that point `REPOS_FILE` at a temp repo put it back to
-`REPOS_SANDBOX` rather than to `""`, since `""` means the user's own file again.
-`errors.log` is the deliberate exception: the suite deletes the real one at
-startup, and several tests assert on the footer warning it produces.
-
-(The mechanism that ended those runs early was *not* SIGPIPE: julia disables it,
-so `| head` closing the pipe does not kill the process that way. The fix did not
-depend on knowing which.)
-
-### Running the tmux testsets in this sandbox
-
-The hosted-pane testsets skip themselves without a real tmux, and there is one
-in the depot — but it needs its dependencies' artifact directories on
-`LD_LIBRARY_PATH` or it dies with `libutf8proc.so.3: cannot open shared object
-file` and every session test fails as "could not start". Three libraries, and
-`find` is how to locate each after a sandbox reset:
-
-```bash
-export WORKLOG_TMUX=$(find ~/.julia/artifacts -name tmux -type f | head -1)
-export LD_LIBRARY_PATH=$(dirname $(find ~/.julia/artifacts -name 'libutf8proc.so.3' | head -1)):\
-$(dirname $(find ~/.julia/artifacts -name 'libevent-2.1.so.7' | head -1)):\
-$(dirname $(find ~/.julia/artifacts -name 'libncursesw.so.6' | head -1))
-julia --project=cli cli/test/runtests.jl
-```
-
-Worth doing rather than skipping: without it the whole session, pane and
-worktree-chooser half of the suite silently does not run.
+- **`^b^b[` is one prefix too many; `^b[` works.** `onraw!` writes bytes into
+  the pane's pty with `send-keys -H`, so the *hosting* session never sees them
+  as keys of its own — there is no outer prefix to escape. The second `^b` is
+  the inner tmux's `send-prefix`, which puts a literal `^b` into the shell.
+- **The mouse is the inner tmux's own `mouse` setting.** With `mouse on` it sets
+  1002 + 1006 on the pane it is drawn in, the wheel is handed over, and copy
+  mode opens — measured end to end. With `mouse off` it sets nothing on its own
+  behalf, only on behalf of what runs inside it: so the wheel reaches nvim and
+  the tmux does nothing with it. `set -g mouse on` is the whole fix.
+- **`#{mouse_any_flag}` is the disjunction** of standard/button/all — 1 for each
+  of `?1000h`, `?1002h`, `?1003h`, and 0 for SGR-only. The gate was never wrong.
