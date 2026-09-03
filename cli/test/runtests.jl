@@ -558,7 +558,9 @@ end
     axis_rows(a) = [r for r in rows if r[1] === a]
     @test length(axis_rows(:repo)) <= W.AXIS_SHOWN
     @test length(axis_rows(:label)) <= W.AXIS_SHOWN
-    @test length(axis_rows(:author)) <= W.AXIS_SHOWN
+    # Two more on the author axis: its two controls are always listed and do
+    # not spend its share of the pane.
+    @test length(axis_rows(:author)) <= W.AXIS_SHOWN + 2
     # Category is exempt: a dozen values, each a different kind of work. It
     # still drops the ones that would select nothing, as every axis does.
     (_, _, nb, _, _, _) = W.axis_counts(st)
@@ -570,10 +572,30 @@ end
     @test picks == ["repo", "label", "author"]
     @test occursin(string(length(st.repos)), first(r[3] for r in rows if r[1] === :pick))
 
-    # The head of a long axis is the part worth listing: what carries most of
-    # the dashboard, not what sorts first.
-    @test st.repos[1] == "JuliaLang/julia"
-    @test issorted([count(it -> it.repo == r, st.all) for r in st.repos]; rev = true)
+    # Alphabetical, on every axis. Ordering by weight put the busiest first,
+    # which sounds useful and is not: nobody holds a model of which value would
+    # select most, so the head of the list was in an order that could be neither
+    # predicted nor looked up. A name can be found by knowing its name.
+    @test issorted(st.repos) && issorted(st.labels)
+    # Except the author axis's two controls, which lead it: neither is a name
+    # anybody would think to type.
+    @test st.authors[1] == W.AUTHOR_ME && st.authors[2] == W.AUTHOR_OTHERS
+    @test issorted(st.authors[3:end])
+
+    # And those two are listed whether or not they would select anything: that
+    # they select nothing is the answer. Narrowed to a repo with none of your
+    # work in it, the whole axis used to vanish - no rows at all, not even the
+    # half of it that had items.
+    quiet = mkstate()
+    away = first(r for r in quiet.repos
+                 if all(x.author != W.login() for x in quiet.all if x.repo == r))
+    quiet.filters.repos = Set([away]); W.refilter!(quiet)
+    arows = [r for r in W.filter_rows(quiet) if r[1] === :author]
+    @test length(arows) >= 2
+    @test occursin("me (", arows[1][3]) && occursin("anyone else", arows[2][3])
+    # Nor do they spend the axis's share of the pane, which would be paying for
+    # two rows that are always there twice.
+    @test count(r -> r[1] === :author, W.filter_rows(st)) == W.AXIS_SHOWN + 2
 
     # `↵` on the picker row opens a ChooseView over every value the axis has,
     # minus what is already applied, and typing narrows it by `occursin`.

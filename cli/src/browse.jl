@@ -253,9 +253,9 @@ apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED)
 
 The pane used to try to show what was *available*, and there is too much of it:
 ~140 repos, several hundred labels, more authors than either. A list you scroll
-past is not a control. So a long axis shows what is applied, plus the few
-biggest of what is not, plus a row that opens the rest as a picker - and the
-pane goes back to being short enough to read.
+past is not a control. So a long axis shows what is applied, plus the first few
+of what is not, plus a row that opens the rest as a picker - and the pane goes
+back to being short enough to read.
 
 Category is exempt: thirteen values that are each a different kind of work, and
 the one nobody would think to search for by name.
@@ -386,17 +386,26 @@ function filter_rows(st)
         for v in values
             n = get(tally, v, 0)
             on = v in sel
+            # `me` and `anyone else` are the axis's two controls rather than two
+            # of its values, and a control is worth offering when it would
+            # select nothing: that it selects nothing is the answer. Narrow to a
+            # repo you have written nothing in and the whole axis used to
+            # vanish - no rows at all, not even the half of it that had items.
+            always = axis === :author && v in (AUTHOR_ME, AUTHOR_OTHERS)
             # A label nothing here carries is noise - and there are hundreds of
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
-            n == 0 && !on && continue
+            n == 0 && !on && !always && continue
             # What is applied is always listed; what is merely available is
             # listed until the axis has had its share of the pane. `values` is
-            # ordered by how much of the dashboard each carries - of the whole
-            # of it, not of what is filtered, so that the pane does not reshuffle
-            # under the cursor as the filter changes - which makes the ones that
-            # stop being listed the rarest rather than an alphabetical accident.
-            if !on
+            # alphabetical, so where a name would be is where it is, and what
+            # falls off the end is the tail of the alphabet rather than a
+            # judgement about importance that the reader was never told about.
+            # The picker below has all of them either way.
+            # Neither do they spend the axis's share of the pane: they are two
+            # rows that are always there, and taking two of the eight from the
+            # authors worth listing would be paying for them twice.
+            if !on && !always
                 axis !== :bucket && shown >= AXIS_SHOWN && continue
                 shown += 1
             end
@@ -637,16 +646,19 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = load_touched(), archived = field_map("archive"),
                   buckets = sort(unique(it.bucket for it in all)),
-                  # Busiest first, like the labels and the authors: what the
-                  # pane lists of a long axis is its head, so the head has to be
-                  # the part worth listing.
-                  repos = sort(unique(it.repo for it in all);
-                               by = r -> (-count(it -> it.repo == r, all), r)),
-                  labels = sort(collect(keys(lc)); by = l -> (-lc[l], l)),
+                  # Alphabetical, like every other axis. Ordering by weight put
+                  # the busiest first, which sounds useful and is not: nobody
+                  # holds a mental model of which value would select most, so
+                  # the head of the list was in an order that could not be
+                  # predicted or looked up. A name can be found by knowing its
+                  # name.
+                  repos = sort(unique(it.repo for it in all)),
+                  labels = sort(collect(keys(lc))),
                   # The two predicates lead, because they are the two anybody
-                  # wants and neither is a name you would think to type.
+                  # wants and neither is a name you would think to type. The
+                  # logins after them are alphabetical like everything else.
                   authors = vcat([AUTHOR_ME, AUTHOR_OTHERS],
-                                 sort(collect(keys(ac)); by = a -> (-ac[a], a))))
+                                 sort(collect(keys(ac)))))
     refilter!(st)
     st
 end

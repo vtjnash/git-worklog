@@ -839,19 +839,21 @@ not have to make them again:
   when a view names none - every other axis is cleared, and that one is left
   alone. Making it symmetric is probably what is wanted, and would mean a view
   can pin "as fetched" as well as change it.
-- **"Always show me/not me in authors."** They are already pinned to the front
-  of `st.authors` (`AUTHOR_ME`, `AUTHOR_OTHERS` lead the list). What drops them
-  is the zero-count skip in `filter_rows` - `n == 0 && !on && continue` - which
-  is right for a label nothing carries and wrong for these two. The fix is to
-  exempt them there, not to reorder anything.
-- **"Collapse author/label/repo to only the active ones, sorted alphabetically."**
-  `AXIS_SHOWN` is the cap (8) and the head is currently ordered *by weight*
-  rather than alphabetically, deliberately: the ordering is over the whole
-  dashboard rather than the filtered view so the pane does not reshuffle under
-  the cursor as the filter changes. Alphabetical is stable in the same way, so
-  the reason survives the change - but the head stops being "the ones that would
-  select most", which is what made `JuliaLang/julia` lead the repo axis. Both
-  halves of the ask are in `filter_rows` and `BState`'s builder.
+- **"Always show me/not me in authors."** Done - and it was worse than it
+  looked: narrowed to a repo with none of your work in it the *whole* author
+  axis vanished, not only those two rows. They are listed now whether or not
+  they would select anything, since that they select nothing is the answer, and
+  they do not spend the axis's share of the pane.
+- **"Sorted alphabetically."** Done, on every axis: ordering by weight put the
+  busiest first, which sounds useful and is not, because nobody holds a model of
+  which value would select most - so the head of the list was in an order that
+  could be neither predicted nor looked up. The stability that ordering was for
+  survives, since alphabetical does not reshuffle under the cursor either.
+- **"Collapse author/label/repo to only the ones currently active."** Not done.
+  The rest of the ask: today an axis lists what is applied plus the first
+  `AXIS_SHOWN` (8) of what is not, with anything a filter would select nothing
+  from skipped already. Showing *only* what is applied is a smaller list again,
+  and the picker row is what makes it reachable.
 - **"An option at the top of filters to clear all / reset."** `c` already does
   exactly that in the filter pane (`st.filters = Filters()`), and now also
   remembers the previous filter for `` ` ``. What is missing is the *row*, which
@@ -867,12 +869,19 @@ not have to make them again:
   trap belongs there; the graceful side is `run!` in `controller.jl`, whose
   reader task is what would see the EOF.
 
-### One trap that bit this session
+### A test fix worth making: redirect `STATE[]` for the suite
 
-The test suite writes the **real** `data/state.toml` and puts it back in a
-`finally`. A run killed part-way - `| head` closing the pipe is enough, since
-that SIGPIPEs julia - leaves whatever the adoption testset wrote behind, and the
-next run fails with counts that are one too high. `git -C data checkout
-state.toml` is the fix. Redirecting `STATE[]` for the whole suite the way
-`TOUCHED[]` is redirected at the top would make it impossible; that is a small
-change and worth doing.
+The suite writes the **real** `data/state.toml` and puts it back in a `finally`,
+so a run that ends part-way through leaves whatever the adoption testset wrote
+behind, and the *next* run fails on counts that are one too high. It happened
+once this session and cost twenty minutes of looking at the wrong thing:
+`git -C data checkout state.toml` is the cure, and the counts being "one too
+high" is the tell.
+
+**Do this rather than explain it:** redirect `STATE[]` at the top of
+`runtests.jl` the way `TOUCHED[]` already is, and the whole class goes away -
+no `finally` to fail to run, and no way for a test to touch the file at all.
+
+(The mechanism was *not* SIGPIPE: julia disables it, so `| head` closing the
+pipe does not kill the process that way. Whatever ends a run early, the fix is
+the same and does not depend on knowing which.)
