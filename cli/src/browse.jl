@@ -511,6 +511,11 @@ Base.@kwdef mutable struct BState <: View
     meta::Any = nothing    # Events.itemmeta result for `metakey`, or nothing
     checks::Any = nothing  # check_contexts result, or nothing
     metakey::String = ""
+    # The pending review, if there is one, and which item it belongs to. Held
+    # rather than asked for per frame, and kept after the cursor moves away -
+    # that is the whole point of it: a draft you have walked off is the one that
+    # gets forgotten.
+    batch::Any = nothing            # (url, ref, review, n) or nothing
     metapending::Union{Nothing,Task} = nothing
     sessions::Vector{NamedTuple} = NamedTuple[]  # live multiplexer sessions, as
                                           # of the last metadata fetch; asking
@@ -1134,6 +1139,16 @@ function collect_meta!(st::BState)
     st.meta = r.meta
     st.checks = r.checks
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
+    # A draft left on this pull request by an earlier session, which nothing
+    # here would otherwise know about. Only adopted when there is no batch in
+    # hand: what this session has posted knows its own count, and this does not.
+    if st.meta !== nothing && !isempty(get(st.meta, :pending, "")) &&
+       (st.batch === nothing || st.batch.url == st.metakey)
+        i = findfirst(x -> x.url == st.metakey, st.all)
+        i === nothing || (st.batch = (url = st.metakey, ref = st.all[i].ref,
+                                      review = st.meta.pending,
+                                      n = st.batch === nothing ? 0 : st.batch.n))
+    end
     st.metapending = nothing
     true
 end
@@ -1215,6 +1230,10 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
     it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?
                                 string(RED, "conflicting", AR) : lowercase(it.mergeable))
+    b = batch_of(st, it)
+    b === nothing ||
+        kv("draft", string(YEL, b.n, b.n == 1 ? " comment" : " comments", AR, "  ", AD,
+                           "c adds one \u00b7 A sends them", AR))
     if haskey(st.archived, it.url)
         kv("archived", string(st.archived[it.url], "  ", AD, "x takes it back out", AR))
     elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
@@ -1692,7 +1711,8 @@ function render_frame(st::BState, w::Int, h::Int)
                    "n/N node \u00b7 ",
                    "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
                    "q quit \u00b7 tab pane")
-    keys2 = string("C comment \u00b7 A review \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
+    nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
+    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 v note \u00b7 x archive \u00b7 i import \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
@@ -2402,13 +2422,30 @@ function browse(items::Vector{Item}, title::AbstractString, unread = Set{String}
     run!(ctrl, st)
 end
 
+"""The url the cursor is on, or `""` - which is also what the import row is."""
+curl(st::BState) = (isempty(st.items) || st.sel == 0) ? "" : st.items[st.sel].url
+
 """
     handle!(st, k, ctrl) -> Symbol
 
-One keystroke. Returns `:quit` to leave, `:ok` otherwise; the controller
-redraws after every key.
+One keystroke, with the one question that has to be asked between keys: whether
+a draft review has just been walked away from. It goes here rather than in the
+dozen places that can move the cursor - `j`, a click, a search jump, going to an
+item from the worktree list - because the condition is not "which key was
+pressed", it is "the selection changed and something was left behind".
+
+`q` with a draft in hand asks instead of quitting, and quits on the next press.
+Returns `:quit` to leave, `:ok` otherwise; the controller redraws after every key.
 """
 function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
+    before = curl(st)
+    r = handle_key!(st, k, ctrl, at)
+    r === :quit && batch_prompt!(st, ctrl, "") && return :ok
+    curl(st) == before || batch_prompt!(st, ctrl, curl(st))
+    r
+end
+
+function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     h, w = displaysize(stdout)
     load_nodes!(st)
     load_meta!(st)
@@ -2714,6 +2751,13 @@ next redraw, so a scroll that left the cursor behind would spring back at the
 next keystroke.
 """
 function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller)
+    before = curl(st)
+    r = onmouse_at!(st, ev, ctrl)
+    curl(st) == before || batch_prompt!(st, ctrl, curl(st))
+    r
+end
+
+function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller)
     h, w = displaysize(stdout)
     L = layout(w, h, st.nmeta)
     p = hitpane(L, ev.x, ev.y)
@@ -3084,25 +3128,41 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         (string("Reply · ", it.ref), "goes into this review thread",
          b -> Events.reply_review_comment(it.url, target, b))
     elseif kind === :line
-        sha = head_sha(it)
         where_ = target.start === nothing ? string(target.file, ":", target.line) :
                  string(target.file, ":", target.start, "-", target.line)
         suggest = suggestion(target.text)
+        held = batch_of(st, it)
         (string("Comment on ", where_),
-         isempty(sha) ? "no head commit could be found — this will fail" :
-                        string("against ", first(sha, 8), ", posted on its own",
-                               isempty(suggest) ? "" : " · ^r suggests a replacement"),
-         b -> Events.post_review_comment(it.url, sha, target.file, target.line,
-                                         target.side, b; start_line = target.start))
+         string(held === nothing ? "starts a review — it stays a draft on GitHub" :
+                                   string("joins the draft review (", held.n, ")"),
+                ", A submits it",
+                isempty(suggest) ? "" : " · ^r suggests a replacement"),
+         b -> begin
+             (stt, err) = Events.add_review_thread(it.url, target.file, target.line,
+                                                   target.side, b;
+                                                   start_line = target.start)
+             stt === nothing && return err
+             st.batch = (url = it.url, ref = it.ref, review = stt.review, n = stt.n)
+             ""
+         end)
     else
         (string("Comment on ", it.ref), it.title, b -> Events.post_comment(it.url, b))
     end
     push_view!(ctrl, EditorView(title, note, b -> begin
         r = submit(b)
-        st.status = isempty(r) ? "posted" : r
-        isempty(r) && (touch!(it.url); reread!(st))
+        st.status = !isempty(r) ? r :
+                    kind === :line ? string("added to the draft review (",
+                                            st.batch === nothing ? 1 : st.batch.n, ")") :
+                    "posted"
+        # A draft is not on the thread yet, so there is nothing to re-read for
+        # it - and re-reading would cost the fetch and show the same page.
+        isempty(r) && (touch!(it.url); kind === :line || reread!(st))
     end; suggest = suggest))
 end
+
+"The draft review on this item, or `nothing` - a batch belongs to one item."
+batch_of(st::BState, it::Item) =
+    (st.batch !== nothing && st.batch.url == it.url) ? st.batch : nothing
 
 """GitHub's suggestion block, filled with the lines it would replace.
 
@@ -3121,19 +3181,67 @@ end
 """Submit a review: pick the verdict, then write the body."""
 function review_action(st::BState, ctrl::Controller, it::Item)
     it.is_pr || (st.status = "not a pull request"; return)
+    held = batch_of(st, it)
     opts = [("approve", "APPROVE"), ("request changes", "REQUEST_CHANGES"),
             ("comment", "COMMENT")]
-    push_view!(ctrl, ChooseView(string("Review ", it.ref), it.title, opts, ev -> begin
+    held === nothing || push!(opts, ("discard the draft and its comments", "DISCARD"))
+    push_view!(ctrl, ChooseView(
+        string("Review ", it.ref),
+        held === nothing ? it.title :
+            string("sends the draft review and its ", held.n,
+                   held.n == 1 ? " comment" : " comments"),
+        opts, ev -> begin
+        if ev == "DISCARD"
+            r = Events.discard_pending(it.url, held.review)
+            st.status = isempty(r) ? string("discarded the draft on ", it.ref) : r
+            isempty(r) && (st.batch = nothing)
+            return
+        end
         push_view!(ctrl, EditorView(
             string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
             ev == "APPROVE" ? "a body is optional; ^s submits the approval" :
                               "GitHub requires a body for this",
             b -> begin
-                r = Events.submit_review(it.url, ev, b)
-                st.status = isempty(r) ? string("submitted: ", replace(lowercase(ev), "_" => " ")) : r
-                isempty(r) && (touch!(it.url); reread!(st))
+                # The draft is the review once there is one: submitting a second
+                # one beside it would leave the comments unsent and unmentioned.
+                r = held === nothing ? Events.submit_review(it.url, ev, b) :
+                                       Events.submit_pending(it.url, held.review, ev, b)
+                st.status = isempty(r) ?
+                    string("submitted: ", replace(lowercase(ev), "_" => " "),
+                           held === nothing ? "" :
+                           string(" with ", held.n, held.n == 1 ? " comment" : " comments")) : r
+                isempty(r) && (touch!(it.url); st.batch = nothing; reread!(st))
             end; allow_empty = ev == "APPROVE"))
     end))
+end
+
+"""Ask about a draft the cursor has just walked away from.
+
+A draft review is durable - it is on GitHub, and quitting does not lose it - but
+it is also invisible from anywhere except the pull request it belongs to, which
+is exactly how five careful comments end up never being sent. So leaving the
+item it belongs to asks once, and taking no for an answer leaves it where it is.
+
+Returns true when it asked, which is what lets `q` wait for the answer rather
+than quitting out from under it.
+"""
+function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
+    b = st.batch
+    (b === nothing || b.url == leaving) && return false
+    # The item it belongs to, and no fallback: prompting about the wrong one
+    # would offer to submit a review to a pull request nobody was writing about.
+    i = findfirst(x -> x.url == b.url, st.all)
+    i === nothing && return false
+    it = st.all[i]
+    push_view!(ctrl, ChooseView(
+        string("Draft review on ", b.ref),
+        string(b.n, b.n == 1 ? " comment is" : " comments are",
+               " written and not sent"),
+        [("submit it now", :yes), ("leave it as a draft on GitHub", :no)],
+        v -> v === :yes ? review_action(st, ctrl, it) :
+             (st.batch = nothing;
+              st.status = string("left the draft on ", b.ref, " — A submits it there"))))
+    true
 end
 
 """Take back the newest local action, and say what it was.

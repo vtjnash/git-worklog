@@ -17,11 +17,13 @@ module Events
 
 # cache.jl is included into the parent before this file.
 import ..cache_get, ..cache_put, ..cache_drop
+import ..gh_graphql
 
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps
+import ..Worklog
 
 "Overridable so a test can write somewhere other than the real file."
 const READ = Ref("")
@@ -518,6 +520,135 @@ function post_review_comment(url::AbstractString, commit_id::AbstractString,
     end
 end
 
+# --- a review, written a comment at a time ----------------------------------
+#
+# GitHub's own answer to "five remarks should be one notification" is a *pending
+# review*: a draft that lives on GitHub, is visible only to its author, and is
+# submitted later as one thing. That is what "Start a review" does in the web UI,
+# and it means the batch is durable without this program storing a line of it -
+# quitting, or losing the machine, leaves the draft where a browser or the app
+# will find it.
+#
+# Three mutations do all of it, and there is no REST for any of them:
+# `addPullRequestReview` with `threads` and no `event` creates the draft,
+# `addPullRequestReviewThread` appends to it, `submitPullRequestReview` sends it.
+
+"""The pull request's node id, and the pending review of yours on it if any.
+
+One query for both, because the id is what a mutation needs and the review is
+what the browser needs to show. `nothing` when the url is not a pull request.
+
+Cached briefly rather than not at all: this runs when an item is selected, and
+moving up and down a list should not be a request a row. Every mutation below
+writes the new state straight into that cache, so what is on screen is right at
+once rather than after the entry expires.
+"""
+function review_state(url::AbstractString; ttl = 60.0)
+    key = string("review:", url)
+    hit = cache_get(key, ttl)
+    hit === nothing || return _review_shape(hit[1])
+    d = gh_graphql(
+        "query(\$u: URI!, \$me: String!) { resource(url: \$u) { ... on PullRequest " *
+        "{ id reviews(states: PENDING, first: 1, author: \$me) " *
+        "{ nodes { id comments { totalCount } } } } } }";
+        vars = Dict{String,Any}("u" => String(url), "me" => Worklog.login()))
+    r = get(d, :resource, nothing)
+    (r === nothing || get(r, :id, nothing) === nothing) && return nothing
+    ns = get(get(r, :reviews, (; nodes = ())), :nodes, ())
+    v = OrderedDict{String,Any}("id" => String(r.id),
+                                "review" => isempty(ns) ? "" : String(ns[1].id),
+                                "n" => isempty(ns) ? 0 : ns[1].comments.totalCount)
+    cache_put(key, v)
+    _review_shape(v)
+end
+
+_review_shape(v) = (id = String(v["id"]), review = String(v["review"]),
+                    n = Int(v["n"]))
+
+"Remember what a mutation just made true, so the next frame does not ask."
+function _review_put(url, id, review, n)
+    cache_put(string("review:", url),
+              OrderedDict{String,Any}("id" => String(id), "review" => String(review),
+                                      "n" => Int(n)))
+    (id = String(id), review = String(review), n = Int(n))
+end
+
+"""Add one thread to your pending review, starting one if there is none.
+
+Returns `(state, "")` or `(nothing, error)`. `start_line` makes it a range, the
+same way it does for a comment posted on its own.
+
+The two mutations differ only in which id they carry, so which one runs is
+decided by whether a draft is already open rather than by the caller.
+"""
+function add_review_thread(url::AbstractString, path::AbstractString, line::Integer,
+                           side::AbstractString, body::AbstractString;
+                           start_line = nothing)
+    stt = try
+        review_state(url)
+    catch e
+        return (nothing, first(sprint(showerror, e), 200))
+    end
+    stt === nothing && return (nothing, "not a pull request")
+    vars = Dict{String,Any}("path" => String(path), "body" => String(body),
+                            "line" => Int(line), "side" => String(side))
+    start_line === nothing || Int(start_line) >= Int(line) ||
+        (vars["startLine"] = Int(start_line); vars["startSide"] = String(side))
+    try
+        if isempty(stt.review)
+            vars["pr"] = stt.id
+            d = gh_graphql(
+                "mutation(\$pr: ID!, \$path: String!, \$body: String!, \$line: Int!, " *
+                "\$side: DiffSide!, \$startLine: Int, \$startSide: DiffSide) " *
+                "{ addPullRequestReview(input: {pullRequestId: \$pr, threads: " *
+                "[{path: \$path, body: \$body, line: \$line, side: \$side, " *
+                "startLine: \$startLine, startSide: \$startSide}]}) " *
+                "{ pullRequestReview { id } } }"; vars = vars)
+            rid = d.addPullRequestReview.pullRequestReview.id
+            return (_review_put(url, stt.id, rid, 1), "")
+        else
+            vars["rev"] = stt.review
+            gh_graphql(
+                "mutation(\$rev: ID!, \$path: String!, \$body: String!, \$line: Int!, " *
+                "\$side: DiffSide!, \$startLine: Int, \$startSide: DiffSide) " *
+                "{ addPullRequestReviewThread(input: {pullRequestReviewId: \$rev, " *
+                "path: \$path, body: \$body, line: \$line, side: \$side, " *
+                "startLine: \$startLine, startSide: \$startSide}) " *
+                "{ thread { id } } }"; vars = vars)
+            return (_review_put(url, stt.id, stt.review, stt.n + 1), "")
+        end
+    catch e
+        (nothing, first(sprint(showerror, e), 300))
+    end
+end
+
+"""Send the pending review, with a verdict and an optional covering note."""
+function submit_pending(url::AbstractString, review::AbstractString,
+                        event::AbstractString, body::AbstractString)
+    _write() do
+        gh_graphql(
+            "mutation(\$rev: ID!, \$ev: PullRequestReviewEvent!, \$body: String) " *
+            "{ submitPullRequestReview(input: {pullRequestReviewId: \$rev, " *
+            "event: \$ev, body: \$body}) { pullRequestReview { id } } }";
+            vars = Dict{String,Any}("rev" => String(review), "ev" => String(event),
+                                    "body" => String(body)))
+        cache_drop(string("review:", url))
+        _invalidate(url)
+    end
+end
+
+"""Throw the pending review away. The comments in it go with it."""
+function discard_pending(url::AbstractString, review::AbstractString)
+    _write() do
+        gh_graphql(
+            "mutation(\$rev: ID!) { deletePullRequestReview(input: " *
+            "{pullRequestReviewId: \$rev}) { pullRequestReview { id } } }";
+            vars = Dict{String,Any}("rev" => String(review)))
+        cache_drop(string("review:", url))
+        _invalidate(url)
+    end
+end
+
 """Reply to an existing review comment, in its thread."""
 function reply_review_comment(url::AbstractString, comment_id, body::AbstractString)
     r, n = _repo_num(url)
@@ -614,6 +745,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0)
     head = api_get("/repos/$owner_repo/$kind/$num")[1]
     assignees = String[String(a["login"]) for a in get(head, "assignees", ())]
     requested, teams, latest = String[], String[], OrderedDict{String,Any}()
+    pending = ""
     if is_pr
         for r in get(head, "requested_reviewers", ())
             push!(requested, String(r["login"]))
@@ -626,6 +758,15 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0)
             who = String(get(something(get(r, "user", nothing), Dict{String,Any}()),
                              "login", "?"))
             at = String(something(get(r, "submitted_at", nothing), ""))
+            # A draft of yours, which GitHub shows to nobody else. Picked up here
+            # because this request is already being made - the alternative is a
+            # GraphQL query per selected pull request, to answer a question that
+            # is usually "no". It is not the authority on the count, only on the
+            # draft being there: the mutations that add to one say how many.
+            if st == "PENDING" && who == Worklog.login()
+                pending = String(get(r, "node_id", ""))
+                continue
+            end
             # A later COMMENTED does not undo an APPROVED or a CHANGES_REQUESTED.
             prev = get(latest, who, nothing)
             (st == "COMMENTED" && prev !== nothing && prev["state"] != "COMMENTED") && continue
@@ -634,6 +775,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0)
     end
     v = OrderedDict{String,Any}(
         "requested" => requested, "teams" => teams, "assignees" => assignees,
+        "pending" => pending,
         "reviews" => [OrderedDict{String,Any}("login" => k, "state" => v["state"],
                                               "at" => v["at"]) for (k, v) in latest])
     cache_put(key, v)
@@ -644,6 +786,7 @@ end
 _meta_shape(v) = (requested = String[String(x) for x in v["requested"]],
                   teams = String[String(x) for x in v["teams"]],
                   assignees = String[String(x) for x in v["assignees"]],
+                  pending = String(get(v, "pending", "")),
                   reviews = [(login = String(r["login"]), state = String(r["state"]),
                               at = String(r["at"])) for r in v["reviews"]])
 

@@ -43,28 +43,35 @@ julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
-changes something on GitHub.** A click on a url copies it, whole even where
-the wrapping cut it. `/` searches, `C` composes, `A` reviews, `L`
+changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
-last acted, `x` archives, `z` undoes the last local action. `f` opens the filter
-pane, whose states are `active` / `unread` / `mine` / `touched` / `snoozed` /
-`backlog` / `archived` / `all`, with a second radio group for issues, pull
-requests or both, and checkbox axes for category, repo, label and author — each
-long one listing its head and offering the rest as a picker you type into.
+last acted, `x` archives, `z` undoes the last local action. A click on a url
+copies it, whole even where the wrapping cut it.
 
-`i` imports an item by url - so does `↵` on the row
-above the first item, which is the only row in the list that is not one -
-A drag over a diff makes `c` a comment on
-that range, and `^r` in the composer drops in GitHub's suggestion block filled
-with the lines it would replace.
+`f` opens the filter pane, whose states are `active` / `unread` / `mine` /
+`touched` / `snoozed` / `backlog` / `archived` / `all`, with a second radio group
+for issues, pull requests or both, and checkbox axes for category, repo, label
+and author — each long one listing its head and offering the rest as a picker
+you type into.
+
+Two ways in for work no lane returns: `i` imports an item by url, and so does
+`↵` on the row above the first item, which is the only row in the list that is
+not one.
+
+Reviewing: a drag over a diff makes `c` a comment on that range, `^r` in the
+composer drops in GitHub's suggestion block filled with the lines it would
+replace, and the comments accumulate into a **draft review held on GitHub**
+rather than posting one at a time. `A` sends it, and leaving the item asks
+whether to.
+
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
-request, and `a` adopts a local branch as work of yours. Its one-character
-columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside a hosted
-pane every key belongs to the child except the prefix
-`^]`: `^]tab` leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r`
-re-reads, `^]]` sends a literal `^]`.
+request, and `a` adopts a local branch as work of yours; its one-character
+columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside a
+hosted pane every key belongs to the child except the prefix `^]`: `^]tab`
+leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r` re-reads, `^]]`
+sends a literal `^]`.
 
 Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
 `/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is
@@ -347,13 +354,6 @@ untested:
   `hunk_line_at` returns the old-side number and says which side it is - but
   GitHub wants that anchored against the commit the line still existed in, and
   `head_sha` only knows the head.
-- **Batching line comments into one review.** Each `c` on a line posts
-  immediately, so five remarks are five notifications rather than one review.
-  `POST /pulls/{n}/reviews` takes a `comments` array; the pending set wants to
-  live on `BState` and be visible while it accumulates - a count in the footer,
-  a line in the metadata pane - with `A` submitting it. A pending comment is
-  also where a *range* and its suggestion would be carried, both of which the
-  single-comment path now has.
 - **A reply to an issue comment.** Only review comments carry a thread, so `c`
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
@@ -516,10 +516,10 @@ Kept here so they can be written up in one pass rather than rediscovered.
 
   Click-to-copy has since made the hyperlinks unnecessary: `y` copies and now so
   does a click, both through OSC 52, neither needing the terminal to understand
-  a link. **The fix is probably to drop `linkify` entirely** rather than to
-  chase the escape - it is the only thing left that needs OSC 8, and dropping it
-  would take the underline that marks a link with it. Worth one look in a real
-  terminal first, to confirm the artifact goes with it.
+  a link. So `linkify` could go, and with it the underline that marks a link -
+  but it is kept for now (decided 2026-09-03) on the grounds that nothing has
+  been seen to render wrong since, and the axe is there whenever something does.
+  If the artifact comes back, that is the thing to remove.
 - **A pane once reported `session ended` with an empty frame, unexplained.**
   Seen once, in a scripted launch on 2026-09-02. The first theory — that the
   wake channel filled and blocked the reader — was tested and is wrong: the
@@ -615,10 +615,15 @@ actual TTY:
 - Whether the title-bar row actually settles the tmux copy-mode scroll.
 - Whether OSC 8 links and the OSC 52 copy survive this tmux (both need 3.4+,
   and OSC 52 is opt-in in some terminals).
-- Every write. Posting a comment, replying in a thread, commenting on a source
-  line, submitting a review, toggling a label: all five are written and none has
-  ever been sent, because the token here cannot. The shapes of the requests are
-  from the REST docs, not from a response.
+- Every write. Posting a comment, replying in a thread, adding a line comment to
+  a draft review, submitting or discarding that review, toggling a label: all of
+  them are written and none has ever been sent, because the token here cannot.
+  The shapes are from the docs and, for the four review mutations, from the live
+  GraphQL schema - `addPullRequestReview` with `threads` and no `event`,
+  `addPullRequestReviewThread`, `submitPullRequestReview` and
+  `deletePullRequestReview` were introspected rather than remembered. What has
+  run against the real API is the *read* half: `review_state` answers with the
+  pull request's node id and no pending review, and `nothing` for an issue.
 - `⌥e`/`^o` in the composer, end to end. `suspend` is tested to run its body and put
   the alternate screen back, and the reader is armed one event at a time so it
   is not on the tty while a child runs - but no editor has actually been

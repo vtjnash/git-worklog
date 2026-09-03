@@ -174,6 +174,22 @@ function gh_run(args::Vector{String}, input::AbstractString = "")
     (p.exitcode, String(take!(out)), String(take!(err)))
 end
 
+"""One GraphQL document, with variables. Returns `data`, or throws.
+
+The writes in `events.jl` are REST because GitHub.jl speaks REST, but a pending
+review is not reachable that way: appending a thread to one and submitting it
+are mutations and nothing else. So they come back through here, which is the
+same `gh api graphql` the lanes already run on and the same credentials.
+"""
+function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
+    body = json_dumps(["query" => String(query), "variables" => vars])
+    rc, out, err = gh_run(["api", "graphql", "--input", "-"], body)
+    rc == 0 || throw(FetchError(first(isempty(err) ? out : err, 300)))
+    d = JSON3.read(out)
+    haskey(d, :errors) && throw(FetchError(first(json_dumps(d.errors), 400)))
+    d.data
+end
+
 """
     search(q; cap=1000, query=QUERY) -> (nodes, points, total)
 

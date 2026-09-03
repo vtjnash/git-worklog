@@ -732,6 +732,69 @@ end
     @test all(r -> r[1] !== :label || !isempty(r[2]), rows)
 end
 
+@testset "five remarks are one review" begin
+    # GitHub's own answer to batching is a pending review: a draft that lives on
+    # GitHub, is visible only to its author, and is submitted later as one
+    # thing. Nothing here stores it, so quitting cannot lose it.
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true
+    it = st.items[st.sel]
+    st.batch = (url = it.url, ref = it.ref, review = "PRR_x", n = 3)
+    # It is visible while it accumulates, in both places that say what is going
+    # on: the footer count and the metadata pane.
+    @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))
+    @test any(l -> occursin("draft", l) && occursin("3 comments", l),
+              W.astrip.(W.meta_lines(st, it, 50)))
+    # And it belongs to one item, not to the browser.
+    @test W.batch_of(st, it) !== nothing
+    other = first(x for x in st.items if x.url != it.url)
+    @test W.batch_of(st, other) === nothing
+
+    # Walking away from it asks once. Moving within the same item does not -
+    # `tab` changes pane, and `j` in the detail moves a cursor through a body.
+    W.handle!(st, Int('\t'), ctrl)
+    @test st.focus === :detail && isempty(ctrl.stack)
+    W.handle!(st, Int('j'), ctrl)
+    @test isempty(ctrl.stack)
+    W.handle!(st, Int('\t'), ctrl)
+    @test st.focus === :list && isempty(ctrl.stack)
+    W.handle!(st, Int('j'), ctrl)
+    v = last(ctrl.stack)
+    @test v isa W.ChooseView && occursin("Draft review on", v.title)
+    @test occursin("3 comments are written and not sent", v.note)
+    # Taking no for an answer leaves it where it is - it is durable, and this is
+    # a reminder rather than a deadline.
+    v.onpick(:no); pop!(ctrl.stack)
+    @test st.batch === nothing && occursin("left the draft", st.status)
+    @test occursin(it.ref, st.status)
+
+    # `q` with one in hand asks instead of quitting, and quits on the next press.
+    st.batch = (url = it.url, ref = it.ref, review = "PRR_x", n = 1)
+    st.sel = findfirst(x -> x.url == it.url, st.items)
+    @test W.handle!(st, Int('q'), ctrl) === :ok
+    v2 = last(ctrl.stack)
+    @test v2 isa W.ChooseView && occursin("1 comment is", v2.note)
+    # Saying yes goes to the verdict, which is where a draft is sent from.
+    v2.onpick(:yes)
+    v3 = last(ctrl.stack)
+    @test v3 isa W.ChooseView && occursin("draft review and its 1 comment", v3.note)
+    # Including the way out of one that should never have been started.
+    @test any(o -> o[2] == "DISCARD", v3.options)
+    empty!(ctrl.stack)
+    st.batch = nothing
+    @test W.handle!(st, Int('q'), ctrl) === :quit
+
+    # A draft on an item this dashboard no longer carries is left alone rather
+    # than offered against whatever happens to be first: submitting a review to
+    # the wrong pull request is not a recoverable mistake.
+    st.batch = (url = "https://github.com/o/r/pull/9", ref = "r#9",
+                review = "PRR_y", n = 2)
+    @test !W.batch_prompt!(st, ctrl, "")
+    @test isempty(ctrl.stack)
+    st.batch = nothing
+end
+
 @testset "the one toolbar button worth having" begin
     # A suggestion is a review action - GitHub applies the block as a commit -
     # and it is unusable without the current text of the lines in front of you.
