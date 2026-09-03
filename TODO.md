@@ -364,6 +364,44 @@ shipped are not listed; `git log` is the record of those.
 Everything "where the work is" left behind has now shipped; `git log` is the
 record of it.
 
+### Saved views, and the way back out
+
+Recorded 2026-09-03. The filter pane composes state × kind × repo × label ×
+author, which is enough to ask almost anything and too much to retype. What is
+missing is *recall*.
+
+- **`'` opens a list of named views**, each a whole filter set applied in one
+  keystroke. Read from `config.toml`; the browser never writes that file, so
+  saving the current filter **prints the TOML to paste**, the way `wl watching`
+  prints the repos to paste. The value is in the composites - a single bucket is
+  already one `f` away - so the defaults worth shipping are: *waiting on me*
+  (review-requested ∩ second look), *waiting on them* (mine ∩ second look),
+  *ready to merge*, *red CI on mine* (needs-edits ∩ mine), *unanswered*
+  (needs-reply), *this repo*.
+- **`` ` `` goes back to the previous filter**, one slot deep. Diving into a view
+  and getting out again is the move that would be made constantly, and `z` does
+  not cover it on purpose: `z` is for local *actions*, and a filter is not one.
+
+Both keys are free, and they sit next to `"` on the keyboard, which is where the
+other view-opening key already is.
+
+### Bulk updates from the command line, for agents
+
+Recorded 2026-09-03. The write commands take one ref at a time, which makes an
+agent handing over a batch of work write a loop of processes.
+
+- **`-` as the ref means "read them from stdin"**, one per line, for every
+  command that takes one: `wl archive - 2026-09-03`, `wl snooze - 3d`,
+  `wl read -`, `wl track - loose`. One mechanism, no new flags, and no ambiguity
+  with the value argument that a variadic ref list would have.
+- **`wl import <url>… ` (or `-`), which lands them as unread.** The manual answer
+  to "an agent found these, look at them": one batched `fetch_urls` for the lot,
+  an `imported` line each in `state.toml`, and an inbox entry each so they arrive
+  in the unread lane. The events poller will never deliver them - their repos are
+  not watched, which is *why* they are being imported - so this is the
+  hand-delivery. Unread is the difference from `i` in the browser, which puts you
+  on the item because you are already looking at it.
+
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
