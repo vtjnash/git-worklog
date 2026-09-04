@@ -120,9 +120,9 @@ end
 """Put the cursor on this item, or say why it cannot go there.
 
 Returns `""` on success, which is what tells the worktree view it may close.
-An item filtered out of the current lane is not silently un-filtered: changing
-what the list shows is the user's decision and `f` is where it is made, so this
-reports instead.
+An item the filter is hiding is reached by clearing the filter and saying so -
+see below - and one this dashboard does not carry at all is what this reports
+on instead.
 """
 function select_item!(st::BState, it::Item)
     i = findfirst(x -> x.url == it.url, st.items)
@@ -285,9 +285,9 @@ end
 
 """Pick a view, or write down the one you are in.
 
-A list rather than a key each: six of them would be six bindings nobody
-remembers, and the seventh would have nowhere to go. `ChooseView` narrows by
-typing, so a name is enough to reach one however many there are.
+A list rather than a key each: a binding apiece would be bindings nobody
+remembers, and the next view added would have nowhere to go. `ChooseView`
+narrows by typing, so a name is enough to reach one however many there are.
 
 The last entry is the way *out* of the list of names - the current filter,
 written as the TOML that would name it, for pasting into `config.toml`. The
@@ -378,8 +378,10 @@ function undo!(st::BState)
     try
         u.undo()
         # The lanes that are membership in something have to be rebuilt for the
-        # row to come back.
-        st.filters.state in (:unread, :archived, :touched, :mine, :active) && refilter!(st)
+        # row to come back - `:snoozed` among them, since undoing a snooze is
+        # the same move `apply_snooze!` refilters for on the way in.
+        st.filters.state in (:unread, :archived, :touched, :mine, :active,
+                             :snoozed) && refilter!(st)
         string("undid: ", u.what)
     catch e
         string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
