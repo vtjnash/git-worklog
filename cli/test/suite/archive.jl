@@ -274,10 +274,13 @@ end
         pick("mine")
         W.get_field(u, "adopted") === nothing && W.handle!(v, Int('a'), ctrl)
         @test W.get_field(u, "adopted") !== nothing
-        @test length(W.local_items()) == 1
-        @test W.local_items()[1].url == u
+        # Only this branch's row: `state.toml` is seeded from the real one, so
+        # whatever the user has adopted is in this list too and is none of this
+        # test's business.
+        ours() = [x for x in W.local_items() if x.url == u]
+        @test length(ours()) == 1
         g("branch", "-D", "mine")
-        gone = W.local_items()
+        gone = ours()
         @test length(gone) == 1 && occursin("gone", gone[1].why)
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
