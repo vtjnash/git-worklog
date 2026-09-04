@@ -1,8 +1,54 @@
 # TODO
 
+## What is next
+
+Everything the last two sessions agreed on is done; `git log` is the record of
+it. What is left, in the order it is worth doing:
+
+1. **A read-through — the code first, then the comments.** The split made the
+   files small enough to read whole, which is the thing that makes this
+   affordable for the first time. Two halves, and the second is the reason for
+   the first:
+
+   - **The code.** A real read of `src/browse/*` and `src/paneview.jl` looking
+     for assumptions that were true when they were written. Not `/code-review`
+     on a diff — that catches what a change broke, and this is for what a change
+     left behind.
+   - **The comments.** This codebase argues with itself in prose, which is its
+     best feature and its most dangerous one: a comment nobody doubts is a
+     comment that has to be right. Several are now describing a world that does
+     not exist. `paneview.jl`'s header still says "every other key now belongs
+     to the child", and the prefix docstring still says `^]` is "the only key
+     this view keeps" — both were true before the pane grew a reading side and
+     started forwarding unknown prefix keys to the browser. That is one file
+     found by grepping for two phrases; the point of the pass is the ones a
+     grep will not find.
+
+   How to do it without making it worse: one file at a time; never a comment
+   change and a behaviour change in the same commit; and hold every claim to
+   the standard the good ones already meet — if a comment says something was
+   measured, the measurement should still be reproducible or the word should
+   go.
+
+2. **Then decide whether the two pane inconsistencies are worth fixing** — the
+   two entries that open "Known gaps". Both are real, both are small, and
+   neither has been hit in use, so the question is whether they are worth
+   touching keys that have only just settled. The read-through above is likely
+   to answer this on its way past, which is why it goes first.
+
+Blocked, and still the largest thing on the list: **every write is
+unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
+`delete_review` and the label toggle are written and none has ever been sent,
+because the token here is read-only. It is the only part of the program where a
+failure loses work — the draft-review machinery exists precisely because five
+careful comments are easy to lose — and it needs a fine-grained PAT with
+`issues: write` and `pull_requests: write` on the repositories being reviewed.
+See Infrastructure.
+
 ## Resuming work
 
-Read this first if you are picking this up cold.
+Read this first if you are picking this up cold; "What is next" above is what to
+do once you have.
 
 ### What it is
 A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2100
@@ -234,6 +280,108 @@ st.wake = () -> Worklog.wake!(ctrl)
 Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
 ```
 
+### The split, and how to keep it
+
+`src/browse/` and `test/suite/`. `Worklog.jl` and `runtests.jl` are now lists of
+includes with a line of description each, which is the index: to find something,
+read the list rather than grepping four and a half thousand lines.
+
+**Both splits moved nothing.** Every file is a contiguous slice of the original,
+in the original order, and that was checked rather than assumed — reassembling
+them gives back every non-blank line, identical and in the same order (4,244 for
+the source, 4,335 for the tests). The two deliberate exceptions are written down
+here so nobody goes looking for a third: a dangling docstring at the top of
+`browse.jl` that documented a global removed long ago, deleted; and `items` /
+`mkstate` in the tests, which sat between two testsets and moved to the driver
+where a shared helper belongs.
+
+**Cut above a definition, never into it.** A naive slice at a section marker
+leaves a docstring at the end of one file and its binding at the start of the
+next. Seven of them did, and nothing complained: a stranded docstring is a legal
+no-op and the tests still passed. The check is one line —
+
+```bash
+for f in cli/src/browse/*.jl; do
+  [ "$(grep -v '^$' "$f" | tail -1)" = '"""' ] && echo "$f strands a docstring"
+done
+```
+
+— and the same trap catches a comment block that introduces the next thing.
+
+**Order is not cosmetic in either list.** In the source, a type or a constant has
+to exist before the methods annotated on it are defined. In the tests, several
+testsets leave a file, a session or a filter behind that the next one reads.
+Adding a file means putting it where it belongs, not at the end.
+
+### The precompile wrapper
+
+`cli/precompile` is `WorklogPrecompile`: `Worklog` re-exported, plus a
+`@compile_workload` of the browser's own path. `bin/wl` loads it; the test suite
+loads `Worklog` directly and never sees it.
+
+Measured on the path that draws a comment thread, interleaved against the same
+path with no wrapper: **4.33s → 1.36s**, so about three seconds off every
+launch. Nearly all of it is the markdown renderer — a comment body goes to Term,
+and nothing had ever run that before the user did.
+
+Three decisions worth not re-litigating:
+
+- **Separate package, not a workload in `Worklog`.** A workload runs whenever
+  the package holding it is precompiled, and `Worklog` is precompiled every time
+  one of its own files is touched. Downstream, the tax lands only on `wl`.
+- **A hand-written workload, not the test suite.** The suite was tried first. It
+  spawns tmux servers, `vi` and half a dozen git repositories, which would then
+  be happening inside package precompilation — parallel, in a subprocess, output
+  captured. And a failing test would stop `wl` from starting at all.
+- **Invented items and nodes, hermetic paths, and a `catch` around everything.**
+  So the image does not depend on what was in the dashboard the day it was
+  built, so nothing reads or writes the real data, and so a workload that breaks
+  cannot stop the program from being installed.
+
+To extend it, add to the workload in `precompile/src/WorklogPrecompile.jl` — and
+keep the two rules it already follows: nothing that spawns a process, and
+`load_nodes!`/`load_meta!` satisfied before any `handle!` call, or the workload
+starts a fetch and hangs.
+
+**Its manifest is `cli/Manifest.toml` plus one entry, and must stay that way.**
+Resolved fresh it was not: `Pkg.resolve()` in an empty project picked a newer
+`Term`, which pulls a newer `Highlights`, which depends on `Pkg` and
+`TreeSitter` — and with them `LibGit2`, `Downloads`, `Tar`, `LibCURL` and four
+jlls. None of that came from `PrecompileTools`, which `Term` has depended on all
+along (`cli/Manifest.toml`), and which therefore costs this package nothing at
+all. The cure is to copy `cli/Manifest.toml` over and `Pkg.resolve()`, which
+keeps every version already pinned and adds only `WorklogPrecompile`. Check it
+with:
+
+```bash
+diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
+     <(grep '^\[\[deps\.' cli/precompile/Manifest.toml | sort)
+```
+
+which should print exactly one line, for `WorklogPrecompile` itself.
+
+**Open decision: whether to drop `PrecompileTools` anyway.** Measured in one
+batch on the comment-thread path: 1.37s with `@compile_workload`, 1.99s with the
+same workload run as a bare `let` block. So the macro is worth about 0.6s on
+every launch, because plain execution does not get everything cached against the
+downstream image. Base has no equivalent — `Base.Experimental` has only
+`@force_compile` and `@compiler_options` — so removing it means either losing
+that 0.6s or hand-rolling the `jl_set_newly_inferred` bookkeeping, which is
+exactly the version-fragile thing the 1.12/1.13 concern is about. And it cannot
+be removed from the *tree* while `Term` is the markdown renderer. Kept on those
+grounds; the bare-`let` version is a three-line edit if that changes.
+
+**It must not leave a process running.** A package that does stops precompilation
+dead with "waiting for IO to finish", and this one did: `load_nodes!` and
+`load_meta!` start a fetch the moment the selection moves to an item they have
+not loaded, so a single `j` in the workload left two `gh` processes and two
+pipes with nothing holding a handle. Pinning `st.loaded` was not the fix — the
+pin moves with the selection. `hermetic` takes the *binaries* away instead: an
+empty `PATH` makes `run` throw before it forks, and `WORKLOG_TMUX` at a path
+that does not exist makes `mux_bin` answer `nothing`. That is a property of the
+environment rather than of which keys the workload presses, which is what makes
+it survive somebody adding one. `drain_fetches!` at the end is the second half.
+
 ### Invariants that were each found by debugging a real failure
 Do not "simplify" any of these away.
 
@@ -453,6 +601,21 @@ to use — currently:
 Write commit bodies to a file and use `git commit -F` — backticks in a heredoc
 get interpreted by the shell and silently mangle the message.
 
+**A place replaces a place; a dialog stacks on one.** `isdialog` is the
+distinction and `push_place!` enforces it. A place is somewhere you work — a
+terminal, an agent, the worktree list — and going somewhere means leaving where
+you were. A dialog answers a question and hands the keys back, which is the one
+case that returns to what asked. Dialogs are the default, because a view that
+has not thought about this is one that returns.
+
+**The side without the focus gets no keys at all.** Which keys belong to which
+side has to be answerable by looking at which side is lit, not by remembering a
+list — so a hosted pane's reading side keeps exactly three (`tab` back to the
+child, `esc`/`t`/`T` out to the list) and everything else is the browser's.
+Through the prefix it runs the other way: `^]` already means "this one is not
+the child's", so the six the pane layer names are its own and the rest are
+forwarded.
+
 **Key bindings: a capital reaches GitHub, lowercase does not.** `C`, `A` and `L`
 post a comment, submit a review and set a label; everything lowercase stays on
 this machine, `r` and `s` included — `read.json` and `state.toml` are local
@@ -460,13 +623,11 @@ files, and `e` only launches an editor. The line is *remote*, not *writes
 something*, which is also why `z` below can offer to undo the lowercase set and
 must never offer to undo the capitals.
 
-Outstanding work, roughly in the order it is worth doing. Things already
-shipped are not listed; `git log` is the record of those.
-
 ## Outstanding work
 
-Everything "where the work is" left behind has now shipped; `git log` is the
-record of it.
+Roughly in the order it is worth doing, and none of it is on the critical path
+of "What is next" at the top. Nothing already shipped is listed; `git log` is
+the record of that.
 
 ### What review writing still cannot do
 
@@ -626,6 +787,17 @@ Kept here so they can be written up in one pass rather than rediscovered.
 
 ## Known gaps in what has shipped
 
+- **A nested tmux gets no mouse unless *it* has `mouse on`.** Measured against
+  tmux 3.5a, and not this program's to fix. A tmux with `mouse on` sets button
+  and SGR tracking on the pane it is drawn in, so the wheel is handed over and
+  copy mode opens. With `mouse off` it sets nothing on its own behalf, only on
+  behalf of whatever runs inside it — which is why the mouse works in an editor
+  in there and does nothing in the tmux itself. `#{mouse_any_flag}` is the
+  disjunction of the three tracking modes, so the gate on this side was never
+  the problem. The keyboard half has the same shape: `^b[` reaches an inner
+  tmux and `^b^b[` is one prefix too many, because `send-keys -H` writes into
+  the pane's pty and the hosting session never sees those bytes as keys of its
+  own — there is no outer prefix to escape.
 - **`^]t`/`^]T` from a pane, and `t`/`T` from the reading side, disagree.** From
   the child's side the prefix forwards them, so `^]T` in a shell pane reaches
   the agent on the same item — which is the useful thing. From the reading side
@@ -829,218 +1001,3 @@ so they are not mistaken for bugs later:
   tracked ones commented out beside them. Deliberately not a live source — the
   file stays the user's, and a repo you stopped caring about does not come back
   because you never got round to unwatching it.
-
-## The plan, in order
-
-Agreed 2026-09-03. Do these in this order; the rest of this file is the
-standing backlog they were picked out of.
-
-0. **The precompile wrapper's dependencies.** Done — see "The precompile
-   wrapper" below for what was actually heavy and why it was not
-   `PrecompileTools`. One decision is still open there and is flagged.
-1. **Split `browse.jl`.** Done — `src/browse/` is seventeen files and
-   `test/suite/` is twenty, and the two lists read against each other. See "The
-   split, and how to keep it" below for the rule that keeps them honest.
-2. **The small unblocked wins.** Done, all three. `wl watching` now prints the
-   untracked repos as the TOML they are about to become rather than as bare
-   names — a paste, not a list to quote by hand. `wl repos [--prune]` lists the
-   pinned checkouts and marks the ones whose directory is gone; pruning is never
-   automatic, because "gone" and "on an unplugged disk" look identical from
-   here, and `repo_path` already ignores what is not there so a stale entry
-   breaks nothing. And `LANE_SORT` gives a lane its order: only `touched` is in
-   it, because that lane *is* the interaction clock and the rest are a question
-   for use rather than an argument — the table is where the answer goes.
-3. **Then decide whether the two pane inconsistencies are worth fixing** — the
-   first two entries under "Known gaps". Both are real and both are small, but
-   neither has been hit in use yet, so the question is whether they are worth a
-   change to keys that have just settled.
-
-Not on the list because it is blocked: **every write is still unexercised**.
-`post_comment`, `add_review_thread`, `submit_review`, `delete_review` and the
-label toggle are written and none has ever been sent, because the token here is
-read-only. It is the only part of the program where a failure loses work, and it
-needs a fine-grained PAT with `issues: write` and `pull_requests: write` on the
-repositories being reviewed. See Infrastructure.
-
-## Where this session got to
-
-Everything on the previous session's list is done. What is left below is the
-standing backlog — "Outstanding work", "Known gaps", "Unverified" and
-"Infrastructure" — plus the one item that turned out not to be this program's.
-
-### What shipped, and the argument each one rests on
-
-Read the commits for the detail; this is the shape, so the next session knows
-what the program now believes about itself.
-
-- **`t`/`T` ask which checkout.** Three rules in `item_worktree`: a worktree
-  already on the item's branch, then a session already tagged with the item
-  (whatever branch it has out, whichever kind — so `t` lands where this item's
-  agent is), then the main checkout *and a flag saying that was a guess*. Only
-  the flag's holder asks. `item_checkout` is the same answer without the flag,
-  so `e` reads the same first two rules and the two cannot disagree; and the
-  session's tag *is* the memory, so it asks once per item and never again.
-- **The way back to nothing.** A `:reset` row leads the filter pane and a
-  default view leads `'`. The latter is a view like any other because a view now
-  clears the sort it does not name, the way it already cleared every other axis
-  it does not name — so `state = "active"` and nothing else *is* a fresh
-  `Filters()`.
-- **A filter axis is a readout, not a menu.** Repo, label and author list only
-  what is applied, plus the author axis's two controls; the picker row under
-  each is where choosing happens, and it narrows by typing, which is the only
-  thing that scales to several hundred labels. Category keeps its whole list.
-- **`R` re-reads the item on screen** — the thread past its ten-minute window,
-  the checks past their two-minute one, the metadata that otherwise only reloads
-  when the selection moves. Quiet on purpose: nodes, cursor and fold state all
-  stay.
-- **A pane and the thread beside it share the keyboard.** `PaneView` has a
-  `focus`, and `wantsraw` is what it means. `^]tab` gives the keys to the
-  thread; `tab` gives them back; `esc`/`t`/`T` leave for the list. The side
-  without the focus gets *nothing* — which keys belong to which side has to be
-  answerable by looking at which side is lit, not by remembering a list. And
-  unknown keys after `^]` go to the browser, which is what makes `^]m` reach the
-  mouse toggle without anything in `paneview.jl` naming it.
-- **Places replace places; dialogs stack.** `isdialog` is the distinction and
-  `push_place!` enforces it. A terminal on top of the worktree list was never a
-  state anybody meant to be in.
-- **Losing the terminal is an exit.** `trap '' HUP` in `bin/wl` before the
-  `exec`, and `EndEvent` so the reader task cannot leave the loop parked on its
-  channel forever.
-- **A pane has scrollback.** The wheel reports a child never asked for used to
-  be dropped; they now move this view's own window over the pane's history.
-- **`wl` starts through `cli/precompile`.** See below.
-- **`browse.jl` and `runtests.jl` are gone**, into `src/browse/` and
-  `test/suite/`. See "The split, and how to keep it".
-- **One fetch in the air per thing being fetched.** `INFLIGHT` is a locked map
-  from what is being fetched to the task fetching it, and `fetching(f, key)`
-  joins a run already under way instead of starting a second. A view can only
-  hold one `pending`, so holding `j` down the list used to start a
-  `gh api graphql` per row and abandon all but the last — a process each, a rate
-  limit spent on answers nobody reads, and the winner decided by whichever
-  finished last. An abandoned task's value is never fetched either, so anything
-  that escaped its own error handling escaped silently; those are logged now.
-  And `drain_fetches!` is how anything can ask "is something still running",
-  which is what the precompile workload needed and what nothing could answer.
-  Timers are deliberately not in the map: `arm_refresh!` starts a task that
-  *sleeps*, and a drain that waited on one would hang for the debounce.
-
-### The precompile wrapper
-
-`cli/precompile` is `WorklogPrecompile`: `Worklog` re-exported, plus a
-`@compile_workload` of the browser's own path. `bin/wl` loads it; the test suite
-loads `Worklog` directly and never sees it.
-
-Measured on the path that draws a comment thread, interleaved against the same
-path with no wrapper: **4.33s → 1.36s**, so about three seconds off every
-launch. Nearly all of it is the markdown renderer — a comment body goes to Term,
-and nothing had ever run that before the user did.
-
-Three decisions worth not re-litigating:
-
-- **Separate package, not a workload in `Worklog`.** A workload runs whenever
-  the package holding it is precompiled, and `Worklog` is precompiled every time
-  one of its own files is touched. Downstream, the tax lands only on `wl`.
-- **A hand-written workload, not the test suite.** The suite was tried first. It
-  spawns tmux servers, `vi` and half a dozen git repositories, which would then
-  be happening inside package precompilation — parallel, in a subprocess, output
-  captured. And a failing test would stop `wl` from starting at all.
-- **Invented items and nodes, hermetic paths, and a `catch` around everything.**
-  So the image does not depend on what was in the dashboard the day it was
-  built, so nothing reads or writes the real data, and so a workload that breaks
-  cannot stop the program from being installed.
-
-To extend it, add to the workload in `precompile/src/WorklogPrecompile.jl` — and
-keep the two rules it already follows: nothing that spawns a process, and
-`load_nodes!`/`load_meta!` satisfied before any `handle!` call, or the workload
-starts a fetch and hangs.
-
-**Its manifest is `cli/Manifest.toml` plus one entry, and must stay that way.**
-Resolved fresh it was not: `Pkg.resolve()` in an empty project picked a newer
-`Term`, which pulls a newer `Highlights`, which depends on `Pkg` and
-`TreeSitter` — and with them `LibGit2`, `Downloads`, `Tar`, `LibCURL` and four
-jlls. None of that came from `PrecompileTools`, which `Term` has depended on all
-along (`cli/Manifest.toml`), and which therefore costs this package nothing at
-all. The cure is to copy `cli/Manifest.toml` over and `Pkg.resolve()`, which
-keeps every version already pinned and adds only `WorklogPrecompile`. Check it
-with:
-
-```bash
-diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
-     <(grep '^\[\[deps\.' cli/precompile/Manifest.toml | sort)
-```
-
-which should print exactly one line, for `WorklogPrecompile` itself.
-
-**Open decision: whether to drop `PrecompileTools` anyway.** Measured in one
-batch on the comment-thread path: 1.37s with `@compile_workload`, 1.99s with the
-same workload run as a bare `let` block. So the macro is worth about 0.6s on
-every launch, because plain execution does not get everything cached against the
-downstream image. Base has no equivalent — `Base.Experimental` has only
-`@force_compile` and `@compiler_options` — so removing it means either losing
-that 0.6s or hand-rolling the `jl_set_newly_inferred` bookkeeping, which is
-exactly the version-fragile thing the 1.12/1.13 concern is about. And it cannot
-be removed from the *tree* while `Term` is the markdown renderer. Kept on those
-grounds; the bare-`let` version is a three-line edit if that changes.
-
-**It must not leave a process running.** A package that does stops precompilation
-dead with "waiting for IO to finish", and this one did: `load_nodes!` and
-`load_meta!` start a fetch the moment the selection moves to an item they have
-not loaded, so a single `j` in the workload left two `gh` processes and two
-pipes with nothing holding a handle. Pinning `st.loaded` was not the fix — the
-pin moves with the selection. `hermetic` takes the *binaries* away instead: an
-empty `PATH` makes `run` throw before it forks, and `WORKLOG_TMUX` at a path
-that does not exist makes `mux_bin` answer `nothing`. That is a property of the
-environment rather than of which keys the workload presses, which is what makes
-it survive somebody adding one. `drain_fetches!` at the end is the second half.
-
-### The split, and how to keep it
-
-`src/browse/` and `test/suite/`. `Worklog.jl` and `runtests.jl` are now lists of
-includes with a line of description each, which is the index: to find something,
-read the list rather than grepping four and a half thousand lines.
-
-**Both splits moved nothing.** Every file is a contiguous slice of the original,
-in the original order, and that was checked rather than assumed — reassembling
-them gives back every non-blank line, identical and in the same order (4,244 for
-the source, 4,335 for the tests). The two deliberate exceptions are written down
-here so nobody goes looking for a third: a dangling docstring at the top of
-`browse.jl` that documented a global removed long ago, deleted; and `items` /
-`mkstate` in the tests, which sat between two testsets and moved to the driver
-where a shared helper belongs.
-
-**Cut above a definition, never into it.** A naive slice at a section marker
-leaves a docstring at the end of one file and its binding at the start of the
-next. Seven of them did, and nothing complained: a stranded docstring is a legal
-no-op and the tests still passed. The check is one line —
-
-```bash
-for f in cli/src/browse/*.jl; do
-  [ "$(grep -v '^$' "$f" | tail -1)" = '"""' ] && echo "$f strands a docstring"
-done
-```
-
-— and the same trap catches a comment block that introduces the next thing.
-
-**Order is not cosmetic in either list.** In the source, a type or a constant has
-to exist before the methods annotated on it are defined. In the tests, several
-testsets leave a file, a session or a filter behind that the next one reads.
-Adding a file means putting it where it belongs, not at the end.
-
-### Nested tmux and the mouse: measured, and not this program's
-
-"mouse-in-nvim-in-tmux-in-wl-tmux works, but the tmux pane itself does not —
-notably for activating scrolling, since `^b^b[` does not seem to reach there
-either." Both halves reproduced against a real tmux 3.5a, and there is a testset
-pinning each.
-
-- **`^b^b[` is one prefix too many; `^b[` works.** `onraw!` writes bytes into
-  the pane's pty with `send-keys -H`, so the *hosting* session never sees them
-  as keys of its own — there is no outer prefix to escape. The second `^b` is
-  the inner tmux's `send-prefix`, which puts a literal `^b` into the shell.
-- **The mouse is the inner tmux's own `mouse` setting.** With `mouse on` it sets
-  1002 + 1006 on the pane it is drawn in, the wheel is handed over, and copy
-  mode opens — measured end to end. With `mouse off` it sets nothing on its own
-  behalf, only on behalf of what runs inside it: so the wheel reaches nvim and
-  the tmux does nothing with it. `set -g mouse on` is the whole fix.
-- **`#{mouse_any_flag}` is the disjunction** of standard/button/all — 1 for each
-  of `?1000h`, `?1002h`, `?1003h`, and 0 for SGR-only. The gate was never wrong.
