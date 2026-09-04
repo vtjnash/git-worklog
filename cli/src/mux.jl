@@ -7,9 +7,10 @@
 # for everything built on top of this - its screen can be read back as text
 # without the reader having to understand a single escape sequence.
 #
-# This file is only the session bookkeeping: find the binary, name a session
-# after an item, start one, attach to it. Reading a session back is the next
-# stage and belongs to a control-mode client, not here.
+# Two halves. First the session bookkeeping - find the binary, name a session
+# after an item, start one, tag it, list them - which is all one-shot `tmux`
+# commands. Then, below `--- control mode ---`, the long-lived client that
+# reads a session back and types into it. Drawing what it reads is `paneview.jl`.
 
 """The multiplexer binary, or `nothing` when there is none.
 
@@ -431,9 +432,9 @@ pane called `name` and not found.
 
 It is also written unquoted. Control mode does its own quote handling, and
 `-t='=name:'` comes back *successful and empty* while `-t '=name:'` fails
-outright looking for a session called `=name`. A session name is sanitised to
-word characters and a hyphen by `mux_session`, so there is nothing here that
-would need quoting anyway.
+outright looking for a session called `=name`. `mux_name` has already rewritten
+the characters tmux would object to, so there is nothing left here that would
+need quoting.
 """
 function mux_capture(c::MuxClient; escapes::Bool = true,
                      scroll::Int = 0, rows::Int = 0)
