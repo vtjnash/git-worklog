@@ -159,17 +159,31 @@ function branchfor(repo, branch)
     nothing
 end
 
-"""Put a synthetic item into the browser's lists.
+"""Make every value this item carries selectable in the filter pane.
 
-`buckets` is built once from the items the dashboard was opened with, so a
-bucket arriving mid-session has to be added to the axis by hand or it is a
-filter you cannot select.
+Each axis is built once, from the items the browser opened with, so a bucket,
+repo, label or author arriving mid-session - an import, an adoption, a label
+just put on - is a filter nobody can ask for until it is added here.
+
+Your own login is left off the author axis, the same as when it is built: `@me`
+is that row.
 """
+function note_axes!(st::BState, it::Item)
+    it.bucket in st.buckets || push!(st.buckets, it.bucket)
+    it.repo in st.repos || push!(st.repos, it.repo)
+    for l in it.labels
+        l in st.labels || push!(st.labels, l)
+    end
+    (isempty(it.author) || it.author == login() || it.author in st.authors) ||
+        push!(st.authors, it.author)
+    nothing
+end
+
+"Put a synthetic item into the browser's lists."
 function add_item!(st::BState, it::Item)
     findfirst(x -> x.url == it.url, st.all) === nothing || return false
     push!(st.all, it)
-    it.bucket in st.buckets || push!(st.buckets, it.bucket)
-    it.repo in st.repos || push!(st.repos, it.repo)
+    note_axes!(st, it)
     refilter!(st)
     true
 end
@@ -184,19 +198,12 @@ dozen names written out here would be a list to keep in step with the struct.
 withlabels(it::Item, labels::Vector{String}) =
     Item((f === :labels ? labels : getfield(it, f) for f in fieldnames(Item))...)
 
-"""Put a changed copy of an item back where the old one was.
-
-Keyed by url, and it extends the label axis the way `add_item!` does: a label
-that has just been put on something is a label this dashboard now has, and the
-filter pane has to be able to offer it.
-"""
+"Put a changed copy of an item back where the old one was, keyed by url."
 function replace_item!(st::BState, it::Item)
     i = findfirst(x -> x.url == it.url, st.all)
     i === nothing && return false
     st.all[i] = it
-    for l in it.labels
-        l in st.labels || push!(st.labels, l)
-    end
+    note_axes!(st, it)
     refilter!(st)
     true
 end
