@@ -127,7 +127,8 @@ repo that is tracked anyway, or a pull request of yours in one that is not.
 
 Reviewing: a drag over a diff makes `c` a comment on that range, `^r` in the
 composer drops in GitHub's suggestion block filled with the lines it would
-replace, and the comments accumulate into a **draft review held on GitHub**
+replace - the range, or the one line the cursor is on - and the comments
+accumulate into a **draft review held on GitHub**
 rather than posting one at a time. `A` sends it, and leaving the item asks
 whether to - "leave it" keeps the draft and re-asks the next time you walk off
 it, since nothing but this program mentions one anywhere else. Existing review

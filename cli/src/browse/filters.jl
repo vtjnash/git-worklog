@@ -432,9 +432,9 @@ end
 
 """First selectable row of each group in the filter pane.
 
-The groups are what you actually move between - state, kind, category, repo,
-label, author - and with a couple of hundred labels one of them is long enough
-that stepping into it a row at a time is not stepping into it.
+The groups are what you actually move between - the way out, then state, kind,
+category, repo, label, author - and with a couple of hundred labels one of them
+is long enough that stepping into it a row at a time is not stepping into it.
 """
 function filter_groups(rows)
     starts, prev_head = Int[], true
