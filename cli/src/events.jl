@@ -186,9 +186,9 @@ subscriptions() = sort!([String(r["full_name"]) for r in api_paged("/user/subscr
 Issue search has no fork qualifier, so telling them apart takes a listing of the
 owner's repos - one request, cached for a day, since repos are created about
 that often. It is not a saving either way: a glob is two searches whatever the
-repo count. It is a noise control, and `vtjnash/*` is a hundred repos of which
-eighty-two are forks, where an issue somebody filed on a fork of their own
-project is not work of yours.
+repo count. It is a noise control, and `vtjnash/*` is two hundred repos of which
+171 are forks, where an issue somebody filed on a fork of their own project is
+not work of yours.
 
 **Unknown is not a fork.** A listing that fails, a repo private to the owner, a
 repo created since the entry was cached - all of them keep their items. This
@@ -348,8 +348,9 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
                             join(bad, ", "))
 
     # An `owner/*` entry is every repo that owner has. Asked as one search per
-    # kind rather than as one poll per repo: `vtjnash/*` is a hundred repos, and
-    # a hundred requests a poll is not a thing to do for a handful of comments.
+    # kind rather than as one poll per repo: `vtjnash/*` is two hundred repos,
+    # and two hundred requests a poll is not a thing to do for a handful of
+    # comments.
     # The cost is fidelity - search truncates at 1000 - so a repo that has to be
     # seen exactly is still listed by name, and both may be listed at once.
     srcs = Tuple{String,Any}[]

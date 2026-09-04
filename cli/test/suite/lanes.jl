@@ -102,8 +102,8 @@ end
 
 @testset "all activity on a whole owner" begin
     # An entry is a repo, polled exactly, or `owner/*`, swept with a search.
-    # `vtjnash/*` is a hundred repos and a hundred requests on every launch is
-    # not a thing to do for a handful of comments.
+    # `vtjnash/*` is two hundred repos, and two hundred requests on every launch
+    # is not a thing to do for a handful of comments.
     E = W.Events
     ex, ow, bad = E.event_sources(["JuliaLang/julia", "vtjnash/*", "libuv/*",
                                    "libuv/libuv"])

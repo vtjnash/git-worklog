@@ -2,6 +2,8 @@
 # exactly `w` wide, every click landing where it looks, every copy unwrapped.
 
 @testset "frame geometry" begin
+    # Over the real snapshot, because what is being checked is the geometry: a
+    # hand-built item list would not exercise the widths that actual titles do.
     for (w, h) in ((80, 24), (110, 40), (160, 50), (100, 12), (200, 60), (72, 8))
         st = mkstate()
         f = W.render(st, w, h)

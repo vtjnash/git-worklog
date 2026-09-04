@@ -38,9 +38,6 @@
     @test ev("\e[<0;40M") == W.KeyEvent(-1)          # malformed
 end
 
-# The list pane is populated from the real snapshot: what matters here is the
-# geometry, and a hand-built item list would not exercise the widths that
-# actual titles do.
 @testset "details blocks fold to their summary" begin
     seg(md) = [(k, sm) for (k, sm, _) in W.split_details(md)]
     @test seg("just prose") == [(:text, "")]

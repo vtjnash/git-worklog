@@ -47,7 +47,7 @@ const ISSUE_FIELDS = "\n" * """
 # `headRefName` stays in both: it is a scalar, it costs nothing, and it is what
 # lets a local branch be matched to its pull request without a request per row.
 #
-# Both inline fragments are required even though four of the five bulk lanes are
+# Both inline fragments are required even though most of the bulk lanes are
 # `is:pr`: a search that returns an Issue against a selection spreading only
 # `... on PullRequest` yields a bare `{__typename: "Issue"}` stub, with no
 # fields and no error, and the two `is:issue` lanes come back as husks.

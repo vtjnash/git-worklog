@@ -74,9 +74,9 @@ commented_issue = "is:open is:issue commenter:vtjnash archived:false"
 mentioned_team_pr    = "is:open is:pr in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 
-# Named filter sets for `'` in the browser. Six are built in - waiting on me,
-# waiting on them, ready to merge, red CI mine, unanswered, unread - and a table
-# here adds one, or replaces a built-in of the same name. Every axis the view
+# Named filter sets for `'` in the browser. Seven are built in - the default,
+# waiting on me, waiting on them, ready to merge, red CI mine, unanswered,
+# unread - and a table here adds one, or replaces a built-in of the same name. Every axis the view
 # does not name is cleared when it is applied, so a name always means the same
 # list. `'` then the last entry copies the TOML for whatever filter you are
 # looking at, to paste in here; the browser never writes this file.
@@ -97,8 +97,8 @@ batch = 10
 # somewhere else. Volume is ~300 events/week across these.
 # An entry is either a repo, polled exactly with `since=`, or `owner/*`, which
 # is every repo that owner has. A glob is asked as two searches - one for issues
-# and one for pull requests - rather than as a poll per repo: `vtjnash/*` is a
-# hundred repos, and a hundred requests on every browser launch is not a thing
+# and one for pull requests - rather than as a poll per repo: `vtjnash/*` is two
+# hundred repos, and two hundred requests on every browser launch is not a thing
 # to do for a handful of comments. The cost is fidelity, since search truncates
 # at 1000 results, so a repo that has to be seen exactly is still named here.
 repos = [
