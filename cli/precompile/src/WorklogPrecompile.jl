@@ -4,10 +4,10 @@
 `Worklog`, with the browser's own work already compiled into the package image.
 
 Nothing here is a feature. It re-exports `Worklog` unchanged and exists only so
-that `wl` starts in a fifth of the time: opening the navigator costs about two
-and a half seconds of *compilation* on top of the second it takes to load the
-module, and that cost was being paid on every invocation because nothing had
-ever run `render` before the user did.
+that `wl` starts in about a third of the time: drawing the first frame of the
+browser was measured at 4.33s against 1.36s with this in place, and nearly all
+of the difference is *compilation* that was being paid on every invocation
+because nothing had ever run `render` before the user did.
 
 **Why a separate package and not a workload inside `Worklog`.** A workload runs
 whenever the package holding it is precompiled, and `Worklog` is precompiled

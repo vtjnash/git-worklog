@@ -1,15 +1,15 @@
-# The command surface. One entry point, `wl`, which is the interactive
-# navigator when given nothing and the state editor when given a command.
+# The command surface. One entry point, `wl`: the browser when given nothing,
+# and the state editor when given a command.
 
 const USAGE = """
 Work dashboard.
 
-  wl                                      the interactive navigator
-  wl --refresh                            refresh first, then the navigator
+  wl                                      the browser
+  wl --refresh                            refresh first, then the browser
 
   wl refresh [--firehose]                 re-fetch, re-bucket, re-render
   wl import  <url> [<url>...]             follow items no lane returns, unread
-  wl unread                               JSON, for the navigator
+  wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl read    julia#62891                  mark a thread seen (or: read all)
@@ -145,8 +145,8 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)
     end
     if cmd == "unread"
-        # With a ref it is the inverse of `read`; bare it is still the dump the
-        # navigator reads.
+        # With a ref it is the inverse of `read`; bare it is the JSON dump,
+        # which is how anything outside this program asks what is unread.
         if length(args) > 1
             for u in refs(args[2])
                 println(Events.mark_unread([u]) == 0 ? "was not marked read $u" :
