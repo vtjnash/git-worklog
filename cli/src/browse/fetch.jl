@@ -164,9 +164,10 @@ function refresh_item!(st::BState)
     it = st.items[clamp(st.sel, 1, length(st.items))]
     st.metakey = ""; st.metapending = nothing
     load_meta!(st; fresh = true)
-    # Refuses while something is already in flight, which is not a failure -
-    # the answer being fetched is the fresh one either way.
-    refresh_nodes!(st) || return string("re-reading ", it.ref, "…")
+    # Refuses while something is already in flight, and the message is the same
+    # either way: a read of this item is on its way, and a second one behind it
+    # would answer with what the first is already going to say.
+    refresh_nodes!(st)
     string("re-reading ", it.ref, "…")
 end
 
