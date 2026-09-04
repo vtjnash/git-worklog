@@ -12,14 +12,18 @@
 # sleep, and a fetch finishing redraws immediately rather than at the next tick.
 
 """
-A screen. Implement:
+A screen. `render` and `handle!` are required; everything else has a default,
+and each is explained where it is defined.
 
     render(v, w, h) -> String          the whole frame, no trailing newline
-    handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit | :redraw
+    handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit
     onmouse!(v, ev, ctrl) -> Symbol    the same, for a MouseEvent
     onwake!(v) -> Bool                 adopt background results; true to redraw
     wantsraw(v) -> Bool                take input undecoded, as bytes
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
+    viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
+    isdialog(v) -> Bool                a question to answer, or a place to be
+    closeview!(v)                      let go of whatever it owns
 """
 abstract type View end
 
@@ -877,7 +881,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
     v.status = ""
     if k == 27
         return :pop
-    elseif k == 19                                  # ^s
+    elseif k == C_S
         t = strip(text(v))
         if isempty(t) && !v.allow_empty
             v.status = "nothing to send — esc cancels"
