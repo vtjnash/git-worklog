@@ -93,7 +93,7 @@ isdefault(f::Filters) =
     f.state === :active && f.kind === :both && isempty(f.buckets) &&
     isempty(f.repos) && isempty(f.labels) && isempty(f.authors)
 
-"Does this item belong to one of the five exclusive states?"
+"Does this item belong to one of the exclusive states - the `STATES` radio group?"
 function state_ok(state::Symbol, it::Item, unread::Set{String},
                   touched::Dict{String,String} = EMPTY_TOUCHED,
                   archived::Dict{String,String} = EMPTY_TOUCHED)
@@ -187,9 +187,9 @@ end
 How many items each filter value would select, in one pass over the items.
 
 Every count is against the *other* axes only - a category shows what selecting
-it would add, not a total that ignores the rest of the filter - so there are
-four different predicates over the same item, and computing them together is
-what makes this one pass instead of one per row. It was a pass per row: 93 rows
+it would add, not a total that ignores the rest of the filter - so there is one
+predicate per axis over the same item, six of them, and computing them together
+is what makes this one pass instead of one per row. It was a pass per row: 93 rows
 over 2050 items came to 190,650 `matches` calls per build and two builds per
 keystroke, which made the filter pane the only part of the UI with visible lag -
 128ms a frame against 0.7ms for the item list.
@@ -253,8 +253,8 @@ where choosing happens. It has every value and it narrows by typing, which is
 the only thing that scales to several hundred; and the pane collapses to the
 length of the answer rather than the length of the question.
 
-Category is exempt, and is the whole axis: thirteen values that are each a
-different kind of work, short enough to read at a glance and the one nobody
+Category is exempt, and is the whole axis: a dozen or so values that are each
+a different kind of work, short enough to read at a glance and the one nobody
 would think to search for by name.
 """
 const AXIS_APPLIED_ONLY = (:repo, :label, :author)
@@ -362,7 +362,8 @@ function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
     join(lines, "\n")
 end
 
-"""Rows for the filter pane: the radio group, then the two checkbox groups.
+"""Rows for the filter pane: the way out, two radio groups, then four checkbox
+axes.
 
 Counts are computed against the other axes only, so a category shows how many
 items selecting it would actually add rather than a total that ignores the rest
@@ -431,9 +432,9 @@ end
 
 """First selectable row of each group in the filter pane.
 
-The groups are what you actually move between - state, category, repo, label -
-and with a couple of hundred labels the last one is long enough that stepping
-into it a row at a time is not stepping into it.
+The groups are what you actually move between - state, kind, category, repo,
+label, author - and with a couple of hundred labels one of them is long enough
+that stepping into it a row at a time is not stepping into it.
 """
 function filter_groups(rows)
     starts, prev_head = Int[], true
