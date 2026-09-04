@@ -513,10 +513,16 @@ that does not have the focus.
 
 So what is kept here is about the focus and nothing else. `tab` goes back to the
 child. Escape leaves for the list, and so do `t` and `T`, because the key that
-put the pane on the screen is the one that takes it off again - and because
-handing those two on would open a second pane on the session already showing.
-Everything else, `q` and `K` and `r` included, is the browser's and does there
-exactly what it does there.
+put the pane on the screen is the one that takes it off again. Everything else,
+`q` and `K` and `r` included, is the browser's and does there exactly what it
+does there.
+
+Those two are the one thing here that is not settled. From the child's side the
+prefix *forwards* them, so `^]T` in a shell reaches the agent on the same item,
+and it is safe to: `enter_session` refuses to stack a second view on the session
+already showing. Kept rather than forwarded here because a side with no way out
+of it would be worse than a side that answers one key differently to the other -
+but nothing on screen says the two differ.
 
 Killing the session is `^]K` from the child's side, and full screen is `^]a`.
 Both were reachable from here and neither should have been: they are things done
