@@ -37,6 +37,31 @@ What is left, in the order it is worth doing:
    written where the choice is made; the reason that remains, that the key which
    opened the pane is the one that closes it, is worth keeping.
 
+2. **Measure the latency, then fill in the precompile statements it names.**
+   Startup is the number this program is judged by and nothing measures it: the
+   wrapper's 4.33s → 1.36s was taken by hand, once, and `Worklog.jl` carries
+   nine `precompile` directives added the same way. Both have been true for
+   several sessions of changes since.
+
+   The suite is where to instrument it, because it already drives every path the
+   browser takes without a TTY:
+
+   - **Time what a person waits for.** `wl --help` (the whole command surface
+     infers on the first `dispatch`), the first frame of the browser, and the
+     first thread drawn - each from a cold `julia --project=cli/precompile`, and
+     each again with the workload disabled, so the wrapper's own claim is
+     re-derivable rather than remembered.
+   - **Find what is still compiling at first use.** Run the suite, or better the
+     precompile workload, under `--trace-compile=stderr`; every line is a method
+     that was not in the image. Diff that against the `precompile(...)` block at
+     the foot of `Worklog.jl` and the `@compile_workload` in
+     `cli/precompile/src/WorklogPrecompile.jl` - the workload is the better home
+     for anything the browser draws, and the block for the `wl <command>` paths
+     the workload does not press.
+   - **Then keep it honest.** A testset that asserts a ceiling would be a flaky
+     test on a shared machine; a line printed at the end of the run is not, and
+     it is enough to notice a regression the next time somebody looks.
+
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
 `delete_review` and the label toggle are written and none has ever been sent,
