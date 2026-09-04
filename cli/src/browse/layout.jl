@@ -41,9 +41,9 @@ end
 leftw(w::Int) = panewidths(w)[2]
 
 """
-    layout(w, h) -> NamedTuple
+    layout(w, h, nmeta) -> NamedTuple
 
-Where the two panes sit, in screen coordinates.
+Where the three panes sit, in screen coordinates.
 
 Shared by `render_frame` and the mouse handler because the two must agree
 exactly: a click only maps to the row under it if the geometry it is measured
@@ -209,9 +209,10 @@ const URL_RE = r"https?://[^\s<>\"'`\)\]}]+"
 
 """The url a click at display column `col` landed on, or empty.
 
-Two kinds of link reach a row and neither is an OSC 8 hyperlink, which is the
-point: owning the mouse means a link can be *acted on* rather than handed to a
-terminal that may or may not know what to do with it.
+Two kinds of link are answered for here and neither is an OSC 8 hyperlink: a
+node header is one of those and the terminal follows it itself, but a url
+written in a body is not, and owning the mouse means it can be *acted on*
+rather than handed to a terminal that may or may not know what to do with it.
 
 A footnote row shows an elided url and carries the whole one in its source, so
 anywhere on that row is that link. Anything else is a url written in the text,
