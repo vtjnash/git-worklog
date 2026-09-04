@@ -2,39 +2,40 @@
 
 ## What is next
 
-Everything the last two sessions agreed on is done; `git log` is the record of
-it. What is left, in the order it is worth doing:
+The read-through is done — `src/browse/*`, `paneview.jl` and the module header,
+one file at a time, and `git log` is the record of it. Nothing it turned up is
+still open. What it turned up is written here so the next pass knows what kind
+of thing to look for rather than deriving it again:
 
-1. **A read-through — the code first, then the comments.** The split made the
-   files small enough to read whole, which is the thing that makes this
-   affordable for the first time. Two halves, and the second is the reason for
-   the first:
+- **Counts that stopped being true.** Nine filter states described as five, six
+  axis predicates as four, forty-nine `BState` fields as thirty, the category
+  axis as thirteen values when it is built from the buckets the items carry.
+- **Arguments that outlived the code needing them.** `Term.Panel`, the label
+  frequency count, `select_item!`'s promise not to un-filter, and one of the two
+  reasons `t` is kept on the reading side.
+- **Three dead things**, each left behind by what replaced them: `esc`, `fit1`,
+  `session_rows`.
+- **Three defects the prose walked straight past.** `/1234` never widened for an
+  *archived* item; `undo!` did not rebuild the snoozed lane it had just changed;
+  a note saved from a pane went into `st.items` alone and vanished at the next
+  refilter.
 
-   - **The code.** A real read of `src/browse/*` and `src/paneview.jl` looking
-     for assumptions that were true when they were written. Not `/code-review`
-     on a diff — that catches what a change broke, and this is for what a change
-     left behind.
-   - **The comments.** This codebase argues with itself in prose, which is its
-     best feature and its most dangerous one: a comment nobody doubts is a
-     comment that has to be right. Several are now describing a world that does
-     not exist. `paneview.jl`'s header still says "every other key now belongs
-     to the child", and the prefix docstring still says `^]` is "the only key
-     this view keeps" — both were true before the pane grew a reading side and
-     started forwarding unknown prefix keys to the browser. That is one file
-     found by grepping for two phrases; the point of the pass is the ones a
-     grep will not find.
+The suite was also stopping at `archive.jl` and had been hiding every testset
+after it — the adoption testset counted the user's own adopted branches
+alongside the one it made. That went first, because nothing else could be
+checked until it had.
 
-   How to do it without making it worse: one file at a time; never a comment
-   change and a behaviour change in the same commit; and hold every claim to
-   the standard the good ones already meet — if a comment says something was
-   measured, the measurement should still be reproducible or the word should
-   go.
+What is left, in the order it is worth doing:
 
-2. **Then decide whether the two pane inconsistencies are worth fixing** — the
-   two entries that open "Known gaps". Both are real, both are small, and
-   neither has been hit in use, so the question is whether they are worth
-   touching keys that have only just settled. The read-through above is likely
-   to answer this on its way past, which is why it goes first.
+1. **The reading side forwards `f` and `q` to the browser** — the one of the
+   three known gaps below worth touching. `q` quits the whole program from
+   inside a pane, which is not what `q` does in any other view here, and it is
+   one key press away rather than something you have to go looking for.
+   The other pane gap - `^]t`/`^]T` against `t`/`T` - the read-through answered:
+   leave it. One of its two reasons had gone stale, since `enter_session` now
+   refuses to stack a second view on a session already showing, and that is
+   written where the choice is made; the reason that remains, that the key which
+   opened the pane is the one that closes it, is worth keeping.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -108,7 +109,7 @@ labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
 last acted, `x` archives, `z` undoes the last local action. A click on a url
 copies it, whole even where the wrapping cut it.
 
-`'` is the named views - six built in, more from `config.toml`, and its last
+`'` is the named views - seven built in, more from `config.toml`, and its last
 entry copies the current filter as the TOML that would name it - and `` ` ``
 goes back to the filter you were in before. `f` opens the filter pane, whose
 states are `active` / `unread` / `mine` /
@@ -802,7 +803,10 @@ Kept here so they can be written up in one pass rather than rediscovered.
   the child's side the prefix forwards them, so `^]T` in a shell pane reaches
   the agent on the same item — which is the useful thing. From the reading side
   they leave for the list, which is the toggle that was asked for. Both are
-  defensible on their own and nothing on screen says they differ.
+  defensible on their own and nothing on screen says they differ. Left alone
+  deliberately, after the read-through: forwarding them would no longer double
+  the pane (`enter_session` refuses that now), but the key that opened the pane
+  being the key that closes it is worth more than the symmetry.
 - **The reading side forwards `f` and `q` to the browser.** `f` switches the
   browser to its filter pane, which is not drawn there — so nothing visibly
   happens and the change is waiting when you pop back. `q` quits the program
@@ -814,6 +818,12 @@ Kept here so they can be written up in one pass rather than rediscovered.
   client survives with 11 of 64 slots used. It has not recurred, including at
   the same shape, so it is recorded as a known-unknown rather than a fixed bug.
 
+- **`^r` offers no suggestion on a single line.** `compose_target` fills in the
+  text a suggestion would replace only when the comment covers a *range*, so
+  commenting on one line - the cursor on it, nothing dragged - gets a composer
+  with no `^r`, though the line under the cursor is exactly what it would need.
+  GitHub takes a one-line suggestion perfectly happily. Not touched with the
+  writes still unexercised.
 - **Hunk context expands against the head commit.** Context around a `-` line
   therefore shows the post-change file, not the pre-change one. Fine for
   reading a change; wrong if you want the base side. Needs a second fetch and a
