@@ -135,7 +135,14 @@ end
         v = W.pane_view(n, "sh", ctrl)
         @test v !== nothing
         withenv("LINES" => "30", "COLUMNS" => "100") do
-            sleep(1.5); W.pane_sync!(v)
+            # Waited for rather than slept through: a fixed sleep was long
+            # enough until it was not, and a `seq` that had not finished left
+            # every assertion below measuring an empty history.
+            for _ in 1:40
+                W.pane_sync!(v)
+                v.history > 100 && break
+                sleep(0.25)
+            end
             @test v.wantsmouse === false        # a shell asked for nothing
             @test v.alt === false && v.history > 100
             live = W.astrip(first(v.frame))
