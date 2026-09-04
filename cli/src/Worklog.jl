@@ -4,26 +4,29 @@
 A dashboard for tracking ongoing work across every repo, sorted into lanes by
 what the work actually needs next.
 
-Four pieces, all in this one module so that the file-format quirks and the
-GitHub quirks live in exactly one place:
+One module, so that the file-format quirks and the GitHub quirks live in
+exactly one place. The pieces, with the includes at the foot of this file as the
+index of the rest:
 
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  unread tracking, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, the snapshot diff, DASHBOARD.md
   * `touched.jl` the interaction clock, for ordering work by what you did
   * `state.jl`   the comment-preserving line editor for state.toml
-  * `ui.jl`      the interactive navigator
+  * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
+                 that opens the browser on them
+  * `controller.jl` the view stack that owns stdin, and the views it prompts with
+  * `browse/`    the browser itself: filters, panes, threads, diffs, writing
   * `mux.jl`     multiplexer sessions, for hosting a child program
   * `paneview.jl` one of those sessions, drawn in a pane
   * `cli.jl`     the `wl <command>` surface
 
-File ownership is strict, because it is what keeps the user's notes safe:
-
-  | file          | owner   | lifetime                          |
-  |---------------|---------|-----------------------------------|
+File ownership is strict, because it is what keeps the user's notes safe.
 Everything but `config.toml` lives in `data/`, which is a git repository of its
 own - see `datadir()`.
 
+  | file          | owner   | lifetime                          |
+  |---------------|---------|-----------------------------------|
   | `config.toml`      | you     | edited by hand, only ever read    |
   | `data/state.toml`  | you     | edited key-by-key, never rewritten|
   | `data/facts.json`  | machine | overwritten every refresh         |
@@ -41,7 +44,6 @@ using Dates, Printf, SHA, TOML
 using JSON3, OrderedCollections
 import REPL
 import InteractiveUtils
-using SHA
 using Base64
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))
