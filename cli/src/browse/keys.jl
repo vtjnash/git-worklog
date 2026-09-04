@@ -211,12 +211,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             end
         end
     end
-    # Before the guard below, and deliberately: `z` is not a key about the
-    # selected item, and an empty list is exactly when it is wanted - archiving
-    # or snoozing the last row of a lane empties it, and the way back used to be
-    # swallowed along with every per-item key.
     # Neither of these is about the selected item, so both sit above the guard
-    # that wants one - the same reason `z` and `i` are here.
+    # that wants one - the same reason `z` and `i` do.
     if k == Int('\'') && st.lmode !== :filters
         view_action(st, ctrl)
         return :ok
@@ -238,6 +234,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         load_nodes!(st); load_meta!(st)
         return :ok
     end
+    # Above the guard as well, and an empty list is exactly when `z` is wanted:
+    # archiving or snoozing the last row of a lane empties it, and the way back
+    # used to be swallowed along with every per-item key.
     if k == Int('z') && st.lmode !== :filters
         st.status = undo!(st)
         load_nodes!(st); load_meta!(st)

@@ -54,8 +54,10 @@ function collect_meta!(st::BState)
     st.checks = r.checks
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
     # A draft left on this pull request by an earlier session, which nothing
-    # here would otherwise know about. Only adopted when there is no batch in
-    # hand: what this session has posted knows its own count, and this does not.
+    # here would otherwise know about. Adopted only when the batch in hand is
+    # nothing or is this item's own: a draft being carried on another item must
+    # not be dropped for one read off this one. The count comes from this
+    # session where there is one, since a review read back does not carry it.
     if st.meta !== nothing && !isempty(get(st.meta, :pending, "")) &&
        (st.batch === nothing || st.batch.url == st.metakey)
         i = findfirst(x -> x.url == st.metakey, st.all)
