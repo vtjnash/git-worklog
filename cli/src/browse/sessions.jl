@@ -131,10 +131,14 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
     # The pane reads the note off the item, so the item has to carry it before
     # the next refresh rewrites `facts.json`. Found by url rather than by the
     # cursor: with the editor in a pane the selection can have moved on by the
-    # time this runs.
-    i = findfirst(x -> x.url == it.url, st.items)
-    i === nothing || (st.items[i] = Item(; (f => getfield(it, f) for f in fieldnames(Item))...,
-                                           note = String(after)))
+    # time this runs. In both lists, since `st.items` is rebuilt out of `st.all`
+    # by the next thing that refilters - and a note that survived until then
+    # only to vanish is worse than one that never appeared.
+    now = Item(; (f => getfield(it, f) for f in fieldnames(Item))..., note = String(after))
+    for v in (st.items, st.all)
+        i = findfirst(x -> x.url == it.url, v)
+        i === nothing || (v[i] = now)
+    end
     push!(st.undos, Undo(string("note ", it.ref), () -> begin
         set_fields(it.url, ["note" => isempty(before) ? nothing : before])
         set_touched(it.url, prevtouch)
