@@ -35,6 +35,24 @@
     W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].url == hidden.url
+    # An archived one is hidden by the same `active` state, and the widen has to
+    # be measured against the archive map the list itself was built with.
+    st = mkstate()
+    seen = Dict{Int,Int}()
+    for i in st.all
+        seen[i.number] = get(seen, i.number, 0) + 1
+    end
+    away = st.items[findfirst(i -> seen[i.number] == 1, st.items)]
+    try
+        W.archive!(st, away, W.utcnow())
+        @test !any(i -> i.url == away.url, st.items)
+        W.handle!(st, Int('/'), ctrl); type!(st, string(away.number))
+        W.handle!(st, 13, ctrl)
+        @test st.items[st.sel].url == away.url
+    finally
+        W.set_fields(away.url, ["archive" => nothing])
+    end
+
     st = mkstate()
     W.handle!(st, Int('/'), ctrl); type!(st, "99999999"); W.handle!(st, 13, ctrl)
     @test occursin("no item numbered", st.status)
