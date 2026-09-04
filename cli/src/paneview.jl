@@ -2,9 +2,10 @@
 #
 # The view holds no idea of what its child is. It sizes a multiplexer session
 # to the box it is drawn in, asks for the screen whenever the child writes
-# anything, and prints what comes back. Nothing here parses an escape sequence
-# or names a key, which is the whole point: `vi`, a pager and an agent are the
-# same amount of work, and a program this does not know about is no work at all.
+# anything, and prints what comes back. Nothing here reads what the child prints
+# or names a key it might want, which is the whole point: `vi`, a pager and an
+# agent are the same amount of work, and a program this does not know about is
+# no work at all.
 #
 # Input is forwarded, not interpreted. The controller hands this view the bytes
 # exactly as they arrived and they go straight to `send-keys -H`, so an arrow, a
@@ -228,17 +229,16 @@ function render(v::PaneView, w::Int, h::Int)
     lw, tw = v.beside === nothing ? (0, w) : split_box(w)
     right = pane_column(v, tw, h)
     lw == 0 && return join(right, "\n")
-    # Both sides are exactly `h` rows, so they lay against each other a row at
-    # a time. The left is padded in case its renderer gave back fewer: a short
-    # frame would otherwise pull the whole right column leftwards.
-    # The detail pane alone, and not the whole browser shrunk. While the child
-    # holds the keys the browser cannot be scrolled or moved, so a list beside
-    # it is a list nothing can be done with - and it would cost the thread
-    # three quarters of its rows to sit there.
+    # The detail pane alone, not the whole browser shrunk: a list beside a child
+    # that holds the keys is a list nothing can be done with, and it would cost
+    # the thread three quarters of its rows to sit there.
     # `sel` is zero on the import row, which is not an item and has no thread.
     it = (isempty(v.beside.items) || v.beside.sel == 0) ? nothing :
          v.beside.items[clamp(v.beside.sel, 1, length(v.beside.items))]
     left = detail_pane(v.beside, it, lw, h, v.focus === :read)
+    # Both sides are `h` rows, so they lay against each other a row at a time -
+    # and the left is padded in case it gave back fewer, since a short frame
+    # would pull the whole right column leftwards.
     join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
 
@@ -302,12 +302,12 @@ pane_keys(v::PaneView) =
 """One key after the prefix. Returns `:pop`, `:quit`, `:literal` to send the
 prefix through to the child, or `:ok`.
 
-Six keys are the pane's own and the rest belong to the browser underneath: `^]`
-means "this one is not the child's", and having said that, the sensible place
-for a key this layer has no use for is the other side of the screen. That is
-what makes `^]m` reach the mouse toggle, `^]o` the comments and `^]j` a line of
-the thread without leaving the child - none of which had to be named here, and
-none of which can now be forgotten to be.
+The keys below are the pane's own; the rest belong to the browser underneath.
+`^]` means "this one is not the child's", and the sensible place for a key this
+layer has no use for is the other side of the screen - which is what makes `^]m`
+reach the mouse toggle, `^]o` the comments and `^]j` a line of the thread
+without leaving the child, none of them named here and none of them forgettable
+here either.
 
 `^]t` and `^]T` go with them, which is how a shell reaches the agent on the same
 item and back; `enter_session` refuses to stack a second view on the session
@@ -456,8 +456,9 @@ No key is named, and the only sequence read on the way is a mouse report, whose
 coordinates have to be moved into the child's box - see `retarget_mouse`. So
 this is the same amount of code whether the child is a shell, `vi` or something
 not yet written.
-The prefix is the one byte read rather than forwarded, and it is tracked across
-bursts: it can arrive alone, or ahead of its key in the same read.
+
+The prefix is the one byte held back rather than forwarded, and it is tracked
+across bursts: it can arrive alone, or ahead of its key in the same read.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     v.client === nothing && return :pop
@@ -517,12 +518,11 @@ put the pane on the screen is the one that takes it off again. Everything else,
 `q` and `K` and `r` included, is the browser's and does there exactly what it
 does there.
 
-Those two are the one thing here that is not settled. From the child's side the
-prefix *forwards* them, so `^]T` in a shell reaches the agent on the same item,
-and it is safe to: `enter_session` refuses to stack a second view on the session
-already showing. Kept rather than forwarded here because a side with no way out
-of it would be worse than a side that answers one key differently to the other -
-but nothing on screen says the two differ.
+Those two are the one thing here that is not settled. The child's side forwards
+them instead - `^]T` in a shell reaches the agent on the same item, and
+`enter_session` refuses to stack a second view on a session already showing, so
+forwarding doubles nothing. They are kept here anyway, for the reason above, and
+nothing on screen says the two sides differ.
 
 Killing the session is `^]K` from the child's side, and full screen is `^]a`.
 Both were reachable from here and neither should have been: they are things done

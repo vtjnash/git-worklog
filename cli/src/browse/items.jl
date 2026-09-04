@@ -36,17 +36,16 @@ newnodes() = [Node("import an item by url",
                    "still reach you by email.",
                    :md, true)]
 
-"""Follow one item that no lane returns, by pasting its url.
+"""Ask for a url, and follow whatever it names.
 
 The one thing the lanes cannot reach: an issue in a repo nobody watches that
 does not mention you matches nothing by construction. From here it is an
-ordinary item - notes, snoozes, the clock, the buckets and archive all work on
-it the moment it exists, because all of them are keyed by url.
+ordinary item - notes, snoozes, the clock, the buckets and archive are all keyed
+by url and work on it the moment it exists.
 
-What it cannot have is the activity lane, and the prompt says so rather than
-leaving it to be found out: an item is imported *precisely because* its repo is
-not in `[events].repos`, so anything new on it will keep arriving by email the
-way it always did.
+The one thing it cannot have is the events lane, which is why the prompt says so
+rather than leaving it to be found out: an item is imported *precisely because*
+its repo is not in `[events].repos`.
 """
 function import_action(st::BState, ctrl::Controller, at::DateTime)
     push_view!(ctrl, PromptView(

@@ -359,12 +359,10 @@ function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
                " written and not sent"),
         [("submit it now", :yes), ("leave it as a draft on GitHub", :no)],
         v -> v === :yes ? review_action(st, ctrl, it) :
-             # Not forgotten - only asked. The draft stays on the footer and in
-             # the metadata pane, `A` still sends it from the item it belongs
+             # Not forgotten, only answered: the draft stays on the footer and
+             # in the metadata pane, `A` still sends it from the item it belongs
              # to, and going back to that item arms the question again. Dropping
-             # it here is how a draft ends up remembered by nobody: this program
-             # would have stopped mentioning it, and it is invisible from
-             # everywhere except the pull request itself.
+             # it here is how a draft ends up remembered by nobody at all.
              (st.batch = mkbatch(b.url, b.ref, b.review, b.n; asked = true);
               st.status = string("draft kept on ", b.ref, " \u00b7 A submits it there"))))
     true

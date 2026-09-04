@@ -91,10 +91,11 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
 end
 
 """
-    render(st, w, h) -> String
+    render_frame(st, w, h) -> String
 
-Pure. Side by side when the terminal is wide enough, stacked otherwise, so a
-narrow window degrades rather than truncating the detail into uselessness.
+The whole screen, and what `render(::BState, w, h)` is. Pure. Side by side when
+the terminal is wide enough, stacked otherwise, so a narrow window degrades
+rather than truncating the detail into uselessness.
 """
 function render_frame(st::BState, w::Int, h::Int)
     # Zero is the import row, which is why this is not the usual clamp to 1.
