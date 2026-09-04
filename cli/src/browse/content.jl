@@ -209,7 +209,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     end
     for c in cs
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
-        at = first(String(c["created_at"]), 16)
+        when = first(String(c["created_at"]), 16)
         txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
         # Anchored, so following it lands on this comment rather than the top.
         url = String(nz(get(c, "html_url", nothing), it.url))
@@ -217,17 +217,17 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         # without the line it was left on. The diff pane places it against the
         # code; here it at least says where it was pointing.
         loc = comment_loc(c)
-        made = body_nodes(string(nz(who, "?"), "  ", at), txt, url, true)
+        made = body_nodes(string(nz(who, "?"), "  ", when), txt, url, true)
         # The peek belongs to the prose. A comment that is nothing but a folded
         # block has none, so it borrows the summary - "<details><summary>" is
         # not a useful thing to read on the header line.
         lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
                made[2].header : made[1].raw
         peek = strip(first(replace(lead, r"\s+" => " "), 58))
-        made[1].header = string(nz(who, "?"), "  ", at, loc, "   ", peek)
+        made[1].header = string(nz(who, "?"), "  ", when, loc, "   ", peek)
         # The header's peek is cut mid-word; copy the byline instead, since the
         # body itself is on the rows underneath it.
-        made[1].meta["src"] = string(nz(who, "?"), "  ", at, astrip(loc))
+        made[1].meta["src"] = string(nz(who, "?"), "  ", when, astrip(loc))
         # Only a review comment can be replied to in a thread; an issue comment
         # has no thread to reply into, so `c` there writes a new one.
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
@@ -322,7 +322,9 @@ function comment_loc(c)
     string("  ", CYA, last(split(p, '/')), ":", ln, AR)
 end
 
-"Header for one review comment: who, when, where it pointed, and a peek."
+"""Header for one review comment, as it is drawn under its hunk: who, when and
+a peek. Not where it pointed - the hunk it hangs off is where, which is the
+whole of what `place_comments` is for."""
 function comment_header(c)
     who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
     at = first(String(nz(get(c, "created_at", nothing), "")), 16)
