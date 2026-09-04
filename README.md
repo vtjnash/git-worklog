@@ -7,7 +7,7 @@ Nothing off-the-shelf did this. [gh-dash] is stateless — every section is a li
 query, so there is no snooze, no note, no memory of what changed. [Octobox] has
 real snooze but triages *notifications*, and `GET /notifications` is 403 for the
 sandbox's GitHub App token. GitHub Projects v2 can hold the state but cannot
-populate or classify 160 items. The missing piece in all of them is judgement:
+populate or classify a couple of thousand items. The missing piece in all of them is judgement:
 "needs edits" vs "needs an agent" is a fact about content that no query language
 expresses.
 
@@ -26,8 +26,15 @@ The split that makes it safe to let a model touch this:
 | `data/bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h |
 | `data/queue.json` | `wl next` | what the backlog queue has shown you |
 | `data/read.json` | `wl read` | one seen-up-to timestamp per item |
+| `data/inbox.json` | the events poll | its cursors, and what is unread |
+| `data/touched.json` | any write | one last-interaction timestamp per item |
+| `data/repos.toml` | the browser | GitHub repo → local checkout |
 | `data/snooze.json` | `wl refresh` | armed "until it moves" fingerprints |
 | `data/DASHBOARD.md` | `wl refresh` | overwritten every run |
+
+Everything but `config.toml` lives in `data/`, which is a git repository of its
+own: what can be re-fetched from GitHub is gitignored there, and what records
+something you did is tracked.
 
 The refresh reads `state.toml` and never writes it. Every snooze and note you
 set survives any refresh, and a confused model cannot erase your triage.
@@ -91,9 +98,10 @@ a relabel wakes only `close`, a human reply wakes all three.
 
 ## Working the backlog
 
-The background pile is **983 items**: every open PR in JuliaLang/julia (939) plus
-your own that have gone quiet (44). None of it appears in the dashboard — not
-even as a collapsed list, just a one-line count. You pull a batch when you want
+The background pile is about two thousand items: every open PR in
+JuliaLang/julia (~950), everything you were mentioned in or commented on
+(~1000), and your own that have gone quiet (~45). None of it appears in the
+dashboard — not even as a collapsed list, just a one-line count. You pull a batch when you want
 one and work through it by tagging:
 
 ```bash
@@ -112,16 +120,16 @@ relevant end of it.
 ## The stale pile
 
 Yours, quiet for 60 days, and unclaimed → **Stale — decide**, collapsed and out
-of the lanes. Setting any of `note` / `deadline` / `agent_task` / `snooze` claims
+of the lanes. Setting any of `note` / `deadline` / `snooze` claims
 an item and pulls it back into an active lane; `track` alone marks it triaged
 without reviving it.
 
-## Navigator
+## The browser
 
 The same program with no arguments is an interactive browser over the same data:
 
 ```bash
-cli/bin/wl              # lane -> item -> thread -> action
+cli/bin/wl              # the item list, its metadata, and the thread or diff
 cli/bin/wl --refresh    # re-fetch first
 ```
 
@@ -158,7 +166,7 @@ the pointer. `m` gives the mouse back to the terminal when you want it.
 
 Everything is one Julia module under `cli/src`, so the comment-preserving TOML
 writer and the GitHub quirks below live in one place rather than two: the
-navigator calls the same functions the commands do, rather than shelling back
+browser calls the same functions the commands do, rather than shelling back
 out to itself. Startup is ~0.7s.
 
 The GraphQL search lanes shell out to `gh api graphql` because GitHub.jl exports
@@ -193,10 +201,9 @@ once with a message naming every place it looked, rather than once per repo.
 ```bash
 cli/bin/refresh                                # ~20s, 12 of 5000 rate points
 cli/bin/wl note   julia#62452 "rebase after #62396"
-cli/bin/wl agent  julia#62841 "bisect CI, prepare fixups"
 cli/bin/wl snooze libuv#5212 on-change
 cli/bin/wl clear  julia#62452
-cli/bin/wl                                     # the interactive navigator
+cli/bin/wl                                     # the browser
 ```
 
 `cli/bin/refresh` is `cli/bin/wl refresh`; every command is a subcommand of the
@@ -245,7 +252,3 @@ total crosses 950. Long paginations also hit transient 502s, so pages retry.
 merely schedules the computation (94 of 145 on a cold run). Concluding from it
 flaps the needs-stacking lane and spuriously wakes `on-change` snoozes, so the
 last known value is carried forward until a real one arrives.
-
-GraphQL search silently returns 0 for `assignee:` without an explicit
-`is:issue` / `is:pr` qualifier, unlike REST. The `assigned` lane carries `is:issue`
-for that reason — do not remove it.

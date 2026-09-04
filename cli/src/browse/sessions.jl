@@ -39,8 +39,7 @@ end
 
 The note is where a thought about an item goes - what to check, what to ask,
 the prompt being drafted for an agent. It was reachable only by leaving the
-browser and running `wl note`, which is enough friction that it went unused and
-`agent_task` got pressed into service instead.
+browser and running `wl note`, which is enough friction that it went unused.
 
 A file and `\$EDITOR`, rather than a text field of our own: notes run to
 paragraphs, they are worth keeping in a form that can be pasted, and the
