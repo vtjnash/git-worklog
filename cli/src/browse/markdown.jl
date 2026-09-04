@@ -1,27 +1,7 @@
 # A comment body becomes rows of styled text. Term does the markdown and this
 # does everything Term cannot be trusted with: escaping what would read as its
-# markup, code spans, the wrap map, and the fold state a row belongs to.
-
-"""Term reads `{...}` as markup, and comment text is not ours to trust - a
-comment containing braces would otherwise be swallowed or mangled."""
-esc(s) = replace(s, "{" => "{{", "}" => "}}")
-
-"""Truncate to `w` display columns.
-
-Term wraps content that overflows, which turns a list of items into a wall of
-continuation lines and makes it unscannable. Rows that must stay one line per
-entry are cut here first.
-"""
-function fit1(s::AbstractString, w::Int)
-    w <= 1 && return ""
-    textwidth(s) <= w && return s
-    out, acc = IOBuffer(), 0
-    for c in s
-        acc + textwidth(c) > w - 1 && break
-        print(out, c); acc += textwidth(c)
-    end
-    String(take!(out)) * "…"
-end
+# markup, code spans, the wrap map, and the fold state a row belongs to - and,
+# at the end, the bordered pane those rows are drawn in.
 
 const AB, AD, AR = "\e[1m", "\e[2m", "\e[0m"
 
