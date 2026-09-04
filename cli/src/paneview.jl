@@ -56,9 +56,9 @@ pane_box(w::Integer, h::Integer) = (max(1, w - 4), max(1, h - 3))
 const SPLIT_MIN = 150
 
 """
-    split_box(w) -> (browser, terminal)
+    split_box(w) -> (reading, child)
 
-How to divide `w` between what is being read and the child. `browser` is zero
+How to divide `w` between what is being read and the child. `reading` is zero
 when there is no room, and the child takes the screen.
 
 The child goes on the right. What is being read - a thread, a diff, the checks -
@@ -93,11 +93,10 @@ pane that never explains itself.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl), onend = nothing)
-    # Two things per burst of output: redraw, and send on what the redraw cannot
-    # carry. A clipboard sequence from a program several terminals down has no
-    # other way out - `capture-pane` reads cells and it paints none - so it is
-    # relayed here, to this program's own stdout, where the terminal a person is
-    # actually looking at is the next thing up.
+    # Two things per burst of output: redraw, and relay what a redraw cannot
+    # carry - which is the clipboard and nothing else, for the reasons in
+    # `passthrough`. It goes to this program's own stdout, where the terminal a
+    # person is actually looking at is the next thing up.
     #
     # This runs on the reader task, so it can land in the middle of the main
     # loop writing a frame. That is safe for exactly the reason only OSC 52 is
