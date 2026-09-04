@@ -60,11 +60,10 @@ end
 
 """The lines of the hunk between two display rows, as they would be replaced.
 
-The text of a suggestion, in other words: what GitHub prefills its box with when
-you press the button. Deletions are left out - a suggestion replaces what is on
-the side being commented on, and a deleted line is not there any more - and the
-diff marker goes with them, since it is a column of the display and not of the
-file.
+The text of a suggestion, in other words. Deletions are left out - a suggestion
+replaces what is on the side being commented on, and a deleted line is not there
+any more - and the diff marker goes with them, being a column of the display
+rather than of the file.
 """
 function hunk_text(st::BState, i::Int, w::Int, lo::Int, hi::Int)
     rs = rows(st.nodes, w)
@@ -86,10 +85,9 @@ One key rather than three, because the answer is never ambiguous: on a review
 comment it is a reply, on a hunk it is those lines, and anywhere else it is the
 item itself.
 
-A hunk answers with a *range*, which is one line long unless rows are selected.
-GitHub takes `start_line`/`line` for that, and the range is what makes a
-suggestion worth anything: a replacement for one line is a note, and a
-replacement for the five you highlighted is a patch.
+A hunk answers with a *range* - one line long unless rows are selected - which
+GitHub takes as `start_line`/`line`, and with `text`, the lines as they stand
+now, which is what `^r` fills a suggestion with.
 """
 function compose_target(st::BState, iw::Int)
     i = curnode(st, iw)
@@ -108,10 +106,14 @@ function compose_target(st::BState, iw::Int)
             # only sent when there is one, and a range across both sides of the
             # diff is not a thing it accepts.
             first_ = (a !== nothing && a[2] == b[2] && a[1] < b[1]) ? a[1] : nothing
+            # What a suggestion would replace: the whole range where there is
+            # one, and the anchored line alone where there is not. A one-line
+            # suggestion is the commonest kind there is, so standing on a line
+            # is enough to fill `^r` in.
             return (:line, (file = n.meta["file"], line = b[1], side = b[2],
                             start = first_,
-                            text = first_ === nothing ? String[] :
-                                   hunk_text(st, i, iw, lo, hi)))
+                            text = hunk_text(st, i, iw,
+                                             first_ === nothing ? hi : lo, hi)))
         end
     end
     (:item, nothing)
@@ -239,7 +241,8 @@ markdown anybody can type; this one is a *review action* - GitHub applies the
 block as a commit - and it is unusable without the current text of the lines in
 front of you, which is the part the editor cannot know on its own.
 
-Empty for an empty range: a suggestion that replaces nothing is a comment.
+Empty when there is nothing to replace - a range of nothing but deletions -
+since a suggestion that replaces nothing is only a comment.
 """
 function suggestion(lines::Vector{String})
     isempty(lines) && return ""

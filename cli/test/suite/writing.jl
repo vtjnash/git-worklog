@@ -132,7 +132,15 @@ end
     t = W.compose_target(st, iw)
     @test t[1] === :line
     @test (t[2].file, t[2].line, t[2].side) == ("a.jl", 11, "RIGHT")
-    @test t[2].start === nothing && isempty(t[2].text)    # one line is no range
+    # One line is no range - but it is still a line, and `^r` fills in what is
+    # on it: a suggestion replacing one line is the commonest kind there is.
+    @test t[2].start === nothing && t[2].text == ["added"]
+    st.nrow = 2
+    @test W.compose_target(st, iw)[2].text == ["ctx"]
+    # A deleted line has nothing to replace, so there is nothing to suggest.
+    st.nrow = 3
+    @test isempty(W.suggestion(W.compose_target(st, iw)[2].text))
+    st.nrow = 4
 
     # Dragging over the hunk is already a selection - it is how `y` copies
     # several rows - so a range comment needs no new gesture, only for `c` to

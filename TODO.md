@@ -818,12 +818,6 @@ Kept here so they can be written up in one pass rather than rediscovered.
   client survives with 11 of 64 slots used. It has not recurred, including at
   the same shape, so it is recorded as a known-unknown rather than a fixed bug.
 
-- **`^r` offers no suggestion on a single line.** `compose_target` fills in the
-  text a suggestion would replace only when the comment covers a *range*, so
-  commenting on one line - the cursor on it, nothing dragged - gets a composer
-  with no `^r`, though the line under the cursor is exactly what it would need.
-  GitHub takes a one-line suggestion perfectly happily. Not touched with the
-  writes still unexercised.
 - **Hunk context expands against the head commit.** Context around a `-` line
   therefore shows the post-change file, not the pre-change one. Fine for
   reading a change; wrong if you want the base side. Needs a second fetch and a
