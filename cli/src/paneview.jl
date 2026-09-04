@@ -8,9 +8,13 @@
 #
 # Input is forwarded, not interpreted. The controller hands this view the bytes
 # exactly as they arrived and they go straight to `send-keys -H`, so an arrow, a
-# paste, a control character and a mouse report are all the same thing: bytes
-# the child understands and this does not. One key is held back to get out
-# again, because every other key now belongs to the child.
+# paste and a control character are all the same thing: bytes the child
+# understands and this does not. Two things are held back. A mouse report is
+# rewritten into the child's own coordinates, because the child owns a box
+# inside a screen it knows nothing about; and `^]` is a prefix, because with
+# every other key forwarded there would be no way out again. That prefix is
+# also what hands the keyboard to the thread drawn beside the child, which is
+# the one time a key typed at this view is not the child's at all.
 
 """A multiplexer session shown in a pane.
 
@@ -238,11 +242,12 @@ function render(v::PaneView, w::Int, h::Int)
     join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
 
-"""Ctrl-] is the prefix, and the only key this view keeps.
+"""Ctrl-] is the prefix, and the only key the child never gets.
 
-Everything else belongs to the child, Escape and Ctrl-C included, so the way in
-cannot be a key a program would want. Ctrl-] is telnet's, for the same reason,
-and almost nothing binds it.
+While the child has the focus everything else is its own, Escape and Ctrl-C
+included, so the way in cannot be a key a program would want. Ctrl-] is
+telnet's, for the same reason, and almost nothing binds it. On the reading side
+the keys are the browser's instead, and `^]tab` is what puts them there.
 
 It has to be a prefix and not simply an escape. With every key forwarded, a
 lone escape key leaves no way to reach anything else the view can do - killing
@@ -447,8 +452,10 @@ end
 
 """Bytes as typed, straight through to the child.
 
-No key is named and no sequence is interpreted on the way, so this is the same
-amount of code whether the child is a shell, `vi` or something not yet written.
+No key is named, and the only sequence read on the way is a mouse report, whose
+coordinates have to be moved into the child's box - see `retarget_mouse`. So
+this is the same amount of code whether the child is a shell, `vi` or something
+not yet written.
 The prefix is the one byte read rather than forwarded, and it is tracked across
 bursts: it can arrive alone, or ahead of its key in the same read.
 """
@@ -614,19 +621,6 @@ wtkey(p) = try
     realpath(String(p))
 catch
     String(rstrip(String(p), '/'))
-end
-
-function session_rows(items::Vector{Item})
-    byref = Dict(it.ref => it for it in items)
-    rows = SessionRow[]
-    for r in mux_list()
-        it = get(byref, r.item, nothing)
-        label = it !== nothing ? string(it.ref, "  ", it.title) :
-                !isempty(r.item) ? r.item : r.name
-        where = isempty(r.worktree) ? "" : basename(rstrip(r.worktree, '/'))
-        push!(rows, SessionRow(r.name, r.kind, r.command, r.attached, where, label))
-    end
-    rows
 end
 
 """One local branch: work that exists whether or not it has a place.
@@ -801,7 +795,7 @@ end
 const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_DATE, WT_TRACK = 3, 2, 18, 22, 10, 10
 const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
 
-"The two session slots of one row: a shell and an agent, each present or not."
+"The three session slots of one row: a shell, an agent and a note, each present or not."
 function session_marks(r::WorktreeRow)
     out = ""
     for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
@@ -1122,8 +1116,9 @@ function handle!(v::WorktreeView, k::Int, ctrl)
         if r isa BranchRow
             # A branch is not a place, but one can be made for it. Enter goes to
             # the worktree that has it out, and offers to create one where there
-            # is none - the same destination reached two ways, so all three keys
-            # mean here what they always did.
+            # is none - the same destination reached two ways. `t` and `T` open
+            # nothing here, since there is nowhere yet to run: they go to that
+            # same row, which is where they do work.
             i = isempty(r.worktree) ? nothing :
                 findfirst(x -> wtkey(x.path) == wtkey(r.worktree), v.rows)
             if i !== nothing
