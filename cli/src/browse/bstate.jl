@@ -14,10 +14,10 @@ end
 
 """The browser's whole state.
 
-Keyword-constructed, with defaults: it has thirty fields, and the positional
-form is a place where two of them get transposed silently. `render` mutates the
-scroll offsets and the two geometry readings (`hdr`, `nmeta`) that the mouse
-needs, so it is pure in what it returns but not in what it touches.
+Keyword-constructed, with defaults: it has close to fifty fields, and the
+positional form is a place where two of them get transposed silently. `render`
+mutates the scroll offsets and the two geometry readings (`hdr`, `nmeta`) that
+the mouse needs, so it is pure in what it returns but not in what it touches.
 """
 Base.@kwdef mutable struct BState <: View
     items::Vector{Item} = Item[]
@@ -50,8 +50,8 @@ Base.@kwdef mutable struct BState <: View
     buckets::Vector{String} = String[]
     repos::Vector{String} = String[]
     labels::Vector{String} = String[]
-    authors::Vector{String} = String[]   # busiest first, the two predicates
-                                         # ahead of every login
+    authors::Vector{String} = String[]   # the two predicates, then every login
+                                         # that appears, alphabetically
     sort::Symbol = :none            # how the list is ordered; see `SORTS`
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
@@ -96,20 +96,17 @@ Base.@kwdef mutable struct BState <: View
     typing::Bool = false   # is the query still being typed?
 end
 function BState(all::Vector{Item}, title, unread = Set{String}())
-    # Labels by how often they appear rather than alphabetically: there are
-    # hundreds across this many repos, and the ones reached for constantly
-    # should not be somewhere down past "upstream".
-    lc = Dict{String,Int}()
+    ls = Set{String}()
     for it in all, l in it.labels
-        lc[l] = get(lc, l, 0) + 1
+        push!(ls, l)
     end
-    ac = Dict{String,Int}()
+    as = Set{String}()
     for it in all
         # Your own login is left out: `@me` is that row, and it is the better
         # one - it also carries the adopted branches, which have no author at
         # all and are yours by definition.
         (isempty(it.author) || it.author == login()) && continue
-        ac[it.author] = get(ac, it.author, 0) + 1
+        push!(as, it.author)
     end
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = load_touched(), archived = field_map("archive"),
@@ -121,12 +118,12 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
                   # predicted or looked up. A name can be found by knowing its
                   # name.
                   repos = sort(unique(it.repo for it in all)),
-                  labels = sort(collect(keys(lc))),
+                  labels = sort(collect(ls)),
                   # The two predicates lead, because they are the two anybody
                   # wants and neither is a name you would think to type. The
                   # logins after them are alphabetical like everything else.
                   authors = vcat([AUTHOR_ME, AUTHOR_OTHERS],
-                                 sort(collect(keys(ac)))))
+                                 sort(collect(as))))
     refilter!(st)
     st
 end
