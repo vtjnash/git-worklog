@@ -4,11 +4,10 @@
 # a bucket for every item from rules, expires snoozes, diffs against the
 # previous snapshot and renders DASHBOARD.md.
 #
-# File ownership is strict, because it is what keeps your notes safe:
-#   config.toml  state.toml   -- yours. Read here, NEVER written here.
-#   facts.json                -- machine. Overwritten every run.
-#   snooze.json               -- machine. Fingerprints for "snooze until it moves".
-#   DASHBOARD.md              -- machine. Overwritten every run.
+# File ownership is strict, because it is what keeps your notes safe - the
+# table is in `Worklog.jl`, and this half of it is the load-bearing part:
+# `config.toml` and `state.toml` are read here and *never* written here, while
+# `facts.json`, `snooze.json` and `DASHBOARD.md` are overwritten every run.
 #
 # Judgement calls this deliberately does not make (they belong to the model
 # running the /dash skill, which writes them into state.toml): whether a red CI
@@ -431,7 +430,6 @@ GitHub's search API truncates at 1000 results and the Julia firehose is already
 at ~993, so any query approaching the cap is re-run partitioned by creation year
 and the slices unioned.
 """
-
 function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
     cache = datapath("bulk.json")
     hours = get(cfg["bulk"], "refresh_hours", 6)
@@ -750,9 +748,10 @@ function render(items, changes, cfg, spent, at::DateTime, unread = ())
         # unread comment on your own PR matters more than one on a thread you
         # have never touched.
         by_url = Dict(r["url"] => r for r in values(items))
+        # Carried first, and oldest first inside each half: what has been unread
+        # longest is what is closest to being missed altogether.
         prio(e) = (haskey(by_url, e["url"]) && !by_url[e["url"]]["backlog"] ? 0 : 1, e["updated"])
         ranked = sort(collect(unread); by = prio)
-        sort!(ranked; by = e -> (prio(e)[1],))
         append!(out, ["## Unread ($(length(unread)))",
                       "_`wl show <ref>` to read a thread, `wl read <ref>` when done, " *
                       "`wl read all` to zero the inbox._", ""])
