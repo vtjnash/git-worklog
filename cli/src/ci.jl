@@ -6,7 +6,11 @@
 # JSON endpoints anonymously. That is enough to name the failing jobs and pull
 # their logs without a sign-in.
 
-"Per-check state for an item's head commit. Cached: this is three API calls."
+"""Per-check state for an item's head commit.
+
+One GraphQL round trip, cached: the metadata pane asks for it every time the
+selection moves, and holding `j` down should not be a request per row.
+"""
 function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0)
     key = string("checks:", repo, "#", number)
     hit = cache_get(key, ttl)
@@ -73,7 +77,7 @@ function bk_jobs(b; ttl = 300.0)
         [(name = String(get(j, :name, "?")), state = String(get(j, :state, "?")),
           exit = something(get(j, :exit_status, nothing), ""),
           id = String(get(j, :id, ""))) for j in d.records]
-    catch e
+    catch
         NamedTuple[]
     end
     cache_put(key, out)

@@ -134,7 +134,7 @@ function register_repo!(name::AbstractString, path::AbstractString)
     isdir(p) || throw(GitError("no such directory: $p"))
     gd = try
         common_gitdir(p)
-    catch e
+    catch
         throw(GitError("not a git checkout: $p"))
     end
     rs = try remote_names(p) catch; String[] end
@@ -147,11 +147,9 @@ end
 
 """Worktrees of this repo, skipping ones git calls prunable.
 
-Each is `(path, branch, head, main)`, which destructures as `(path, branch)` for
-the callers that only want somewhere to work. `branch` is empty on a detached
-head - a real state for a worktree, and one the survey has to be able to show
-rather than skip. `main` marks the primary checkout, which git always lists
-first.
+Each is `(path, branch, head, main)`. `branch` is empty on a detached head - a
+real state for a worktree, and one the survey has to show rather than skip -
+and `main` marks the primary checkout, which git always lists first.
 """
 function worktrees(path::AbstractString)
     out = NamedTuple{(:path, :branch, :head, :main),Tuple{String,String,String,Bool}}[]
