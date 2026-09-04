@@ -1,12 +1,12 @@
 # A JSON writer that reproduces CPython's `json.dumps` byte for byte.
 #
-# Not gratuitous. Three of the files here are read back by this program and one
-# of them (`snooze.json`) is committed, so the serialisation is part of the file
-# format: `facts.json` and `snooze.json` are written with `indent=1,
-# sort_keys=True` and the GraphQL request bodies with the default `", "` / `": "`
-# separators. JSON3's writer emits none of those shapes, so it would have made
-# every refresh show up as a whole-file diff and would have made the port
-# impossible to check against the Python it replaces.
+# Not gratuitous. The state files are committed - `read.json`, `inbox.json`,
+# `touched.json`, `snooze.json`, `queue.json` - so their serialisation is part
+# of the file format: those are written with `indent=1, sort_keys=True`, and the
+# GraphQL request bodies with the default `", "` / `": "` separators. JSON3's
+# writer emits neither shape, so every refresh would have shown up as a
+# whole-file diff and the port would have been impossible to check against the
+# Python it replaces.
 #
 # Ordered objects are `Vector{Pair{String,Any}}` or `OrderedDict`; `sortkeys`
 # reorders them by code point, which is what `sort_keys=True` does and what

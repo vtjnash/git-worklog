@@ -1,7 +1,8 @@
 # The interaction clock: when you last did something to an item.
 #
-# `url -> ISO8601`, machine-owned and gitignored, the same shape `read.json`
-# uses for a per-item timestamp the refresh does not own.
+# `url -> ISO8601`, the same shape `read.json` uses. Machine-owned but tracked,
+# like every other file in `data/` that records something you did: GitHub cannot
+# answer any of it, so it is not re-fetchable and it is worth a history.
 #
 # The whole design is in what does *not* write here. Opening an item, scrolling
 # it, searching, folding a comment and changing filters are all *looking*, and
