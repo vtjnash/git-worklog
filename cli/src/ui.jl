@@ -1,23 +1,10 @@
-# Interactive navigator over the same data.
+# `Item`: one row of the dashboard, and the three lists they are loaded from -
+# `facts.json`, the branches you have adopted, and the urls you have imported.
+# `ui()` at the foot assembles all three and opens the browser on them.
 #
 # Every mutation goes through the same functions the `wl <command>` surface
 # calls, so the comment-preserving TOML writer and the GitHub quirks live in
 # exactly one place rather than two.
-
-# Lanes in the order they matter, matching SECTIONS in refresh.jl.
-const LANES = [
-    ("unread",         "Unread"),
-    ("needs-reply",    "Needs a reply"),
-    ("needs-edits",    "Needs edits"),
-    ("needs-stacking", "Needs stacking"),
-    ("needs-review",   "Needs review"),
-    ("needs-merge",    "Ready to merge"),
-    ("needs-nudge",    "Needs a nudge"),
-    ("waiting",        "Waiting on others"),
-    ("issue",          "Assigned issues"),
-    ("draft",          "Drafts"),
-    ("stale",          "Stale — decide"),
-]
 
 const DIM = "\e[2m"; const B = "\e[1m"; const R = "\e[0m"
 const RED = "\e[31m"; const YEL = "\e[33m"; const GRN = "\e[32m"; const CYA = "\e[36m"
@@ -220,15 +207,11 @@ end
 # --- work in a repo nobody is watching --------------------------------------
 #
 # Everything else arrives through a lane, so an issue in an untracked repo that
-# does not mention you cannot be followed at all. An import is the manual answer:
-# a url is written into `state.toml` and the item is fetched by it from then on.
-#
-# It composes with everything already keyed by url - notes, snoozes, the clock,
-# the buckets, archive - the same way adoption did, and archive is its exit.
-# What it cannot have is the activity lane: an item is imported *precisely
-# because* its repo is not watched, so new activity on it will keep arriving by
-# email the way it always did. That is worth saying in the prompt rather than
-# leaving to be discovered.
+# does not mention you cannot be followed at all. An import is the manual
+# answer: a url written into `state.toml`, and the item fetched by it from then
+# on. Being keyed by url is the whole of what it takes to compose with notes,
+# snoozes, the clock, the buckets and archive - the same as adoption above, and
+# archive is its exit too.
 
 "Urls that have been imported. Not the local ones - those are adoptions."
 imported_urls() = sort!([u for u in keys(field_map("imported")) if !islocal(u)])
