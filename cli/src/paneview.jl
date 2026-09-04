@@ -579,18 +579,14 @@ end
 
 """One session, as the worktree row it belongs to sees it.
 
-The item comes from the session's own `@wl_item` tag rather than from anything
-read out of its name. A name is a label that changes - a shell gets renamed to
-whichever item was opened on it last - and half of what is in it, the short
-repo, cannot be turned back into a full one without guessing.
+Three things, because the row says the rest: `kind` is which mark it lights,
+`attached` is what colours it, and `name` is what `K` ends. Where it is running
+and what it is running on are the row it is sitting on.
 """
 struct SessionRow
     name::String
     kind::Symbol
-    command::String
     attached::Bool
-    where::String            # the worktree's stem, which is what is shared
-    label::String            # the item's title, or what could be recovered
 end
 
 """One place work can happen, and what is happening in it.
@@ -657,16 +653,13 @@ list nothing on the way up.
 """
 function place_rows(items::Vector{Item}; withdirty::Bool = true)
     ix = branch_index(items)
-    byref = Dict(it.ref => it for it in items)
+    # Keyed by the worktree each session is running in, which is the row it is
+    # about to be filed under - and by `wtkey`, since tmux was told one spelling
+    # of that path and git reports another.
     live = Dict{String,Vector{SessionRow}}()
     for r in mux_list()
-        it = get(byref, r.item, nothing)
-        label = it !== nothing ? string(it.ref, "  ", it.title) :
-                !isempty(r.item) ? r.item : r.name
         k = isempty(r.worktree) ? "" : wtkey(r.worktree)
-        push!(get!(live, k, SessionRow[]),
-              SessionRow(r.name, r.kind, r.command, r.attached,
-                         isempty(r.worktree) ? "" : basename(rstrip(r.worktree, '/')), label))
+        push!(get!(live, k, SessionRow[]), SessionRow(r.name, r.kind, r.attached))
     end
     ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
