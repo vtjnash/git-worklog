@@ -480,12 +480,15 @@ end
 
 # --- writing ---------------------------------------------------------------
 #
-# Everything above reads. These five write, and they are the only functions in
-# the program that change anything on GitHub.
+# Everything above reads. What follows is every function in the program that
+# changes anything on GitHub: a comment, a thread on a pending review,
+# submitting or discarding one, a reply, a whole review, and a label.
 #
-# Each returns a status string - empty for success, the failure otherwise - so a
-# caller can put it in the footer. They do not raise: a review that will not
-# post is a message to read, not a stack trace over the frame you were reading.
+# They return a status string - empty for success, the failure otherwise - so a
+# caller can put it in the footer; `add_review_thread` returns the draft's new
+# state beside it, because the browser has to hold what it just added to. None
+# of them raise: a review that will not post is a message to read, not a stack
+# trace over the frame you were reading.
 #
 # A 403 here is worth naming specially. The sandbox's App token is scoped for
 # reading, so every one of these fails that way in this environment, and the
@@ -521,33 +524,6 @@ function post_comment(url::AbstractString, body::AbstractString)
     _write() do
         GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/issues/$n/comments";
                             auth = auth(), params = Dict("body" => String(body)))
-        _invalidate(url)
-    end
-end
-
-"""Comment on one source line, as a standalone review comment.
-
-`commit_id` has to be the head the diff was read against, not the branch tip: a
-line number means nothing without the commit it was counted in.
-"""
-function post_review_comment(url::AbstractString, commit_id::AbstractString,
-                             path::AbstractString, line::Integer,
-                             side::AbstractString, body::AbstractString;
-                             start_line = nothing)
-    r, n = _repo_num(url)
-    params = Dict{String,Any}("body" => String(body), "commit_id" => String(commit_id),
-                              "path" => String(path), "line" => Int(line),
-                              "side" => String(side))
-    # `line` is the *end* of a range and `start_line` its beginning, so a
-    # one-line comment is the same request with the start left out - which is
-    # why it is a keyword here rather than two ways of posting.
-    if start_line !== nothing && Int(start_line) < Int(line)
-        params["start_line"] = Int(start_line)
-        params["start_side"] = String(side)
-    end
-    _write() do
-        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/comments";
-                            auth = auth(), params = params)
         _invalidate(url)
     end
 end
@@ -791,9 +767,10 @@ function resolved_comments(url::AbstractString; ttl = 300.0)
 end
 
 """
-    itemmeta(url, is_pr) -> (requested, reviews, assignees, teams)
+    itemmeta(url, is_pr) -> (requested, teams, assignees, pending, reviews)
 
-Who was asked to review, who has, and who it is assigned to.
+Who was asked to review, who has, who it is assigned to, and whether a draft
+review of yours is sitting on it.
 
 Fetched for the selected item only, on demand. The heavy GraphQL query carries
 reviews already, but the light query the bulk lanes use does not - so anything
