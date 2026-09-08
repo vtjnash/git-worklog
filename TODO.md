@@ -96,6 +96,26 @@ most of it asked for while reading with it:
    it. Worth fixing when the two halves are next in view, since the state is
    about to be reset anyway.
 
+10. **A url gets a footnote per comment that cites it.** julia#43994 draws eight
+    footnote rows of which four are the same Nanosoldier report - one for each
+    nanosoldier comment, since `delink` numbers per node and that is what keeps
+    `[1]` meaning something inside a comment. Two halves to it: a body citing
+    one url twice gets two identical rows, which is a dedupe inside `delink` and
+    obviously right; the same url across four comments is thread-wide numbering,
+    which is a design change and may not be worth it. Do the first, decide the
+    second by looking at a thread with it done.
+
+11. **A comment's tail folds under a header called `…`, and fenced code keeps
+    its `\r`.** Both visible in Downloads.jl#231's comment 1701494121, which is
+    prose, a `julia` fence, then more prose. `body_nodes!` puts everything after
+    the first segment one level under the comment, so the trailing paragraph
+    becomes its own foldable node headed `…` - deliberate for `<details>`
+    chains, where the alternative folded wrongly, and wrong for the ordinary
+    case of a fence in the middle of a paragraph. And every line of the code
+    node ends in a carriage return: the markdown path normalises `\r\n` and
+    `split_fences` never has, so a plain node carries GitHub's CRLF onto the
+    screen.
+
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
 `delete_review` and the label toggle are written and none has ever been sent,

@@ -208,6 +208,18 @@ end
     @test occursin(it.track, plain)
     isempty(it.labels) || @test occursin(first(it.labels), plain)
     isempty(it.author) || @test occursin(it.author, plain)
+    # How old it is and when it last changed at all, to the minute: the age of
+    # what you are reading had to be guessed from the comment dates before, and
+    # a pull request opened in 2022 reads nothing like one opened on Tuesday.
+    @test W.when_str("2026-09-08T01:36:18Z") == "2026-09-08 01:36"
+    @test W.when_str("") == "" && W.when_str("2026-09-08") == ""
+    isempty(it.created) || @test occursin(W.when_str(it.created), plain)
+    isempty(it.updated) || @test occursin(W.when_str(it.updated), plain)
+    # A row with no timestamps - an unread thread the poll found, an adopted
+    # branch - prints neither, rather than an empty pair of rows.
+    bare = W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
+                  title = "an adopted branch")
+    @test !occursin("created", W.astrip(join(W.meta_lines(st, bare, 44), "\n")))
     # Per-person review state needs a request; until it lands, it says so.
     @test st.meta === nothing
     it.is_pr && @test occursin("reviews", plain)

@@ -85,6 +85,15 @@ function collect_meta!(st::BState)
     true
 end
 
+"""A GitHub timestamp as `2026-09-08 01:36`, or `""` for anything unparseable.
+
+Its own function because "" has to survive it: a synthetic row - an unread
+thread the poll found, an adopted branch - carries no timestamps at all, and the
+metadata pane skips an empty value rather than printing an empty row.
+"""
+when_str(s::AbstractString) =
+    length(s) >= 16 && s[11] == 'T' ? string(s[1:10], " ", s[12:16]) : ""
+
 """Lines for the metadata pane: what is true of this item, rather than what is
 in it.
 
@@ -158,6 +167,18 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv("author", it.author)
     st.meta === nothing || isempty(st.meta.assignees) ||
         kv("assignee", join(st.meta.assignees, ", "))
+    # How old it is and when it last changed at all. Both are on the item
+    # already and neither was on screen, so the age of what you are reading had
+    # to be guessed from the comment dates - and a pull request opened in 2022
+    # reads very differently from one opened on Tuesday. To the minute and no
+    # further: seconds are noise, and the zone is UTC everywhere in this
+    # program, which is why it is not printed either.
+    #
+    # `updated` is GitHub's own, so a label edit moves it. That is a different
+    # fact from `act` - the head commit or the last comment - and the lanes are
+    # ordered by `act` precisely because this one moves for things nobody did.
+    kv("created", when_str(it.created))
+    kv("updated", when_str(it.updated))
     kv("milestone", string(it.milestone,
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
     it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?

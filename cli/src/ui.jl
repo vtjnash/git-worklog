@@ -28,6 +28,10 @@ Base.@kwdef struct Item
     ci::String = ""
     unresolved::Int = 0
     mergeable::String = ""
+    created::String = ""   # when GitHub says it was opened, and when it last
+    updated::String = ""   # changed by anything at all - a label edit counts,
+                           # which is what makes `act` below a different fact
+                           # and not a better-named one
     act::String = ""       # when this last moved: the head commit, else the last
                            # comment, else `updated`. Stored as the timestamp
                            # and not as an age in days, because an age is only
@@ -96,6 +100,8 @@ function item_of(r)
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             mergeable = nz(jget(r, :mergeable), ""),
             act = String(nz(act, "")),
+            created = String(nz(jget(r, :created), "")),
+            updated = String(nz(jget(r, :updated), "")),
             new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
             snoozed = nz(jget(r, :snoozed), false),
             snooze_why = String(nz(jget(r, :snooze_why), "")),
