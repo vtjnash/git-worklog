@@ -25,76 +25,34 @@ after it — the adoption testset counted the user's own adopted branches
 alongside the one it made. That went first, because nothing else could be
 checked until it had.
 
-What is left, in the order it is worth doing - most of it asked for while
-reading with it:
+What is left. Eight of the nine that were here are done - the cursor that
+remembers where you were per item and per mode, the row that stays put when the
+one it was on leaves, the keyboard selection, the blank line between comments,
+the numbered views, the peek that was drawn twice, the un-import that left its
+inbox row, and the `…` header over a paragraph's own tail. What remains:
 
-1. **Where you were, per item.** Coming back to a thread or a diff starts at the
-   top, so the way back to the line you were reading is to scroll for it. Keep
-   the last highlighted row per item - and per mode, because a comment thread
-   and a diff are two readings of the same item - and scroll to it when the item
-   is opened again. It belongs beside the read cursor conceptually and in
-   `BState` mechanically; `st.nrow` is what would be remembered, and
-   `st.loaded` already names what it would be keyed by.
+1. **The review comments, drawn against their own lines rather than under the
+   hunk.** Most of this item is done and was done a week before it was written
+   down: `place_comments` hangs each comment off the hunk it points into, by
+   file and by side, threads the replies, marks the hunk header with how many
+   are open and how many are settled, and they are nodes, so `n`/`N` already
+   walks from one to the next. What is not done is the *inline* half - a box
+   against the lines it is about, inside the hunk rather than after all of it -
+   and it is not obviously worth what it costs: a hunk is one node whose body is
+   the diff text, and splitting it at the commented line splits the `start`,
+   `count` and `body` that `hunk_line_at`, `[`/`]` expansion and `c`-on-a-range
+   all read. Decide whether the inline box is wanted before writing any of it.
 
-2. **When a row leaves, the cursor stays where it was.** `r` in the unread lane
-   marks the item read and the row goes, and the cursor jumps to the top of the
-   list - so reading an inbox is: `r`, scroll back down, `r`, scroll back down.
-   `refilter!` keeps the *url* it was on and falls back to row 1 when that url
-   is gone; the fallback should be the row's own index, clamped, so the cursor
-   lands on whatever moved up into the place it was reading.
-
-3. **The review comments, against the diff they are about.** They are readable
-   now only in the thread, which is the wrong place to read them: a comment on a
-   hunk means nothing without the hunk. Draw each as a small box inline against
-   its own lines in the diff, and make them nodes of their own, so `n`/`N` walks
-   from one to the next the way it walks the thread. `content.jl` is where a
-   diff becomes nodes and already knows the file and line of every hunk, which
-   is what a comment would be matched on.
-
-4. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
-   `shift-Down` should extend the selection the way dragging does, which is the
-   keyboard half of something only the mouse can do today. And dragging itself
-   was reported not taking: what was highlighted was the *cursor* row - `CURBG`
-   is grey 236, the "black background" - and never `SELBG`, the blue one, which
-   says no `:drag` reached `onmouse!` or the anchor was cleared before it did.
-   `1002` is requested (`controller.jl`), so the report should be arriving;
-   start by finding out whether it is.
-
-5. **A blank line before each new comment.** A top-level header already draws a
-   rule out to the edge of the pane (`rows`, in `markdown.jl`), but the body
-   above it ends flush against that rule, so the eye has nothing to stop on. One
-   blank row before each top-level header is the whole of it.
-
-6. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
-   which is arrow-and-return only; `0`-`9` should pick the first ten straight
-   off, since the built-in ones are the same ten every time and are reached by
-   memory rather than by reading.
-
-7. **A comment's text is drawn twice.** A node's header is a byline plus a peek
-   at the body, which is what makes a folded thread readable - but the peek is
-   still there once the node is open, immediately above the same words in the
-   body. Drop it when the node is open (`rows`, in `markdown.jl`, builds the
-   header from `n.header` and knows `n.open` right there).
-
-8. **An import that is taken back leaves its inbox row behind.** `rust#1` is
-   still in the unread lane from a session on 2026-09-02 that imported it to
-   check the import lane end to end and then removed the mark: `inbox_add!`
-   writes the row *and* clears the read stamp, and clearing the `imported` field
-   in `state.toml` undoes neither. Nothing is misfiring in a live path - it is
-   the un-import that is missing a half - and pressing `r` on the row removes
-   it. Worth fixing when the two halves are next in view, since the state is
-   about to be reset anyway.
-
-9. **A comment's tail folds under a header called `…`, and fenced code keeps
-    its `\r`.** Both visible in Downloads.jl#231's comment 1701494121, which is
-    prose, a `julia` fence, then more prose. `body_nodes!` puts everything after
-    the first segment one level under the comment, so the trailing paragraph
-    becomes its own foldable node headed `…` - deliberate for `<details>`
-    chains, where the alternative folded wrongly, and wrong for the ordinary
-    case of a fence in the middle of a paragraph. And every line of the code
-    node ends in a carriage return: the markdown path normalises `\r\n` and
-    `split_fences` never has, so a plain node carries GitHub's CRLF onto the
-    screen.
+2. **Whether a drag is reported at all.** The keyboard half of the old item 4 is
+   done. On the mouse half, everything between the byte and the highlight is
+   exercised by the suite and works: `\e[<32;40;12M` decodes to a `:drag`,
+   `onmouse!` puts the range in `sela`/`selb`, and the frame draws those rows in
+   `SELBG` - checked against a real render, not only in the test. So what is
+   left is outside this program: whether the terminal sends motion reports at
+   all under `1002`, whether tmux or the terminal is taking the drag for its own
+   selection first, and whether the drag was over the *item list*, which binds
+   press and wheel and ignores motion by design. It needs a real terminal to
+   find out in, which is the one thing this sandbox does not have.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -170,13 +128,18 @@ changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `u` re-fetches the
 whole dashboard in the background, `w` cycles the three orders, `x` archives,
 `z` undoes the last local action. A click on a url copies it, whole even where
-the wrapping cut it. The list opens newest first - by when anything last
+the wrapping cut it, a drag over the reading pane selects rows for `y` to copy
+and `c` to comment on, and `shift-J`/`shift-K` or the shifted arrows do the same
+from the keyboard. The list opens newest first - by when anything last
 happened, yours or GitHub's - and `w` reaches the other two orders: the
-interaction clock, and the url (owner, project, number, descending).
+interaction clock, and the url (owner, project, number, descending). A row that
+leaves the list under you - `r` in the unread lane, `x`, `s` - leaves the cursor
+where it was rather than at the top, and coming back to an item lands on the
+line you were reading in it, per item and per mode.
 
 `'` is the named views - seven built in, more from `config.toml`, and its last
-entry copies the current filter as the TOML that would name it - and `` ` ``
-goes back to the filter you were in before. `f` opens the filter pane, whose ten
+entry copies the current filter as the TOML that would name it. The first ten
+are on `1`-`9` and `0`; `` ` `` goes back to the filter you were in before. `f` opens the filter pane, whose ten
 states are `active` / `unread` / `mine` / `second look` / `drafts` / `touched` /
 `snoozed` / `backlog` / `archived` / `all` - `active` being everything that is
 not snoozed, not archived and not in the backlog pile, which is the only one of
