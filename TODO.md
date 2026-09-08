@@ -25,32 +25,69 @@ after it — the adoption testset counted the user's own adopted branches
 alongside the one it made. That went first, because nothing else could be
 checked until it had.
 
-What is left, in the order it is worth doing:
+The latency item that stood here is done: `cli/test/latency.jl` measures the
+three waits and the wrapper section below carries what it found. What is left,
+most of it asked for while reading with it:
 
-1. **Measure the latency, then fill in the precompile statements it names.**
-   Startup is the number this program is judged by and nothing measures it: the
-   wrapper's 4.33s → 1.36s was taken by hand, once, and `Worklog.jl` carries
-   nine `precompile` directives added the same way. Both have been true for
-   several sessions of changes since.
+1. **Nothing may drop a comment being written.** Two holes, both of them one
+   keystroke wide. `Esc` in the composer answers `:pop` and the text goes with
+   it (`handle!(::EditorView, 27, _)`), with nothing between a mistyped key and
+   losing what was written - it should ask, the way leaving a draft asks. And
+   the draft question `batch_prompt!` raises when the cursor walks off the item
+   offers "`A` submits it now · any other key keeps it as a draft", where
+   `Esc` is one of the any-other-keys: it should cancel the move that raised the
+   question as well as keep the draft, so the way to stay put is not to walk
+   back. This is the only part of the browser where a slip loses typing.
 
-   The suite is where to instrument it, because it already drives every path the
-   browser takes without a TTY:
+2. **Where you were, per item.** Coming back to a thread or a diff starts at the
+   top, so the way back to the line you were reading is to scroll for it. Keep
+   the last highlighted row per item - and per mode, because a comment thread
+   and a diff are two readings of the same item - and scroll to it when the item
+   is opened again. It belongs beside the read cursor conceptually and in
+   `BState` mechanically; `st.nrow` is what would be remembered, and
+   `st.loaded` already names what it would be keyed by.
 
-   - **Time what a person waits for.** `wl --help` (the whole command surface
-     infers on the first `dispatch`), the first frame of the browser, and the
-     first thread drawn - each from a cold `julia --project=cli/precompile`, and
-     each again with the workload disabled, so the wrapper's own claim is
-     re-derivable rather than remembered.
-   - **Find what is still compiling at first use.** Run the suite, or better the
-     precompile workload, under `--trace-compile=stderr`; every line is a method
-     that was not in the image. Diff that against the `precompile(...)` block at
-     the foot of `Worklog.jl` and the `@compile_workload` in
-     `cli/precompile/src/WorklogPrecompile.jl` - the workload is the better home
-     for anything the browser draws, and the block for the `wl <command>` paths
-     the workload does not press.
-   - **Then keep it honest.** A testset that asserts a ceiling would be a flaky
-     test on a shared machine; a line printed at the end of the run is not, and
-     it is enough to notice a regression the next time somebody looks.
+3. **The review comments, against the diff they are about.** They are readable
+   now only in the thread, which is the wrong place to read them: a comment on a
+   hunk means nothing without the hunk. Draw each as a small box inline against
+   its own lines in the diff, and make them nodes of their own, so `n`/`N` walks
+   from one to the next the way it walks the thread. `content.jl` is where a
+   diff becomes nodes and already knows the file and line of every hunk, which
+   is what a comment would be matched on.
+
+4. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
+   `shift-Down` should extend the selection the way dragging does, which is the
+   keyboard half of something only the mouse can do today. And dragging itself
+   was reported not taking: what was highlighted was the *cursor* row - `CURBG`
+   is grey 236, the "black background" - and never `SELBG`, the blue one, which
+   says no `:drag` reached `onmouse!` or the anchor was cleared before it did.
+   `1002` is requested (`controller.jl`), so the report should be arriving;
+   start by finding out whether it is.
+
+5. **A blank line before each new comment.** A top-level header already draws a
+   rule out to the edge of the pane (`rows`, in `markdown.jl`), but the body
+   above it ends flush against that rule, so the eye has nothing to stop on. One
+   blank row before each top-level header is the whole of it.
+
+6. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
+   which is arrow-and-return only; `0`-`9` should pick the first ten straight
+   off, since the built-in ones are the same ten every time and are reached by
+   memory rather than by reading.
+
+7. **A comment's text is drawn twice.** A node's header is a byline plus a peek
+   at the body, which is what makes a folded thread readable - but the peek is
+   still there once the node is open, immediately above the same words in the
+   body. Drop it when the node is open (`rows`, in `markdown.jl`, builds the
+   header from `n.header` and knows `n.open` right there).
+
+8. **An import that is taken back leaves its inbox row behind.** `rust#1` is
+   still in the unread lane from a session on 2026-09-02 that imported it to
+   check the import lane end to end and then removed the mark: `inbox_add!`
+   writes the row *and* clears the read stamp, and clearing the `imported` field
+   in `state.toml` undoes neither. Nothing is misfiring in a live path - it is
+   the un-import that is missing a half - and pressing `r` on the row removes
+   it. Worth fixing when the two halves are next in view, since the state is
+   about to be reset anyway.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -112,11 +149,14 @@ julia --project=cli cli/test/runtests.jl   # everything testable without a TTY
 ```
 
 `bin/wl` runs `--project=cli/precompile`, which is `Worklog` with the browser's
-own work already compiled into a package image — about two and a half seconds
-off every launch. **The tests use `--project=cli` and must keep doing so**: that
-split is the whole point of the wrapper. After changing anything under
-`cli/src`, the first `wl` pays to re-run the workload (~18s) and everything
-after it is fast; the suite pays nothing.
+own work already compiled into a package image — 1.2s off the launch that draws
+a thread, 0.6s off the one that only draws the list, and 0.1s *onto* a plain
+`wl <command>`, which loads the bigger image for work it does not do.
+**The tests use `--project=cli` and must keep doing so**: that split is the
+whole point of the wrapper. After changing anything under `cli/src`, the first
+`wl` pays to re-run the workload (~22s) and everything after it is fast; the
+suite pays nothing. `julia --project=cli cli/test/latency.jl` re-measures all of
+that in about a minute.
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
@@ -337,9 +377,30 @@ Adding a file means putting it where it belongs, not at the end.
 loads `Worklog` directly and never sees it.
 
 Measured on the path that draws a comment thread, interleaved against the same
-path with no wrapper: **4.33s → 1.36s**, so about three seconds off every
-launch. Nearly all of it is the markdown renderer — a comment body goes to Term,
-and nothing had ever run that before the user did.
+path with no wrapper: **2.36s → 1.14s**. The list pane alone is 1.64s → 1.00s,
+and `wl --help` is 0.88s → 0.97s — the wrapper is a tenth of a second *worse*
+for a command that never draws anything, because the image it loads is bigger.
+That is the trade, and it is the right way round: the browser is what a person
+waits in front of.
+
+Where the rest of it goes now: 0.96s of every launch is loading the module,
+which no workload can touch, and 0.18s is what is left of the thread. Of the
+1.22s the wrapper saves, about a quarter is `loaditems` — the JSON3 parse and
+`item_of` over two thousand rows, which went into the workload once the
+measurement named it, and dropped from 0.31s to 0.03s.
+
+`julia --project=cli cli/test/latency.jl` is where every number here comes from:
+three waits, both projects, interleaved, best of three. It is not a test and not
+part of the suite — a ceiling asserted on a shared machine would be flaky, and
+the suite must not pay to build this image.
+
+**One caveat about the baseline, on Julia 1.14.** The runtime now writes code
+compiled during a run back into the caches of the packages that own it, so the
+launch straight after an edit costs about twice the launch after that: 4.97s
+against 2.46s with no wrapper. Both are real waits; the table reports the
+second, because that is the one a person meets over and over. It also means a
+number measured on a cold depot is not comparable to one measured on a warm one,
+which is why the old 4.33s is not what this section quotes any more.
 
 Three decisions worth not re-litigating:
 

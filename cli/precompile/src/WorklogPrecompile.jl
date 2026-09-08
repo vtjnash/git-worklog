@@ -4,10 +4,11 @@
 `Worklog`, with the browser's own work already compiled into the package image.
 
 Nothing here is a feature. It re-exports `Worklog` unchanged and exists only so
-that `wl` starts in about a third of the time: drawing the first frame of the
-browser was measured at 4.33s against 1.36s with this in place, and nearly all
-of the difference is *compilation* that was being paid on every invocation
-because nothing had ever run `render` before the user did.
+that `wl` starts in half the time: a launch that draws a comment thread was
+measured at 2.36s against 1.14s with this in place, and the difference is
+*compilation* that was being paid on every invocation because nothing had ever
+run `render` or read a `facts.json` before the user did. `cli/test/latency.jl`
+is where those numbers come from, and re-derives them on demand.
 
 **Why a separate package and not a workload inside `Worklog`.** A workload runs
 whenever the package holding it is precompiled, and `Worklog` is precompiled
@@ -146,13 +147,63 @@ function sample_nodes()
     [body, reply, hunk, plain]
 end
 
+"""The same dashboard as `sample_items`, in the form it is actually read from.
+
+`loaditems` is the first thing the browser does and none of it was in the image:
+a `facts.json` is parsed by JSON3 and every row goes through `item_of`, which is
+thirty keyword arguments over a `JSON3.Object` - about a third of a second of
+compilation, paid on the frame the user is waiting for. Compiling it takes a
+file, because the types `item_of` sees carry the buffer the object was parsed
+from, and a hand-built `Dict` is not that type.
+
+Written out rather than copied from the real one for the reason the items are
+invented: the image must not depend on what was in the dashboard the day it was
+built. Two rows, because the missing half of the second one is a different path
+through `jget` and `nz` than the present half of the first.
+"""
+function sample_facts()
+    """
+    {"fetched_at": "2026-09-01T12:00:00Z",
+     "items": {
+       "https://github.com/o/r/pull/1": {
+         "url": "https://github.com/o/r/pull/1", "repo": "o/r", "number": 1,
+         "title": "a pull request with a reasonably long title",
+         "type": "PullRequest", "author": "vtjnash", "state": "OPEN",
+         "bucket": "needs-review", "track": "normal", "backlog": false,
+         "labels": ["bug", "domain:ci"], "blocked_on": [],
+         "branch": "jn/topic", "ci": "SUCCESS", "mergeable": "MERGEABLE",
+         "unresolved": 2, "review_decision": "REVIEW_REQUIRED",
+         "milestone": "1.13", "milestone_due": "2026-10-01T00:00:00Z",
+         "note": "a note", "why": "review requested", "second_look": "",
+         "draft": false, "new": true, "moved": false, "snoozed": false,
+         "updated": "2026-09-01T12:00:00Z", "head_at": "2026-09-01T11:00:00Z",
+         "last_comment_at": "2026-09-01T09:00:00Z"
+       },
+       "https://github.com/o/r/issues/2": {
+         "url": "https://github.com/o/r/issues/2", "repo": "o/r", "number": 2,
+         "title": "an issue", "type": "Issue", "author": "someone",
+         "bucket": "mentioned", "backlog": true, "labels": [],
+         "note": null, "deadline": null, "milestone": null,
+         "updated": "2026-08-20T09:30:00Z"
+       }
+     },
+     "points": {}}
+    """
+end
+
 @setup_workload begin
     items = sample_items()
     nodes = sample_nodes()
     @compile_workload begin
         try
             hermetic() do
-                st = Worklog.BState(items, "worklog", Set{String}([items[2].url]))
+                # The dashboard, read the way the browser reads it: the first
+                # thing between the user and a frame is a JSON3 parse and a row
+                # of `item_of` per item, and neither was in the image while the
+                # only items here were constructed in Julia.
+                write(Worklog.datapath("facts.json"), sample_facts())
+                st = Worklog.BState(vcat(Worklog.loaditems(), items), "worklog",
+                                    Set{String}([items[2].url]))
                 # Both layouts: side by side above the split width, stacked below.
                 for (w, h) in ((170, 50), (150, 40), (100, 30), (80, 24))
                     Worklog.render(st, w, h)

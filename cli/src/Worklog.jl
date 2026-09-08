@@ -128,7 +128,14 @@ precompile(main, (Vector{String},))
 precompile(dispatch, (Vector{String}, DateTime))
 precompile(refresh, (Vector{String}, DateTime))
 precompile(render, (OrderedDict{String,Any}, Vector{Any}, Dict{String,Any}, Int, DateTime, Vector{OrderedDict{String,Any}}))
-precompile(normalize, (JSON3.Object, String, String))
+# Spelled out, because `JSON3.Object` bare is a `UnionAll` and `precompile`
+# answers `false` for one without saying so - this line was a no-op for as long
+# as it has been here. The parameters are what `JSON3.read` of a string gives a
+# *nested* object, which is what a search result's node is.
+precompile(normalize, (JSON3.Object{Base.CodeUnits{UInt8,String},
+                                    SubArray{UInt64,1,Vector{UInt64},
+                                             Tuple{UnitRange{Int64}},true}},
+                       String, String))
 precompile(Events.unread, (Dict{String,Any}, String, DateTime))
 precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(next_batch, (Int,))

@@ -167,7 +167,9 @@ the pointer. `m` gives the mouse back to the terminal when you want it.
 Everything is one Julia module under `cli/src`, so the comment-preserving TOML
 writer and the GitHub quirks below live in one place rather than two: the
 browser calls the same functions the commands do, rather than shelling back
-out to itself. Startup is ~0.7s.
+out to itself. Startup is about a second: 1.0s to the list pane and 1.14s to a
+comment thread beside it, of which 0.96s is loading the module. `julia
+--project=cli cli/test/latency.jl` measures it.
 
 The GraphQL search lanes shell out to `gh api graphql` because GitHub.jl exports
 neither GraphQL nor search; the REST side (`events.jl`) uses GitHub.jl directly,

@@ -11,8 +11,10 @@
 # which is what hands raw mode and the alternate screen back.
 trap '' HUP
 # `precompile/` and not `..`: it is `Worklog` with the browser's own work
-# already compiled into a package image, which is worth about two and a half
-# seconds on the first frame that draws a comment. The suite runs against the
-# `Worklog` package directly, so nothing about that workload is in its way.
+# already compiled into a package image, which is worth 1.2s on the launch that
+# draws a comment thread and 0.6s on the one that only draws the list
+# (`cli/test/latency.jl`, which is what those numbers come from). The suite runs
+# against the `Worklog` package directly, so nothing about that workload is in
+# its way.
 exec julia --startup-file=no --project="$(dirname "$0")/../precompile" \
      -e 'using WorklogPrecompile; exit(Worklog.main(ARGS))' -- "$@"
