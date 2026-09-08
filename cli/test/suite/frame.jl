@@ -325,6 +325,42 @@ end
     hs2 = [hunk("a.jl", 10, 5, 40, 6)]
     out = W.attach_comments(copy(hs2), [cmt(1, "a.jl", 42; side = "LEFT")], "http://x")
     @test occursin("💬1", hdr(out[1])) && length(out) == 2
+
+    # And the hunk says *where* it is being talked about, not only that it is:
+    # the row each thread hangs off carries the same mark its header counts.
+    # `-old` is the first line of this hunk's body and is old line 40; `+new` is
+    # the second and is new line 10.
+    marked = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
+                               [cmt(1, "a.jl", 40; side = "LEFT"),
+                                cmt(2, "a.jl", 10), cmt(3, "a.jl", 10; reply = 2)],
+                               "http://x")
+    @test W.hunk_marks(marked[1]) == Dict(1 => (1, 0), 2 => (1, 0))
+    drawn = [W.astrip(r.text) for r in W.rows(marked, 70) if r.node == 1 && !r.header]
+    @test drawn == ["-old  💬", "+new  💬"]
+    # Two threads on the hunk, one on each of its two lines - and the reply is
+    # not a third of either: the thread is what hangs off a line, which is what
+    # the header has always counted. A lone thread's mark carries no number,
+    # since `💬1` is `💬` said twice.
+    @test occursin("💬2", hdr(marked[1]))
+    # The mark is drawn on the row and is not part of the diff, so a copy of the
+    # row is the line as it was written.
+    @test [r.src for r in W.rows(marked, 70) if r.node == 1 && !r.header] ==
+          ["-old", "+new"]
+    # A settled thread is marked the way the header marks it.
+    done_ = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
+                              [cmt(1, "a.jl", 10)], "http://x", Set([1]))
+    @test W.hunk_marks(done_[1]) == Dict(2 => (0, 1))
+    @test occursin("✓", [W.astrip(r.text) for r in W.rows(done_, 70) if r.node == 1][3])
+    # `[`/`]` widens the hunk upwards, which moves every row and no line number
+    # - so the marks are kept as line numbers and worked out against the hunk as
+    # it now stands. Two rows of context above turn row 2 into row 4.
+    wide = marked[1]
+    wide.raw = string(" ctx\n ctx\n", wide.meta["body"])
+    wide.meta["up"] = 2; wide.cw = -1
+    @test W.hunk_marks(wide) == Dict(3 => (1, 0), 4 => (1, 0))
+    # And the tally survives that rebuild, which throws the header away.
+    wide.header = string(wide.meta["file"], "  @@ 10,2 @@", get(wide.meta, "tally", ""))
+    @test occursin("💬2", W.astrip(wide.header))
 end
 
 @testset "the list says what has been read" begin

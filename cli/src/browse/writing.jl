@@ -639,6 +639,10 @@ function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
     node.cw = -1                                    # force a re-render
     node.header = string(node.meta["file"], "  @@ ", start, ",", count, " @@",
                          node.meta["up"] > 0 ? string("  ↑", node.meta["up"]) : "",
-                         node.meta["down"] > 0 ? string("  ↓", node.meta["down"]) : "")
+                         node.meta["down"] > 0 ? string("  ↓", node.meta["down"]) : "",
+                         # What `attach_comments` put there, since this rebuilds
+                         # the header from scratch and the tally is not derivable
+                         # from the file and the range.
+                         get(node.meta, "tally", ""))
     ""
 end

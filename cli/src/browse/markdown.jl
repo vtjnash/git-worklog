@@ -365,7 +365,15 @@ function nodelines(n::Node, w::Int)
                                  String.(split(render_md(body, WIDE_MD), "\n")))
         end
     elseif n.kind === :diff
-        txt = join((diffline(l) for l in split(n.raw, "\n")), "\n")
+        # The marks go on here rather than into the node's text: the line a
+        # review comment hangs off is worth seeing in the hunk, and it is not
+        # part of the diff - so `srcline` is taken from the raw lines and a copy
+        # of a marked row is the line as it was written.
+        raw = String.(split(n.raw, "\n"))
+        marks = hunk_marks(n)
+        txt = join((string(diffline(l), markof(get(marks, k, nothing)))
+                    for (k, l) in enumerate(raw)), "\n")
+        srcline = [(true, rstrip(l)) for l in raw]
     else
         # Not `esc`: a plain node never reaches Term, so doubling its braces is
         # doubling them on screen. It showed `Dict{{String,Int}}` in a code

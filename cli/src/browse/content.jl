@@ -324,6 +324,51 @@ function diff_nodes(it::Item; fresh::Bool = false)
     out
 end
 
+"""
+    hunk_marks(n) -> Dict{Int,Tuple{Int,Int}}
+
+Which row of a hunk each of its comment threads hangs off: the index into the
+node's own lines, and how many threads there are open and settled on it.
+
+The inverse of `hunk_line_at`, and it walks the hunk the same way, so the two
+agree about which row is line 544 - including after `[`/`]` has widened the hunk
+with context, which moves every row and no line number.
+
+A comment left on the old side is matched against the old numbering, which is
+where a remark on a deleted line lives; a context row carries both numbers and
+answers to either.
+"""
+function hunk_marks(n::Node)
+    ms = get(n.meta, "cmarks", nothing)
+    out = Dict{Int,Tuple{Int,Int}}()
+    (ms === nothing || !haskey(n.meta, "start")) && return out
+    up = get(n.meta, "up", 0)
+    newno = n.meta["start"] - up
+    oldno = get(n.meta, "ostart", n.meta["start"]) - up
+    for (k, l) in enumerate(split(n.raw, "\n"))
+        del, add = startswith(l, "-"), startswith(l, "+")
+        for (line, right, done) in ms
+            hit = right ? (!del && newno == line) : (!add && oldno == line)
+            hit || continue
+            (a, b) = get(out, k, (0, 0))
+            out[k] = done ? (a, b + 1) : (a + 1, b)
+        end
+        del ? (oldno += 1) : add ? (newno += 1) : (oldno += 1; newno += 1)
+    end
+    out
+end
+
+"""One line's worth of that, as it is drawn at the end of the row.
+
+The same two marks the hunk header carries, so a count on a header and a mark on
+a line read as the same thing said at two grains. The number is left off a lone
+thread: `💬` on the line is the sentence, and `💬1` is it said twice.
+"""
+markof(m::Union{Nothing,Tuple{Int,Int}}) =
+    m === nothing ? "" :
+    string(m[1] == 0 ? "" : string("  ", CYA, "💬", m[1] == 1 ? "" : m[1], AR),
+           m[2] == 0 ? "" : string("  ", AD, "✓", m[2] == 1 ? "" : m[2], AR))
+
 """Where a review comment was pointing: `file.jl:544`, or empty for a plain one.
 
 Falls back to `original_line` when `line` is null, which is how an outdated
@@ -440,9 +485,25 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         # Two marks, because they say different things: a conversation waiting
         # for an answer is why you are reading the hunk, and one that was
         # answered is why you can stop.
-        n.header = string(n.header,
-                          isempty(live) ? "" : string("  ", CYA, "💬", length(live), AR),
-                          isempty(settled) ? "" : string("  ", AD, "✓", length(settled), AR))
+        # Kept as well as appended: `[`/`]` rebuilds this header from the file
+        # and the range, and would otherwise drop the tally on the way past.
+        n.meta["tally"] = string(
+            isempty(live) ? "" : string("  ", CYA, "💬", length(live), AR),
+            isempty(settled) ? "" : string("  ", AD, "✓", length(settled), AR))
+        n.header = string(n.header, n.meta["tally"])
+        # And the line each thread points at, so the hunk says *where* it is
+        # being talked about and not only that it is. Kept as the line number
+        # and the side rather than as a row of the hunk, because `[`/`]` widens
+        # the hunk upwards and every row index would move.
+        marks = Tuple{Int,Bool,Bool}[]
+        for c in here
+            line = get(c, "line", nothing)
+            line === nothing && continue
+            push!(marks, (Int(line),
+                          String(nz(get(c, "side", nothing), "RIGHT")) != "LEFT",
+                          isdone(c)))
+        end
+        isempty(marks) || (n.meta["cmarks"] = marks)
         push!(out, n)
         for c in live
             emit!(out, c, n.depth + 1)

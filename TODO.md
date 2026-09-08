@@ -25,23 +25,28 @@ after it — the adoption testset counted the user's own adopted branches
 alongside the one it made. That went first, because nothing else could be
 checked until it had.
 
-What is left. Eight of the nine that were here are done - the cursor that
+What is left. Eight of the nine that were here are done, and the ninth is down
+to the one part of it that is a design question - the cursor that
 remembers where you were per item and per mode, the row that stays put when the
 one it was on leaves, the keyboard selection, the blank line between comments,
 the numbered views, the peek that was drawn twice, the un-import that left its
 inbox row, and the `…` header over a paragraph's own tail. What remains:
 
-1. **The review comments, drawn against their own lines rather than under the
-   hunk.** Most of this item is done and was done a week before it was written
-   down: `place_comments` hangs each comment off the hunk it points into, by
-   file and by side, threads the replies, marks the hunk header with how many
-   are open and how many are settled, and they are nodes, so `n`/`N` already
-   walks from one to the next. What is not done is the *inline* half - a box
-   against the lines it is about, inside the hunk rather than after all of it -
-   and it is not obviously worth what it costs: a hunk is one node whose body is
-   the diff text, and splitting it at the commented line splits the `start`,
-   `count` and `body` that `hunk_line_at`, `[`/`]` expansion and `c`-on-a-range
-   all read. Decide whether the inline box is wanted before writing any of it.
+1. **A comment box drawn inline, between the lines it is about.** An idea to
+   design rather than a task to pick up, and the rest of that item is done: the
+   comments hang off the hunk they point into, threaded, with the resolved ones
+   folded under it, they are nodes so `n`/`N` walks them, the hunk header counts
+   them, and the *line* each thread hangs off now carries the same `💬` mark -
+   so the hunk says where it is being talked about and the discussion is one
+   screen below rather than one pane away.
+   What is left is the box itself, drawn between the diff lines. The cost is
+   what to decide about: a hunk is one node whose body is the diff text, and
+   cutting it at the commented line cuts the `start`, `count` and `body` that
+   `hunk_line_at`, `[`/`]` expansion and `c`-on-a-range all read off one node.
+   The cheap version - a node per fragment, sharing the parent's meta - trades
+   one problem for the arithmetic of keeping four ranges in step; the honest
+   version is rows that belong to a node without being its body, which is a
+   change to what a `Row` is. Neither is worth starting without deciding which.
 
 2. **Whether a drag is reported at all.** The keyboard half of the old item 4 is
    done. On the mouse half, everything between the byte and the highlight is
@@ -163,7 +168,9 @@ rather than posting one at a time. `A` sends it, and leaving the item asks
 whether to - "leave it" keeps the draft and re-asks the next time you walk off
 it, since nothing but this program mentions one anywhere else. Existing review
 comments are placed against the hunk they point into, with a resolved thread
-folded away under it rather than dropped.
+folded away under it rather than dropped, and the line a thread hangs off is
+marked `💬` in the diff itself - `✓` where it is settled - so the hunk says
+which of its lines is being talked about.
 
 `v` edits the note in a pane, `t` and `T` open a shell and an agent on the
 item's worktree, and `"` lists every worktree with what is running in each -
