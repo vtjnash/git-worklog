@@ -186,7 +186,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # the row at the top of the list, permanently on screen and saying what it
     # does. A second copy of it costs the row that the keys which have no such
     # row are competing for.
-    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u unread \u00b7 R reload \u00b7 s snooze \u00b7 ",
+    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 m mouse ",
                    st.mouse ? "on" : "off")

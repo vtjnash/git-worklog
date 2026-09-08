@@ -56,9 +56,10 @@
         @test W.Events.read_at(it.url) == prev          # exactly what was there
         @test read(readfile, String) == before          # byte for byte
 
-        # `u` is unconditional: unread stays unread.
+        # `r` on something already read puts it back, which is the half `u`
+        # used to do unconditionally before it became the refresh.
         delete!(st.unread, it.url)
-        W.handle!(st, Int('u'), ctrl)
+        W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked unread" && it.url in st.unread
         @test W.Events.read_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl)

@@ -336,7 +336,7 @@ end
         W.handle!(st, Int('r'), ctrl, then)
         @test W.Events.read_at(it.url) == "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, starting now.
-        W.handle!(st, Int('u'), ctrl)
+        W.handle!(st, Int('r'), ctrl)
         push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
         @test W.Events.read_at(it.url) > "2020"

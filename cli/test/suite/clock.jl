@@ -73,7 +73,7 @@ end
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
         @test W.touched_at(it.url) === nothing
-        W.handle!(st, Int('u'), ctrl)
+        W.handle!(st, Int('r'), ctrl)          # and back, which is the toggle
         @test W.touched_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
 

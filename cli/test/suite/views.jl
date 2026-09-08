@@ -302,6 +302,44 @@ end
     @test occursin("nothing selected", W.refresh_item!(st))
 end
 
+@testset "u rebuilds the whole dashboard" begin
+    # `R` is the item under the cursor; `u` is everything - the fetch that used
+    # to mean leaving the browser, or running `wl refresh` in another terminal
+    # and waiting for the watcher to notice. It took the key `u` had, which was
+    # the unconditional half of the read toggle: two presses of `r` reach either
+    # state, and nothing at all could ask for a refresh.
+    #
+    # The refresh itself is a subprocess and is not started here - a testset
+    # that spends half a minute against GitHub is not one anybody would run -
+    # so what is checked is everything around it.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    @test occursin("u update all", W.astrip(W.render(st, 150, 40)))
+
+    # A second `u` joins the one in flight instead of starting a second refresh
+    # against the same files.
+    c = Channel{Nothing}(1)
+    t = @async take!(c)
+    lock(W.INFLIGHT_LOCK) do; W.INFLIGHT["refresh"] = t; end
+    try
+        @test W.refresh_all!(st) == "already refreshing"
+    finally
+        put!(c, nothing); wait(t)
+        lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
+    end
+
+    # And what it reported is what the reload says. A write from anywhere else
+    # still says whose it was, which is the whole point of that line.
+    st.refreshsaid = "2135 items, 3 changes, 4200 rate-limit points"
+    st.reload = true
+    @test W.reload_data!(st)
+    @test st.status == "2135 items, 3 changes, 4200 rate-limit points"
+    @test isempty(st.refreshsaid)
+    st.reload = true
+    @test W.reload_data!(st)
+    @test occursin("something else wrote", st.status)
+end
+
 @testset "raw input pass-through" begin
     # `readraw` is a pure function of a byte stream, like `readevent`.
     @test W.readraw(IOBuffer("j")).bytes == UInt8['j']

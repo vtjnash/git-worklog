@@ -292,6 +292,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         load_nodes!(st); load_meta!(st)
         return :ok
     end
+    # Above the guard for the same reason `z` is: an empty list is exactly when
+    # the dashboard most wants rebuilding, and "nothing is selected" is not an
+    # answer to "fetch everything again".
+    if k == Int('u') && st.lmode !== :filters
+        st.status = refresh_all!(st)
+        return :ok
+    end
     # For the same reason: `i` is about something that is *not* here yet, so
     # wanting it and having nothing selected are the same situation. A list
     # filtered down to nothing, or a dashboard whose lanes returned nothing, is
@@ -421,12 +428,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif k == Int('C'); compose_action(st, ctrl, it, iw)
     elseif k == Int('A'); review_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
-    elseif k in (Int('r'), Int('u'))
-        # `r` toggles: on something unread it marks it read, on something read
-        # it puts it back. `u` is the unconditional half, for when what is on
-        # screen is not the state you meant to act on.
+    elseif k == Int('r')
+        # A toggle: on something unread it marks it read, on something read it
+        # puts it back. `u` used to be the unconditional half of this and is
+        # now the whole refresh - two presses of a toggle reach either state,
+        # and nothing else in the program could ask for a refresh at all.
         was = it.url in st.unread
-        seen = k == Int('r') ? was : false
+        seen = was
         # Read up to when the thread was *fetched*, not to now. A comment that
         # arrived while you were reading - or while you were away from a pane
         # loaded ten minutes ago - was never in front of you, and stamping now

@@ -310,7 +310,8 @@ end
     for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
               "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "L labels",
-              "r read/unread", "R reload", "s snooze", "z undo", "v note", "e edit",
+              "r read/unread", "u update all", "R reload", "s snooze", "z undo",
+              "v note", "e edit",
               "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
     end

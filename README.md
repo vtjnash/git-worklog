@@ -150,6 +150,11 @@ cli/bin/wl              # the item list, its metadata, and the thread or diff
 cli/bin/wl --refresh    # re-fetch first
 ```
 
+`u` re-fetches from inside it - the whole dashboard, in the background, with the
+list rebuilt where it lands; `R` is the same thing for the one item under the
+cursor. `u` is Gmail's key for it, and it was free because `r` toggles read
+either way.
+
 A fenced code block becomes a foldable block of its own rather than prose, so a
 pasted log folds away to one line and never gets drawn as a box wider than the
 pane. Inline code is a quiet grey span instead of yellow punctuation, and

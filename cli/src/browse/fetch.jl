@@ -321,6 +321,73 @@ function watch_data!(st::BState)
     end
 end
 
+"""Run the whole refresh, from inside the browser, without blocking it.
+
+`R` re-reads the item under the cursor; this is the other half - the fetch that
+rebuilds the dashboard itself, which until now meant leaving the browser or
+running `wl refresh` in another terminal and waiting for the watcher to notice.
+
+**As a subprocess, and not in this process.** The work would be the same, but
+`refresh` prints thirty lines of lane progress to stderr and there is no way to
+send that somewhere else without `redirect_stderr`, which is process-wide: it
+would take the browser's own writes with it for the half-minute the refresh
+takes. A child gets its own descriptors, and the same `bin/refresh` the user
+would have run by hand - which also means a refresh that dies takes nothing on
+screen with it.
+
+**And it sets `reload` by hand.** `watch_data!` deliberately ignores writes this
+process made, and the child's writes are this process's as far as `OURS` is
+concerned only because the child never touched that map - but the watcher fires
+on the mtime, so the flag is set here rather than left to a race with it.
+
+`fetching` is what keeps two of these from overlapping: a second `u` joins the
+one already running instead of starting a second refresh against the same files.
+"""
+function refresh_all!(st::BState)
+    key = "refresh"
+    running = lock(INFLIGHT_LOCK) do
+        t = get(INFLIGHT, key, nothing)
+        t !== nothing && !istaskdone(t)
+    end
+    running && return "already refreshing"
+    fetching(key) do
+        said = try
+            run_refresh()
+        catch e
+            logerror!(e, catch_backtrace(), "refresh")
+            "refresh failed \u2014 see the footer"
+        end
+        st.refreshsaid = said
+        st.reload = true
+        st.wake === nothing || st.wake()
+    end
+    "refreshing \u2026"
+end
+
+"""Run `bin/refresh` to completion and answer with the last line it printed.
+
+The last line is its own summary - items, changes, rate-limit points - which is
+exactly what a status row wants. Captured to a temp file rather than a pipe
+because nothing reads it while it runs, and a pipe nobody drains is a way to
+wedge a child that writes more than its buffer.
+"""
+function run_refresh()
+    log = tempname()
+    try
+        open(log, "w") do io
+            run(pipeline(`$(joinpath(ROOT, "cli", "bin", "refresh"))`;
+                         stdin = devnull, stdout = io, stderr = io))
+        end
+        said = ""
+        for l in eachline(log)
+            isempty(strip(l)) || (said = strip(l))
+        end
+        isempty(said) ? "refreshed" : String(said)
+    finally
+        rm(log; force = true)
+    end
+end
+
 """Take the records again, and the item list with them when a refresh landed.
 
 Returns true when the frame has to be drawn again, which is the whole contract
@@ -357,6 +424,10 @@ function reload_data!(st::BState)
         end
     end
     refilter!(st)           # which is what re-reads the three records
-    st.status = "reloaded — something else wrote in data/"
+    # A refresh this window started says what it did; anything else is somebody
+    # else's write, and saying whose it was is the whole point of the line.
+    st.status = isempty(st.refreshsaid) ? "reloaded — something else wrote in data/" :
+                st.refreshsaid
+    st.refreshsaid = ""
     true
 end

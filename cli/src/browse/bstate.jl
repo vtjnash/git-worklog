@@ -99,6 +99,9 @@ Base.@kwdef mutable struct BState <: View
     typing::Bool = false   # is the query still being typed?
     reload::Bool = false   # something under `data/` changed and it was not us;
                            # the next wake takes the records again
+    refreshsaid::String = ""   # what a refresh started from *this* window
+                               # reported, so that the reload it causes can say
+                               # so rather than blame somebody else
     factsat::Float64 = 0.0 # mtime of `facts.json` as the item list was built
                            # from it, so a refresh landing is told from a note
 end
