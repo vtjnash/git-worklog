@@ -121,6 +121,14 @@ function item_of(r)
             why = nz(jget(r, :why), ""))
 end
 
+"""Every item in the last snapshot, as `Item`s.
+
+`facts.json` is a map keyed by url whose rows *also* carry `url`, which is the
+same fact twice - deliberately, and left that way: the row is what `normalize`,
+`apply_state!` and `snooze_active` are handed, and each of them asks it which
+item it is. Threading the key through all of them to save a hundred bytes a row
+would put the identity of an item somewhere other than in the item.
+"""
 function loaditems()
     f = datapath("facts.json")
     isfile(f) || die("no facts.json — run `wl refresh` first")

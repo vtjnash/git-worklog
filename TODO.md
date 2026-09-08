@@ -25,21 +25,10 @@ after it — the adoption testset counted the user's own adopted branches
 alongside the one it made. That went first, because nothing else could be
 checked until it had.
 
-The latency item that stood here is done: `cli/test/latency.jl` measures the
-three waits and the wrapper section below carries what it found. What is left,
-most of it asked for while reading with it:
+What is left, in the order it is worth doing - most of it asked for while
+reading with it:
 
-1. **Nothing may drop a comment being written.** Two holes, both of them one
-   keystroke wide. `Esc` in the composer answers `:pop` and the text goes with
-   it (`handle!(::EditorView, 27, _)`), with nothing between a mistyped key and
-   losing what was written - it should ask, the way leaving a draft asks. And
-   the draft question `batch_prompt!` raises when the cursor walks off the item
-   offers "`A` submits it now · any other key keeps it as a draft", where
-   `Esc` is one of the any-other-keys: it should cancel the move that raised the
-   question as well as keep the draft, so the way to stay put is not to walk
-   back. This is the only part of the browser where a slip loses typing.
-
-2. **Where you were, per item.** Coming back to a thread or a diff starts at the
+1. **Where you were, per item.** Coming back to a thread or a diff starts at the
    top, so the way back to the line you were reading is to scroll for it. Keep
    the last highlighted row per item - and per mode, because a comment thread
    and a diff are two readings of the same item - and scroll to it when the item
@@ -47,14 +36,14 @@ most of it asked for while reading with it:
    `BState` mechanically; `st.nrow` is what would be remembered, and
    `st.loaded` already names what it would be keyed by.
 
-3. **When a row leaves, the cursor stays where it was.** `r` in the unread lane
+2. **When a row leaves, the cursor stays where it was.** `r` in the unread lane
    marks the item read and the row goes, and the cursor jumps to the top of the
    list - so reading an inbox is: `r`, scroll back down, `r`, scroll back down.
    `refilter!` keeps the *url* it was on and falls back to row 1 when that url
    is gone; the fallback should be the row's own index, clamped, so the cursor
    lands on whatever moved up into the place it was reading.
 
-4. **The review comments, against the diff they are about.** They are readable
+3. **The review comments, against the diff they are about.** They are readable
    now only in the thread, which is the wrong place to read them: a comment on a
    hunk means nothing without the hunk. Draw each as a small box inline against
    its own lines in the diff, and make them nodes of their own, so `n`/`N` walks
@@ -62,7 +51,7 @@ most of it asked for while reading with it:
    diff becomes nodes and already knows the file and line of every hunk, which
    is what a comment would be matched on.
 
-5. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
+4. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
    `shift-Down` should extend the selection the way dragging does, which is the
    keyboard half of something only the mouse can do today. And dragging itself
    was reported not taking: what was highlighted was the *cursor* row - `CURBG`
@@ -71,23 +60,23 @@ most of it asked for while reading with it:
    `1002` is requested (`controller.jl`), so the report should be arriving;
    start by finding out whether it is.
 
-6. **A blank line before each new comment.** A top-level header already draws a
+5. **A blank line before each new comment.** A top-level header already draws a
    rule out to the edge of the pane (`rows`, in `markdown.jl`), but the body
    above it ends flush against that rule, so the eye has nothing to stop on. One
    blank row before each top-level header is the whole of it.
 
-7. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
+6. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
    which is arrow-and-return only; `0`-`9` should pick the first ten straight
    off, since the built-in ones are the same ten every time and are reached by
    memory rather than by reading.
 
-8. **A comment's text is drawn twice.** A node's header is a byline plus a peek
+7. **A comment's text is drawn twice.** A node's header is a byline plus a peek
    at the body, which is what makes a folded thread readable - but the peek is
    still there once the node is open, immediately above the same words in the
    body. Drop it when the node is open (`rows`, in `markdown.jl`, builds the
    header from `n.header` and knows `n.open` right there).
 
-9. **An import that is taken back leaves its inbox row behind.** `rust#1` is
+8. **An import that is taken back leaves its inbox row behind.** `rust#1` is
    still in the unread lane from a session on 2026-09-02 that imported it to
    check the import lane end to end and then removed the mark: `inbox_add!`
    writes the row *and* clears the read stamp, and clearing the `imported` field
@@ -96,7 +85,7 @@ most of it asked for while reading with it:
    it. Worth fixing when the two halves are next in view, since the state is
    about to be reset anyway.
 
-10. **A comment's tail folds under a header called `…`, and fenced code keeps
+9. **A comment's tail folds under a header called `…`, and fenced code keeps
     its `\r`.** Both visible in Downloads.jl#231's comment 1701494121, which is
     prose, a `julia` fence, then more prose. `body_nodes!` puts everything after
     the first segment one level under the comment, so the trailing paragraph
@@ -178,15 +167,20 @@ that in about a minute.
 
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
-labels, `r` toggles read, `s` asks how long to snooze for, `w` sorts by when you
-last acted, `x` archives, `z` undoes the last local action. A click on a url
-copies it, whole even where the wrapping cut it.
+labels, `r` toggles read, `s` asks how long to snooze for, `u` re-fetches the
+whole dashboard in the background, `w` cycles the three orders, `x` archives,
+`z` undoes the last local action. A click on a url copies it, whole even where
+the wrapping cut it. The list opens newest first - by when anything last
+happened, yours or GitHub's - and `w` reaches the other two orders: the
+interaction clock, and the url (owner, project, number, descending).
 
 `'` is the named views - seven built in, more from `config.toml`, and its last
 entry copies the current filter as the TOML that would name it - and `` ` ``
-goes back to the filter you were in before. `f` opens the filter pane, whose
-states are `active` / `unread` / `mine` /
-`second look` / `touched` / `snoozed` / `backlog` / `archived` / `all`, with a second radio group
+goes back to the filter you were in before. `f` opens the filter pane, whose ten
+states are `active` / `unread` / `mine` / `second look` / `drafts` / `touched` /
+`snoozed` / `backlog` / `archived` / `all` - `active` being everything that is
+not snoozed, not archived and not in the backlog pile, which is the only one of
+the ten that is a subtraction - with a second radio group
 for issues, pull requests or both, and checkbox axes for category, repo, label
 and author — each long one listing its head and offering the rest as a picker
 you type into.
@@ -226,11 +220,11 @@ linked against a newer glibc.
 |---|---|
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
 | `cli/src/events.jl` | the incremental inbox and live thread fetch (submodule `Events`) |
-| `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, render |
+| `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, the snapshot diff |
 | `cli/src/touched.jl` | the interaction clock: when you last acted on an item |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
 | `cli/src/controller.jl` | the view controller that owns stdin; input decoding; `PromptView`, `EditorView`, `ChooseView` |
-| `cli/src/browse.jl` | the two-pane browser: filters, panes, folding, diffs, checks |
+| `cli/src/browse/` | the browser: filters, panes, folding, diffs, checks, writing (`Worklog.jl`'s include list is the index) |
 | `cli/src/ansi.jl` | escape-aware width, truncate, wrap |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
 | `cli/src/repos.jl` | repo → local checkout mapping, the worktree/branch survey, `git show` |
@@ -238,6 +232,7 @@ linked against a newer glibc.
 | `cli/src/paneview.jl` | a hosted program drawn in a pane; the worktree list |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
+| `cli/test/latency.jl` | the three startup waits, measured; not part of the suite |
 
 **The state lives in `data/`, which is its own git repository.** It stopped
 being ephemeral — `read.json`, `touched.json` and `inbox.json` are records of
@@ -271,8 +266,8 @@ carrying: the background pile is full of other people's pull requests where the
 author spoke last.
 
 It cuts across the buckets rather than being one - a pull request nobody
-answered is still waiting on a reviewer - so it is a filter state and a
-dashboard section, not a bucket. A bot commenting after the author hides the
+answered is still waiting on a reviewer - so it is a filter state, not a
+bucket. A bot commenting after the author hides the
 author's comment from `comments(last: 1)`, so that case does not fire rather
 than firing on a stale reading.
 
@@ -292,7 +287,12 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   frame first — the mouse maps a click through `layout(w, h)` and `st.hdr`, and
   `st.hdr` is only known once the item title has been wrapped.
 - A hosted pane is tested against a *real* tmux, and those testsets skip
-  themselves when there is none. `WORKLOG_TMUX` points at a binary, which is how
+  themselves when there is none. **Skip, never fail**: a testset that fails
+  takes the whole run down with it, and every file included after it silently
+  stops running. `views.jl` had one assertion that did not guard, and it was
+  hiding `worktrees`, `lanes`, `archive`, `robustness`, `git`, `items` and
+  `clock` in every sandbox without tmux - the same shape as the adoption
+  testset that hid behind `archive.jl`. `WORKLOG_TMUX` points at a binary, which is how
   they run in a sandbox where the only tmux is a `tmux_jll` artifact:
   ```bash
   julia -e 'using Pkg; Pkg.activate(temp=true); Pkg.add("tmux_jll");
@@ -343,7 +343,9 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   and `is:pull-request` under `user:<owner>`), so it is cheap to add one and it
   truncates at 1000 where a named repo does not.
 - `cli/test/runtests.jl` holds all of the above; run it with
-  `julia --project=cli cli/test/runtests.jl`.
+  `julia --project=cli cli/test/runtests.jl`. `cli/test/latency.jl` is beside
+  it and is deliberately *not* part of it: it builds the wrapper's image and
+  spawns cold processes, which the edit-test loop should never pay for.
 
 Typical harness:
 
@@ -478,17 +480,6 @@ that does not exist makes `mux_bin` answer `nothing`. That is a property of the
 environment rather than of which keys the workload presses, which is what makes
 it survive somebody adding one. `drain_fetches!` at the end is the second half.
 
-### Decided, so nobody re-derives it
-
-**Footnotes stay per comment, duplicates and all.** julia#43994 draws eight
-footnote rows of which four are the same Nanosoldier report - one per
-nanosoldier comment, because `delink` numbers per node. That is the way it is
-staying: a comment is a unit that has to read on its own, `[1]` inside one has
-to mean the same thing wherever the comment is drawn, and thread-wide numbering
-would make a footnote marker depend on which other comments happen to be loaded.
-The repetition was what led to the `linkify` tearing bug, but that was the
-substitution reading its own output and is fixed there, in the one pass.
-
 ### Invariants that were each found by debugging a real failure
 Do not "simplify" any of these away.
 
@@ -553,7 +544,10 @@ substitutes only between them.
 
 **GitHub**
 1. `mergeable` is computed lazily — a cold read returns `UNKNOWN` and only
-   schedules the work. Carry the last known value forward.
+   schedules the work. Carry the last known value forward, but *not* past the
+   end: a merged or closed pull request answers `UNKNOWN` for good, and carrying
+   there pinned "conflicting" onto julia#62396 after it merged. `carried_mergeable`
+   is where both halves live.
 2. GraphQL `search(type: ISSUE)` returns **0** unless the query carries
    `is:issue` or `is:pr`. Found on `assignee:`, and it is not about `assignee:`
    at all — a free-text lane (`"@JuliaLang/compiler" in:body,comments`) returned
@@ -691,7 +685,8 @@ substitutes only between them.
     `wl` was started — right for about a day, then quietly wrong — and the
     browser holds its items for the length of a session.
 
-**Buildkite** (see the `buildkite-logs` skill for the endpoint shapes)
+**Buildkite** (the endpoint shapes came from a `buildkite-logs` skill, which is
+not in this repo - `skills/` is gone with `DASHBOARD.md`, which is what it read)
 12. Job discovery must use `/data/jobs`; the per-build JSON returns an empty
     jobs array to an anonymous caller, with no error.
 13. Logs are HTML — drop `<time>` elements *before* stripping tags, and decode
@@ -1030,12 +1025,18 @@ actual TTY:
   the report that `^]tab` and `^]esc` behaved wrongly is a report from somebody
   whose prefix was reaching the pane. What is still unknown is only whether the
   *title-bar* row settles tmux copy-mode scrolling, which is listed above.
-- Which reading of "when" you actually reach for. `w` cycles three ways — as
-  fetched, by when you last acted, by when anything last happened — and the
-  mechanism for a default per lane now exists (`LANE_SORT`), with `touched` the
-  only entry in it. That one is a definition rather than a preference. Whether
-  `mine`, `second` or `unread` want one, and which, is still a question only use
-  can answer; the table is a one-line change when it does.
+- Which reading of "when" you actually reach for. Use answered the first half:
+  every lane opens by when anything last happened, `touched` excepted, because
+  that lane *is* the clock. `w` still reaches the other two - the clock, and the
+  url. Whether `mine`, `second` or `unread` want one of their own is still a
+  question only use can answer, and `LANE_SORT` is a one-line change when it
+  does.
+- `u`, end to end. It spawns `bin/refresh` as a child, and nothing here has run
+  one: the token is read-only for writes but a refresh is thirty seconds of real
+  requests against the user's own `data/`, so the pieces around it are tested
+  and the run itself is not. What is unproven is the shape of the child's exit
+  and the status line built from its last output line, not the refresh, which is
+  the same one `wl refresh` has always run.
 - The split layout at a real width. It is asserted to be `h` rows of `w` at
   several sizes, but how it *reads* at the sizes an actual screen has - and
   whether 150 columns is the right threshold - is a judgement only use can make.

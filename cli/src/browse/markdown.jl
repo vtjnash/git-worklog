@@ -25,6 +25,15 @@ Term renders a link as its label followed by the raw URL, so a single Godbolt
 or CI permalink - routinely several hundred characters - crowds out the comment
 it appears in. The URLs come back as footnotes instead, one short line each.
 
+**Numbered per node, and deliberately not deduplicated across a thread.**
+julia#43994 draws eight footnote rows of which four are the same Nanosoldier
+report - one for each nanosoldier comment. That is the way it stays: a comment
+is a unit that has to read on its own, so `[1]` inside one has to mean the same
+thing wherever it is drawn, and thread-wide numbering would make a marker depend
+on which other comments happen to be loaded. The repetition is what exposed the
+`linkify` tearing bug, but that was a substitution reading its own output and is
+fixed there, in the one pass.
+
 Scanned rather than matched with a regex: link targets nest parentheses, and
 Godbolt in particular emits URLs full of them. A `[^)]+` target stops at the
 first one and spills the rest of the URL into the prose as literal text.

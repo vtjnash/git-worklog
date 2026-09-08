@@ -161,6 +161,12 @@ pane. Inline code is a quiet grey span instead of yellow punctuation, and
 `snake_case` names keep their underscores — Julia's Markdown reads them as
 emphasis, which CommonMark forbids and GitHub does not do.
 
+`active` is the lane it opens in, and it is defined by subtraction: everything
+that is not snoozed, not archived and not in the backlog pile. So an item leaves
+it three ways - `s` snoozes, `x` archives, and the refresh puts the stale,
+firehose and mention buckets (or anything tracked `background`) in the backlog -
+and comes back the same three ways.
+
 The list itself says what has been read: unread rows are bold and read ones
 plain, and the cursor is a background rather than a weight - the same mark the
 reading pane puts on the line you are on.
