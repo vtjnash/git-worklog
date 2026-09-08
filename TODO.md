@@ -66,18 +66,6 @@ What is left, in the order it is worth doing:
      test on a shared machine; a line printed at the end of the run is not, and
      it is enough to notice a regression the next time somebody looks.
 
-3. **Verify the drafts at refresh, not only when an item is opened.** Nothing
-   about a pending review reaches the notification path: it produces no event,
-   it does not move the pull request's `updated_at`, and its comments are not in
-   `pulls/{n}/comments` until it is submitted - which is exactly why the lane is
-   a local file. What *is* visible is the submission: once sent, the comments
-   become ordinary review comments and the item turns up in the poll like any
-   other change. So a mark left by a review submitted on github.com is cleared
-   today only by opening that item. The marked set is small by construction -
-   they are your own unsent drafts - so a refresh could ask `review_state` for
-   each of them and clear what is gone, which is a handful of queries and makes
-   the lane true across machines.
-
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
 `delete_review` and the label toggle are written and none has ever been sent,

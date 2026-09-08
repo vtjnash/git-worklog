@@ -521,6 +521,51 @@ function load_state()
         for (u, st) in raw if st isa AbstractDict)
 end
 
+"""Drafts on the items that have just left the dashboard.
+
+Everything still in the list reconciles itself by being opened: the metadata
+says whether the pending review is still there, and asking costs nothing until
+somebody looks. An item that has *gone* is the one case where that can never
+happen - the lane is items, so a mark on a url that is no longer one of them
+cannot be shown, cannot be navigated to, and would sit in `drafts.json` for
+good.
+
+So the refresh asks about exactly those and only those, which is usually none
+and at most a handful. Both answers are worth having: a draft that went with its
+item is dropped, and one that did not is five careful comments on a pull request
+that has just closed, which is the case the whole draft apparatus exists for and
+the last moment anything will mention it.
+
+A question that cannot be asked leaves the mark alone. A network that is down is
+not evidence that a draft was sent.
+
+`ask` is a parameter so the suite can drive both answers without a token.
+"""
+function reconcile_drafts!(gone, ask = url -> Events.review_state(url; ttl = 0.0))
+    d = load_drafts()
+    (isempty(d) || isempty(gone)) && return 0
+    dropped = 0
+    for (url, ref) in gone
+        haskey(d, url) || continue
+        stt = try
+            ask(url)
+        catch
+            continue
+        end
+        if stt === nothing || isempty(stt.review)
+            undraft!(url)
+            dropped += 1
+        else
+            @printf(stderr,
+                    "  %-16s %s left the dashboard with an unsent draft review\n",
+                    "drafts", ref)
+        end
+    end
+    dropped > 0 && @printf(stderr, "  %-16s %d mark(s) dropped with their items\n",
+                           "drafts", dropped)
+    dropped
+end
+
 function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
@@ -635,13 +680,16 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             end
         end
     end
+    gone = Tuple{String,String}[]
     for (k, old) in pairs(prev_items)
         url = String(k)
         if !haskey(items, url)
             push!(changes, (url, old, "closed or merged"))
+            push!(gone, (url, String(nz(jget(old, :ref), url))))
             delete!(snz, url)
         end
     end
+    reconcile_drafts!(gone)
 
     # A bad value means "not snoozed", so the item is not in the snoozed section
     # and its reason is printed nowhere. Say it here instead of losing it.

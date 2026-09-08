@@ -185,3 +185,45 @@ end
     @test !ns4[j].open && !ns4[k].open              # both put away
     @test occursin("1 comment on lines", heads[j])
 end
+
+@testset "a draft that leaves with its item" begin
+    # Everything still on the dashboard is reconciled by being opened. An item
+    # that has gone cannot be: the lane is items, so a mark on a url that is no
+    # longer one of them can never be shown or navigated to again.
+    gone = [("https://github.com/o/r/pull/1", "r#1"),
+            ("https://github.com/o/r/pull/2", "r#2")]
+    still = "https://github.com/o/r/pull/3"
+    for (u, _) in gone
+        W.draft!(u)
+    end
+    W.draft!(still)
+    asked = String[]
+    # Sent or discarded while it was closing: the mark goes with the item.
+    ask(url) = (push!(asked, url); (id = "PR_x", review = "", n = 0))
+    @test W.reconcile_drafts!(gone, ask) == 2
+    @test sort(asked) == sort([u for (u, _) in gone])   # and nothing else asked
+    @test collect(keys(W.load_drafts())) == [still]
+
+    # Still unsent, on a pull request that has just closed: kept, and said out
+    # loud, because this is the last moment anything will mention it.
+    W.draft!(first(first(gone)))
+    held(url) = (id = "PR_x", review = "PRR_y", n = 3)
+    said = mktemp() do path, io
+        redirect_stderr(() -> @test(W.reconcile_drafts!(gone, held) == 0), io)
+        flush(io)
+        read(path, String)
+    end
+    @test occursin("r#1", said) && occursin("unsent draft review", said)
+    @test haskey(W.load_drafts(), first(first(gone)))
+
+    # A question that cannot be asked is not an answer: the mark stays.
+    boom(url) = error("no network")
+    @test W.reconcile_drafts!(gone, boom) == 0
+    @test haskey(W.load_drafts(), first(first(gone)))
+
+    for (u, _) in gone
+        W.undraft!(u)
+    end
+    W.undraft!(still)
+    @test isempty(W.load_drafts())
+end

@@ -19,6 +19,12 @@
 # the review, discarding it, and equally opening an item that was marked and
 # whose metadata says there is no draft on it any more, which is how one
 # submitted on github.com stops being listed here.
+#
+# Opening the item is enough for everything still on the dashboard, and cheaper
+# than asking about drafts nobody is looking at. The exception is an item that
+# has *left* it: the lane is items, so that mark can never be shown or navigated
+# to again, and `reconcile_drafts!` asks about exactly those as the refresh
+# notices them going.
 
 "Overridable so a test can write somewhere other than the real file."
 const DRAFTS = Ref("")
