@@ -532,8 +532,21 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
                       "' - use on-change, a span like 3d/2w/6mo/1y, or a date")
     prev = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
+    prevread, wasunread = Events.read_at(it.url), it.url in st.unread
     disarm(it.url)
     set_fields(it.url, ["snooze" => val], at)
+    # "Not now" and "unread" are the same answer twice, so putting an item to
+    # sleep marks it read - here as well as in the refresh, which is what does
+    # it for `wl snooze` and for a snooze typed into `state.toml`. The refresh
+    # would get to this one too, on its own edge; doing it now is what makes the
+    # row leave the unread lane in the session where the key was pressed.
+    #
+    # Only on the way in. Clearing a snooze is not a claim about whether you
+    # have read the thing, and waking is the refresh's to announce.
+    if val !== nothing
+        Events.set_read(it.url, stamp(at))
+        delete!(st.unread, it.url)
+    end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
     # it, not before: restoring the value writes through `set_fields`, which
@@ -541,10 +554,13 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
         set_fields(it.url, ["snooze" => prev])
         set_touched(it.url, prevtouch)
+        Events.set_read(it.url, prevread)
+        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
     # The snoozed lane is a filter over this field, so the row has to be able to
-    # leave or arrive on the strength of it.
-    st.filters.state in (:snoozed, :active) && refilter!(st)
+    # leave or arrive on the strength of it - and the unread lane is membership
+    # in the set just changed above.
+    st.filters.state in (:snoozed, :active, :unread) && refilter!(st)
     val === nothing ? "snooze cleared" : string("snoozed ", val)
 end
 

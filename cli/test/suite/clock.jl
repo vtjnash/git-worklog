@@ -156,6 +156,22 @@ end
         @test W.get_field(it.url, "snooze") == "6mo"
         @test st.status == "snoozed 6mo"
 
+        # Falling asleep takes the item out of the unread lane: "not now" and
+        # "unread" are the same answer twice, and the row leaves in the session
+        # the key was pressed in rather than at the next refresh.
+        push!(st.unread, it.url)
+        was = W.Events.read_at(it.url)
+        @test W.apply_snooze!(st, it, "3d", W.utcnow()) == "snoozed 3d"
+        @test !(it.url in st.unread)
+        @test W.Events.read_at(it.url) !== nothing
+        # Undone with the snooze, since one key press did both.
+        W.handle!(st, Int('z'), ctrl)
+        @test it.url in st.unread && W.Events.read_at(it.url) == was
+        # Clearing one says nothing about whether it has been read.
+        W.apply_snooze!(st, it, "3d", W.utcnow())
+        @test W.apply_snooze!(st, it, nothing, W.utcnow()) == "snooze cleared"
+        @test W.Events.read_at(it.url) !== nothing && !(it.url in st.unread)
+
         # Every write is undoable, back to nothing at all.
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end
         @test W.get_field(it.url, "snooze") === nothing

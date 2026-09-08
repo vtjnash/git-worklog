@@ -392,9 +392,18 @@ end
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[1]
 
-    # An agent needs nothing set up. An unregistered repo is the only thing
-    # that stops it.
-    @test W.open_agent(it, ctrl) === :needs_repo
+    # An agent needs nothing set up. An unregistered repo is the only thing that
+    # stops it - where there is a tmux to start one in at all. Guarded like
+    # every other session test in this file, and for a stronger reason than
+    # theirs: a testset that *fails* here takes the whole run down with it, and
+    # every file included after this one silently stops being run. That is how
+    # the adoption testset hid behind `archive.jl` for several sessions.
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the unregistered-repo guard test"
+        @test W.open_agent(it, ctrl) == "no tmux on PATH"
+    else
+        @test W.open_agent(it, ctrl) === :needs_repo
+    end
 
     # The metadata pane reports a session from the cached list, never by asking
     # for one per frame: `render` is pure and listing them costs a process.

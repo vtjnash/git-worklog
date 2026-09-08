@@ -198,6 +198,39 @@ end
                           now - Day(2))[1] == true
 end
 
+@testset "a snooze takes the item out of the unread lane" begin
+    # "Not now" and "unread" are the same answer twice, so falling asleep marks
+    # it read and waking marks it unread again. Both edges and only the edges:
+    # every refresh in between would either bury a comment that arrived while it
+    # slept, or make a woken item impossible to file.
+    @test W.snooze_edge(false, true, "until it moves") === :slept
+    @test W.snooze_edge(true, false, "woke: it moved") === :woke
+    @test W.snooze_edge(true, false, "woke: 2w elapsed") === :woke
+    @test W.snooze_edge(true, true, "for 2w, 9d left") === nothing
+    @test W.snooze_edge(false, false, nothing) === nothing
+    # A snooze cleared by hand is not a wake. You did it a moment ago, on an
+    # item in front of you, and it has no business coming back as news.
+    @test W.snooze_edge(true, false, nothing) === nothing
+
+    # The row a wake hands to the inbox is the shape a poll writes, because that
+    # is what `unread()` reads - hand-delivered, since the item may be in a repo
+    # no lane polls and then nothing would ever put it back in front of you.
+    r = Dict{String,Any}("url" => "https://github.com/o/r/pull/1", "repo" => "o/r",
+                         "number" => 1, "title" => "a pull request", "type" => "PullRequest",
+                         "state" => "OPEN", "author" => "someone",
+                         "updated" => "2026-09-01T12:00:00Z", "labels" => ["bug"],
+                         "mine" => false)
+    row = W.woke_row(r, W.utcnow())
+    @test row["is_pr"] && row["state"] == "open" && row["updated"] == "2026-09-01T12:00:00Z"
+    @test row["labels"] == ["bug"] && row["comments"] == 0 && row["mine"] == false
+    # An issue with nothing else filled in still answers every key the poll's
+    # own row has, because a missing one reads as a corrupt entry downstream.
+    bare = W.woke_row(Dict{String,Any}("url" => "u", "repo" => "o/r", "number" => 2,
+                                       "title" => "t", "type" => "Issue"), W.utcnow())
+    @test !bare["is_pr"] && bare["state"] == "open" && bare["author"] == ""
+    @test bare["labels"] == String[] && !isempty(bare["updated"])
+end
+
 @testset "the metadata pane" begin
     st = mkstate()
     it = st.items[st.sel]

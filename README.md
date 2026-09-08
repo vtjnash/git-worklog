@@ -63,6 +63,15 @@ default cap for the ones that carry none.
 `snooze = "2026-09-15"` still works for real calendar constraints, and
 `snooze = "3d"` / `"2w"` / `"6mo"` count from when you set them.
 
+**A snooze marks it read, and waking marks it unread again.** "Not now" and
+"unread" are the same answer twice, so an item you have put away stops sitting
+in the unread lane asking to be read - and when it wakes it comes back as news,
+by the same hand-delivery `wl import` uses, since the repo it is in may be one no
+lane polls. Both edges and only the edges: marking read every refresh would bury
+a comment that arrived while it slept, and marking unread every refresh would
+make a woken item impossible to file. Clearing a snooze by hand is not a wake -
+you did that on purpose, on an item in front of you.
+
 **Waking happens in `wl refresh` and nowhere else.** It is not a predicate a
 browser can evaluate: deciding an item has woken also arms and records it, so
 two windows on one dashboard would each decide and each write, and neither would

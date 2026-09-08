@@ -350,6 +350,41 @@ end
 
 snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
 
+"""Which edge of a snooze this refresh crossed: `:slept`, `:woke`, or nothing.
+
+Only the edges. Marking read on every refresh an item is asleep would bury a
+comment that arrived while it slept; marking unread on every refresh after it
+wakes would make a woken item impossible to file. And `:woke` is the wake
+proper, which is why the reason is looked at: `snooze_active` answers "not
+snoozed" for a snooze that has been *cleared* too, and clearing one is something
+you did on purpose, a moment ago, on an item in front of you - it has no
+business coming back as news.
+"""
+snooze_edge(was::Bool, now::Bool, why) =
+    was == now ? nothing :
+    now ? :slept :
+    (why isa AbstractString && startswith(why, "woke")) ? :woke : nothing
+
+"""The inbox row for an item that has just woken, from its `facts.json` row.
+
+The shape a poll writes, because that is what `unread()` reads. Hand-delivered
+for the same reason `wl import` hand-delivers one: the item may be in a repo no
+lane polls, and then no poll will ever put it back in front of you.
+
+`comments` is 0 and not the real count - nothing here knows it, and nothing
+reads it but the row's own display.
+"""
+woke_row(r, at::DateTime) = OrderedDict{String,Any}(
+    "url" => r["url"], "repo" => r["repo"], "number" => r["number"],
+    "title" => r["title"],
+    "is_pr" => get(r, "type", "PullRequest") == "PullRequest",
+    "state" => lowercase(String(nz(get(r, "state", nothing), "open"))),
+    "author" => String(nz(get(r, "author", nothing), "")),
+    "updated" => String(nz(get(r, "updated", nothing), stamp(at))),
+    "comments" => 0,
+    "labels" => String[String(l) for l in get(r, "labels", ())],
+    "mine" => get(r, "mine", false) === true)
+
 """Returns (is_snoozed, reason). Arms a snooze on first sight.
 
 `maxdays` is the fallback cap for an `on-change` that carries none of its own:
@@ -644,6 +679,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # Bucket, then tracking level, then a fingerprint at that level, then snooze.
     # Order matters: the level decides the fingerprint, which decides the wake.
     changes = Any[]
+    slept, woke = String[], OrderedDict{String,Any}[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
         # GitHub computes mergeability lazily: the first read of a PR returns
@@ -670,6 +706,15 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         r["second_look"] = r["snoozed"] ? "" :
                            second_look(r, at, second_days, second_cap)
         old = jget(prev_items, Symbol(url))
+        # A snooze is "not now", and an item you have said that about should not
+        # also be sitting in the unread lane asking to be read. So falling
+        # asleep marks it read and waking marks it unread again; `snooze_edge`
+        # is where the rule about which refreshes count is written down.
+        if old !== nothing
+            e = snooze_edge(jget(old, :snoozed) === true, snoozed, sreason)
+            e === :slept && push!(slept, url)
+            e === :woke && push!(woke, woke_row(r, at))
+        end
         r["moved"] = old !== nothing && jget(old, :fp_full) != r["fp_full"]
         if old === nothing
             r["new"] = true
@@ -700,6 +745,21 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         end
     end
     reconcile_drafts!(gone)
+
+    # Once each, after the loop: both of these rewrite a file, and a refresh
+    # that puts twenty items to sleep should not rewrite `read.json` twenty
+    # times. `overwrite = false` leaves a poll's own richer row alone, which is
+    # the same courtesy an import pays.
+    #
+    # After `unread()` has already answered, so `DASHBOARD.md` from *this* run
+    # still counts a just-slept item as unread and a just-woken one as read. The
+    # browser asks again when it opens, which is where anybody reads this, and
+    # the next refresh has it. Asking twice here would mean rewriting the inbox
+    # a second time for a line in a file nothing has read yet.
+    isempty(slept) || @printf(stderr, "  %-16s %4d marked read on falling asleep\n",
+                              "snooze", Events.mark_read(slept, at))
+    isempty(woke) || @printf(stderr, "  %-16s %4d marked unread on waking\n",
+                             "snooze", Events.inbox_add!(woke; overwrite = false))
 
     # A bad value means "not snoozed", so the item is not in the snoozed section
     # and its reason is printed nowhere. Say it here instead of losing it.
