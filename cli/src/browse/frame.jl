@@ -278,18 +278,29 @@ So the frame is cut on its OSC sequences and only the pieces between them are
 substituted. Cut on those alone and not on every escape, because a colour code
 splitting a display form is a match that was already missed before this and is
 none of this function's business.
+
+**And the same tearing, from the other direction: a loop of `replace`s reads its
+own output.** The links are one per url per *node*, so a url cited in four
+comments - which is exactly what nanosoldier does, one report link per run -
+arrives here four times. A url short enough to be shown whole is its own display
+form, so the second pass found it again *inside the payload the first had just
+written* and hyperlinked that, and the row tore in the way described above.
+One `replace` with every pattern at once is the fix, because that one is defined
+not to look at its own replacements; the list is deduplicated and taken longest
+first, so a display form that is the head of another cannot win over it.
 """
 const OSC = r"\e\][^\e]*\e[\\]"
 
 function linkify(frame::AbstractString, links)
     isempty(links) && return frame
-    sub(s) = begin
-        for (disp, full) in links
-            (isempty(disp) || !occursin(disp, s)) && continue
-            s = replace(s, disp => osc8(full, disp))
-        end
-        s
+    seen, pats = Set{String}(), Pair{String,String}[]
+    for (disp, full) in sort(collect(links); by = p -> -length(first(p)), alg = MergeSort)
+        (isempty(disp) || disp in seen) && continue
+        push!(seen, disp)
+        push!(pats, String(disp) => osc8(full, disp))
     end
+    isempty(pats) && return frame
+    sub(s) = replace(s, pats...)
     out, at = IOBuffer(), firstindex(frame)
     for m in eachmatch(OSC, frame)
         write(out, sub(SubString(frame, at, prevind(frame, m.offset))))

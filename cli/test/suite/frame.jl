@@ -44,6 +44,23 @@ end
     # is still a link, it is only the sequences around it that are left alone.
     @test occursin(string("\e]8;;", u, "\e\\\e[4m", u),
                    W.render(st, 150, 40))
+
+    # The same tearing from the other direction. The link list is one entry per
+    # url per *node*, so a url cited in four comments - nanosoldier posts one
+    # report link per run - arrives here four times, and a loop of `replace`s
+    # reads its own output: a url short enough to be shown whole is its own
+    # display form, so the second pass found it inside the payload the first had
+    # just written and hyperlinked that.
+    short = W.shortlink(u, 60)
+    line = string("see ", short, " twice")
+    @test W.linkify(line, [short => u]) == W.linkify(line, [short => u, short => u])
+    @test W.awidth(W.linkify(line, [short => u, short => u])) == W.awidth(line)
+    # Longest first, so a display form that is the head of another cannot take
+    # the match from it and send the reader somewhere else.
+    a, b = "https://x.invalid/a", "https://x.invalid/ab"
+    out = W.linkify("see https://x.invalid/ab here", [a => a, b => b])
+    @test occursin(string("\e]8;;", b, "\e\\"), out)
+    @test !occursin(string("\e]8;;", a, "\e\\"), out)
 end
 
 @testset "a click on a url copies it" begin
