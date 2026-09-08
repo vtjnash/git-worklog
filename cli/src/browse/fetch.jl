@@ -251,6 +251,20 @@ end
 # each event has to answer is "does anything on screen come from that file" -
 # and the answer for the whole of `data/` is one of three: the item list, the
 # records the lanes are membership in, or neither.
+#
+# What the watch deliberately does not do is *write*. Two windows agreeing about
+# `data/` is a matter of reading it again, and every write in this program is
+# still downstream of a key press - `arm_refresh!` is the only timer, it is a
+# one-shot debounce armed by a load somebody asked for, and it writes nothing
+# but cache entries under their own names.
+#
+# That is what makes the read-modify-write in `set_touched`, `set_draft` and
+# `set_read` safe without a lock. Each reads a whole file, changes one key and
+# writes it back, so two of them straddling each other would lose the earlier
+# one's key - and two of them cannot straddle each other while the only thing
+# that starts one is a person typing in one window at a time. A poll loop that
+# went off in every open window at once is exactly what would break that, so if
+# one is ever wanted, the lock comes first and this is where to remember it.
 
 """Files whose contents are on screen, and what changing one costs to adopt.
 

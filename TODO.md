@@ -66,16 +66,7 @@ What is left, in the order it is worth doing:
      test on a shared machine; a line printed at the end of the run is not, and
      it is enough to notice a regression the next time somebody looks.
 
-3. **The lost update, which the watch does not fix.** Two windows now agree
-   about what is *in* `data/` - a write in one is heard in the other and the
-   records are taken again - but they still race to write it. `set_touched`,
-   `set_draft` and `set_read` each read the whole file, change one key and write
-   it back, so two of them straddling each other lose the earlier one's key. The
-   window is milliseconds and the cost is one stamp, which is why this is third
-   and not first; closing it means holding a lock across the read and the write,
-   or an append-only shape that does not have to read at all.
-
-4. **Verify the drafts at refresh, not only when an item is opened.** Nothing
+3. **Verify the drafts at refresh, not only when an item is opened.** Nothing
    about a pending review reaches the notification path: it produces no event,
    it does not move the pull request's `updated_at`, and its comments are not in
    `pulls/{n}/comments` until it is submitted - which is exactly why the lane is
