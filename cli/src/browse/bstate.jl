@@ -58,6 +58,9 @@ Base.@kwdef mutable struct BState <: View
                                     # than per frame
     archived::Dict{String,String} = Dict{String,String}()  # url -> the date it
                                     # was put away, from `state.toml`
+    drafts::Dict{String,String} = Dict{String,String}()    # url -> when a review
+                                    # was last written to on it and not sent;
+                                    # the one lane GitHub cannot be asked for
     lmode::Symbol = :items          # :items | :filters
     frow::Int = 3        # the first state row; 1 is the reset row and 2 its head
     wake::Any = nothing             # set by the controller; called when a fetch lands
@@ -110,6 +113,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     end
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = load_touched(), archived = field_map("archive"),
+                  drafts = load_drafts(),
                   buckets = sort(unique(it.bucket for it in all)),
                   # Alphabetical, like every other axis. Ordering by weight put
                   # the busiest first, which sounds useful and is not: nobody

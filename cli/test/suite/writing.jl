@@ -94,6 +94,30 @@
     st.batch = nothing
 end
 
+@testset "a draft is remembered where GitHub will not keep it" begin
+    # The batch is this session's; the mark is the program's. What reconciles
+    # them is the metadata of the item on screen, which is the only place a
+    # pending review can be seen at all - so it is also the only thing that can
+    # notice one submitted from github.com since the mark was written.
+    st = mkstate()
+    it = st.items[st.sel]
+    @test isempty(W.load_drafts())
+    st.metakey = it.url
+    st.metapending = schedule(Task(() -> (meta = (pending = "PRR_z",), checks = nothing)))
+    wait(st.metapending)
+    @test W.collect_meta!(st)
+    # Found, marked, and adopted as the batch in hand - a draft from an earlier
+    # session is a draft.
+    @test haskey(st.drafts, it.url)
+    @test st.batch !== nothing && st.batch.url == it.url && st.batch.review == "PRR_z"
+    # And gone again, when the item says it is gone.
+    st.metapending = schedule(Task(() -> (meta = (pending = "",), checks = nothing)))
+    wait(st.metapending)
+    @test W.collect_meta!(st)
+    @test !haskey(st.drafts, it.url) && st.batch === nothing
+    @test isempty(W.load_drafts())
+end
+
 @testset "the one toolbar button worth having" begin
     # A suggestion is a review action - GitHub applies the block as a commit -
     # and it is unusable without the current text of the lines in front of you.

@@ -11,7 +11,7 @@
 # additive and behave as checkboxes.
 
 const STATES = [(:active, "active"), (:unread, "unread"), (:mine, "mine"),
-                (:second, "second look"),
+                (:second, "second look"), (:drafts, "drafts"),
                 (:touched, "touched"), (:snoozed, "snoozed"),
                 (:backlog, "backlog"), (:archived, "archived"), (:all, "all")]
 
@@ -96,7 +96,8 @@ isdefault(f::Filters) =
 "Does this item belong to one of the exclusive states - the `STATES` radio group?"
 function state_ok(state::Symbol, it::Item, unread::Set{String},
                   touched::Dict{String,String} = EMPTY_TOUCHED,
-                  archived::Dict{String,String} = EMPTY_TOUCHED)
+                  archived::Dict{String,String} = EMPTY_TOUCHED,
+                  drafts::Dict{String,String} = EMPTY_TOUCHED)
     state === :unread  && return it.url in unread
     state === :snoozed && return it.snoozed
     state === :backlog && return it.backlog
@@ -112,6 +113,11 @@ function state_ok(state::Symbol, it::Item, unread::Set{String},
     # interaction clock is a record of - and nothing else writes to it, so this
     # is work rather than browsing.
     state === :touched && return haskey(touched, it.url)
+    # Work you have started saying and not said. Archived items stay in it: a
+    # draft on something you have put away is the strongest reason there is to
+    # be shown it again, since the two together mean you filed the work and
+    # never sent the words.
+    state === :drafts  && return haskey(drafts, it.url)
     # Yours: an open pull request you wrote, or a branch you have claimed.
     # Both are things you are expected to carry, which is what makes them one
     # list rather than two.
@@ -171,8 +177,9 @@ end
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
 function matches(f::Filters, it::Item, unread::Set{String},
                  touched::Dict{String,String} = EMPTY_TOUCHED,
-                 archived::Dict{String,String} = EMPTY_TOUCHED)
-    state_ok(f.state, it, unread, touched, archived) || return false
+                 archived::Dict{String,String} = EMPTY_TOUCHED,
+                 drafts::Dict{String,String} = EMPTY_TOUCHED)
+    state_ok(f.state, it, unread, touched, archived, drafts) || return false
     kind_ok(f.kind, it) || return false
     author_ok(f.authors, it) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
@@ -207,12 +214,13 @@ function axis_counts(st)
         bok = isempty(f.buckets) || it.bucket in f.buckets
         rok = isempty(f.repos)   || it.repo in f.repos
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
-        sok = state_ok(f.state, it, st.unread, st.touched, st.archived)
+        sok = state_ok(f.state, it, st.unread, st.touched, st.archived, st.drafts)
         kok = kind_ok(f.kind, it)
         aok = author_ok(f.authors, it)
         if bok && rok && lok && kok && aok
             for (k, _) in STATES
-                state_ok(k, it, st.unread, st.touched, st.archived) && bump!(states, k)
+                state_ok(k, it, st.unread, st.touched, st.archived, st.drafts) &&
+                    bump!(states, k)
             end
         end
         if sok && bok && rok && lok && aok
@@ -238,8 +246,9 @@ function axis_counts(st)
     (states, kinds, buckets, repos, labels, authors)
 end
 
-apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED) =
-    [it for it in all if matches(f, it, unread, touched, archived)]
+apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED,
+              drafts = EMPTY_TOUCHED) =
+    [it for it in all if matches(f, it, unread, touched, archived, drafts)]
 
 """Which axes list only what is applied, and reach the rest through the picker.
 
@@ -522,8 +531,9 @@ function refilter!(st)
     # has to be current for a row to arrive in it.
     st.touched = load_touched()
     st.archived = field_map("archive")
+    st.drafts = load_drafts()
     st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched,
-                                       st.archived),
+                                       st.archived, st.drafts),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,
     # so the counts in the filter pane keep describing the tags alone - which is

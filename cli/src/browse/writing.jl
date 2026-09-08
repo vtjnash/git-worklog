@@ -203,6 +203,10 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
                                                    start_line = target.start)
              stt === nothing && return err
              st.batch = mkbatch(it.url, it.ref, stt.review, stt.n)
+             # The lane, which outlives this session and this browser: written
+             # here because this is the moment a draft comes into being, and
+             # GitHub will not answer for one from anywhere but the item itself.
+             draft!(it.url); st.drafts = load_drafts()
              ""
          end)
     else
@@ -265,7 +269,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
         if ev == "DISCARD"
             r = Events.discard_pending(it.url, held.review)
             st.status = isempty(r) ? string("discarded the draft on ", it.ref) : r
-            isempty(r) && (st.batch = nothing)
+            isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
             return
         end
         push_view!(ctrl, EditorView(
@@ -281,7 +285,9 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                     string("submitted: ", replace(lowercase(ev), "_" => " "),
                            held === nothing ? "" :
                            string(" with ", held.n, held.n == 1 ? " comment" : " comments")) : r
-                isempty(r) && (touch!(it.url); st.batch = nothing; reread!(st))
+                isempty(r) && (touch!(it.url); st.batch = nothing;
+                               undraft!(it.url); st.drafts = load_drafts();
+                               reread!(st))
             end; allow_empty = ev == "APPROVE"))
     end))
 end

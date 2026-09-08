@@ -13,7 +13,12 @@
         axis === :bucket ? (p.buckets = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
         axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
-        count(it -> W.matches(p, it, st.unread), st.all)
+        # The same maps the counts are computed against, or the two sides are
+        # answering about different lists: `archived` and `drafts` are
+        # membership in a file, and an empty one here would make every count of
+        # them zero and the comparison vacuous.
+        count(it -> W.matches(p, it, st.unread, st.touched, st.archived, st.drafts),
+              st.all)
     end
     configs = [W.Filters(),
                W.Filters(:all, Set{String}(), Set{String}(), Set{String}()),
@@ -55,6 +60,34 @@
     @test occursin("pull requests", W.filter_summary(st.filters))
     st.filters.kind = :both
     @test !occursin("pull requests", W.filter_summary(st.filters))
+end
+
+@testset "the one lane GitHub cannot be asked for" begin
+    # A pending review is visible to nobody but its author and from nowhere but
+    # the pull request it is on: `reviews(states: PENDING, author: $me)` answers
+    # for one item, no query answers for all of them, and `review:pending` is
+    # not a search qualifier - it matches nothing, exactly as `review:banana`
+    # does. So the lane is a file this program writes as it writes the comments.
+    st = mkstate()
+    it = st.items[st.sel]
+    @test isempty(W.load_drafts())
+    W.draft!(it.url)
+    st.filters = W.Filters(:drafts, Set{String}(), Set{String}(), Set{String}())
+    W.refilter!(st)
+    @test [x.url for x in st.items] == [it.url]
+    # Counted like every other value on the axis, and offered as a row.
+    (nstate, _, _, _, _, _) = W.axis_counts(st)
+    @test get(nstate, :drafts, 0) == 1
+    @test any(r -> r[1] === :state && r[2] == "drafts", W.filter_rows(st))
+    # Archived work stays in it. A draft on something you have put away is the
+    # strongest reason there is to be shown it again: the two together mean the
+    # work was filed and the words were never sent.
+    @test W.state_ok(:drafts, it, Set{String}(), W.EMPTY_TOUCHED,
+                     Dict(it.url => "2026-01-01"), Dict(it.url => "2026-01-01"))
+    # Sent or thrown away, it leaves the lane.
+    W.undraft!(it.url)
+    W.refilter!(st)
+    @test isempty(st.items) && isempty(W.load_drafts())
 end
 
 @testset "an axis you can search, and whose it is" begin

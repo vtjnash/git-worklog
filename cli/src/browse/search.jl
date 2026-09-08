@@ -121,7 +121,8 @@ function commit_search!(st::BState, w::Int)
     # different list than the one on screen: without them an archived item
     # reads as active, the widen does not happen, and the jump lands nowhere.
     any(it -> it.url == target,
-        apply_filters(st.filters, st.all, st.unread, st.touched, st.archived)) ||
+        apply_filters(st.filters, st.all, st.unread, st.touched, st.archived,
+                      st.drafts)) ||
         (st.filters.state = :all)
     refilter!(st)
     j = findfirst(it -> it.url == target, st.items)

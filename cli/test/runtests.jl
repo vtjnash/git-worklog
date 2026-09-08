@@ -23,6 +23,11 @@ isfile(W.errlog()) && rm(W.errlog())
 # reorder the user's own lists as a side effect of running the suite.
 W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
 
+# And the drafts file, for the same reason and one more: it is written by the
+# testsets that add a comment to a review, and a mark left in the user's own
+# file would put an item in a lane that has nothing in it.
+W.DRAFTS[] = joinpath(mktempdir(), "drafts.json")
+
 # And the same for `state.toml`, for a stronger reason. Several testsets below
 # adopt a branch or write a note, and each one reads the file first and writes
 # it back in a `finally` - so a run that ends part-way through never reaches

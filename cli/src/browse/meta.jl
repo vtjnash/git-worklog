@@ -54,16 +54,32 @@ function collect_meta!(st::BState)
     st.checks = r.checks
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
     # A draft left on this pull request by an earlier session, which nothing
-    # here would otherwise know about. Adopted only when the batch in hand is
-    # nothing or is this item's own: a draft being carried on another item must
-    # not be dropped for one read off this one. The count comes from this
-    # session where there is one, since a review read back does not carry it.
-    if st.meta !== nothing && !isempty(get(st.meta, :pending, "")) &&
-       (st.batch === nothing || st.batch.url == st.metakey)
-        i = findfirst(x -> x.url == st.metakey, st.all)
-        i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref,
-                                            st.meta.pending,
-                                            st.batch === nothing ? 0 : st.batch.n))
+    # here would otherwise know about. This is also the only thing that ever
+    # contradicts the `drafts` lane: the mark is written by this program as it
+    # writes comments, and a review submitted from github.com would leave one
+    # standing forever - so what the metadata says about the item on screen is
+    # taken as the answer, in both directions.
+    if st.meta !== nothing && !isempty(st.metakey)
+        if !isempty(get(st.meta, :pending, ""))
+            haskey(st.drafts, st.metakey) ||
+                (draft!(st.metakey); st.drafts = load_drafts())
+            # Adopted only when the batch in hand is nothing or is this item's
+            # own: a draft being carried on another item must not be dropped for
+            # one read off this one. The count comes from this session where
+            # there is one, since a review read back does not carry it.
+            if st.batch === nothing || st.batch.url == st.metakey
+                i = findfirst(x -> x.url == st.metakey, st.all)
+                i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref,
+                                                    st.meta.pending,
+                                                    st.batch === nothing ? 0 : st.batch.n))
+            end
+        elseif haskey(st.drafts, st.metakey)
+            # Gone: sent or discarded somewhere else. The row is left where it
+            # is until the list is next rebuilt - this arrives while you are
+            # reading, and nothing you are reading should move underneath you.
+            undraft!(st.metakey); st.drafts = load_drafts()
+            st.batch === nothing || st.batch.url != st.metakey || (st.batch = nothing)
+        end
     end
     st.metapending = nothing
     true
