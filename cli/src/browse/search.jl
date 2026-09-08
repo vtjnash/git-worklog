@@ -88,7 +88,10 @@ function research!(st::BState, w::Int)
         isempty(ms) && return
         st.nrow = something(findfirst(>=(st.nrow), ms), 1) |> i -> ms[i]
     else
-        refilter!(st)
+        # A query narrows the list to what answers it, and the answer is read
+        # from the top: the row the cursor was on in the list before it is not
+        # a place in this one.
+        refilter!(st; keeprow = false)
     end
 end
 

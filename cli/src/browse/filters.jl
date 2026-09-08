@@ -388,7 +388,7 @@ function apply_view!(st, d)
     # the url order nameable, which nothing else could say - a view that names
     # `sort = "none"` gets it even where the lane would have implied an order.
     st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f.state)
-    refilter!(st)
+    refilter!(st; keeprow = false)
     string("[", filter_summary(f, st.sort), "]")
 end
 
@@ -520,7 +520,7 @@ function pick_axis!(st, ctrl, axis::Symbol)
     push_view!(ctrl, ChooseView(string("Filter by ", axis), "type to narrow", opts,
         v -> begin
             push!(axis_set(st.filters, axis), String(v))
-            refilter!(st)
+            refilter!(st; keeprow = false)
             st.status = string("filtered: ", axis, " ", axis_label(axis, String(v)))
         end))
     true
@@ -558,7 +558,7 @@ function toggle_filter!(st, ctrl = nothing)
     else
         return false
     end
-    refilter!(st)
+    refilter!(st; keeprow = false)
     true
 end
 
@@ -566,7 +566,16 @@ end
 hits(it::Item, q::AbstractString) =
     occursin(lowercase(q), lowercase(it.title)) || occursin(lowercase(q), lowercase(it.ref))
 
-function refilter!(st)
+"""Rebuild `st.items` from the filters, and decide where the cursor lands.
+
+`keeprow` is the difference between the list changing under the reader and the
+reader asking for a different list. Marking something read in the unread lane,
+archiving, snoozing and undoing all take one row out of the list being read, and
+there the cursor belongs on whatever moved up into its place. Choosing a view, a
+filter or a search asks for a list that has nothing to do with where the cursor
+was in the last one, and those pass `keeprow = false` and open at the top.
+"""
+function refilter!(st; keeprow::Bool = true)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
@@ -586,12 +595,22 @@ function refilter!(st)
     (isempty(st.search) || st.searchin !== :list) ||
         (st.items = [it for it in st.items if hits(it, st.search)])
     i = findfirst(x -> x.url == keep, st.items)
-    # Stay on the same item when possible, failing that the first one - and the
-    # import row only when there is no item at all to be on. Deliberately not
-    # sticky: you land on that row by moving to it, and a rebuilt list that has
-    # work in it should open on the work rather than on the way to add more.
-    st.sel = isempty(st.items) ? 0 : something(i, 1)
-    st.top = 1
+    # Stay on the same item when possible, and failing that on the same *row* -
+    # whatever moved up into the place being read. `r` in the unread lane is the
+    # case: the row it marks read leaves the lane it is in, and a cursor thrown
+    # to the top of the list by that turns reading an inbox into `r`, scroll
+    # back down, `r`, scroll back down.
+    #
+    # The import row only when there is no item at all to be on. Deliberately
+    # not sticky: you land on that row by moving to it, and a rebuilt list that
+    # has work in it should open on the work rather than on the way to add more.
+    #
+    # `top` is left where it is for the same reason the row is: `window`
+    # re-aims it around the cursor, so an unchanged one leaves the row being
+    # read where it is on the screen rather than scrolling the list under it.
+    st.sel = isempty(st.items) ? 0 :
+             something(i, keeprow ? clamp(st.sel, 1, length(st.items)) : 1)
+    keeprow || (st.top = 1)
 end
 
 "One-line summary of what is applied, for the frame title."

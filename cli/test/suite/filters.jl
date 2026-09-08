@@ -90,6 +90,45 @@ end
     @test isempty(st.items) && isempty(W.load_drafts())
 end
 
+@testset "when a row leaves, the cursor stays where it was" begin
+    # `r` in the unread lane takes the row it marks read out of the list, and a
+    # cursor thrown to the top by that turns reading an inbox into: r, scroll
+    # back down, r, scroll back down. The url it was on is gone, so the fallback
+    # is the row - whatever moved up into the place being read.
+    st = mkstate()
+    st.unread = Set(it.url for it in first(st.items, 5))
+    st.filters.state = :unread
+    W.refilter!(st; keeprow = false)
+    @test length(st.items) == 5 && st.sel == 1
+    st.sel = 3
+    gone = st.items[3].url
+    delete!(st.unread, gone)          # what `r` does before it refilters
+    W.refilter!(st)
+    @test length(st.items) == 4
+    @test st.sel == 3 && st.items[3].url != gone
+    # Clamped, so the last row of a lane leaving lands on the new last row
+    # rather than off the end of it.
+    st.sel = 4
+    delete!(st.unread, st.items[4].url)
+    W.refilter!(st)
+    @test st.sel == length(st.items) == 3
+    # And the item itself still outranks the row: one that is still in the list
+    # keeps the cursor wherever it moved to.
+    st.sel = 3
+    url = st.items[3].url
+    st.sort = :url; W.refilter!(st)
+    @test st.items[st.sel].url == url
+    # Asking for a different list is not the same thing as the list changing
+    # under you. Choosing a view, a filter or a query opens at the top, and the
+    # same disappearance answers 1 there rather than the row it was on.
+    st.unread = Set(it.url for it in first(st.all, 5))
+    W.refilter!(st; keeprow = false)
+    st.sel = 4; st.top = 3
+    delete!(st.unread, st.items[4].url)
+    W.refilter!(st; keeprow = false)
+    @test st.sel == 1 && st.top == 1
+end
+
 @testset "an axis you can search, and whose it is" begin
     # The pane used to try to show what was available: ~140 repos, hundreds of
     # labels, and authors would have been worse than either. Showing the first

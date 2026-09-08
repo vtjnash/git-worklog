@@ -213,7 +213,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         elseif k in (13, 10);           toggle_filter!(st, ctrl)
         elseif k == Int('c')
             st.prev = st.filters        # clearing is a jump like any other
-            st.filters = Filters(); refilter!(st)
+            st.filters = Filters(); refilter!(st; keeprow = false)
         end
     elseif st.focus === :list
         # Zero is the import row, which is why the floor here is not one. `g`
@@ -271,7 +271,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             was = st.filters
             st.filters = st.prev
             st.prev = was
-            refilter!(st)
+            refilter!(st; keeprow = false)
             # After the loads, not before: `load_nodes!` writes "loading …" over
             # whatever is there, and a message about a jump the user just made
             # is exactly what it would write over.
