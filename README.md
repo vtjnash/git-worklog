@@ -203,7 +203,16 @@ paragraph with it yields the wrapped fragments plus the pane borders. Dragging
 here selects rows, and `y` copies them as the lines they were written as - one
 line per paragraph, links whole, no colours in the paste. Clicking moves the
 cursor and clicking a fold marker toggles it; the wheel scrolls the pane under
-the pointer. `m` gives the mouse back to the terminal when you want it.
+the pointer. `m` gives the mouse back to the terminal when you want it - and
+`shift-J`/`shift-K`, or the shifted arrows, extend a selection from the
+keyboard, which is what `m` off would otherwise take away along with the drag.
+
+Coming back to an item lands on the line you were reading in it, per item and
+per mode - a comment thread and a diff of one pull request are two readings of
+it and two places to come back to. And when a row leaves the list under you -
+`r` in the unread lane, `x`, `s` - the cursor stays on the row it was on rather
+than jumping to the top, so an inbox is read by pressing `r`. Choosing a view, a
+filter or a query is asking for a different list, and those open at the top.
 
 Everything is one Julia module under `cli/src`, so the comment-preserving TOML
 writer and the GitHub quirks below live in one place rather than two: the

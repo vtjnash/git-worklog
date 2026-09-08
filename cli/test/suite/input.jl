@@ -35,6 +35,15 @@
     @test ev("\e[<64;5;5M").kind === :wheelup
     @test ev("\e[<65;5;5M").kind === :wheeldown
     @test ev("\e[<16;5;5M").mods == 4                # ctrl-click
+    # Shift is the one modifier the vertical arrows carry a key of their own
+    # for, since it is what extends a selection. Alt and ctrl are not it.
+    @test ev("\e[1;2A") == W.KeyEvent(W.K_SUP)
+    @test ev("\e[1;2B") == W.KeyEvent(W.K_SDOWN)
+    @test ev("\e[1;5A") == W.KeyEvent(W.K_UP)
+    # And a view with no selection to extend reads them as the arrows they are
+    # drawn on, rather than as keys that do nothing at all.
+    @test W.unshift(W.K_SUP) == W.K_UP && W.unshift(W.K_SDOWN) == W.K_DOWN
+    @test W.unshift(Int('j')) == Int('j')
     @test ev("\e[<0;40M") == W.KeyEvent(-1)          # malformed
 end
 

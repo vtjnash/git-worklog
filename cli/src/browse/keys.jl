@@ -147,6 +147,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     iw = st.diw > 0 ? st.diw : L.riw
     page = st.dpage > 0 ? st.dpage : L.page
     lpage = L.lpage
+    # The shifted arrows extend the selection, and the detail pane is the only
+    # thing here that has one. In the two lists they are the arrows they are
+    # drawn on rather than keys that do nothing.
+    st.focus === :detail && st.lmode !== :filters || (k = unshift(k))
     # While the query is being typed it takes every key, so that `/julia` is a
     # search and not four commands. Enter keeps it, escape drops it.
     if st.typing
@@ -239,7 +243,24 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         k in (Int('j'), K_DOWN, Int('k'), K_UP, Int(' '), 6, K_PGDN, Int('b'), 2,
               K_PGUP, Int('g'), K_HOME, Int('G'), K_END, Int('n'), Int('N'),
               13, 10) && clearsel!(st)
-        if k in (Int('j'), K_DOWN);          st.nrow = min(n, st.nrow + 1)
+        if k in (Int('J'), K_SDOWN, Int('K'), K_SUP)
+            # The keyboard half of a drag: the anchor is wherever the cursor
+            # already was, and every press moves the far end of the range. Not
+            # in the list above, so these are the four keys in this pane that
+            # move the cursor and keep what is selected - which is the whole of
+            # what they are for.
+            #
+            # Two spellings because both are reached for: the arrows are what a
+            # selection is extended with everywhere else, and `J`/`K` are what
+            # `j`/`k` are already under the hand. They are also the two capitals
+            # in the program that change nothing on GitHub, which the rule can
+            # afford: a selection is a way of pointing at rows, and `y` and `c`
+            # are what act on it.
+            st.anchor == 0 && (st.anchor = st.nrow)
+            st.nrow = clamp(st.nrow + (k in (Int('J'), K_SDOWN) ? 1 : -1), 1, n)
+            st.sela, st.selb = st.anchor, st.nrow
+            st.status = string(abs(st.selb - st.sela) + 1, " rows selected — y to copy")
+        elseif k in (Int('j'), K_DOWN);      st.nrow = min(n, st.nrow + 1)
         elseif k in (Int('k'), K_UP);        st.nrow = max(1, st.nrow - 1)
         elseif k in (Int(' '), 6, K_PGDN);   st.nrow = min(n, st.nrow + page)
         elseif k in (Int('b'), 2, K_PGUP);   st.nrow = max(1, st.nrow - page)

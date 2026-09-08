@@ -1106,6 +1106,7 @@ function goto_item(v::WorktreeView, it::Union{Nothing,Item})
 end
 
 function handle!(v::WorktreeView, k::Int, ctrl)
+    k = unshift(k)
     branches = v.mode === :branches
     n = branches ? length(v.brows) : length(v.rows)
     move!(d) = branches ? (v.bsel = clamp(v.bsel + d, 1, max(1, n))) :

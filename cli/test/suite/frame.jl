@@ -193,6 +193,28 @@ end
     # Moving the cursor drops it; y with nothing selected still copies a URL.
     W.handle!(st, Int('j'), ctrl)
     @test W.selrange(st) === nothing
+
+    # The keyboard half of the same thing, which is what the mouse could do and
+    # nothing else could: shift on the arrows, and `J`/`K` under the hand that
+    # is already on `j`/`k`.
+    st.focus = :detail
+    st.nrow = 2
+    W.handle!(st, Int('J'), ctrl)
+    @test W.selrange(st) == (2, 3) && st.nrow == 3
+    W.handle!(st, W.K_SDOWN, ctrl)
+    @test W.selrange(st) == (2, 4) && st.nrow == 4
+    # Back through the anchor and out the other side, the way a drag does.
+    for _ in 1:4; W.handle!(st, Int('K'), ctrl); end
+    @test W.selrange(st) == (1, 2) && st.nrow == 1
+    @test occursin("rows selected", st.status)
+    # An unshifted arrow still drops it.
+    W.handle!(st, W.K_DOWN, ctrl)
+    @test W.selrange(st) === nothing
+    # In the list there is no selection to extend, so they are the arrows.
+    st.focus = :list
+    was = st.sel
+    W.handle!(st, W.K_SDOWN, ctrl)
+    @test st.sel == was + 1 && W.selrange(st) === nothing
 end
 
 @testset "a long header wraps instead of being cut" begin

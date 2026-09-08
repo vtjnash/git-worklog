@@ -350,7 +350,7 @@ end
               "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "L labels",
               "r read/unread", "u update all", "R reload", "s snooze", "z undo",
-              "v note", "e edit",
+              "v note", "e edit", "\u21e7j/k select",
               "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
     end

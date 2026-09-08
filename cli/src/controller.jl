@@ -119,6 +119,18 @@ const K_WORD_LEFT  = K_BASE + 10
 const K_WORD_RIGHT = K_BASE + 11
 const K_WORD_BACK  = K_BASE + 12    # delete the word before the cursor
 const K_EDIT       = K_BASE + 13    # Alt-e, as the REPL binds it
+const K_SUP        = K_BASE + 14    # Shift-Up and Shift-Down, which are the
+const K_SDOWN      = K_BASE + 15    # arrows' own keys and not modifiers here:
+                                    # only the detail pane does anything with
+                                    # the shift, and a view that has no
+                                    # selection to extend passes them through
+                                    # `unshift`
+
+"""Shift-Up and Shift-Down for a view with no selection to extend: the plain
+arrow. A key drawn on the arrow that does nothing at all reads as a terminal
+that has stopped responding.
+"""
+unshift(k::Int) = k == K_SUP ? K_UP : k == K_SDOWN ? K_DOWN : k
 
 "A key that stands for a character someone meant to type."
 printable(k::Int) = (k >= 32 && k != 127 && k <= 0x10FFFF)
@@ -254,8 +266,11 @@ function decode_csi(params::String, fin::Char)
     parts = split(params, ';')
     mod = length(parts) >= 2 ? something(tryparse(Int, String(parts[2])), 1) : 1
     byword = (mod - 1) & 0x06 != 0
-    fin == 'A' && return KeyEvent(K_UP)
-    fin == 'B' && return KeyEvent(K_DOWN)
+    # Shift is the one modifier the vertical arrows carry a meaning for, and it
+    # is the same one it has in every list anybody has ever selected in.
+    shifted = (mod - 1) & 0x01 != 0
+    fin == 'A' && return KeyEvent(shifted ? K_SUP : K_UP)
+    fin == 'B' && return KeyEvent(shifted ? K_SDOWN : K_DOWN)
     fin == 'C' && return KeyEvent(byword ? K_WORD_RIGHT : K_RIGHT)
     fin == 'D' && return KeyEvent(byword ? K_WORD_LEFT : K_LEFT)
     fin == 'H' && return KeyEvent(K_HOME)
@@ -735,6 +750,7 @@ function render(v::ChooseView, w::Int, h::Int)
 end
 
 function handle!(v::ChooseView, k::Int, ctrl::Controller)
+    k = unshift(k)
     opts = shown(v)
     if k == 27
         return :pop
@@ -969,6 +985,7 @@ function compose_external(ctrl::Controller, initial::AbstractString)
 end
 
 function handle!(v::EditorView, k::Int, ctrl::Controller)
+    k = unshift(k)
     l = v.lines[v.row]
     n = length(l)
     v.status = ""
