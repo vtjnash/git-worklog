@@ -21,8 +21,12 @@ Sorting is orthogonal to all three filter axes - any order makes sense over any
 selection - so it does not belong inside `Filters`, where it would multiply the
 axes instead of sitting beside them. `w` cycles it.
 
-`:none` is the order the lanes were fetched in, which is the order the dashboard
-has always had.
+`:latest` is the default, and the order every other inbox opens in: what moved
+most recently is at the top. The lanes are fetched in url order - `facts.json`
+is written sorted by key - which is alphabetical by owner, and alphabetical by
+owner is not a fact about anything. `:none` is still here because "the order
+they arrived in" is occasionally what you want to see, but it is no longer what
+you get without asking.
 """
 const SORTS = [(:none, "as fetched"), (:touched, "by when you last acted"),
                (:latest, "by when anything last happened")]
@@ -43,15 +47,15 @@ membership in it is having acted on something - so the clock is the order it
 means, and arriving in it sorted by anything else asks the reader to press `w`
 to see the thing they came for.
 
-Every other lane is deliberately absent, which reads as "as fetched", because
-which order they want is a question use has to answer rather than an argument.
-This table is where the answer goes when it does. `w` still overrides, until
-the lane changes.
+Every other lane is deliberately absent, which reads as newest-first - the
+order an inbox has, and the answer use gave to the question this table used to
+leave open. It is still where a lane that wants a different one says so. `w`
+still overrides, until the lane changes.
 """
 const LANE_SORT = Dict(:touched => :touched)
 
-"""The order to open `state` in - `:none`, "as fetched", when it implies none."""
-lane_sort(state::Symbol) = get(LANE_SORT, state, :none)
+"""The order to open `state` in - newest first, when the lane implies none."""
+lane_sort(state::Symbol) = get(LANE_SORT, state, :latest)
 
 # Whose it is, as two values of the author axis that are not logins.
 #
@@ -553,13 +557,20 @@ function refilter!(st)
 end
 
 "One-line summary of what is applied, for the frame title."
-function filter_summary(f, order::Symbol = :none)
+function filter_summary(f, order::Symbol = lane_sort(f.state))
     parts = [string(f.state)]
     f.kind === :both || push!(parts, f.kind === :pr ? "pull requests" : "issues")
+    # Named only when it is not the order this lane opens in. Newest-first is
+    # the default everywhere now, and a summary that says so on every screen is
+    # a phrase the reader stops seeing and a footer three words narrower for
+    # the keys - while an order somebody chose with `w` is exactly what wants
+    # saying, and stops being said the moment the lane changes it back.
+    #
     # Not `sort`: that is the name of the function two lines down, and shadowing
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
-    order === :none || push!(parts, order === :latest ? "by when it moved" :
-                                    "by when you acted")
+    order === lane_sort(f.state) ||
+        push!(parts, order === :latest ? "by when it moved" :
+                     order === :touched ? "by when you acted" : "as fetched")
     isempty(f.authors) ||
         push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))

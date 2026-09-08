@@ -377,18 +377,21 @@ end
     @test st.filters.repos == Set(["JuliaLang/julia"])
 
     # The sort is an axis like the rest: a view that names one sets it, and a
-    # view that names none puts it back. A name has to mean the same list from
-    # wherever it is pressed, and an order carried over from the list you were
-    # in is not that.
-    W.apply_view!(st, Dict("state" => "all", "sort" => "latest"))
-    @test st.sort === :latest
-    W.apply_view!(st, Dict("state" => "all"))
+    # view that names none puts it back to the order its lane opens in - newest
+    # first, unless the lane defines its own. A name has to mean the same list
+    # from wherever it is pressed, and an order carried over from the list you
+    # were in is not that.
+    W.apply_view!(st, Dict("state" => "all", "sort" => "none"))
     @test st.sort === :none
+    W.apply_view!(st, Dict("state" => "all"))
+    @test st.sort === :latest
+    W.apply_view!(st, Dict("state" => "touched"))
+    @test st.sort === :touched          # the lane that *is* the clock
 
     # And the first view is the whole default, sort included.
     st.sort = :touched; st.filters.labels = Set(["docs"])
     W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
-    @test W.isdefault(st.filters) && st.sort === :none
+    @test W.isdefault(st.filters) && st.sort === :latest
 
     # `\`` is the way back out, and back in again: one slot, which is the depth
     # the move actually has.
@@ -438,22 +441,22 @@ end
     # Not a preference, a definition: the `touched` lane *is* the interaction
     # clock - membership in it is having acted on something - so arriving in it
     # sorted by anything else asks the reader to press `w` to see what they came
-    # for. Every other lane is deliberately absent from the table, which reads
-    # as "as fetched", because which order those want is a question use has to
-    # answer rather than one to argue about.
+    # for. Every other lane is absent from the table and reads as newest first,
+    # which is the order every other inbox opens in and the answer use gave to
+    # the question that table used to leave open.
     @test W.lane_sort(:touched) === :touched
-    @test W.lane_sort(:active) === :none && W.lane_sort(:unread) === :none
+    @test W.lane_sort(:active) === :latest && W.lane_sort(:unread) === :latest
 
     st = mkstate()
     pick(name) = (st.frow = findfirst(r -> r[1] === :state && r[2] == name,
                                       W.filter_rows(st)); W.toggle_filter!(st))
-    @test st.sort === :none
+    @test st.sort === :latest
     pick("touched"); @test st.sort === :touched
-    pick("active");  @test st.sort === :none
+    pick("active");  @test st.sort === :latest
     # `w` overrides, and the override lasts until the lane changes - which is
     # the only rule here that can be said in one sentence.
-    st.sort = :latest
-    pick("unread"); @test st.sort === :none
+    st.sort = :none
+    pick("unread"); @test st.sort === :latest
 
     # A view naming a state gets that lane's order too, since it is clearing
     # every axis it does not name and the order is one of them.
@@ -463,6 +466,12 @@ end
     # nameable even where a lane would have implied an order.
     W.apply_view!(st, Dict("state" => "touched", "sort" => "none"))
     @test st.sort === :none
+    # And the summary names an order only when it is not the lane's own: the
+    # default said on every screen is a phrase the reader stops seeing, and
+    # three words the keys row would rather have.
+    @test !occursin("by when", W.filter_summary(W.Filters(), :latest))
+    @test occursin("as fetched", W.filter_summary(W.Filters(), :none))
+    @test occursin("by when you acted", W.filter_summary(W.Filters(), :touched))
 end
 
 @testset "an answer to a key press outranks a standing line" begin

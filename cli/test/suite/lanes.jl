@@ -67,7 +67,13 @@
         # first reading leaves it at the bottom and the second does not.
         W.handle!(st, Int('w'), ctrl)
         @test st.sort === :latest && occursin("anything last happened", st.status)
-        @test occursin("by when it moved", W.filter_summary(st.filters, st.sort))
+        # ...which is the order this lane opens in, so the summary stops naming
+        # it: the default said on every screen is a phrase the reader stops
+        # seeing. It is named wherever it is not the lane's own.
+        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
+        let f = W.Filters(); f.state = :touched
+            @test occursin("by when it moved", W.filter_summary(f, :latest))
+        end
         @test length(st.items) == n
         keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
         @test issorted(keys2; rev = true)

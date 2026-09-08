@@ -52,7 +52,7 @@ Base.@kwdef mutable struct BState <: View
     labels::Vector{String} = String[]
     authors::Vector{String} = String[]   # the two predicates, then every login
                                          # that appears, alphabetically
-    sort::Symbol = :none            # how the list is ordered; see `SORTS`
+    sort::Symbol = :latest          # how the list is ordered; see `SORTS`
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
                                     # than per frame

@@ -152,7 +152,12 @@ end
     # Taken from what the browser is actually showing, since `i` goes to the
     # row in that list and an item outside it is a different case, tested below.
     shown = W.BState(items, "worklog", Set{String}())
-    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+    # The shortest branch among them, not the first: the narrow render below
+    # asserts that the branch column is legible at 80 columns, and which item
+    # happens to sort first is not this test's business - it changed under it
+    # once already, when the list stopped opening in url order.
+    cands = [it for it in shown.items if it.is_pr && !isempty(it.branch)]
+    pr = cands[argmin(map(it -> length(it.branch), cands))]
     root = mktempdir()
     main = joinpath(root, "main"); mkpath(main)
     W.git(main, "init", "--quiet", "--initial-branch=master", ".")
