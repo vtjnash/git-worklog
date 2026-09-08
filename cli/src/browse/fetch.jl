@@ -74,15 +74,49 @@ function drain_fetches!()
     end
 end
 
+"""Remember where the reader is in what is on screen.
+
+Nothing is remembered while a fetch is in flight: the nodes are empty then, and
+whatever drew that empty pane clamped `nrow` to 1 - which is not a place
+anybody was. That guard is also what makes `place!` safe to call twice.
+"""
+function mark_place!(st::BState)
+    (isempty(st.nkey) || isempty(st.nodes)) && return st
+    st.place[st.nkey] = (st.nrow, st.ntop)
+    st
+end
+
+"""Hand the cursor to another key, putting it back where that key was left.
+
+Coming back to a thread or a diff at the top of it means scrolling for the line
+you were reading, every time - and the way back into a two hundred row review is
+not one anybody wants to find twice. The key carries the mode as well as the
+url, so the thread and the diff of one item are remembered apart.
+
+The restore here is provisional: between a fetch starting and its nodes landing
+the pane is empty and the frame clamps `nrow` to the top of it, so
+`collect_pending!` does it again for real. What this does that nothing else can
+is the marking, which has to happen while the rows going away are still here to
+have a position in.
+"""
+function place!(st::BState, key::AbstractString)
+    mark_place!(st)
+    key == st.nkey && return st
+    st.nkey = String(key)
+    st.nrow, st.ntop = get(st.place, key, (1, 1))
+    st
+end
+
 function load_nodes!(st::BState)
     # The import row has nothing to fetch and says so itself. Keyed like any
     # other load, so moving away and back does not rebuild it.
     if st.sel == 0 || isempty(st.items)
         st.loaded == "new:" && return
+        place!(st, "new:")      # before the nodes go: it reads them
         st.nodes = newnodes()
         st.loaded = "new:"
         st.pending = nothing; st.pendkey = ""; st.quiet = false
-        st.nrow = 1; st.ntop = 1; clearsel!(st)
+        clearsel!(st)
         # The status is not touched. There is no fetch here to announce, and
         # this runs after every key - including the ones on an empty list, whose
         # message it would otherwise write over on the way past.
@@ -91,7 +125,14 @@ function load_nodes!(st::BState)
     it = st.items[st.sel]
     mode = st.mode
     key = string(it.url, ":", mode)
-    (st.loaded == key || st.pendkey == key) && return
+    if st.loaded == key || st.pendkey == key
+        # Nothing to fetch. What is on screen is this key's already - or is the
+        # empty pane its read left - so the cursor belongs to it and is claimed
+        # rather than moved. Moving it here would throw away the place of
+        # anyone who arrived by any road but a fetch.
+        st.nkey = key
+        return
+    end
     # Taken here rather than inside the task: a moment before the fetch begins
     # is early by however long scheduling takes, and early is the safe end -
     # `fetched` decides what `r` can mark seen, and too early leaves a comment
@@ -106,8 +147,8 @@ function load_nodes!(st::BState)
     end
     st.pendkey = key
     st.quiet = false
+    place!(st, key)        # while the nodes going away are still here to read
     st.nodes = Node[]
-    st.nrow = 1; st.ntop = 1
     clearsel!(st)          # it indexed rows that are about to be replaced
     st.status = "loading " * it.ref * "…"
 end
@@ -229,10 +270,16 @@ function collect_pending!(st::BState)
         return true
     end
     st.nodes = ns
-    # The cursor is only reset by a load the reader asked for. A refresh under
-    # them keeps their place - rows may have shifted by a comment, and that is a
-    # better answer than the top of the thread.
-    quiet || (st.nrow = 1; st.ntop = 1; st.status = "")
+    # The cursor is only moved by a load the reader asked for, and it is moved
+    # to wherever they were in this thread the last time they were in it - the
+    # top of it only the first time. A refresh under them keeps their place
+    # untouched: rows may have shifted by a comment, and that is a better answer
+    # than either of the two above.
+    if !quiet
+        st.nkey = st.loaded
+        st.nrow, st.ntop = get(st.place, st.loaded, (1, 1))
+        st.status = ""
+    end
     clearsel!(st)          # either way, it indexed rows that are gone
     arm_refresh!(st)
     true

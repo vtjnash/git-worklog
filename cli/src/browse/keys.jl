@@ -231,8 +231,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # other row hands the keys to the pane beside it.
             st.sel == 0 ? import_action(st, ctrl, at) : (st.focus = :detail)
         end
-        (isempty(st.items) || st.sel == 0) ||
-            st.loaded == string(st.items[st.sel].url, ":", st.mode) || (st.nrow = 1)
     else
         n = length(rows(st.nodes, iw))
         # Moving the cursor drops the selection. Listed rather than blanket, so

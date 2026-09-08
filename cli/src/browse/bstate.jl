@@ -33,6 +33,19 @@ Base.@kwdef mutable struct BState <: View
     focus::Symbol = :list           # :list | :detail
     mode::Symbol = :comments        # :comments | :diff | :checks
     loaded::String = ""
+    place::Dict{String,NTuple{2,Int}} = Dict{String,NTuple{2,Int}}()
+                           # where the reader was in each thread they have been
+                           # in: a loaded key -> the `(nrow, ntop)` the pane was
+                           # left at. Keyed like `loaded` and so by mode as well
+                           # as by url, because a comment thread and a diff are
+                           # two readings of one item and are two places to come
+                           # back to. Lives as long as the browser does; coming
+                           # back to a thread is the whole point of it, and a
+                           # row per item visited is nothing.
+    nkey::String = ""      # the key `nrow` and `ntop` are a position in. Not
+                           # `loaded`: from the moment a fetch starts the cursor
+                           # belongs to what is coming rather than to what is
+                           # still on screen.
     status::String = ""
     pending::Union{Nothing,Task} = nothing   # in-flight fetch; the key loop
     pendkey::String = ""                     # never blocks

@@ -281,6 +281,32 @@ end
     st2.pending = fin(@async [W.Node("asked for", "b", :plain, true)])
     @test W.collect_pending!(st2)
     @test st2.nodes[1].header == "asked for" && st2.nrow == 1 && st2.ntop == 1
+
+    # ...to the top of it the first time. After that it goes back to wherever
+    # the reader was, which is what `place` is: the line you were on, per item
+    # and per mode, since a thread and a diff are two readings of one item.
+    st3 = mkstate()
+    st3.nodes = [W.Node("thread", "b", :plain, true)]
+    thread = string(st3.items[1].url, ":comments")
+    diff = string(st3.items[1].url, ":diff")
+    st3.nkey = thread; st3.nrow = 40; st3.ntop = 35
+    W.place!(st3, diff)
+    @test st3.place[thread] == (40, 35)
+    @test (st3.nrow, st3.ntop) == (1, 1)          # never been in the diff
+    st3.nrow = 7; st3.ntop = 4
+    W.place!(st3, thread)
+    @test st3.place[diff] == (7, 4) && (st3.nrow, st3.ntop) == (40, 35)
+    # An empty pane is not a place: between a fetch starting and its nodes
+    # landing the frame clamps the cursor to the top, and remembering *that*
+    # would lose the line the reader left.
+    st3.nodes = W.Node[]; st3.nrow = 1; st3.ntop = 1
+    W.place!(st3, diff)
+    @test st3.place[thread] == (40, 35)
+    # Which is why the load landing restores it a second time.
+    st3.quiet = false; st3.pendkey = thread
+    st3.pending = fin(@async [W.Node("thread", "b", :plain, true)])
+    @test W.collect_pending!(st3)
+    @test st3.nkey == thread && (st3.nrow, st3.ntop) == (40, 35)
 end
 
 @testset "an operation is measured from when it started" begin
