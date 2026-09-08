@@ -330,41 +330,58 @@ function view_action(st::BState, ctrl::Controller)
         end))
 end
 
+"""The draft review being held, as a line to show and a key to answer with.
+
+Both questions that have to mention a draft - walking off its item, and leaving
+the program - ask it through this, so the sentence and the key are the same in
+each and `A` means what it means everywhere else in this program.
+
+`nothing` when there is no draft, and equally when the draft belongs to an item
+this dashboard is not carrying: prompting about the wrong one would offer to
+submit a review to a pull request nobody was writing about.
+"""
+function draft_answer(st::BState, ctrl::Controller)
+    b = st.batch
+    b === nothing && return nothing
+    i = findfirst(x -> x.url == b.url, st.all)
+    i === nothing && return nothing
+    it = st.all[i]
+    (string(b.n, b.n == 1 ? " comment is" : " comments are",
+            " written and not sent on ", b.ref),
+     "A" => () -> (review_action(st, ctrl, it); :ok))
+end
+
 """Ask about a draft the cursor has just walked away from.
 
 A draft review is durable - it is on GitHub, and quitting does not lose it - but
 it is also invisible from anywhere except the pull request it belongs to, which
 is exactly how five careful comments end up never being sent. So leaving the
-item it belongs to asks once, and taking no for an answer leaves it where it is.
+item it belongs to asks once, and any key but `A` leaves it where it is: the
+draft stays on the footer and in the metadata pane, `A` still sends it from the
+item it belongs to, and going back to that item arms the question again.
 
-Returns true when it asked, which is what lets `q` wait for the answer rather
-than quitting out from under it.
+Asked once and dismissed is asked, which is why the mark goes on here rather
+than in an answer - there is no answer for "not now", only the absence of one.
+Leaving the program asks its own question and asks it every time; see
+`quit_prompt!`, which is where this one used to be answered a second time and
+never let go.
+
+Returns true when it asked.
 """
 function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
     b = st.batch
     b === nothing && return false
     b.url == leaving && return false
-    # Asked once and answered "leave it". Quitting asks anyway - it is the last
-    # moment there is - and so does walking away from it a second time, which is
-    # what going back to the item re-arms.
-    (get(b, :asked, false) && !isempty(leaving)) && return false
-    # The item it belongs to, and no fallback: prompting about the wrong one
-    # would offer to submit a review to a pull request nobody was writing about.
-    i = findfirst(x -> x.url == b.url, st.all)
-    i === nothing && return false
-    it = st.all[i]
-    push_view!(ctrl, ChooseView(
-        string("Draft review on ", b.ref),
-        string(b.n, b.n == 1 ? " comment is" : " comments are",
-               " written and not sent"),
-        [("submit it now", :yes), ("leave it as a draft on GitHub", :no)],
-        v -> v === :yes ? review_action(st, ctrl, it) :
-             # Not forgotten, only answered: the draft stays on the footer and
-             # in the metadata pane, `A` still sends it from the item it belongs
-             # to, and going back to that item arms the question again. Dropping
-             # it here is how a draft ends up remembered by nobody at all.
-             (st.batch = mkbatch(b.url, b.ref, b.review, b.n; asked = true);
-              st.status = string("draft kept on ", b.ref, " \u00b7 A submits it there"))))
+    get(b, :asked, false) && return false
+    a = draft_answer(st, ctrl)
+    a === nothing && return false
+    note, submit = a
+    # The title says what this is about and the row says the whole of it - the
+    # same sentence the quit question uses, ref and all, rather than a shorter
+    # one that reads differently in the two places it can appear.
+    push_view!(ctrl, ConfirmView("Draft review", note, [submit];
+                                 hint = "A submits it now \u00b7 any other key keeps it as a draft"))
+    st.batch = mkbatch(b.url, b.ref, b.review, b.n; asked = true)
     true
 end
 

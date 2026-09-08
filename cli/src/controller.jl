@@ -664,11 +664,39 @@ ChooseView(title, note, options, onpick) =
 shown(v::ChooseView) = isempty(v.query) ? v.options :
     [o for o in v.options if occursin(lowercase(v.query), lowercase(o[1]))]
 
-function render(v::ChooseView, w::Int, h::Int)
-    opts = shown(v)
+"""The box a dialog is drawn in: its width, and the four kinds of row in it.
+
+Two views draw the same bordered box - the picker here and the yes-or-no below
+it - and a box that is 76 columns wide in one of them and 72 in the other is a
+box somebody has to keep in step by eye. `head` is the titled top edge, `row` a
+line inside, `foot` the bottom edge and `hint` the dim line under the whole
+thing, which is outside the border because it is about the keys and not about
+the question.
+"""
+function dialogbox(w::Int)
     box = min(w - 4, 76)
     pad = (w - box) ÷ 2
     iw = box - 4
+    row(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
+                                apad(afit(s, iw), iw), "\e[0m \e[2m│\e[0m")
+    head(t) = string(" "^pad, "\e[2m╭─ \e[0m\e[1m", afit(t, iw - 2), "\e[0m\e[2m ",
+                     "─"^max(0, box - 5 - awidth(afit(t, iw - 2))), "╮\e[0m")
+    foot() = string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m")
+    hint(s) = string(" "^pad, "\e[2m", afit(s, box), "\e[0m")
+    (box = box, pad = pad, iw = iw, row = row, head = head, foot = foot, hint = hint)
+end
+
+"""Put a built box in the middle of the screen and pad it out to a whole frame."""
+function centred(out::Vector{String}, w::Int, h::Int)
+    top = max(0, (h - length(out)) ÷ 2)
+    all = vcat([" "^w for _ in 1:top], out)
+    while length(all) < h; push!(all, " "^w); end
+    join([apad(l, w) for l in all[1:h]], "\n")
+end
+
+function render(v::ChooseView, w::Int, h::Int)
+    opts = shown(v)
+    b = dialogbox(w)
     bh = clamp(length(opts), 1, max(1, h - 10))
     v.sel = clamp(v.sel, 1, max(1, length(opts)))
     v.top = clamp(v.top, 1, max(1, length(opts)))
@@ -676,26 +704,20 @@ function render(v::ChooseView, w::Int, h::Int)
     v.sel > v.top + bh - 1 && (v.top = v.sel - bh + 1)
     v.top = clamp(v.top, 1, max(1, length(opts) - bh + 1))
 
-    frame(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
-                                  apad(afit(s, iw), iw), "\e[0m \e[2m│\e[0m")
-    out = [string(" "^pad, "\e[2m╭─ \e[0m\e[1m", afit(v.title, iw - 2), "\e[0m\e[2m ",
-                  "─"^max(0, box - 5 - awidth(afit(v.title, iw - 2))), "╮\e[0m")]
-    isempty(v.note) || push!(out, frame(v.note, "\e[2m"))
-    push!(out, frame(string("/ ", v.query, "\e[7m \e[0m")))
+    out = [b.head(v.title)]
+    isempty(v.note) || push!(out, b.row(v.note, "\e[2m"))
+    push!(out, b.row(string("/ ", v.query, "\e[7m \e[0m")))
     for i in v.top:(v.top + bh - 1)
         if i > length(opts)
-            push!(out, frame(""))
+            push!(out, b.row(""))
         else
-            push!(out, frame(opts[i][1], i == v.sel ? "\e[1;37m" : "\e[2m"))
+            push!(out, b.row(opts[i][1], i == v.sel ? "\e[1;37m" : "\e[2m"))
         end
     end
-    isempty(opts) && (out[end] = frame("nothing matches", "\e[2m"))
-    push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
-    push!(out, string(" "^pad, "\e[2m", afit("↑/↓ move · ↵ pick · esc cancel", box), "\e[0m"))
-    top = max(0, (h - length(out)) ÷ 2)
-    all = vcat([" "^w for _ in 1:top], out)
-    while length(all) < h; push!(all, " "^w); end
-    join([apad(l, w) for l in all[1:h]], "\n")
+    isempty(opts) && (out[end] = b.row("nothing matches", "\e[2m"))
+    push!(out, b.foot())
+    push!(out, b.hint("↑/↓ move · ↵ pick · esc cancel"))
+    centred(out, w, h)
 end
 
 function handle!(v::ChooseView, k::Int, ctrl::Controller)
@@ -721,6 +743,58 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
         v.query *= Char(k); v.sel = 1
     end
     :ok
+end
+
+# --- a yes or no, as a view -------------------------------------------------
+
+"""Ask a question that named keys answer, and nothing else does.
+
+Not a `ChooseView` of two entries: there the answer is already under the cursor
+and `↵` takes it, which is exactly the reflex a question like this exists to
+interrupt. Here the answering key is one you would not be holding - `y` by
+default, named on screen - and *everything* else is no, including the key that
+opened the question and the enter that would have picked something in a picker.
+
+An answer is `"keys" => f`, where the string is every key that gives that answer
+(`"yY"`, so shift does not matter) and `f` says what it was worth: `:quit` ends
+the run, anything else closes the question and goes back to what asked it. More
+than one answer is how a question offers the thing you would rather do than say
+yes - and each is a key you have to reach for on purpose.
+
+`notes` is a line or several: what is at stake, one fact to a row.
+"""
+struct ConfirmView <: View
+    title::String
+    notes::Vector{String}
+    hint::String
+    answers::Vector{Pair{String,Any}}
+end
+noterows(s::AbstractString) = isempty(s) ? String[] : [String(s)]
+noterows(v) = String[String(r) for r in v if !isempty(r)]
+ConfirmView(title, notes, answers::AbstractVector{<:Pair};
+            hint::AbstractString = "y confirms \u00b7 any other key cancels") =
+    ConfirmView(String(title), noterows(notes), String(hint),
+                Pair{String,Any}[String(k) => f for (k, f) in answers])
+ConfirmView(title, notes, onyes; kw...) =
+    ConfirmView(title, notes, ["yY" => onyes]; kw...)
+
+function render(v::ConfirmView, w::Int, h::Int)
+    b = dialogbox(w)
+    out = [b.head(v.title)]
+    for n in v.notes
+        push!(out, b.row(n, "\e[2m"))
+    end
+    push!(out, b.foot())
+    push!(out, b.hint(v.hint))
+    centred(out, w, h)
+end
+
+function handle!(v::ConfirmView, k::Int, ctrl::Controller)
+    printable(k) || return :pop
+    for (keys, answer) in v.answers
+        Char(k) in keys && return answer() === :quit ? :quit : :pop
+    end
+    :pop
 end
 
 # --- a multi-line composer, as a view ---------------------------------------

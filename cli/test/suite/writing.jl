@@ -30,53 +30,67 @@
     @test st.focus === :list && isempty(ctrl.stack)
     W.handle!(st, Int('j'), ctrl)
     v = last(ctrl.stack)
-    @test v isa W.ChooseView && occursin("Draft review on", v.title)
-    @test occursin("3 comments are written and not sent", v.note)
-    # Taking no for an answer leaves it where it is - it is durable, and this is
-    # a reminder rather than a deadline. The draft is *kept*, not forgotten:
-    # this program is the only thing that mentions it anywhere but the pull
-    # request itself, so dropping it here is how one ends up remembered by
-    # nobody.
-    v.onpick(:no); pop!(ctrl.stack)
+    @test v isa W.ConfirmView && v.title == "Draft review"
+    @test any(n -> occursin("3 comments are written and not sent", n), v.notes)
+    # `A` is the answer, because `A` is what submits a review from the item
+    # itself: a question about a draft should not need a key of its own.
+    @test occursin("A submits it now", v.hint)
+    # Every other key leaves it where it is - it is durable, and this is a
+    # reminder rather than a deadline. The draft is *kept*, not forgotten: this
+    # program is the only thing that mentions it anywhere but the pull request
+    # itself, so dropping it here is how one ends up remembered by nobody.
+    @test W.handle!(v, Int('j'), ctrl) === :pop
+    pop!(ctrl.stack)
     @test st.batch !== nothing && st.batch.asked
-    @test occursin("draft kept", st.status) && occursin(it.ref, st.status)
     st.status = ""                       # the status row is the keys row's own
     @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))   # still shown
 
-    # Having answered once, moving between other items asks nothing.
+    # Having asked once, moving between other items asks nothing.
     W.handle!(st, Int('j'), ctrl)
     @test isempty(ctrl.stack) && st.batch.asked
     # Walking off it again is what re-arms the question, which is to say: going
     # back to the item is what says you are still working on it.
     st.sel = findfirst(x -> x.url == it.url, st.items)
     W.handle!(st, Int('j'), ctrl)
-    @test last(ctrl.stack) isa W.ChooseView
-    last(ctrl.stack).onpick(:no); pop!(ctrl.stack)
+    @test last(ctrl.stack) isa W.ConfirmView
+    empty!(ctrl.stack)
     @test st.batch !== nothing && st.batch.asked
 
-    # `q` asks whatever has been answered before - it is the last moment there
-    # is - and quits on the next press.
+    # Quitting asks its own question and asks it every time - being dismissed
+    # once on the way past the item is not an answer about leaving. The draft is
+    # a row in that question rather than a dialog in front of it.
     st.batch = W.mkbatch(it.url, it.ref, "PRR_x", 1; asked = true)
     st.sel = findfirst(x -> x.url == it.url, st.items)
     @test W.handle!(st, Int('q'), ctrl) === :ok
     v2 = last(ctrl.stack)
-    @test v2 isa W.ChooseView && occursin("1 comment is", v2.note)
-    # Saying yes goes to the verdict, which is where a draft is sent from.
-    v2.onpick(:yes)
+    @test v2 isa W.ConfirmView && v2.title == "Quit"
+    @test any(n -> occursin("1 comment is written and not sent", n), v2.notes)
+    # And `y` gets out, however often the draft has been mentioned before. This
+    # is the fix: the draft question used to be asked in front of this one and
+    # re-armed itself, so a held draft made quitting unreachable.
+    @test W.handle!(v2, Int('y'), ctrl) === :quit
+    # `A` submits instead, and goes to the verdict, which is where a draft is
+    # sent from. It answers the question, so the box that asked it comes off.
+    @test W.handle!(v2, Int('A'), ctrl) === :pop
     v3 = last(ctrl.stack)
     @test v3 isa W.ChooseView && occursin("draft review and its 1 comment", v3.note)
     # Including the way out of one that should never have been started.
     @test any(o -> o[2] == "DISCARD", v3.options)
     empty!(ctrl.stack)
-    st.batch = nothing
-    @test W.handle!(st, Int('q'), ctrl) === :quit
 
     # A draft on an item this dashboard no longer carries is left alone rather
     # than offered against whatever happens to be first: submitting a review to
-    # the wrong pull request is not a recoverable mistake.
+    # the wrong pull request is not a recoverable mistake. Neither question
+    # mentions it, and quitting still works.
     st.batch = W.mkbatch("https://github.com/o/r/pull/9", "r#9", "PRR_y", 2)
+    @test W.draft_answer(st, ctrl) === nothing
     @test !W.batch_prompt!(st, ctrl, "")
     @test isempty(ctrl.stack)
+    W.quit_prompt!(st, ctrl)
+    v4 = last(ctrl.stack)
+    @test !any(n -> occursin("written and not sent", n), v4.notes)
+    @test W.handle!(v4, Int('y'), ctrl) === :quit
+    empty!(ctrl.stack)
     st.batch = nothing
 end
 

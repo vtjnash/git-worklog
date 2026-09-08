@@ -29,8 +29,12 @@ What is left, in the order it is worth doing:
 
 1. **The reading side forwards `f` and `q` to the browser** — the one of the
    three known gaps below worth touching. `q` quits the whole program from
-   inside a pane, which is not what `q` does in any other view here, and it is
-   one key press away rather than something you have to go looking for.
+   inside a pane, which is not what `q` does in any other view here. Half of
+   that is answered now: every `q` puts up a yes-or-no first, so it is two
+   deliberate keys rather than one stray one, and the box says what leaving
+   costs - how many sessions carry on without you, and what a draft review would
+   be left holding. What is left is the meaning — `q` is "leave
+   this view" everywhere else and "leave the program" here.
    The other pane gap - `^]t`/`^]T` against `t`/`T` - the read-through answered:
    leave it. One of its two reasons had gone stale, since `enter_session` now
    refuses to stack a second view on a session already showing, and that is

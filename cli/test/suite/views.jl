@@ -142,6 +142,33 @@ end
     end
 end
 
+@testset "q asks whether it meant it" begin
+    # One key, no modifier, and what it ends is the whole program - the fetch
+    # that filled the list, where you were in it, and any pane on the screen.
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    @test W.handle!(st, Int('q'), ctrl) === :ok
+    v = last(ctrl.stack)
+    @test v isa W.ConfirmView && v.title == "Quit"
+    # It is a dialog: the browser underneath is still there to go back to.
+    @test W.isdialog(v) === true && length(ctrl.stack) == 2
+    # Everything except `y` is no - including `q` again, which a doubled
+    # keystroke would otherwise answer, and the enter a picker would have taken.
+    for k in (Int('q'), 13, 10, 27, Int('n'), Int('j'))
+        @test W.handle!(v, k, ctrl) === :pop
+    end
+    @test W.handle!(v, Int('y'), ctrl) === :quit
+    @test W.handle!(v, Int('Y'), ctrl) === :quit
+    # An arrow is not a printable key and must not be read as one.
+    @test W.handle!(v, W.K_DOWN, ctrl) === :pop
+    # And the key is named on the screen, since a dialog nobody can answer is
+    # worse than no dialog.
+    fr = W.astrip(W.render(v, 80, 24))
+    @test occursin("Quit", fr) && occursin("y quits", fr)
+    @test count(==('\n'), fr) == 23        # a whole frame, like every other view
+    pop!(ctrl.stack)
+end
+
 @testset "one view on one session, however you get to it" begin
     # `^]t` and `^]T` reach `enter_session` from inside a pane, which is how a
     # shell gets to the agent on the same item and back. The press that names

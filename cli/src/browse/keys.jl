@@ -58,18 +58,62 @@ dozen places that can move the cursor - `j`, a click, a search jump, going to an
 item from the worktree list - because the condition is not "which key was
 pressed", it is "the selection changed and something was left behind".
 
-`q` with a draft in hand asks instead of quitting, and quits on the next press.
-Returns `:quit` to leave, `:ok` otherwise; the controller redraws after every key.
+`q` asks whether it meant it, and asks about a draft in the same breath rather
+than in a question of its own. The answer comes back through the view, so this
+returns `:ok` and the quitting is done there; the controller redraws after every
+key.
 """
 function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     before = curl(st)
     r = handle_key!(st, k, ctrl, at)
-    r === :quit && batch_prompt!(st, ctrl, "") && return :ok
+    r === :quit && (quit_prompt!(st, ctrl); return :ok)
     if curl(st) != before
         rearm_batch!(st, before)
         batch_prompt!(st, ctrl, curl(st))
     end
     r
+end
+
+"""Ask before quitting, because `q` ends the whole program from one key press.
+
+Nothing written is lost - notes, snoozes, the archive and the read marks all go
+to disk as they are made, and a draft review lives on GitHub. What a stray `q`
+costs is the session it was typed into: the fetch that filled the list, where
+you were in it, and the panes on the screen. That is small enough that a modal
+would be an imposition every time and large enough to be worth one key.
+
+The confirming key is deliberately not `q` again, which a doubled keystroke
+answers on its own, and not `↵`, which is the reflex a dialog appearing
+produces.
+
+This is the *only* question `q` asks. A draft review is the one other thing that
+wants saying before the program goes away, so it says it here, in a row of this
+box and as the `A` that submits it everywhere else - not as a second dialog in
+front of this one. That is what it used to be, and it could not be got past:
+dismissing it left the draft exactly as it was, so the next `q` asked again and
+quitting was unreachable while a draft was held.
+
+Both facts are gathered rather than assumed - the sessions counted, the draft
+looked up - because "these carry on without you" and "this one does not" are the
+two things about leaving worth knowing, and a screen showing either does not say
+it.
+"""
+function quit_prompt!(st::BState, ctrl::Controller)
+    n = length(mux_sessions())
+    a = draft_answer(st, ctrl)
+    answers = Pair{String,Any}["yY" => () -> :quit]
+    a === nothing || push!(answers, last(a))
+    notes = String[]
+    a === nothing || push!(notes, first(a))
+    n == 0 || push!(notes, string(n, n == 1 ? " session keeps" : " sessions keep",
+                                  " running \u00b7 quitting does not end them"))
+    # Only when there was nothing else to say. A box that says a draft is unsent
+    # and in the next breath that nothing is left running is contradicting
+    # itself over two different meanings of the word.
+    isempty(notes) && push!(notes, "nothing here is left running")
+    push_view!(ctrl, ConfirmView("Quit", notes, answers;
+        hint = a === nothing ? "y quits \u00b7 any other key stays" :
+               "y quits and leaves the draft \u00b7 A submits it first \u00b7 any other key stays"))
 end
 
 """Leaving the draft's item again makes it a question again.
