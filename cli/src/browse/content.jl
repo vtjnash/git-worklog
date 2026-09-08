@@ -142,6 +142,10 @@ closing the comment left its own tail on screen as a stray `…`, and the block
 after that tail hung off the tail rather than off the comment.
 """
 function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int = 0)
+    # GitHub writes CRLF, and this is the one place every body passes through -
+    # the markdown path normalised it and `split_fences` never did, so a fenced
+    # block came out with a carriage return on the end of every line.
+    body = replace(String(body), "\r\n" => "\n")
     segs = depth >= MAX_DEPTH ? [(:text, "", String(body))] :
            collect(Iterators.flatten(
                (k === :text ? split_fences(c) : [(k, sm, c)]
@@ -165,7 +169,14 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
             isempty(url) || (c.meta["url"] = url)
             push!(ns, c)
         else
-            body_nodes!(ns, "…", content, url, true, depth + 1)
+            # Prose after a block is the comment carrying on, not a thing of its
+            # own: a fence in the middle of a paragraph left the rest of the
+            # paragraph under a foldable header called `…`. Nested all the same,
+            # so folding the comment still takes it with everything else - which
+            # is what the header was there for and the only thing it did.
+            t = Node("", String(content), :md, true, depth + 1)
+            t.meta["bare"] = true
+            push!(ns, t)
         end
     end
     ns
@@ -202,7 +213,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     end
     ns = Node[]
     who0 = get(something(get(body, "user", nothing), Dict{String,Any}()), "login", "?")
-    btxt = strip(replace(nz(get(body, "body", nothing), ""), "\r\n" => "\n"))
+    btxt = strip(nz(get(body, "body", nothing), ""))
     if !isempty(btxt)
         body_nodes!(ns, string(nz(who0, "?"), " opened this"), btxt,
                     String(nz(get(body, "html_url", nothing), it.url)), true)
@@ -210,7 +221,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     for c in cs
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
         when = first(String(c["created_at"]), 16)
-        txt = strip(replace(nz(get(c, "body", nothing), ""), "\r\n" => "\n"))
+        txt = strip(nz(get(c, "body", nothing), ""))
         # Anchored, so following it lands on this comment rather than the top.
         url = String(nz(get(c, "html_url", nothing), it.url))
         # A review comment reads as a non-sequitur in a chronological list
@@ -401,8 +412,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
 
     emit!(out, c, depth) = begin
         (hdr, src) = comment_header(c)
-        made = body_nodes!(Node[], hdr, strip(replace(String(nz(get(c, "body", nothing), "")),
-                                                      "\r\n" => "\n")),
+        made = body_nodes!(Node[], hdr, strip(String(nz(get(c, "body", nothing), ""))),
                            String(nz(get(c, "html_url", nothing), url)), true, depth)
         made[1].meta["src"] = src
         made[1].meta["byline"] = src

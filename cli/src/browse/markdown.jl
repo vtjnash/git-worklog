@@ -444,6 +444,16 @@ function rows(nodes::Vector{Node}, w::Int)
         end
         pad = " "^(2 * n.depth)
         iw = max(20, w - 2 * n.depth)
+        # Prose carrying on after a block gets no header and no fold: it is the
+        # comment above it still talking, and everything below is what it has
+        # instead of a header of its own.
+        if isbare(n)
+            for (j, l) in enumerate(nodelines(n, iw))
+                (part, src) = n.srcs[j]
+                push!(out, Row(i, false, string(pad, l), src, part))
+            end
+            continue
+        end
         # A blank row above each top-level header, except the first. The header
         # draws a rule out to the edge of the pane, and without this the body of
         # the comment before it ends flush against that rule and the eye has

@@ -38,3 +38,25 @@ end
 Node(h, raw, kind, open, depth = 0) =
     Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}(),
          Tuple{Int,String}[], depth)
+
+"""Is this node prose carrying on from the block above it?
+
+Such a node is drawn without a header and cannot be folded on its own: it is the
+comment above it continuing after a fenced block or a `<details>`, and a header
+over it - it used to be `…` - reads as a thing of its own to open, which it is
+not. It is still nested, so folding the comment takes it away with the rest.
+"""
+isbare(n::Node) = get(n.meta, "bare", false) === true
+
+"""The node one level out from `i`, or 0 where there is none.
+
+What a bare node folds when it is asked to: it has no header of its own to fold
+at, and the thing it is part of is the one the reader means.
+"""
+function parentnode(ns::Vector{Node}, i::Int)
+    d = ns[i].depth
+    for j in (i - 1):-1:1
+        ns[j].depth < d && return j
+    end
+    0
+end

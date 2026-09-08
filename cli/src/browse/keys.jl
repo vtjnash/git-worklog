@@ -274,6 +274,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                                                               jumpmatch(st, -1, iw)
         elseif k in (13, 10)
             i = curnode(st, iw)
+            # Prose that carries on after a block has no fold of its own, so
+            # `↵` inside it folds the comment it is part of, which is the thing
+            # the reader is pointing at.
+            i > 0 && isbare(st.nodes[i]) && (i = parentnode(st.nodes, i))
             if i > 0
                 st.nodes[i].open = !st.nodes[i].open
                 st.nrow = headerrow(st, i, iw)

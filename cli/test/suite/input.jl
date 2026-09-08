@@ -64,18 +64,29 @@ end
     ns = W.body_nodes("alice", "before\n\n<details><summary>Impacted</summary>\nrows\n</details>\n\nafter",
                       "http://x", true)
     # Every piece of one body sits under that body's node, blocks and the prose
-    # between them alike, so the comment folds as a unit.
+    # between them alike, so the comment folds as a unit. The prose after the
+    # block has no header of its own - it is the comment carrying on, and a
+    # foldable `…` over it read as a thing to open.
     @test [(n.depth, n.open, n.header) for n in ns] ==
-          [(0, true, "alice"), (1, false, "Impacted"), (1, true, "…")]
+          [(0, true, "alice"), (1, false, "Impacted"), (1, true, "")]
+    @test ns[3] |> W.isbare
+    @test W.parentnode(ns, 3) == 1             # what `↵` in it folds
     @test ns[1].raw == "before" && ns[3].raw == "after"
     ns[1].open = false
     @test length(W.rows(ns, 80)) == 1          # closing it leaves one row
     ns[1].open = true
-    # A folded block costs one row until it is opened: three headers plus one
-    # body row each for the prose either side of it.
-    @test length(W.rows(ns, 80)) == 5
+    # A folded block costs one row until it is opened: two headers, one body row
+    # for the prose above it, and one for the prose below that has no header.
+    @test length(W.rows(ns, 80)) == 4
     ns[2].open = true
-    @test length(W.rows(ns, 80)) > 5
+    @test length(W.rows(ns, 80)) > 4
+    # And CRLF never reaches a node: GitHub writes it, the markdown path used to
+    # be the only thing that dropped it, and a fenced block came out with a
+    # carriage return on the end of every line.
+    crlf = W.body_nodes("alice", "prose\r\n\r\n```julia\r\nx = 1\r\n```\r\n\r\ntail\r\n",
+                        "http://x", true)
+    @test !any(occursin('\r', n.raw) for n in crlf)
+    @test [n.header for n in crlf] == ["alice", "julia  1 line", ""]
 end
 
 @testset "awrap breaks at spaces" begin
