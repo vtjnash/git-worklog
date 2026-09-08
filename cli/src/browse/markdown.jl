@@ -85,10 +85,23 @@ function delink(md::AbstractString)
     (String(take!(io)), urls)
 end
 
-"Shorten for display; the full URL still rides along in the hyperlink."
+"""Shorten for display; the full URL still rides along in the hyperlink.
+
+Elided in the *middle*, because urls in one thread differ at the end and agree
+at the front: an issue and a comment on that issue, two jobs of one build, two
+lines of one file. Cut at the tail, a pair like that draws as the same string
+twice - which tells the reader nothing about which is which, and left `linkify`
+with one display form and two targets, so both rows pointed at whichever came
+first.
+
+Two thirds head and one third tail: the head is the site, the repo and the
+number, and the tail is the anchor that says which of them this one is.
+"""
 function shortlink(u::AbstractString, w::Int = 58)
     length(u) <= w && return u
-    u[1:prevind(u, w - 2)] * "…"
+    keep = max(2, w - 1)
+    head = max(1, (2 * keep) ÷ 3)
+    string(first(u, head), "…", last(u, keep - head))
 end
 
 """OSC 8 hyperlink, underlined so it reads as one.

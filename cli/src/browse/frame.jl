@@ -298,11 +298,23 @@ const OSC = r"\e\][^\e]*\e[\\]"
 
 function linkify(frame::AbstractString, links)
     isempty(links) && return frame
-    seen, pats = Set{String}(), Pair{String,String}[]
-    for (disp, full) in sort(collect(links); by = p -> -length(first(p)), alg = MergeSort)
-        (isempty(disp) || disp in seen) && continue
-        push!(seen, disp)
-        push!(pats, String(disp) => osc8(full, disp))
+    # One display form can only carry one target, so a form that two different
+    # urls both elide to gets no link at all rather than a link to whichever was
+    # cited first. `shortlink` keeps the tail precisely so that this is rare,
+    # and a click still copies the right url either way - `link_at` reads the
+    # row's own source, which carries the whole thing.
+    target, ambiguous = Dict{String,String}(), Set{String}()
+    for (disp, full) in links
+        isempty(disp) && continue
+        d, f = String(disp), String(full)
+        haskey(target, d) ? (target[d] == f || push!(ambiguous, d)) : (target[d] = f)
+    end
+    pats = Pair{String,String}[]
+    # Longest first, so a display form that is the head of another cannot take
+    # the match from it: `replace` tries the patterns in order at each position.
+    for d in sort!(collect(keys(target)); by = x -> (-length(x), x))
+        d in ambiguous && continue
+        push!(pats, d => osc8(target[d], d))
     end
     isempty(pats) && return frame
     sub(s) = replace(s, pats...)
