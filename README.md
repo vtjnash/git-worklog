@@ -177,10 +177,12 @@ question about the one on screen.
 
 The list opens newest first - by when anything last happened to an item, yours
 or GitHub's - which is the order every other inbox has. `w` cycles the other
-two: the interaction clock, and url order, which keeps the repo grouping
-`facts.json` is written in and reads newest-first inside each repo because it is
-the file reversed. An order you choose lasts until the lane changes, and the
-`[...]` summary names it only while it is not the one the lane opens in.
+two: the interaction clock, and url order - owner, project, number, descending -
+which keeps the grouping `facts.json` is written in and reads from the newest of
+each repo. The number is sorted as a number, not as the digits it is written
+with, so `#6661` is below `#62836` rather than above it. An order you choose
+lasts until the lane changes, and the `[...]` summary names it only while it is
+not the one the lane opens in.
 
 `/` searches. In the item list it narrows by title or ref, and a bare number is
 a jump — reaching past the filter that is hiding the item, since being unable to

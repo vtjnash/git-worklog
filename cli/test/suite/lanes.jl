@@ -41,9 +41,26 @@
         # lanes, so it sits beside the filter rather than inside it.
         st.filters.state = :all
         st.sort = :none; W.refilter!(st)
-        # The fetched order reversed: `facts.json` is sorted by url, so forwards
-        # is oldest-first inside every repo and nobody reads an inbox that way.
-        @test [x.url for x in st.items] == reverse([x.url for x in st.all])
+        # The url order, descending: owner, project, number. It keeps the
+        # grouping `facts.json` is written in and reads from the newest of each
+        # repo rather than from two thousand rows ago.
+        @test issorted([W.urlkey(x) for x in st.items]; rev = true)
+        @test length(st.items) == n
+        # And the number is a number. Sorted as the text it is written in,
+        # `#6661` lands above `#62836` - it compares a character at a time -
+        # which is the one thing this order used to get wrong.
+        mk(n) = W.Item(url = "https://github.com/JuliaLang/julia/pull/$n",
+                       ref = "julia#$n", repo = "JuliaLang/julia", number = n,
+                       title = "t")
+        @test W.urlkey(mk(6661)) < W.urlkey(mk(62836))
+        # Owner first, then project: one owner's repos stay together, and one
+        # repo's items do.
+        @test W.urlkey(mk(1)) > W.urlkey(W.Item(url = "u", ref = "a#9", repo = "JuliaIO/a",
+                                                number = 9, title = "t"))
+        # An adopted branch has no number and does not tie with another one.
+        b1 = W.Item(url = "local:o/r#one", ref = "r#one", repo = "o/r", number = 0, title = "t")
+        b2 = W.Item(url = "local:o/r#two", ref = "r#two", repo = "o/r", number = 0, title = "t")
+        @test W.urlkey(b1) != W.urlkey(b2)
         @test length(st.items) == n
         W.handle!(st, Int('w'), ctrl)
         @test st.sort === :touched && occursin("by when", st.status)

@@ -24,19 +24,11 @@ axes instead of sitting beside them. `w` cycles it.
 `:latest` is the default, and the order every other inbox opens in: what moved
 most recently is at the top.
 
-`:none` is the file's own order *reversed*. `facts.json` is written sorted by
-key, so the lanes arrive grouped by repo and ascending within one, and reading a
-list of two thousand rows from the oldest is nobody's idea of an inbox. Reversed
-it keeps the grouping - which is the thing worth keeping about url order - and
-puts the newest of each repo at the top. It is still the cheapest order there
-is: no key to compute and no comparison to make.
-
-Newest by *string*, though, since that is what the file is sorted by: `#6661`
-lands above `#62836` because "6661" > "62836" a character at a time. Within one
-run of numbers the same length - which is most of a repo's recent work - it
-reads as numeric. Fixing it would mean parsing the number and sorting, which is
-the one thing this order exists not to do; `w` reaches two orders that are
-right about time.
+`:none` is the url order, descending: owner, then project, then number. That is
+what `facts.json` is written in - it is sorted by key, and the key is the url -
+so it keeps the grouping the file has, everything from one repo together, and
+reads from the newest of each rather than from two thousand rows ago. The number
+is taken as a number and not as the digits it is spelled with; see `urlkey`.
 """
 const SORTS = [(:none, "by url, newest first"),
                (:touched, "by when you last acted"),
@@ -168,12 +160,39 @@ function sortkey(it::Item, touched::Dict{String,String}, order::Symbol = :touche
     isempty(t) ? it.act : t
 end
 
+"""What a url is made of: owner, project, number - and the url itself, so the
+order is total.
+
+The url order wants the three separately rather than as the string they are
+written into. A url sorts as text, and text puts `#6661` above `#62836` because
+it compares a character at a time; the number is a number, and taking it as one
+is the whole of the fix. The first two keep the grouping that made url order
+worth having - everything from one repo together, and one owner's repos
+together - and the third stops lying about which of them is newer.
+
+Not stored on the item, and not split into `facts.json` either: the row already
+carries `repo` and `number`, so an owner and a project beside them would be the
+same fact written twice, and a field only a refresh can fill in is one that is
+missing from every snapshot written before it.
+
+The url is last because an adopted branch has no number of its own - two of them
+in one repo are tied on all three, and the order they come out in should not
+depend on which of them the file happened to hold first.
+"""
+function urlkey(it::Item)
+    parts = split(it.repo, '/'; limit = 2)
+    (String(first(parts)), length(parts) > 1 ? String(parts[2]) : "",
+     it.number, it.url)
+end
+
 """Newest first, and stable - so an untimed item keeps the order it was fetched
-in. `:none` is the fetched order reversed, which is what makes *it* newest-first
-too: `facts.json` is sorted by url, so the file runs oldest-to-newest inside
-each repo and reading it forwards starts two thousand rows ago."""
+in.
+
+All three orders are newest-first; they differ in what "newest" is. `:none` is
+the url, which is the order `facts.json` is written in - by owner, project and
+number - read from the top instead of from two thousand rows ago."""
 sortitems(items, mode::Symbol, touched::Dict{String,String}) =
-    mode === :none ? reverse(items) :
+    mode === :none ? sort(items; by = urlkey, rev = true) :
     sort(items; by = it -> sortkey(it, touched, mode), rev = true)
 
 "Issue or pull request, with `:both` restricting nothing."
