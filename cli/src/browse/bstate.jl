@@ -97,37 +97,49 @@ Base.@kwdef mutable struct BState <: View
     searchin::Symbol = :list  # the pane it was started in, and belongs to
     hidden::Int = 0        # matches inside folded nodes, counted when re-aiming
     typing::Bool = false   # is the query still being typed?
+    reload::Bool = false   # something under `data/` changed and it was not us;
+                           # the next wake takes the records again
+    factsat::Float64 = 0.0 # mtime of `facts.json` as the item list was built
+                           # from it, so a refresh landing is told from a note
 end
-function BState(all::Vector{Item}, title, unread = Set{String}())
-    ls = Set{String}()
-    for it in all, l in it.labels
-        push!(ls, l)
-    end
-    as = Set{String}()
-    for it in all
+"""The four listed axes, from the items that are in hand.
+
+Alphabetical, like every other axis. Ordering by weight put the busiest first,
+which sounds useful and is not: nobody holds a mental model of which value would
+select most, so the head of the list was in an order that could not be predicted
+or looked up. A name can be found by knowing its name.
+
+Wholesale, where `note_axes!` is the same thing for one item arriving. Both
+exist because both happen: an import adds one row, and a refresh landing under
+an open browser replaces every one of them.
+"""
+function rebuild_axes!(st::BState)
+    ls, as = Set{String}(), Set{String}()
+    for it in st.all
+        for l in it.labels
+            push!(ls, l)
+        end
         # Your own login is left out: `@me` is that row, and it is the better
         # one - it also carries the adopted branches, which have no author at
         # all and are yours by definition.
-        (isempty(it.author) || it.author == login()) && continue
-        push!(as, it.author)
+        (isempty(it.author) || it.author == login()) || push!(as, it.author)
     end
+    st.buckets = sort(unique(it.bucket for it in st.all))
+    st.repos = sort(unique(it.repo for it in st.all))
+    st.labels = sort(collect(ls))
+    # The two predicates lead, because they are the two anybody wants and
+    # neither is a name you would think to type. The logins after them are
+    # alphabetical like everything else.
+    st.authors = vcat([AUTHOR_ME, AUTHOR_OTHERS], sort(collect(as)))
+    st
+end
+
+function BState(all::Vector{Item}, title, unread = Set{String}())
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = load_touched(), archived = field_map("archive"),
                   drafts = load_drafts(),
-                  buckets = sort(unique(it.bucket for it in all)),
-                  # Alphabetical, like every other axis. Ordering by weight put
-                  # the busiest first, which sounds useful and is not: nobody
-                  # holds a mental model of which value would select most, so
-                  # the head of the list was in an order that could not be
-                  # predicted or looked up. A name can be found by knowing its
-                  # name.
-                  repos = sort(unique(it.repo for it in all)),
-                  labels = sort(collect(ls)),
-                  # The two predicates lead, because they are the two anybody
-                  # wants and neither is a name you would think to type. The
-                  # logins after them are alphabetical like everything else.
-                  authors = vcat([AUTHOR_ME, AUTHOR_OTHERS],
-                                 sort(collect(as))))
+                  factsat = mtime(datapath("facts.json")))
+    rebuild_axes!(st)
     refilter!(st)
     st
 end

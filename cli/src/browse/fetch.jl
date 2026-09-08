@@ -237,3 +237,112 @@ function collect_pending!(st::BState)
     arm_refresh!(st)
     true
 end
+
+# --- the other windows ------------------------------------------------------
+#
+# Everything in `data/` is read into memory once and re-read only when this
+# process changes something - which was fine when there was one of them. There
+# is not: `wl set` runs in another terminal, a second browser is open on another
+# screen, and `wl refresh` runs on a timer. Each of those writes files this one
+# is holding a copy of, and until now the copy stood until the browser was
+# restarted.
+#
+# A watch on the directory answers it. What arrives is a name, so the question
+# each event has to answer is "does anything on screen come from that file" -
+# and the answer for the whole of `data/` is one of three: the item list, the
+# records the lanes are membership in, or neither.
+
+"""Files whose contents are on screen, and what changing one costs to adopt.
+
+`facts.json` is the item list itself and is rebuilt from disk. The three records
+are maps the filters read, and taking them again is a `refilter!`. Everything
+else in there - the cache, the inbox cursors, `DASHBOARD.md` - is either not
+read by the browser or not read again after it starts, and a watch that woke for
+those would be waking for every fetch this program makes.
+"""
+const WATCHED = ("facts.json", "state.toml", "touched.json", "drafts.json")
+
+"""Watch `data/` and flag the browser when somebody else writes in it.
+
+Its own task, blocked in the kernel rather than polling: this is a directory
+that changes a few times an hour and a poll would be a wakeup a second for the
+life of the session. Like the controller's reader it is left to die with the
+process - it holds nothing that needs releasing, and the alternative is a
+shutdown handshake for a task that is asleep.
+
+The wake is deliberately late by a quarter of a second. A refresh writes four
+files in a row and a note writes one twice; waking on each would rebuild the
+list once per file, and nothing on screen is any more correct for the first
+three of them.
+"""
+function watch_data!(st::BState)
+    dir = datadir()
+    # Registered here and not inside the task: `watch_folder` starts the watch
+    # when it is first called and queues what happens after that, so a write
+    # landing between the browser opening and the task first being scheduled is
+    # a write nobody would hear.
+    try
+        FileWatching.watch_folder(dir, 0)
+    catch
+        return              # no watch, and a browser that behaves as it always did
+    end
+    @async while true
+        try
+            name, ev = FileWatching.watch_folder(dir)
+            (ev isa FileWatching.FileEvent && ev.timedout) && continue
+            String(name) in WATCHED || continue
+            # Our own write, still as we left it: re-reading what is already in
+            # memory would cost a rebuild per keystroke, and a row moving out
+            # from under the reader who just acted on it.
+            ours(joinpath(dir, String(name))) && continue
+            sleep(0.25)
+            st.reload = true
+            st.wake === nothing || st.wake()
+        catch
+            # A directory that has gone away, or a watch the kernel dropped:
+            # there is nothing on screen this can be reported to, and the
+            # browser works exactly as it did before this existed.
+            return
+        end
+    end
+end
+
+"""Take the records again, and the item list with them when a refresh landed.
+
+Returns true when the frame has to be drawn again, which is the whole contract
+`onwake!` has with the controller.
+
+The item list is only rebuilt when `facts.json` is the file that moved, because
+that is the only change that can add or remove a row - and rebuilding it is a
+read of the file plus a walk of the local checkouts, which is a cost worth
+paying every few minutes and not every keystroke somebody else types.
+
+Rows that came from the unread poll rather than from `facts.json` are carried
+across: they are the threads that are unread and untracked, this process asked
+GitHub for them at startup, and a refresh that does not mention them is not
+evidence that they are gone.
+"""
+function reload_data!(st::BState)
+    st.reload || return false
+    st.reload = false
+    facts = datapath("facts.json")
+    m = mtime(facts)
+    if m != st.factsat && isfile(facts)
+        st.factsat = m
+        fresh = try
+            vcat(loaditems(), local_items())
+        catch e
+            logerror!(e, catch_backtrace(), "reload_data!")
+            Item[]
+        end
+        if !isempty(fresh)
+            have = Set(x.url for x in fresh)
+            append!(fresh, (it for it in st.all if it.url in st.unread && !(it.url in have)))
+            st.all = fresh
+            rebuild_axes!(st)
+        end
+    end
+    refilter!(st)           # which is what re-reads the three records
+    st.status = "reloaded — something else wrote in data/"
+    true
+end

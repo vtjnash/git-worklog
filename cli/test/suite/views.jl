@@ -51,6 +51,72 @@
     @test W.drain_fetches!() === nothing
 end
 
+@testset "another window's writes arrive on their own" begin
+    # `wl set` in another terminal, a second browser, the refresh on a timer:
+    # each writes a file this process is holding a copy of, and the copy used to
+    # stand until the browser was restarted.
+    st = mkstate()
+    it = st.items[st.sel]
+    # A write of our own is not news, which is what stops a keystroke that
+    # archives from rebuilding the list a moment later.
+    W.draft!(it.url)
+    @test W.ours(W.draftsfile())
+    @test W.reload_data!(st) === false
+    # The same file, changed by somebody else: the mark is theirs, and the lane
+    # is membership in the file rather than in what we read at startup.
+    delete!(W.OURS, abspath(W.draftsfile()))
+    @test !W.ours(W.draftsfile())
+    st.reload = true
+    @test W.reload_data!(st) === true
+    @test haskey(st.drafts, it.url)
+    W.undraft!(it.url)
+
+    # A refresh landing is the one change that adds and removes rows, so it is
+    # the one that rebuilds the list - and the rows that came from the unread
+    # poll rather than from `facts.json` are carried across, since a refresh
+    # that does not mention them is not evidence that they are gone.
+    ghost = W.Item(url = "https://github.com/o/r/issues/1", repo = "o/r", number = 1,
+                   ref = "r#1", title = "unread and untracked", bucket = "unread",
+                   backlog = true)
+    push!(st.all, ghost)
+    push!(st.unread, ghost.url)
+    W.rebuild_axes!(st)
+    st.factsat, st.reload = 0.0, true
+    @test W.reload_data!(st) === true
+    @test st.factsat != 0.0
+    @test any(x -> x.url == ghost.url, st.all)
+    @test any(x -> x.url == it.url, st.all)
+    @test "o/r" in st.repos                 # the axes are rebuilt with the list
+    delete!(st.unread, ghost.url)
+end
+
+@testset "the watch is on the directory, and only wakes for what is read" begin
+    # A watch rather than a poll: this directory changes a few times an hour,
+    # and polling it would be a wakeup a second for the life of the session.
+    d = mktempdir()
+    was = W.DATA_DIR[]
+    try
+        W.DATA_DIR[] = d
+        write(joinpath(d, "facts.json"), "{}")
+        st = W.BState(W.Item[], "watched")
+        woke = Ref(0)
+        st.wake = () -> (woke[] += 1)
+        W.watch_data!(st)
+        # Not every file in there is on screen: the cache and the inbox cursors
+        # change on every fetch this program makes.
+        write(joinpath(d, "bulk.json"), "{}")
+        # ...and one that is.
+        write(joinpath(d, "touched.json"), "{}")
+        t0 = time()
+        while !st.reload && time() - t0 < 10
+            sleep(0.1)
+        end
+        @test st.reload && woke[] >= 1
+    finally
+        W.DATA_DIR[] = was
+    end
+end
+
 @testset "the keys measure against the width the frame was drawn at" begin
     # Reading a thread beside a hosted pane, `n`/`N` and the highlight landed on
     # the wrong lines. `render` drew the detail at half the screen; `handle_key!`

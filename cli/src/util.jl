@@ -24,6 +24,7 @@ function write_atomic(path::AbstractString, content)
     try
         write(tmp, content)
         mv(tmp, path; force = true)
+        OURS[abspath(path)] = mtime(path)
     catch
         # The temporary is this function's own mess and nobody else's: leaving
         # one behind would put an untracked file in the data repository for
@@ -33,6 +34,21 @@ function write_atomic(path::AbstractString, content)
     end
     nothing
 end
+
+"""What this process last wrote, as `path -> mtime`, so a watcher can tell its
+own writes from somebody else's.
+
+Every key press that archives, notes or comments writes a file in `data/`, and a
+watch on that directory hears all of them. Reacting to your own write is not
+wrong so much as pointless and slightly worse than pointless - it re-reads what
+is already in memory, and it would move a row out from under a reader at the
+moment they acted on it. The timestamp is the evidence: a file whose mtime is
+still the one we left is a file nobody else has touched since.
+"""
+const OURS = Dict{String,Float64}()
+
+"Was this the file this process last wrote, unchanged since?"
+ours(path::AbstractString) = get(OURS, abspath(path), -1.0) == mtime(path)
 
 """When an operation started, which is the instant everything in it is
 measured against.

@@ -43,6 +43,7 @@ own - see `datadir()`.
 module Worklog
 
 using Dates, Printf, SHA, TOML
+import FileWatching
 using JSON3, OrderedCollections
 import REPL
 import InteractiveUtils

@@ -30,8 +30,13 @@ end
 
 render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
 
-"Adopt whichever finished fetch woke us - the body, the metadata, or both."
-onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st)
+"""Adopt whatever woke us - a finished fetch, or a file somebody else wrote.
+
+Bitwise `|` and not `||`: each of these has to run whichever way the ones before
+it answered, and what comes back is whether the frame is now wrong.
+"""
+onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
+                      reload_data!(st)
 
 """
     browse(items, title, unread)
@@ -43,6 +48,7 @@ function browse(items::Vector{Item}, title::AbstractString, unread = Set{String}
     st = BState(collect(items), String(title), unread)
     ctrl = Controller()
     st.wake = () -> wake!(ctrl)
+    watch_data!(st)
     run!(ctrl, st)
 end
 
