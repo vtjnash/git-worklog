@@ -270,9 +270,9 @@ end
 
 `facts.json` is the item list itself and is rebuilt from disk. The three records
 are maps the filters read, and taking them again is a `refilter!`. Everything
-else in there - the cache, the inbox cursors, `DASHBOARD.md` - is either not
-read by the browser or not read again after it starts, and a watch that woke for
-those would be waking for every fetch this program makes.
+else in there - the cache, the inbox cursors - is either not read by the browser
+or not read again after it starts, and a watch that woke for those would be
+waking for every fetch this program makes.
 """
 const WATCHED = ("facts.json", "state.toml", "touched.json", "drafts.json")
 

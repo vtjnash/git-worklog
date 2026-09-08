@@ -10,7 +10,7 @@ index of the rest:
 
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  unread tracking, over GitHub.jl's REST
-  * `refresh.jl` bucketing, snoozes, the snapshot diff, DASHBOARD.md
+  * `refresh.jl` bucketing, snoozes, and the snapshot diff
   * `touched.jl` the interaction clock, for ordering work by what you did
   * `drafts.jl`  which items carry a review GitHub will only show on the item
   * `state.jl`   the comment-preserving line editor for state.toml
@@ -38,7 +38,6 @@ own - see `datadir()`.
   | `data/touched.json`| machine | one last-interaction timestamp per item|
   | `data/drafts.json` | machine | which items carry an unsent review|
   | `data/snooze.json` | machine | armed "until it moves" fingerprints|
-  | `data/DASHBOARD.md`| machine | overwritten every refresh         |
 """
 module Worklog
 
@@ -127,7 +126,6 @@ include("cli.jl")
 precompile(main, (Vector{String},))
 precompile(dispatch, (Vector{String}, DateTime))
 precompile(refresh, (Vector{String}, DateTime))
-precompile(render, (OrderedDict{String,Any}, Vector{Any}, Dict{String,Any}, Int, DateTime, Vector{OrderedDict{String,Any}}))
 # Spelled out, because `JSON3.Object` bare is a `UnionAll` and `precompile`
 # answers `false` for one without saying so - this line was a no-op for as long
 # as it has been here. The parameters are what `JSON3.read` of a string gives a

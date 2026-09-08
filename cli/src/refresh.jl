@@ -1,16 +1,16 @@
 # Refresh the work dashboard from GitHub.
 #
 # Deterministic half of the dashboard: fetches live facts over GraphQL, derives
-# a bucket for every item from rules, expires snoozes, diffs against the
-# previous snapshot and renders DASHBOARD.md.
+# a bucket for every item from rules, expires snoozes and diffs against the
+# previous snapshot.
 #
 # File ownership is strict, because it is what keeps your notes safe - the
 # table is in `Worklog.jl`, and this half of it is the load-bearing part:
 # `config.toml` and `state.toml` are read here and *never* written here, while
-# `facts.json`, `snooze.json` and `DASHBOARD.md` are overwritten every run.
+# `facts.json` and `snooze.json` are overwritten every run.
 #
-# Judgement calls this deliberately does not make (they belong to the model
-# running the /dash skill, which writes them into state.toml): whether a red CI
+# Judgement calls this deliberately does not make (they belong in `state.toml`,
+# written by hand or by a model reading the same files): whether a red CI
 # is mechanical enough to delegate, what the real next action is, and priority
 # order.
 
@@ -680,7 +680,10 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
     end
 
-    unread = Events.unread(cfg, login, at)
+    # For the poll it does, not for the answer: the events lane advances its
+    # cursors and writes what is unread into `inbox.json`, and every reader of
+    # that asks for itself. Nothing in this run looks at the list any more.
+    Events.unread(cfg, login, at)
     bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
     spent += c
     for (lane, nodes) in bulk
@@ -764,11 +767,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # times. `overwrite = false` leaves a poll's own richer row alone, which is
     # the same courtesy an import pays.
     #
-    # After `unread()` has already answered, so `DASHBOARD.md` from *this* run
-    # still counts a just-slept item as unread and a just-woken one as read. The
-    # browser asks again when it opens, which is where anybody reads this, and
-    # the next refresh has it. Asking twice here would mean rewriting the inbox
-    # a second time for a line in a file nothing has read yet.
+    # After `unread()` has already answered, which costs nothing now that
+    # nothing in this run reads the answer again: the browser asks for itself
+    # when it opens, and that is where this is read.
     isempty(slept) || @printf(stderr, "  %-16s %4d marked read on falling asleep\n",
                               "snooze", Events.mark_read(slept, at))
     isempty(woke) || @printf(stderr, "  %-16s %4d marked unread on waking\n",
@@ -785,7 +786,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     write_atomic(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
                                      "items" => items]; indent = 1, sortkeys = true))
     write_atomic(snzp, json_dumps(snz; indent = 1, sortkeys = true))
-    write_atomic(datapath("DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
     # the slow, non-interactive one - and because everything it drops is older
@@ -800,176 +800,3 @@ end
 
 "How Python's `%s` renders the values that appear in a change line."
 pyrepr(v) = v === nothing ? "None" : v isa Bool ? (v ? "True" : "False") : string(v)
-
-# --- rendering -------------------------------------------------------------
-
-const SECTIONS = [
-    ("needs-reply",    "Needs a reply",     "You were mentioned and the last word is theirs."),
-    ("needs-edits",    "Needs edits",       "Review feedback, red CI, or you're the blocker."),
-    ("needs-stacking", "Needs stacking",    "Conflicts; rebase or restack with `gh stack`."),
-    ("needs-review",   "Needs review",      "Waiting on you to review someone else."),
-    ("needs-merge",    "Ready to merge",    "Approved and green."),
-    ("needs-nudge",    "Needs a nudge",     "Yours, quiet, waiting on a reviewer."),
-    ("waiting",        "Waiting on others", "Yours, in flight, nothing for you to do."),
-    ("blocked",        "Blocked",           "Blocked upstream."),
-    ("draft",          "Drafts",            "Yours, not yet proposed."),
-    ("issue",          "Assigned issues",   ""),
-    ("imported",       "Imported",          "Followed by url; no lane returns these."),
-    ("reviewed",       "Reviewed, waiting", "You reviewed; ball is with the author."),
-    ("done",           "Recently landed",   "Merged or closed. `x` files one away."),
-]
-
-shortrepo(r) = split(r["repo"], '/')[end]
-
-function line(r, at::DateTime)
-    tag = "$(shortrepo(r))#$(r["number"])"
-    bits = String[]
-    truthy(get(r, "ci", nothing)) && r["ci"] != "SUCCESS" && push!(bits, "CI $(lowercase(r["ci"]))")
-    truthy(get(r, "unresolved", nothing)) && push!(bits, "$(r["unresolved"]) unresolved")
-    get(r, "mergeable", nothing) == "CONFLICTING" && push!(bits, "conflicts")
-    truthy(get(r, "milestone", nothing)) && push!(bits, r["milestone"])
-    truthy(get(r, "deadline", nothing)) && push!(bits, "**due $(r["deadline"])**")
-    truthy(get(r, "blocked_on", nothing)) && push!(bits, "blocked on " * join(r["blocked_on"], ", "))
-    age = activity_age(r, at)
-    age === nothing || push!(bits, "$(age)d")
-    if truthy(get(r, "new", nothing))
-        pushfirst!(bits, "NEW")
-    elseif truthy(get(r, "moved", nothing))
-        pushfirst!(bits, "moved")
-    end
-    get(r, "track", nothing) in ("close", "loose") && pushfirst!(bits, "track:$(r["track"])")
-    star = get(r, "track", nothing) == "close" ? "* " : ""
-    s = "- $star[$tag]($(r["url"])) $(r["title"])"
-    isempty(bits) || (s *= "  \n  <sub>" * join(bits, " · ") * "</sub>")
-    truthy(get(r, "note", nothing)) && (s *= "  \n  > $(r["note"])")
-    s
-end
-
-function urgency(r, at::DateTime)
-    d = truthy(get(r, "deadline", nothing)) ? String(r["deadline"]) :
-        first(something(get(r, "milestone_due", nothing), ""), 10)
-    (get(r, "track", nothing) == "close" ? 0 : 1,
-     isempty(d) ? "9999-99-99" : d,
-     something(activity_age(r, at), 0))
-end
-
-function render(items, changes, cfg, spent, at::DateTime, unread = ())
-    vis = [r for r in values(items) if !r["snoozed"]]
-    snoozed = [r for r in values(items) if r["snoozed"]]
-    out = ["# Work dashboard", "",
-           "_$(Dates.format(at, "yyyy-mm-dd HH:MM")) UTC · $(length(items)) items · $spent rate-limit points_",
-           ""]
-
-    # Deadlines first: anything with a date attached, soonest first.
-    dated = sort([r for r in vis
-                  if truthy(get(r, "deadline", nothing)) || truthy(get(r, "milestone_due", nothing))];
-                 by = r -> urgency(r, at))
-    if !isempty(dated)
-        append!(out, ["## Deadlines", ""])
-        for r in first(dated, 15)
-            d = truthy(get(r, "deadline", nothing)) ? String(r["deadline"]) : first(r["milestone_due"], 10)
-            over = d < string(Date(at)) ? " **OVERDUE**" : ""
-            push!(out, "- `$d`$over [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"])")
-        end
-        push!(out, "")
-    end
-
-    if !isempty(unread)
-        # The inbox replacement. Items you are already carrying come first: an
-        # unread comment on your own PR matters more than one on a thread you
-        # have never touched.
-        by_url = Dict(r["url"] => r for r in values(items))
-        # Carried first, and oldest first inside each half: what has been unread
-        # longest is what is closest to being missed altogether.
-        prio(e) = (haskey(by_url, e["url"]) && !by_url[e["url"]]["backlog"] ? 0 : 1, e["updated"])
-        ranked = sort(collect(unread); by = prio)
-        append!(out, ["## Unread ($(length(unread)))",
-                      "_`wl show <ref>` to read a thread, `wl read <ref>` when done, " *
-                      "`wl read all` to zero the inbox._", ""])
-        for e in first(ranked, 40)
-            r = get(by_url, e["url"], nothing)
-            bits = [e["comments"] != 0 ? "$(e["comments"]) comments" : "no comments"]
-            r !== nothing && !r["backlog"] && push!(bits, "**$(r["bucket"])**")
-            e["state"] == "open" || push!(bits, e["state"])
-            age = days_since(e["updated"], at)
-            push!(bits, truthy(age) ? "$(age)d" : "today")
-            push!(out, "- [$(split(e["repo"], '/')[end])#$(e["number"])]($(e["url"])) $(e["title"])  \n  <sub>" *
-                       join(bits, " · ") * "</sub>")
-        end
-        length(unread) > 40 && push!(out, "- _...and $(length(unread) - 40) more_")
-        push!(out, "")
-    end
-
-    # Cuts across the buckets rather than being one, which is why it is up here
-    # with the deadlines and the unread rather than down among them: a pull
-    # request nobody answered is still waiting on a reviewer, and a merged-ready
-    # one is still approved. What is new is that it has gone quiet.
-    quiet = sort([r for r in vis if truthy(get(r, "second_look", nothing))];
-                 by = r -> activity_at(r))
-    if !isempty(quiet)
-        append!(out, ["## Second look ($(length(quiet)))",
-                      "_Nobody answered, or nobody merged. Each is also in its own " *
-                      "section below._", ""])
-        for r in first(quiet, 20)
-            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"])  \n  " *
-                       "<sub>$(r["second_look"])</sub>")
-        end
-        length(quiet) > 20 && push!(out, "- _...and $(length(quiet) - 20) more_")
-        push!(out, "")
-    end
-
-    for (key, title, blurb) in SECTIONS
-        rs = sort([r for r in vis if r["bucket"] == key && !r["backlog"]];
-                  by = r -> urgency(r, at))
-        isempty(rs) && continue
-        push!(out, "## $title ($(length(rs)))")
-        isempty(blurb) || push!(out, "_$(blurb)_")
-        push!(out, "")
-        append!(out, [line(r, at) for r in rs])
-        push!(out, "")
-    end
-
-    stale = sort([r for r in vis if r["bucket"] == "stale"]; by = r -> something(activity_age(r, at), 0))
-    if !isempty(stale)
-        append!(out, ["## Stale — decide ($(length(stale)))",
-                      "_Yours, gone quiet, and you have not claimed them in `state.toml`. " *
-                      "Add a `note` or `deadline` to pull one back into an " *
-                      "active lane; otherwise close it._", "",
-                      "<details><summary>expand</summary>", ""])
-        for r in stale
-            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"]) <sub>$(something(activity_age(r, at), 0))d</sub>")
-        end
-        append!(out, ["", "</details>", ""])
-    end
-
-    fire = [r for r in vis if r["bucket"] == "firehose"]
-    if !isempty(fire) || any(r -> r["bucket"] == "mentioned", vis)
-        # Deliberately a count, not a list. The background pile is reached only
-        # through `wl next`; printing a thousand lines here would be exactly the
-        # firehose-in-your-feed this is meant to avoid.
-        append!(out, ["## Background pile", "",
-                      "$(length(fire)) open PRs in $(cfg["firehose"]["repo"]), " *
-                      "$(count(r -> r["bucket"] == "mentioned", vis)) threads you were mentioned in or commented " *
-                      "on, plus $(count(r -> r["bucket"] == "stale", vis)) of your own gone quiet. None of it surfaces here. " *
-                      "Pull a batch to triage with `wl next`.", ""])
-    end
-
-    if !isempty(snoozed)
-        append!(out, ["## Snoozed ($(length(snoozed)))", "",
-                      "<details><summary>expand</summary>", ""])
-        for r in sort(snoozed; by = r -> r["url"])
-            push!(out, "- [$(shortrepo(r))#$(r["number"])]($(r["url"])) $(r["title"]) <sub>$(something(get(r, "snooze_why", nothing), ""))</sub>")
-        end
-        append!(out, ["", "</details>", ""])
-    end
-
-    real = [c for c in changes if !truthy(pget(c[2], "backlog"))]
-    if !isempty(real)
-        append!(out, ["## Changed since last refresh ($(length(real)))", ""])
-        for (url, r, what) in first(real, 40)
-            push!(out, "- [$(split(something(pget(r, "repo"), "?"), '/')[end])#$(something(pget(r, "number"), "?"))]($url) — $what")
-        end
-        push!(out, "")
-    end
-    join(out, "\n") * "\n"
-end

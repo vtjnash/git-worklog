@@ -276,7 +276,7 @@ end
     # "snoozed: yes" answered a question nobody was asking - the row is in the
     # snoozed lane either way. What is wanted is the trigger, and the refresh
     # already wrote one: `snooze_active`'s sentence, carried on the item as
-    # `snooze_why` and printed here and in DASHBOARD.md alike.
+    # `snooze_why`.
     st = mkstate()
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
                               if occursin("snoozed", l)], " "))

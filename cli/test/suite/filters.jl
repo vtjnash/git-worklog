@@ -462,7 +462,7 @@ end
     # every axis it does not name and the order is one of them.
     W.apply_view!(st, Dict("state" => "touched"))
     @test st.sort === :touched
-    # ...unless the view says otherwise, which is what makes "as fetched"
+    # ...unless the view says otherwise, which is what makes the url order
     # nameable even where a lane would have implied an order.
     W.apply_view!(st, Dict("state" => "touched", "sort" => "none"))
     @test st.sort === :none
@@ -470,7 +470,7 @@ end
     # default said on every screen is a phrase the reader stops seeing, and
     # three words the keys row would rather have.
     @test !occursin("by when", W.filter_summary(W.Filters(), :latest))
-    @test occursin("as fetched", W.filter_summary(W.Filters(), :none))
+    @test occursin("by url", W.filter_summary(W.Filters(), :none))
     @test occursin("by when you acted", W.filter_summary(W.Filters(), :touched))
 end
 

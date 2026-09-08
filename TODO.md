@@ -153,7 +153,7 @@ pushing has never been tried).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-./cli/bin/refresh              # fetch, bucket, write DASHBOARD.md  (~30s)
+./cli/bin/refresh              # fetch, bucket, diff the snapshot   (~30s)
 ./cli/bin/refresh --firehose   # force the 6-hourly bulk lanes too  (~6min)
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view

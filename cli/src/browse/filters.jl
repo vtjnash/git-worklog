@@ -22,13 +22,24 @@ selection - so it does not belong inside `Filters`, where it would multiply the
 axes instead of sitting beside them. `w` cycles it.
 
 `:latest` is the default, and the order every other inbox opens in: what moved
-most recently is at the top. The lanes are fetched in url order - `facts.json`
-is written sorted by key - which is alphabetical by owner, and alphabetical by
-owner is not a fact about anything. `:none` is still here because "the order
-they arrived in" is occasionally what you want to see, but it is no longer what
-you get without asking.
+most recently is at the top.
+
+`:none` is the file's own order *reversed*. `facts.json` is written sorted by
+key, so the lanes arrive grouped by repo and ascending within one, and reading a
+list of two thousand rows from the oldest is nobody's idea of an inbox. Reversed
+it keeps the grouping - which is the thing worth keeping about url order - and
+puts the newest of each repo at the top. It is still the cheapest order there
+is: no key to compute and no comparison to make.
+
+Newest by *string*, though, since that is what the file is sorted by: `#6661`
+lands above `#62836` because "6661" > "62836" a character at a time. Within one
+run of numbers the same length - which is most of a repo's recent work - it
+reads as numeric. Fixing it would mean parsing the number and sorting, which is
+the one thing this order exists not to do; `w` reaches two orders that are
+right about time.
 """
-const SORTS = [(:none, "as fetched"), (:touched, "by when you last acted"),
+const SORTS = [(:none, "by url, newest first"),
+               (:touched, "by when you last acted"),
                (:latest, "by when anything last happened")]
 
 """Issue, pull request, or both - the third radio group.
@@ -157,9 +168,12 @@ function sortkey(it::Item, touched::Dict{String,String}, order::Symbol = :touche
     isempty(t) ? it.act : t
 end
 
-"Newest first, and stable - so an untimed item keeps the order it was fetched in."
+"""Newest first, and stable - so an untimed item keeps the order it was fetched
+in. `:none` is the fetched order reversed, which is what makes *it* newest-first
+too: `facts.json` is sorted by url, so the file runs oldest-to-newest inside
+each repo and reading it forwards starts two thousand rows ago."""
 sortitems(items, mode::Symbol, touched::Dict{String,String}) =
-    mode === :none ? items :
+    mode === :none ? reverse(items) :
     sort(items; by = it -> sortkey(it, touched, mode), rev = true)
 
 "Issue or pull request, with `:both` restricting nothing."
@@ -303,7 +317,7 @@ const VIEWS = [
     # nobody can find is a control nobody uses. It names no axis but `state`,
     # which - since a view clears every axis it does not name, sort included -
     # is exactly what a fresh `Filters()` is.
-    ("the default — active, unfiltered, as fetched",
+    ("the default — active, unfiltered, newest first",
                         Dict("state" => "active")),
     ("waiting on me",  Dict("state" => "second", "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
@@ -347,7 +361,7 @@ function apply_view!(st, d)
     # Cleared like every other axis when the view names none, and for the same
     # reason: a name has to mean the same list from wherever it is pressed, and
     # an order left over from the list you were in is not that. It also makes
-    # "as fetched" nameable, which nothing else could say - a view that names
+    # the url order nameable, which nothing else could say - a view that names
     # `sort = "none"` gets it even where the lane would have implied an order.
     st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f.state)
     refilter!(st)
@@ -570,7 +584,7 @@ function filter_summary(f, order::Symbol = lane_sort(f.state))
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
     order === lane_sort(f.state) ||
         push!(parts, order === :latest ? "by when it moved" :
-                     order === :touched ? "by when you acted" : "as fetched")
+                     order === :touched ? "by when you acted" : "by url")
     isempty(f.authors) ||
         push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))

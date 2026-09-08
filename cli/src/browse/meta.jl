@@ -220,8 +220,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv("level", it.track)
     # What it is waiting for, not that it is waiting: "yes" answered a question
     # nobody was asking, since the row is in the snoozed lane either way. The
-    # sentence is the refresh's own (`snooze_active`), which is what makes it
-    # the same one `DASHBOARD.md` prints.
+    # sentence is the refresh's own (`snooze_active`), so the reason shown here
+    # is the one that decided it rather than a second opinion about it.
     it.snoozed && kv("snoozed", isempty(it.snooze_why) ? "yes" : it.snooze_why)
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))

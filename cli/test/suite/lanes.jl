@@ -41,7 +41,9 @@
         # lanes, so it sits beside the filter rather than inside it.
         st.filters.state = :all
         st.sort = :none; W.refilter!(st)
-        @test [x.url for x in st.items] == [x.url for x in st.all]   # as fetched
+        # The fetched order reversed: `facts.json` is sorted by url, so forwards
+        # is oldest-first inside every repo and nobody reads an inbox that way.
+        @test [x.url for x in st.items] == reverse([x.url for x in st.all])
         @test length(st.items) == n
         W.handle!(st, Int('w'), ctrl)
         @test st.sort === :touched && occursin("by when", st.status)
@@ -217,8 +219,9 @@ end
                           Dict{String,Any}("bucket" => "needs-review"), cfg, at)[1] ==
           "needs-review"
     @test W.resolve_track(Dict{String,Any}(), "done") == "loose"
-    # And it has somewhere to be printed.
-    @test "done" in [s[1] for s in W.SECTIONS]
+    # And it is a value on the bucket axis, which is where finished work is read
+    # now that nothing renders a page of sections.
+    @test "done" in mkstate().buckets
 
     # First sighting is news even where the event poller does not reach: the
     # unread lane only covers `[events].repos`, and a merge in any other repo

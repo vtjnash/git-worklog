@@ -30,7 +30,6 @@ The split that makes it safe to let a model touch this:
 | `data/touched.json` | any write | one last-interaction timestamp per item |
 | `data/repos.toml` | the browser | GitHub repo → local checkout |
 | `data/snooze.json` | `wl refresh` | armed "until it moves" fingerprints |
-| `data/DASHBOARD.md` | `wl refresh` | overwritten every run |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
 own: what can be re-fetched from GitHub is gitignored there, and what records
@@ -42,8 +41,9 @@ set survives any refresh, and a confused model cannot erase your triage.
 Buckets are derived from facts by rules, not guessed: changes-requested or
 unresolved threads or red CI → **needs-edits**; `CONFLICTING` → **needs-stacking**;
 approved and green → **ready to merge**; they pushed after your last review →
-**needs-review**. Judgement is left to the `/dash` skill, which only looks at
-items that changed since the last snapshot — that is what bounds the cost.
+**needs-review**. Judgement is not made here at all: what a red CI really means,
+what the next action is, and what is urgent are written into `state.toml`, by
+you or by a model reading the same files.
 
 ## Snooze until it moves
 
@@ -175,10 +175,11 @@ are fetched for the selected item only. The light GraphQL query the bulk lanes
 use carries no reviews, so widening it would pay for ~2000 items to answer a
 question about the one on screen.
 
-The list opens newest first - by when anything last happened to an item,
-yours or GitHub's - which is the order every other inbox has. `w` cycles the
-other two: "as fetched", which is the url order the lanes arrive in, and the
-interaction clock. An order you choose lasts until the lane changes, and the
+The list opens newest first - by when anything last happened to an item, yours
+or GitHub's - which is the order every other inbox has. `w` cycles the other
+two: the interaction clock, and url order, which keeps the repo grouping
+`facts.json` is written in and reads newest-first inside each repo because it is
+the file reversed. An order you choose lasts until the lane changes, and the
 `[...]` summary names it only while it is not the one the lane opens in.
 
 `/` searches. In the item list it narrows by title or ref, and a bare number is
@@ -242,9 +243,6 @@ cli/bin/wl                                     # the browser
 
 `cli/bin/refresh` is `cli/bin/wl refresh`; every command is a subcommand of the
 one entry point.
-
-Or `/dash` in Claude Code, which refreshes, triages the change set and reports
-only what moved.
 
 ## Scope
 
