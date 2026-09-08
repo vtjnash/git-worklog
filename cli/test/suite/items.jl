@@ -127,17 +127,37 @@ end
         try
             here = st.all[1]
             n0 = length(st.all)
+            prevread = W.Events.read_at(here.url)
             msg = W.import_url!(st, here.url, at)
             @test occursin("already here", msg) && occursin(here.ref, msg)
             @test length(st.all) == n0                      # not twice
             @test here.url in st.unread
             @test haskey(W.Events.load_inbox()["items"], here.url)
             @test W.get_field(here.url, "imported") == string(W.Date(at))
-            # And the undo takes back what it did: the mark, and the line in
-            # state.toml, but not a row it never added.
+            # And the undo takes back all three writes an import makes: the
+            # line in state.toml, the row in the inbox, and the read stamp that
+            # was cleared to put it in the unread lane. The row is the one that
+            # outlived the undo before - nothing would ever have cleared it,
+            # since the repo an import is made for is by definition one no poll
+            # covers - and rust#1 sat in the lane for a week because of it.
+            # Not a row in `st.all` it never added, which is the other sense.
             W.handle!(st, Int('z'), ctrl)
             @test !(here.url in st.unread) && length(st.all) == n0
             @test W.get_field(here.url, "imported") === nothing
+            @test !haskey(W.Events.load_inbox()["items"], here.url)
+            @test W.Events.read_at(here.url) == prevread
+
+            # A row a *poll* wrote is not an import's to remove. Importing
+            # something already in the inbox leaves the richer entry alone -
+            # `overwrite = false` - and so does taking that import back.
+            poll = st.all[2]
+            W.Events.inbox_add!([W.inbox_row(poll, at)])
+            W.Events.set_read(poll.url, W.stamp(at))
+            W.import_url!(st, poll.url, at)
+            @test W.Events.read_at(poll.url) === nothing        # it went unread
+            W.handle!(st, Int('z'), ctrl)
+            @test haskey(W.Events.load_inbox()["items"], poll.url)
+            @test W.Events.read_at(poll.url) == W.stamp(at)
         finally
             W.Events.INBOX[] = keepi
         end

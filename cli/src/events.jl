@@ -463,6 +463,32 @@ function inbox_add!(rows; overwrite::Bool = true)
     length(urls)
 end
 
+"Is this url in the inbox already? What tells an import's own row from a poll's."
+in_inbox(url::AbstractString) = haskey(load_inbox()["items"], String(url))
+
+"""Take entries back out of the inbox. The other half of `inbox_add!`.
+
+An import that is undone has to undo both halves of the hand-delivery, and the
+row is the half that outlives the session: `imported` goes back out of
+`state.toml` and the read stamp is put back, but an entry left in `inbox.json`
+keeps the item in the unread lane for as long as it stays there - there is no
+poll that would ever clear it, because the reason the item was imported is that
+no poll covers its repo.
+
+Only rows this program put there should be handed to it. A poll's own entry is
+a record of something that actually happened and is not an import's to remove.
+"""
+function inbox_drop!(urls)
+    inbox = load_inbox()
+    items = inbox["items"]
+    n = 0
+    for u in urls
+        haskey(items, String(u)) && (delete!(items, String(u)); n += 1)
+    end
+    n == 0 || save_inbox(inbox)
+    n
+end
+
 "Fetch a thread's recent comments live - the part email used to hand you."
 function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
