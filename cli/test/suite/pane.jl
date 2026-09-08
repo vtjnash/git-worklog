@@ -286,6 +286,20 @@ end
                 @test W.mux_alive(n) === true
             end
 
+            # And `q`, which is what leaves a view everywhere else in this
+            # program: the worktree list, a pane whose child has gone, and the
+            # browser - where the view being left is the one every other view is
+            # a view from, so leaving it is leaving the program and is the one
+            # place it stops to ask. It used to be forwarded, so the same key
+            # ended the session from one side of the split and closed a pane
+            # from the other.
+            v6 = W.pane_view(n, "demo", ctrl)
+            W.onraw!(v6, [W.PANE_PREFIX, UInt8('\t')], ctrl)
+            @test v6.focus === :read
+            @test W.handle!(v6, Int('q'), ctrl) === :pop
+            @test W.mux_alive(n) === true          # the session keeps running
+            @test !any(x -> x isa W.ConfirmView, ctrl.stack)   # and nothing asked
+
             # `^]q` is the one that leaves from the child's side.
             v3 = W.pane_view(n, "demo", ctrl)
             @test W.onraw!(v3, [W.PANE_PREFIX, UInt8('q')], ctrl) === :pop
@@ -327,4 +341,24 @@ end
         W.mux_kill(n)
         pop!(ctrl.stack)
     end
+end
+
+@testset "a key whose subject is not on screen" begin
+    # `f` opens the filter pane *and* moves the browser's focus to the list, and
+    # the list is not drawn beside a child - the pane took those columns. So a
+    # forwarded `f` handed the keys to a pane nobody could see, with `f` again
+    # toggling the mode back and leaving the focus where it was.
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    v = W.PaneView("n", "t", nothing, String[], (0, 0), "", false, st, (0, 0, false),
+                   false, nothing, :read, 0, 0, false)
+    was = (st.lmode, st.focus)
+    @test W.forward!(v, Int('f'), ctrl) === :ok
+    @test (st.lmode, st.focus) == was
+    @test occursin("not on screen", v.status) && occursin("q leaves", v.status)
+    # Everything else is still the browser's, which is the rule this is the one
+    # exception to.
+    st.mode = :thread
+    @test W.forward!(v, Int('o'), ctrl) === :ok
+    @test st.mode === :comments
 end

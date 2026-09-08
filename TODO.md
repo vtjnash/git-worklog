@@ -27,21 +27,7 @@ checked until it had.
 
 What is left, in the order it is worth doing:
 
-1. **The reading side forwards `f` and `q` to the browser** — the one of the
-   three known gaps below worth touching. `q` quits the whole program from
-   inside a pane, which is not what `q` does in any other view here. Half of
-   that is answered now: every `q` puts up a yes-or-no first, so it is two
-   deliberate keys rather than one stray one, and the box says what leaving
-   costs - how many sessions carry on without you, and what a draft review would
-   be left holding. What is left is the meaning — `q` is "leave
-   this view" everywhere else and "leave the program" here.
-   The other pane gap - `^]t`/`^]T` against `t`/`T` - the read-through answered:
-   leave it. One of its two reasons had gone stale, since `enter_session` now
-   refuses to stack a second view on a session already showing, and that is
-   written where the choice is made; the reason that remains, that the key which
-   opened the pane is the one that closes it, is worth keeping.
-
-2. **Measure the latency, then fill in the precompile statements it names.**
+1. **Measure the latency, then fill in the precompile statements it names.**
    Startup is the number this program is judged by and nothing measures it: the
    wrapper's 4.33s → 1.36s was taken by hand, once, and `Worklog.jl` carries
    nine `precompile` directives added the same way. Both have been true for

@@ -284,22 +284,36 @@ The browser's own footer is not on screen here - the pane took the columns it
 was drawn in - so a message it wrote in answer would go nowhere. It is copied
 into the note under the child instead, which is the row nearest the key that
 was pressed.
+
+`f` is the one key not handed over, from either side. It opens the filter pane
+*and* moves the browser's focus to the list - and the list is not on screen
+here, so the keys after it would be going to a pane nobody can see, with `f`
+again toggling the mode back and leaving the focus where it was. A key whose
+effect is on what is not drawn is not this view's to forward.
+
+The browser leaves through a dialog rather than through a return value, so
+nothing that comes back from here means "quit" any more; `:ok` either way, and
+this view is popped by its own keys.
 """
 function forward!(v::PaneView, k::Int, ctrl)
     v.beside === nothing && return :ok
-    act = handle!(v.beside, k, ctrl)
+    if k == Int('f')
+        v.status = "f needs the item list, which is not on screen \u2014 q leaves the pane"
+        return :ok
+    end
+    handle!(v.beside, k, ctrl)
     v.status = v.beside.status
-    act === :quit ? :quit : :ok
+    :ok
 end
 
 """What the prefix is for, spelled out. `^]?` asks for it."""
 pane_keys(v::PaneView) =
-    string(readable(v) ? "^]tab read beside it \u00b7 " : "",
+    string(readable(v) ? "^]tab read beside it (q leaves from there) \u00b7 " : "",
            "^]q leave \u00b7 ^]K kill \u00b7 ^]a full screen \u00b7 ^]r reread \u00b7 ^]] literal",
            v.beside === nothing ? "" : " \u00b7 anything else is the browser's")
 
-"""One key after the prefix. Returns `:pop`, `:quit`, `:literal` to send the
-prefix through to the child, or `:ok`.
+"""One key after the prefix. Returns `:pop`, `:literal` to send the prefix
+through to the child, or `:ok`.
 
 The keys below are the pane's own; the rest belong to the browser underneath.
 `^]` means "this one is not the child's", and the sensible place for a key this
@@ -490,7 +504,6 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
                 pane_command!(v, b, ctrl)
             end
             act === :pop && return :pop
-            act === :quit && return :quit
             act === :literal && push!(out, PANE_PREFIX)
         elseif b == PANE_PREFIX
             v.pending = true
@@ -511,14 +524,20 @@ screen, while the thread beside it read `r` as "mark this one read", would be
 asking the reader to hold a list instead - some keys and not others, for a side
 that does not have the focus.
 
-So what is kept here is about the focus and nothing else. `tab` goes back to the
-child. Escape leaves for the list, and so do `t` and `T`, because the key that
-put the pane on the screen is the one that takes it off again. Everything else,
-`q` and `K` and `r` included, is the browser's and does there exactly what it
-does there.
+So what is kept here is leaving, and the keys that opened this. `tab` goes back
+to the child. Escape and `q` leave for the list, because **`q` leaves the view
+you are in** - it does that in the worktree list, it does it here, and in the
+browser, which is the view every other one is a view *from*, leaving is leaving
+the program and is the one place it stops to ask. `q` used to be forwarded, so
+the same key ended the whole session from one side of a split and closed a pane
+from the other. `t` and `T` leave as well, because the key that put the pane on
+the screen is the one that takes it off again.
 
-Those two are the one thing here that is not settled. The child's side forwards
-them instead - `^]T` in a shell reaches the agent on the same item, and
+Everything else, `K` and `r` included, is the browser's and does there exactly
+what it does there.
+
+`t` and `T` are the one thing here that is not settled. The child's side
+forwards them instead - `^]T` in a shell reaches the agent on the same item, and
 `enter_session` refuses to stack a second view on a session already showing, so
 forwarding doubles nothing. They are kept here anyway, for the reason above, and
 nothing on screen says the two sides differ.
@@ -532,13 +551,13 @@ function handle!(v::PaneView, k::Int, ctrl)
         if k == 9 || k == K_STAB
             v.focus = :child
             v.status = ""
-        elseif k == 27 || k == Int('t') || k == Int('T')
+        elseif k == 27 || k == Int('q') || k == Int('t') || k == Int('T')
             mux_close(v.client)
             return :pop
         else
             # `:pop` from the browser would take *this* view off the stack,
-            # which is not what a key aimed at the reading asked for, so only
-            # `:quit` is passed on.
+            # which is not what a key aimed at the reading asked for. Nothing
+            # comes back from there that means anything else, so `:ok` it is.
             return forward!(v, k, ctrl)
         end
         return :ok
