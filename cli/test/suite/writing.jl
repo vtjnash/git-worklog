@@ -45,6 +45,27 @@
     st.status = ""                       # the status row is the keys row's own
     @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))   # still shown
 
+    # `Esc` takes the move back. The question exists because the cursor walked
+    # off the item, so the key that means "no" has to be able to undo the thing
+    # it is saying no to - otherwise staying put means dismissing the box and
+    # walking back by hand, past the item you just left.
+    st.sel = findfirst(x -> x.url == it.url, st.items)
+    st.batch = W.mkbatch(it.url, it.ref, "PRR_x", 3)
+    W.handle!(st, Int('j'), ctrl)
+    esc = last(ctrl.stack)
+    @test esc isa W.ConfirmView && occursin("esc goes back to it", esc.hint)
+    @test W.curl(st) != it.url                     # the move has happened
+    @test W.handle!(esc, 27, ctrl) === :pop
+    pop!(ctrl.stack)
+    @test W.curl(st) == it.url                     # ...and been taken back
+    # And the question is armed again, so stepping off asks a second time
+    # rather than letting the draft leave in silence.
+    @test !st.batch.asked
+    W.handle!(st, Int('j'), ctrl)
+    @test last(ctrl.stack) isa W.ConfirmView
+    @test W.handle!(last(ctrl.stack), Int('j'), ctrl) === :pop
+    pop!(ctrl.stack)
+
     # Having asked once, moving between other items asks nothing.
     W.handle!(st, Int('j'), ctrl)
     @test isempty(ctrl.stack) && st.batch.asked

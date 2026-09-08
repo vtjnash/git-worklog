@@ -47,7 +47,14 @@ most of it asked for while reading with it:
    `BState` mechanically; `st.nrow` is what would be remembered, and
    `st.loaded` already names what it would be keyed by.
 
-3. **The review comments, against the diff they are about.** They are readable
+3. **When a row leaves, the cursor stays where it was.** `r` in the unread lane
+   marks the item read and the row goes, and the cursor jumps to the top of the
+   list - so reading an inbox is: `r`, scroll back down, `r`, scroll back down.
+   `refilter!` keeps the *url* it was on and falls back to row 1 when that url
+   is gone; the fallback should be the row's own index, clamped, so the cursor
+   lands on whatever moved up into the place it was reading.
+
+4. **The review comments, against the diff they are about.** They are readable
    now only in the thread, which is the wrong place to read them: a comment on a
    hunk means nothing without the hunk. Draw each as a small box inline against
    its own lines in the diff, and make them nodes of their own, so `n`/`N` walks
@@ -55,7 +62,7 @@ most of it asked for while reading with it:
    diff becomes nodes and already knows the file and line of every hunk, which
    is what a comment would be matched on.
 
-4. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
+5. **Selecting more than one row.** `shift-J`/`shift-K` and `shift-Up`/
    `shift-Down` should extend the selection the way dragging does, which is the
    keyboard half of something only the mouse can do today. And dragging itself
    was reported not taking: what was highlighted was the *cursor* row - `CURBG`
@@ -64,23 +71,23 @@ most of it asked for while reading with it:
    `1002` is requested (`controller.jl`), so the report should be arriving;
    start by finding out whether it is.
 
-5. **A blank line before each new comment.** A top-level header already draws a
+6. **A blank line before each new comment.** A top-level header already draws a
    rule out to the edge of the pane (`rows`, in `markdown.jl`), but the body
    above it ends flush against that rule, so the eye has nothing to stop on. One
    blank row before each top-level header is the whole of it.
 
-6. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
+7. **Number the first ten views.** `'` opens `view_action`'s `ChooseView`,
    which is arrow-and-return only; `0`-`9` should pick the first ten straight
    off, since the built-in ones are the same ten every time and are reached by
    memory rather than by reading.
 
-7. **A comment's text is drawn twice.** A node's header is a byline plus a peek
+8. **A comment's text is drawn twice.** A node's header is a byline plus a peek
    at the body, which is what makes a folded thread readable - but the peek is
    still there once the node is open, immediately above the same words in the
    body. Drop it when the node is open (`rows`, in `markdown.jl`, builds the
    header from `n.header` and knows `n.open` right there).
 
-8. **An import that is taken back leaves its inbox row behind.** `rust#1` is
+9. **An import that is taken back leaves its inbox row behind.** `rust#1` is
    still in the unread lane from a session on 2026-09-02 that imported it to
    check the import lane end to end and then removed the mark: `inbox_add!`
    writes the row *and* clears the read stamp, and clearing the `imported` field

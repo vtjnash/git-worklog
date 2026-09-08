@@ -382,11 +382,32 @@ function batch_prompt!(st::BState, ctrl::Controller, leaving::AbstractString)
     a = draft_answer(st, ctrl)
     a === nothing && return false
     note, submit = a
+    # `Esc` puts the cursor back on the item the draft belongs to, and re-arms
+    # the question with it: the move is what raised this, so the key that means
+    # "no" everywhere else in this program has to be able to take the move back
+    # as well as leave the draft alone. Without it the only way to stay was to
+    # dismiss the box and walk back by hand, past the item you had just left.
+    #
+    # It goes through `select_item!` rather than restoring `st.sel`, because the
+    # row may not be in the list any more: the filter can have moved under it,
+    # and being unable to see the item you are being asked about is exactly the
+    # case that one is for.
+    back = "\e" => () -> begin
+        i = findfirst(x -> x.url == b.url, st.all)
+        if i !== nothing
+            # It writes its own "went to …" and answers with a *failure*, so
+            # only a non-empty return is worth putting on the footer.
+            r = select_item!(st, st.all[i])
+            isempty(r) || (st.status = r)
+        end
+        st.batch = mkbatch(b.url, b.ref, b.review, b.n)
+    end
     # The title says what this is about and the row says the whole of it - the
     # same sentence the quit question uses, ref and all, rather than a shorter
     # one that reads differently in the two places it can appear.
-    push_view!(ctrl, ConfirmView("Draft review", note, [submit];
-                                 hint = "A submits it now \u00b7 any other key keeps it as a draft"))
+    push_view!(ctrl, ConfirmView("Draft review", note, [submit, back];
+                                 hint = "A submits it now \u00b7 esc goes back to it \u00b7 " *
+                                        "any other key keeps it as a draft"))
     st.batch = mkbatch(b.url, b.ref, b.review, b.n; asked = true)
     true
 end

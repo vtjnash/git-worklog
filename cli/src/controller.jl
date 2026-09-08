@@ -359,6 +359,20 @@ closeview!(::View) = nothing
 
 push_view!(ctrl::Controller, v::View) = push!(ctrl.stack, v)
 
+"""Take one view off the stack, by identity and wherever it sits.
+
+For a dialog that closes the view which *asked* it: the answer runs while the
+question is still on top, so `pop!` would take the question and leave what it
+was about. The same `findlast` the loop uses for `:pop`, and for the same
+reason.
+"""
+function pop_view!(ctrl::Controller, v::View)
+    at = findlast(x -> x === v, ctrl.stack)
+    at === nothing && return false
+    deleteat!(ctrl.stack, at)
+    true
+end
+
 """Go somewhere, leaving wherever you were.
 
 The root is never a place in this sense - it is the thing every place is
@@ -790,7 +804,12 @@ function render(v::ConfirmView, w::Int, h::Int)
 end
 
 function handle!(v::ConfirmView, k::Int, ctrl::Controller)
-    printable(k) || return :pop
+    # Escape is an answer when a question names one for it, and not otherwise.
+    # It is the key a dialog appearing produces from the fingers, so a question
+    # that means something particular by it - the draft question means "put me
+    # back where I was" - has to say so in its hint; every other question here
+    # takes it as the dismissal it looks like.
+    (printable(k) || k == 27) || return :pop
     for (keys, answer) in v.answers
         Char(k) in keys && return answer() === :quit ? :quit : :pop
     end
@@ -954,7 +973,22 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
     n = length(l)
     v.status = ""
     if k == 27
-        return :pop
+        # Words that were typed are the one thing in this program that exists
+        # nowhere else: a note is on disk as it is written, a snooze is a field,
+        # a draft review is on GitHub - and a comment half-composed is in this
+        # buffer and in no other place. So the key that throws it away asks
+        # first, which nothing else in here needs to do.
+        #
+        # An empty buffer is not something to lose, and a question about it
+        # would be a dialog in front of every escape from a composer opened by
+        # mistake.
+        isempty(strip(text(v))) && return :pop
+        ls = length(v.lines)
+        push_view!(ctrl, ConfirmView("Discard what you have written?",
+            [v.title, string(ls, ls == 1 ? " line" : " lines", " written")],
+            ["yY" => () -> pop_view!(ctrl, v)];
+            hint = "y discards it \u00b7 any other key goes back to writing"))
+        return :ok
     elseif k == C_S
         t = strip(text(v))
         if isempty(t) && !v.allow_empty

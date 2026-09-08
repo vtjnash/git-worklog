@@ -32,9 +32,37 @@
     @test W.text(v) == "hello… é"
     @test v.col == length("hello… é") + 1
 
-    # ^s submits and pops; esc would have discarded.
+    # ^s submits and pops.
     @test W.handle!(v, 19, ctrl) === :pop
     @test got[] == "hello… é"
+
+    # Esc asks first. What is in this buffer is the one thing in the program
+    # that is nowhere else - a note is on disk as it is typed, a draft review is
+    # on GitHub - so the key that throws it away is the one key here that
+    # confirms.
+    sent = Ref("")
+    w = W.EditorView("Comment on r#1", "", t -> sent[] = t)
+    W.push_view!(ctrl, w)
+    # Nothing written is nothing to lose, and asking would put a dialog in front
+    # of every composer opened by mistake.
+    @test W.handle!(w, 27, ctrl) === :pop
+    @test length(ctrl.stack) == 1                # no question, just the editor
+    for c in "half a comment"; W.handle!(w, Int(c), ctrl); end
+    @test W.handle!(w, 27, ctrl) === :ok         # the editor stays put
+    q = last(ctrl.stack)
+    @test q isa W.ConfirmView && occursin("Discard", q.title)
+    @test any(n -> occursin("Comment on r#1", n), q.notes)
+    # Any other key goes back to writing, with every character still there.
+    @test W.handle!(q, Int('n'), ctrl) === :pop
+    pop!(ctrl.stack)
+    @test W.text(w) == "half a comment" && w in ctrl.stack
+    # `y` is what discards, and it takes the editor with it rather than itself:
+    # the answer runs while the question is still the view on top.
+    @test W.handle!(w, 27, ctrl) === :ok
+    @test W.handle!(last(ctrl.stack), Int('y'), ctrl) === :pop
+    pop!(ctrl.stack)
+    @test !(w in ctrl.stack) && sent[] == ""     # and nothing was submitted
+    empty!(ctrl.stack)
 
     # The cursor maps onto the wrapped rows the box actually draws.
     v2 = W.EditorView("t", "", identity; initial = "0123456789abcdefghij")
