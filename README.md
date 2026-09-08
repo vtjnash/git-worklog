@@ -63,6 +63,14 @@ default cap for the ones that carry none.
 `snooze = "2026-09-15"` still works for real calendar constraints, and
 `snooze = "3d"` / `"2w"` / `"6mo"` count from when you set them.
 
+**Waking happens in `wl refresh` and nowhere else.** It is not a predicate a
+browser can evaluate: deciding an item has woken also arms and records it, so
+two windows on one dashboard would each decide and each write, and neither would
+know what the other had already woken. The browser shows the answer the last
+refresh wrote, and the metadata pane says which trigger the item is waiting for
+- `until it moves`, `for 2w, 9d left`, `until 2026-09-15` - so a snooze that has
+run its course comes back when you ask for a refresh, at a moment you chose.
+
 ## Lanes
 
 Fast lanes, fetched every refresh: PRs you authored, PRs awaiting your review,
@@ -138,6 +146,10 @@ pasted log folds away to one line and never gets drawn as a box wider than the
 pane. Inline code is a quiet grey span instead of yellow punctuation, and
 `snake_case` names keep their underscores — Julia's Markdown reads them as
 emphasis, which CommonMark forbids and GitHub does not do.
+
+The list itself says what has been read: unread rows are bold and read ones
+plain, and the cursor is a background rather than a weight - the same mark the
+reading pane puts on the line you are on.
 
 Under the item list is a metadata pane: who has reviewed and who was asked,
 labels, the check tally, milestone, mergeable state, and the tracking level and

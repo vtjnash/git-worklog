@@ -356,6 +356,16 @@ snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
 without one it hides the item until the fingerprint differs, and a pull request
 that everybody has quietly given up on is exactly the shape whose fingerprint
 never differs. That is also the one worth being reminded about.
+
+**A refresh is the only thing that may call this, and that is deliberate.** It
+is not a predicate: it arms snoozes, writes `WOKE` and hands back a sentence, so
+whoever calls it decides that an item has woken *and records it*. A browser that
+asked it per frame would promote items on a clock nobody started - and two
+browsers on one dashboard would each decide, each write, and disagree about
+which of them had already woken what. So the browser reads `snoozed` and
+`snooze_why` off the item it loaded and shows the refresh's answer, however old
+it is: waking is something the user does by running `wl refresh`, at a moment
+they chose, once.
 """
 function snooze_active(url, st, fp, snz, at::DateTime, maxdays = nothing)
     s = get(st, "snooze", nothing)

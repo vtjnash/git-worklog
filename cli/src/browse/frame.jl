@@ -128,9 +128,22 @@ function render_frame(st::BState, w::Int, h::Int)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
             txt = afit(string(it_.track == "close" ? "*" : " ", it_.ref, " ", it_.title), liw)
-            styled = string(on ? "\e[1;37m" : AD, txt, AR)
+            # Weight says whether it has been read, which is the one thing
+            # about a row worth knowing before opening it and the one thing the
+            # list never said: unread is bold, read is plain. Dim is left to the
+            # import row, which is the only row that is not an item - two
+            # thousand dimmed rows were what made the unread ones invisible
+            # among them.
+            styled = string(it_.url in st.unread ? AB : "", txt, AR)
             (isempty(st.search) || st.searchin !== :list) ||
                 (styled = hlspan(styled, findhits(astrip(styled), st.search), HITBG))
+            # The cursor is a background now rather than a weight, since weight
+            # is spoken for: bright-white bold among bold rows is not a cursor
+            # anybody can find. Laid over the padded row the way the detail
+            # pane's is, and by the same `hlrow`, which re-arms the background
+            # after every reset the row carries - including the ones a search
+            # highlight leaves behind, which is why it goes on last.
+            on && (styled = hlrow(apad(styled, liw), CURBG))
             push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end

@@ -36,6 +36,13 @@ Base.@kwdef struct Item
     new::Bool = false
     moved::Bool = false
     snoozed::Bool = false
+    snooze_why::String = ""   # what the snooze is waiting for, as the refresh
+                              # that decided it put it: "until it moves",
+                              # "for 2w, 9d left", "until 2026-09-15". Carried
+                              # rather than re-derived, because deriving it here
+                              # would be a second opinion about whether the item
+                              # is still asleep - and the refresh's is the only
+                              # one that may write `snooze.json`
     is_pr::Bool = true
     author::String = ""
     labels::Vector{String} = String[]
@@ -91,6 +98,7 @@ function item_of(r)
             act = String(nz(act, "")),
             new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
             snoozed = nz(jget(r, :snoozed), false),
+            snooze_why = String(nz(jget(r, :snooze_why), "")),
             is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",
             author = nz(jget(r, :author), ""),
             labels = String[String(l) for l in jget(r, :labels, ())],

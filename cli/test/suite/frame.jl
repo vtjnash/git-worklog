@@ -270,3 +270,37 @@ end
     out = W.attach_comments(copy(hs2), [cmt(1, "a.jl", 42; side = "LEFT")], "http://x")
     @test occursin("💬1", hdr(out[1])) && length(out) == 2
 end
+
+@testset "the list says what has been read" begin
+    # Weight is the only thing on a row that can say this without costing a
+    # column, and the list is two thousand rows of things somebody may or may
+    # not have looked at. Unread is bold, read is plain, and the whole list was
+    # dim before - which is what made the unread rows invisible among them.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    st.sel = 2                              # so the cursor is on neither below
+    unread, read_ = st.items[3], st.items[4]
+    push!(st.unread, unread.url)
+    f = W.render(st, 150, 40)
+    lines = split(f, "\n")
+    # Inside the list pane and nowhere else. The frame is drawn bold, the detail
+    # beside it carries every weight there is, and the title bar names the
+    # selected item too - so a row asked about the whole screen line would be
+    # answered by any of the three. `│` is what a body row starts with, and the
+    # cut at `leftw - 1` leaves the pane's own right border out of the answer.
+    row(it) = last(split(W.afit(first(l for l in lines if startswith(W.astrip(l), "│") &&
+                                      occursin(it.ref, first(W.astrip(l), W.leftw(150)))),
+                                W.leftw(150) - 1), W.AR; limit = 2))
+    @test occursin(W.AB, row(unread))
+    @test !occursin(W.AB, row(read_))
+    @test !occursin(W.AD, row(read_))       # nor dim, which is the whole point
+    # The cursor is a background now, the way the reading pane's line is: bold
+    # is spoken for, and a bright-white bold row among bold rows is not a
+    # cursor. It covers the row rather than the words on it.
+    @test occursin(W.CURBG, row(st.items[st.sel]))
+    @test !occursin(W.CURBG, row(unread)) && !occursin(W.CURBG, row(read_))
+    @test W.awidth(first(l for l in lines if occursin(W.CURBG, l))) == 150
+    # The import row keeps its dim, being the one row that is not an item.
+    @test occursin(W.AD, first(l for l in lines if occursin("import an item",
+                                                           W.astrip(l))))
+end

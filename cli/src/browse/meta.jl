@@ -191,7 +191,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     head("tracking")
     kv("bucket", it.bucket)
     kv("level", it.track)
-    it.snoozed && kv("snoozed", "yes")
+    # What it is waiting for, not that it is waiting: "yes" answered a question
+    # nobody was asking, since the row is in the snoozed lane either way. The
+    # sentence is the refresh's own (`snooze_active`), which is what makes it
+    # the same one `DASHBOARD.md` prints.
+    it.snoozed && kv("snoozed", isempty(it.snooze_why) ? "yes" : it.snooze_why)
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
     kv("why", it.why)

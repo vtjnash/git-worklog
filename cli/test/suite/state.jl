@@ -225,3 +225,34 @@ end
     # Stacked, it is dropped rather than squeezing what is being read.
     @test W.layout(80, 14).mh == 0
 end
+
+@testset "a snooze says what it is waiting for" begin
+    # "snoozed: yes" answered a question nobody was asking - the row is in the
+    # snoozed lane either way. What is wanted is the trigger, and the refresh
+    # already wrote one: `snooze_active`'s sentence, carried on the item as
+    # `snooze_why` and printed here and in DASHBOARD.md alike.
+    st = mkstate()
+    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
+                              if occursin("snoozed", l)], " "))
+    base = (url = "https://example.invalid/pr/1", ref = "r#1", repo = "o/r",
+            number = 1, title = "a snoozed pull request")
+    @test says(W.Item(; base..., snoozed = true,
+                      snooze_why = "for 2w, 9d left")) == "snoozed   for 2w, 9d left"
+    @test says(W.Item(; base..., snoozed = true,
+                      snooze_why = "until it moves")) == "snoozed   until it moves"
+    # A snapshot written before the field existed still says the one thing it
+    # knows, rather than an empty row.
+    @test says(W.Item(; base..., snoozed = true)) == "snoozed   yes"
+    # And an item that is not snoozed says nothing, whatever it carries: the
+    # reason outlives the snooze in `facts.json` when one is cleared.
+    @test says(W.Item(; base..., snooze_why = "until it moves")) == ""
+
+    # The trigger comes off the item and not off a clock, which is the whole of
+    # how two browsers on one dashboard stay agreed: waking is a decision only
+    # `refresh` makes, by calling `snooze_active`, which arms and writes as it
+    # goes. A relative snooze that ran out an hour ago is still snoozed here,
+    # and stays that way until somebody runs `wl refresh`.
+    elapsed = W.Item(; base..., snoozed = true, snooze_why = "for 1d, 0d left")
+    @test W.state_ok(:snoozed, elapsed, Set{String}())
+    @test !W.state_ok(:active, elapsed, Set{String}())
+end
