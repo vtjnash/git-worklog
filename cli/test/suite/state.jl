@@ -93,6 +93,29 @@
     @test occursin("z undo(1)", W.astrip(W.render(st, 165, 40)))
 end
 
+@testset "a write lands whole, or not at all" begin
+    # Every file in `data/` is rewritten from what was read a moment ago, and
+    # none of it can be asked for again - so the write that matters is the one
+    # that fails halfway. A reader sees the old file or the new one.
+    d = mktempdir()
+    p = joinpath(d, "x.json")
+    W.write_atomic(p, "one")
+    @test read(p, String) == "one"
+    W.write_atomic(p, "two")
+    @test read(p, String) == "two"
+    # In the same directory and cleaned up, or the data repository fills with
+    # the litter of every write.
+    @test readdir(d) == ["x.json"]
+    # A write that throws leaves what was there, and leaves nothing else.
+    @test_throws MethodError W.write_atomic(p, nothing)
+    @test read(p, String) == "two" && readdir(d) == ["x.json"]
+    # The directory is made when it is missing: the first write of a fresh
+    # checkout is `data/` itself.
+    q = joinpath(d, "sub", "y.json")
+    W.write_atomic(q, "hello")
+    @test read(q, String) == "hello"
+end
+
 @testset "reading one field of state.toml" begin
     # Read-only: this is the file the refresh promises never to write.
     lines = W.load_lines()

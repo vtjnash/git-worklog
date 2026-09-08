@@ -22,7 +22,7 @@ import ..gh_graphql
 using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
-using ..Worklog: ROOT, datapath, stamp, ts, json_dumps
+using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 import ..Worklog
 
 "Overridable so a test can write somewhere other than the real file."
@@ -254,7 +254,7 @@ function set_read(url::AbstractString, at::Union{Nothing,AbstractString})
     r = load_read()
     u = String(url)
     at === nothing ? (haskey(r, u) && delete!(r, u)) : (r[u] = String(at))
-    write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
+    write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     nothing
 end
 
@@ -271,7 +271,7 @@ function mark_unread(urls)
     for u in urls
         haskey(r, String(u)) && (delete!(r, String(u)); n += 1)
     end
-    n == 0 || write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
+    n == 0 || write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     n
 end
 
@@ -281,7 +281,7 @@ function mark_read(urls, at::DateTime)
     for u in urls
         r[u] = s
     end
-    write(readfile(), json_dumps(r; indent = 1, sortkeys = true))
+    write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
     length(urls)
 end
 
@@ -315,7 +315,7 @@ function load_inbox()
     d
 end
 
-save_inbox(d) = write(inboxfile(), json_dumps(d; indent = 1, sortkeys = true))
+save_inbox(d) = write_atomic(inboxfile(), json_dumps(d; indent = 1, sortkeys = true))
 
 """Everything seen on the tracked repos and not yet marked read.
 

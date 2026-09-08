@@ -43,7 +43,7 @@ function set_touched(url::AbstractString, at::Union{Nothing,AbstractString})
     t = load_touched()
     u = String(url)
     at === nothing ? (haskey(t, u) && delete!(t, u)) : (t[u] = String(at))
-    write(touchedfile(), json_dumps(t; indent = 1, sortkeys = true))
+    write_atomic(touchedfile(), json_dumps(t; indent = 1, sortkeys = true))
     nothing
 end
 

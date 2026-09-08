@@ -83,7 +83,7 @@ function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
         for (k, v) in updates
             v === nothing || push!(lines, "$k = $(fmt(v))")
         end
-        write(statefile(), join(lines, "\n") * "\n")
+        write_atomic(statefile(), join(lines, "\n") * "\n")
         return "added"
     end
     i, j = span
@@ -110,7 +110,7 @@ function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
     new = vcat(lines[1:i-1],
                isempty(keep) ? String[] : vcat([lines[i]], body, blanks),
                lines[j:end])
-    write(statefile(), rstripnl(join(new, "\n")) * "\n")
+    write_atomic(statefile(), rstripnl(join(new, "\n")) * "\n")
     isempty(keep) ? "cleared" : "updated"
 end
 
@@ -167,7 +167,7 @@ function disarm(url::AbstractString)
     d = Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(f, String)))
     if haskey(d, url)
         delete!(d, url)
-        write(f, json_dumps(d; indent = 1, sortkeys = true))
+        write_atomic(f, json_dumps(d; indent = 1, sortkeys = true))
     end
     nothing
 end

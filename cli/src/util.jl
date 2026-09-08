@@ -1,5 +1,38 @@
-# Small shared helpers: the clock, ISO timestamps, and the two places where
-# Julia's stdlib does not give us what the Python it replaces relied on.
+# Small shared helpers: the clock, ISO timestamps, the one way anything here is
+# allowed to write a file, and the two places where Julia's stdlib does not give
+# us what the Python it replaces relied on.
+
+"""Write `content` to `path` so that a reader sees all of it or none of it.
+
+A unique name in the *same directory* - the same filesystem, or the rename below
+would be a copy - and then a rename over the target, which is the one file
+operation POSIX promises is atomic. Every caller of this rewrites a whole file
+from what it read a moment ago, and everything they rewrite is a record of what
+you have done that GitHub cannot re-answer: a crash, a full disk or a second
+`wl` reading mid-write would otherwise leave a truncated file where the record
+used to be. `cache_put` had this shape first, on the one file in `data/` that
+could be thrown away without loss.
+
+Atomicity, not durability. A reader never sees half a file; surviving the power
+going out would want the file and its directory fsynced around the rename, which
+is a cost per keystroke for a risk that loses at most the last thing typed.
+"""
+function write_atomic(path::AbstractString, content)
+    dir = dirname(abspath(path))
+    isdir(dir) || mkpath(dir)
+    tmp = tempname(dir; cleanup = false)
+    try
+        write(tmp, content)
+        mv(tmp, path; force = true)
+    catch
+        # The temporary is this function's own mess and nobody else's: leaving
+        # one behind would put an untracked file in the data repository for
+        # every failure, which is how a directory ends up full of them.
+        isfile(tmp) && rm(tmp; force = true)
+        rethrow()
+    end
+    nothing
+end
 
 """When an operation started, which is the instant everything in it is
 measured against.

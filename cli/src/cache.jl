@@ -45,13 +45,11 @@ end
 function cache_put(key::AbstractString, value)
     d = cachedir()
     isdir(d) || mkpath(d)
-    f = _slot(key)
-    tmp = f * ".tmp" * string(getpid())
     try
-        write(tmp, JSON3.write((at = time(), key = key, value = value)))
-        mv(tmp, f; force = true)          # atomic within the directory
+        write_atomic(_slot(key), JSON3.write((at = time(), key = key, value = value)))
     catch
-        isfile(tmp) && rm(tmp; force = true)
+        # A cache that cannot be written is a slow program, not a broken one -
+        # which is the one thing here that is true of no other file in `data/`.
     end
     value
 end

@@ -40,7 +40,7 @@ function set_draft(url::AbstractString, at::Union{Nothing,AbstractString})
     u = String(url)
     was = get(d, u, nothing)
     at === nothing ? (haskey(d, u) && delete!(d, u)) : (d[u] = String(at))
-    was == at || write(draftsfile(), json_dumps(d; indent = 1, sortkeys = true))
+    was == at || write_atomic(draftsfile(), json_dumps(d; indent = 1, sortkeys = true))
     nothing
 end
 

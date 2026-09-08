@@ -64,7 +64,7 @@ function save_repos(d)
             println(io, kk, " = ", repr(String(vv)))
         end
     end
-    write(repos_file(), String(take!(io)))
+    write_atomic(repos_file(), String(take!(io)))
 end
 
 """The directory holding the real object store.

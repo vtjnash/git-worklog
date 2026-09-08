@@ -498,9 +498,9 @@ function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
             continue
         end
         # Persist after every lane, not at the end.
-        write(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
+        write_atomic(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
     end
-    write(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
+    write_atomic(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
     how = "fetched $(sum(length(v) for v in values(lanes); init=0))"
     isempty(failed) || (how *= ", $(length(failed)) lane(s) stale")
     (lanes, spent, how)
@@ -651,10 +651,10 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             @printf(stderr, "  %-16s %s  (%s)\n", "snooze", w, u)
     end
 
-    write(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
-                              "items" => items]; indent = 1, sortkeys = true))
-    write(snzp, json_dumps(snz; indent = 1, sortkeys = true))
-    write(datapath("DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
+    write_atomic(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
+                                     "items" => items]; indent = 1, sortkeys = true))
+    write_atomic(snzp, json_dumps(snz; indent = 1, sortkeys = true))
+    write_atomic(datapath("DASHBOARD.md"), render(items, changes, cfg, spent, at, unread))
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
     # the slow, non-interactive one - and because everything it drops is older
