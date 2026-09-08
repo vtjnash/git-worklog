@@ -175,9 +175,14 @@ carries `repo` and `number`, so an owner and a project beside them would be the
 same fact written twice, and a field only a refresh can fill in is one that is
 missing from every snapshot written before it.
 
-The url is last because an adopted branch has no number of its own - two of them
-in one repo are tied on all three, and the order they come out in should not
-depend on which of them the file happened to hold first.
+The url is last, and it is there for one class of item only. GitHub numbers
+issues and pull requests from a single sequence per repository, so the first
+three already tell any two of *those* apart. An adopted branch has no number at
+all - every one in a repo is `0` - so they tie on all three, and the order two
+of them come out in should not depend on which the file happened to hold first.
+`it.branch` would separate them equally well, since a `local:` url is built from
+the repo and the branch; the url is what the rest of this program keys on, so
+totality is true of it by construction rather than by an argument about branches.
 """
 function urlkey(it::Item)
     parts = split(it.repo, '/'; limit = 2)
