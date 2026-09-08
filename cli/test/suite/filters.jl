@@ -455,6 +455,40 @@ end
     @test st.filters.state === :all && st.filters.kind === :issue
     @test occursin("view:", st.status)
 
+    # The first ten are on keys of their own: the same ten in the same order
+    # every time is a list reached by memory, and arrow-and-return is the slow
+    # way to press something whose position you already know. `2` is the second
+    # of them, `0` the tenth, and nothing else in the program numbers a picker.
+    @test v.numbered
+    box = W.astrip(W.render(v, 160, 50))
+    @test occursin(string("1  ", v.options[1][1]), box)
+    @test occursin(string("2  ", v.options[2][1]), box)
+    @test occursin("0-9 picks", box)
+    # Ten of them: `0` is the tenth, where a decade of terminals put it, and the
+    # eleventh keeps the column without a key.
+    ten = W.ChooseView("t", "", Tuple{String,Any}[(string("row ", i), i) for i in 1:11],
+                       identity; numbered = true)
+    tbox = W.astrip(W.render(ten, 160, 50))
+    @test occursin("9  row 9", tbox) && occursin("0  row 10", tbox)
+    @test occursin("   row 11", tbox)
+    got = Ref(0); ten.onpick = x -> (got[] = x)
+    @test W.handle!(ten, Int('0'), ctrl) === :pop && got[] == 10
+    st.filters = W.Filters()
+    W.handle!(st, Int('\''), ctrl)
+    v2 = last(ctrl.stack)
+    @test W.handle!(v2, Int('2'), ctrl) === :pop       # picks, and closes
+    picked = W.filter_summary(st.filters, st.sort)
+    W.apply_view!(st, v2.options[2][2])
+    @test W.filter_summary(st.filters, st.sort) == picked
+    pop!(ctrl.stack)
+    # A digit past the end of the list picks nothing rather than the last row.
+    v3 = W.ChooseView("t", "", Tuple{String,Any}[("one", 1)], identity; numbered = true)
+    @test W.handle!(v3, Int('5'), ctrl) === :ok
+    # And an unnumbered picker takes digits as a query, the way it always has.
+    v4 = W.ChooseView("t", "", Tuple{String,Any}[("one", 1)], identity)
+    W.handle!(v4, Int('5'), ctrl)
+    @test v4.query == "5"
+
     # Writing one down is a paste, not a write: config.toml is the user's file.
     # What it prints parses back into the filter it came from, which is the only
     # property worth having of it.

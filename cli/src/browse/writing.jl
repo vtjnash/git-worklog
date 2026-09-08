@@ -311,6 +311,10 @@ function view_action(st::BState, ctrl::Controller)
     end
     opts = Tuple{String,Any}[(n, d) for (n, d) in vs]
     push!(opts, ("\u2026 write this filter down as a view", :save))
+    # Numbered, alone among the pickers: the built-in views are the same ten in
+    # the same order every time, so they are reached by memory rather than by
+    # reading, and arrow-and-return is the slow way to press something you
+    # already know the position of.
     push_view!(ctrl, ChooseView("Views", "\u21b5 applies one \u00b7 ` goes back", opts,
         v -> begin
             if v === :save
@@ -333,7 +337,7 @@ function view_action(st::BState, ctrl::Controller)
                 load_nodes!(st); load_meta!(st)
                 st.status = string("view: ", msg)
             end
-        end))
+        end; numbered = true))
 end
 
 """The draft review being held, as a line to show and a key to answer with.

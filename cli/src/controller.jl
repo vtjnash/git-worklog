@@ -686,9 +686,20 @@ mutable struct ChooseView <: View
     sel::Int
     top::Int
     onpick::Any                           # (value) -> Nothing; not called on cancel
+    numbered::Bool                        # are the first ten on keys of their own?
 end
-ChooseView(title, note, options, onpick) =
-    ChooseView(String(title), String(note), options, "", 1, 1, onpick)
+ChooseView(title, note, options, onpick; numbered::Bool = false) =
+    ChooseView(String(title), String(note), options, "", 1, 1, onpick, numbered)
+
+"""The key that picks row `i` straight off, or `' '` for a row past the tenth.
+
+`1`-`9` and then `0`, which is where a decade of terminals put the tenth of
+anything. Only for a list that is the same list every time and is reached by
+memory rather than by reading - the views - and it costs those ten the ability
+to be narrowed by typing a digit, which is a trade the built-in names can
+afford.
+"""
+numkey(i::Int) = i < 1 || i > 10 ? ' ' : i == 10 ? '0' : Char('0' + i)
 
 shown(v::ChooseView) = isempty(v.query) ? v.options :
     [o for o in v.options if occursin(lowercase(v.query), lowercase(o[1]))]
@@ -740,12 +751,16 @@ function render(v::ChooseView, w::Int, h::Int)
         if i > length(opts)
             push!(out, b.row(""))
         else
-            push!(out, b.row(opts[i][1], i == v.sel ? "\e[1;37m" : "\e[2m"))
+            # The digit, or a space where it has run out, so the names stay
+            # in one column whether or not the row has a key of its own.
+            label = v.numbered ? string(numkey(i), "  ", opts[i][1]) : opts[i][1]
+            push!(out, b.row(label, i == v.sel ? "\e[1;37m" : "\e[2m"))
         end
     end
     isempty(opts) && (out[end] = b.row("nothing matches", "\e[2m"))
     push!(out, b.foot())
-    push!(out, b.hint("↑/↓ move · ↵ pick · esc cancel"))
+    push!(out, b.hint(v.numbered ? "0-9 picks · ↑/↓ move · ↵ pick · esc cancel" :
+                                   "↑/↓ move · ↵ pick · esc cancel"))
     centred(out, w, h)
 end
 
@@ -762,6 +777,13 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
         v.sel = min(length(opts), v.sel + 1)
     elseif k in (K_UP, 16)
         v.sel = max(1, v.sel - 1)
+    elseif v.numbered && Int('0') <= k <= Int('9')
+        # Above `printable`, so the digit picks rather than narrowing. Nothing
+        # happens where there is no tenth row to pick.
+        i = k == Int('0') ? 10 : k - Int('0')
+        i <= length(opts) || return :ok
+        v.onpick(opts[i][2])
+        return :pop
     elseif k in (127, 8)
         isempty(v.query) || (v.query = v.query[1:prevind(v.query, end)]; v.sel = 1)
     elseif k == C_U
