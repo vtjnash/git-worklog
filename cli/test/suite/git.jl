@@ -155,3 +155,41 @@ end
     @test W.pr_branch(W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1,
                              title = "t", is_pr = false)) == ""
 end
+
+@testset "the data directory commits itself, once a day" begin
+    # It is a git repository of its own so that the record of what you have done
+    # has a history, and nothing was ever committing to it.
+    was = W.DATA_DIR[]
+    d = mktempdir()
+    try
+        W.DATA_DIR[] = d
+        # Not a repository: nothing to do, and nothing said about it.
+        write(joinpath(d, "touched.json"), "{}")
+        @test W.commit_data!() == ""
+        W.git(d, "init", "-q")
+        W.git(d, "config", "user.email", "test@example.com")
+        W.git(d, "config", "user.name", "test")
+        said = W.commit_data!()
+        @test occursin("committed 1 file", said)
+        @test occursin("touched.json", W.git(d, "log", "-1", "--format=%s"))
+        # Once a day: the same day again is a no-op, however dirty it gets.
+        write(joinpath(d, "read.json"), "{}")
+        @test W.commit_data!() == ""
+        @test length(split(strip(W.git(d, "log", "--format=%h")), '\n')) == 1
+        # A clean tree is nothing to commit even when the day has turned.
+        W.git(d, "add", "-A"); W.git(d, "commit", "-q", "-m", "by hand")
+        # Committer date, not author date: what is being asked is when this
+        # repository last had something recorded in it, which is `%cd`.
+        withenv("GIT_COMMITTER_DATE" => "2020-01-01T09:00:00") do
+            W.git(d, "commit", "-q", "--amend", "--no-edit")
+        end
+        @test W.commit_data!() == ""
+        # Dirty and a day old: committed, and the message names what moved.
+        write(joinpath(d, "state.toml"), "# hello\n")
+        said = W.commit_data!()
+        @test occursin("first run since 2020-01-01", said)
+        @test occursin("state.toml", W.git(d, "log", "-1", "--format=%s"))
+    finally
+        W.DATA_DIR[] = was
+    end
+end

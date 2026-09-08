@@ -66,38 +66,26 @@ What is left, in the order it is worth doing:
      test on a shared machine; a line printed at the end of the run is not, and
      it is enough to notice a regression the next time somebody looks.
 
-3. **Every write to `data/` should land atomically.** `cache_put` is the only
-   one that does it - write a temporary name in the same directory, `mv` over
-   the target - and it is the one file in there that could be thrown away
-   without loss. The nine that matter do not: `touched.json`, `drafts.json`,
-   `read.json`, `inbox.json`, `snooze.json`, `facts.json`, `bulk.json`,
-   `repos.toml` and `state.toml` are each rewritten whole, in place, so a crash
-   or a full disk mid-write leaves a truncated file where the record of what you
-   have done used to be. `state.toml` is the worst of them: it is the one the
-   user writes by hand, and it is rewritten on every field set. One helper
-   beside `json_dumps`, used by all of them and by `cache_put`, which already
-   has the shape.
+3. **The lost update, which the watch does not fix.** Two windows now agree
+   about what is *in* `data/` - a write in one is heard in the other and the
+   records are taken again - but they still race to write it. `set_touched`,
+   `set_draft` and `set_read` each read the whole file, change one key and write
+   it back, so two of them straddling each other lose the earlier one's key. The
+   window is milliseconds and the cost is one stamp, which is why this is third
+   and not first; closing it means holding a lock across the read and the write,
+   or an append-only shape that does not have to read at all.
 
-4. **Two browsers open are two dashboards that disagree.** Everything in `data/`
-   is read into memory at startup and re-read only when this process changes
-   something - so a second `wl`, or `wl set` in another terminal, or the
-   refresh that runs on a timer, is invisible until the browser is restarted.
-   Worse than invisible: `touched.json` and the rest are rewritten *whole* from
-   what was read, so the second writer silently drops the first one's changes.
-   `FileWatching.watch_folder` on `data/` is the cheap half - wake the
-   controller, re-read the maps, `refilter!` - and it is the half that makes the
-   drafts lane, the archive and the read marks agree between windows. The other
-   half is the lost update, which a watch does not fix: the read-modify-write in
-   `set_touched` and friends has to happen close enough to the write that
-   nothing can land between them, or hold a lock while it does.
-
-5. **Commit `data/` once a day, on the first pickup.** It is a git repository of
-   its own precisely so that the record of what you have done has a history -
-   and nothing ever commits to it, so the history is whatever was committed by
-   hand. The first run of a day is the moment: if the tree is dirty and the last
-   commit is not from today, `git add -A && git commit` it with a message saying
-   what changed, then get on with what was asked. Quiet, non-blocking, and a
-   no-op when `data/` is not a repository at all.
+4. **Verify the drafts at refresh, not only when an item is opened.** Nothing
+   about a pending review reaches the notification path: it produces no event,
+   it does not move the pull request's `updated_at`, and its comments are not in
+   `pulls/{n}/comments` until it is submitted - which is exactly why the lane is
+   a local file. What *is* visible is the submission: once sent, the comments
+   become ordinary review comments and the item turns up in the poll like any
+   other change. So a mark left by a review submitted on github.com is cleared
+   today only by opening that item. The marked set is small by construction -
+   they are your own unsent drafts - so a refresh could ask `review_state` for
+   each of them and clear what is gone, which is a handful of queries and makes
+   the lane true across machines.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,

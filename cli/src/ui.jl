@@ -299,7 +299,63 @@ end
 
 ask(prompt) = (print(prompt); strip(readline()))
 
+"""Commit `data/` once a day, the first time it is picked up. Says what it did.
+
+The directory is a git repository of its own precisely so that the record of
+what you have done has a history - the interaction clock, the read cursors, the
+notes and the archive are none of them re-fetchable - and nothing ever committed
+to it, so that history was whatever had been committed by hand.
+
+The first run of a day is the moment, and what says the day has turned is the
+last commit rather than a stamp of our own: a file recording when this last ran
+would be one more thing in `data/` to write and to keep true, and `git log -1`
+already knows. Local dates on both sides, because "this morning" is a thing that
+happens where the person is.
+
+Before the refresh rather than after, so that a day's work is committed as a day
+and not folded into the fetch that follows it.
+
+Nothing here is allowed to fail loudly. This runs ahead of whatever was actually
+asked for, and a directory that is not a repository, a `user.email` that was
+never set, or a hook that refuses is not a reason to fail to open the dashboard.
+"""
+function commit_data!(at::DateTime = utcnow())
+    d = datadir()
+    isdir(joinpath(d, ".git")) || return ""
+    try
+        isempty(strip(git(d, "status", "--porcelain"))) && return ""
+        # A repository with no commits yet has no last day, and today is the
+        # first one. That is the case `git log` fails on rather than answers.
+        last = try
+            strip(git(d, "log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%d"))
+        catch
+            ""
+        end
+        today = Dates.format(Dates.today(), "yyyy-mm-dd")
+        last == today && return ""
+        git(d, "add", "-A")
+        names = [basename(l) for l in split(strip(git(d, "diff", "--cached",
+                                                      "--name-only")), '\n')
+                 if !isempty(l)]
+        isempty(names) && return ""       # everything staged was ignored anyway
+        what = length(names) > 4 ?
+               string(join(first(names, 4), ", "), " and ", length(names) - 4, " more") :
+               join(names, ", ")
+        git(d, "commit", "-q", "-m", string("data ", today, ": ", what))
+        string("committed ", length(names), " file", length(names) == 1 ? "" : "s",
+               " in data/ - first run since ", isempty(last) ? "it was made" : last)
+    catch e
+        # Reported, not raised, and not silent either: a commit that has been
+        # failing every morning for a week is worth one line a day.
+        string("could not commit data/: ", first(sprint(showerror, e), 120))
+    end
+end
+
 function ui(args = String[], at::DateTime = utcnow())
+    # First, before anything writes: what is in there is yesterday's.
+    let said = commit_data!(at)
+        isempty(said) || println(said)
+    end
     if "--refresh" in args
         println("refreshing...")
         # Its own operation, and its own start: a refresh takes half a minute
