@@ -528,7 +528,7 @@ version = "0.4.1"
     julia_version = "1.0.0"
 
 [[deps.Worklog]]
-deps = ["Base64", "Dates", "GitHub", "InteractiveUtils", "JSON3", "Markdown", "OrderedCollections", "Printf", "REPL", "SHA", "TOML", "Term"]
+deps = ["Base64", "Dates", "FileWatching", "GitHub", "InteractiveUtils", "JSON3", "Markdown", "OrderedCollections", "Printf", "REPL", "SHA", "TOML", "Term"]
 path = ".."
 uuid = "b1a7f0de-4c2e-4f8a-9c31-7d5e6a2b9c04"
 version = "0.1.0"
