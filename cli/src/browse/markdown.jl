@@ -444,7 +444,21 @@ function rows(nodes::Vector{Node}, w::Int)
         end
         pad = " "^(2 * n.depth)
         iw = max(20, w - 2 * n.depth)
-        full = string(n.open ? "▾ " : "▸ ", n.header)
+        # A blank row above each top-level header, except the first. The header
+        # draws a rule out to the edge of the pane, and without this the body of
+        # the comment before it ends flush against that rule and the eye has
+        # nothing to stop on. It is a header row, and a continuation of one, so
+        # that everything which counts body rows - `hunk_line_at` maps them to
+        # diff lines - counts what it did before, and so a copy taken across it
+        # is the text as written rather than the spacing it is drawn with.
+        (n.depth == 0 && !isempty(out)) && push!(out, Row(i, true, "", "", 1))
+        # Open, the header loses its peek: the same words are on the row
+        # underneath it, and reading them twice is how a comment looks when it
+        # has been said twice. `byline` is what is left - who and when, and
+        # where a review comment was pointing - and only the two headers that
+        # carry a peek have one.
+        full = string(n.open ? string("▾ ", get(n.meta, "byline", n.header)) :
+                               string("▸ ", n.header))
         # Wrapped, not cut: a header is a byline plus a peek at the body, and on
         # a narrow pane cutting it loses the half that says what the comment is
         # about. Continuations are indented under the text, so the fold marker

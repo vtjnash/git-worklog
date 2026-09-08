@@ -226,8 +226,12 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         peek = strip(first(replace(lead, r"\s+" => " "), 58))
         made[1].header = string(nz(who, "?"), "  ", when, loc, "   ", peek)
         # The header's peek is cut mid-word; copy the byline instead, since the
-        # body itself is on the rows underneath it.
+        # body itself is on the rows underneath it. `byline` is the same thing
+        # for the screen rather than for the clipboard, so it keeps the colour
+        # on the location - it is what the header reads as once the node is open
+        # and the peek would be repeating the row below it.
         made[1].meta["src"] = string(nz(who, "?"), "  ", when, astrip(loc))
+        made[1].meta["byline"] = string(nz(who, "?"), "  ", when, loc)
         # Only a review comment can be replied to in a thread; an issue comment
         # has no thread to reply into, so `c` there writes a new one.
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
@@ -401,6 +405,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
                                                       "\r\n" => "\n")),
                            String(nz(get(c, "html_url", nothing), url)), true, depth)
         made[1].meta["src"] = src
+        made[1].meta["byline"] = src
         made[1].meta["comment_id"] = get(c, "id", nothing)
         append!(out, made)
         for r in get(replies, get(c, "id", nothing), ())

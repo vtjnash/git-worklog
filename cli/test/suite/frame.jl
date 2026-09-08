@@ -251,12 +251,20 @@ end
 @testset "folding takes what is nested under it" begin
     ns = [W.Node("comment", "body", :md, true), W.Node("folded", "hidden", :md, true, 1),
           W.Node("deeper", "also hidden", :md, true, 2), W.Node("sibling", "shown", :md, true)]
-    @test length(W.rows(ns, 60)) == 8
+    # Eight rows of content and one blank, which is the gap above the second
+    # top-level header: the rule it draws needs something to be a rule under.
+    rs0 = W.rows(ns, 60)
+    @test length(rs0) == 9
+    @test count(r -> isempty(W.astrip(r.text)), rs0) == 1
+    # And it is a header continuation, so nothing that counts a node's body rows
+    # counts the spacing it is drawn with.
+    blank = first(r for r in rs0 if isempty(W.astrip(r.text)))
+    @test blank.header && blank.part == 1 && isempty(blank.src)
     # A top-level header carries a rule out to the pane edge; ignore it here.
     derule(x) = String(rstrip(replace(W.astrip(x), r"[─ ]+$" => "")))
     ns[1].open = false
     shown = [derule(r.text) for r in W.rows(ns, 60)]
-    @test shown == ["▸ comment", "▾ sibling", "shown"]
+    @test shown == ["▸ comment", "", "▾ sibling", "shown"]
     ns[1].open = true; ns[2].open = false
     shown = [derule(r.text) for r in W.rows(ns, 60)]
     @test !any(occursin("deeper", x) for x in shown)     # the run below it goes too
@@ -292,6 +300,15 @@ end
     hdr(n) = W.astrip(n.header)
     @test occursin("💬1", hdr(out[1]))                    # the hunk says so
     @test hdr(out[2]) == "alice  2026-08-01T10:00   a remark" && out[2].depth == 1
+    # The peek is what makes a folded comment readable, and what makes an open
+    # one say itself twice - so open, the header is the byline alone and the
+    # words are on the row underneath it, once.
+    open_ = W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2))
+    @test occursin("alice  2026-08-01T10:00", open_) && !occursin("a remark", open_)
+    out[2].open = false
+    @test occursin("a remark",
+                   W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2)))
+    out[2].open = true
     @test out[3].depth == 2                               # the reply nests under it
     @test occursin("💬1", hdr(out[4]))                    # and the second hunk
 
