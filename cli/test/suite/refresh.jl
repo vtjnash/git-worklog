@@ -130,6 +130,37 @@ end
               W.astrip.(W.meta_lines(st, quiet, 60)))
 end
 
+@testset "mergeability is not carried past the merge" begin
+    # GitHub computes mergeability lazily and answers UNKNOWN until it has,
+    # which used to flap the needs-stacking lane and wake on-change snoozes -
+    # so the last known value is carried forward while the question still has
+    # an answer.
+    @test W.carried_mergeable("OPEN", "CONFLICTING") == "CONFLICTING"
+    @test W.carried_mergeable("OPEN", "MERGEABLE") == "MERGEABLE"
+    # A first sight has nothing to carry, and a second UNKNOWN is not an answer.
+    @test W.carried_mergeable("OPEN", nothing) === nothing
+    @test W.carried_mergeable("OPEN", "UNKNOWN") === nothing
+    # And once it is over the question has no answer: a merged pull request
+    # answers UNKNOWN for good, so carrying pinned "conflicting" onto something
+    # that had merged - julia#62396, merged and conflicting at the same time.
+    @test W.carried_mergeable("MERGED", "CONFLICTING") === nothing
+    @test W.carried_mergeable("CLOSED", "MERGEABLE") === nothing
+
+    # The pane is right about a snapshot written before the refresh caught up,
+    # which is the case the reader actually meets: the row is from this morning
+    # and the merge was this afternoon.
+    st = mkstate()
+    base = (url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b",
+            number = 1, title = "t", is_pr = true, mergeable = "CONFLICTING")
+    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
+                              if occursin("mergeable", l)], " "))
+    @test occursin("conflicting", says(W.Item(; base..., state = "OPEN")))
+    @test says(W.Item(; base..., state = "MERGED")) == ""
+    @test says(W.Item(; base..., state = "CLOSED")) == ""
+    # A snapshot old enough to carry no state at all still says what it knows.
+    @test occursin("conflicting", says(W.Item(; base...)))
+end
+
 @testset "a settled thread is out of the way, not gone" begin
     # Comments are placed against the hunk they point into. Resolution is a
     # property of the *thread* and REST carries no trace of it, so a

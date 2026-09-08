@@ -350,6 +350,24 @@ end
 
 snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
 
+"""What `mergeable` should say when GitHub has answered `UNKNOWN`.
+
+GitHub computes mergeability lazily: the first read of a pull request returns
+`UNKNOWN` and only schedules the real computation. Treating that as fact flaps
+the needs-stacking lane between refreshes and, worse, spuriously wakes
+on-change snoozes - so the last known value is carried forward until a real one
+arrives, and the read that got `UNKNOWN` has warmed it for the next refresh.
+
+**Except once it is over.** A merged or closed pull request answers `UNKNOWN`
+for good: there is no merge to be possible any more, so this is not a fact that
+has gone temporarily unknown, it is a question with no answer. Carrying the last
+value forward there pins whatever was true the day before the merge onto
+something that has merged - which is how julia#62396 came to be merged and
+"conflicting" at the same time.
+"""
+carried_mergeable(state, prev) =
+    (state in ("MERGED", "CLOSED") || prev == "UNKNOWN") ? nothing : prev
+
 """Which edge of a snooze this refresh crossed: `:slept`, `:woke`, or nothing.
 
 Only the edges. Marking read on every refresh an item is asleep would bury a
@@ -682,14 +700,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     slept, woke = String[], OrderedDict{String,Any}[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
-        # GitHub computes mergeability lazily: the first read of a PR returns
-        # UNKNOWN and only schedules the real computation. Treating that as fact
-        # flaps the needs-stacking lane between refreshes and, worse, spuriously
-        # wakes on-change snoozes. Carry the last known value forward until a
-        # real one arrives - this read warms it for the next refresh.
         if get(r, "mergeable", nothing) == "UNKNOWN"
-            carried = jget(jget(prev_items, Symbol(url)), :mergeable)
-            r["mergeable"] = carried == "UNKNOWN" ? nothing : carried
+            r["mergeable"] = carried_mergeable(get(r, "state", nothing),
+                                               jget(jget(prev_items, Symbol(url)), :mergeable))
         end
         apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])

@@ -181,8 +181,14 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv("updated", when_str(it.updated))
     kv("milestone", string(it.milestone,
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
-    it.is_pr && kv("mergeable", it.mergeable == "CONFLICTING" ?
-                                string(RED, "conflicting", AR) : lowercase(it.mergeable))
+    # Only while it is open. Once it is merged or closed there is no merge left
+    # to be possible, and a snapshot taken before the merge would otherwise go
+    # on saying "conflicting" about something that is over. The refresh drops
+    # the value at the same edge; this is the half that is right about a
+    # snapshot written before it did.
+    it.is_pr && (isempty(it.state) || it.state == "OPEN") &&
+        kv("mergeable", it.mergeable == "CONFLICTING" ?
+                        string(RED, "conflicting", AR) : lowercase(it.mergeable))
     isempty(it.secondlook) || kv("quiet", string(YEL, it.secondlook, AR))
     b = batch_of(st, it)
     b === nothing ||
