@@ -50,9 +50,9 @@ careful comments are easy to lose — and it needs a fine-grained PAT with
 See Infrastructure.
 
 Waiting on other people rather than on us: **FedeClaudi/Term.jl#304**, **#305**
-and **#306**, the three bugs this program works around in `escape_source` and
-`for_term`. When each lands and a release carries it, those workarounds are what
-to delete - see Upstream, below.
+and **#306**, and **JuliaLang/julia#63081** - the four bugs this program works
+around in `escape_source` and `for_term`. When each lands and a release carries
+it, those workarounds are what to delete - see Upstream, below.
 
 ### What a read-through turns up
 
@@ -725,7 +725,7 @@ untested:
   on an ordinary comment writes a new one rather than replying. That matches
   GitHub, but it surprises.
 
-### File the intraword-emphasis bug upstream
+### The intraword-emphasis bug — filed as JuliaLang/julia#63081
 `deliver_result and connect_to_peer` renders as `deliverresult and
 connectto_peer`. Every snake_case name in a comment that was not written inside
 backticks loses characters — which is most of them, since people type function
@@ -753,30 +753,41 @@ letter on both sides is both-flanking and unpunctuated, so it cannot open —
 which is why GitHub renders `snake_case_name` literally and we do not. The
 disagreement is with the page the comment came from.
 
-**Not filed yet, and there is no existing issue.** Searched JuliaLang/julia for
-markdown + emphasis/underscore/intraword/italic; the closest is #57265, which is
-`@md_str` interpolation and closed as a duplicate of something else. `Markdown`
-is still a stdlib inside JuliaLang/julia (`stdlib/Markdown`), so that is where it
-goes, with the snippet above.
+There was no existing issue - searched JuliaLang/julia for markdown +
+emphasis/underscore/intraword/italic, and the closest was #57265, which is
+`@md_str` interpolation and closed as a duplicate of something else.
 
-**The workaround has shipped** — `escape_source` escapes such an underscore
-before `Markdown.parse` sees it, skipping fenced blocks, indented blocks and
-inline code spans, where a backslash would print. (It is the same pass that
-doubles braces for Term, since both are a markup layer eating characters that
-were text.) So this repo is no longer waiting on the fix; what remains is filing
-it, so that everyone else's rendered docstrings and READMEs stop losing
-characters too.
+**#63081 implements the fix**, in `stdlib/Markdown`, where the parser lives.
+`parse_inline_wrapper` is shared by `*`, `_`, `~` and `$`, so the rule belongs to
+the delimiter rather than to it: an `intraword` keyword, default `true`, that
+the two underscore triggers pass as `false`. A run touching a word character on
+its outer side can then neither open nor close, and in the closing case the scan
+*continues* rather than giving up, which is what keeps `_foo_bar_baz_`
+emphasised across its inner underscores. Reading the character before a run also
+had to learn to step back over UTF-8 continuation bytes - the pre-existing
+"previous character isn't a delimiter" check needed that too and never had it,
+which is why the Cyrillic spec examples failed.
 
-**Written up in `fixme-julia-markdown.md`**, in this directory, to be moved into
-a julia checkout. What it adds to the above is the acceptance test, which turns
-out to be in the tree already: `stdlib/Markdown/test/` carries the CommonMark
-spec with a `known_broken` set, so a fix makes the suite fail *on purpose* and
-`regenerate_test_spec.jl` rewrites the generated runners. A fix of the shape it
-describes flips **seventeen** spec examples from failing to passing and
-regresses none — 294 failing before, 277 after, at `flavor = :common` — and all
-seventeen are this bug, single and double underscore alike. Measured by copying
-the module's source somewhere writable and `include`ing it, which loads
-standalone as `Main.Markdown`: the whole loop runs without building Julia.
+The acceptance test was already in the tree, which is the part worth
+remembering: `stdlib/Markdown/test/` carries the CommonMark spec with a
+`known_broken` set and a standing `@test_broken`, so a fix makes the suite fail
+*on purpose* and `regenerate_test_spec.jl` rewrites the generated runners.
+Seventeen more examples pass in each flavor and none newly fail. The loop ran
+without building Julia at all: the module's source loads standalone as
+`Main.Markdown` if it is copied somewhere writable and `include`d, so a change
+could be measured against all 652 examples in seconds.
+
+It also fixes a docstring in **#42068**, where a stray trailing underscore
+swallowed the rest of a sentence and an inline code span with it - found while
+looking for something the change would visibly improve, and worth knowing that
+such a thing was easy to find.
+
+**The workaround stays until this lands and a release carries it.**
+`escape_source` escapes such an underscore before `Markdown.parse` sees it,
+skipping fenced blocks, indented blocks and inline code spans, where a backslash
+would print. (It is the same pass that doubles braces for Term, since both are a
+markup layer eating characters that were text.) When the fix ships, that half of
+it is what to delete.
 
 ### The brace bug on Term.jl — filed as FedeClaudi/Term.jl#304
 `a Tuple{Type{S{N}}} sig` printed as `a Tuple sig` — the type silently deleted,
@@ -851,10 +862,11 @@ to fix".
 
 ## Upstream
 
-The three Term.jl bugs are filed, from the checkout beside this one:
-`Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored there) with
-each bug reproduced against v2.2.0, the cause located and the decision spelled
-out. **#304**, **#305** and **#306** came out of it.
+All four are filed. The three Term.jl ones came out of the checkout beside this
+one - `Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored
+there) with each bug reproduced against v2.2.0, the cause located and the
+decision spelled out - and are **#304**, **#305** and **#306**. The fourth was
+never Term's: **JuliaLang/julia#63081**, which is a fix and not only a report.
 
 They stay on this list until each lands *and* a release carries it, because the
 workarounds here are what to delete then - and deleting them is the point of
@@ -884,10 +896,10 @@ having filed.
   renumber everything after it. That is the same pass that moves a nested
   table, since both are Term crashing on a shape Julia's parser is happy with
   and each takes a whole comment down.
-- **JuliaLang/julia: the intraword-emphasis bug** — see its own section above,
-  and `fixme-julia-markdown.md`. Term was the first suspect and is innocent:
-  the mangling is already in the AST that Julia's `Markdown` hands over, so this
-  is the one on the list that is not Term's and the one still to file.
+- **JuliaLang/julia: the intraword-emphasis bug** — filed *and* fixed as
+  **#63081**; see its own section above. Term was the first suspect and is
+  innocent: the mangling is already in the AST that Julia's `Markdown` hands
+  over, which is why this is the one on the list that was never Term's.
 - **Term.jl: the brace bug** — filed as **#304**; see its own section above.
 - **Term.jl: a tmux-backed pane as a widget.** Built here and in use: a session
   per worktree, a control-mode client over a pipe pair, a `View` whose render is
