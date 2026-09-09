@@ -4,3 +4,9 @@
 # this one: mixed in here it buried the diffs that matter in the diffs that do
 # not, and dirtied the tree on every refresh. `WORKLOG_DATA` points elsewhere.
 data/
+
+# A clone of Term.jl, kept here because this directory is the only one that
+# survives the sandbox. It is somewhere to fix the three `TermMarkdown` bugs
+# this program works around - `Term.jl/fixme.md` is the write-up of them, and
+# is excluded from that checkout too so it cannot end up in a pull request.
+/Term.jl/
