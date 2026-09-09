@@ -133,9 +133,10 @@ changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `u` re-fetches the
 whole dashboard in the background, `w` cycles the three orders, `x` archives,
 `z` undoes the last local action. A click on a url copies it, whole even where
-the wrapping cut it, a drag over the reading pane selects rows for `y` to copy
-and `c` to comment on, and `shift-J`/`shift-K` or the shifted arrows do the same
-from the keyboard. The list opens newest first - by when anything last
+the wrapping cut it, a double click copies the word - or the item's url, in the
+list - and the `⧉` at the end of every header copies that block whole. A drag
+over the reading pane selects rows for `y` to copy and `c` to comment on, and
+`shift-J`/`shift-K` or the shifted arrows do the same from the keyboard. The list opens newest first - by when anything last
 happened, yours or GitHub's - and `w` reaches the other two orders: the
 interaction clock, and the url (owner, project, number, descending). A row that
 leaves the list under you - `r` in the unread lane, `x`, `s` - leaves the cursor
