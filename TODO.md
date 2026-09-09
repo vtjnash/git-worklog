@@ -49,6 +49,11 @@ careful comments are easy to lose — and it needs a fine-grained PAT with
 `issues: write` and `pull_requests: write` on the repositories being reviewed.
 See Infrastructure.
 
+Waiting on other people rather than on us: **FedeClaudi/Term.jl#304**, **#305**
+and **#306**, the three bugs this program works around in `escape_source` and
+`for_term`. When each lands and a release carries it, those workarounds are what
+to delete - see Upstream, below.
+
 ### What a read-through turns up
 
 Kept from the last pass over `src/browse/*` because it says what to look for
@@ -754,13 +759,26 @@ markdown + emphasis/underscore/intraword/italic; the closest is #57265, which is
 is still a stdlib inside JuliaLang/julia (`stdlib/Markdown`), so that is where it
 goes, with the snippet above.
 
-**The workaround has shipped** — `escape_intraword` escapes such an underscore
+**The workaround has shipped** — `escape_source` escapes such an underscore
 before `Markdown.parse` sees it, skipping fenced blocks, indented blocks and
-inline code spans, where a backslash would print. So this repo is no longer
-waiting on the fix; what remains is filing it, so that everyone else's rendered
-docstrings and READMEs stop losing characters too.
+inline code spans, where a backslash would print. (It is the same pass that
+doubles braces for Term, since both are a markup layer eating characters that
+were text.) So this repo is no longer waiting on the fix; what remains is filing
+it, so that everyone else's rendered docstrings and READMEs stop losing
+characters too.
 
-### File the brace bug on Term.jl
+**Written up in `fixme-julia-markdown.md`**, in this directory, to be moved into
+a julia checkout. What it adds to the above is the acceptance test, which turns
+out to be in the tree already: `stdlib/Markdown/test/` carries the CommonMark
+spec with a `known_broken` set, so a fix makes the suite fail *on purpose* and
+`regenerate_test_spec.jl` rewrites the generated runners. A fix of the shape it
+describes flips **seventeen** spec examples from failing to passing and
+regresses none — 294 failing before, 277 after, at `flavor = :common` — and all
+seventeen are this bug, single and double underscore alike. Measured by copying
+the module's source somewhere writable and `include`ing it, which loads
+standalone as `Main.Markdown`: the whole loop runs without building Julia.
+
+### The brace bug on Term.jl — filed as FedeClaudi/Term.jl#304
 `a Tuple{Type{S{N}}} sig` printed as `a Tuple sig` — the type silently deleted,
 not mangled. Term's markup is `{...}` and `apply_style` consumes anything shaped
 like a tag, and `parse_md` does not escape the braces it passes through from
@@ -773,11 +791,17 @@ which is Term's own escape (`Term.escape_brackets` does the same), and the
 doubling survives `parse_md` for `render_md` to collapse. It cannot be done to
 `parse_md`'s *output*, where Term's own tags live as braces.
 
-**Not filed.** FedeClaudi/Term.jl. Prior art to cite, both closed and both the
-same bug when the markup delimiter was `[...]`: **#59** "escape style brackets",
-where the maintainer said the next version would ignore doubled brackets, and
-**#84** "Term removes bracket `[...]`". Neither covers `parse_md` failing to
-escape what it emits, which is the actual report:
+**Filed as #304**, "fix: keep literal braces in markdown, and stop printing them
+doubled". Writing it up turned one bug into two ends of the same one: prose
+braces are *deleted*, and a code span's are *doubled on screen* -
+`highlight_syntax` escapes them (`src/highlight.jl:78`) and nothing collapses
+the doubling, so `tprint("Tuple{{Int}}")` prints `Tuple{{Int}}`. The round trip
+that `escape_brackets`/`unescape_brackets` describe was open at both ends, which
+is why the PR touches the print path as well as the markdown one. Prior art
+cited, both closed and both the same bug when the markup delimiter was `[...]`:
+**#59** "escape style brackets", where the maintainer said the next version
+would ignore doubled brackets, and **#84** "Term removes bracket `[...]`".
+The report itself:
 
 ```julia
 julia> apply_style(string(Term.TermMarkdown.parse_md(
@@ -825,17 +849,28 @@ escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
 
-## Issues to file upstream
+## Upstream
 
-Kept here so they can be written up in one pass rather than rediscovered.
+The three Term.jl bugs are filed, from the checkout beside this one:
+`Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored there) with
+each bug reproduced against v2.2.0, the cause located and the decision spelled
+out. **#304**, **#305** and **#306** came out of it.
+
+They stay on this list until each lands *and* a release carries it, because the
+workarounds here are what to delete then - and deleting them is the point of
+having filed.
 
 - **Term.jl: a table inside a list or a block quote is a `MethodError`.**
+  Filed as **#306**, "fix: accept a table nested inside another markdown
+  element".
   `parse_md(::Markdown.Table)` takes `width` and nothing else, while Term's own
   recursion passes `inline` to whatever it finds nested. The fix is one
   `inline = false` in that signature. Worked around locally by `for_term`, which
   moves a nested table into a code block of its own source; a table at the top
   level is left alone, since Term renders it properly there.
 - **Term.jl: an empty list item is a `BoundsError`.**
+  Filed as **#305**, "fix: don't throw on a markdown list item with no
+  content".
   `parse_md(::Markdown.List)` indexes `[1]` on every item, but Julia's markdown
   parses `- a`/`-`/`- b` into items `[1, 0, 1]`, so any empty bullet throws
   `BoundsError: attempt to access 0-element Vector{Any} at index [1]`
@@ -849,8 +884,11 @@ Kept here so they can be written up in one pass rather than rediscovered.
   renumber everything after it. That is the same pass that moves a nested
   table, since both are Term crashing on a shape Julia's parser is happy with
   and each takes a whole comment down.
-- **Term.jl: the intraword-emphasis bug** — see its own section above.
-- **Term.jl: the brace bug** — see its own section above.
+- **JuliaLang/julia: the intraword-emphasis bug** — see its own section above,
+  and `fixme-julia-markdown.md`. Term was the first suspect and is innocent:
+  the mangling is already in the AST that Julia's `Markdown` hands over, so this
+  is the one on the list that is not Term's and the one still to file.
+- **Term.jl: the brace bug** — filed as **#304**; see its own section above.
 - **Term.jl: a tmux-backed pane as a widget.** Built here and in use: a session
   per worktree, a control-mode client over a pipe pair, a `View` whose render is
   the captured frame and whose wake is `%output`, and input forwarded as the
