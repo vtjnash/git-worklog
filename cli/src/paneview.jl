@@ -826,8 +826,7 @@ function ask_worktree(v::WorktreeView, r::BranchRow, ctrl; seed = "", note = "")
     push_view!(ctrl, PromptView(
         string("New worktree for ", r.name),
         isempty(note) ? string("where to check it out · ", r.repo, " is at ", p) : note,
-        dest, length(dest) + 1,
-        b -> (v.status = make_worktree!(v, r, ctrl, b))))
+        b -> (v.status = make_worktree!(v, r, ctrl, b)); initial = dest))
     ""
 end
 

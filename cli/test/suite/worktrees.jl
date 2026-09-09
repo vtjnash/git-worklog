@@ -74,11 +74,11 @@ end
         @test W.ask_worktree_for(pr, ctrl, :shell, (_, _) -> "sleep 120",
                                  _ -> nothing) == ""
         pv = pop!(ctrl.stack)
-        @test pv isa W.PromptView && pv.buf == W.worktree_dest(main, pr.branch)
+        @test pv isa W.PromptView && W.text(pv) == W.worktree_dest(main, pr.branch)
         @test W.ask_worktree_for(issue, ctrl, :shell, (_, _) -> "sleep 120",
                                  _ -> nothing) == ""
         pv = pop!(ctrl.stack)
-        @test pv isa W.PromptView && W.wtkey(pv.buf) == W.wtkey(main)
+        @test pv isa W.PromptView && W.wtkey(W.text(pv)) == W.wtkey(main)
         # And a path that would have to be made cannot be, without a branch.
         @test occursin("no branch",
                        W.make_checkout!(issue, ctrl, :shell, (_, _) -> "sleep 120",

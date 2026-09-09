@@ -100,42 +100,10 @@ onmouse!(::View, ::MouseEvent, ::Any) = :ok
 # Everything here is a pure function of a byte stream, so it can be driven from
 # an IOBuffer in a test rather than needing a terminal.
 
-# The key codes themselves are `Keys`, a submodule, and are `using`-ed into this
-# one - see `keys.jl` for why they live apart from the decoder that produces
-# them.
+# The key codes themselves are `TermInput.Keys` - the vocabulary went with the
+# widgets that bind it, and this is the half that produces it. `C_W`, the two
+# word rules and everything a composer is made of come back the same way.
 
-
-# Readline's editing keys, by the control bytes they arrive as.
-const C_A, C_D, C_E, C_K, C_S, C_U, C_W, C_O = 1, 4, 5, 11, 19, 21, 23, 15
-const C_R = 18
-
-"""Column where the word before `col` starts, by one of readline's two rules.
-
-Skip whatever does not count as a word immediately behind the cursor, then the
-run that does. Which rule matters: `^w` is unix-word-rubout, delimited by
-whitespace, and alt-backspace is backward-kill-word, delimited by anything
-non-alphanumeric. On `/usr/local/lib` the first takes the whole path - there is
-no whitespace to stop at - and the second takes only `lib`. Both are wanted,
-which is why both keys exist, so `alnum` picks between them.
-"""
-function word_start(s::AbstractString, col::Int; alnum::Bool = false)
-    inword(c) = alnum ? (isletter(c) || isnumeric(c)) : !isspace(c)
-    cs = collect(s)
-    i = min(col - 1, length(cs))
-    while i >= 1 && !inword(cs[i]); i -= 1; end
-    while i >= 1 && inword(cs[i]); i -= 1; end
-    i + 1
-end
-
-"Column just past the word after `col`, by the same rule in the other direction."
-function word_end(s::AbstractString, col::Int; alnum::Bool = false)
-    inword(c) = alnum ? (isletter(c) || isnumeric(c)) : !isspace(c)
-    cs = collect(s)
-    i = max(col, 1)
-    while i <= length(cs) && !inword(cs[i]); i += 1; end
-    while i <= length(cs) && inword(cs[i]); i += 1; end
-    i
-end
 
 """Read what is there, without looking at any of it.
 
@@ -311,18 +279,16 @@ wake!(ctrl::Controller) = ctrl.running && isopen(ctrl.events) &&
 
 """Turn mouse reporting on or off.
 
-`1006` asks for SGR coordinates, without which columns past 223 are unreportable;
-`1002` reports presses, releases and motion *while a button is held*, which is
-exactly a drag and nothing more - `1003` would deliver a report per cell of idle
-pointer movement.
-
 Owning the mouse costs the terminal's own selection, so this is a toggle rather
 than a setting: `m` gives it back when you want to select with the terminal, or
 when a terminal turns out not to speak SGR at all.
+
+The two sequences are `TermInput.mouse_reporting`, which is also what `suspend`
+puts back - a second copy here would be one to keep in step.
 """
 function mouse!(ctrl::Controller, on::Bool)
     ctrl.mouse = on
-    print(on ? "\e[?1006h\e[?1002h" : "\e[?1002l\e[?1006l")
+    print(mouse_reporting(on))
     on
 end
 
@@ -380,12 +346,9 @@ end
 """
     suspend(f, ctrl)
 
-Give the terminal back for the duration of `f`, then take it again.
-
-For handing stdin to a child process - `\$EDITOR`, mainly. Everything the
-controller has done to the terminal is undone in order and redone after: mouse
-reporting off, raw mode off, the alternate screen released, so the child gets a
-terminal that looks untouched and its own scrollback.
+Give the terminal back for the duration of `f`, then take it again - the
+controller's terminal and its mouse, handed to `TermInput.suspend`, which is
+where the sequences live because anything holding raw mode has this problem.
 
 **Only safe to call from the event loop.** The reader task is parked between
 events rather than sitting in `read`, which is what makes this work at all - a
@@ -393,19 +356,7 @@ reader blocked in `read(stdin)` would race the child for every keystroke the
 user typed into it. The loop does not re-arm the reader until it has finished
 handling the event, and running the editor happens inside that handling.
 """
-function suspend(f, ctrl::Controller)
-    mouse = ctrl.mouse
-    mouse && mouse!(ctrl, false)
-    ctrl.term === nothing || REPL.Terminals.raw!(ctrl.term, false)
-    print("\e[?25h\e[?1049l")
-    try
-        f()
-    finally
-        print("\e[?1049h\e[?25l")
-        ctrl.term === nothing || REPL.Terminals.raw!(ctrl.term, true)
-        mouse && mouse!(ctrl, true)
-    end
-end
+suspend(f, ctrl::Controller) = suspend(f, ctrl.term; mouse = ctrl.mouse)
 
 # --- surviving a bug ---------------------------------------------------------
 #
@@ -614,38 +565,50 @@ end
 A view rather than a readline: the controller holds the terminal in raw mode
 for the whole run, so anything that wants input has to go through the same
 event stream instead of reaching for stdin itself.
+
+The line and its editing are `TermInput.LineInput`. What is here is the two
+things that are this program's: the callback the answer goes to, and being a
+`View` the stack can hold.
 """
 mutable struct PromptView <: View
-    title::String
-    note::String
-    buf::String
-    col::Int                 # cursor, 1 = before the first character
+    li::LineInput
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
+    # Spelled out so the default three-of-`Any` one is not generated, since
+    # that is the signature the constructor below wants.
+    PromptView(li::LineInput, onsubmit) = new(li, onsubmit)
 end
-PromptView(title, note, onsubmit) = PromptView(title, note, "", 1, onsubmit)
 
-function render(v::PromptView, w::Int, h::Int)
-    box = min(w - 4, 100)
-    pad = (w - box) ÷ 2
-    top = (h - 7) ÷ 2
-    lines = [" "^w for _ in 1:top]
-    frame(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
-                                  apad(afit(s, box - 4), box - 4), "\e[0m \e[2m│\e[0m")
-    push!(lines, string(" "^pad, "\e[2m╭", "─"^(box - 2), "╮\e[0m"))
-    push!(lines, frame(v.title, "\e[1m"))
-    push!(lines, frame(""))
-    for l in awrap(v.note, box - 4)
-        push!(lines, frame(l, "\e[2m"))
-    end
-    v.col = clamp(v.col, 1, length(v.buf) + 1)
-    pre = String(first(v.buf, v.col - 1))
-    at = v.col <= length(v.buf) ? string(collect(v.buf)[v.col]) : " "
-    post = v.col < length(v.buf) ? String(SubString(v.buf, nextind(v.buf, 0, v.col + 1))) : ""
-    push!(lines, frame(string("> ", pre, "\e[7m", at, "\e[0m", post)))
-    push!(lines, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
-    push!(lines, string(" "^pad, "\e[2m  enter accept · ^w word · ^a/^e line · esc cancel\e[0m"))
-    while length(lines) < h; push!(lines, " "^w); end
-    join([apad(l, w) for l in lines[1:h]], "\n")
+"""
+    PromptView(title, note, onsubmit; initial = "")
+
+`initial` is what the field starts with and the cursor starts after - the path a
+worktree would go to, the value a field already has. A prompt whose answer is
+usually a small edit of something the program already knows should offer it:
+it is faster to correct than to type, and it says what shape the answer takes.
+"""
+PromptView(title, note, onsubmit; initial::AbstractString = "") =
+    PromptView(LineInput(title, note; initial = initial), onsubmit)
+
+text(v::PromptView) = TermInput.text(getfield(v, :li))
+
+# A field the wrapper does not have is the widget's. `v.title`, `v.status` and
+# `v.hint` are the composer's own and are read and written all over this
+# program; spelling `v.li` in front of each of them would say nothing except
+# that a wrapper exists. The wrapper's own fields still come first, so the
+# delegation can never be mistaken for a second copy of the state.
+Base.getproperty(v::PromptView, f::Symbol) =
+    f in fieldnames(PromptView) ? getfield(v, f) : getproperty(getfield(v, :li), f)
+Base.setproperty!(v::PromptView, f::Symbol, x) =
+    f in fieldnames(PromptView) ? setfield!(v, f, x) : setproperty!(getfield(v, :li), f, x)
+
+render(v::PromptView, w::Int, h::Int) = TermInput.render(getfield(v, :li), w, h)
+
+function handle!(v::PromptView, k::Int, ctrl::Controller)
+    a = TermInput.handle!(v.li, k)
+    # A prompt answered with nothing is somebody changing their mind, which is
+    # `:cancel` there and the same `:pop` here.
+    a === :submit && v.onsubmit(submission(v.li))
+    a in (:submit, :cancel) ? :pop : :ok
 end
 
 # --- a picker, as a view ----------------------------------------------------
@@ -681,39 +644,14 @@ numkey(i::Int) = i < 1 || i > 10 ? ' ' : i == 10 ? '0' : Char('0' + i)
 shown(v::ChooseView) = isempty(v.query) ? v.options :
     [o for o in v.options if occursin(lowercase(v.query), lowercase(o[1]))]
 
-"""The box a dialog is drawn in: its width, and the four kinds of row in it.
-
-Two views draw the same bordered box - the picker here and the yes-or-no below
-it - and a box that is 76 columns wide in one of them and 72 in the other is a
-box somebody has to keep in step by eye. `head` is the titled top edge, `row` a
-line inside, `foot` the bottom edge and `hint` the dim line under the whole
-thing, which is outside the border because it is about the keys and not about
-the question.
-"""
-function dialogbox(w::Int)
-    box = min(w - 4, 76)
-    pad = (w - box) ÷ 2
-    iw = box - 4
-    row(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
-                                apad(afit(s, iw), iw), "\e[0m \e[2m│\e[0m")
-    head(t) = string(" "^pad, "\e[2m╭─ \e[0m\e[1m", afit(t, iw - 2), "\e[0m\e[2m ",
-                     "─"^max(0, box - 5 - awidth(afit(t, iw - 2))), "╮\e[0m")
-    foot() = string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m")
-    hint(s) = string(" "^pad, "\e[2m", afit(s, box), "\e[0m")
-    (box = box, pad = pad, iw = iw, row = row, head = head, foot = foot, hint = hint)
-end
-
-"""Put a built box in the middle of the screen and pad it out to a whole frame."""
-function centred(out::Vector{String}, w::Int, h::Int)
-    top = max(0, (h - length(out)) ÷ 2)
-    all = vcat([" "^w for _ in 1:top], out)
-    while length(all) < h; push!(all, " "^w); end
-    join([apad(l, w) for l in all[1:h]], "\n")
-end
+# The box the two dialogs below are drawn in is `TermInput.dialogbox`: the same
+# `head`/`row`/`foot`/`hint` a composer is built out of, so a picker and a
+# composer on the same screen cannot end up 76 and 72 columns wide. `centred`
+# puts one in the middle of the screen and pads it out to a whole frame.
 
 function render(v::ChooseView, w::Int, h::Int)
     opts = shown(v)
-    b = dialogbox(w)
+    b = dialogbox(w; width = 76)
     bh = clamp(length(opts), 1, max(1, h - 10))
     v.sel = clamp(v.sel, 1, max(1, length(opts)))
     v.top = clamp(v.top, 1, max(1, length(opts)))
@@ -808,7 +746,7 @@ ConfirmView(title, notes, onyes; kw...) =
     ConfirmView(title, notes, ["yY" => onyes]; kw...)
 
 function render(v::ConfirmView, w::Int, h::Int)
-    b = dialogbox(w)
+    b = dialogbox(w; width = 76)
     out = [b.head(v.title)]
     for n in v.notes
         push!(out, b.row(n, "\e[2m"))
@@ -833,325 +771,79 @@ end
 
 # --- a multi-line composer, as a view ---------------------------------------
 
-"""Split a line into fixed-width pieces, exactly as the composer draws it.
+"""A small multi-line text area, as a view.
 
-Not `awrap`: that one carries ANSI state across the break and its wrap points
-are its own business. Here the wrap has to be predictable in the other
-direction - from a character offset to the row and column it lands on - so the
-rule is the simplest one there is, and the composer owns it.
-"""
-function chunks(s::AbstractString, w::Int)
-    w <= 0 && return [String(s)]
-    isempty(s) && return [""]
-    out, io, acc = String[], IOBuffer(), 0
-    for c in s
-        cw = textwidth(c)
-        if acc + cw > w
-            push!(out, String(take!(io))); acc = 0
-        end
-        write(io, c); acc += cw
-    end
-    push!(out, String(take!(io)))
-    out
-end
+The buffer, the keys, the wrapping and the box are `TermInput.TextArea`. Three
+things are left here because they are this program's rather than a composer's:
 
-"""A small multi-line text area.
-
-Enough to write a review comment without leaving the program - insert,
-backspace, the arrows, home and end, and the readline keys people's fingers
-already know - and no more. Alt-e hands the buffer to `\$EDITOR` for everything
-past that, which is where undo, search and your own keymap already live and are
-not worth reimplementing here; that is the key the REPL uses for the same move.
-`^o` does it too, because a terminal that treats Option as a compose key sends
-no Meta at all and would leave the editor unreachable.
+  * **Escape asks first.** Words that were typed are the one thing in this
+    program that exists nowhere else - a note is on disk as it is written, a
+    snooze is a field, a draft review is on GitHub - and a comment
+    half-composed is in this buffer and in no other place. So the key that
+    throws it away confirms, which nothing else in here needs to do. An empty
+    buffer is not something to lose, and a question about it would be a dialog
+    in front of every composer opened by mistake.
+  * **`^r` drops a block in.** The composer knows nothing about what it is -
+    the caller does, and hands it over already written. `TextArea` hands the
+    key back as `:unhandled`, which is what makes it the caller's to bind.
+  * **The terminal `⌥e` hands over is the controller's**, and is only known
+    once an event is being handled in it.
 """
 mutable struct EditorView <: View
-    title::String
-    note::String
-    lines::Vector{String}
-    row::Int                 # cursor line
-    col::Int                 # cursor column, 1 = before the first character
-    top::Int                 # first display row shown
-    status::String
+    ta::TextArea
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
-    allow_empty::Bool        # an approval needs no words; a comment does
-    suggest::String          # a block `^r` drops in, empty when there is none.
-                             # The editor knows nothing about what it is - the
-                             # caller does, and hands it over already written
+    suggest::String          # a block `^r` drops in, empty when there is none
+    # Spelled out so that the default one - three arguments of `Any` - is not
+    # generated, because that is the signature the constructor below wants.
+    EditorView(ta::TextArea, onsubmit, suggest::AbstractString) =
+        new(ta, onsubmit, String(suggest))
 end
+
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
                     allow_empty::Bool = false, suggest::AbstractString = "")
-    ls = isempty(initial) ? [""] : String.(split(replace(initial, "\r\n" => "\n"), "\n"))
-    EditorView(String(title), String(note), ls, length(ls),
-               length(last(ls)) + 1, 1, "", onsubmit, allow_empty, String(suggest))
+    hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
+                  "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
+    EditorView(TextArea(title, note; initial = initial, allow_empty = allow_empty,
+                        hint = hint), onsubmit, String(suggest))
 end
 
-text(v::EditorView) = join(v.lines, "\n")
+text(v::EditorView) = TermInput.text(getfield(v, :ta))
 
-"""Display rows for the whole buffer, and where the cursor sits among them.
+# The same delegation as `PromptView` above, and for the same reason: `v.title`
+# and `v.status` are the composer's. The buffer is one step further down and
+# stays spelled out - `v.buf.row` is where the cursor is, and a view that
+# looked like it had a cursor of its own would be a view somebody kept a second
+# copy in.
+Base.getproperty(v::EditorView, f::Symbol) =
+    f in fieldnames(EditorView) ? getfield(v, f) : getproperty(getfield(v, :ta), f)
+Base.setproperty!(v::EditorView, f::Symbol, x) =
+    f in fieldnames(EditorView) ? setfield!(v, f, x) : setproperty!(getfield(v, :ta), f, x)
 
-Returns `(rows, crow, ccol)` with `crow` an index into `rows` and `ccol` a
-1-based column within it.
-"""
-function textrows(v::EditorView, w::Int)
-    rows, crow, ccol = String[], 1, 1
-    for (i, l) in enumerate(v.lines)
-        cs = chunks(l, w)
-        if i == v.row
-            pre = textwidth(String(first(l, max(0, v.col - 1))))
-            # A line whose width is an exact multiple of the wrap needs one more
-            # row for the cursor to stand on, the way any editor gives you one.
-            pre > 0 && pre % w == 0 && length(cs) == pre ÷ w && push!(cs, "")
-            crow = length(rows) + pre ÷ w + 1
-            ccol = pre % w + 1
-        end
-        append!(rows, cs)
-    end
-    (rows, crow, ccol)
-end
-
-function render(v::EditorView, w::Int, h::Int)
-    box = min(w - 4, 100)
-    pad = (w - box) ÷ 2
-    iw = box - 4
-    bh = max(3, h - 8)                 # rows of text inside the box
-    rows, crow, ccol = textrows(v, iw)
-    v.top = clamp(v.top, 1, max(1, length(rows)))
-    crow < v.top && (v.top = crow)
-    crow > v.top + bh - 1 && (v.top = crow - bh + 1)
-    v.top = clamp(v.top, 1, max(1, length(rows) - bh + 1))
-
-    frame(s, style = "") = string(" "^pad, "\e[2m│\e[0m ", style,
-                                  apad(afit(s, iw), iw), "\e[0m \e[2m│\e[0m")
-    out = [string(" "^pad, "\e[2m╭─ \e[0m\e[1m", afit(v.title, iw - 2), "\e[0m\e[2m ",
-                  "─"^max(0, box - 5 - awidth(afit(v.title, iw - 2))), "╮\e[0m")]
-    for l in awrap(v.note, iw)
-        push!(out, frame(l, "\e[2m"))
-    end
-    push!(out, frame(""))
-    for i in v.top:(v.top + bh - 1)
-        line = i <= length(rows) ? rows[i] : ""
-        if i == crow
-            # The cursor is drawn rather than placed: the terminal's own cursor
-            # is hidden for the whole run, and turning it on here would leave it
-            # to be put back by every path out of this view.
-            pre = String(first(line, ccol - 1))
-            at = ccol <= length(line) ? string(line[ccol]) : " "
-            post = ccol < length(line) ? String(line[(ccol + 1):end]) : ""
-            line = string(pre, "\e[7m", at, "\e[0m", post)
-        end
-        push!(out, frame(line))
-    end
-    push!(out, string(" "^pad, "\e[2m╰", "─"^(box - 2), "╯\e[0m"))
-    foot = isempty(v.status) ?
-           string("^s submit · ",
-                  isempty(v.suggest) ? "" : "^r suggestion · ",
-                  "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel") : v.status
-    push!(out, string(" "^pad, "\e[2m", afit(foot, box), "\e[0m"))
-    top = max(0, (h - length(out)) ÷ 2)
-    all = vcat([" "^w for _ in 1:top], out)
-    while length(all) < h; push!(all, " "^w); end
-    join([apad(l, w) for l in all[1:h]], "\n")
-end
-
-"""Hand the buffer to `\$EDITOR`, and take back whatever comes out.
-
-`InteractiveUtils.edit` is used rather than spawning `\$EDITOR` directly so that
-`JULIA_EDITOR` and the `define_editor` hooks apply - the same editor `edit()`
-would open at the REPL. It only waits for editors Julia knows to be blocking, so
-a non-blocking one (`code` without `--wait`) returns immediately and the file is
-read back unchanged; that is reported rather than silently posting nothing.
-"""
-function compose_external(ctrl::Controller, initial::AbstractString)
-    path = string(tempname(), ".md")
-    write(path, initial)
-    before = read(path, String)
-    err = ""
-    suspend(ctrl) do
-        try
-            InteractiveUtils.edit(path)
-        catch e
-            err = first(sprint(showerror, e), 100)
-        end
-    end
-    txt = try
-        read(path, String)
-    catch
-        before
-    end
-    rm(path; force = true)
-    isempty(err) ? (txt, txt == before ? "editor made no change" : "") : (before, err)
-end
+render(v::EditorView, w::Int, h::Int) = TermInput.render(getfield(v, :ta), w, h)
 
 function handle!(v::EditorView, k::Int, ctrl::Controller)
-    k = unshift(k)
-    l = v.lines[v.row]
-    n = length(l)
-    v.status = ""
-    if k == 27
-        # Words that were typed are the one thing in this program that exists
-        # nowhere else: a note is on disk as it is written, a snooze is a field,
-        # a draft review is on GitHub - and a comment half-composed is in this
-        # buffer and in no other place. So the key that throws it away asks
-        # first, which nothing else in here needs to do.
-        #
-        # An empty buffer is not something to lose, and a question about it
-        # would be a dialog in front of every escape from a composer opened by
-        # mistake.
-        isempty(strip(text(v))) && return :pop
-        ls = length(v.lines)
+    # Which terminal to give away is not known when the view is built, and is
+    # known here: a composer is only ever driven from the loop that owns one.
+    v.ta.suspend = f -> suspend(f, ctrl)
+    a = TermInput.handle!(v.ta, k)
+    if a === :submit
+        v.onsubmit(submission(v.ta))
+        return :pop
+    elseif a === :cancel
+        isblank(v.ta) && return :pop
+        ls = length(v.ta.buf.lines)
         push_view!(ctrl, ConfirmView("Discard what you have written?",
-            [v.title, string(ls, ls == 1 ? " line" : " lines", " written")],
+            [v.ta.title, string(ls, ls == 1 ? " line" : " lines", " written")],
             ["yY" => () -> pop_view!(ctrl, v)];
             hint = "y discards it \u00b7 any other key goes back to writing"))
         return :ok
-    elseif k == C_S
-        t = strip(text(v))
-        if isempty(t) && !v.allow_empty
-            v.status = "nothing to send — esc cancels"
-            return :ok
-        end
-        v.onsubmit(String(t))
-        return :pop
-    elseif k == C_R                                 # drop the block in
+    elseif a === :unhandled && k == C_R
         if isempty(v.suggest)
-            v.status = "nothing to suggest here — this is not a line comment"
+            v.ta.status = "nothing to suggest here — this is not a line comment"
         else
-            ins = String.(split(v.suggest, "\n"))
-            if length(v.lines) == 1 && isempty(v.lines[1])
-                # An empty composer takes the block whole, with a line under it
-                # to say why - which is the order GitHub's own box ends up in.
-                v.lines = vcat(ins, [""])
-                v.row = length(v.lines)
-            else
-                # Otherwise at the cursor, splitting the line it is on, which is
-                # what every other insertion here does - and what puts a second
-                # block under the first rather than inside it.
-                head, tail = String(first(l, v.col - 1)), String(l[nextind(l, 0, v.col):end])
-                v.lines[v.row] = head
-                for (j, x) in enumerate(ins)
-                    insert!(v.lines, v.row + j, x)
-                end
-                insert!(v.lines, v.row + length(ins) + 1, tail)
-                v.row += length(ins) + 1
-            end
-            v.col = 1
-            v.status = "suggestion inserted — edit the lines, they replace the ones commented on"
+            insertblock!(v.ta.buf, v.suggest)
+            v.ta.status = "suggestion inserted — edit the lines, they replace the ones commented on"
         end
-    elseif k in (K_EDIT, C_O)                       # hand it to $EDITOR
-        (txt, note) = compose_external(ctrl, text(v))
-        v.lines = isempty(txt) ? [""] : String.(split(replace(txt, "\r\n" => "\n"), "\n"))
-        v.row = length(v.lines); v.col = length(last(v.lines)) + 1
-        v.status = note
-    elseif k in (13, 10)                            # split the line here
-        head, tail = String(first(l, v.col - 1)), String(l[nextind(l, 0, v.col):end])
-        v.lines[v.row] = head
-        insert!(v.lines, v.row + 1, tail)
-        v.row += 1; v.col = 1
-    elseif k in (127, 8)
-        if v.col > 1
-            v.lines[v.row] = string(first(l, v.col - 2), l[nextind(l, 0, v.col):end])
-            v.col -= 1
-        elseif v.row > 1
-            prev = v.lines[v.row - 1]
-            v.col = length(prev) + 1
-            v.lines[v.row - 1] = string(prev, l)
-            deleteat!(v.lines, v.row)
-            v.row -= 1
-        end
-    elseif k in (K_DEL, C_D)
-        if v.col <= n
-            v.lines[v.row] = string(first(l, v.col - 1), l[nextind(l, 0, v.col + 1):end])
-        elseif v.row < length(v.lines)
-            v.lines[v.row] = string(l, v.lines[v.row + 1])
-            deleteat!(v.lines, v.row + 1)
-        end
-    elseif k == C_K
-        v.col <= n ? (v.lines[v.row] = String(first(l, v.col - 1))) :
-                     (v.row < length(v.lines) && (v.lines[v.row] = string(l, v.lines[v.row + 1]);
-                                                  deleteat!(v.lines, v.row + 1)))
-    elseif k == C_U
-        v.lines[v.row] = ""; v.col = 1
-    elseif k in (C_W, K_WORD_BACK)
-        ws = word_start(l, v.col; alnum = k == K_WORD_BACK)
-        if ws < v.col
-            v.lines[v.row] = string(first(l, ws - 1), l[nextind(l, 0, v.col):end])
-            v.col = ws
-        elseif v.row > 1                            # at column 1: join upwards
-            prev = v.lines[v.row - 1]
-            v.col = length(prev) + 1
-            v.lines[v.row - 1] = string(prev, l)
-            deleteat!(v.lines, v.row)
-            v.row -= 1
-        end
-    elseif k == K_WORD_LEFT
-        v.col > 1 ? (v.col = word_start(l, v.col; alnum = true)) :
-        v.row > 1 && (v.row -= 1; v.col = length(v.lines[v.row]) + 1)
-    elseif k == K_WORD_RIGHT
-        v.col <= n ? (v.col = word_end(l, v.col; alnum = true)) :
-        v.row < length(v.lines) && (v.row += 1; v.col = 1)
-    elseif k == C_A
-        v.col = 1
-    elseif k == C_E
-        v.col = n + 1
-    elseif k == K_LEFT
-        v.col > 1 ? (v.col -= 1) :
-        v.row > 1 && (v.row -= 1; v.col = length(v.lines[v.row]) + 1)
-    elseif k == K_RIGHT
-        v.col <= n ? (v.col += 1) :
-        v.row < length(v.lines) && (v.row += 1; v.col = 1)
-    elseif k == K_UP
-        v.row > 1 && (v.row -= 1; v.col = min(v.col, length(v.lines[v.row]) + 1))
-    elseif k == K_DOWN
-        v.row < length(v.lines) && (v.row += 1; v.col = min(v.col, length(v.lines[v.row]) + 1))
-    elseif k == K_HOME
-        v.col = 1
-    elseif k == K_END
-        v.col = n + 1
-    elseif printable(k)
-        v.lines[v.row] = string(first(l, v.col - 1), keychar(k), l[nextind(l, 0, v.col):end])
-        v.col += 1
-    end
-    :ok
-end
-
-function handle!(v::PromptView, k::Int, ctrl::Controller)
-    if k in (13, 10)
-        isempty(strip(v.buf)) || v.onsubmit(strip(v.buf))
-        return :pop
-    elseif k == 27
-        return :pop
-    elseif k in (127, 8)
-        if v.col > 1
-            v.buf = string(first(v.buf, v.col - 2), v.buf[nextind(v.buf, 0, v.col):end])
-            v.col -= 1
-        end
-    elseif k in (K_DEL, C_D)
-        v.col <= length(v.buf) &&
-            (v.buf = string(first(v.buf, v.col - 1), v.buf[nextind(v.buf, 0, v.col + 1):end]))
-    elseif k == C_U
-        v.buf = ""; v.col = 1
-    elseif k in (C_W, K_WORD_BACK)
-        ws = word_start(v.buf, v.col; alnum = k == K_WORD_BACK)
-        v.buf = string(first(v.buf, ws - 1), v.buf[nextind(v.buf, 0, v.col):end])
-        v.col = ws
-    elseif k == C_K
-        v.buf = String(first(v.buf, v.col - 1))
-    elseif k == K_WORD_LEFT
-        v.col = word_start(v.buf, v.col; alnum = true)
-    elseif k == K_WORD_RIGHT
-        v.col = word_end(v.buf, v.col; alnum = true)
-    elseif k == K_LEFT
-        v.col = max(1, v.col - 1)
-    elseif k == K_RIGHT
-        v.col = min(length(v.buf) + 1, v.col + 1)
-    elseif k in (C_A, K_HOME)
-        v.col = 1
-    elseif k in (C_E, K_END)
-        v.col = length(v.buf) + 1
-    elseif printable(k)
-        v.buf = string(first(v.buf, v.col - 1), keychar(k), v.buf[nextind(v.buf, 0, v.col):end])
-        v.col += 1
     end
     :ok
 end

@@ -1,4 +1,9 @@
-# The multi-line composer, and handing the terminal to a child while it runs.
+# The composer, as this program wraps it.
+#
+# The buffer, the keys, the wrapping and the box are `TermInput.TextArea` and
+# are tested in that package. What is asserted here is the three things the
+# wrapper adds: escape asks before throwing words away, `^s` submits to the
+# callback that opened it, and `^r` drops in the block the caller handed over.
 
 @testset "the composer" begin
     ctrl = W.Controller()
@@ -7,34 +12,14 @@
     type!(s) = for c in s; W.handle!(v, W.keycode(c), ctrl); end
 
     type!("hello")
-    @test W.text(v) == "hello"
     W.handle!(v, 13, ctrl)                       # enter splits at the cursor
     type!("world")
     @test W.text(v) == "hello\nworld"
-    @test (v.row, v.col) == (2, 6)
 
-    W.handle!(v, W.K_UP, ctrl); W.handle!(v, W.K_HOME, ctrl)
-    @test (v.row, v.col) == (1, 1)
-    W.handle!(v, W.K_END, ctrl)
-    @test v.col == 6
-    W.handle!(v, W.K_DOWN, ctrl)                 # down keeps the column
-    @test (v.row, v.col) == (2, 6)
-
-    W.handle!(v, 127, ctrl)                      # backspace
-    @test W.text(v) == "hello\nworl"
-    W.handle!(v, W.K_HOME, ctrl); W.handle!(v, 127, ctrl)   # joins the lines
-    @test W.text(v) == "helloworl" && (v.row, v.col) == (1, 6)
-    W.handle!(v, 11, ctrl)                       # ^k to end of line
-    @test W.text(v) == "hello"
-
-    # Non-ASCII goes in as one character, not three bytes.
-    type!("… é")
-    @test W.text(v) == "hello… é"
-    @test v.col == length("hello… é") + 1
-
-    # ^s submits and pops.
+    # ^s submits and pops, and what the callback gets is stripped.
+    W.handle!(v, 13, ctrl)
     @test W.handle!(v, 19, ctrl) === :pop
-    @test got[] == "hello… é"
+    @test got[] == "hello\nworld"
 
     # Esc asks first. What is in this buffer is the one thing in the program
     # that is nowhere else - a note is on disk as it is typed, a draft review is
@@ -64,21 +49,41 @@
     @test !(w in ctrl.stack) && sent[] == ""     # and nothing was submitted
     empty!(ctrl.stack)
 
-    # The cursor maps onto the wrapped rows the box actually draws.
-    v2 = W.EditorView("t", "", identity; initial = "0123456789abcdefghij")
-    rows, crow, ccol = W.textrows(v2, 10)
-    @test rows == ["0123456789", "abcdefghij", ""]   # a row for the cursor to sit on
-    @test (crow, ccol) == (3, 1)
-    v2.col = 12
-    _, crow, ccol = W.textrows(v2, 10)
-    @test (crow, ccol) == (2, 2)
+    # `^r` is the caller's key, not the composer's: `TextArea` hands it back
+    # unhandled and this is what binds it. The block goes in whole under an
+    # empty buffer, and the footer says so.
+    s = W.EditorView("t", "", identity; suggest = "```suggestion\nfixed = 1\n```")
+    @test W.handle!(s, W.C_R, ctrl) === :ok
+    @test W.text(s) == "```suggestion\nfixed = 1\n```\n"
+    @test occursin("suggestion inserted", s.status)
+    # And where there is nothing to suggest, the footer says that instead of
+    # the key doing nothing at all.
+    n = W.EditorView("t", "", identity)
+    W.handle!(n, W.C_R, ctrl)
+    @test occursin("nothing to suggest", n.status) && isempty(W.text(n))
+    # The next keystroke clears it, so a message never outlives what it was
+    # about.
+    W.handle!(n, W.keycode('x'), ctrl)
+    @test isempty(n.status)
 
+    # An empty buffer will not submit unless the caller said it may - an
+    # approval needs no words, a comment does.
+    e = W.EditorView("t", "", t -> got[] = "should not run")
+    @test W.handle!(e, 19, ctrl) === :ok && occursin("nothing to send", e.status)
+    ok = Ref("")
+    a = W.EditorView("t", "", t -> ok[] = "ran"; allow_empty = true)
+    @test W.handle!(a, 19, ctrl) === :pop && ok[] == "ran"
+
+    # Whatever the state, the frame is the size it was asked for.
+    v2 = W.EditorView("t", "", identity; initial = "0123456789abcdefghij")
     for (w, h) in ((80, 24), (120, 40), (60, 12))
         ls = split(W.render(v2, w, h), "\n")
         @test length(ls) == h && all(W.awidth(l) == w for l in ls)
     end
 
-    # suspend runs the body and puts the screen back.
+    # suspend runs the body and puts the screen back. The sequences are
+    # `TermInput`'s; what is asserted here is that the controller's terminal and
+    # its mouse are what get handed over.
     ran = Ref(false)
     out = mktemp() do path, io
         redirect_stdout(() -> W.suspend(() -> ran[] = true, ctrl), io)

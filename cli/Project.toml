@@ -18,9 +18,14 @@ SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
 TermIFrame = "eb3a209b-12c7-484c-af99-a1186270a51f"
+TermInput = "e53b28ee-00f8-475a-85b8-1918fdda0ee8"
 
+# Both are repositories of their own and neither is registered yet, so a
+# checkout of each has to sit beside this one for the program to build. The
+# paths are the directory names, which are the repository names.
 [sources]
-TermIFrame = {path = "../TermIFrame"}
+TermIFrame = {path = "../TermIFrame.jl"}
+TermInput = {path = "../TermInput.jl"}
 
 [compat]
 Base64 = "1.11.0"
@@ -30,6 +35,7 @@ OrderedCollections = "2.0.1"
 SHA = "1.13.0"
 Term = "2.1.1"
 TermIFrame = "0.1"
+TermInput = "0.1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

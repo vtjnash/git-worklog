@@ -203,11 +203,12 @@ linked against a newer glibc.
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, the snapshot diff |
 | `cli/src/touched.jl` | the interaction clock: when you last acted on an item |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
-| `cli/src/controller.jl` | the view controller that owns stdin; input decoding; `PromptView`, `EditorView`, `ChooseView` |
+| `cli/src/controller.jl` | the view controller that owns stdin; input decoding; the `View` protocol; `ChooseView` and `ConfirmView`, and the two thin wrappers that make `TermInput`'s widgets views |
 | `cli/src/browse/` | the browser: filters, panes, folding, diffs, checks, writing (`Worklog.jl`'s include list is the index) |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
 | `cli/src/repos.jl` | repo → local checkout mapping, the worktree/branch survey, `git show` |
-| `TermIFrame/` | the tmux half, split out: sessions, the control-mode client, the box a hosted program is drawn in, and the escape-aware text measuring under it (`awidth`/`afit`/`apad`/`amid`/`awrap`, and `bordered`, which used to be `pane`). Its own package, MIT, bound for its own repo — `cli/Project.toml` `[sources]` points at it until then |
+| `TermIFrame.jl/` | the tmux half, split out: sessions, the control-mode client, and the box a hosted program is drawn in (`bordered`, which used to be `pane`). Its own package and its own repository, MIT — `cli/Project.toml` `[sources]` points at the checkout beside this one until it is registered |
+| `TermInput.jl/` | the composer half, split out: `TextBuffer` (the editing model, with no view attached), `TextArea`, `LineInput`, the key vocabulary they bind, the dialog box in Term's box characters, `suspend`, and the escape-aware text measuring under all of it (`awidth`/`afit`/`apad`/`amid`/`awrap`, which used to be `TermIFrame`'s). Same terms, same arrangement. `TermIFrame` depends on it for the measuring, so the dependency runs iframe → input and never the other way: a text field must not pull a tmux binary in to measure a string |
 | `cli/src/paneview.jl` | a `TermIFrame` drawn beside the thread it is working on; the worktree list |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
@@ -302,10 +303,20 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   The protocol itself needs none of that: `mux_feed!` is a pure function of one
   line and the state before it, driven from a vector of strings the way
   `readevent` is driven from an `IOBuffer` — and it lives in `TermIFrame` now,
-  with its own suite (`julia --project=TermIFrame TermIFrame/test/runtests.jl`,
+  with its own suite (`julia --project=TermIFrame.jl TermIFrame.jl/test/runtests.jl`,
   which honours `TERMIFRAME_TMUX` the way this one honours `WORKLOG_TMUX`).
   What is left in `cli/test/suite/mux.jl` is this program's use of it: the names
   it builds and the tags it files sessions under.
+- **The composer has a third suite, and it needs nothing at all**:
+  `julia --project=TermInput.jl TermInput.jl/test/runtests.jl`. Everything there
+  is pure - the buffer, the wrapping, the cursor-to-row mapping, `render`,
+  `handle!` - and the one thing that touches a terminal, `suspend`, is asserted
+  on the escape sequences it writes to a redirected stdout. The `$EDITOR` path
+  is driven through `InteractiveUtils.define_editor` rather than by installing
+  an editor. What is left in `cli/test/suite/composer.jl` is this program's use
+  of it: escape asking before it throws words away, `^s` reaching the callback
+  that opened the composer, and `^r` dropping in the block the caller handed
+  over.
 - Time is an argument, so a test says when "now" is by passing it rather than
   by setting a global first: `snooze_active(url, st, fp, snz, at, cap)`,
   `comment_nodes(it, at)`, `handle!(st, key, ctrl, at)`. That is what makes
@@ -350,6 +361,16 @@ here so nobody goes looking for a third: a dangling docstring at the top of
 `browse.jl` that documented a global removed long ago, deleted; and `items` /
 `mkstate` in the tests, which sat between two testsets and moved to the driver
 where a shared helper belongs.
+
+**The two package splits are the other kind, and the difference is the point.**
+`TermIFrame` moved nothing either - `mux.jl` and the top of `paneview.jl` went
+across as they were. `TermInput` deliberately did not: a composer that is a
+`View` of this program's cannot be a package, so the editing model came out from
+under the view, the callbacks became returned actions, and the keys this program
+owns became `:unhandled`. That is a rewrite with a suite in front of it, not a
+slice, and it is the only one of the four that is. The rule above is about
+splitting a *file*; splitting a *package* is a design change or it is not worth
+doing.
 
 **Cut above a definition, never into it.** A naive slice at a section marker
 leaves a docstring at the end of one file and its binding at the start of the
@@ -569,7 +590,10 @@ substitutes only between them.
    shaky - FedeClaudi/Term.jl#247 is open on it - so this is not a workaround
    waiting on an upgrade.
 9. `Panel` measures markup, not what prints, so it is no longer used for layout
-   at all — `pane()` draws borders here. Term is only a markdown→ANSI converter.
+   at all — `TermIFrame.bordered` and `TermInput.dialogbox` draw the boxes, out
+   of Term's box characters and against real display widths. Term is only a
+   markdown→ANSI converter. The same rule bites the other way in a composer:
+   a `{` somebody *typed* is not a tag, and markup measurement deletes it.
 10. `parse_md` wraps prose at the width it is handed, so by the time text
     reaches us a paragraph is already in pieces and `awrap` only sees what Term
     declined to wrap. Rendering a second time at a width nothing reaches gives
@@ -822,53 +846,104 @@ julia> apply_style(string(Term.TermMarkdown.parse_md(
 Goes alongside the intraword-underscore report above — the same failure, one
 markup layer each, both consuming characters that were text.
 
-### Offer the composer to Term.jl
-Term has no text input at all - no line editor, no text area, nothing that takes
-a keystroke. `EditorView` and `PromptView` are small, and the parts worth having
-upstream are the parts that were annoying to get right: the input decoder, which
-handles the three spellings terminals use for Alt and assembles UTF-8 from its
-bytes; the two readline word rules, which genuinely differ; and the
-cursor-to-wrapped-row mapping, which is what makes a soft-wrapped text area
-behave.
+### The composer is a package now — `TermInput.jl`
 
-What would have to be untangled first, none of it deep:
+Split out the way the tmux half was, into a repository of its own beside this
+one, MIT, on the same terms. It is a Term plugin: the box is drawn with Term's
+box characters and follows `TERM_THEME[].box`, so a composer opened over a
+screen of `Panel`s is bordered the way they are.
 
-- They are `View`s, so they assume this program's controller - `render(v, w, h)`
-  returning a string, `handle!(v, k, ctrl)` returning an action, and a caller
-  that owns raw mode. Upstream would want the editing model separated from the
-  view, so a `TextBuffer` with `insert!`/`delete_word!`/`move!` could be driven
-  by whatever loop the user already has.
-- They draw with `apad`/`afit`/`awrap` - now `TermIFrame`'s - rather than with
-  Term's own measuring, because Term measures markup instead of what prints
-  (invariant 9). Upstream that is backwards: it should use Term's measurement,
-  which means the box-drawing has to be rewritten against `Panel` - and `Panel`
-  is exactly the thing that could not be trusted here. `TermIFrame` splits the
-  difference: the glyphs come from Term's box vocabulary and the theme, the
-  measuring does not.
-- `^o` shelling out to `InteractiveUtils.edit` needs the caller to hand back the
-  terminal for the duration. That is `suspend`, and it belongs upstream too,
-  since anything holding raw mode has the same problem.
+**What untangling it actually meant**, since the list of what it would need was
+written here before it was done and each item turned into a decision:
 
-They have been asked before: **FedeClaudi/Term.jl#131**, "How To Accept User
-Input?" (Jul 2022), someone wanting to type into a `Panel`. It was closed
-without one, and the discussion ends on the two approaches they could not choose
-between - so the appetite exists and the shape is the open question, which is a
-good position to arrive with a working implementation.
+- **The editing model came out from under the view.** `TextBuffer` is lines, a
+  cursor and the operations - `insert!`, `newline!`, `backspace!`,
+  `deletechar!`, `deleteword!`, `killline!`, `move!`, `insertblock!` - with no
+  screen attached at all. A program that wants the editing and not the box
+  stops there.
+- **A key it does not bind comes *back*.** `handle!` answers `:unhandled`
+  rather than swallowing it, which is what replaced the callback table this
+  program would otherwise have had to register with. It is the same rule
+  `TermIFrame` uses for `^]`: the widget claims what is its, and a host claims
+  its own. `^r` - the suggestion block - is this program's key and is bound in
+  `EditorView`, which is now sixty lines of wrapper.
+- **The measuring went the other way round.** The note here said it should be
+  rewritten against Term's own measurement and that `Panel` was the thing that
+  could not be trusted. Writing it down settled it: `Panel` measures markup, and
+  a buffer full of prose is not markup - a `{` somebody typed is read as a tag
+  and *deleted*, which is worse than the wrapping bug, because what is lost is
+  what was written. So `awidth`/`afit`/`apad`/`awrap` moved *into* `TermInput`,
+  and `TermIFrame` now depends on it for them rather than owning them. That is
+  the only sane direction: an iframe needs the measuring and a text field must
+  not pull `tmux_jll` in to get it.
+- **`suspend` went too**, as `suspend(f, term; mouse)`. Anything holding raw
+  mode has the same problem and none of them has anywhere to put it. What is
+  left here is one line: `suspend(f, ctrl) = suspend(f, ctrl.term; mouse = ctrl.mouse)`.
 
-Worth reading first, since they bear on how much of ours would be welcome:
-**#119** "Style information is dropped on wrapped lines" (closed) is the bug our
-escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
-Mar 2024) is still open with the maintainer saying text wrapping "has been hard
-to fix".
+**Two bugs the extraction found**, neither of them the split's:
 
-### Idea: the input *decoding* could go to Term.jl
+- **The cursor was drawn at a byte offset.** `EditorView`'s render indexed the
+  wrapped row with `line[ccol]`, where `ccol` is a *display* column - three
+  different counts through one integer. It only ever agreed for ASCII: a row
+  with an accent in it throws `StringIndexError` on the character index, and a
+  row with a CJK character in it draws the block a column to the left of where
+  the terminal puts it. Never seen because the render tests all typed ASCII.
+  `drawcursor` walks by width now, and the suite types 日本語 into a composer
+  and renders it.
+- **A width of zero divided by zero.** `bufferrows` takes `pre % w`, and a host
+  mid-resize can ask for a box with no room in it. One column is a legal answer.
 
-Not the event loop, and not `readkey`. `readevent` is a pure function of a byte
-stream - bytes in, one `KeyEvent`/`MouseEvent` out - and the vocabulary it
-produces is now `Keys`, a submodule of its own (`cli/src/keys.jl`), so the two
-halves are already apart. What is left in `controller.jl` around it is the part
-that is genuinely a program's own: who owns stdin, what a view is, when to
-redraw.
+**What is left to decide is the InputBox question**, which is its own section
+below.
+
+### `TermInput` and Term's own `InputBox`
+
+Term has a widget of its own - `Term.Live`'s `InputBox` - and the honest summary
+is that they are not the same widget. **`InputBox` collects keystrokes; this
+edits text.** It has no cursor at all: characters append at the end, `Del`
+removes the last one, `Enter` appends a newline, and the arrows are not bound.
+No word keys, no `^a`/`^e`/`^k`/`^u`, no wrapping and no mapping from an offset
+to the row it draws on.
+
+**The last difference is the one that causes the rest.** `InputBox` is driven by
+`keyboard_input`, which polls `bytesavailable` and calls
+`REPL.TerminalMenus.readkey` - and `readkey` cannot see a mouse report at all
+and drops any sequence it does not recognise as a bare `Escape`, leaving the
+tail to arrive as separate keystrokes. That is why it binds no arrows: they do
+not reliably survive the trip. **A widget cannot have a cursor until something
+can tell Left from Escape-then-`[`-then-`D`.**
+
+So unifying them wants three things, in this order:
+
+1. **A decoder good enough to have a cursor behind it** - which is the section
+   below, and is still in `controller.jl` rather than in the package.
+2. **`TextBuffer` under `InputBox`.** The editing is the same editing whether
+   the frame is a `Panel` or these rows, and it is the part with no interface
+   argument attached to it.
+3. **The frame**, where the two disagree most and where markup measurement is
+   the open question rather than a detail.
+
+**And one bug to file whatever else happens.** `InputBox`'s `del` is
+`input_text[1:(end - 1)]`, a *byte* slice: type `aée`, press backspace, and it
+throws `StringIndexError: invalid index [3]`, because byte 3 is the second byte
+of the `é`. `a😀` and `aé` happen to work, which is what makes it easy to miss -
+`lastindex` is the *start* byte of the last character, so the slice only lands
+on a continuation byte when the character before the last one is multi-byte.
+Reproduced here on 2026-09-09; not filed yet.
+
+### Idea: the input *decoding* could go to `TermInput` too
+
+The vocabulary already did - `Keys` is a submodule of `TermInput` now, because
+it is the widgets' binding table and they cannot be driven without it. What
+stayed behind is `readevent` and the CSI parser in `controller.jl`, and the
+reason is that they arrived as one question with two answers: a host has an
+input loop already, and what a widget needs is a key code, not a reader.
+
+That is still the right split for *this* program and the wrong one for anybody
+starting from nothing. `readevent` is a pure function of a byte stream - bytes
+in, one `KeyEvent`/`MouseEvent` out - so there is nothing tying it here; what
+is left around it in `controller.jl` is the part that is genuinely a program's
+own: who owns stdin, what a view is, when to redraw.
 
 Term has nothing here, which is the gap `#131` was asking about: a package that
 draws panels has no way to read a keystroke into one. `REPL.TerminalMenus.readkey`
@@ -904,10 +979,28 @@ the same one `Char` — including `F8`, which leads nothing and stands alone.
 That is the shape to bring upstream, since a decoder shared by everybody is
 exactly the wrong place to decide which of a user's bytes were worth keeping.
 
+### Investigate upstreaming the ANSI measuring to Term itself
+
+`awidth`, `astrip`, `afit`, `apad`, `amid` and `awrap` are `TermInput`'s, and
+two packages already depend on them for the same reason: they measure what will
+*print*, and Term measures markup. The right long-term home for that is Term,
+not a package beside it - `Term.textlen` already removes ANSI before measuring,
+so the gap is not that Term cannot see an escape sequence, it is that `Panel`
+and `reshape_text` are built on measurement that also strips markup, and text
+that is not markup goes through the same door.
+
+What to find out, roughly in order: whether Term would take a measurement path
+that does *not* remove markup (invariant 9 and #247 are the evidence it is
+needed); whether `Panel` could take a "this content is not markup" flag rather
+than needing a second box implementation; and whether `awrap`'s escape replay -
+which is what #119 was closed without - is wanted in `reshape_text` or beside
+it. Until that is answered, the copy lives in `TermInput` and `TermIFrame`
+depends on it, which is one copy rather than two and is not the end state.
+
 ## Upstream
 
-All four are filed. The three Term.jl ones came out of the checkout beside this
-one - `Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored
+All four bugs are filed. The three Term.jl ones came out of the checkout beside
+this one - `Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored
 there) with each bug reproduced against v2.2.0, the cause located and the
 decision spelled out - and are **#304**, **#305** and **#306**. The fourth was
 never Term's: **JuliaLang/julia#63081**, which is a fix and not only a report.
@@ -915,6 +1008,15 @@ never Term's: **JuliaLang/julia#63081**, which is a fix and not only a report.
 They stay on this list until each lands *and* a release carries it, because the
 workarounds here are what to delete then - and deleting them is the point of
 having filed.
+
+A fifth is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
+after a multi-byte character** - `input_text[1:(end - 1)]` is a byte slice, so
+`aée` gives `StringIndexError: invalid index [3]`. See the `InputBox` section
+above, which is also where the question of whether these widgets should be one
+widget is written down.
+
+The last two entries below are offers rather than bugs, and each is a package
+beside this one now rather than a paragraph describing one.
 
 - **Term.jl: a table inside a list or a block quote is a `MethodError`.**
   Filed as **#306**, "fix: accept a table nested inside another markdown
@@ -945,8 +1047,23 @@ having filed.
   innocent: the mangling is already in the AST that Julia's `Markdown` hands
   over, which is why this is the one on the list that was never Term's.
 - **Term.jl: the brace bug** — filed as **#304**; see its own section above.
-- **Term.jl: a tmux-backed pane as a widget.** Built here and in use: a session
-  per worktree, a control-mode client over a pipe pair, a `View` whose render is
+- **Term.jl: a composer and a line prompt.** Built here, split out as
+  `TermInput.jl`, and in use: a `TextBuffer` with no view attached, a
+  `TextArea` and a `LineInput` over it, the key vocabulary they bind, the box in
+  Term's own box characters, and `suspend` for handing the terminal to
+  `$EDITOR`. Term has been asked for this before - **FedeClaudi/Term.jl#131**,
+  "How To Accept User Input?" (Jul 2022), somebody wanting to type into a
+  `Panel`, closed without one and ending on the two approaches they could not
+  choose between. So the appetite exists and the shape was the open question,
+  which is a good position to arrive at with a working implementation. Worth
+  reading first, since they bear on how much of ours would be welcome:
+  **#119** "Style information is dropped on wrapped lines" (closed) is the bug
+  `awrap`'s escape replay exists to avoid, and **#247** "TextBox line wrapping
+  bug" (open, Mar 2024) is still open with the maintainer saying text wrapping
+  "has been hard to fix". What to settle before offering it is what to do about
+  `InputBox`, which is a section of its own above.
+- **Term.jl: a tmux-backed pane as a widget.** Built here, split out as
+  `TermIFrame.jl`, and in use: a session per worktree, a control-mode client over a pipe pair, a `View` whose render is
   the captured frame and whose wake is `%output`, and input forwarded as the
   bytes it arrived as. Offer it only after it has carried `vi` and an agent for
   a while, and only backend-shaped rather than tmux-shaped — on Windows `psmux`
@@ -1074,10 +1191,11 @@ actual TTY:
   `deletePullRequestReview` were introspected rather than remembered. What has
   run against the real API is the *read* half: `review_state` answers with the
   pull request's node id and no pending review, and `nothing` for an issue.
-- `⌥e`/`^o` in the composer, end to end. `suspend` is tested to run its body and put
-  the alternate screen back, and the reader is armed one event at a time so it
-  is not on the tty while a child runs - but no editor has actually been
-  launched from inside the browser here.
+- `⌥e`/`^o` in the composer, end to end. `suspend` is tested to run its body and
+  put the alternate screen back, the reader is armed one event at a time so it
+  is not on the tty while a child runs, and `TermInput`'s suite drives the whole
+  `compose_external` path through `define_editor` - but no editor has actually
+  been launched from inside the browser here.
 - Which spelling of Alt this terminal actually sends. All three are decoded and
   each is tested from an `IOBuffer`, but which one arrives is a property of the
   terminal and its settings - and on a Mac, Option may be composing characters

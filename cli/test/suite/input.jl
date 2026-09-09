@@ -1,5 +1,10 @@
-# Bytes arriving and becoming keys, and the line editing built on them.
-# `readevent` is a pure function of a stream, so this needs no terminal.
+# Bytes arriving and becoming keys. `readevent` is a pure function of a stream,
+# so this needs no terminal.
+#
+# The vocabulary it produces is `TermInput.Keys` and the editing built on it is
+# `TermInput`'s too, so the word rules, the buffer and the wrapping are tested
+# where they live (`julia --project=TermInput.jl TermInput.jl/test/runtests.jl`).
+# What is here is the decoder, and the two views this program wraps them in.
 
 @testset "a key code is the bytes that arrived, and nothing is thrown away" begin
     # A key code used to be a codepoint, and the keys began at `0x110000`, one
@@ -58,29 +63,12 @@
     @test length(collect(buf)) == 5           # one character, not four
     @test W.awidth(buf) == 5                  # and the layout survives it
 
-    # The two spaces do not touch, with the whole four-byte range left over.
+    # The two spaces do not touch, with the whole four-byte range left over -
+    # which is the property the decoder relies on and `TermInput` asserts in
+    # full.
     @test W.K_BASE == 1 << 32
     @test !W.printable(W.K_LEFT) && !W.printable(W.K_BASE)
-    for k in (W.K_LEFT, W.K_RIGHT, W.K_UP, W.K_DOWN, W.K_DEL, W.K_HOME, W.K_END,
-              W.K_PGUP, W.K_PGDN, W.K_STAB, W.K_WORD_LEFT, W.K_WORD_RIGHT,
-              W.K_WORD_BACK, W.K_EDIT, W.K_SUP, W.K_SDOWN)
-        @test k > 0xFFFFFFFF
-    end
-    # `keychar` and `keycode` are inverses, over every width and over sequences
-    # that are not characters at all.
-    for bs in ((0x61,), (0xC3,0xA9), (0xE2,0x82,0xAC), (0xF0,0x9F,0x98,0x80),
-               (0xF4,0x90,0x80,0x80), (0xED,0xA0,0x80), (0xC0,0x80), (0x80,), (0xF8,))
-        k = raw(bs...)
-        @test W.keycode(W.keychar(k)) == k
-    end
-    for c in ('a', 'é', '€', '😀', '\0', '\x7f')
-        @test W.keychar(W.keycode(c)) === c
-    end
-
-    # The vocabulary is a module of its own, and reaching it either way is the
-    # same constant.
-    @test W.Keys.K_LEFT === W.K_LEFT
-    @test W.Keys.unshift(W.K_SUP) === W.K_UP
+    @test all(raw(b...) < W.K_BASE for b in ((0xF4,0x90,0x80,0x80), (0xFF,), (0xF8,)))
 end
 
 @testset "input decoding" begin
@@ -171,95 +159,40 @@ end
     @test [n.header for n in crlf] == ["alice", "julia  1 line", ""]
 end
 
-@testset "awrap breaks at spaces" begin
-    ok(s, w) = all(W.awidth(l) <= w for l in W.awrap(s, w))
-    # Nothing is lost or gained: a break only ends a line, it never edits.
-    same(s, w) = W.astrip(join(W.awrap(s, w), "")) == W.astrip(s)
-
-    @test W.awrap("guard the remaining raw stderr writes that gate cleanup", 40) ==
-          ["guard the remaining raw stderr writes ", "that gate cleanup"]
-    @test !any(occursin("deliver_resu", l) && !occursin("deliver_result", l)
-               for l in W.awrap("guard cleanup in deliver_result and connect_to_peer", 40))
-
-    # A run wider than the pane has nowhere to break, so it is split - and the
-    # pieces fill the width rather than coming out ragged.
-    long = W.awrap("a " * "x"^45, 20)
-    @test all(W.awidth(l) <= 20 for l in long)
-    @test length([l for l in long if W.awidth(l) == 20]) >= 2
-
-    for w in (12, 20, 40, 79)
-        for t in ("short", "", "     ", "a b c d e f g h i j k l m n o p q r s t",
-                  "https://github.com/JuliaLang/julia/pull/62841#issuecomment-372112478 see",
-                  "Tuple{Type{S{N, Tup}}, Vararg{Any}} and some prose after it",
-                  "word " * "y"^100 * " tail")
-            @test ok(t, w)
-            @test same(t, w)
-        end
-    end
-
-    # Style carries across a break, and is not doubled onto the carried word.
-    st = W.awrap("\e[31mred words here\e[0m and \e[32mgreen ones\e[0m too", 14)
-    @test all(W.awidth(l) <= 14 for l in st)
-    @test count(l -> occursin("\e[32m", l), st) == 1
-    @test startswith(st[2], "\e[31m")          # the colour resumes on line two
-end
-
-@testset "word motion" begin
-    @test W.word_start("foo bar   ", 11) == 5      # over the spaces, then the word
-    @test W.word_start("foo bar", 8) == 5
-    @test W.word_start("foo", 1) == 1              # nothing behind the cursor
-    @test W.word_end("foo bar", 1) == 4
-    @test W.word_end("  foo bar", 1) == 6          # skip leading space first
-    @test W.word_end("foo", 4) == 4
-    # The two readline rules differ, and the difference is the point.
-    @test W.word_start("/usr/local/lib", 15) == 1                 # ^w: no space to stop at
-    @test W.word_start("/usr/local/lib", 15; alnum = true) == 12  # alt-bksp: just "lib"
-    @test W.word_end("foo.bar", 1; alnum = true) == 4
-end
-
-@testset "readline keys" begin
+@testset "the two views the widgets are wrapped in" begin
     ctrl = W.Controller()
-    got = Ref("")
-    v = W.EditorView("t", "", t -> got[] = t)
-    type!(x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
 
+    # The editing is `TermInput`'s and is tested there. What is asserted here is
+    # that a key reaches it through the view, and that the view is the one place
+    # that knows what an answer means to this program.
+    v = W.EditorView("t", "", identity)
+    type!(x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
     type!("alpha beta gamma")
     W.handle!(v, W.C_W, ctrl)
     @test W.text(v) == "alpha beta "
     W.handle!(v, W.K_WORD_BACK, ctrl)
     @test W.text(v) == "alpha "
-    W.handle!(v, W.C_A, ctrl); @test v.col == 1
-    W.handle!(v, W.C_E, ctrl); @test v.col == 7
-    W.handle!(v, W.K_WORD_LEFT, ctrl); @test v.col == 1
-    W.handle!(v, W.K_WORD_RIGHT, ctrl); @test v.col == 6
-    W.handle!(v, W.C_A, ctrl)
+    W.handle!(v, W.C_A, ctrl); @test v.buf.col == 1
     W.handle!(v, W.C_D, ctrl)                      # forward delete
     @test W.text(v) == "lpha "
+    # $EDITOR moved off ^e, which is end-of-line.
+    W.handle!(v, W.C_E, ctrl)
+    @test v.buf.col == 6 && W.text(v) == "lpha " # nothing was launched
 
-    # ^w at column 1 joins upwards, the way backspace does.
-    v2 = W.EditorView("t", "", identity; initial = "one\ntwo")
-    W.handle!(v2, W.C_A, ctrl)
-    W.handle!(v2, W.C_W, ctrl)
-    @test W.text(v2) == "onetwo" && (v2.row, v2.col) == (1, 4)
-
-    # $EDITOR moved off ^e, which is now end-of-line.
-    v3 = W.EditorView("t", "", identity; initial = "abc")
-    v3.col = 1
-    W.handle!(v3, W.C_E, ctrl)
-    @test v3.col == 4 && W.text(v3) == "abc"       # nothing was launched
-
-    # The prompt has a cursor now, and the same keys.
-    p = W.PromptView("t", "", identity)
+    # A prompt submits what was typed, stripped, and only when there is
+    # something to submit.
+    got = Ref("")
+    p = W.PromptView("t", "", s -> got[] = s)
     for c in "/usr/local/lib"; W.handle!(p, W.keycode(c), ctrl); end
     W.handle!(p, W.K_WORD_BACK, ctrl)              # alt-backspace: one component
-    @test p.buf == "/usr/local/"
-    W.handle!(p, W.C_A, ctrl); @test p.col == 1
-    W.handle!(p, Int('X'), ctrl)
-    @test p.buf == "X/usr/local/" && p.col == 2
-    W.handle!(p, W.C_E, ctrl); W.handle!(p, 127, ctrl)
-    @test p.buf == "X/usr/local"
-    W.handle!(p, W.C_W, ctrl)                      # ^w: the whole path at once
-    @test p.buf == ""
+    @test W.handle!(p, 13, ctrl) === :pop
+    @test got[] == "/usr/local/"
+
+    empty = W.PromptView("t", "", s -> got[] = "should not run")
+    @test W.handle!(empty, 13, ctrl) === :pop      # nothing typed is not an answer
+    @test got[] == "/usr/local/"
+    @test W.handle!(W.PromptView("t", "", identity), 27, ctrl) === :pop
+
     ls = split(W.render(p, 90, 24), "\n")
     @test length(ls) == 24 && all(W.awidth(l) == 90 for l in ls)
 end

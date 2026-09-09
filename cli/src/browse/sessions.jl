@@ -331,8 +331,7 @@ function ask_worktree_for(it::Item, ctrl, kind::Symbol, mkcmd, say;
         isempty(note) ? string("where to check ",
                                isempty(branch) ? "it" : branch,
                                " out · ", it.repo, " is at ", repo) : note,
-        dest, length(dest) + 1,
-        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at))))
+        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at)); initial = dest))
     ""
 end
 

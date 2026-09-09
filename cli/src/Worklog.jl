@@ -16,8 +16,8 @@ index of the rest:
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
-  * `keys.jl`    the key vocabulary, as a submodule of its own
-  * `controller.jl` the view stack that owns stdin, and the views it prompts with
+  * `controller.jl` the view stack that owns stdin, the decoder that turns its
+                 bytes into `TermInput.Keys`, and the views it prompts with
   * `browse/`    the browser itself: filters, panes, threads, diffs, writing
   * `paneview.jl` a `TermIFrame` session drawn in a pane, with a thread beside it
   * `cli.jl`     the `wl <command>` surface
@@ -47,6 +47,12 @@ using JSON3, OrderedCollections
 using TermIFrame
 # By name, so the pane can add the one method that knows where it is drawn.
 import TermIFrame: retarget_mouse
+# The composer, the line prompt, the key vocabulary they bind and the
+# escape-aware measuring under all of it. `suspend` and `text` are extended
+# here rather than shadowed: this program's terminal is one more thing that can
+# be handed to a child, and its composer is one more thing that holds text.
+using TermInput
+import TermInput: suspend, text
 import REPL
 import InteractiveUtils
 using Base64
@@ -82,8 +88,6 @@ end
 "One file in the data directory."
 datapath(name::AbstractString) = joinpath(datadir(), name)
 
-include("keys.jl")
-using .Keys
 include("pyjson.jl")
 include("util.jl")
 include("cache.jl")

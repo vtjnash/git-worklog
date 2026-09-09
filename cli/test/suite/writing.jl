@@ -151,7 +151,7 @@ end
     W.handle!(v, 18, ctrl)                                  # ^r
     # An empty composer takes the block whole, with a line under it to say why.
     @test W.text(v) == "```suggestion\nctx\nadded\n```\n"
-    @test v.row == length(v.lines) && v.col == 1
+    @test v.buf.row == length(v.buf.lines) && v.buf.col == 1
     @test occursin("suggestion inserted", v.status)
     # And it is ordinary text from there: the editor knows nothing about what
     # the block is, only where it went.

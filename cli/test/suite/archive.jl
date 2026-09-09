@@ -357,8 +357,8 @@ end
         @test v.mode === :branches
         pv = last(ctrl.stack)
         @test pv isa W.PromptView
-        @test pv.buf == joinpath(root, "main-homeless")
-        @test pv.col == length(pv.buf) + 1
+        @test W.text(pv) == joinpath(root, "main-homeless")
+        @test pv.buf.col == length(W.text(pv)) + 1     # and the cursor after it
         # Nothing runs on a branch either.
         W.handle!(v, Int('K'), ctrl)
         @test occursin("nothing runs on a branch", v.status)
@@ -368,7 +368,7 @@ end
         pv.onsubmit(main)
         pv2 = last(ctrl.stack)
         @test pv2 isa W.PromptView && pv2 !== pv
-        @test pv2.buf == main && occursin("exists", lowercase(pv2.note))
+        @test W.text(pv2) == main && occursin("exists", lowercase(pv2.note))
         @test v.mode === :branches
         empty!(ctrl.stack)
         # And one it accepts lands on the row it just made.

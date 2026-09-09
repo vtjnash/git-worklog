@@ -11,8 +11,15 @@ data/
 # is excluded from that checkout too so it cannot end up in a pull request.
 /Term.jl/
 
-# The tmux half, split out and now a repository of its own. `cli/Project.toml`
-# reaches it through `[sources]` at `../TermIFrame`, so a checkout has to be
-# here for the program to build - but its history is not this one's, the same
-# as `Term.jl/` above.
-/TermIFrame/
+# The two halves that were split out, each a repository of its own now.
+# `cli/Project.toml` reaches them through `[sources]`, so a checkout of each has
+# to be here for the program to build - but their histories are not this one's,
+# the same as `Term.jl/` above.
+#
+# `TermIFrame` is the tmux half: sessions, the control-mode client, and the box
+# a hosted program is drawn in. `TermInput` is the composer, the line prompt,
+# the key vocabulary they bind, and the escape-aware measuring under all of it -
+# which `TermIFrame` depends on for the same measuring, since a text field must
+# not pull a tmux binary in to measure a string.
+/TermIFrame.jl/
+/TermInput.jl/
