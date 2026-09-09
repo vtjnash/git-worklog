@@ -328,7 +328,7 @@ function view_action(st::BState, ctrl::Controller)
                         # whole of what anybody wants to do with it. The same
                         # OSC 52 `y` uses, so whatever works for one works here.
                         t = view_toml(st.filters, st.sort, n)
-                        print("\e]52;c;", Base64.base64encode(t), "\a")
+                        clip(t)
                         st.status = string("copied [views.", repr(n),
                                            "] \u00b7 paste it into config.toml")
                     end))

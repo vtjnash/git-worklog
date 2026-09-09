@@ -134,6 +134,93 @@ end
     @test isempty(st2.status) && st2.anchor == i
 end
 
+@testset "a double click copies, and a mark says what will be" begin
+    # OSC 8 hands a link to the terminal and hopes; owning the mouse means the
+    # copy can be made here, where the whole url is known. The same applies to
+    # everything else on the row: a double click is the gesture everybody
+    # already makes at a word they want.
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    st = mkstate()
+    st.nodes = W.body_nodes("alice  2026-08-01   a remark",
+                            "It is in `typeinfer.jl:544`, at the widening.",
+                            "https://x.invalid/c", true)
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    W.render(st, 150, 40)
+    L = W.layout(150, 40, st.nmeta)
+    ctrl = W.Controller()
+    rs = W.rows(st.nodes, L.riw, true)
+    body = findfirst(r -> occursin("typeinfer", r.src) && !r.header, rs)
+    txt = W.astrip(rs[body].text)
+    at_word = first(findfirst("typeinfer", txt)) + 3
+    r = rs[body]
+    # The word is the run of non-space around the pointer, so a path or an
+    # identifier with a dot in it comes back whole. Its backticks and the comma
+    # after it do not: they are what somebody wrote around the thing.
+    @test W.word_at(st, r, at_word) == "typeinfer.jl:544"
+    @test W.word_at(st, r, first(findfirst("at the", txt))) == "at"
+    @test isempty(W.word_at(st, r, findfirst(isspace, txt)))
+    # A url is a word too, and the whole of one even where the wrapping cut it.
+    fn = W.Row(1, false, "[1] https://x.invalid/c", "[1] https://x.invalid/c", 0)
+    @test W.word_at(st, fn, 3) == "https://x.invalid/c"
+
+    y0 = L.ry + 1 + st.hdr
+    click(x, y, at) = W.onmouse!(st, W.MouseEvent(:press, 0, x, y, 0), ctrl, at)
+    st.status = ""
+    click(L.rx + at_word, y0 + body - 1, 100.0)
+    @test isempty(st.status)                       # one click is not a copy
+    click(L.rx + at_word, y0 + body - 1, 100.2)
+    @test st.status == "copied typeinfer.jl:544"
+    # Two presses too far apart are two presses.
+    st.status = ""
+    click(L.rx + at_word, y0 + body - 1, 200.0)
+    click(L.rx + at_word, y0 + body - 1, 200.0 + W.DOUBLECLICK[] + 0.1)
+    @test isempty(st.status)
+
+    # The mark is drawn at the end of a header, and only where the pane is
+    # actually drawn - it is an offer to click, and `m` can hand the mouse back
+    # to the terminal.
+    @test endswith(W.astrip(rs[1].text), W.COPYMARK)
+    @test !occursin(W.COPYMARK, W.astrip(W.rows(st.nodes, L.riw)[1].text))
+    @test all(W.awidth(r.text) <= L.riw for r in rs)
+    st.status = ""
+    click(L.rx + L.riw, y0, 300.0)                 # the mark, at the right edge
+    @test st.status == string("copied ", count(==('\n'), W.node_text(st.nodes, 1, L.riw)) + 1,
+                              " lines")
+    @test W.node_text(st.nodes, 1, L.riw) == "It is in `typeinfer.jl:544`, at the widening."
+    # ...and the fold marker at the other end still folds rather than copies.
+    # `hitpane` puts inner column 1 at `px + 2`, so both ends are two columns
+    # wide here: the marker, and the mark with the space in front of it.
+    click(L.rx + 2, y0, 400.0)
+    @test !st.nodes[1].open
+
+    # What the mark copies is what folding that header would hide: the node and
+    # everything nested under it, bodies only. A hunk is the exception - what is
+    # nested under one is a conversation about the code, not part of it.
+    split_ = W.body_nodes("bob  2026-08-02   prose then code",
+                          "before\n\n```julia\nx = 1\n```\n\nafter", "http://x", true)
+    @test W.node_text(split_, 1, 80) == "before\n\nx = 1\n\nafter"
+    @test W.node_text(split_, 2, 80) == "x = 1"
+    hunk = W.Node("a.jl  @@ 1,2 @@", "-old\n+new", :diff, true)
+    merge!(hunk.meta, Dict{String,Any}("file" => "a.jl", "start" => 1, "count" => 2,
+                                       "ostart" => 1, "ocount" => 2,
+                                       "body" => "-old\n+new", "up" => 0, "down" => 0))
+    talk = W.Node("alice  2026-08-01T10:00", "a remark", :md, true, 1)
+    @test W.node_text([hunk, talk], 1, 80) == "-old\n+new"
+
+    # In the item list there is one thing worth copying, and a double click on
+    # the row you are already on is how it is asked for.
+    st2 = mkstate()
+    W.render(st2, 150, 40)
+    st2.focus = :list
+    row = L.ly + 1 + 1 + st2.sel        # the import row leads, so +1
+    st2.status = ""
+    W.onmouse!(st2, W.MouseEvent(:press, 0, L.lx + 4, row, 0), ctrl, 500.0)
+    was = st2.sel
+    W.onmouse!(st2, W.MouseEvent(:press, 0, L.lx + 4, row, 0), ctrl, 500.2)
+    @test st2.sel == was
+    @test occursin("copied", st2.status) && occursin(st2.items[was].ref, st2.status)
+end
+
 @testset "click maps to the row under it" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()

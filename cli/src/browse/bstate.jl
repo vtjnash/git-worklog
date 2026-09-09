@@ -102,6 +102,10 @@ Base.@kwdef mutable struct BState <: View
                                           # of the last metadata fetch; asking
                                           # costs a process, and `render` is pure
     anchor::Int = 0        # row a drag started on
+    lastclick::Tuple{Float64,Int,Int} = (0.0, 0, 0)   # when and where the last
+                           # press landed, which is all a double click is: the
+                           # terminal reports two presses and says nothing about
+                           # them being one gesture
     sela::Int = 0          # selected range in `nrow` coordinates; 0 for none
     selb::Int = 0
     mouse::Bool = true     # mirrors the controller, for the footer

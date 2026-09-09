@@ -448,14 +448,24 @@ struct Row
     part::Int
 end
 
+"""The mark drawn at the right-hand end of a header, and clicked to copy the
+node whole. Two joined squares, which is what everything else draws for this."""
+const COPYMARK = "⧉"
+
 """Flatten open/closed nodes into rows, so selection and scrolling share one space.
 
 Closing a node takes everything nested under it: the list is flat, so "nested"
 means the run of nodes deeper than it that follows it. That is what makes a
 folded `<details>` disappear with the comment it was written in, and the
 outdated review comments disappear with the header that counts them.
+
+`marks` draws the copy mark on each header. It is display only - the number of
+rows, and every row's node, header flag, part and `src`, are the same either way
+- so the callers that ask for rows in order to index them need not care which
+they got. It is off by default and on where the pane is actually drawn, since a
+mark is an offer to click and the mouse can be handed back to the terminal.
 """
-function rows(nodes::Vector{Node}, w::Int)
+function rows(nodes::Vector{Node}, w::Int, marks::Bool = false)
     out = Row[]
     hide = -1                 # while >= 0, skip anything deeper than this
     for (i, n) in enumerate(nodes)
@@ -497,16 +507,30 @@ function rows(nodes::Vector{Node}, w::Int)
         hls = awidth(full) <= iw ? [full] : awrap(full, iw - 2)
         hsrc = get(n.meta, "src", astrip(n.header))
         u = get(n.meta, "url", "")
+        # Room kept for the mark, and taken out of the rule rather than out of
+        # the header: the words are the row.
+        markw = marks ? awidth(COPYMARK) + 1 : 0
         for (k, hl) in enumerate(hls)
             txt = k == 1 ? hl : string("  ", hl)
             core = string(AB, isempty(u) ? txt : osc8(u, txt), AR)
-            # A rule out to the edge of the pane on the last row of the header,
-            # so where one comment ends and the next begins is visible at a
-            # glance rather than found by reading. Only at the top level: a
-            # nested block stays subordinate to the comment it was written in.
-            if n.depth == 0 && k == length(hls)
-                gap = iw - awidth(txt) - 1
-                gap > 2 && (core = string(core, " ", AD, "─"^gap, AR))
+            width = awidth(txt)
+            if k == length(hls)
+                # A rule out to the edge of the pane on the last row of the
+                # header, so where one comment ends and the next begins is
+                # visible at a glance rather than found by reading. Only at the
+                # top level: a nested block stays subordinate to the comment it
+                # was written in.
+                if n.depth == 0
+                    gap = iw - width - 1 - markw
+                    gap > 2 && (core = string(core, " ", AD, "─"^gap, AR);
+                                width += 1 + gap)
+                end
+                # And the mark, right-aligned on the row a click has to land on.
+                # Only where it fits: a header that fills the pane keeps its
+                # words, and loses the offer.
+                if markw > 0 && iw - width >= markw
+                    core = string(core, " "^(iw - width - markw), " ", AD, COPYMARK, AR)
+                end
             end
             push!(out, Row(i, true, string(pad, core), hsrc, k == 1 ? 0 : 1))
         end

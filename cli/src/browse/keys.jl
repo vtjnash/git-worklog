@@ -438,7 +438,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         else
             string(count(==('\n'), txt) + 1, " lines")
         end
-        print("\e]52;c;", Base64.base64encode(txt), "\a")
+        clip(txt)
         st.status = string("copied ", note)
     elseif k == Int('l')
         i = curnode(st, iw)

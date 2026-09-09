@@ -203,7 +203,12 @@ paragraph with it yields the wrapped fragments plus the pane borders. Dragging
 here selects rows, and `y` copies them as the lines they were written as - one
 line per paragraph, links whole, no colours in the paste. Clicking moves the
 cursor and clicking a fold marker toggles it; the wheel scrolls the pane under
-the pointer. `m` gives the mouse back to the terminal when you want it - and
+the pointer. A single click on a url copies it and a **double click** copies
+whatever else is under the pointer - the word, the path, the identifier without
+the backticks that made it code - while in the item list it copies that item's
+url. Every node header carries a **`⧉`** at its right-hand end: clicking it
+copies that block whole, the comment with its code and its tail, the hunk
+without the conversation hanging off it. `m` gives the mouse back to the terminal when you want it - and
 `shift-J`/`shift-K`, or the shifted arrows, extend a selection from the
 keyboard, which is what `m` off would otherwise take away along with the drag.
 

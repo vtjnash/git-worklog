@@ -35,7 +35,9 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # The mouse turns a screen row into an `nrow` by subtracting this, and only
     # here is it known - the item title wraps to however many rows it wraps to.
     st.hdr = length(rrows)
-    nrows = rows(st.nodes, riw)
+    # With the copy marks: this is the one place the pane is actually drawn,
+    # and the mark is an offer to click that only holds while we own the mouse.
+    nrows = rows(st.nodes, riw, st.mouse)
     append!(rrows, nrows)
     st.nrow = clamp(st.nrow, 1, max(1, length(nrows)))
     sr = selrange(st)

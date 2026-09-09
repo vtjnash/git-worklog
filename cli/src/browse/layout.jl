@@ -207,6 +207,32 @@ of characters somebody would have clicked on, and the closers are the ones that
 end a url in prose rather than the ones a url may not contain."""
 const URL_RE = r"https?://[^\s<>\"'`\)\]}]+"
 
+"""Where in a row's written line a click at display column `col` landed, as a
+character index into `src`, or 0.
+
+The answer comes out of `src` and not off the row, because wrapping cuts a long
+line in half and half of one is not what anybody pointed at. That is the same
+reason `row_span` exists, and it is what maps the column back.
+"""
+function src_at(st::BState, r::Row, col::Int)
+    txt = astrip(r.text)
+    isempty(txt) && return 0
+    ind = 2 * st.nodes[clamp(r.node, 1, length(st.nodes))].depth
+    # Display column to character index, walking widths rather than counting
+    # characters: one wide character earlier on the row moves everything after it.
+    ci, acc = 0, 0
+    for (k, c) in enumerate(txt)
+        acc += textwidth(c)
+        acc >= col && (ci = k; break)
+    end
+    ci == 0 && return 0
+    sp = row_span(r, ind, 1)
+    # Through the span when the row is a piece of its source, and straight
+    # across when it is not.
+    j = sp === nothing ? ci : first(sp) + (ci - ind) - 1
+    (j < 1 || j > length(r.src)) ? 0 : j
+end
+
 """The url a click at display column `col` landed on, or empty.
 
 Two kinds of link are answered for here and neither is an OSC 8 hyperlink: a
@@ -226,27 +252,88 @@ the same reason `row_span` exists, and it is what maps the column back.
 function link_at(st::BState, r::Row, col::Int)
     fn = match(r"^\[\d+\]\s+(\S+)\s*$", r.src)
     fn === nothing || return String(fn[1])
-    txt = astrip(r.text)
-    isempty(txt) && return ""
-    ind = 2 * st.nodes[clamp(r.node, 1, length(st.nodes))].depth
-    # Display column to character index, walking widths rather than counting
-    # characters: one wide character earlier on the row moves everything after it.
-    ci, acc = 0, 0
-    for (k, c) in enumerate(txt)
-        acc += textwidth(c)
-        acc >= col && (ci = k; break)
-    end
-    ci == 0 && return ""
-    sp = row_span(r, ind, 1)
-    # Where the click is in the written line: through the span when the row is a
-    # piece of its source, and straight across when it is not.
-    j = sp === nothing ? ci : first(sp) + (ci - ind) - 1
+    j = src_at(st, r, col)
+    j == 0 && return ""
     for m in eachmatch(URL_RE, r.src)
         lo = length(SubString(r.src, 1, prevind(r.src, m.offset))) + 1
         lo <= j <= lo + length(m.match) - 1 && return String(m.match)
     end
     ""
 end
+
+"""The word a double click landed on: the run of non-space around it.
+
+Whitespace-delimited rather than by letters, because what gets double-clicked
+here is a path, an identifier with a dot in it, a `repo#1234`, a sha - and a
+"word" that stops at the punctuation inside those is one that has to be
+reassembled by hand after pasting. A url is a word too, and the whole of one:
+`link_at` answers first, so a click inside one copies past the wrapping.
+
+Sentence punctuation is trimmed off the end and a code span's backticks off
+both: `typeinfer.jl:544,` is a comma somebody wrote after the thing they meant,
+and the backticks say the thing is code rather than being part of it. A copy of
+a whole line keeps them, deliberately - see the code-span note in `markdown.jl`
+- because there the formatting is what is being copied. One word is not.
+"""
+function word_at(st::BState, r::Row, col::Int)
+    u = link_at(st, r, col)
+    isempty(u) || return u
+    j = src_at(st, r, col)
+    (j == 0 || isspace(r.src[j])) && return ""
+    lo = hi = j
+    while lo > firstindex(r.src)
+        p = prevind(r.src, lo)
+        isspace(r.src[p]) && break
+        lo = p
+    end
+    while hi < lastindex(r.src)
+        q = nextind(r.src, hi)
+        isspace(r.src[q]) && break
+        hi = q
+    end
+    String(strip(c -> c == '`', rstrip(c -> c in ".,;:!?", r.src[lo:hi])))
+end
+
+"""What the copy mark on a header copies: the node as written, and everything
+nested under it - which is exactly what folding that header hides.
+
+Bodies and not headers: a comment's header is a byline and a peek at the words
+below it, and a code block's is `julia  9 lines`. Neither is anything anybody
+wants in a paste.
+
+A hunk is the exception, and copies only its own lines. What is nested under one
+is a conversation *about* the code rather than part of it: `attach_comments`
+puts the review comments there so that they fold with the hunk, which is a
+choice about the screen and not a claim that they are the same thing.
+"""
+function node_text(nodes::Vector{Node}, i::Int, w::Int)
+    n = nodes[i]
+    idx = [i]
+    if n.kind !== :diff
+        for j in (i + 1):length(nodes)
+            nodes[j].depth > n.depth || break
+            push!(idx, j)
+        end
+    end
+    out = String[]
+    for j in idx
+        nj = nodes[j]
+        nodelines(nj, max(20, w - 2 * nj.depth))    # which is what fills `srcs`
+        isempty(out) || push!(out, "")
+        for (part, src) in nj.srcs
+            part == 0 && push!(out, src)
+        end
+    end
+    join(out, "\n")
+end
+
+"""Put text on the clipboard.
+
+OSC 52, which is the one copy that works from inside a terminal somebody else
+owns - over ssh, and through tmux. It is disabled by default in some terminals,
+which is why every caller also says in the footer what it put there.
+"""
+clip(text::AbstractString) = print("\e]52;c;", Base64.base64encode(text), "\a")
 
 "Every place `q` appears in `text`, as ranges of plain characters."
 function findhits(text::AbstractString, q::AbstractString)
