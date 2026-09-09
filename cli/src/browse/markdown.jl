@@ -416,8 +416,15 @@ function nodelines(n::Node, w::Int)
     if n.kind === :md && !isempty(n.urls)
         push!(out, ""); push!(srcs, (0, ""))
         for (i, u) in enumerate(n.urls)
+            # The hyperlink is made *here*, where the url and the text standing
+            # for it are both in hand, rather than by matching that text in the
+            # finished frame. A match cannot tell two urls apart once they elide
+            # to the same string, and it has to be told not to write a link
+            # inside a link; identity has neither problem. It is also the only
+            # way these are links at all beside a hosted pane, which draws the
+            # detail on its own and never reaches `linkify`.
             push!(out, string(AD, "[", i, "]", AR, " \e[34m",
-                              shortlink(u, max(20, w - 8)), AR))
+                              osc8(u, shortlink(u, max(20, w - 8))), AR))
             # The whole URL, not the elided form on screen: a shortened link is
             # the one thing on the row that is useless once pasted.
             push!(srcs, (0, string("[", i, "] ", u)))

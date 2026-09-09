@@ -161,9 +161,14 @@ function render_frame(st::BState, w::Int, h::Int)
                                    false))
     right = detail_pane(st, it, rw, rh, st.focus === :detail)
 
+    # The footnote rows link themselves, in `nodelines`. What is left for
+    # `linkify` is a url *written in the prose* - which happens when a comment
+    # links a url to itself, the shape GitHub's own autolinking produces - and
+    # there the text on screen is the whole url. So the display form is the url,
+    # and no elided string is ever matched against anything.
     links = Pair{String,String}[]
     for n in st.nodes, u in n.urls
-        push!(links, shortlink(u, max(20, riw - 8)) => u)
+        push!(links, u => u)
     end
 
     # Split the way the keys themselves divide: what shows you something, then
@@ -265,12 +270,22 @@ end
 """
     linkify(frame, links) -> String
 
-Wrap each rendered short URL in an OSC 8 hyperlink pointing at the full one.
+Wrap a url *written in the prose* in an OSC 8 hyperlink, so it can be followed
+rather than only read.
+
+The footnote rows under a comment are not this function's work any more: they
+are built in `nodelines`, which holds the url and the text standing for it at
+the same moment and wraps one in the other by identity. Matching text is for
+what only the finished frame has, which is the body of a comment that linked a
+url to itself - the shape GitHub's own autolinking produces - where the url is
+both the target and the words. So a display form here is the url itself, and no
+elided string is ever matched against anything.
 
 Done last, on the finished frame, because OSC 8 sequences are invisible to the
-terminal but not to Term's width accounting - injecting them earlier would wrap
-lines that fit. The display form is kept short enough that Term never splits it
-across lines, which is what makes a plain textual replacement safe here.
+terminal but not to Term's width accounting - injecting them into prose earlier
+would wrap lines that fit. The cost of being last is that a url Term wrapped is
+not one contiguous run of text and so is not found; it was not found before
+this either.
 
 Only in what *prints*, though, which a plain `replace` over the frame was not.
 Every comment header is already an OSC 8 hyperlink to its own permalink, and a
@@ -281,49 +296,50 @@ terminates the outer sequence early and prints the rest of the url as literal
 characters that nothing has measured: a row 224 columns wide in a 150-column
 terminal, which is the screen tearing.
 
-So the frame is cut on its OSC sequences and only the pieces between them are
-substituted. Cut on those alone and not on every escape, because a colour code
-splitting a display form is a match that was already missed before this and is
-none of this function's business.
+So the frame is cut on its OSC sequences and nothing inside a hyperlink is
+substituted - neither the payload nor the text between its ends, which is where
+a link made in `nodelines` keeps the very url these patterns match. Cut on those
+alone and not on every escape, because a colour code splitting a url is a match
+that was already missed before this and is none of this function's business.
 
 **And the same tearing, from the other direction: a loop of `replace`s reads its
 own output.** The links are one per url per *node*, so a url cited in four
 comments - which is exactly what nanosoldier does, one report link per run -
-arrives here four times. A url short enough to be shown whole is its own display
-form, so the second pass found it again *inside the payload the first had just
-written* and hyperlinked that, and the row tore in the way described above.
-One `replace` with every pattern at once is the fix, because that one is defined
-not to look at its own replacements; the list is deduplicated and taken longest
-first, so a display form that is the head of another cannot win over it.
+arrives here four times, and the second pass found the first pass's payload and
+hyperlinked that. One `replace` with every pattern at once is the fix, because
+that one is defined not to look at its own replacements; the list is
+deduplicated and taken longest first, so a url that is the head of another - an
+issue, and a comment on that issue - cannot take the match from it.
 """
 const OSC = r"\e\][^\e]*\e[\\]"
 
 function linkify(frame::AbstractString, links)
     isempty(links) && return frame
-    # One display form can only carry one target, so a form that two different
-    # urls both elide to gets no link at all rather than a link to whichever was
-    # cited first. `shortlink` keeps the tail precisely so that this is rare,
-    # and a click still copies the right url either way - `link_at` reads the
-    # row's own source, which carries the whole thing.
-    target, ambiguous = Dict{String,String}(), Set{String}()
+    target = Dict{String,String}()
     for (disp, full) in links
-        isempty(disp) && continue
-        d, f = String(disp), String(full)
-        haskey(target, d) ? (target[d] == f || push!(ambiguous, d)) : (target[d] = f)
+        isempty(disp) || (target[String(disp)] = String(full))
     end
     pats = Pair{String,String}[]
     # Longest first, so a display form that is the head of another cannot take
     # the match from it: `replace` tries the patterns in order at each position.
     for d in sort!(collect(keys(target)); by = x -> (-length(x), x))
-        d in ambiguous && continue
         push!(pats, d => osc8(target[d], d))
     end
     isempty(pats) && return frame
     sub(s) = replace(s, pats...)
-    out, at = IOBuffer(), firstindex(frame)
+    # Nothing is written inside a hyperlink that is already there - not in its
+    # payload, and not in the text between its ends, which is where a link made
+    # at construction keeps the very string these patterns match. Either one
+    # puts a second `\e]8;;` inside the first, which terminates the outer
+    # sequence early and prints the rest as characters nothing has measured.
+    out, at, inlink = IOBuffer(), firstindex(frame), false
     for m in eachmatch(OSC, frame)
-        write(out, sub(SubString(frame, at, prevind(frame, m.offset))))
+        seg = SubString(frame, at, prevind(frame, m.offset))
+        write(out, inlink ? seg : sub(seg))
         write(out, m.match)
+        # `\e]8;;\e\\` and nothing else closes one; anything longer opens one.
+        startswith(m.match, "\e]8;;") &&
+            (inlink = ncodeunits(m.match) > ncodeunits("\e]8;;\e\\"))
         at = m.offset + ncodeunits(m.match)
     end
     write(out, sub(SubString(frame, at)))

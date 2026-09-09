@@ -62,27 +62,34 @@ end
     @test occursin(string("\e]8;;", b, "\e\\"), out)
     @test !occursin(string("\e]8;;", a, "\e\\"), out)
 
+    # Nothing is written inside a hyperlink that is already there, and that
+    # includes the text between its ends: a footnote row links itself, and its
+    # label is the very string these patterns match.
+    made = W.osc8("https://x.invalid/a", "https://x.invalid/a")
+    out = W.linkify(string("[1] ", made), ["https://x.invalid/a" => "https://x.invalid/a"])
+    @test out == string("[1] ", made)                 # left exactly as it was
+    @test !occursin("\e]8;;\e]8;;", out)
+
     # Two urls where one is the head of the other - an issue and a comment on
     # that issue is the everyday case - and both too long to be shown whole.
-    # Elided at the tail they drew as the same string, which told the reader
-    # nothing and left one display form with two targets, so the row for the
-    # second was hyperlinked to the first.
+    # The rows link themselves where they are built, so each points at its own
+    # url however alike the two are drawn; and elided in the middle, they are
+    # not drawn alike either.
     iss = "https://github.com/JuliaLang/PackageCompiler.jl/issues/1234#issue-comment-anchor"
     cmt = string(iss, "#issuecomment-1701494121")
     @test W.shortlink(iss, 60) != W.shortlink(cmt, 60)
     @test endswith(W.shortlink(cmt, 60), "1701494121")   # the half that differs
     @test W.awidth(W.shortlink(cmt, 60)) <= 60
-    rows = string("[1] ", W.shortlink(iss, 60), "\n[2] ", W.shortlink(cmt, 60))
-    out = W.linkify(rows, [W.shortlink(iss, 60) => iss, W.shortlink(cmt, 60) => cmt])
-    @test [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", out)] == [iss, cmt]
-
-    # And where two urls do still land on one display form, neither is linked:
-    # a form carries one target, and no link is better than the wrong one. The
-    # click that copies is unaffected - `link_at` reads the row's own source.
-    same = "https://x.invalid/one"
-    out = W.linkify(string("see ", same, " here"), [same => "https://x.invalid/a",
-                                                    same => "https://x.invalid/b"])
-    @test !occursin("\e]8;;", out)
+    two = mkstate()
+    two.nodes = W.body_nodes("alice  2026-08-01   two links",
+                             string("see [the issue](", iss, ") and [the comment](", cmt, ")"),
+                             "http://x", true)
+    two.loaded = string(two.items[two.sel].url, ":", two.mode)
+    f = W.render(two, 150, 40)
+    got = [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", f)]
+    @test iss in got && cmt in got
+    @test !occursin("\e]8;;\e]8;;", f)
+    for l in split(f, "\n"); @test W.awidth(l) == 150; end
 end
 
 @testset "a click on a url copies it" begin
