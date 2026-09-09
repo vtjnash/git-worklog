@@ -207,6 +207,26 @@ end
                           "before\n\n```julia\nx = 1\n```\n\nafter", "http://x", true)
     @test W.node_text(split_, 1, 80) == "before\n\nx = 1\n\nafter"
     @test W.node_text(split_, 2, 80) == "x = 1"
+
+    # A fenced block is a node with a header of its own, so it has a mark of its
+    # own - which is the case this is most wanted for: the code without the
+    # sentence around it. It copies the same folded, since `node_text` reads the
+    # node rather than the screen.
+    st.nodes = W.body_nodes("bob  2026-08-02   try this",
+                            "Try:\n\n```julia\nusing Downloads\nx = 1\n```\n\nand report back.",
+                            "http://x", true)
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    W.render(st, 150, 40)
+    for folded in (false, true)
+        st.nodes[2].open = !folded
+        rs2 = W.rows(st.nodes, L.riw, true)
+        code = findfirst(r -> r.header && r.node == 2, rs2)
+        @test endswith(W.astrip(rs2[code].text), W.COPYMARK)    # nested, at the edge
+        st.status = ""
+        click(L.rx + L.riw, y0 + code - 1, folded ? 600.0 : 700.0)
+        @test st.status == "copied 2 lines"
+        @test W.node_text(st.nodes, 2, L.riw) == "using Downloads\nx = 1"
+    end
     hunk = W.Node("a.jl  @@ 1,2 @@", "-old\n+new", :diff, true)
     merge!(hunk.meta, Dict{String,Any}("file" => "a.jl", "start" => 1, "count" => 2,
                                        "ostart" => 1, "ocount" => 2,
