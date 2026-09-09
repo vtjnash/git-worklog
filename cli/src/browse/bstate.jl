@@ -14,7 +14,7 @@ end
 
 """The browser's whole state.
 
-Keyword-constructed, with defaults: it has close to fifty fields, and the
+Keyword-constructed, with defaults: it has more than fifty fields, and the
 positional form is a place where two of them get transposed silently. `render`
 mutates the scroll offsets and the two geometry readings (`hdr`, `nmeta`) that
 the mouse needs, so it is pure in what it returns but not in what it touches.

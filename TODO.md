@@ -2,43 +2,17 @@
 
 ## What is next
 
-The read-through is done — `src/browse/*`, `paneview.jl` and the module header,
-one file at a time, and `git log` is the record of it. Nothing it turned up is
-still open. What it turned up is written here so the next pass knows what kind
-of thing to look for rather than deriving it again:
-
-- **Counts that stopped being true.** Nine filter states described as five, six
-  axis predicates as four, forty-nine `BState` fields as thirty, the category
-  axis as thirteen values when it is built from the buckets the items carry.
-- **Arguments that outlived the code needing them.** `Term.Panel`, the label
-  frequency count, `select_item!`'s promise not to un-filter, and one of the two
-  reasons `t` is kept on the reading side.
-- **Three dead things**, each left behind by what replaced them: `esc`, `fit1`,
-  `session_rows`.
-- **Three defects the prose walked straight past.** `/1234` never widened for an
-  *archived* item; `undo!` did not rebuild the snoozed lane it had just changed;
-  a note saved from a pane went into `st.items` alone and vanished at the next
-  refilter.
-
-The suite was also stopping at `archive.jl` and had been hiding every testset
-after it — the adoption testset counted the user's own adopted branches
-alongside the one it made. That went first, because nothing else could be
-checked until it had.
-
-What is left. Eight of the nine that were here are done, and the ninth is down
-to the one part of it that is a design question - the cursor that
-remembers where you were per item and per mode, the row that stays put when the
-one it was on leaves, the keyboard selection, the blank line between comments,
-the numbered views, the peek that was drawn twice, the un-import that left its
-inbox row, and the `…` header over a paragraph's own tail. What remains:
+Three things are open, and the first of them is a decision rather than a task.
+Everything else that stood here is done; `git log` is the record of it and this
+file is not.
 
 1. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
    comments hang off the hunk they point into, threaded, with the resolved ones
    folded under it, they are nodes so `n`/`N` walks them, the hunk header counts
-   them, and the *line* each thread hangs off now carries the same `💬` mark -
-   so the hunk says where it is being talked about and the discussion is one
-   screen below rather than one pane away.
+   them, and the *line* each thread hangs off carries the same `💬` mark - so
+   the hunk says where it is being talked about and the discussion is one screen
+   below rather than one pane away.
    What is left is the box itself, drawn between the diff lines. The cost is
    what to decide about: a hunk is one node whose body is the diff text, and
    cutting it at the commented line cuts the `start`, `count` and `body` that
@@ -48,16 +22,23 @@ inbox row, and the `…` header over a paragraph's own tail. What remains:
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Whether a drag is reported at all.** The keyboard half of the old item 4 is
-   done. On the mouse half, everything between the byte and the highlight is
-   exercised by the suite and works: `\e[<32;40;12M` decodes to a `:drag`,
-   `onmouse!` puts the range in `sela`/`selb`, and the frame draws those rows in
-   `SELBG` - checked against a real render, not only in the test. So what is
-   left is outside this program: whether the terminal sends motion reports at
-   all under `1002`, whether tmux or the terminal is taking the drag for its own
-   selection first, and whether the drag was over the *item list*, which binds
-   press and wheel and ignores motion by design. It needs a real terminal to
-   find out in, which is the one thing this sandbox does not have.
+2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
+   and the shifted arrows extending a selection - is done. On the mouse half,
+   everything between the byte and the highlight is exercised by the suite and
+   works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
+   `sela`/`selb`, and the frame draws those rows in `SELBG` - checked against a
+   real render, not only in the test. So what is left is outside this program:
+   whether the terminal sends motion reports at all under `1002`, whether tmux
+   or the terminal is taking the drag for its own selection first, and whether
+   the drag was over the *item list*, which binds press and wheel and ignores
+   motion by design. It needs a real terminal to find out in, which is the one
+   thing this sandbox does not have.
+
+3. **`rust#1` is still in the unread lane.** The code that left it there is
+   fixed - undoing an import now takes back the inbox row and the read stamp as
+   well as the `imported` field - but that row predates the fix and is still in
+   `data/inbox.json`. Pressing `r` on it removes it. Left alone because it is
+   the user's own data and one keystroke.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -67,6 +48,29 @@ failure loses work — the draft-review machinery exists precisely because five
 careful comments are easy to lose — and it needs a fine-grained PAT with
 `issues: write` and `pull_requests: write` on the repositories being reviewed.
 See Infrastructure.
+
+### What a read-through turns up
+
+Kept from the last pass over `src/browse/*` because it says what to look for
+rather than what was found, and every class of it recurred in the pass after:
+
+- **Counts that stopped being true.** Nine filter states described as five, six
+  axis predicates as four, forty-nine `BState` fields as thirty, the category
+  axis as thirteen values when it is built from the buckets the items carry.
+- **Arguments that outlived the code needing them.** `Term.Panel`, the label
+  frequency count, `select_item!`'s promise not to un-filter, and one of the two
+  reasons `t` is kept on the reading side.
+- **Dead things**, each left behind by what replaced them: `esc`, `fit1`,
+  `session_rows`.
+- **Defects the prose walked straight past.** `/1234` never widened for an
+  *archived* item; `undo!` did not rebuild the snoozed lane it had just changed;
+  a note saved from a pane went into `st.items` alone and vanished at the next
+  refilter; an undone import left its inbox row behind for good.
+- **A rule enforced by matching text that identity could enforce instead.** The
+  footnote hyperlinks were made by replacing a url's display form in the
+  finished frame, which could not tell two urls apart once they elided to the
+  same string - and the fix was to make the link where the row is written, where
+  there is nothing to match.
 
 ## Resuming work
 
