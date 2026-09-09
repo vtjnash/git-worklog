@@ -187,3 +187,13 @@ end
 pget(o::AbstractDict{String}, k::AbstractString) = get(o, k, nothing)
 pget(o, k::AbstractString) = get(o, Symbol(k), nothing)
 pget(::Nothing, ::AbstractString) = nothing
+
+"""One line, whatever it was.
+
+Anything that reaches a single-row field - the footer's message, a status - has
+to *be* one row. `showerror` is the reason this exists: its output carries a
+newline, so an error put straight into the footer made the frame one row taller
+than the screen, scrolled it, and left every mouse click reporting a row that
+was no longer under it.
+"""
+oneline(s::AbstractString) = replace(strip(s), r"\s*\n\s*" => " \u00b7 ")

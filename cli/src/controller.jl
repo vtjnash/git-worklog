@@ -100,40 +100,10 @@ onmouse!(::View, ::MouseEvent, ::Any) = :ok
 # Everything here is a pure function of a byte stream, so it can be driven from
 # an IOBuffer in a test rather than needing a terminal.
 
-# Above the last codepoint Unicode will ever have, so a key code is either a
-# character or one of these and never both. They used to start at 1000, which is
-# a perfectly good Greek letter - fine while nothing could type one, and a
-# collision the moment the composer accepted non-ASCII input.
-const K_BASE  = 0x110000
-const K_LEFT  = K_BASE + 0
-const K_RIGHT = K_BASE + 1
-const K_UP    = K_BASE + 2
-const K_DOWN  = K_BASE + 3
-const K_DEL   = K_BASE + 4
-const K_HOME  = K_BASE + 5
-const K_END   = K_BASE + 6
-const K_PGUP  = K_BASE + 7
-const K_PGDN  = K_BASE + 8
-const K_STAB  = K_BASE + 9     # Shift-Tab, CSI Z
-const K_WORD_LEFT  = K_BASE + 10
-const K_WORD_RIGHT = K_BASE + 11
-const K_WORD_BACK  = K_BASE + 12    # delete the word before the cursor
-const K_EDIT       = K_BASE + 13    # Alt-e, as the REPL binds it
-const K_SUP        = K_BASE + 14    # Shift-Up and Shift-Down, which are the
-const K_SDOWN      = K_BASE + 15    # arrows' own keys and not modifiers here:
-                                    # only the detail pane does anything with
-                                    # the shift, and a view that has no
-                                    # selection to extend passes them through
-                                    # `unshift`
+# The key codes themselves are `Keys`, a submodule, and are `using`-ed into this
+# one - see `keys.jl` for why they live apart from the decoder that produces
+# them.
 
-"""Shift-Up and Shift-Down for a view with no selection to extend: the plain
-arrow. A key drawn on the arrow that does nothing at all reads as a terminal
-that has stopped responding.
-"""
-unshift(k::Int) = k == K_SUP ? K_UP : k == K_SDOWN ? K_DOWN : k
-
-"A key that stands for a character someone meant to type."
-printable(k::Int) = (k >= 32 && k != 127 && k <= 0x10FFFF)
 
 # Readline's editing keys, by the control bytes they arrive as.
 const C_A, C_D, C_E, C_K, C_S, C_U, C_W, C_O = 1, 4, 5, 11, 19, 21, 23, 15
@@ -196,19 +166,26 @@ because its tail arrives as plausible-looking keystrokes.
 function readevent(io::IO)
     b = read(io, UInt8)
     if b >= 0x80
-        # A typed character outside ASCII arrives as its UTF-8 bytes. Assembling
-        # it here keeps every view dealing in characters rather than in bytes;
-        # left as bytes, an accented letter inserted three separate nothings.
-        n, mask = b >= 0xf0 ? (3, 0x07) : b >= 0xe0 ? (2, 0x0f) :
-                  b >= 0xc0 ? (1, 0x1f) : (0, 0x00)
-        n == 0 && return KeyEvent(-1)              # a stray continuation byte
-        cp = UInt32(b & mask)
+        # Whatever arrived, carried as the bytes it was. Assembling the sequence
+        # here - rather than handing each byte on separately - is what keeps
+        # every view dealing in characters: left as bytes, an accented letter
+        # inserted three separate nothings. But it is assembled and not
+        # *decoded*, because a codepoint cannot hold what a terminal can send:
+        # see `K_BASE`.
+        #
+        # The framing is Julia's, so a sequence stored in a buffer is read back
+        # out of it as the same one `Char`. `0xF8` and above lead nothing, a
+        # continuation byte with no lead is itself, and a sequence whose
+        # continuation never came is its lead byte alone - which is why the next
+        # byte is looked at and not taken.
+        n = b >= 0xf8 ? 0 : b >= 0xf0 ? 3 : b >= 0xe0 ? 2 : b >= 0xc0 ? 1 : 0
+        k = Int(b)
         for _ in 1:n
-            c = read(io, UInt8)
-            (c & 0xc0) == 0x80 || return KeyEvent(-1)
-            cp = (cp << 6) | UInt32(c & 0x3f)
+            eof(io) && break
+            (peek(io, UInt8) & 0xc0) == 0x80 || break
+            k = (k << 8) | Int(read(io, UInt8))
         end
-        return KeyEvent(Int(cp))
+        return KeyEvent(k)
     end
     b == 0x1b || return KeyEvent(Int(b))
     # A bare 27 is Escape; 27 with bytes behind it heads a sequence.
@@ -792,7 +769,7 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
         v.query = String(first(v.query, word_start(v.query, length(v.query) + 1) - 1))
         v.sel = 1
     elseif printable(k)
-        v.query *= Char(k); v.sel = 1
+        v.query *= keychar(k); v.sel = 1
     end
     :ok
 end
@@ -849,7 +826,7 @@ function handle!(v::ConfirmView, k::Int, ctrl::Controller)
     # takes it as the dismissal it looks like.
     (printable(k) || k == 27) || return :pop
     for (keys, answer) in v.answers
-        Char(k) in keys && return answer() === :quit ? :quit : :pop
+        keychar(k) in keys && return answer() === :quit ? :quit : :pop
     end
     :pop
 end
@@ -1132,7 +1109,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
     elseif k == K_END
         v.col = n + 1
     elseif printable(k)
-        v.lines[v.row] = string(first(l, v.col - 1), Char(k), l[nextind(l, 0, v.col):end])
+        v.lines[v.row] = string(first(l, v.col - 1), keychar(k), l[nextind(l, 0, v.col):end])
         v.col += 1
     end
     :ok
@@ -1173,7 +1150,7 @@ function handle!(v::PromptView, k::Int, ctrl::Controller)
     elseif k in (C_E, K_END)
         v.col = length(v.buf) + 1
     elseif printable(k)
-        v.buf = string(first(v.buf, v.col - 1), Char(k), v.buf[nextind(v.buf, 0, v.col):end])
+        v.buf = string(first(v.buf, v.col - 1), keychar(k), v.buf[nextind(v.buf, 0, v.col):end])
         v.col += 1
     end
     :ok

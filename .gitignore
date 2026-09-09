@@ -10,3 +10,9 @@ data/
 # this program works around - `Term.jl/fixme.md` is the write-up of them, and
 # is excluded from that checkout too so it cannot end up in a pull request.
 /Term.jl/
+
+# The tmux half, split out and now a repository of its own. `cli/Project.toml`
+# reaches it through `[sources]` at `../TermIFrame`, so a checkout has to be
+# here for the program to build - but its history is not this one's, the same
+# as `Term.jl/` above.
+/TermIFrame/

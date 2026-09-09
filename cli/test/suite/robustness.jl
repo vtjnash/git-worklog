@@ -57,7 +57,7 @@
         withenv("LINES" => "24", "COLUMNS" => "200") do
             W.pane_sync!(v)
             # The child is sized to its own column, not to the screen.
-            @test v.sized == W.pane_box(last(W.split_box(200)), 24)
+            @test v.child.sized == W.iframe_box(last(W.split_box(200)), 24)
             ls = split(W.render(v, 200, 24), "\n")
             @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
             @test occursin("MARKER", join(ls, "\n"))
@@ -69,7 +69,7 @@
         # Narrow: no split, and the child gets the screen back.
         withenv("LINES" => "24", "COLUMNS" => "100") do
             W.pane_sync!(v)
-            @test v.sized == W.pane_box(100, 24)
+            @test v.child.sized == W.iframe_box(100, 24)
             ls = split(W.render(v, 100, 24), "\n")
             @test length(ls) == 24 && all(W.awidth(l) == 100 for l in ls)
         end
@@ -80,7 +80,7 @@
             ls = split(W.render(alone, 200, 24), "\n")
             @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
         end
-        W.mux_close(alone.client); W.mux_close(v.client); W.mux_kill(n)
+        W.iframe_close!(alone.child); W.iframe_close!(v.child); W.mux_kill(n)
     end
 end
 
@@ -157,9 +157,11 @@ end
 end
 
 @testset "the child's cursor" begin
-    mk(cur; beside = nothing) =
-        W.PaneView("n", "t", nothing, String[], (0, 0), "", false, beside, cur, false,
-                   nothing, :child, 0, 0, false)
+    mk(cur; beside = nothing) = begin
+        f = W.IFrame("n", "t")           # an iframe with no child behind it
+        f.cursor = cur
+        W.PaneView(f, beside, :child)
+    end
 
     # The terminal's own cursor is moved to the child's, rather than a block
     # being painted where it should be: a real one blinks, takes the shape the
@@ -173,7 +175,7 @@ end
 
     # `pane` spends a row on its border and two columns on border and padding,
     # so the child's (0,0) is screen row 2, column 3.
-    c = mk((0, 0, true)); c.client = nothing
+    c = mk((0, 0, true))
     @test W.viewcursor(c, 80, 24) === nothing        # no client, nothing to show
 end
 
@@ -237,7 +239,7 @@ end
         n1 = "wl-test-mouse-off"; W.mux_kill(n1)
         W.mux_start(n1, pwd(), "sh -c 'printf \"prompt> \"; sleep 60'")
         v1 = W.pane_view(n1, "sh", ctrl); sleep(1.0); W.pane_sync!(v1)
-        @test v1.wantsmouse === false
+        @test v1.child.wantsmouse === false
         @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'M'), 100, 24))
         @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'm'), 100, 24))
         # Typing is untouched: only mouse reports are read on the way through.
@@ -249,7 +251,7 @@ end
 
         # The cursor is where the child says, mapped into the screen: `pane`
         # spends a row on its border and two columns on border and padding.
-        x, y, showing = v1.cursor
+        x, y, showing = v1.child.cursor
         @test showing === true && (x, y) == (8, 0)
         @test W.viewcursor(v1, 100, 24) == (2 + 0, 3 + 8)
         # Split: the child starts after whatever is drawn to its left. Only
@@ -264,7 +266,7 @@ end
         n2 = "wl-test-mouse-on"; W.mux_kill(n2)
         W.mux_start(n2, pwd(), "sh -c 'printf \"\\033[?1006h\\033[?1002h\"; sleep 60'")
         v2 = W.pane_view(n2, "app", ctrl); sleep(1.0); W.pane_sync!(v2)
-        @test v2.wantsmouse === true
+        @test v2.child.wantsmouse === true
 
         # Screen (20,5) with no split: origin (3,2), so the child sees (18,4).
         @test String(W.retarget_mouse(v2, sgr(0, 20, 5, 'M'), 100, 24)) == "\e[<0;18;4M"
@@ -280,11 +282,32 @@ end
         @test isempty(W.retarget_mouse(v2, sgr(0, 1, 1, 'M'), 100, 24))
         @test isempty(W.retarget_mouse(v2, sgr(0, 999, 5, 'M'), 100, 24))
 
-        W.mux_close(v1.client); W.mux_close(v2.client)
+        W.iframe_close!(v1.child); W.iframe_close!(v2.child)
         W.mux_kill(n1); W.mux_kill(n2)
     end
 end
 
+
+@testset "a branch is told apart at the end of its column" begin
+    # `amid` is TermIFrame's and is tested there. What is this program's is
+    # which columns use it: a branch is the thing that tells two copies of one
+    # repo apart, so it is the one that must not be cut at the tail.
+    # `users/vtjnash/tsa-tryheld-state` and `...-other` both drew as
+    # `users/vtjnash/tsa-tryheld…` in the twenty-six the chooser has.
+    a, b = "users/vtjnash/tsa-tryheld-state", "users/vtjnash/tsa-tryheld-other"
+    for w in (W.WT_BRANCH, W.BR_NAME, 26)
+        @test W.amid(a, w) != W.amid(b, w)
+    end
+    mk(branch) = W.WorktreeRow("o/r", "/tmp/wt", "wt", branch, false, false, 0, 0,
+                               "2026-09-01", false, false, nothing, W.SessionRow[])
+    @test W.astrip(W.wt_line(mk(a), 100)) != W.astrip(W.wt_line(mk(b), 100))
+    br(name) = W.BranchRow("o/r", name, "2026-09-01", 0, 0, false, "", "", nothing)
+    @test W.astrip(W.br_line(br(a), 100)) != W.astrip(W.br_line(br(b), 100))
+    # And `shortlink` is the same idiom over the same code.
+    @test W.shortlink("x", 58) == "x"
+    u = "https://x.invalid/" * "a"^80
+    @test W.shortlink(u, 58) == W.amid(u, 58)
+end
 
 @testset "a one-row field holds one row" begin
     # `showerror` puts a newline in its message. Straight into the footer, that

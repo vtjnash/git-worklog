@@ -155,7 +155,7 @@ end
     @test occursin("suggestion inserted", v.status)
     # And it is ordinary text from there: the editor knows nothing about what
     # the block is, only where it went.
-    for c in "why not"; W.handle!(v, Int(c), ctrl); end
+    for c in "why not"; W.handle!(v, W.keycode(c), ctrl); end
     @test endswith(W.text(v), "```\nwhy not")
     # A second one lands under the first rather than inside it.
     W.handle!(v, 18, ctrl)

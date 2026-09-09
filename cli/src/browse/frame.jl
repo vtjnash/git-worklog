@@ -89,7 +89,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                                        min(total, st.ntop + rh - 3), "/", total) : "",
                     sr === nothing ? "" : string("  ", AB, sr[2] - sr[1] + 1, " selected", AR))
 
-    pane(rvis, rw, rh, rtitle, focused)
+    bordered(rvis, rw, rh, rtitle, focused)
 end
 
 """
@@ -155,8 +155,8 @@ function render_frame(st::BState, w::Int, h::Int)
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
-    left = pane(lvis, lw, lh, ltitle, st.focus === :list)
-    L.mh > 0 && append!(left, pane(first(mlines, L.mh - 2), lw, L.mh,
+    left = bordered(lvis, lw, lh, ltitle, st.focus === :list)
+    L.mh > 0 && append!(left, bordered(first(mlines, L.mh - 2), lw, L.mh,
                                    it === nothing ? "meta" : string("meta  ", it.ref),
                                    false))
     right = detail_pane(st, it, rw, rh, st.focus === :detail)

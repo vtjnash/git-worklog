@@ -1,5 +1,10 @@
-# tmux itself: sessions, and the control-mode protocol read back as text.
-# The protocol half is a pure function of lines and needs no tmux at all.
+# What this program asks of a multiplexer, over `TermIFrame`.
+#
+# The protocol, the naming rules, the escaping and the clipboard relay are the
+# package's and are tested there - `TermIFrame/test/runtests.jl` drives them
+# from strings, with no tmux and no tty. What is left here is this program's
+# use of it: the names *it* builds, the tags it files sessions under, and that
+# a session outlives the view of it.
 
 @testset "arrow keys and shift-tab" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
@@ -25,47 +30,18 @@
     @test st.nrow == 1
 end
 
-@testset "multiplexer sessions" begin
-    # Naming is pure, so it is tested whether or not a tmux exists here. All
-    # three parts are in it: which copy of the repo, which state of it, and
-    # what was in view.
+@testset "the sessions this program owns" begin
+    # A name says which copy of the repo, which state of it, and what was in
+    # view - all three, because each answers a different question and the list
+    # is unreadable without any one of them. The rewriting of `.` and `:`, and
+    # the parts being optional, are `mux_name`'s and are tested with it.
     @test W.mux_name("julia", "master", "62841") == "wl-julia-master-62841"
-    @test W.mux_name("julia", "master", "62841", :agent) == "wl-julia-master-62841-agent"
-
-    # A branch keeps its owner prefix: tmux leaves `/` alone.
-    @test W.mux_name("julia-wt2", "vtjnash/fix", "1") == "wl-julia-wt2-vtjnash/fix-1"
-
-    # tmux does not reject `.` or `:` in a session name, it rewrites them to
-    # `_` and says nothing. A name that did not do the same substitution would
-    # create a session and then never find it again.
-    @test W.mux_name("Distributed.jl", "release-1.12", "198") == "wl-Distributed_jl-release-1_12-198"
-    @test !occursin('.', W.mux_name("y.z.jl", "a.b", "3"))
-    @test !occursin(':', W.mux_name("a:b", "c:d", "4"))
-
-    # A worktree with no branch known still gets a usable name.
+    @test W.mux_name("julia", "master", "62841"; kind = :agent) ==
+          "wl-julia-master-62841-agent"
     @test W.mux_name("julia", "", "62841") == "wl-julia-62841"
-
-    # A child starts as its own session. Only what this process actually
-    # inherited is scrubbed, so on a machine where the browser was not started
-    # from inside an agent this is the identity and costs nothing.
-    withenv("CLAUDE_CODE_MESSAGING_TOKEN" => "x", "CLAUDE_CODE_CHILD_SESSION" => "y") do
-        w = W.standalone("claude")
-        @test startswith(w, "env -u ") && endswith(w, " claude")
-        @test occursin("-u CLAUDE_CODE_MESSAGING_TOKEN", w)
-        @test occursin("-u CLAUDE_CODE_CHILD_SESSION", w)
-    end
-    withenv((k => nothing for k in filter(x -> startswith(x, "CLAUDE"), collect(keys(ENV))))...) do
-        @test W.standalone("claude") == "claude"
-    end
-
-    # A missing binary has to be an answer, not an exception: every caller is
-    # on a keystroke path.
-    withenv("WORKLOG_TMUX" => "/nonexistent/tmux") do
-        @test W.mux_bin() === nothing
-        @test W.mux("list-sessions") == (false, "no tmux on PATH")
-        @test W.mux_alive("wl-nothing") === false
-        @test W.mux_sessions() == String[]
-    end
+    # Every one of them is under this program's prefix, which is what makes a
+    # session ours to list and to kill.
+    @test all(startswith(n, "wl-") for n in W.mux_sessions())
 
     if W.mux_bin() === nothing
         @info "no tmux; skipping the session lifecycle test"
@@ -80,9 +56,10 @@ end
 
         # What a session *is* lives in its options, so that the name is free to
         # change under it. The worktree is the identity because the worktree is
-        # what is actually shared.
+        # what is actually shared, and the kind because a shell and an agent in
+        # one checkout are two different things.
         wt = mktempdir()
-        @test W.mux_tag!(n, wt, :shell, "julia#62841") === true
+        @test W.mux_tag!(n; worktree = wt, kind = :shell, item = "julia#62841")
         found = W.mux_find(wt, :shell)
         @test found !== nothing && found.name == n && found.item == "julia#62841"
         @test W.mux_find(wt, :agent) === nothing        # a separate slot
@@ -100,30 +77,13 @@ end
     end
 end
 
-@testset "what the screen cannot carry is sent on" begin
+@testset "the clipboard reaches the terminal a person is looking at" begin
     # `capture-pane` reads the grid, and a grid is made of cells - so a sequence
     # that paints no cell is not in it and never can be. OSC 52 is the one that
     # matters: an agent several terminals down that copies something has no
-    # other way to reach the terminal a person is looking at. It does arrive in
-    # `%output` (measured: tmux passes it to a control-mode client whatever
-    # `set-clipboard` says), and it was being read and thrown away.
-    p = W.passthrough
-    @test p("\e]52;c;aGk=\a") == ["\e]52;c;aGk=\a"]
-    @test p("\e]52;c;aGk=\e\\") == ["\e]52;c;aGk=\e\\"]      # ST, not BEL
-    @test p("hello\e[31m\e]52;c;YQ==\aworld") == ["\e]52;c;YQ==\a"]
-    @test length(p("\e]52;c;YQ==\a\e]52;c;Yg==\a")) == 2
-    # Only OSC 52. `%output` is the child's whole byte stream and echoing the
-    # rest would write over a screen this program lays out itself.
-    @test isempty(p("just text \e[1m bold \e[0m"))
-    @test isempty(p("\e]0;a window title\a"))
-    @test isempty(p(""))
-    # Cut off mid-sequence: nothing, rather than half a sequence. The rest of it
-    # arrives in the next burst.
-    @test isempty(p("\e]52;c;abc"))
-    # And the shell echoing the *text* `\033]52;...` is not a sequence at all,
-    # which is what tells a real copy from a command line that mentions one.
-    @test isempty(p(raw"printf '\033]52;c;aGk=\007'"))
-
+    # other way to reach the terminal a person is looking at. Finding it in the
+    # stream is `passthrough`'s and is tested with it; that it is really in the
+    # stream was measured, and is what this checks.
     if W.mux_bin() === nothing
         @info "no tmux; skipping the live clipboard relay"
     else
@@ -143,45 +103,11 @@ end
     end
 end
 
-@testset "control-mode protocol" begin
-    # The parser is a pure function of one line and the state before it, so the
-    # protocol is driven from strings the way `readevent` is driven from bytes.
-    p = W.MuxProto()
-    @test W.mux_feed!(p, "%begin 1788 42 1") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "hello") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "%end 1788 42 1") == (:reply, true, ["hello"])
-
-    # A failed command closes its block with %error, and the lines it did emit
-    # are the error text.
-    @test W.mux_feed!(p, "%begin 1788 43 1") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "unknown command: nope") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "%error 1788 43 1") == (:reply, false, ["unknown command: nope"])
-
-    # A line inside a block is content, never protocol. A capture-pane of a
-    # screen with a percent sign at the start of a line would otherwise be
-    # parsed as a notification and vanish from the reply.
-    W.mux_feed!(p, "%begin 1788 44 1")
-    @test W.mux_feed!(p, "%output is just text here") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "100%") == (:more, nothing, nothing)
-    @test W.mux_feed!(p, "%end 1788 44 1") == (:reply, true, ["%output is just text here", "100%"])
-
-    # Outside a block, notifications are themselves.
-    @test W.mux_feed!(p, "%output %10 abc") == (:output, "%10", "abc")
-    @test W.mux_feed!(p, "%session-changed \$1 wl") == (:notice, "session-changed", "\$1 wl")
-    @test W.mux_feed!(p, "%exit")[1] === :notice
-
-    # tmux escapes bytes below 0x20 and the backslash as three octal digits,
-    # and passes everything from 0x20 up through raw.
-    @test W.mux_unescape("a\\011b") == "a\tb"
-    @test W.mux_unescape("back\\134slash") == "back\\slash"
-    @test W.mux_unescape("\\033[1m") == "\e[1m"
-    @test W.mux_unescape("\\015\\012") == "\r\n"
-    @test W.mux_unescape("plain") == "plain"
-    @test W.mux_unescape("e-é del\x7f pct-%") == "e-é del\x7f pct-%"
-    @test W.mux_unescape("\\9zz") == "\\9zz"           # not octal; left alone
-    @test W.mux_unescape("tail\\01") == "tail\\01"     # truncated; left alone
-    @test W.mux_feed!(p, "%output %3 \\033[H")[3] == "\e[H"
-
+@testset "one client, driving a real session" begin
+    # The parser is a pure function of one line and is tested in the package.
+    # This is the rest of it: that a real tmux answers in that shape, that the
+    # reply stream is lined up with the commands, and that an error is an answer
+    # the client keeps working after.
     if W.mux_bin() === nothing
         @info "no tmux; skipping the live control-mode test"
     else

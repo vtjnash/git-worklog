@@ -169,7 +169,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                                      word_start(st.search, length(st.search) + 1) - 1))
             research!(st, iw)
         elseif printable(k)
-            st.search *= Char(k); research!(st, iw)
+            st.search *= keychar(k); research!(st, iw)
         end
         return :ok
     end

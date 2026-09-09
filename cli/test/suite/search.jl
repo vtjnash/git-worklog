@@ -5,7 +5,7 @@
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
     ctrl = W.Controller()
     iw = W.layout(150, 40, 0).riw
-    type!(v, x) = for c in x; W.handle!(v, Int(c), ctrl); end
+    type!(v, x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
 
     # In the list it narrows, and it can be kept or dropped.
     st = mkstate()
@@ -92,7 +92,7 @@ end
 @testset "/ searches the source, not the screen" begin
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
     ctrl = W.Controller()
-    type!(v, x) = for c in x; W.handle!(v, Int(c), ctrl); end
+    type!(v, x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
 
     # A phrase the pane wrapped in the middle is still found, on the first row
     # of the line it belongs to.

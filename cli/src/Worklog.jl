@@ -16,10 +16,10 @@ index of the rest:
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
+  * `keys.jl`    the key vocabulary, as a submodule of its own
   * `controller.jl` the view stack that owns stdin, and the views it prompts with
   * `browse/`    the browser itself: filters, panes, threads, diffs, writing
-  * `mux.jl`     multiplexer sessions, for hosting a child program
-  * `paneview.jl` one of those sessions, drawn in a pane
+  * `paneview.jl` a `TermIFrame` session drawn in a pane, with a thread beside it
   * `cli.jl`     the `wl <command>` surface
 
 File ownership is strict, because it is what keeps the user's notes safe.
@@ -44,6 +44,9 @@ module Worklog
 using Dates, Printf, SHA, TOML
 import FileWatching
 using JSON3, OrderedCollections
+using TermIFrame
+# By name, so the pane can add the one method that knows where it is drawn.
+import TermIFrame: retarget_mouse
 import REPL
 import InteractiveUtils
 using Base64
@@ -79,10 +82,11 @@ end
 "One file in the data directory."
 datapath(name::AbstractString) = joinpath(datadir(), name)
 
+include("keys.jl")
+using .Keys
 include("pyjson.jl")
 include("util.jl")
 include("cache.jl")
-include("ansi.jl")
 include("repos.jl")
 include("ci.jl")
 include("gh.jl")
@@ -93,7 +97,6 @@ include("drafts.jl")
 include("state.jl")
 include("controller.jl")
 include("ui.jl")
-include("mux.jl")
 # The browser, in the order the pieces depend on each other: a type or a
 # constant has to exist before the methods annotated on it are defined, and
 # everything below that is a function and could go anywhere. Split because one
@@ -140,6 +143,11 @@ precompile(next_batch, (Int,))
 precompile(ui, (Vector{String}, DateTime))
 
 function __init__()
+    # The sessions this program owns are the ones named for it, and
+    # `WORKLOG_TMUX` is the variable its own documentation tells you to export.
+    # Both are TermIFrame's defaults to be told, not its business to guess.
+    MUX_PREFIX[] = "wl"
+    MUX_ENV[] = "WORKLOG_TMUX"
     # A colour nothing else emits, so `style_code_spans` can find the code-span
     # delimiters Term marks and turn them into a background. Set here rather
     # than at precompile time: the theme is a mutable global of Term's.

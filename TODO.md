@@ -205,11 +205,10 @@ linked against a newer glibc.
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
 | `cli/src/controller.jl` | the view controller that owns stdin; input decoding; `PromptView`, `EditorView`, `ChooseView` |
 | `cli/src/browse/` | the browser: filters, panes, folding, diffs, checks, writing (`Worklog.jl`'s include list is the index) |
-| `cli/src/ansi.jl` | escape-aware width, truncate, wrap |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
 | `cli/src/repos.jl` | repo → local checkout mapping, the worktree/branch survey, `git show` |
-| `cli/src/mux.jl` | tmux sessions and the control-mode client |
-| `cli/src/paneview.jl` | a hosted program drawn in a pane; the worktree list |
+| `TermIFrame/` | the tmux half, split out: sessions, the control-mode client, the box a hosted program is drawn in, and the escape-aware text measuring under it (`awidth`/`afit`/`apad`/`amid`/`awrap`, and `bordered`, which used to be `pane`). Its own package, MIT, bound for its own repo — `cli/Project.toml` `[sources]` points at it until then |
+| `cli/src/paneview.jl` | a `TermIFrame` drawn beside the thread it is working on; the worktree list |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
 | `cli/test/latency.jl` | the three startup waits, measured; not part of the suite |
@@ -272,25 +271,21 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   stops running. `views.jl` had one assertion that did not guard, and it was
   hiding `worktrees`, `lanes`, `archive`, `robustness`, `git`, `items` and
   `clock` in every sandbox without tmux - the same shape as the adoption
-  testset that hid behind `archive.jl`. `WORKLOG_TMUX` points at a binary, which is how
-  they run in a sandbox where the only tmux is a `tmux_jll` artifact:
-  ```bash
-  julia -e 'using Pkg; Pkg.activate(temp=true); Pkg.add("tmux_jll");
-            using tmux_jll; println(tmux_jll.tmux_path)'
-  export WORKLOG_TMUX=<that path>       # and its artifact LD_LIBRARY_PATH
-  ```
-  The `LD_LIBRARY_PATH` is **not optional** and is three directories, not one:
-  without it the binary dies with `libutf8proc.so.3: cannot open shared object
-  file` and every session test *fails* rather than skipping. After a sandbox
-  reset, `find` builds it:
-  ```bash
-  export WORKLOG_TMUX=$(find ~/.julia/artifacts -name tmux -type f | head -1)
-  export LD_LIBRARY_PATH=$(dirname $(find ~/.julia/artifacts -name 'libutf8proc.so.3' | head -1)):\
-  $(dirname $(find ~/.julia/artifacts -name 'libevent-2.1.so.7' | head -1)):\
-  $(dirname $(find ~/.julia/artifacts -name 'libncursesw.so.6' | head -1))
-  ```
-  Worth doing rather than skipping: without it the whole session, pane and
-  worktree half of the suite silently does not run.
+  testset that hid behind `archive.jl`.
+
+  **Nothing has to be exported for them to run any more.** `TermIFrame` depends
+  on `tmux_jll` and falls back to it, so a fresh sandbox with no tmux installed
+  still drives a real server - `julia --project=cli cli/test/runtests.jl` and
+  the whole session, pane and worktree half runs. It used to need
+  `WORKLOG_TMUX` pointed at the artifact *and* a three-directory
+  `LD_LIBRARY_PATH` (without which the binary died with `libutf8proc.so.3:
+  cannot open shared object file` and every session test *failed* rather than
+  skipping); `mux_cmd` builds the command from the JLL's own `Cmd`, which
+  carries those paths, so there is nothing left to get wrong.
+
+  `WORKLOG_TMUX` still wins over everything, which is how to test a particular
+  build; `PATH` still beats the bundled one, so an existing tmux and the
+  sessions in it are what a real run uses.
 - **Every path the program writes through is redirected at the top of the run**
   — `STATE`, `READ`, `INBOX` and `REPOS_FILE` seeded from the real files,
   `CACHE_DIR` started empty, alongside `TOUCHED`. The rule is that *all* of them
@@ -306,7 +301,11 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   the workload is `wl`'s tax and not the edit-test loop's.
   The protocol itself needs none of that: `mux_feed!` is a pure function of one
   line and the state before it, driven from a vector of strings the way
-  `readevent` is driven from an `IOBuffer`.
+  `readevent` is driven from an `IOBuffer` — and it lives in `TermIFrame` now,
+  with its own suite (`julia --project=TermIFrame TermIFrame/test/runtests.jl`,
+  which honours `TERMIFRAME_TMUX` the way this one honours `WORKLOG_TMUX`).
+  What is left in `cli/test/suite/mux.jl` is this program's use of it: the names
+  it builds and the tags it files sessions under.
 - Time is an argument, so a test says when "now" is by passing it rather than
   by setting a global first: `snooze_active(url, st, fp, snz, at, cap)`,
   `comment_nodes(it, at)`, `handle!(st, key, ctrl, at)`. That is what makes
@@ -839,11 +838,13 @@ What would have to be untangled first, none of it deep:
   that owns raw mode. Upstream would want the editing model separated from the
   view, so a `TextBuffer` with `insert!`/`delete_word!`/`move!` could be driven
   by whatever loop the user already has.
-- They draw with `apad`/`afit`/`awrap` from `ansi.jl` rather than with Term's
-  own measuring, because Term measures markup instead of what prints
+- They draw with `apad`/`afit`/`awrap` - now `TermIFrame`'s - rather than with
+  Term's own measuring, because Term measures markup instead of what prints
   (invariant 9). Upstream that is backwards: it should use Term's measurement,
   which means the box-drawing has to be rewritten against `Panel` - and `Panel`
-  is exactly the thing that could not be trusted here.
+  is exactly the thing that could not be trusted here. `TermIFrame` splits the
+  difference: the glyphs come from Term's box vocabulary and the theme, the
+  measuring does not.
 - `^o` shelling out to `InteractiveUtils.edit` needs the caller to hand back the
   terminal for the duration. That is `suspend`, and it belongs upstream too,
   since anything holding raw mode has the same problem.
@@ -859,6 +860,49 @@ Worth reading first, since they bear on how much of ours would be welcome:
 escape replay exists to avoid, and **#247** "TextBox line wrapping bug" (open,
 Mar 2024) is still open with the maintainer saying text wrapping "has been hard
 to fix".
+
+### Idea: the input *decoding* could go to Term.jl
+
+Not the event loop, and not `readkey`. `readevent` is a pure function of a byte
+stream - bytes in, one `KeyEvent`/`MouseEvent` out - and the vocabulary it
+produces is now `Keys`, a submodule of its own (`cli/src/keys.jl`), so the two
+halves are already apart. What is left in `controller.jl` around it is the part
+that is genuinely a program's own: who owns stdin, what a view is, when to
+redraw.
+
+Term has nothing here, which is the gap `#131` was asking about: a package that
+draws panels has no way to read a keystroke into one. `REPL.TerminalMenus.readkey`
+is what people reach for and it is not adequate - it cannot see a mouse report
+at all (`\e[<0;40;12M` is not a key), and it drops any sequence it does not
+recognise as a bare `Escape`, leaving the tail to arrive as separate keystrokes.
+That is what made Shift-Tab read as Escape-then-Z here.
+
+What we would bring: the CSI parser including SGR mouse reports, the three
+spellings of Alt-arrow that terminals actually send (Terminal.app's `ESC b`,
+iTerm's `ESC ESC [ D`, everything's `ESC DEL`), and a decoder that *consumes*
+what it cannot parse rather than leaving half a sequence in the buffer.
+
+And one thing worth arriving with, because it is the kind of bug a shared
+decoder should never have, and because the obvious fix for it is also wrong.
+
+A key code has to be either a character or a key and never both. Ours began at
+`0x110000`, one past the last codepoint, which is the tight answer — but a lead
+byte of `0xF0` or above carries three bits and each continuation six, so a
+malformed four-byte sequence assembles to `0x1FFFFF`, and `F4 90 80 80` arrived
+as exactly `K_LEFT`. A paste of arbitrary bytes moved the cursor.
+
+The obvious fix is to reject what is not a codepoint. That is wrong: **Julia
+does not need a decoder to throw anything away.** A `Char` is four bytes of UTF-8
+held as they came, and arbitrary binary survives a round trip through a `String`
+intact — `codepoint` is the only thing that refuses, and there is no reason to
+call it. So a key code is now *the bytes that arrived*, packed big-endian: one
+byte is `0x00`–`0xFF`, so every binding is what it was; a sequence is its bytes,
+always above `0xFF`; and `K_BASE` is `1 << 32`, above the widest of them. The
+framing is Julia's own, so a sequence typed into a buffer comes back out of it as
+the same one `Char` — including `F8`, which leads nothing and stands alone.
+
+That is the shape to bring upstream, since a decoder shared by everybody is
+exactly the wrong place to decide which of a user's bytes were worth keeping.
 
 ## Upstream
 

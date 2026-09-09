@@ -97,7 +97,14 @@ end
             @test ch isa W.ChooseView && length(ch.options) == 3
             @test occursin("main", ch.options[1][1])
             @test occursin("side", ch.options[2][1])
-            @test occursin(pr.branch, ch.options[2][1])
+            # The branch is on the row, at both ends. Which pull request `pr` is
+            # comes from the live list, so its branch may be longer than the
+            # column - and then what has to survive is the tail, since branches
+            # under one owner prefix agree at the front. Asserting the whole
+            # string instead made this pass or fail on whichever item happened
+            # to sort first that day.
+            @test occursin(first(pr.branch, 6), ch.options[2][1])
+            @test occursin(last(pr.branch, 6), ch.options[2][1])
             @test occursin("new worktree", ch.options[end][1])
             for (w, h) in ((80, 24), (165, 50))
                 ls = split(W.render(ch, w, h), "\n")
@@ -212,7 +219,8 @@ end
         @test occursin(first(W.worktree_rows(items)[1].at, 10), wide)
         narrow = W.astrip(W.render(v, 80, 24))
         @test !occursin("tip", narrow)
-        @test occursin(pr.branch, narrow)                 # what the room bought
+        # What the room bought - and the tail of it, for the reason above.
+        @test occursin(last(pr.branch, 6), narrow)
 
         # Dirty arrives behind the list rather than holding it up: the first
         # pass skips the tree walk entirely.
@@ -292,9 +300,9 @@ end
             # hidden one: it is still holding a process, and K is still how to
             # be rid of it.
             gone = mktempdir()
-            name = W.mux_name(basename(gone), "master", "", :shell)
+            name = W.mux_name(basename(gone), "master", ""; kind = :shell)
             W.mux_start(name, gone, "sleep 120")
-            W.mux_tag!(name, gone, :shell, "")
+            W.mux_tag!(name; worktree = gone, kind = :shell, item = "")
             rm(gone; recursive = true)
             v6 = W.worktree_view(items)
             orph = findfirst(r -> r.orphan, v6.rows)

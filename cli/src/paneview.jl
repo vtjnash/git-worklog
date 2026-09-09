@@ -1,56 +1,29 @@
 # A child program, drawn inside a pane.
 #
-# The view holds no idea of what its child is. It sizes a multiplexer session
-# to the box it is drawn in, asks for the screen whenever the child writes
-# anything, and prints what comes back. Nothing here reads what the child prints
-# or names a key it might want, which is the whole point: `vi`, a pager and an
-# agent are the same amount of work, and a program this does not know about is
-# no work at all.
+# The mechanism is `TermIFrame`, and it is a package rather than a file here
+# because none of it is about this program: it sizes a multiplexer session to a
+# box, reads the screen back as text, forwards what was typed and holds one
+# prefix key for itself, and it does all of that without knowing whether the
+# child is `vi`, a pager or an agent.
 #
-# Input is forwarded, not interpreted. The controller hands this view the bytes
-# exactly as they arrived and they go straight to `send-keys -H`, so an arrow, a
-# paste and a control character are all the same thing: bytes the child
-# understands and this does not. Two things are held back. A mouse report is
-# rewritten into the child's own coordinates, because the child owns a box
-# inside a screen it knows nothing about; and `^]` is a prefix, because with
-# every other key forwarded there would be no way out again. That prefix is
-# also what hands the keyboard to the thread drawn beside the child, which is
-# the one time a key typed at this view is not the child's at all.
+# What is left in this file is the part that *is* about this program, and it is
+# the reason a pane exists at all: an agent worth watching is one you want to
+# read the pull request against while it works. So the iframe is drawn in a
+# column, the thread goes beside it, and `^]tab` moves the keyboard between
+# them. Everything else here follows from that - which side is lit, which side
+# a key belongs to, and what the footer says about it.
 
-"""A multiplexer session shown in a pane.
+"""A multiplexer session shown in a pane, with the browser's detail beside it.
 
-`frame` is the last screen read back, one string per row with the escapes left
-in. It is only ever replaced whole: a partial frame is not a thing tmux can
-hand out, since `capture-pane` reads a grid that is always in a consistent
-state, so there is no tearing to guard against and no need to wait for a redraw
-to finish before drawing it.
+`child` is the iframe: the session, its screen, its scrollback and its keys.
+Everything else is what this program puts around one.
 """
 mutable struct PaneView <: View
-    name::String
-    title::String
-    client::Union{MuxClient,Nothing}
-    frame::Vector{String}
-    sized::Tuple{Int,Int}          # what the child was last told it had
-    status::String
-    pending::Bool                  # the prefix has been seen, its key has not
+    child::IFrame
     beside::Any                    # the BState to read alongside, or nothing
-    cursor::Tuple{Int,Int,Bool}    # the child's cursor: x, y (0-based), showing
-    wantsmouse::Bool               # the child asked for mouse reporting
-    onend::Any                     # () -> Any, once, when the child exits
     focus::Symbol                  # :child forwards every byte to it; :read
                                    # gives the keys to the thread drawn beside
-    scroll::Int                    # rows back into the pane's history; 0 is live
-    history::Int                   # how many rows there are to go back into
-    alt::Bool                      # the child is on the alternate screen, where
-                                   # scrolling back shows only its own redraws
 end
-
-"""The child's usable size inside a frame of `w` by `h`.
-
-`pane` spends two rows on its border and four columns on border and padding,
-and this view keeps one more row for its own footer.
-"""
-pane_box(w::Integer, h::Integer) = (max(1, w - 4), max(1, h - 3))
 
 """Below this there is no room to put two things side by side."""
 const SPLIT_MIN = 150
@@ -76,6 +49,10 @@ function split_box(w::Integer)
     (read, Int(w) - read)
 end
 
+"""The columns the child's own pane gets, out of a screen `w` wide."""
+pane_cols(v::PaneView, w::Integer) =
+    v.beside === nothing ? Int(w) : last(split_box(w))
+
 """The browser this is running under, if any: what to read beside the child.
 
 Taken from the bottom of the stack rather than passed in, because every route
@@ -90,77 +67,32 @@ beside_of(ctrl) = isempty(ctrl.stack) ? nothing :
 Returns `nothing` when there is no multiplexer or no such session, so the
 caller can put a reason in its own status line rather than showing an empty
 pane that never explains itself.
+
+The four callbacks are the whole of what the iframe knows about this program:
+what to poke when the child writes, what to do when it exits, how to hand the
+terminal over for `^]a`, and where an error in any of that gets written down.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl), onend = nothing)
-    # Two things per burst of output: redraw, and relay what a redraw cannot
-    # carry - which is the clipboard and nothing else, for the reasons in
-    # `passthrough`. It goes to this program's own stdout, where the terminal a
-    # person is actually looking at is the next thing up.
-    #
-    # This runs on the reader task, so it can land in the middle of the main
-    # loop writing a frame. That is safe for exactly the reason only OSC 52 is
-    # relayed: the sequence paints nothing and moves no cursor, so wherever it
-    # arrives in the stream it changes nothing about what the frame draws.
-    c = mux_open(name; onoutput = (_, bytes) -> begin
-        try
-            for seq in passthrough(bytes)
-                print(seq)
-            end
-        catch
-            # A closed stdout is the terminal going away, which the loop will
-            # find out about on its own. It must not take the pane's reader
-            # down with it.
-        end
-        wake!(ctrl)
-    end)
-    c === nothing && return nothing
-    PaneView(String(name), String(title), c, String[], (0, 0), "", false, beside,
-             (0, 0, false), false, onend, :child, 0, 0, false)
+    f = iframe(name, title;
+               onwake = () -> wake!(ctrl),
+               onend = onend,
+               suspend = g -> suspend(g, ctrl),
+               onerror = logerror!)
+    f === nothing && return nothing
+    PaneView(f, beside, :child)
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
 
 Kept out of `render`, which is pure and gets called for every frame. The size
-comes from `displaysize` here for the same reason `handle!` reads it there.
+comes from `displaysize` here for the same reason `handle!` reads it there, and
+the child is sized to its own column rather than to the screen: beside a thread
+it has half.
 """
 function pane_sync!(v::PaneView)
-    v.client === nothing && return false
     h, w = displaysize(stdout)
-    # Sized to its own column, not to the screen: beside a thread it has half.
-    box = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
-    if box != v.sized
-        mux_resize(v.client, box[1], box[2]) && (v.sized = box)
-    end
-    lines = mux_capture(v.client; scroll = v.scroll, rows = last(v.sized))
-    if v.client.dead
-        v.status = "session ended"
-        v.client = nothing
-        # Once, and never from a later sync: a note is read back when its
-        # editor exits, and reading it twice would undo an edit made in between.
-        if v.onend !== nothing
-            f, v.onend = v.onend, nothing
-            r = try
-                f()
-            catch e
-                logerror!(e, catch_backtrace(), "pane onend")
-                "the editor's result could not be taken"
-            end
-            r isa String && !isempty(r) && (v.status = r)
-        end
-        return true
-    end
-    # Every row is closed off, or an unterminated colour would run out of the
-    # content and into the pane's own border and padding.
-    v.frame = [string(l, "\e[0m") for l in lines]
-    cx, cy, showing, mouse, hist, alt = mux_pane_state(v.client)
-    v.cursor, v.wantsmouse = (cx, cy, showing), mouse
-    v.history, v.alt = hist, alt
-    # The child rewriting its screen can shorten the history under a scroll that
-    # was valid a moment ago, and the alternate screen going up ends the whole
-    # question.
-    v.scroll = alt ? 0 : clamp(v.scroll, 0, hist)
-    true
+    iframe_sync!(v.child, iframe_box(pane_cols(v, w), h)...)
 end
 
 """A wake is the child's, or a fetch landing for what is drawn beside it.
@@ -175,53 +107,31 @@ end
 
 """Screen position of the child's top-left cell, 1-based `(col, row)`.
 
-`pane` spends its first row on the border and its first two columns on border
-and padding, and the whole pane starts after whatever is drawn to its left.
+The pane starts after whatever is drawn to its left, at the top of the screen;
+the border and padding inside it are the iframe's own arithmetic.
 """
-function pane_origin(v::PaneView, w::Int)
-    lw = v.beside === nothing ? 0 : first(split_box(w))
-    (lw + 3, 2)
-end
+pane_origin(v::PaneView, w::Int) =
+    iframe_origin((v.beside === nothing ? 0 : first(split_box(w))) + 1, 1)
 
-"""Put the terminal's own cursor where the child's is.
+"""Put the terminal's own cursor where the child's is."""
+viewcursor(v::PaneView, w::Int, h::Int) =
+    iframe_cursor(v.child, pane_origin(v, w), iframe_box(pane_cols(v, w), h))
 
-Nothing when the child is hiding it, when the pane is not showing one, or when
-it would land outside the box - a cursor drawn over the border would be worse
-than none.
+"""The child's column: exactly `h` rows of exactly `w`.
+
+The footer is the iframe's wherever it has something of its own to say - where
+in the history you are looking, what the last key answered, that the child has
+gone. What it cannot say is which side of the split has the keyboard, so that
+is what is passed in.
 """
-function viewcursor(v::PaneView, w::Int, h::Int)
-    cx, cy, showing = v.cursor
-    (showing && v.client !== nothing && v.scroll == 0) || return nothing
-    cols, rows = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
-    (0 <= cx < cols && 0 <= cy < rows) || return nothing
-    ox, oy = pane_origin(v, w)
-    (oy + cy, ox + cx)
-end
-
-"""The child's column: exactly `h` rows of exactly `w`."""
 function pane_column(v::PaneView, w::Int, h::Int)
-    body = pane(v.frame, w, h - 1, v.title, v.focus === :child)
-    note = if v.scroll > 0
-        # Ahead of `status`, and it is the one thing that outranks it: a message
-        # about something that just happened matters less than not knowing you
-        # are looking at the past.
-        string(v.name, " \u00b7 ", v.scroll, " rows back of ", v.history,
-               " \u00b7 wheel down or any key returns")
-    elseif !isempty(v.status)
-        v.status
-    elseif v.client === nothing
-        string(v.name, " \u00b7 q to leave \u00b7 K to kill it")
-    elseif v.focus === :read
-        string(v.name, " \u00b7 reading \u00b7 tab back to it \u00b7 esc/t/T the list",
-               " \u00b7 every other key is the browser's")
-    else
-        string(v.name, " \u00b7 ^]tab read beside it \u00b7 ^]q leave it running \u00b7 ^]? keys")
-    end
-    rows = vcat(body, [string("\e[2m", afit(note, w), "\e[0m")])
-    while length(rows) < h
-        push!(rows, "")
-    end
-    [apad(r, w) for r in rows[1:h]]
+    note = something(iframe_note(v.child),
+        v.focus === :read ?
+            string(v.child.name, " · reading · tab back to it",
+                   " · esc/t/T the list · every other key is the browser's") :
+            string(v.child.name, " · ^]tab read beside it",
+                   " · ^]q leave it running · ^]? keys"))
+    iframe_rows(v.child, w, h; focused = v.focus === :child, note = note)
 end
 
 function render(v::PaneView, w::Int, h::Int)
@@ -240,30 +150,6 @@ function render(v::PaneView, w::Int, h::Int)
     # would pull the whole right column leftwards.
     join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
-
-"""Ctrl-] is the prefix, and the only key the child never gets.
-
-While the child has the focus everything else is its own, Escape and Ctrl-C
-included, so the way in cannot be a key a program would want. Ctrl-] is
-telnet's, for the same reason, and almost nothing binds it. On the reading side
-the keys are the browser's instead, and `^]tab` is what puts them there.
-
-It has to be a prefix and not simply an escape. With every key forwarded, a
-lone escape key leaves no way to reach anything else the view can do - killing
-the session, going full screen - which were reachable only after the child had
-already died. One prefix gives all of them back.
-
-`^]tab` moves between the child and the thread drawn beside it, since `tab` is
-already what moves between panes in the browser - and moving is the point: an
-agent worth watching is one you want to read the pull request against while it
-works. `^]q` is the one that leaves. `Tab` itself is not the prefix: it is the
-most-pressed key in a shell, and completion would cost two presses for the rest
-of time.
-
-Written without a space - `^]a`, not `^] a` - because in a line of prose that
-names several of them, a lone `a` reads as the word.
-"""
-const PANE_PREFIX = 0x1d
 
 """Is there a thread beside the child to give the keys to?
 
@@ -298,29 +184,37 @@ this view is popped by its own keys.
 function forward!(v::PaneView, k::Int, ctrl)
     v.beside === nothing && return :ok
     if k == Int('f')
-        v.status = "f needs the item list, which is not on screen \u2014 q leaves the pane"
+        v.child.status =
+            "f needs the item list, which is not on screen — q leaves the pane"
         return :ok
     end
     handle!(v.beside, k, ctrl)
-    v.status = v.beside.status
+    v.child.status = v.beside.status
     :ok
 end
 
-"""What the prefix is for, spelled out. `^]?` asks for it."""
+"""What the prefix is for, spelled out. `^]?` asks for it.
+
+The iframe's own keys, with this program's two either side of them: what `^]tab`
+does here, and that a key this layer has no use for is the browser's.
+"""
 pane_keys(v::PaneView) =
-    string(readable(v) ? "^]tab read beside it (q leaves from there) \u00b7 " : "",
-           "^]q leave \u00b7 ^]K kill \u00b7 ^]a full screen \u00b7 ^]r reread \u00b7 ^]] literal",
-           v.beside === nothing ? "" : " \u00b7 anything else is the browser's")
+    string(readable(v) ? "^]tab read beside it (q leaves from there) · " : "",
+           iframe_keys(),
+           v.beside === nothing ? "" : " · anything else is the browser's")
 
-"""One key after the prefix. Returns `:pop`, `:literal` to send the prefix
-through to the child, or `:ok`.
+"""The keys after the prefix that are this program's rather than the iframe's.
 
-The keys below are the pane's own; the rest belong to the browser underneath.
-`^]` means "this one is not the child's", and the sensible place for a key this
-layer has no use for is the other side of the screen - which is what makes `^]m`
-reach the mouse toggle, `^]o` the comments and `^]j` a line of the thread
-without leaving the child, none of them named here and none of them forgettable
-here either.
+`^]tab` is the one this whole file exists for, and `^]?` is the help, which has
+to be written here because the iframe cannot know what is drawn beside it.
+`:unhandled` gives the key back - to `TermIFrame` for its own (`IFRAME_KEYS`,
+which must not be shadowed), and to the browser for everything else.
+
+That last part is the rule, not a list: `^]` means "this one is not the
+child's", and the sensible place for a key this layer has no use for is the
+other side of the screen - which is what makes `^]m` reach the mouse toggle,
+`^]o` the comments and `^]j` a line of the thread without leaving the child,
+none of them named here and none of them forgettable here either.
 
 `^]t` and `^]T` go with them, which is how a shell reaches the agent on the same
 item and back; `enter_session` refuses to stack a second view on the session
@@ -333,30 +227,13 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         # list is not what is on screen here.
         v.focus = :read
         v.beside.focus = :detail
-        v.status = ""
+        v.child.status = ""
         :ok
-    elseif b == UInt8('\t') || b == UInt8('q') || b == 0x1b
-        # Escape too, and not only `q`: it is what leaves on the reading side,
-        # and a key that means "out of here" everywhere else in this program
-        # should not be the one key the prefix has no answer for.
-        mux_close(v.client)
-        :pop
-    elseif b == UInt8('K')
-        mux_close(v.client)
-        mux_kill(v.name)
-        :pop
-    elseif b == UInt8('a')
-        mux_attach(v.name, ctrl)
-        pane_sync!(v)
+    elseif b == UInt8('?')
+        v.child.status = pane_keys(v)
         :ok
-    elseif b == UInt8('r')
-        pane_sync!(v)
-        :ok
-    elseif b == PANE_PREFIX || b == UInt8(']')
-        :literal
-    elseif b == UInt8('?') || v.beside === nothing
-        v.status = pane_keys(v)
-        :ok
+    elseif v.beside === nothing || b in IFRAME_KEYS
+        :unhandled
     else
         # As a key code, which for one byte it is: control bytes and escape
         # arrive as the numbers the browser already binds. A multi-byte
@@ -372,147 +249,35 @@ On the reading side the keys are the browser's, and they arrive decoded like any
 other view's - which is what lets `j` scroll a thread rather than reaching a
 shell that would beep at it.
 """
-wantsraw(v::PaneView) = v.client !== nothing && v.focus === :child
+wantsraw(v::PaneView) = v.child.client !== nothing && v.focus === :child
 
 # Both are places rather than dialogs: a terminal is somewhere you work and the
 # worktree list is somewhere you look, and neither is a question asked of the
 # view underneath.
 isdialog(::PaneView) = false
-closeview!(v::PaneView) = (v.client === nothing || mux_close(v.client); nothing)
+closeview!(v::PaneView) = iframe_close!(v.child)
 
-"""How far one notch of the wheel moves, in rows."""
-const WHEEL_ROWS = 3
+"""Mouse reports in `bytes`, moved into the child's box - or answered here.
 
-"""Answer a wheel report the child did not want, by moving our own window.
-
-The modifier bits are stripped rather than matched, so shift- and ctrl-wheel
-scroll like the plain one instead of falling through as nothing - a modifier is
-a refinement of a request and never a different request.
-
-Refused on the alternate screen, and that is the point rather than a caveat:
-what is behind a full-screen program is the wreckage of its own redraws, and
-scrolling into it shows something that was never a screen. It is why terminals
-stop offering scrollback while one is up, and why the nested-tmux case gets
-nothing from this.
+The geometry is the one thing this layer has to supply: where the pane starts
+depends on whether a thread is drawn beside it, and how big the child's box is
+depends on the same. Everything after that - which reports the child asked for,
+and the wheel it did not - is `TermIFrame`'s.
 """
-function wheel!(v::PaneView, b::Int)
-    v.alt && return false
-    d = (b & ~0x1c)                    # shift, meta and ctrl are not the button
-    d == 64 ? (v.scroll = clamp(v.scroll + WHEEL_ROWS, 0, v.history); true) :
-    d == 65 ? (v.scroll = clamp(v.scroll - WHEEL_ROWS, 0, v.history); true) :
-              false
-end
-
-"""Rewrite the mouse reports in `bytes` for the child, or answer them here.
-
-This is the one thing that cannot be forwarded untouched, and both reasons are
-worth stating.
-
-A report arrives in *screen* coordinates, but the child owns a box inside that
-screen, offset by whatever is drawn to its left and by its own border. Sent on
-unchanged, a click lands wherever the arithmetic happens to put it - which is
-somewhere else, and usually plausibly so.
-
-And a report means nothing to a program that never asked for one. `send-keys`
-puts these bytes into the pane's pty as *input*, so tmux never sees them as
-mouse events and its own `mouse` setting has no bearing: an application that
-has not turned mouse reporting on receives the escape sequence and prints it,
-which is exactly the control characters that show up on the screen. So the
-child is asked, through `mouse_any_flag`, and told nothing it did not ask for.
-
-Only the SGR form (`\e[<b;x;yM`) is understood, which is the only form the
-browser asks its own terminal for.
-"""
-function retarget_mouse(v::PaneView, bytes::Vector{UInt8}, w::Int, h::Int)
-    occursin("\e[<", String(copy(bytes))) || return bytes
-    ox, oy = pane_origin(v, w)
-    cols, rows = pane_box(v.beside === nothing ? w : last(split_box(w)), h)
-    out, i, n = UInt8[], 1, length(bytes)
-    while i <= n
-        # ESC [ < ... (M|m)
-        if bytes[i] == 0x1b && i + 2 <= n && bytes[i+1] == UInt8('[') && bytes[i+2] == UInt8('<')
-            j = i + 3
-            while j <= n && bytes[j] != UInt8('M') && bytes[j] != UInt8('m')
-                j += 1
-            end
-            if j <= n
-                f = split(String(bytes[i+3:j-1]), ';')
-                nums = length(f) == 3 ? tryparse.(Int, f) : nothing
-                if nums !== nothing && !any(isnothing, nums)
-                    b, sx, sy = nums
-                    cx, cy = sx - ox, sy - oy      # 0-based within the child
-                    inside = 0 <= cx < cols && 0 <= cy < rows
-                    if v.wantsmouse && inside
-                        append!(out, codeunits(string("\e[<", b, ";", cx + 1, ";",
-                                                      cy + 1, Char(bytes[j]))))
-                    elseif inside && bytes[j] == UInt8('M')
-                        # The child did not ask for the mouse, so a wheel over it
-                        # is ours to answer - and this is the only scrollback a
-                        # pane has. Nothing else here can offer one: `capture-pane`
-                        # reads the grid, so a pane showing a shell that has just
-                        # printed a build log had no way at all to look back at it.
-                        wheel!(v, b)
-                    end
-                    i = j + 1
-                    continue
-                end
-            end
-        end
-        push!(out, bytes[i]); i += 1
-    end
-    out
-end
+retarget_mouse(v::PaneView, bytes::Vector{UInt8}, w::Int, h::Int) =
+    retarget_mouse(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h))
 
 """Bytes as typed, straight through to the child.
 
-No key is named, and the only sequence read on the way is a mouse report, whose
-coordinates have to be moved into the child's box - see `retarget_mouse`. So
-this is the same amount of code whether the child is a shell, `vi` or something
-not yet written.
-
-The prefix is the one byte held back rather than forwarded, and it is tracked
-across bursts: it can arrive alone, or ahead of its key in the same read.
+The geometry is this program's to supply - where the pane starts depends on
+whether a thread is drawn beside it - and everything after that is the iframe's:
+the mouse report moved into the child's box, the prefix held back across bursts,
+and the rest sent on unread.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
-    v.client === nothing && return :pop
     h, w = displaysize(stdout)
-    was = v.scroll
-    bytes = retarget_mouse(v, bytes, w, h)
-    # A scroll is only a different window on the same pane, so nothing wakes to
-    # say it happened: the re-read has to be asked for here.
-    v.scroll == was || pane_sync!(v)
-    out = UInt8[]
-    flush!() = begin
-        isempty(out) && return
-        # Typing snaps back to the live screen, the way every terminal does -
-        # what you type is going to the bottom of it, so that is where you want
-        # to be looking.
-        if v.scroll != 0
-            v.scroll = 0
-            pane_sync!(v)
-        end
-        mux_keys(v.client, out)
-        empty!(out)
-    end
-    for b in bytes
-        if v.pending
-            v.pending = false
-            act = begin
-                # Anything typed before the prefix goes first: the child should
-                # see the order it was typed in, whatever the prefix then does.
-                flush!()
-                pane_command!(v, b, ctrl)
-            end
-            act === :pop && return :pop
-            act === :literal && push!(out, PANE_PREFIX)
-        elseif b == PANE_PREFIX
-            v.pending = true
-        else
-            push!(out, b)
-        end
-    end
-    flush!()
-    :ok
+    iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h);
+                  oncommand = b -> pane_command!(v, b, ctrl))
 end
 
 """Keys, while the thread beside the child has the focus.
@@ -547,12 +312,12 @@ Both were reachable from here and neither should have been: they are things done
 *to* the pane, and the pane is not what the keys are pointed at.
 """
 function handle!(v::PaneView, k::Int, ctrl)
-    if v.client !== nothing && v.focus === :read
+    if v.child.client !== nothing && v.focus === :read
         if k == 9 || k == K_STAB
             v.focus = :child
-            v.status = ""
+            v.child.status = ""
         elseif k == 27 || k == Int('q') || k == Int('t') || k == Int('T')
-            mux_close(v.client)
+            iframe_close!(v.child)
             return :pop
         else
             # `:pop` from the browser would take *this* view off the stack,
@@ -567,14 +332,14 @@ function handle!(v::PaneView, k::Int, ctrl)
     # left running here - and `K` is the one that ends it, uppercase because it
     # is the one that destroys something.
     if k == Int('q') || k == 27
-        v.client === nothing || mux_close(v.client)
+        iframe_close!(v.child)
         return :pop
     elseif k == Int('K')
-        v.client === nothing || mux_close(v.client)
-        mux_kill(v.name)
+        iframe_close!(v.child)
+        mux_kill(v.child.name)
         return :pop
     elseif k == Int('a')
-        mux_attach(v.name, ctrl)
+        mux_attach(v.child.name; suspend = v.child.suspend)
         pane_sync!(v)
     elseif k == Int('r')
         pane_sync!(v)
@@ -677,7 +442,11 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     live = Dict{String,Vector{SessionRow}}()
     for r in mux_list()
         k = isempty(r.worktree) ? "" : wtkey(r.worktree)
-        push!(get!(live, k, SessionRow[]), SessionRow(r.name, r.kind, r.attached))
+        # tmux hands a tag back as the string it was set with, and an untagged
+        # session as an empty one: a shell is what a session is unless it says
+        # otherwise.
+        kind = Symbol(isempty(r.kind) ? "shell" : r.kind)
+        push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached))
     end
     ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
@@ -879,7 +648,7 @@ function wt_line(r::WorktreeRow, iw::Int)
             isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
     string(session_marks(r), " ", change_marks(r), " ",
            apad(afit(r.name, WT_NAME), WT_NAME), " ",
-           "\e[36m", apad(afit(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
+           "\e[36m", apad(amid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
                           WT_BRANCH), "\e[0m ",
            wt_date(iw) == 0 ? "" :
                string("\e[2m", apad(first(r.at, WT_DATE), WT_DATE), "\e[0m "),
@@ -900,7 +669,7 @@ function br_line(r::BranchRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
             r.gone ? "\e[2mupstream is gone\e[0m" : ""
     string(isempty(r.worktree) ? " " : "\e[32m\u25cf\e[0m", " ",
-           "\e[36m", apad(afit(r.name, BR_NAME), BR_NAME), "\e[0m ",
+           "\e[36m", apad(amid(r.name, BR_NAME), BR_NAME), "\e[0m ",
            "\e[2m", apad(afit(last(split(r.repo, '/')), BR_REPO), BR_REPO), "\e[0m ",
            "\e[2m", apad(first(r.at, BR_DATE), BR_DATE), "\e[0m ",
            "\e[2m", apad(afit(track_mark(r), BR_TRACK), BR_TRACK), "\e[0m ",
@@ -966,7 +735,7 @@ function render(v::WorktreeView, w::Int, h::Int)
         "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
     keys = branches ? "↵ its worktree, or make one · i item · tab worktrees · r refresh · q back" :
                       "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
-    rows = vcat(pane(body, w, h - 2, branches ? "branches" : "worktrees", true),
+    rows = vcat(bordered(body, w, h - 2, branches ? "branches" : "worktrees", true),
                 [string("\e[2m", afit(list_legend(branches), w), "\e[0m"),
                  string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
     while length(rows) < h

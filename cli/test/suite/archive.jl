@@ -248,7 +248,7 @@ end
                 v.sel = findfirst(r -> r.name == "wt-" * br, v.rows)
                 W.handle!(v, Int('t'), ctrl)
                 if last(ctrl.stack) isa W.PaneView
-                    W.mux_kill(last(ctrl.stack).name); pop!(ctrl.stack)
+                    W.mux_kill(last(ctrl.stack).child.name); pop!(ctrl.stack)
                 end
             end
             @test W.get_field(W.localurl("o/main", "mine"), "adopted") !== nothing

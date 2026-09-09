@@ -1,6 +1,88 @@
 # Bytes arriving and becoming keys, and the line editing built on them.
 # `readevent` is a pure function of a stream, so this needs no terminal.
 
+@testset "a key code is the bytes that arrived, and nothing is thrown away" begin
+    # A key code used to be a codepoint, and the keys began at `0x110000`, one
+    # past the last one. Both halves of that were wrong. A lead byte of `0xF0`
+    # or above carries three bits and each continuation six, so a malformed
+    # four-byte sequence assembles to as much as `0x1FFFFF`: `F4 90 80 80` came
+    # out as exactly `K_LEFT` and `F4 90 80 82` as `K_UP`, and a paste of
+    # arbitrary bytes moved the cursor.
+    #
+    # Rejecting the malformed ones would have fixed that and still been wrong.
+    # Julia does not need us to: a `Char` is four bytes of UTF-8 held as they
+    # came, and arbitrary binary survives a round trip through a `String`
+    # intact - it is only `codepoint` that refuses. So the bytes are carried and
+    # `keychar` hands them back.
+    raw(bs...) = W.readevent(IOBuffer(UInt8[bs...])).code
+    kept(bs...) = collect(codeunits(string(W.keychar(raw(bs...))))) == collect(UInt8[bs...])
+
+    # Every one of these has no codepoint, or has one that was never typed:
+    # `Int` throws on a lone `0x80`, turns `C0 80` into a NUL and `F4 90 80 80`
+    # into `1114112`. All of them come back as the bytes they were.
+    @test kept(0xF4, 0x90, 0x80, 0x80)      # out of range
+    @test kept(0xED, 0xA0, 0x80)            # a surrogate half
+    @test kept(0xC0, 0x80)                  # an overlong NUL
+    @test kept(0x80)                        # a continuation with no lead
+    @test kept(0xF8)                        # never a lead byte at all
+    @test kept(0xFF)
+    # And so does everything that is a character, at every width.
+    @test kept(0xC3, 0xA9) && kept(0xE2, 0x82, 0xAC) && kept(0xF0, 0x9F, 0x98, 0x80)
+
+    # One byte is its own code, so the bindings are what they always were.
+    @test raw(UInt8('j')) == Int('j')
+    @test W.readevent(IOBuffer("\r")) == W.KeyEvent(13)
+    # Above that is the sequence, in order - always past `0xFF`, since the lead
+    # byte of a multi-byte one is at least `0xC0`.
+    @test raw(0xC3, 0xA9) == 0xC3A9
+    @test raw(0xF0, 0x9F, 0x98, 0x80) == 0xF09F9880
+    @test all(raw(b...) > 0xFF for b in ((0xC3,0xA9), (0xE2,0x82,0xAC), (0xF0,0x9F,0x98,0x80)))
+
+    # The framing is Julia's own, so a sequence stored in a buffer is read back
+    # out of it as the same one `Char`. `0xF8` leads nothing: those are four
+    # keys, not one, and Julia reads those bytes back as four characters.
+    io = IOBuffer(UInt8[0xF8, 0x80, 0x80, 0x80])
+    @test [W.readevent(io).code for _ in 1:4] == [0xF8, 0x80, 0x80, 0x80]
+    @test length(collect(String(UInt8[0xF8, 0x80, 0x80, 0x80]))) == 4
+    # A sequence whose continuation never came is its lead byte alone, and the
+    # byte that is not a continuation is left for the key it belongs to.
+    io = IOBuffer(UInt8[0xE0, UInt8('A')])
+    @test W.readevent(io).code == 0xE0
+    @test W.readevent(io) == W.KeyEvent(Int('A'))
+
+    # Typed into a buffer and taken back out, byte for byte - which is the whole
+    # claim, since that is where a pasted sequence actually ends up.
+    buf = string("ab", W.keychar(raw(0xF4, 0x90, 0x80, 0x80)), "cd")
+    @test collect(codeunits(buf)) ==
+          vcat(collect(codeunits("ab")), UInt8[0xF4,0x90,0x80,0x80], collect(codeunits("cd")))
+    @test length(collect(buf)) == 5           # one character, not four
+    @test W.awidth(buf) == 5                  # and the layout survives it
+
+    # The two spaces do not touch, with the whole four-byte range left over.
+    @test W.K_BASE == 1 << 32
+    @test !W.printable(W.K_LEFT) && !W.printable(W.K_BASE)
+    for k in (W.K_LEFT, W.K_RIGHT, W.K_UP, W.K_DOWN, W.K_DEL, W.K_HOME, W.K_END,
+              W.K_PGUP, W.K_PGDN, W.K_STAB, W.K_WORD_LEFT, W.K_WORD_RIGHT,
+              W.K_WORD_BACK, W.K_EDIT, W.K_SUP, W.K_SDOWN)
+        @test k > 0xFFFFFFFF
+    end
+    # `keychar` and `keycode` are inverses, over every width and over sequences
+    # that are not characters at all.
+    for bs in ((0x61,), (0xC3,0xA9), (0xE2,0x82,0xAC), (0xF0,0x9F,0x98,0x80),
+               (0xF4,0x90,0x80,0x80), (0xED,0xA0,0x80), (0xC0,0x80), (0x80,), (0xF8,))
+        k = raw(bs...)
+        @test W.keycode(W.keychar(k)) == k
+    end
+    for c in ('a', 'é', '€', '😀', '\0', '\x7f')
+        @test W.keychar(W.keycode(c)) === c
+    end
+
+    # The vocabulary is a module of its own, and reaching it either way is the
+    # same constant.
+    @test W.Keys.K_LEFT === W.K_LEFT
+    @test W.Keys.unshift(W.K_SUP) === W.K_UP
+end
+
 @testset "input decoding" begin
     ev(s) = W.readevent(IOBuffer(s))
     @test ev("j") == W.KeyEvent(Int('j'))
@@ -139,7 +221,7 @@ end
     ctrl = W.Controller()
     got = Ref("")
     v = W.EditorView("t", "", t -> got[] = t)
-    type!(x) = for c in x; W.handle!(v, Int(c), ctrl); end
+    type!(x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
 
     type!("alpha beta gamma")
     W.handle!(v, W.C_W, ctrl)
@@ -168,7 +250,7 @@ end
 
     # The prompt has a cursor now, and the same keys.
     p = W.PromptView("t", "", identity)
-    for c in "/usr/local/lib"; W.handle!(p, Int(c), ctrl); end
+    for c in "/usr/local/lib"; W.handle!(p, W.keycode(c), ctrl); end
     W.handle!(p, W.K_WORD_BACK, ctrl)              # alt-backspace: one component
     @test p.buf == "/usr/local/"
     W.handle!(p, W.C_A, ctrl); @test p.col == 1

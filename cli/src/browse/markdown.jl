@@ -97,12 +97,7 @@ first.
 Two thirds head and one third tail: the head is the site, the repo and the
 number, and the tail is the anchor that says which of them this one is.
 """
-function shortlink(u::AbstractString, w::Int = 58)
-    length(u) <= w && return u
-    keep = max(2, w - 1)
-    head = max(1, (2 * keep) ÷ 3)
-    string(first(u, head), "…", last(u, keep - head))
-end
+shortlink(u::AbstractString, w::Int = 58) = amid(u, w)
 
 """OSC 8 hyperlink, underlined so it reads as one.
 
@@ -566,27 +561,3 @@ function window(rs::Vector{Row}, cur, top, h)
     ([r.text for r in rs[top:min(end, top + h - 1)]], top)
 end
 
-"""
-    pane(lines, w, h, title, focused) -> Vector{String}
-
-Draw one bordered pane, every row exactly `w` display columns.
-
-Done by hand rather than with Term.Panel, which measures markup instead of what
-prints: escaped braces and embedded ANSI both inflated its width accounting, so
-content that fit was wrapped and the pane then elided its own tail.
-"""
-function pane(lines::Vector{String}, w::Int, h::Int, title::AbstractString, focused::Bool)
-    bw = focused ? "\e[1m" : "\e[2m"
-    R = "\e[0m"
-    inner = w - 4
-    t = afit(String(title), max(0, inner - 4))
-    # "╭─ " + title + " " + bar + "╮" must total w, so the filler is w-5-|title|.
-    bar = "─"^max(0, w - 5 - awidth(t))
-    out = [string(bw, "╭─ ", R, focused ? "\e[1m" : "\e[2m", t, R, bw, " ", bar, "╮", R)]
-    for i in 1:(h - 2)
-        c = i <= length(lines) ? lines[i] : ""
-        push!(out, string(bw, "│", R, " ", apad(afit(c, inner), inner), " ", bw, "│", R))
-    end
-    push!(out, string(bw, "╰", "─"^(w - 2), "╯", R))
-    out
-end

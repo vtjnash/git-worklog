@@ -63,14 +63,14 @@ function edit_note(st::BState, it::Item, ctrl)
     # the editor to check what it said.
     if mux_bin() !== nothing
         target = something(first(item_checkout(it)), ROOT)
-        name = mux_name(basename(rstrip(String(target), '/')), "", string(it.number), :note)
+        name = mux_name(basename(rstrip(String(target), '/')), "", string(it.number); kind = :note)
         # Never resumed, unlike a shell: this one is bound to a temp file that
         # holds the note as it was when the key was pressed, so an editor left
         # over from a previous `v` would be writing into a stale copy.
         mux_kill(name)
         ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)))
         ok || return err
-        mux_tag!(name, target, :note, it.ref)
+        mux_tag!(name; worktree = target, kind = :note, item = it.ref)
         v = pane_view(name, string("note  ", it.ref), ctrl; onend = finish)
         if v === nothing
             # Still running means the attach really failed. Gone means the
@@ -145,6 +145,25 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
     isempty(after) ? "note cleared" : "note saved"
 end
 
+"""The session for this worktree and kind, or `nothing`.
+
+A session's identity is the tags it carries: the worktree, which is the resource
+actually being shared, and the kind, since a shell and an agent in one checkout
+are two different things. `kind` comes back from tmux as the string it was set
+with.
+
+Matched here rather than with a tmux filter expression: a path can contain the
+characters a format string is made of, and a comma in a checkout's name would
+otherwise quietly match nothing.
+"""
+function mux_find(worktree::AbstractString, kind::Symbol, rows = mux_list())
+    want, k = String(worktree), String(kind)
+    for r in rows
+        r.worktree == want && r.kind == k && return r
+    end
+    nothing
+end
+
 """Find or start the session of `kind` in `target`, and show it.
 
 One path for both kinds, because a session of either is a *place*: the shell in
@@ -173,17 +192,17 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # Asked before the rename below, because that is what makes the name on the
     # view and the name on the session the same string.
     if found !== nothing && !isempty(ctrl.stack) &&
-       last(ctrl.stack) isa PaneView && last(ctrl.stack).name == found.name
+       last(ctrl.stack) isa PaneView && last(ctrl.stack).child.name == found.name
         return string("already in ", found.name)
     end
-    name = mux_name(basename(rstrip(String(target), '/')), branch, num, kind)
+    name = mux_name(basename(rstrip(String(target), '/')), branch, num; kind = kind)
     if found === nothing
         ok, err = mux_start(name, target, mkcmd(target, branch))
         ok || return err
     else
         mux_rename(found.name, name)
     end
-    mux_tag!(name, target, kind, ref)
+    mux_tag!(name; worktree = target, kind = kind, item = ref)
     v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
@@ -252,7 +271,7 @@ function checkout_option(w, rows)
                               if !isempty(r.worktree) &&
                                  wtkey(r.worktree) == wtkey(w.path)]))
     string(apad(afit(basename(rstrip(String(w.path), '/')), 30), 30), "  ",
-           apad(afit(isempty(w.branch) ? "(detached)" : w.branch, 26), 26), "  ",
+           apad(amid(isempty(w.branch) ? "(detached)" : w.branch, 26), 26), "  ",
            w.main ? "main" : "    ",
            isempty(live) ? "" : string("  · ", join(live, " + "), " running"))
 end

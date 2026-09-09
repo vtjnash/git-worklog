@@ -240,8 +240,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     live = [r for r in st.sessions if r.item == it.ref]
     if !isempty(live)
         push!(out, string(AD, "running", AR))
-        for r in sort(live; by = x -> String(x.kind))
-            push!(out, string("  ", r.kind === :agent ? "agent  T to watch" : "shell  t to open"))
+        for r in sort(live; by = x -> x.kind)
+            push!(out, string("  ", r.kind == "agent" ? "agent  T to watch" : "shell  t to open"))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))

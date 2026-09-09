@@ -241,10 +241,10 @@ end
                 @test W.get_field(it.url, "note") === nothing
                 for _ in 1:60
                     sleep(0.25); W.pane_sync!(v)
-                    v.client === nothing && break
+                    v.child.client === nothing && break
                 end
-                @test v.client === nothing
-                @test v.status == "note saved"
+                @test v.child.client === nothing
+                @test v.child.status == "note saved"
                 @test W.get_field(it.url, "note") == "from the pane"
                 # The item carries it too, since the pane reads the note off
                 # the item and `facts.json` is not rewritten until a refresh.
@@ -256,7 +256,7 @@ end
                 @test W.get_field(it.url, "note") === nothing
                 # Once only: a second sync must not read the file again and
                 # undo an edit made in between.
-                @test v.onend === nothing
+                @test v.child.onend === nothing
                 @test !W.pane_sync!(v)
                 pop!(ctrl.stack)
             end

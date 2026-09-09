@@ -201,7 +201,7 @@ end
         # Escape after the prefix leaves, the same as `q`: a key that means
         # "out of here" everywhere else should not be the one the prefix has no
         # answer for.
-        @test W.onraw!(pv, [W.PANE_PREFIX, 0x1b], ctrl) === :pop
+        @test W.onraw!(pv, [W.IFRAME_PREFIX, 0x1b], ctrl) === :pop
         @test W.mux_alive(n) === true       # left running, not killed
         W.mux_kill(n)
         pop!(ctrl.stack)
@@ -272,8 +272,7 @@ end
             r.worktree == wt && W.mux_kill(r.name)
         end
         while length(ctrl.stack) > 1
-            v = pop!(ctrl.stack)
-            v.client === nothing || W.mux_close(v.client)
+            W.closeview!(pop!(ctrl.stack))
         end
     end
 end
@@ -386,37 +385,37 @@ end
 
         # Alone it commits to nothing and waits for its key, which may arrive
         # in the same read or the next one.
-        @test W.onraw!(v2, UInt8[W.PANE_PREFIX], ctrl) === :ok
-        @test v2.pending === true
+        @test W.onraw!(v2, UInt8[W.IFRAME_PREFIX], ctrl) === :ok
+        @test v2.child.pending === true
         @test W.onraw!(v2, UInt8[UInt8('r')], ctrl) === :ok     # reread
-        @test v2.pending === false
+        @test v2.child.pending === false
 
         # Doubled, it is a literal Ctrl-] for the child, and the pane stays.
-        @test W.onraw!(v2, [W.PANE_PREFIX, W.PANE_PREFIX], ctrl) === :ok
+        @test W.onraw!(v2, [W.IFRAME_PREFIX, W.IFRAME_PREFIX], ctrl) === :ok
 
         # A prefix inside a burst still only takes the byte after it; what came
         # before is the child's and is sent first.
-        @test W.onraw!(v2, UInt8[0x61, W.PANE_PREFIX, UInt8('r'), 0x62], ctrl) === :ok
+        @test W.onraw!(v2, UInt8[0x61, W.IFRAME_PREFIX, UInt8('r'), 0x62], ctrl) === :ok
         sleep(0.4)
-        @test occursin("ab", join(W.mux_capture(v2.client; escapes = false)))
+        @test occursin("ab", join(W.mux_capture(v2.child.client; escapes = false)))
 
         # With no browser underneath there is nowhere to pass a key on to, so
         # an unknown one after the prefix says what the prefix takes instead.
         @test v2.beside === nothing
-        W.onraw!(v2, [W.PANE_PREFIX, UInt8('Z')], ctrl)
-        @test occursin("kill", v2.status)
+        W.onraw!(v2, [W.IFRAME_PREFIX, UInt8('Z')], ctrl)
+        @test occursin("kill", v2.child.status)
         # And `^]?` asks for that list wherever it is pressed.
-        v2.status = ""
-        W.onraw!(v2, [W.PANE_PREFIX, UInt8('?')], ctrl)
-        @test occursin("full screen", v2.status)
+        v2.child.status = ""
+        W.onraw!(v2, [W.IFRAME_PREFIX, UInt8('?')], ctrl)
+        @test occursin("full screen", v2.child.status)
 
         # tab leaves it running; the browser already uses tab to change pane.
-        @test W.onraw!(v2, [W.PANE_PREFIX, UInt8('\t')], ctrl) === :pop
+        @test W.onraw!(v2, [W.IFRAME_PREFIX, UInt8('\t')], ctrl) === :pop
         @test W.mux_alive(n2) === true             # left running, not killed
 
         # K is the one that ends it.
         v3 = W.pane_view(n2, "sh", ctrl)
-        @test W.onraw!(v3, [W.PANE_PREFIX, UInt8('K')], ctrl) === :pop
+        @test W.onraw!(v3, [W.IFRAME_PREFIX, UInt8('K')], ctrl) === :pop
         @test W.mux_alive(n2) === false
     end
 end
@@ -424,7 +423,7 @@ end
 @testset "an agent in a session" begin
     # A shell and an agent in one worktree are two different things, so they
     # are two slots, distinguished by kind rather than by anything in the name.
-    @test W.mux_name("julia", "master", "62841", :agent) == "wl-julia-master-62841-agent"
+    @test W.mux_name("julia", "master", "62841"; kind = :agent) == "wl-julia-master-62841-agent"
 
     st = W.BState(W.loaditems(), "worklog", Set{String}())
     ctrl = W.Controller(); ctrl.running = true
@@ -453,13 +452,13 @@ end
         # pointed somewhere else exactly as a shell can be `cd`-ed.
         for kind in (:shell, :agent)
             wt = mktempdir()
-            n1 = W.mux_name(wt, "main", "1", kind)
+            n1 = W.mux_name(wt, "main", "1"; kind = kind)
             W.mux_start(n1, wt, "sleep 120")
-            W.mux_tag!(n1, wt, kind, "a#1")
+            W.mux_tag!(n1; worktree = wt, kind = kind, item = "a#1")
             @test W.mux_find(wt, kind).item == "a#1"
-            n2 = W.mux_name(wt, "main", "2", kind)
+            n2 = W.mux_name(wt, "main", "2"; kind = kind)
             W.mux_rename(W.mux_find(wt, kind).name, n2)
-            W.mux_tag!(n2, wt, kind, "b#2")
+            W.mux_tag!(n2; worktree = wt, kind = kind, item = "b#2")
             @test count(r -> r.worktree == wt, W.mux_list()) == 1
             @test W.mux_find(wt, kind).item == "b#2"
             @test W.mux_find(wt, kind).name == n2
@@ -467,8 +466,10 @@ end
         end
     end
 
+    # A tag comes back from tmux as the string it was set with, so that is what
+    # a row carries and what the pane reads.
     row(kind, ref) = (name = "wl-x", command = "sh", attached = false,
-                      worktree = "/tmp/x", kind = kind, item = ref)
+                      worktree = "/tmp/x", kind = String(kind), item = ref)
     st.sessions = NamedTuple[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
     # Matched on the item the session was tagged with, so the pane never has to

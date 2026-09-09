@@ -4,7 +4,7 @@
     ctrl = W.Controller()
     got = Ref("")
     v = W.EditorView("comment", "on managers.jl:544", t -> got[] = t)
-    type!(s) = for c in s; W.handle!(v, Int(c), ctrl); end
+    type!(s) = for c in s; W.handle!(v, W.keycode(c), ctrl); end
 
     type!("hello")
     @test W.text(v) == "hello"
@@ -47,7 +47,7 @@
     # of every composer opened by mistake.
     @test W.handle!(w, 27, ctrl) === :pop
     @test length(ctrl.stack) == 1                # no question, just the editor
-    for c in "half a comment"; W.handle!(w, Int(c), ctrl); end
+    for c in "half a comment"; W.handle!(w, W.keycode(c), ctrl); end
     @test W.handle!(w, 27, ctrl) === :ok         # the editor stays put
     q = last(ctrl.stack)
     @test q isa W.ConfirmView && occursin("Discard", q.title)
