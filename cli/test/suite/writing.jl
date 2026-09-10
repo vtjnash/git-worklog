@@ -1,6 +1,14 @@
 # What the uppercase keys write, and which view each of them opens. None of
 # it has ever been sent - see Infrastructure in TODO.md for the token.
 
+"""The composer inside whatever was pushed.
+
+A composer is drawn beside the thing it is about wherever the screen has room,
+so what lands on the stack is the pair and not the box - and every assertion
+below is about the box. `SPLIT_MIN` is 150 and these run at 160.
+"""
+composer(v) = v isa W.SideView ? v.inner : v
+
 @testset "five remarks are one review" begin
     # GitHub's own answer to batching is a pending review: a draft that lives on
     # GitHub, is visible only to its author, and is submitted later as one
@@ -235,8 +243,11 @@ end
     W.push_view!(ctrl, st)
 
     W.handle!(st, Int('C'), ctrl)          # capitals change things
-    @test last(ctrl.stack) isa W.EditorView
-    @test occursin(st.items[st.sel].ref, last(ctrl.stack).title)
+    # 160 columns is room for both, so the composer arrives beside the diff it
+    # is about rather than over it. `composer` is what reaches through the pair.
+    @test last(ctrl.stack) isa W.SideView
+    @test composer(last(ctrl.stack)) isa W.EditorView
+    @test occursin(st.items[st.sel].ref, composer(last(ctrl.stack)).title)
     pop!(ctrl.stack)
 
     # A deleted line has nowhere to post yet, and says so instead of opening.
@@ -262,8 +273,10 @@ end
     @test [o[2] for o in W.shown(ch)] == ["APPROVE", "REQUEST_CHANGES", "COMMENT"]
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)   # what run! does
-    @test last(ctrl.stack) isa W.EditorView
-    @test last(ctrl.stack).allow_empty                              # approve needs no words
+    # The verdict is a question and stays a question; the body it opens is a
+    # page to write on, and goes beside the diff.
+    @test composer(last(ctrl.stack)) isa W.EditorView
+    @test composer(last(ctrl.stack)).allow_empty                    # approve needs no words
     pop!(ctrl.stack)
 
     W.handle!(st, Int('L'), ctrl)

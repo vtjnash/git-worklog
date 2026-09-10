@@ -157,6 +157,148 @@ function render(v::PaneView, w::Int, h::Int)
     join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
 end
 
+# --- a dialog drawn beside what it is about ---------------------------------
+#
+# A composer used to take the whole screen, and the thing it was about went
+# behind it. That is exactly backwards for the three that matter: a comment is
+# written *at* a diff, a review message *at* the commits it lands, and a note
+# *at* the item it is a note on - and the answer was to write a sentence, press
+# escape, read the hunk again and start over.
+#
+# The split already existed for `t` and `T`, and none of it is about a child
+# process: `split_box` divides the columns and `detail_pane` draws the reading
+# side. So a composer goes where the iframe goes, and `tab` moves the keyboard
+# between them the same way `^]tab` does over there.
+
+"""A dialog drawn beside what it is about, rather than over it.
+
+`inner` is the dialog - a composer, in every case there is so far - and it is
+answered exactly as it would be full screen: `^s` submits, escape gives up, and
+what comes back from it is what comes back from here, so the caller cannot tell
+the difference. What changes is only where it is drawn and that `tab` reaches
+past it.
+
+The reading side is the *detail* pane and not the whole browser, for the reason
+the hosted pane has: a list beside something holding the keys is a list nothing
+can be done with, and it would cost the thread three quarters of its rows.
+"""
+mutable struct SideView <: View
+    inner::View
+    beside::BState
+    focus::Symbol                  # :inner has the keys, or :read
+end
+
+"""Put a dialog beside what it is about, where the screen has room for both.
+
+Below the split minimum it is pushed as it always was. That is not a fallback so
+much as the same rule the pane follows: two columns nobody can read is worse
+than one, and a composer is the half that has to stay usable.
+"""
+function push_beside!(ctrl, st::BState, v::View)
+    _, w = displaysize(stdout)
+    first(split_box(w)) == 0 ? push_view!(ctrl, v) :
+                               push_view!(ctrl, SideView(v, st, :inner))
+end
+
+# A question that hands the keys back, which is what its inner view is. The
+# pane above is a *place*; this is not one, and `push_place!` must not clear it.
+isdialog(::SideView) = true
+closeview!(v::SideView) = closeview!(v.inner)
+wantsraw(::SideView) = false
+holds(v::SideView, inner::View) = v.inner === inner
+
+"""The item the reading side is showing, or `nothing` on the import row."""
+side_item(st::BState) = (isempty(st.items) || st.sel == 0) ? nothing :
+                        st.items[clamp(st.sel, 1, length(st.items))]
+
+"""Both columns, laid against each other a row at a time.
+
+The dialog is asked to draw itself into its own width and answers with a whole
+frame of that width - `centred` pads every row - so the right-hand column needs
+no arithmetic here beyond splitting it back into rows. The left is padded in
+case it gave back fewer, since a short frame would pull the right column
+leftwards.
+"""
+function render(v::SideView, w::Int, h::Int)
+    lw, rw = split_box(w)
+    lw == 0 && return render(v.inner, w, h)
+    # Which side is lit, said the same way on both. The detail pane has always
+    # taken it as an argument; the composer carries it as a field, and drawing
+    # its block cursor while the keys are on the other side of the screen would
+    # be two cursors saying neither side has them.
+    v.inner isa EditorView && (v.inner.focused = v.focus === :inner)
+    right = split(render(v.inner, rw, h), "\n")
+    left = detail_pane(v.beside, side_item(v.beside), lw, h, v.focus === :read)
+    join([string(apad(get(left, i, ""), lw), get(right, i, ""))
+          for i in 1:h], "\n")
+end
+
+"""A fetch landing for what is drawn beside the dialog is worth a redraw.
+
+The composer itself has nothing to wake for - it holds text and nothing else -
+so this is the reading side's alone.
+"""
+onwake!(v::SideView) = onwake!(v.beside)
+
+"""
+    handle!(v::SideView, k, ctrl)
+
+`tab` moves the keyboard across, and everything else belongs to whichever side
+has it.
+
+**Leaving the reading side is four keys, not one.** `tab` and shift-tab go back
+because that is what put you there; `esc` and `q` go back because they are what
+the fingers produce when a screen is not the one being worked in - and neither
+can be allowed to mean what it means in the browser, where `q` ends the program.
+Quitting out from under a half-written comment is the one thing this view exists
+to make impossible.
+
+`f` is refused for the same reason the hosted pane refuses it: it opens the
+filter pane and moves the browser's focus to the list, and the list is not
+drawn here.
+"""
+function handle!(v::SideView, k::Int, ctrl)
+    if v.focus === :read
+        if k in (9, K_STAB, 27, Int('q'))
+            v.focus = :inner
+            return :ok
+        elseif k == Int('f')
+            v.beside.status = "f needs the item list, which is not on screen"
+        else
+            handle!(v.beside, k, ctrl)
+        end
+        # The browser's own footer is not on screen - the dialog took the
+        # columns it would have been drawn in - so what it said goes under the
+        # dialog instead, which is the row nearest the key that was pressed.
+        sidestatus!(v)
+        return :ok
+    end
+    if k in (9, K_STAB)
+        v.focus = :read
+        # The detail and not the list, which is not drawn here.
+        v.beside.focus = :detail
+        sidestatus!(v)
+        return :ok
+    end
+    handle!(v.inner, k, ctrl)
+end
+
+"""Show the reading side's answer under the dialog, where there is a row for it.
+
+The composer is the only kind wrapped so far and the only kind with a row to put
+this in, so it is named rather than asked. `hasproperty` would answer `false`
+for it anyway: the field is the `TextArea`'s and reaches the view through
+`getproperty`, which is exactly the sort of thing that check cannot see.
+"""
+function sidestatus!(v::SideView)
+    v.inner isa EditorView || return
+    v.inner.status = !isempty(v.beside.status) ? v.beside.status :
+        v.focus === :read ?
+            "reading · tab back to the message · esc and q come back too" :
+            "tab reads the diff beside this"
+    nothing
+end
+
 """Is there a thread beside the child to give the keys to?
 
 Two conditions and both are about the screen: something to read, and a column

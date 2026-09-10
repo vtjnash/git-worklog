@@ -329,11 +329,20 @@ was about. The same `findlast` the loop uses for `:pop`, and for the same
 reason.
 """
 function pop_view!(ctrl::Controller, v::View)
-    at = findlast(x -> x === v, ctrl.stack)
+    at = findlast(x -> x === v || holds(x, v), ctrl.stack)
     at === nothing && return false
     deleteat!(ctrl.stack, at)
     true
 end
+
+"""Does this view hold `v` inside it, so that closing one closes the other?
+
+A composer drawn beside the diff it is about is on the stack as the pair, not as
+itself - so the question it asks before throwing away what was written names the
+composer and has to reach the pair. Without this the answer found nothing, and
+`y` to "discard what you have written?" kept it.
+"""
+holds(::View, ::View) = false
 
 """Go somewhere, leaving wherever you were.
 

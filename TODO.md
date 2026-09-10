@@ -190,7 +190,9 @@ request, and `a` adopts a local branch as work of yours; its one-character
 columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside a
 hosted pane every key belongs to the child except the prefix `^]`: `^]tab` and
 `^][` read the thread beside it, `^]q` leaves it running, `^]K` ends it, `^]a`
-goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`.
+goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`. A composer is
+drawn in the same split - `c` and `A`'s body open beside the diff they are
+about, with `tab` between them.
 
 Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
 `/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is

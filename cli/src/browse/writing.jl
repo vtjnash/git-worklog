@@ -212,7 +212,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     else
         (string("Comment on ", it.ref), it.title, b -> Events.post_comment(it.url, b))
     end
-    push_view!(ctrl, EditorView(title, note, b -> begin
+    push_beside!(ctrl, st, EditorView(title, note, b -> begin
         r = submit(b)
         st.status = !isempty(r) ? r :
                     kind === :line ? string("added to the draft review (",
@@ -272,7 +272,10 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
             return
         end
-        push_view!(ctrl, EditorView(
+        # Beside the diff, the same as `c`: a review body is written about the
+        # commits it lands, and the verdict picker in front of it is a question
+        # rather than a page to write on.
+        push_beside!(ctrl, st, EditorView(
             string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
             ev == "APPROVE" ? "a body is optional; ^s submits the approval" :
                               "GitHub requires a body for this",

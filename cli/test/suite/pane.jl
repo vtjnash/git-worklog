@@ -398,3 +398,87 @@ end
     @test st.mode === :comments
 end
 
+@testset "a composer is drawn beside what it is about" begin
+    # A comment is written *at* a diff, a review message at the commits it
+    # lands, a note at the item it is a note on - and each of them used to take
+    # the whole screen and put that behind it. So writing a sentence, checking
+    # the hunk and starting over was: escape, read, press the key again.
+    #
+    # The split already existed for `t` and `T` and none of it is about a child
+    # process, so a composer goes where the iframe goes.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; W.push_view!(ctrl, st)
+    it = st.items[st.sel]
+
+    W.handle!(st, Int('C'), ctrl)
+    v = last(ctrl.stack)
+    @test v isa W.SideView && v.inner isa W.EditorView && v.beside === st
+    # A question that hands the keys back, not a place - so `t` from here must
+    # not clear it the way it clears a pane.
+    @test W.isdialog(v)
+    # Decoded keys, not bytes: there is no child on either side of this one.
+    @test W.wantsraw(v) === false
+    # Both columns, a row at a time, and the frame is exactly the screen.
+    ls = split(W.render(v, 170, 40), "\n")
+    @test length(ls) == 40 && all(W.awidth(l) == 170 for l in ls)
+    # The left is the detail pane and the right is the composer, so the item is
+    # readable while the message about it is written.
+    @test occursin("alice", W.astrip(join(ls, "\n")))
+    @test occursin(it.ref, W.astrip(join(ls, "\n")))
+
+    # `tab` moves the keyboard across, which is what `tab` means everywhere in
+    # this program - and is why the merge composer's cycle is `^x` and not this.
+    @test W.handle!(v, 9, ctrl) === :ok
+    @test v.focus === :read && st.focus === :detail
+    # Keys the reading side does not name are the browser's, exactly as beside a
+    # hosted pane: `j` walks the thread and the mode keys change what is shown.
+    was = st.nrow
+    W.handle!(v, Int('j'), ctrl)
+    @test st.nrow >= was
+    W.handle!(v, Int('o'), ctrl)
+    @test st.mode === :comments
+    # What the browser said goes under the composer, since the browser's own
+    # footer is not on screen - the composer took the columns it would be in.
+    @test !isempty(v.inner.status)
+
+    # **Four keys come back, not one.** `q` and escape are what the fingers
+    # produce in a screen that is not the one being worked in, and `q` in the
+    # browser ends the program - quitting out from under a half-written comment
+    # is the one thing this view exists to make impossible.
+    for k in (9, W.K_STAB, 27, Int('q'))
+        v.focus = :read
+        @test W.handle!(v, k, ctrl) === :ok
+        @test v.focus === :inner
+    end
+    @test length(ctrl.stack) == 2                 # and none of them quit
+    # And `f` is refused here for the reason it is refused beside a pane: it
+    # opens the filter pane and aims the browser at the list, which is not drawn.
+    v.focus = :read
+    W.handle!(v, Int('f'), ctrl)
+    @test st.lmode !== :filters
+    v.focus = :inner
+
+    # The composer answers exactly as it would full screen, so what comes back
+    # from the pair is what comes back from the box.
+    for c in "a remark"; W.handle!(v, W.keycode(c), ctrl); end
+    @test W.text(v.inner) == "a remark"
+    # Escape asks before throwing words away, and the question names the
+    # composer - which is not itself on the stack. Answering it has to reach the
+    # pair, or `y` to "discard what you have written?" keeps it.
+    @test W.handle!(v, 27, ctrl) === :ok
+    q = last(ctrl.stack)
+    @test q isa W.ConfirmView && occursin("Discard", q.title)
+    @test W.handle!(q, Int('y'), ctrl) === :pop
+    @test !any(x -> x === v, ctrl.stack)
+    empty!(ctrl.stack); W.push_view!(ctrl, st)
+
+    # Below the split there is no room for two columns, and the composer takes
+    # the screen the way it always did. A composer is the half that has to stay
+    # usable, which is the same rule the hosted pane follows.
+    ENV["COLUMNS"] = "120"
+    W.handle!(st, Int('C'), ctrl)
+    @test last(ctrl.stack) isa W.EditorView
+    ENV["COLUMNS"] = "170"
+    empty!(ctrl.stack)
+end

@@ -212,6 +212,17 @@ without the conversation hanging off it. `m` gives the mouse back to the termina
 `shift-J`/`shift-K`, or the shifted arrows, extend a selection from the
 keyboard, which is what `m` off would otherwise take away along with the drag.
 
+A composer is drawn **beside** what it is about rather than over it, wherever
+the screen is wide enough for two columns - the same split `t` and `T` put a
+hosted program in, and none of that machinery was ever about a child process.
+`c` and `A`'s body open in the right-hand column with the diff or the thread
+still on the left, and `tab` moves the keyboard between them; `esc` and `q` come
+back to the message too, since `q` in the browser ends the program and quitting
+out from under a half-written comment is what this exists to prevent. Below 150
+columns there is no room for two, and a composer takes the screen the way it
+used to. `v` was already doing this - it runs `$EDITOR` in a pane - which is
+where the idea came from.
+
 Coming back to an item lands on the line you were reading in it, per item and
 per mode - a comment thread and a diff of one pull request are two readings of
 it and two places to come back to. And when a row leaves the list under you -
