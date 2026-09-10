@@ -494,6 +494,29 @@ it survive somebody adding one. `drain_fetches!` at the end is the second half.
 ### Invariants that were each found by debugging a real failure
 Do not "simplify" any of these away.
 
+**A whole refresh is a burst, and only some failures were worth retrying.**
+Found by deleting `data/` and starting from nothing on 2026-09-10, which is the
+one arrangement that had never been run: with `bulk.json` gone there is no
+previous copy behind any lane, so every one of them that failed came back empty
+instead of stale. Five did, and the dashboard was 541 items instead of 2160.
+
+Two classes were missing from the retry list, and neither is a 5xx:
+
+  * **`You have exceeded a secondary rate limit`** - not the hourly quota, which
+    was 5000 of 5000 while this was being returned. It is the burst limit, it
+    clears in minutes rather than seconds, and it was fatal on the first
+    attempt. It gets three tries at a minute, two and four; the 5xx schedule
+    caps at thirty seconds and would spend every attempt inside the window.
+  * **`unexpected end of JSON input`** - `gh` saying the body stopped early, so
+    a truncated response and not a bad query: the lane it kept dying on
+    succeeded on its own a minute later with the same string.
+
+The second was invisible for two runs because the failure row spent 68 of its 80
+characters re-printing the query it already names in its first column, so it
+read `commented_pr FAILED ... : unexpected ` and stopped. **A failure line that
+truncates has to truncate the part that is derivable, not the part that is
+news.**
+
 **A background fetch has to be findable, not just started.** `@async` with the
 task dropped into a field is not enough: the next load overwrites the field, and
 what was started is then unreachable — it cannot be joined, waited for, or asked

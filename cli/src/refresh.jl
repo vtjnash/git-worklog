@@ -484,6 +484,18 @@ function implausible(nodes, total, cached::Int)
     nothing
 end
 
+"""Why a lane failed, without the query it failed on.
+
+`FetchError` names the query, which is right for a message read on its own and
+wrong for this row: the lane is already in the first column and the query is
+derivable from it, so all the prefix does is push the reason off the end. At 80
+characters it pushed *all* of it off - a cold start reported
+`commented_pr FAILED ... : unexpected ` and there was no way to tell from the
+output whether that was a rate limit, a 5xx or a bad query.
+"""
+why(msg::AbstractString) =
+    first(strip(replace(String(msg), r"^GraphQL failed for \"[^\"]*\": " => "")), 150)
+
 """Run every [bulk.queries] entry, cached on a slow cadence.
 
 These are ~2000 items that move slowly and never surface on their own, so
@@ -557,7 +569,7 @@ function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
             e isa FetchError || rethrow()
             push!(failed, lane)
             @printf(stderr, "    %-16s FAILED, keeping %d cached: %s\n",
-                    lane, length(get(prev, lane, ())), first(e.msg, 80))
+                    lane, length(get(prev, lane, ())), why(e.msg))
             continue
         end
         # Persist after every lane, not at the end.

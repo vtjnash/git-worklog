@@ -190,6 +190,48 @@ function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
     d.data
 end
 
+"""How long to wait before trying this failure again, or `nothing` to give up.
+
+Two classes, and they want waits an order of magnitude apart.
+
+A **5xx** from the GraphQL endpoint is the endpoint having a moment. Long
+paginations hit them reliably and a second or two is enough, so it backs off to
+half a minute across all seven attempts.
+
+A **secondary rate limit** is GitHub saying, in as many words, that you asked
+for too much too fast. It is not the hourly quota - `rateLimit.remaining` was
+5000 of 5000 while this was being returned - and it clears in minutes rather
+than seconds, so retrying it on the 5xx schedule spends every attempt inside
+the window and reports failure anyway. That is exactly what a cold start did:
+every lane is a burst, and with `bulk.json` deleted there is no previous copy
+behind any of them to fall back to, so five lanes came back empty and the
+dashboard was a third of its size. Three attempts at a minute, two and four -
+seven minutes of waiting at worst, and then it really has failed.
+
+Deliberately *not* the primary rate limit. That is the hourly quota, it is on
+every response as `rateLimit.remaining`, and a refresh that has run out of it
+has to say come back later rather than sleep out the rest of the hour.
+"""
+function retry_wait(err::AbstractString, attempt::Int)
+    if occursin("secondary rate limit", lowercase(err))
+        return attempt <= 2 ? min(60.0 * 2.0^attempt, 300.0) : nothing
+    end
+    any(occursin(c, err) for c in TRANSIENT) && return min(2.0^attempt, 30.0)
+    nothing
+end
+
+"""What a page failure looks like when the endpoint, not the request, is at
+fault.
+
+`unexpected end of JSON input` is `gh` saying the body stopped early, which is a
+truncated response and not something a different query would fix - the lane it
+kept failing on (`commented_pr`, ~400 results) succeeded on its own a minute
+later with the same string. It was invisible until the failure line stopped
+spending its width re-printing the query: the row said `unexpected ` and then
+ran out.
+"""
+const TRANSIENT = ("502", "503", "504", "timeout", "unexpected end of JSON input")
+
 """
     search(q; cap=1000, query=QUERY) -> (nodes, points, total)
 
@@ -205,8 +247,9 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
                            "variables" => ["q" => q, "cursor" => cursor]])
         local stdout_
         # Long paginations (the firehose is ~10 sequential pages) reliably hit
-        # transient 5xx from the GraphQL endpoint. Retry the page rather than
-        # losing the whole refresh.
+        # transient 5xx from the GraphQL endpoint, and a whole refresh is enough
+        # requests in a burst to be told so. Retry the page rather than losing
+        # the refresh.
         for attempt in 0:6
             rc, o, e = gh_run(["api", "graphql", "--input", "-"], body)
             if rc == 0
@@ -214,11 +257,15 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
                 break
             end
             err = first(isempty(e) ? o : e, 200)
-            if attempt == 6 || !any(occursin(c, err) for c in ("502", "503", "504", "timeout"))
+            wait_ = attempt == 6 ? nothing : retry_wait(err, attempt)
+            wait_ === nothing &&
                 throw(FetchError("GraphQL failed for $(repr(q)): $err"))
-            end
-            sleep(min(2.0^attempt, 30))
-            println(stderr, "    retry $(attempt + 1) after: $(strip(err))")
+            # Said before the wait and not after it. On the 5xx schedule that is
+            # a nicety; on the other one the wait is minutes, and a refresh that
+            # goes silent for four of them looks wedged.
+            @printf(stderr, "    retry %d in %ds after: %s\n",
+                    attempt + 1, round(Int, wait_), strip(err))
+            sleep(wait_)
         end
         d = JSON3.read(stdout_)
         if haskey(d, :errors)
