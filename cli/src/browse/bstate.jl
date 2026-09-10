@@ -155,9 +155,10 @@ function rebuild_axes!(st::BState)
 end
 
 function BState(all::Vector{Item}, title, unread = Set{String}())
+    m = load_marks()
     st = BState(; all = collect(all), title = String(title), unread = unread,
-                  touched = load_touched(), archived = field_map("archive"),
-                  drafts = load_drafts(),
+                  touched = field_marks(m, "touched"), archived = field_map("archive"),
+                  drafts = field_marks(m, "draft"),
                   factsat = mtime(datapath("facts.json")))
     rebuild_axes!(st)
     refilter!(st)

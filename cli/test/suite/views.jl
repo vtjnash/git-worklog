@@ -60,12 +60,12 @@ end
     # A write of our own is not news, which is what stops a keystroke that
     # archives from rebuilding the list a moment later.
     W.draft!(it.url)
-    @test W.ours(W.draftsfile())
+    @test W.ours(W.marksfile())
     @test W.reload_data!(st) === false
     # The same file, changed by somebody else: the mark is theirs, and the lane
     # is membership in the file rather than in what we read at startup.
-    delete!(W.OURS, abspath(W.draftsfile()))
-    @test !W.ours(W.draftsfile())
+    delete!(W.OURS, abspath(W.marksfile()))
+    @test !W.ours(W.marksfile())
     st.reload = true
     @test W.reload_data!(st) === true
     @test haskey(st.drafts, it.url)
@@ -106,7 +106,7 @@ end
         # change on every fetch this program makes.
         write(joinpath(d, "bulk.json"), "{}")
         # ...and one that is.
-        write(joinpath(d, "touched.json"), "{}")
+        write(joinpath(d, "marks.json"), "{}")
         t0 = time()
         while !st.reload && time() - t0 < 10
             sleep(0.1)

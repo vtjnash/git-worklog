@@ -2,7 +2,7 @@
 # adoption, and the branch list that is the second lens on a worktree.
 
 @testset "archive lets work leave without deleting it" begin
-    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    keept = W.MARKS[]; W.MARKS[] = joinpath(mktempdir(), "marks.json")
     before = read(W.statefile(), String)
     try
         st = mkstate()
@@ -41,7 +41,7 @@
         @test W.get_field(it.url, "note") == "why this ended"
     finally
         write(W.statefile(), before)
-        W.TOUCHED[] = keept
+        W.MARKS[] = keept
     end
 
     # A merge is news until it has been read, and only then is it filing.
@@ -67,7 +67,7 @@
     @test !W.merged_here(main, "landed"; base = "no-such-base")
 
     W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
     before = read(W.statefile(), String)
     try
         W.register_repo!("o/m", main)
@@ -119,7 +119,7 @@
     finally
         write(W.statefile(), before)
         W.REPOS_FILE[] = REPOS_SANDBOX
-        W.TOUCHED[] = keept
+        W.MARKS[] = keept
     end
 end
 
@@ -173,7 +173,7 @@ end
     @test W.islocal("local:a/b#c") && !W.islocal("https://github.com/a/b/pull/1")
 
     W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
     state = read(W.statefile(), String)
     try
         W.register_repo!("o/main", main)
@@ -286,7 +286,7 @@ end
     finally
         write(W.statefile(), state)
         W.REPOS_FILE[] = REPOS_SANDBOX
-        W.TOUCHED[] = keept
+        W.MARKS[] = keept
     end
 end
 

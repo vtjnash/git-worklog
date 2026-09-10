@@ -149,7 +149,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # which is how anything outside this program asks what is unread.
         if length(args) > 1
             for u in refs(args[2])
-                println(Events.mark_unread([u]) == 0 ? "was not marked read $u" :
+                println(mark_unread([u]) == 0 ? "was not marked read $u" :
                         "marked unread $u")
             end
             return 0
@@ -224,10 +224,10 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         if arg == "all"
             cfg = config()
             urls = [e["url"] for e in Events.unread(cfg, cfg["login"], at; verbose = false)]
-            println("marked $(Events.mark_read(urls, at)) threads read")
+            println("marked $(mark_read(urls, at)) threads read")
         else
             for u in refs(arg)
-                Events.mark_read([u], at)
+                mark_read([u], at)
                 println("marked read $u")
             end
         end

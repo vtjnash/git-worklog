@@ -1,8 +1,8 @@
 # The lanes that decide what is on the dashboard at all.
 
 @testset "two more lanes, and an order of their own" begin
-    keept = W.TOUCHED[]
-    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    keept = W.MARKS[]
+    W.MARKS[] = joinpath(mktempdir(), "marks.json")
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
@@ -144,7 +144,7 @@
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
     finally
-        W.TOUCHED[] = keept
+        W.MARKS[] = keept
     end
 end
 

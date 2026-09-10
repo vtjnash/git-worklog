@@ -785,7 +785,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
                       "' - use on-change, a span like 3d/2w/6mo/1y, or a date")
     prev = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
-    prevread, wasunread = Events.read_at(it.url), it.url in st.unread
+    prevread, wasunread = read_at(it.url), it.url in st.unread
     disarm(it.url)
     set_fields(it.url, ["snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
@@ -797,7 +797,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # Only on the way in. Clearing a snooze is not a claim about whether you
     # have read the thing, and waking is the refresh's to announce.
     if val !== nothing
-        Events.set_read(it.url, stamp(at))
+        set_read(it.url, stamp(at))
         delete!(st.unread, it.url)
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
@@ -807,7 +807,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
         set_fields(it.url, ["snooze" => prev])
         set_touched(it.url, prevtouch)
-        Events.set_read(it.url, prevread)
+        set_read(it.url, prevread)
         wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
     # The snoozed lane is a filter over this field, so the row has to be able to

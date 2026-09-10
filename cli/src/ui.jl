@@ -46,7 +46,7 @@ Base.@kwdef struct Item
                               # rather than re-derived, because deriving it here
                               # would be a second opinion about whether the item
                               # is still asleep - and the refresh's is the only
-                              # one that may write `snooze.json`
+                              # one that may write the snooze marks
     is_pr::Bool = true
     author::String = ""
     labels::Vector{String} = String[]

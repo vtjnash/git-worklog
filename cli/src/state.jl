@@ -160,35 +160,21 @@ function get_field(url::AbstractString, key::AbstractString)
     nothing
 end
 
-"Drop any armed fingerprint so a re-snooze re-arms from the current state."
-function disarm(url::AbstractString)
-    f = datapath("snooze.json")
-    isfile(f) || return
-    d = Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(f, String)))
-    if haskey(d, url)
-        delete!(d, url)
-        write_atomic(f, json_dumps(d; indent = 1, sortkeys = true))
-    end
-    nothing
-end
-
-"""Hand back the next slice of untagged backlog, oldest-unseen first.
+"""Hand back the next slice of untagged backlog, quietest first.
 
 Pull, never push: nothing from the backlog reaches the dashboard on its own. You
 ask for work when you want it. Items you have already tagged in state.toml are
-considered triaged and never come back here.
+considered triaged and never come back here - and tagging is the only thing that
+retires one. It used to keep a `queue.json` of what it had printed and sort that
+to the back, which is a fifth file of one fact per url to make asking twice in a
+row show two different slices; the tag is the record of having dealt with
+something, and there was never a second one worth keeping.
 """
 function next_batch(n::Int)
     facts = datapath("facts.json")
     isfile(facts) || die("no facts.json yet - run `wl refresh` first")
     items = JSON3.read(read(facts, String)).items
     state = load_state()
-    seenp = datapath("queue.json")
-    seen = isfile(seenp) ?
-           Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(seenp, String))) :
-           Dict{String,Any}()
-    filter!(p -> haskey(items, Symbol(p.first)), seen)
-
     pool = String[String(u) for (u, r) in pairs(items)
                   if truthy(jget(r, :backlog)) && !truthy(jget(r, :snoozed)) &&
                      !truthy(get(state, String(u), nothing))]
@@ -203,10 +189,9 @@ function next_batch(n::Int)
     end
     areas = Set{String}(get(TOML.parse(read(joinpath(ROOT, "config.toml"), String))["firehose"],
                             "areas", String[]))
-    # Never-shown first; then your areas, so a thousand-PR pile still hands you
-    # the relevant end of it; then quietest first.
-    rank(u) = (String(get(seen, u, "")),
-               !any(in(areas), jget(items[Symbol(u)], :labels, ())),
+    # Your areas first, so a thousand-PR pile still hands you the relevant end
+    # of it; then quietest first.
+    rank(u) = (!any(in(areas), jget(items[Symbol(u)], :labels, ())),
                last_activity(u), u)
     sort!(pool; by = rank)
     batch = first(pool, n)
@@ -218,9 +203,7 @@ function next_batch(n::Int)
         @printf("%-22s %-8s %s\n", ref, r.bucket, first(String(r.title), 74))
         isempty(hit) || @printf("%-22s %s\n", "", join(hit, ", "))
         @printf("%-22s %s\n\n", "", u)
-        seen[u] = string(Dates.today())
     end
-    write(seenp, json_dumps(seen; indent = 1, sortkeys = true))
     println("tag each:  wl dismiss <ref> | track <ref> loose | note <ref> \"...\" | snooze <ref> <date>")
     0
 end

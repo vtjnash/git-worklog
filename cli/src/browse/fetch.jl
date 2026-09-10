@@ -305,23 +305,22 @@ end
 # one-shot debounce armed by a load somebody asked for, and it writes nothing
 # but cache entries under their own names.
 #
-# That is what makes the read-modify-write in `set_touched`, `set_draft` and
-# `set_read` safe without a lock. Each reads a whole file, changes one key and
-# writes it back, so two of them straddling each other would lose the earlier
-# one's key - and two of them cannot straddle each other while the only thing
+# That is what makes the read-modify-write in `set_mark!` safe without a lock.
+# It reads the whole file, changes one field of one row and writes it back, so
+# two of them straddling each other would lose the earlier one's field - and two of them cannot straddle each other while the only thing
 # that starts one is a person typing in one window at a time. A poll loop that
 # went off in every open window at once is exactly what would break that, so if
 # one is ever wanted, the lock comes first and this is where to remember it.
 
 """Files whose contents are on screen, and what changing one costs to adopt.
 
-`facts.json` is the item list itself and is rebuilt from disk. The three records
-are maps the filters read, and taking them again is a `refilter!`. Everything
-else in there - the cache, the inbox cursors - is either not read by the browser
-or not read again after it starts, and a watch that woke for those would be
-waking for every fetch this program makes.
+`facts.json` is the item list itself and is rebuilt from disk. The other two are
+records the filters read - `marks.json` is several of them now - and taking them
+again is a `refilter!`. Everything else in there - the cache, the inbox cursors
+- is either not read by the browser or not read again after it starts, and a
+watch that woke for those would be waking for every fetch this program makes.
 """
-const WATCHED = ("facts.json", "state.toml", "touched.json", "drafts.json")
+const WATCHED = ("facts.json", "state.toml", "marks.json")
 
 """Watch `data/` and flag the browser when somebody else writes in it.
 

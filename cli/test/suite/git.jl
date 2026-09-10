@@ -164,16 +164,16 @@ end
     try
         W.DATA_DIR[] = d
         # Not a repository: nothing to do, and nothing said about it.
-        write(joinpath(d, "touched.json"), "{}")
+        write(joinpath(d, "marks.json"), "{}")
         @test W.commit_data!() == ""
         W.git(d, "init", "-q")
         W.git(d, "config", "user.email", "test@example.com")
         W.git(d, "config", "user.name", "test")
         said = W.commit_data!()
         @test occursin("committed 1 file", said)
-        @test occursin("touched.json", W.git(d, "log", "-1", "--format=%s"))
+        @test occursin("marks.json", W.git(d, "log", "-1", "--format=%s"))
         # Once a day: the same day again is a no-op, however dirty it gets.
-        write(joinpath(d, "read.json"), "{}")
+        write(joinpath(d, "inbox.json"), "{}")
         @test W.commit_data!() == ""
         @test length(split(strip(W.git(d, "log", "--format=%h")), '\n')) == 1
         # A clean tree is nothing to commit even when the day has turned.

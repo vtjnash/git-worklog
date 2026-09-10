@@ -127,7 +127,7 @@ end
         try
             here = st.all[1]
             n0 = length(st.all)
-            prevread = W.Events.read_at(here.url)
+            prevread = W.read_at(here.url)
             msg = W.import_url!(st, here.url, at)
             @test occursin("already here", msg) && occursin(here.ref, msg)
             @test length(st.all) == n0                      # not twice
@@ -145,19 +145,19 @@ end
             @test !(here.url in st.unread) && length(st.all) == n0
             @test W.get_field(here.url, "imported") === nothing
             @test !haskey(W.Events.load_inbox()["items"], here.url)
-            @test W.Events.read_at(here.url) == prevread
+            @test W.read_at(here.url) == prevread
 
             # A row a *poll* wrote is not an import's to remove. Importing
             # something already in the inbox leaves the richer entry alone -
             # `overwrite = false` - and so does taking that import back.
             poll = st.all[2]
             W.Events.inbox_add!([W.inbox_row(poll, at)])
-            W.Events.set_read(poll.url, W.stamp(at))
+            W.set_read(poll.url, W.stamp(at))
             W.import_url!(st, poll.url, at)
-            @test W.Events.read_at(poll.url) === nothing        # it went unread
+            @test W.read_at(poll.url) === nothing        # it went unread
             W.handle!(st, Int('z'), ctrl)
             @test haskey(W.Events.load_inbox()["items"], poll.url)
-            @test W.Events.read_at(poll.url) == W.stamp(at)
+            @test W.read_at(poll.url) == W.stamp(at)
         finally
             W.Events.INBOX[] = keepi
         end
@@ -373,21 +373,21 @@ end
     end
 
     # And `r`'s fallback, for a thread carrying no fetch time at all.
-    readfile = W.Events.readfile()
-    before = read(readfile, String)
+    before = isfile(W.marksfile()) ? read(W.marksfile(), String) : ""
     try
         st.nodes = W.Node[]
         push!(st.unread, it.url)
         ctrl = W.Controller()
         W.handle!(st, Int('r'), ctrl, then)
-        @test W.Events.read_at(it.url) == "2000-01-02T03:04:05Z"
+        @test W.read_at(it.url) == "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, starting now.
         W.handle!(st, Int('r'), ctrl)
         push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
-        @test W.Events.read_at(it.url) > "2020"
+        @test W.read_at(it.url) > "2020"
     finally
-        write(readfile, before)
+        isempty(before) ? rm(W.marksfile(); force = true) :
+                          write(W.marksfile(), before)
     end
 
     # A refresh measures its whole run against one instant, so it cannot

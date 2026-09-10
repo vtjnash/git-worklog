@@ -9,10 +9,9 @@ exactly one place. The pieces, with the includes at the foot of this file as the
 index of the rest:
 
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
-  * `events.jl`  unread tracking, over GitHub.jl's REST
+  * `events.jl`  the activity poll, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, and the snapshot diff
-  * `touched.jl` the interaction clock, for ordering work by what you did
-  * `drafts.jl`  which items carry a review GitHub will only show on the item
+  * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
@@ -32,12 +31,8 @@ own - see `datadir()`.
   | `data/state.toml`  | you     | edited key-by-key, never rewritten|
   | `data/facts.json`  | machine | overwritten every refresh         |
   | `data/bulk.json`   | machine | slow-lane cache, refetched every 6h|
-  | `data/queue.json`  | machine | what the backlog queue has shown  |
-  | `data/read.json`   | machine | one seen-up-to timestamp per item |
-  | `data/inbox.json`  | machine | the event cursors, and what is unread |
-  | `data/touched.json`| machine | one last-interaction timestamp per item|
-  | `data/drafts.json` | machine | which items carry an unsent review|
-  | `data/snooze.json` | machine | armed "until it moves" fingerprints|
+  | `data/marks.json`  | machine | what you have done to each item   |
+  | `data/inbox.json`  | machine | the event cursors, and what the poll saw|
 """
 module Worklog
 
@@ -90,14 +85,13 @@ datapath(name::AbstractString) = joinpath(datadir(), name)
 
 include("pyjson.jl")
 include("util.jl")
+include("marks.jl")
 include("cache.jl")
 include("repos.jl")
 include("ci.jl")
 include("gh.jl")
 include("events.jl")
 include("refresh.jl")
-include("touched.jl")
-include("drafts.jl")
 include("state.jl")
 include("controller.jl")
 include("ui.jl")

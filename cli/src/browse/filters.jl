@@ -604,10 +604,12 @@ function refilter!(st; keeprow::Bool = true)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
-    # has to be current for a row to arrive in it.
-    st.touched = load_touched()
+    # has to be current for a row to arrive in it. One read of `marks.json` for
+    # both of the maps that come out of it, which is what one file buys.
+    m = load_marks()
+    st.touched = field_marks(m, "touched")
+    st.drafts = field_marks(m, "draft")
     st.archived = field_map("archive")
-    st.drafts = load_drafts()
     st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched,
                                        st.archived, st.drafts),
                          st.sort, st.touched)

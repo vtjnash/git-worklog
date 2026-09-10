@@ -24,12 +24,9 @@ The split that makes it safe to let a model touch this:
 | `data/state.toml` | you + the model, via `wl` | **never machine-rewritten** |
 | `data/facts.json` | `wl refresh` | overwritten every run (not tracked; ~2MB) |
 | `data/bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h |
-| `data/queue.json` | `wl next` | what the backlog queue has shown you |
-| `data/read.json` | `wl read` | one seen-up-to timestamp per item |
-| `data/inbox.json` | the events poll | its cursors, and what is unread |
-| `data/touched.json` | any write | one last-interaction timestamp per item |
+| `data/marks.json` | any write | per item: seen, touched, snoozed, drafted |
+| `data/inbox.json` | the events poll | its cursors, and what it saw move |
 | `data/repos.toml` | the browser | GitHub repo → local checkout |
-| `data/snooze.json` | `wl refresh` | armed "until it moves" fingerprints |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
 own: what can be re-fetched from GitHub is gitignored there, and what records
@@ -129,10 +126,10 @@ cli/bin/wl note    julia#44005 "still relevant; rebase onto the new pass manager
 ```
 
 Anything you have tagged never comes back in `next`, so the queue drains
-monotonically and you can stop and resume at any point. `queue.json` remembers
-what you have already been shown, and `next` hands you your areas first (from
-`config.toml`'s `areas` list) so a thousand-PR pile still leads with the
-relevant end of it.
+monotonically and you can stop and resume at any point - the tag is the only
+record of having dealt with something, and there is no second one. `next` hands
+you your areas first (from `config.toml`'s `areas` list) so a thousand-PR pile
+still leads with the relevant end of it.
 
 ## The stale pile
 

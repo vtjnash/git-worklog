@@ -18,15 +18,18 @@ const W = Worklog
 # tests below write and delete this file themselves anyway.
 isfile(W.errlog()) && rm(W.errlog())
 
-# The interaction clock is redirected for the whole run. Several tests below
-# set a field, and setting a field stamps it - against the real file that would
-# reorder the user's own lists as a side effect of running the suite.
-W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
-
-# And the drafts file, for the same reason and one more: it is written by the
-# testsets that add a comment to a review, and a mark left in the user's own
+# The marks are redirected for the whole run, and to an empty file rather than
+# to a copy of the real one. Several tests below set a field, and setting a
+# field stamps the interaction clock - against the user's own file that would
+# reorder their lists as a side effect of running the suite - while the testsets
+# that add a comment to a review write a draft mark, and one left in the real
 # file would put an item in a lane that has nothing in it.
-W.DRAFTS[] = joinpath(mktempdir(), "drafts.json")
+#
+# Empty and not seeded, unlike the files below it, because the one thing in here
+# that used to be a copy of the user's own is the read stamps and no test
+# asserts anything about what is in them: each records what it found and puts it
+# back. A file that starts empty is also exactly what a fresh dashboard has.
+W.MARKS[] = joinpath(mktempdir(), "marks.json")
 
 # And the same for `state.toml`, for a stronger reason. Several testsets below
 # adopt a branch or write a note, and each one reads the file first and writes
@@ -51,8 +54,7 @@ end
 # `errors.log` is the deliberate exception: the suite deletes the real one at
 # startup and several tests assert on the footer warning it produces.
 let d = mktempdir()
-    for (r, real, empty) in ((W.Events.READ, W.Events.readfile(), "{}"),
-                             (W.Events.INBOX, W.Events.inboxfile(), "{}"),
+    for (r, real, empty) in ((W.Events.INBOX, W.Events.inboxfile(), "{}"),
                              (W.REPOS_FILE, W.repos_file(), ""))
         to = joinpath(d, basename(real))
         isfile(real) ? cp(real, to) : write(to, empty)

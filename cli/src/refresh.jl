@@ -7,7 +7,7 @@
 # File ownership is strict, because it is what keeps your notes safe - the
 # table is in `Worklog.jl`, and this half of it is the load-bearing part:
 # `config.toml` and `state.toml` are read here and *never* written here, while
-# `facts.json` and `snooze.json` are overwritten every run.
+# `facts.json` is overwritten every run and the snooze marks with it.
 #
 # Judgement calls this deliberately does not make (they belong in `state.toml`,
 # written by hand or by a model reading the same files): whether a red CI
@@ -200,7 +200,7 @@ function second_look(r, at::DateTime, days::Int)
     # the ceiling was solving a crowding problem that the order does not have.
     #
     # `s` `1` is what takes one out now: an on-change snooze, which is a
-    # decision somebody made, is written down in `snooze.json`, comes back by
+    # decision somebody made, is written down in `marks.json`, comes back by
     # itself when the thing moves, and can be undone with `z`. None of those
     # five things is true of a number in `config.toml`.
     n < days && return ""
@@ -615,7 +615,7 @@ Everything still in the list reconciles itself by being opened: the metadata
 says whether the pending review is still there, and asking costs nothing until
 somebody looks. An item that has *gone* is the one case where that can never
 happen - the lane is items, so a mark on a url that is no longer one of them
-cannot be shown, cannot be navigated to, and would sit in `drafts.json` for
+cannot be shown, cannot be navigated to, and would sit in `marks.json` for
 good.
 
 So the refresh asks about exactly those and only those, which is usually none
@@ -664,13 +664,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # A default cap for on-change snoozes that carry none of their own.
     snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
     second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
-    snzp = datapath("snooze.json")
-    snz = Dict{String,Any}()
-    if isfile(snzp)
-        for (k, v) in JSON3.read(read(snzp, String))
-            snz[String(k)] = v
-        end
-    end
+    snz = load_snoozes()
 
     items = OrderedDict{String,Any}()
     spent = 0
@@ -801,7 +795,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     reconcile_drafts!(gone)
 
     # Once each, after the loop: both of these rewrite a file, and a refresh
-    # that puts twenty items to sleep should not rewrite `read.json` twenty
+    # that puts twenty items to sleep should not rewrite `marks.json` twenty
     # times. `overwrite = false` leaves a poll's own richer row alone, which is
     # the same courtesy an import pays.
     #
@@ -809,7 +803,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # nothing in this run reads the answer again: the browser asks for itself
     # when it opens, and that is where this is read.
     isempty(slept) || @printf(stderr, "  %-16s %4d marked read on falling asleep\n",
-                              "snooze", Events.mark_read(slept, at))
+                              "snooze", mark_read(slept, at))
     isempty(woke) || @printf(stderr, "  %-16s %4d marked unread on waking\n",
                              "snooze", Events.inbox_add!(woke; overwrite = false))
 
@@ -823,7 +817,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
 
     write_atomic(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
                                      "items" => items]; indent = 1, sortkeys = true))
-    write_atomic(snzp, json_dumps(snz; indent = 1, sortkeys = true))
+    save_snoozes!(snz)
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
     # the slow, non-interactive one - and because everything it drops is older

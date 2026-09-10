@@ -466,16 +466,16 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # whose `updated_at` moved for a label edit would then be permanently
         # unread, because marking it read could never catch up to it.
         fi = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
-        prev = Events.read_at(it.url)
+        prev = read_at(it.url)
         if seen
-            Events.set_read(it.url,
+            set_read(it.url,
                             fi === nothing ? stamp(at) : st.nodes[fi].meta["fetched"])
         else
-            Events.mark_unread([it.url])
+            mark_unread([it.url])
         end
         seen ? delete!(st.unread, it.url) : push!(st.unread, it.url)
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
-            Events.set_read(it.url, prev)
+            set_read(it.url, prev)
             was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
         end))
         # The unread lane is membership in that set, so it has to be rebuilt for

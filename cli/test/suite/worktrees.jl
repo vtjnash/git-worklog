@@ -43,7 +43,7 @@ end
                    repo = pr.repo, number = 9, title = "an issue", is_pr = false)
 
     W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.TOUCHED[]; W.TOUCHED[] = joinpath(root, "touched.json")
+    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
     try
         W.register_repo!(pr.repo, main)
 
@@ -146,7 +146,7 @@ end
         end
     finally
         W.REPOS_FILE[] = REPOS_SANDBOX
-        W.TOUCHED[] = keept
+        W.MARKS[] = keept
     end
 end
 

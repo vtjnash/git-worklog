@@ -94,9 +94,9 @@ function child(mod::String, probe::String)
     using $mod
     load = (time_ns() - t0) / 1e9
     let d = mktempdir()
-        for (r, name) in ((Worklog.STATE, "state.toml"), (Worklog.TOUCHED, "touched.json"),
-                          (Worklog.DRAFTS, "drafts.json"), (Worklog.Events.READ, "read.json"),
-                          (Worklog.Events.INBOX, "inbox.json"), (Worklog.REPOS_FILE, "repos.toml"))
+        for (r, name) in ((Worklog.STATE, "state.toml"), (Worklog.MARKS, "marks.json"),
+                          (Worklog.Events.INBOX, "inbox.json"),
+                          (Worklog.REPOS_FILE, "repos.toml"))
             r[] = joinpath(d, name)
         end
         Worklog.CACHE_DIR[] = joinpath(d, "cache")

@@ -91,7 +91,7 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
     # unread lane for good: no poll covers the repo, which is why it was
     # imported, so nothing would ever have cleared it.
     hadrow = Events.in_inbox(u)
-    prevread = Events.read_at(u)
+    prevread = read_at(u)
     # Unread either way, and the same unread the poller writes. An import is
     # somebody - you a minute ago, or an agent - saying this wants looking at,
     # and the lane that answers "what have I not looked at" is the one it
@@ -101,7 +101,7 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
     was === nothing && add_item!(st, it)
     push!(st.undos, Undo(string("import ", it.ref), () -> begin
         set_fields(u, ["imported" => nothing])
-        Events.set_read(u, prevread)
+        set_read(u, prevread)
         # A row a poll wrote is not this import's to remove: the import found it
         # there and left it alone, and so does taking the import back.
         hadrow || Events.inbox_drop!([u])

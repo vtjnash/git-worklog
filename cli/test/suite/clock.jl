@@ -4,8 +4,8 @@
 @testset "the interaction clock" begin
     # Redirected again inside the testset so it starts empty and nothing else in
     # the suite can have written to it first.
-    keep = W.TOUCHED[]
-    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    keep = W.MARKS[]
+    W.MARKS[] = joinpath(mktempdir(), "marks.json")
     try
         u = W.loaditems()[1].url
         @test W.touched_at(u) === nothing          # nothing has been done to it
@@ -43,15 +43,15 @@
             write(W.statefile(), state)
         end
     finally
-        W.TOUCHED[] = keep
+        W.MARKS[] = keep
     end
 end
 
 @testset "what the clock does not count" begin
-    keep = W.TOUCHED[]
-    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
-    readfile = W.Events.readfile()
-    before = read(readfile, String)
+    keep = W.MARKS[]
+    # The read stamps are in here too now, so redirecting the file is the whole
+    # of what this testset has to put back: `r` below writes one.
+    W.MARKS[] = joinpath(mktempdir(), "marks.json")
     try
         st = mkstate()
         ctrl = W.Controller()
@@ -100,8 +100,7 @@ end
             write(W.statefile(), state)
         end
     finally
-        write(readfile, before)
-        W.TOUCHED[] = keep
+        W.MARKS[] = keep
     end
 end
 
@@ -113,8 +112,8 @@ end
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
     state = read(W.statefile(), String)
-    keep = W.TOUCHED[]
-    W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+    keep = W.MARKS[]
+    W.MARKS[] = joinpath(mktempdir(), "marks.json")
     try
         W.handle!(st, Int('s'), ctrl)
         v = pop!(ctrl.stack)
@@ -180,24 +179,24 @@ end
         # "unread" are the same answer twice, and the row leaves in the session
         # the key was pressed in rather than at the next refresh.
         push!(st.unread, it.url)
-        was = W.Events.read_at(it.url)
+        was = W.read_at(it.url)
         @test W.apply_snooze!(st, it, "3d", W.utcnow()) == "snoozed 3d"
         @test !(it.url in st.unread)
-        @test W.Events.read_at(it.url) !== nothing
+        @test W.read_at(it.url) !== nothing
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
-        @test it.url in st.unread && W.Events.read_at(it.url) == was
+        @test it.url in st.unread && W.read_at(it.url) == was
         # Clearing one says nothing about whether it has been read.
         W.apply_snooze!(st, it, "3d", W.utcnow())
         @test W.apply_snooze!(st, it, nothing, W.utcnow()) == "snooze cleared"
-        @test W.Events.read_at(it.url) !== nothing && !(it.url in st.unread)
+        @test W.read_at(it.url) !== nothing && !(it.url in st.unread)
 
         # Every write is undoable, back to nothing at all.
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end
         @test W.get_field(it.url, "snooze") === nothing
     finally
         write(W.statefile(), state)
-        W.TOUCHED[] = keep
+        W.MARKS[] = keep
     end
 end
 
@@ -237,8 +236,8 @@ end
         ctrl = W.Controller(); ctrl.running = true
         push!(ctrl.stack, st)
         it = st.items[st.sel]
-        keept = W.TOUCHED[]
-        W.TOUCHED[] = joinpath(mktempdir(), "touched.json")
+        keept = W.MARKS[]
+        W.MARKS[] = joinpath(mktempdir(), "marks.json")
         before2 = read(W.statefile(), String)
         try
             # An editor that writes and exits at once is gone before there is
@@ -282,7 +281,7 @@ end
             end
         finally
             write(W.statefile(), before2)
-            W.TOUCHED[] = keept
+            W.MARKS[] = keept
         end
     end
 

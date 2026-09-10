@@ -37,41 +37,43 @@
     W.handle!(empty, Int('z'), ctrl)
     @test empty.status == "nothing to undo"
 
-    # r/u against the real read.json, put back afterwards either way.
-    readfile = W.Events.readfile()
-    before = read(readfile, String)
+    # r/u against the marks file, put back afterwards either way - and "put
+    # back" includes the file not existing yet, which is what a dashboard that
+    # has never been read has.
+    marks() = isfile(W.marksfile()) ? read(W.marksfile(), String) : ""
+    before = marks()
     try
         st = mkstate()
         it = st.items[st.sel]
-        prev = W.Events.read_at(it.url)
+        prev = W.read_at(it.url)
         # `r` toggles against what is on screen.
         push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
-        @test W.Events.read_at(it.url) !== nothing
+        @test W.read_at(it.url) !== nothing
         @test !(it.url in st.unread)
         W.handle!(st, Int('r'), ctrl)                   # ...and back again
         @test st.status == "marked unread" && it.url in st.unread
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
-        @test W.Events.read_at(it.url) == prev          # exactly what was there
-        @test read(readfile, String) == before          # byte for byte
+        @test W.read_at(it.url) == prev          # exactly what was there
+        @test marks() == before          # byte for byte
 
         # `r` on something already read puts it back, which is the half `u`
         # used to do unconditionally before it became the refresh.
         delete!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked unread" && it.url in st.unread
-        @test W.Events.read_at(it.url) === nothing
+        @test W.read_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl)
-        @test W.Events.read_at(it.url) == prev
-        @test read(readfile, String) == before
+        @test W.read_at(it.url) == prev
+        @test marks() == before
 
         # Read is stamped to when the thread was fetched, not to now.
         st.nodes = [W.Node("h", "b", :md, true)]
         st.nodes[1].meta["fetched"] = "2020-01-02T03:04:05Z"
         push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
-        @test W.Events.read_at(it.url) == "2020-01-02T03:04:05Z"
+        @test W.read_at(it.url) == "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes = W.Node[]
 
@@ -83,9 +85,10 @@
         end
         @test length(st.undos) == 3
         for _ in 1:3; W.handle!(st, Int('z'), ctrl); end
-        @test isempty(st.undos) && read(readfile, String) == before
+        @test isempty(st.undos) && marks() == before
     finally
-        write(readfile, before)
+        isempty(before) ? rm(W.marksfile(); force = true) :
+                          write(W.marksfile(), before)
     end
 
     # The footer counts what is pending.

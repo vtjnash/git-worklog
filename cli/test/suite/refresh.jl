@@ -21,14 +21,14 @@
     # An inbox entry is how an imported item reaches the unread lane: no poll
     # will ever find one, since its repo is not watched - which is why it was
     # imported.
-    keepi, keepr = W.Events.INBOX[], W.Events.READ[]
+    keepi, keepm = W.Events.INBOX[], W.MARKS[]
     d = mktempdir()
     W.Events.INBOX[] = joinpath(d, "inbox.json")
-    W.Events.READ[] = joinpath(d, "read.json")
+    W.MARKS[] = joinpath(d, "marks.json")
     try
         u = "https://github.com/o/r/issues/3"
-        W.Events.mark_read([u], W.utcnow())          # read from some earlier life
-        @test W.Events.read_at(u) !== nothing
+        W.mark_read([u], W.utcnow())          # read from some earlier life
+        @test W.read_at(u) !== nothing
         n = W.Events.inbox_add!([Dict{String,Any}(
             "url" => u, "repo" => "o/r", "number" => 3, "title" => "t",
             "is_pr" => false, "state" => "open", "author" => "a",
@@ -44,7 +44,7 @@
         rich["comments"] = 12
         inbox = W.Events.load_inbox(); inbox["items"][u] = rich
         W.Events.save_inbox(inbox)
-        W.Events.mark_read([u], W.utcnow())
+        W.mark_read([u], W.utcnow())
         thin = Dict{String,Any}("url" => u, "repo" => "o/r", "number" => 3,
                                 "title" => "t", "is_pr" => false, "state" => "open",
                                 "author" => "a", "updated" => "2026-09-03T00:00:00Z",
@@ -52,16 +52,16 @@
         @test W.Events.inbox_add!([thin]; overwrite = false) == 1
         @test length(W.Events.load_inbox()["items"]) == 1
         @test W.Events.load_inbox()["items"][u]["comments"] == 12   # the poll's
-        @test W.Events.read_at(u) === nothing                       # still unread
+        @test W.read_at(u) === nothing                       # still unread
         # And overwriting is what a caller that knows better asks for.
         W.Events.inbox_add!([thin])
         @test W.Events.load_inbox()["items"][u]["comments"] == 0
         # The read stamp is cleared, or it would hide the thing just delivered.
-        @test W.Events.read_at(u) === nothing
+        @test W.read_at(u) === nothing
         # Nothing is claimed to have been polled: no cursor moves.
         @test isempty(W.Events.load_inbox()["cursors"])
     finally
-        W.Events.INBOX[] = keepi; W.Events.READ[] = keepr
+        W.Events.INBOX[] = keepi; W.MARKS[] = keepm
     end
 end
 
@@ -107,7 +107,7 @@ end
     # reported at 20 work days - leaving the lane on a day nobody chose, with
     # nothing recorded and nothing to undo. The lane is ordered newest first, so
     # it is at the bottom rather than in the way, and `s` `1` is what takes it
-    # out: a decision, in `snooze.json`, undone by `z`, back when it moves.
+    # out: a decision, in `marks.json`, undone by `z`, back when it moves.
     old = base(); old["head_at"] = "2025-01-02T00:00:00Z"
     @test occursin("alice pushed", look(old))
     @test occursin("work days", look(old))

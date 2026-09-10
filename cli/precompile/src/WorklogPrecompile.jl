@@ -74,10 +74,8 @@ function hermetic(f)
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.STATE[] = joinpath(d, "state.toml")
-        Worklog.TOUCHED[] = joinpath(d, "touched.json")
-        Worklog.DRAFTS[] = joinpath(d, "drafts.json")
+        Worklog.MARKS[] = joinpath(d, "marks.json")
         Worklog.REPOS_FILE[] = joinpath(d, "repos.toml")
-        Worklog.Events.READ[] = joinpath(d, "read.json")
         Worklog.Events.INBOX[] = joinpath(d, "inbox.json")
         redirect_stdout(devnull) do
             f()
@@ -89,10 +87,8 @@ function hermetic(f)
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
         Worklog.STATE[] = ""
-        Worklog.TOUCHED[] = ""
-        Worklog.DRAFTS[] = ""
+        Worklog.MARKS[] = ""
         Worklog.REPOS_FILE[] = ""
-        Worklog.Events.READ[] = ""
         Worklog.Events.INBOX[] = ""
         rm(d; recursive = true, force = true)
     end

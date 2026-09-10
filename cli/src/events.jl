@@ -2,9 +2,11 @@
 #
 # Email's real value here is one bit per thread: have you seen it. Everything
 # else it carries - titles, bodies, who spoke - GitHub can answer live, so none
-# of it is stored. The only persisted state is `read.json`: per item, the
-# timestamp you have seen up to. That is precisely the bit an inbox was
-# providing and the one thing that cannot be re-derived from GitHub.
+# of it is stored. The only persisted state is the read stamp in `marks.json`:
+# per item, the timestamp you have seen up to. That is precisely the bit an
+# inbox was providing and the one thing that cannot be re-derived from GitHub -
+# and it is a fact about the whole corpus, which is why it lives there and not
+# here. What this module owns is the poll: the cursors, and what moved.
 #
 # Finding what is unread costs one query per repo: `issues?since=` returns every
 # item touched in the window, with its `updated_at` and comment count already in
@@ -23,11 +25,9 @@ using Dates, Printf, JSON3, OrderedCollections
 import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
+# The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
+using ..Worklog: load_read, mark_unread
 import ..Worklog
-
-"Overridable so a test can write somewhere other than the real file."
-const READ = Ref("")
-readfile() = isempty(READ[]) ? datapath("read.json") : READ[]
 
 struct ApiError <: Exception
     msg::String
@@ -237,54 +237,6 @@ many repos and only the row knows which one it came from.
 drop_forks(rows, forks::Set{String}) =
     isempty(forks) ? rows : [r for r in rows if !(item_repo(r) in forks)]
 
-load_read() = isfile(readfile()) ?
-    Dict{String,Any}(String(k) => v for (k, v) in JSON3.read(read(readfile(), String))) :
-    Dict{String,Any}()
-
-"The seen-up-to timestamp for one item, or `nothing` if it has never been read."
-read_at(url::AbstractString) = get(load_read(), String(url), nothing)
-
-"""Set, or with `nothing` clear, one item's seen-up-to timestamp.
-
-The primitive behind both marking and unmarking, and behind undoing either: the
-undo of a mark is not "mark it the other way", it is putting back whatever was
-there before, which may have been nothing at all.
-"""
-function set_read(url::AbstractString, at::Union{Nothing,AbstractString})
-    r = load_read()
-    u = String(url)
-    at === nothing ? (haskey(r, u) && delete!(r, u)) : (r[u] = String(at))
-    write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
-    nothing
-end
-
-"""Forget the seen-up-to timestamps for these items, making them unread again.
-
-`unread()` calls an item unseen when it moved more recently than its timestamp
-here, so dropping the key restores it - provided it moved inside the lookback
-window, which is the same condition that governed it before it was ever marked.
-An item that has not moved in months does not come back, and should not.
-"""
-function mark_unread(urls)
-    r = load_read()
-    n = 0
-    for u in urls
-        haskey(r, String(u)) && (delete!(r, String(u)); n += 1)
-    end
-    n == 0 || write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
-    n
-end
-
-function mark_read(urls, at::DateTime)
-    r = load_read()
-    s = stamp(at)
-    for u in urls
-        r[u] = s
-    end
-    write_atomic(readfile(), json_dumps(r; indent = 1, sortkeys = true))
-    length(urls)
-end
-
 """The accumulated inbox: `cursors`, `polled` and `items`.
 
 Machine-owned. `cursors` is how far each source has been read, `polled` is when
@@ -333,7 +285,7 @@ change landing while the fetch is in flight is then read again next time, which
 duplicates - and duplicates are free, because the inbox is keyed by url - where
 the other rounding would skip it. A failed fetch advances nothing.
 
-`read.json` remains the authority on what leaves: an item is dropped from the
+The read stamp remains the authority on what leaves: an item is dropped from the
 inbox once it has been marked read up to its latest change.
 """
 function unread(cfg, login, at::DateTime; verbose::Bool = true)
