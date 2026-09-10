@@ -36,6 +36,11 @@ function normalize(n, lane::AbstractString, login::AbstractString)
     typename = jget(n, :__typename, "PullRequest")
     is_pr = typename == "PullRequest"
     author = jget(jget(n, :author), :login)
+    # Asked of every lane, including the bulk ones, because "mine" is a fact
+    # about the item rather than about which query found it: an issue assigned
+    # to you that a mention lane returned first is still yours to do.
+    assignees = String[String(a.login) for a in jget(jget(n, :assignees), :nodes, ())
+                       if truthy(jget(a, :login))]
     ms = jget(n, :milestone)
     rec = Dict{String,Any}(
         "type" => typename,
@@ -51,7 +56,11 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         "labels" => String[l.name for l in n.labels.nodes],
         "milestone" => jget(ms, :title),
         "milestone_due" => jget(ms, :dueOn),
-        "mine" => author == login,
+        "assignees" => assignees,
+        # Author **or** assignee. Being asked to review something, or named in a
+        # thread, is what makes an item *unread*; it does not make it yours.
+        # Being assigned it does, and GitHub is the only one who can say so.
+        "mine" => author == login || login in assignees,
     )
     lastc = jget(jget(n, :comments), :nodes, ())
     rec["last_comment_by"] = isempty(lastc) ? nothing : jget(jget(lastc[1], :author), :login)

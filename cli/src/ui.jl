@@ -49,6 +49,10 @@ Base.@kwdef struct Item
                               # one that may write the snooze marks
     is_pr::Bool = true
     author::String = ""
+    assignees::Vector{String} = String[]   # who GitHub says is on the hook for
+                           # it. With `author` this is the whole of what makes
+                           # an item yours: a review request or a mention makes
+                           # it *unread*, which is a different question
     labels::Vector{String} = String[]
     milestone::String = ""
     milestone_due::String = ""
@@ -107,6 +111,7 @@ function item_of(r)
             snooze_why = String(nz(jget(r, :snooze_why), "")),
             is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",
             author = nz(jget(r, :author), ""),
+            assignees = String[String(a) for a in jget(r, :assignees, ())],
             labels = String[String(l) for l in jget(r, :labels, ())],
             milestone = nz(jget(r, :milestone), ""),
             milestone_due = first(String(nz(jget(r, :milestone_due), "")), 10),

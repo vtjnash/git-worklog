@@ -27,11 +27,17 @@
         # and it said `author == login()` in the state axis - the author axis
         # written twice, in the place it does not belong. Which work is yours
         # and what state that work is in are two questions.
+        #
+        # Author **or assignee**: an issue GitHub put on you is yours to do
+        # however it reached the dashboard, and a mention or a review request
+        # is not - that makes it unread, which is a different question again.
         mine = Set([W.AUTHOR_ME])
         st.filters = W.Filters(); st.filters.authors = copy(mine)
         W.refilter!(st)
         @test !isempty(st.items)
-        @test all(x.author == W.login() || W.islocal(x) for x in st.items)
+        @test all(x.author == W.login() || W.login() in x.assignees || W.islocal(x)
+                  for x in st.items)
+        @test any(x.author != W.login() && W.login() in x.assignees for x in st.items)
         # An adopted branch has no author at all and is still yours, which is a
         # thing the axis knows and the lane had to special-case.
         local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,

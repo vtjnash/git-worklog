@@ -22,6 +22,7 @@ const PR_FIELDS = "\n" * """
       reviewDecision
       mergeable
       milestone { title dueOn }
+      assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
       commits(last: 1) { nodes { commit {
         committedDate
@@ -37,6 +38,7 @@ const ISSUE_FIELDS = "\n" * """
       repository { nameWithOwner }
       author { login }
       milestone { title dueOn }
+      assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
       comments(last: 1) { nodes { author { login } createdAt } }
 """
@@ -64,6 +66,7 @@ query(\$q: String!, \$cursor: String) {
       author { login }
       reviewDecision mergeable
       milestone { title dueOn }
+      assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
       comments(last: 1) { nodes { author { login } createdAt } }
@@ -73,6 +76,7 @@ query(\$q: String!, \$cursor: String) {
       repository { nameWithOwner }
       author { login }
       milestone { title dueOn }
+      assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
       comments(last: 1) { nodes { author { login } createdAt } }
     } }

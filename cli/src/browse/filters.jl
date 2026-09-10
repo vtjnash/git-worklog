@@ -288,12 +288,18 @@ kind_ok(kind::Symbol, it::Item) = kind === :both || (kind === :pr) == it.is_pr
 
 """Whose it is. An empty set restricts nothing, as on every other axis.
 
+`@me` is author **or assignee**, which is the whole of what makes an item yours
+to finish. Being asked to review something, or being named in a thread, is what
+makes it *unread* - somebody wants something from you, and that is a question
+the attention axis answers - and it does not put the item in your pile.
+
 An adopted branch has no author and is therefore yours: it is in this dashboard
 because you claimed it, and nobody else wrote it.
 """
 function author_ok(authors::Set{String}, it::Item)
     isempty(authors) && return true
-    mine = it.author == login() || (isempty(it.author) && islocal(it))
+    mine = it.author == login() || login() in it.assignees ||
+           (isempty(it.author) && islocal(it))
     (mine && AUTHOR_ME in authors) && return true
     (!mine && AUTHOR_OTHERS in authors) && return true
     it.author in authors
