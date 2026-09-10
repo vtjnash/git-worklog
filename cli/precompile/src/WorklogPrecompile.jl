@@ -165,7 +165,7 @@ function sample_facts()
          "url": "https://github.com/o/r/pull/1", "repo": "o/r", "number": 1,
          "title": "a pull request with a reasonably long title",
          "type": "PullRequest", "author": "vtjnash", "state": "OPEN",
-         "bucket": "needs-review", "track": "normal", "backlog": false,
+         "bucket": "needs-review", "track": "normal",
          "labels": ["bug", "domain:ci"], "blocked_on": [],
          "branch": "jn/topic", "ci": "SUCCESS", "mergeable": "MERGEABLE",
          "unresolved": 2, "review_decision": "REVIEW_REQUIRED",
@@ -178,7 +178,7 @@ function sample_facts()
        "https://github.com/o/r/issues/2": {
          "url": "https://github.com/o/r/issues/2", "repo": "o/r", "number": 2,
          "title": "an issue", "type": "Issue", "author": "someone",
-         "bucket": "mentioned", "backlog": true, "labels": [],
+         "bucket": "mentioned", "labels": [],
          "note": null, "deadline": null, "milestone": null,
          "updated": "2026-08-20T09:30:00Z"
        }

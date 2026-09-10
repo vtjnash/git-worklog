@@ -78,7 +78,8 @@ end
     @test W.workdays_since("2026-09-03T09:00:00Z", W.DateTime(2026, 9, 3, 17)) == 0
 
     at = W.DateTime(2026, 9, 3, 12)
-    base() = Dict{String,Any}("state" => "OPEN", "backlog" => false, "author" => "alice")
+    base() = Dict{String,Any}("state" => "OPEN", "bucket" => "needs-review",
+                              "author" => "alice")
     look(r) = W.second_look(r, at, 2)
 
     # The author spoke and nobody answered.
@@ -115,8 +116,15 @@ end
     # to-do list.
     done_ = copy(r); done_["state"] = "MERGED"
     @test isempty(look(done_))
-    pile = copy(r); pile["backlog"] = true
-    @test isempty(look(pile))
+    # The pile is asked for by name rather than carried on the row: both of the
+    # things `backlog` used to say, said by the bucket it was derived from.
+    for b in ("firehose", "mentioned")
+        pile = copy(r); pile["bucket"] = b
+        @test isempty(look(pile)) && W.in_pile(pile)
+    end
+    bg = copy(r); bg["track"] = "background"
+    @test isempty(look(bg)) && W.in_pile(bg)
+    @test !W.in_pile(r)
     # Nothing to measure at all is not silence.
     @test isempty(look(base()))
 

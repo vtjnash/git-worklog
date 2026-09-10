@@ -24,7 +24,6 @@ Base.@kwdef struct Item
     bucket::String = ""
     track::String = "normal"
     note::String = ""
-    backlog::Bool = false
     ci::String = ""
     unresolved::Int = 0
     mergeable::String = ""
@@ -100,7 +99,6 @@ function item_of(r)
             repo = r.repo, number = r.number, title = r.title,
             bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
             note = nz(jget(r, :note), ""),
-            backlog = nz(jget(r, :backlog), false),
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             mergeable = nz(jget(r, :mergeable), ""),
             act = String(nz(act, "")),
@@ -404,7 +402,7 @@ function ui(args = String[], at::DateTime = utcnow())
     # Unread threads that are not otherwise tracked still need a row to select.
     extra = [Item(url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
                   ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-                  title = String(u["title"]), bucket = "unread", backlog = true,
+                  title = String(u["title"]), bucket = "unread",
                   author = String(nz(get(u, "author", nothing), "")),
                   labels = String[String(l) for l in get(u, "labels", ())],
                   is_pr = get(u, "is_pr", true))

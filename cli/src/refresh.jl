@@ -193,7 +193,7 @@ does not fire rather than firing on a stale reading.
 """
 function second_look(r, at::DateTime, days::Int)
     get(r, "state", nothing) in ("MERGED", "CLOSED") && return ""
-    truthy(get(r, "backlog", false)) && return ""
+    in_pile(r) && return ""
     hd, lc = ts(get(r, "head_at", nothing)), ts(get(r, "last_comment_at", nothing))
     ap = ts(get(r, "approved_at", nothing))
     events = [x for x in (hd, lc, ap) if x !== nothing]
@@ -394,6 +394,29 @@ something that has merged - which is how julia#62396 came to be merged and
 """
 carried_mergeable(state, prev) =
     (state in ("MERGED", "CLOSED") || prev == "UNKNOWN") ? nothing : prev
+
+"""Is this a row nobody put in front of you - the pile?
+
+The discovery sweep and the mention corpus, plus anything you pushed to the
+background by hand. Two things ask, and neither is a filter: `second_look`,
+because the pile is not a to-do list and silence in it is not a failure anybody
+owes an answer for, and `wl next`, whose whole job is to hand you a slice of it.
+
+**Computed, and it was stored** - as `backlog`, a field on every row and a bool
+on every `Item`, from when it was also a *lane*. Nothing filters on it any more:
+what takes something out of the pile is dismissing it, one item at a time, and
+the bucket already says which pile a row is in. So the two callers that mean
+"the pile" ask for it by name, and a row carries one less derived fact that
+could disagree with the bucket it was derived from.
+
+`stale` is deliberately not here, and used to be. It is your *own* open work,
+and sweeping it out on a 60-day threshold hid 44 pull requests of which 36 were
+waiting on a reviewer - which `second_look` could not say either, since it
+refuses the pile. Two thresholds, both silent, both unrecorded, both hiding the
+same work.
+"""
+in_pile(r) = pget(r, "bucket") in ("firehose", "mentioned") ||
+             pget(r, "track") == "background"
 
 """Which edge of a snooze this refresh crossed: `:slept`, `:woke`, or nothing.
 
@@ -764,27 +787,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         r["fp_full"] = fingerprint(r, "close")
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
-        # The backlog is everything you are not actively carrying: the discovery
-        # feed, other people's mentions, and anything you explicitly pushed to
-        # background.
-        #
-        # `stale` is not in it, and used to be. It is your *own* open work, and
-        # sweeping it out on a 60-day threshold hid 44 pull requests of which 36
-        # were waiting on a reviewer - which `second_look` could not say either,
-        # since it refuses backlog items. Two thresholds, both silent, both
-        # unrecorded, both hiding the same work; `second_look_max_days` was the
-        # other and went first. What takes one out now is `s` `1` or `x`: a
-        # decision somebody made, written down, undone with `z`, and in the
-        # snooze's case back on its own when the thing finally moves.
-        #
-        # The bucket stays. It is a true and useful thing to say about a row -
-        # `f` still filters on it, and it still reads "quiet 341d, unclaimed" -
-        # it just no longer decides whether you are allowed to see it.
-        r["backlog"] = r["bucket"] in ("firehose", "mentioned") ||
-                       r["track"] == "background"
-        # After the backlog is known, since the pile is not a to-do list, and
-        # after the snooze, since an item you have said "not now" about is not
-        # one to be reminded of.
+        # After the bucket, which `in_pile` reads and the pile is not a to-do
+        # list, and after the snooze, since an item you have said "not now"
+        # about is not one to be reminded of.
         r["second_look"] = r["snoozed"] ? "" :
                            second_look(r, at, second_days)
         old = jget(prev_items, Symbol(url))

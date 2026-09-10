@@ -232,10 +232,10 @@ that never wake kept - not a field of its own. See `archive!`.
 archived_map() = Dict{String,String}(u => v for (u, v) in field_map("snooze")
                                      if snooze_forever(v))
 
-"""Hand back the next slice of untagged backlog, quietest first.
+"""Hand back the next slice of the untriaged pile, quietest first.
 
-Pull, never push: nothing from the backlog reaches the dashboard on its own. You
-ask for work when you want it. Items you have already tagged in local.toml are
+Pull, never push: nothing in the pile reaches the dashboard on its own. You ask
+for work when you want it. Items you have already tagged in local.toml are
 considered triaged and never come back here - and tagging is the only thing that
 retires one. It used to keep a `queue.json` of what it had printed and sort that
 to the back, which is a fifth file of one fact per url to make asking twice in a
@@ -247,10 +247,10 @@ function next_batch(n::Int)
     items === nothing && die("nothing fetched yet - run `wl refresh` first")
     state = load_state()
     pool = String[String(u) for (u, r) in pairs(items)
-                  if truthy(jget(r, :backlog)) && !truthy(jget(r, :snoozed)) &&
+                  if in_pile(r) && !truthy(jget(r, :snoozed)) &&
                      !truthy(get(state, String(u), nothing))]
     if isempty(pool)
-        println("backlog is fully triaged")
+        println("the pile is fully triaged")
         return 0
     end
     function last_activity(u)
@@ -266,7 +266,7 @@ function next_batch(n::Int)
                last_activity(u), u)
     sort!(pool; by = rank)
     batch = first(pool, n)
-    @printf("%d untagged backlog items (%d shown)\n\n", length(pool), length(batch))
+    @printf("%d untriaged items in the pile (%d shown)\n\n", length(pool), length(batch))
     for u in batch
         r = items[Symbol(u)]
         ref = "$(split(r.repo, '/')[end])#$(r.number)"

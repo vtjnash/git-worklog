@@ -14,11 +14,11 @@ Work dashboard.
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl read    julia#62891                  mark a thread seen (or: read all)
   wl show    julia#62891                  state + the thread's recent comments
-  wl next    [n]                          pull the next untagged backlog items
+  wl next    [n]                          pull the next untriaged items from the pile
   wl watching                             repos you watch, and which are tracked
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 close            close | normal | loose | background
-  wl dismiss julia#62452                  retire from the backlog until it moves
+  wl dismiss julia#62452                  retire from the pile until it moves
   wl snooze  julia#62452 on-change        or a date, "forever", or "off"
   wl note    julia#62452 "rebase after #62396 lands"
   wl archive julia#62452                  file it away: snooze = forever
@@ -279,7 +279,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         return 0
     end
     if cmd == "dismiss"
-        # Retire a backlog item: stop caring about churn, but do not go blind to
+        # Retire an item from the pile: stop caring about churn, but do not go blind to
         # it. Loose tracking plus an on-change snooze means it comes back only if
         # something that actually matters happens to it.
         for u in urls
