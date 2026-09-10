@@ -121,10 +121,17 @@ include_forks = true
 # turning one on brings nothing with it, and everything after that is caught by
 # the cursor. Only ever used once per source; after that `inbox.json` says where
 # each one has been read up to.
-backfill_days = 0
+#
+# 30 because the inbox was rebuilt from nothing on 2026-09-10 and a month is
+# what makes that worth doing - inbox zero on a cold start is an empty dashboard
+# that fills up over the following week. It stays in effect for any source added
+# from here on, which is the same trade: a repo named for the first time arrives
+# with a month of its history rather than with nothing.
+backfill_days = 30
 # The activity query runs on every browser launch and is several paginated
-# requests per repo. Cached this long; read state is applied after the cache,
-# so marking something read still takes effect at once.
+# requests per repo, so a source is not re-polled until this long after the last
+# one. It used to be a cache keyed by the cursor as well, which is gone: the
+# cursor moves every poll, so every entry was written once and never read again.
 activity_ttl_seconds = 120
 
 [cache]
