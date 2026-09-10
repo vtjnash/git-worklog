@@ -120,7 +120,12 @@ function resolve_track(st, bucket)
     t = get(st, "track", nothing)
     t isa AbstractString && haskey(TRACK_KEYS, t) && return t
     bucket == "done" && return "loose"   # over; nothing about it should wake you
-    bucket in ("stale", "firehose", "mentioned") && return "background"
+    # `stale` is deliberately *not* here. It was, and that made an on-change
+    # snooze on one a snooze that could never wake: `background` has an empty
+    # key set, so the fingerprint is a constant and nothing ever changes it.
+    # Dismissing a quiet pull request with `s` `1` is the whole way one leaves
+    # the list now, so it has to be a dismissal that comes back.
+    bucket in ("firehose", "mentioned") && return "background"
     bucket in ("issue", "reviewed", "blocked") && return "loose"
     "normal"
 end
@@ -731,9 +736,23 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         r["fp_full"] = fingerprint(r, "close")
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
-        # The backlog is everything you are not actively carrying: the stale pile,
-        # the discovery feed, and anything you explicitly pushed to background.
-        r["backlog"] = r["bucket"] in ("stale", "firehose", "mentioned") ||
+        # The backlog is everything you are not actively carrying: the discovery
+        # feed, other people's mentions, and anything you explicitly pushed to
+        # background.
+        #
+        # `stale` is not in it, and used to be. It is your *own* open work, and
+        # sweeping it out on a 60-day threshold hid 44 pull requests of which 36
+        # were waiting on a reviewer - which `second_look` could not say either,
+        # since it refuses backlog items. Two thresholds, both silent, both
+        # unrecorded, both hiding the same work; `second_look_max_days` was the
+        # other and went first. What takes one out now is `s` `1` or `x`: a
+        # decision somebody made, written down, undone with `z`, and in the
+        # snooze's case back on its own when the thing finally moves.
+        #
+        # The bucket stays. It is a true and useful thing to say about a row -
+        # `f` still filters on it, and it still reads "quiet 341d, unclaimed" -
+        # it just no longer decides whether you are allowed to see it.
+        r["backlog"] = r["bucket"] in ("firehose", "mentioned") ||
                        r["track"] == "background"
         # After the backlog is known, since the pile is not a to-do list, and
         # after the snooze, since an item you have said "not now" about is not

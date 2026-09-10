@@ -250,11 +250,10 @@ Derived every refresh, never stored, and the opposite of a snooze: it needs no
 asking for, because the failure it catches is work going quiet without anybody
 deciding it should. It fires on two shapes of silence - the author spoke or
 pushed and nobody answered, or somebody approved it and nothing happened after -
-measured in *working* days, in a window (`second_look_days` to
-`second_look_max_days`, 2 to 20). Below the window nobody is late yet; above it
-the quiet is not news and `stale` is the right pile. Only for work you are
-carrying: the background pile is full of other people's pull requests where the
-author spoke last.
+measured in *working* days, past a floor (`second_look_days`, 2) and with no
+ceiling - there was one and it went, along with `stale`'s eviction, for the same
+reason. Only for work you are carrying: the background pile is full of other
+people's pull requests where the author spoke last.
 
 It cuts across the buckets rather than being one - a pull request nobody
 answered is still waiting on a reviewer - so it is a filter state, not a
@@ -790,9 +789,8 @@ the metadata pane shows:
 - **Older than a threshold in work days.** `second_look_days = 2` in
   `config.toml`, counted by `workdays_since`, which exists precisely because two
   days of silence over a weekend is a weekend and not silence.
-- **And not so old that it is a different problem.** `second_look_max_days = 20`
-  is the top of the window; past it the row belongs to `stale`, and a reminder
-  that fires on forty of those every morning is one nobody reads.
+- **And no ceiling.** `second_look_max_days` used to stop it at 20 work days;
+  see below for why that went, and why `stale` went with it.
 
 **Dismissing one is `s` then `1`, and yes, it is exactly the snooze.**
 `on-change` records a fingerprint of the item at its tracking level and hides it
@@ -839,6 +837,46 @@ finally moves. None of those is true of a threshold.
 Worth thinking about separately, and not obviously worth doing: the lane is
 called "second look" in the filter pane, which is what it does and not what it
 is for. Nobody looking for "who is waiting on me" finds it by reading that.
+
+### The two modes, and what the lanes should be
+
+The `active`/`backlog` split was re-examined on 2026-09-10 and half of it was
+wrong; this is the other half, which is a design note rather than a defect.
+
+**What the work actually is, in the user's own words:** two modes. Either
+*wanting my own work - what I am editing as a (co)author* - or *reviewing what
+came in from everyone else*. Not ten lanes; two, plus a pile.
+
+Three things follow, and none of them is what the lanes do today:
+
+- **`mentioned` and `reviewed` are query filters, not lanes.** They are what you
+  reach for when *searching* for something. `mentioned` is 1098 rows and is the
+  largest bucket there is - it is a corpus, and the corpus is not a to-do list.
+- **GitHub's own state is the less trustworthy half.** Review-requested,
+  mentions, the review decision: all of it is worth having and none of it is
+  worth *believing* over the unread cursor and the snooze, which are this
+  program's own and are the two things it was written to own. A lane built on
+  what GitHub thinks is owed is a lane that keeps being wrong; one built on what
+  you have read and what you have put off is not.
+- **The firehose is a place to go on purpose, not a leak.** 901 open pull
+  requests, browsed slowly, to promote (review it, merge it) or archive. That is
+  a third mode and it already has a home; what it does not have is the two verbs
+  as one keystroke each from inside it.
+
+Against that, today's ten `STATES` are the wrong shape rather than the wrong
+number: `mine` is mode one, nothing is mode two (`active` is both modes mixed,
+and 81 of its 157 rows are other people's), and `backlog` is the pile. The
+author axis already carries `@me` and `@anyone-else`, so mode two may be a view
+rather than a lane - `active` + `@anyone-else` - which would cost nothing and
+wants trying before anything is built.
+
+**One thing mode one cannot express at all.** `mine` is `it.author == login()`.
+"What I am editing as a **(co)author**" is wider than that and nothing here
+knows it: a pull request somebody else opened that you have pushed commits to,
+or that carries you in a `Co-authored-by` trailer, is not yours by any test this
+program applies. GraphQL will answer the first (`commits(...) { authors }`) and
+the second only by reading commit messages. Neither is free, and neither has
+been costed.
 
 ### What review writing still cannot do
 
