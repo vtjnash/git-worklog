@@ -129,8 +129,14 @@ function pane_column(v::PaneView, w::Int, h::Int)
         v.focus === :read ?
             string(v.child.name, " · reading · tab back to it",
                    " · esc/t/T the list · every other key is the browser's") :
-            string(v.child.name, " · ^]tab read beside it",
-                   " · ^]q leave it running · ^]? keys"))
+            # `^]K` is on it and `^]tab` is not, which is a trade and not a
+            # tidy-up: ending the session is the one thing here that cannot be
+            # undone and it was reachable only through `^]?`, while `tab` is
+            # what everything else in this program uses to change which side
+            # has the keyboard - a reader who has `^][` will try it anyway, and
+            # `^]?` is where it stays written down.
+            string(v.child.name, " · ^][ read beside it",
+                   " · ^]q leave it running · ^]K kill · ^]? keys"))
     iframe_rows(v.child, w, h; focused = v.focus === :child, note = note)
 end
 
@@ -199,14 +205,23 @@ The iframe's own keys, with this program's two either side of them: what `^]tab`
 does here, and that a key this layer has no use for is the browser's.
 """
 pane_keys(v::PaneView) =
-    string(readable(v) ? "^]tab read beside it (q leaves from there) · " : "",
+    string(readable(v) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
            iframe_keys(),
            v.beside === nothing ? "" : " · anything else is the browser's")
 
 """The keys after the prefix that are this program's rather than the iframe's.
 
-`^]tab` is the one this whole file exists for, and `^]?` is the help, which has
-to be written here because the iframe cannot know what is drawn beside it.
+`^]tab` is the one this whole file exists for, and `^][` is the same thing under
+the hand: `]` and `[` are one key apart, so the roll is right pinky twice with
+the left one never leaving control, where `^]tab` sends it back up to tab. It is
+the most-pressed key here and it was the slowest to type.
+
+Ctrl has to come *off* for the `[`. Held down it is `^]` then `^[`, and `^[` is
+escape, which the iframe reads as leaving the pane - a different thing, and one
+that is no worse to have arrived at by accident: the session keeps running.
+
+`^]?` is the help, which has to be written here because the iframe cannot know
+what is drawn beside it.
 `:unhandled` gives the key back - to `TermIFrame` for its own (`IFRAME_KEYS`,
 which must not be shadowed), and to the browser for everything else.
 
@@ -221,7 +236,7 @@ item and back; `enter_session` refuses to stack a second view on the session
 already showing, so the same-kind press says so rather than doubling the pane.
 """
 function pane_command!(v::PaneView, b::UInt8, ctrl)
-    if b == UInt8('\t') && readable(v)
+    if (b == UInt8('\t') || b == UInt8('[')) && readable(v)
         # The keys go to the thread; the child keeps running and keeps being
         # drawn. Aimed at the detail rather than at the item list, because the
         # list is not what is on screen here.

@@ -243,6 +243,34 @@ end
             # `^]tab` hands the keys to the thread instead of leaving.
             @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('\t')], ctrl) === :ok
             @test v.focus === :read
+
+            # ...and so does `^][`, which is the same move under the hand: `]`
+            # and `[` are one key apart, so it is the right pinky twice with the
+            # left one never leaving control, where `^]tab` sends it back up to
+            # tab. It is the most-pressed key here and was the slowest to type.
+            v.focus = :child
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('[')], ctrl) === :ok
+            @test v.focus === :read
+            @test W.mux_alive(n) === true          # and it did not leave, either
+            # Both are named in `^]?`, which is the exhaustive list and has the
+            # room to be one.
+            @test occursin("^]tab or ^][", W.pane_keys(v))
+            # The standing row under the child carries `^][` and not `^]tab`,
+            # and spends what that saves on `^]K` - which is the one key here
+            # that cannot be undone and was reachable only through `^]?`. `tab`
+            # is what changes sides everywhere in this program, so a reader who
+            # has `^][` will try it whether or not the row says so.
+            v.focus = :child
+            row = W.astrip(last(W.pane_column(v, 100, 12)))
+            @test occursin("^][ read beside it", row) && occursin("^]K kill", row)
+            @test !occursin("^]tab", row)
+            # A bare `[` is still the child's - only after the prefix is it ours.
+            v.focus = :child
+            @test W.onraw!(v, [UInt8('[')], ctrl) === :ok
+            @test v.focus === :child
+            # ...and back to reading, which is where the rest of this is written.
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('[')], ctrl) === :ok
+            @test v.focus === :read
             @test W.wantsraw(v) === false          # decoded keys now, not bytes
             @test W.mux_alive(n) === true          # and the child is still there
             @test st.focus === :detail             # aimed at the thread, not the list
@@ -369,3 +397,4 @@ end
     @test W.forward!(v, Int('o'), ctrl) === :ok
     @test st.mode === :comments
 end
+

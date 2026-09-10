@@ -97,7 +97,8 @@ rather than deleted.
 It also hosts programs. A tmux session per worktree can be opened on an item
 (`t` a shell, `T` an agent), drawn in a pane beside the thread and driven by
 forwarding the bytes you type, so the browser needs no model of what is running
-in it. `^]tab` moves the keyboard between the child and the thread beside it, so
+in it. `^]tab` - or `^][`, the same roll with the left hand never leaving
+control - moves the keyboard between the child and the thread beside it, so
 an agent can be watched and the pull request read at the same time; the wheel
 scrolls the pane's own history when the child has no use for it. `"` lists every
 worktree and what is running in each, and `v` opens the item's note in `$EDITOR`
@@ -187,9 +188,9 @@ item's worktree, and `"` lists every worktree with what is running in each -
 `tab` there swaps the worktrees for the branches, `i` goes to a row's pull
 request, and `a` adopts a local branch as work of yours; its one-character
 columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside a
-hosted pane every key belongs to the child except the prefix `^]`: `^]tab`
-leaves it running, `^]K` ends it, `^]a` goes full screen, `^]r` re-reads, `^]]`
-sends a literal `^]`.
+hosted pane every key belongs to the child except the prefix `^]`: `^]tab` and
+`^][` read the thread beside it, `^]q` leaves it running, `^]K` ends it, `^]a`
+goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`.
 
 Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
 `/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is
