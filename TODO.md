@@ -15,11 +15,14 @@ done; `git log` is the record of it and this file is not.
    **unread** (a cursor, older than `updated`), and the firehose browse wants
    the first while the incoming inbox wants the second. Nothing new has to be
    stored; `read.json` already is the seen bit and the question is being asked
-   of `inbox.json` instead of of the corpus. **See "THE STATE AXIS" under
-   Outstanding work for the whole specification, the file layout, the build
-   order and why there is no migration.** The window matters: the history files
-   are empty *today* because of the 2026-09-10 rebuild, so changing their format
-   costs nothing now and more every day.
+   of `inbox.json` instead of of the corpus. The disposition is **one computed
+   enum**, not five flags, because the five are exclusive and that belongs in
+   the value rather than in a precedence rule re-applied wherever something is
+   read. **See "THE STATE AXIS" under Outstanding work for the whole
+   specification, the file layout, the build order and why there is no
+   migration.** The window matters: *nothing in any machine-written file is
+   live*, because all of it has been waiting on this fix, so changing the format
+   costs nothing now and more every day. Write no migration code.
 
 2. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
@@ -960,9 +963,30 @@ the cursor), `x`, `wl read`, and the refresh when it puts something to sleep.
 is "and I am done with it", and the firehose pile going down by one of those two
 is the whole browse.
 
-**One thing to fix while doing it:** snoozing stamps the cursor and archiving
-does not, so an archived item can also be unread. Archiving should stamp it too,
-and then the precedence above is a tidiness rather than a repair.
+**One enum, not five bools.** Because the five are exclusive, the thing that
+says which one an item is should be a single value rather than a row of flags -
+otherwise the exclusivity is a rule that has to be remembered and re-applied
+everywhere something is read, which is what it is today: `Item.snoozed` is a
+bool, unread is membership in a `Set`, archived is a lookup in another map, and
+the precedence between them is written out at each site that cares.
+
+Computed rather than stored:
+
+    disposition(it, marks) -> :archived | :snoozed | :unseen | :unread | :read
+
+as a function over the item and its `marks.json` record, resolving the order
+above and returning one value. Stored on `Item` it would be derived state that
+goes stale the moment `r` is pressed - `Item` is immutable and rebuilt by the
+refresh, and the browser would have to `with(it; ...)` every row it touched.
+Computed, the filter is `disposition(it, marks) in f.seen` and there is nothing
+to keep in step.
+
+`Item.snoozed` therefore goes; `snooze_why` stays, being a sentence about *why*
+rather than a duplicate of *whether*.
+
+**One thing to fix while doing it:** snoozing stamps the read cursor and
+archiving does not, so an archived item can also be unread. Archiving should
+stamp it too - then the precedence above is a tidiness rather than a repair.
 
 #### The files
 
@@ -995,12 +1019,14 @@ loses only the third job, being the definition of unread.
 
 #### There is no migration, and the window is now
 
-Decided 2026-09-10: **wipe and refetch rather than port.** As of that date
-`read.json`, `touched.json`, `drafts.json` and `queue.json` **do not exist** —
-the rebuild earlier the same day deleted them and nothing has recreated them —
-and `snooze.json` holds 4 entries that the next refresh re-arms from
-`state.toml`. So the cost of changing the format is *zero right now* and rises
-with every key pressed from here.
+Decided 2026-09-10: **wipe and refetch rather than port. Nothing in any
+machine-written file is live**, because all of it has been waiting on this fix
+to the model. `read.json`, `touched.json`, `drafts.json` and `queue.json` **do
+not exist** — the rebuild earlier the same day deleted them and nothing has
+recreated them — and `snooze.json`'s 4 entries are not worth carrying either:
+the snooze *values* are in `state.toml`, and the fingerprints re-arm from them
+on the next refresh. So the cost of changing the format is *zero right now* and
+rises with every key pressed from here. Write no migration code.
 
 `state.toml`, `repos.toml` and `config.toml` are hand-authored, are the only
 things that cannot be refetched, and are not touched by any of this. The wipe
@@ -1011,6 +1037,7 @@ recipe is the one from that day: delete everything in `data/` except those, run
 
 1. `marks.json` and its accessors, replacing four files. No behaviour change —
    the same facts through one door — so it lands and is exercised on its own.
+   Delete the old four rather than reading them; see above.
 2. The disposition predicate over the corpus, alongside the existing `state`
    axis rather than replacing it, so the two can be compared on real data.
 3. `Filters.state` becomes `Filters.seen::Set{Symbol}` and the filter pane row
