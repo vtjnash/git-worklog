@@ -348,7 +348,7 @@ end
     # Every key the list and the detail bind should be findable in the footer.
     for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
               "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
-              "q quit", "tab pane", "C comment", "A review", "L labels",
+              "q quit", "tab pane", "C comment", "A review", "M merge", "L labels",
               "r read/unread", "u update all", "R reload", "s snooze", "z undo",
               "v note", "e edit", "\u21e7j/k select",
               "t term", "T agent", "\" worktrees", "m mouse")
@@ -563,7 +563,10 @@ end
     # being lost for the rest of the session.
     st.status = ""
     @test occursin("/the", foot())
-    # The keys row is still what shows with neither.
+    # The keys row is still what shows with neither. Asserted on a key from the
+    # middle of it rather than the end: both rows are longer than 150 columns
+    # and `afit` cuts them, so what is at the end is a fact about this width
+    # rather than about which row is being drawn.
     st.search = ""
-    @test occursin("T agent", foot())
+    @test occursin("x archive", foot())
 end

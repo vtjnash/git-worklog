@@ -212,16 +212,42 @@ without the conversation hanging off it. `m` gives the mouse back to the termina
 `shift-J`/`shift-K`, or the shifted arrows, extend a selection from the
 keyboard, which is what `m` off would otherwise take away along with the drag.
 
+`M` merges a pull request, on the message GitHub itself would have written -
+`viewerMergeHeadlineText` and `viewerMergeBodyText`, which already honour the
+repository's squash-title and squash-message settings. There is no picker in
+front of it: the composer opens on the operation and `^x` changes it, rewriting
+the message for the new one, because the operation and the message it decides
+belong on one screen. The line above the message says the whole of what is about
+to happen - the operation, how many commits land on which branch, and what
+`mergeStateStatus` says about whether it can be merged at all, so that "blocked"
+or "behind master" is read before the message is written rather than out of a
+refusal after it.
+
+The operation it opens on is squash where the repository allows it, then merge,
+then rebase. That is this program's preference and is named on screen as ours,
+because a repository has no default to have: `viewerDefaultMergeMethod` is the
+only field of its type in GitHub's schema and it reports what *you* last merged
+with there - the same allowed pair answers `SQUASH` on `JuliaLang/julia` and
+`MERGE` on `JuliaCI/julia-buildkite`. Rebasing has no commit message at all, so
+the composer empties and says why. `^s` asks once before it sends, which nothing
+else that writes here does: a comment, a verdict and a label can each be
+answered with another one, and a merge cannot.
+
 A composer is drawn **beside** what it is about rather than over it, wherever
 the screen is wide enough for two columns - the same split `t` and `T` put a
 hosted program in, and none of that machinery was ever about a child process.
-`c` and `A`'s body open in the right-hand column with the diff or the thread
-still on the left, and `tab` moves the keyboard between them; `esc` and `q` come
-back to the message too, since `q` in the browser ends the program and quitting
-out from under a half-written comment is what this exists to prevent. Below 150
-columns there is no room for two, and a composer takes the screen the way it
-used to. `v` was already doing this - it runs `$EDITOR` in a pane - which is
-where the idea came from.
+`c`, `A`'s body and `M` all open in the right-hand column with the diff or the
+thread still on the left, and `tab` moves the keyboard between them; `esc` and
+`q` come back to the message too, since `q` in the browser ends the program and
+quitting out from under a half-written comment is what this exists to prevent.
+Below 150 columns there is no room for two, and a composer takes the screen the
+way it used to. `v` was already doing this - it runs `$EDITOR` in a pane - which
+is where the idea came from.
+
+That is also why the merge composer cycles the operation with `^x` and not
+`tab`: `tab` moves the keyboard between two things on screen, here and in the
+item list and in the worktree lenses and after `^]`, and a composer drawn beside
+its diff needs it to go on meaning that.
 
 Coming back to an item lands on the line you were reading in it, per item and
 per mode - a comment thread and a diff of one pull request are two readings of

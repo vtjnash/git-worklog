@@ -790,6 +790,15 @@ function handle!(v::ConfirmView, k::Int, ctrl::Controller)
     :pop
 end
 
+"""`^x`, which `TermInput` does not name because nothing in a text area binds it.
+
+Every other control key a composer answers to is the widget's own vocabulary and
+comes from there. This one is a key this program hangs on top of one, the way
+`^r` is - except that `^r` is a readline key `TermInput` already had a number
+for, and there was never a reason to give this one a name until now.
+"""
+const C_X = 24
+
 # --- a multi-line composer, as a view ---------------------------------------
 
 """A small multi-line text area, as a view.
@@ -807,6 +816,18 @@ things are left here because they are this program's rather than a composer's:
   * **`^r` drops a block in.** The composer knows nothing about what it is -
     the caller does, and hands it over already written. `TextArea` hands the
     key back as `:unhandled`, which is what makes it the caller's to bind.
+  * **`^x` changes what is being written, where there is a choice.** Only the
+    merge composer has one - the same message written three ways - and the
+    callback is handed the view, so what it swaps is the buffer, the note and
+    the emptiness rule of the composer the key was pressed in. Every other
+    composer leaves this `nothing`, and `^x` does nothing in one.
+
+    It is not `tab`, which was where this started and is the wrong key by one
+    rule: `tab` moves the keyboard between two things on screen, here and in the
+    browser and in the worktree lenses and after `^]`, and a composer drawn
+    beside the diff it is about needs it to go on meaning that. `^t` is
+    readline's transpose and taken; `^x` is free in a text area and is the one
+    of the free ones that reads as an exchange.
   * **The terminal `⌥e` hands over is the controller's**, and is only known
     once an event is being handled in it.
 """
@@ -815,18 +836,21 @@ mutable struct EditorView <: View
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
     suggest::String          # a block `^r` drops in, empty when there is none
     allow_empty::Bool        # an approval needs no words; a comment does
-    # Spelled out so that the default one - three arguments of `Any` - is not
-    # generated, because that is the signature the constructor below wants.
-    EditorView(ta::TextArea, onsubmit, suggest::AbstractString, allow_empty::Bool) =
-        new(ta, onsubmit, String(suggest), allow_empty)
+    cycle::Any               # (view, ±1) -> Nothing on `tab`, or `nothing`
+    # Spelled out so that the default one - of `Any`s - is not generated,
+    # because that is the signature the constructor below wants.
+    EditorView(ta::TextArea, onsubmit, suggest::AbstractString, allow_empty::Bool,
+               cycle) = new(ta, onsubmit, String(suggest), allow_empty, cycle)
 end
 
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
-                    allow_empty::Bool = false, suggest::AbstractString = "")
+                    allow_empty::Bool = false, suggest::AbstractString = "",
+                    cycle = nothing)
     hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
+                  cycle === nothing ? "" : "^x cycles · ",
                   "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
     EditorView(TextArea(title, note; initial = initial, hint = hint),
-               onsubmit, String(suggest), allow_empty)
+               onsubmit, String(suggest), allow_empty, cycle)
 end
 
 text(v::EditorView) = TermInput.text(getfield(v, :ta))
@@ -873,6 +897,10 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
             insertblock!(ta.buf, v.suggest)
             ta.status = "suggestion inserted — edit the lines, they replace the ones commented on"
         end
+    elseif k == C_X && v.cycle !== nothing
+        # What a cycle *is* belongs to the caller; this only says which way
+        # round it went, and one key can only say forwards.
+        v.cycle(v, 1)
     end
     :ok
 end

@@ -272,9 +272,9 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
             return
         end
-        # Beside the diff, the same as `c`: a review body is written about the
-        # commits it lands, and the verdict picker in front of it is a question
-        # rather than a page to write on.
+        # Beside the diff, the same as `c` and `M`: a review body is written
+        # about the commits it lands, and the verdict picker in front of it is
+        # a question rather than a page to write on.
         push_beside!(ctrl, st, EditorView(
             string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
             ev == "APPROVE" ? "a body is optional; ^s submits the approval" :
@@ -293,6 +293,242 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                                reread!(st))
             end; allow_empty = ev == "APPROVE"))
     end))
+end
+
+"""What GitHub says about whether this can be merged, as one phrase.
+
+`mergeStateStatus` is the field that knows, and it knows more than `mergeable`
+does: a pull request with no conflicts is still `BLOCKED` while a required
+review is missing and `BEHIND` while the base has moved under it. Saying it in
+the composer is the point - the alternative is finding out from a refusal after
+the message has been written.
+
+`UNKNOWN` is GitHub still computing the merge, which it does lazily on being
+asked; `mergeable` is the second opinion to fall back on and is usually further
+along by then.
+"""
+function merge_note(ms)
+    ms.draft && return "a draft — GitHub will refuse to merge it"
+    ms.status == "CLEAN" && return "clean"
+    ms.status == "HAS_HOOKS" && return "clean, with hooks on the base branch"
+    ms.status == "BEHIND" && return string("behind ", ms.base)
+    ms.status == "BLOCKED" && return "blocked — a required review or check is missing"
+    ms.status == "DIRTY" && return string("conflicts with ", ms.base)
+    ms.status == "UNSTABLE" && return "checks are failing, none of them required"
+    ms.mergeable == "CONFLICTING" && return string("conflicts with ", ms.base)
+    ms.mergeable == "MERGEABLE" && return "mergeable"
+    "GitHub is still working out whether it can be merged"
+end
+
+"""The message for one operation, as one buffer: headline, blank line, body.
+
+A commit message is one thing to write and GitHub stores it as two, which is
+its API's shape rather than anybody's idea of writing one. Splitting at the
+first blank line on the way back out is what git itself does with the same text.
+"""
+function merge_message(ms, method::AbstractString)
+    (h, b) = get(ms.text, method, ("", ""))
+    isempty(strip(b)) ? String(h) : string(h, "\n\n", b)
+end
+
+"""The two halves back: everything up to the first blank line, then the rest.
+
+An empty answer for a rebase, which has neither - `merge_pr` sends nothing at
+all for one, and this is only ever asked what the composer is holding.
+"""
+function merge_split(text::AbstractString)
+    t = strip(String(text))
+    isempty(t) && return ("", "")
+    i = findfirst("\n\n", t)
+    i === nothing ? (t, "") : (strip(t[1:first(i) - 1]), strip(t[last(i) + 1:end]))
+end
+
+"""Merge it, on the message GitHub itself would have written.
+
+`M`, and the last key of the loop the rest of this file is: `c` remarks, `A`
+decides, `L` files, and this is the one thing a review that ends in "yes" still
+had to be finished on github.com for.
+
+The composer opens on the operation this program prefers - squash where the
+repository allows it, then merge, then rebase - which is *not* the repository's
+default, because a repository has none to be. See `Events.merge_state`. `^x`
+changes it, which is the whole of the choice: there is no picker in front of
+this, because the message and the operation that decides it belong on one
+screen rather than on two.
+
+`^s` asks once before it lands. Everything else here that writes is a comment,
+a verdict or a label - each of them answerable with another one - and this is
+the only key in the program whose mistake is somebody else's repository. The
+question is not in front of the composer, it is behind it: what it can say is
+"squash and merge, 3 commits into master", and none of that is known until the
+message is written.
+"""
+function merge_action(st::BState, ctrl::Controller, it::Item)
+    it.is_pr || (st.status = "not a pull request"; return)
+    ms = try
+        Events.merge_state(it.url)
+    catch e
+        st.status = string("could not read the merge state: ",
+                           first(sprint(showerror, e), 120))
+        return
+    end
+    ms === nothing && (st.status = "not a pull request"; return)
+    # Said rather than attempted. All three are things GitHub would refuse, and
+    # a refusal arrives after the message has been written rather than instead
+    # of writing it.
+    ms.state == "MERGED" && (st.status = string(it.ref, " is already merged"); return)
+    ms.state == "CLOSED" && (st.status = string(it.ref, " is closed"); return)
+    isempty(ms.methods) &&
+        (st.status = string(it.repo, " allows no way to merge this"); return)
+    merge_compose(st, ctrl, it, ms, first(ms.methods))
+end
+
+"""Open the merge composer on one operation, with `text` already in it.
+
+Its own function because it is opened from two places and both are the same
+screen: `M` opens it, and declining the question at the end puts it back with
+what was written still in it. `^x` is not one of them - it swaps the buffer and
+the note in place, so that changing the operation is not a new box appearing
+over the old one.
+"""
+function merge_compose(st::BState, ctrl::Controller, it::Item, ms,
+                       method::AbstractString, text::Union{Nothing,AbstractString} = nothing)
+    # A `Ref` and not a closed-over binding: `^x` rewrites it from inside the
+    # view, and the submit that runs afterwards has to read what `^x` left
+    # rather than what this call was opened on.
+    cur = Ref(String(method))
+    ev = EditorView(string("Merge ", it.ref), merge_head(ms, cur[]),
+                    b -> merge_confirm(st, ctrl, it, ms, cur[], b);
+                    initial = text === nothing ? merge_message(ms, cur[]) : String(text),
+                    # A rebase writes no message, so there is nothing for `^s`
+                    # to refuse to send. Everything else needs its headline.
+                    allow_empty = cur[] == "REBASE",
+                    cycle = length(ms.methods) == 1 ? nothing :
+                            (v, dir) -> merge_cycle!(v, ctrl, ms, cur, dir))
+    push_beside!(ctrl, st, ev)
+end
+
+"""The line above the message: what is about to happen, and whether it can.
+
+Its own function rather than a closure over the composer, because `^x` has to
+rewrite it: a note still naming the operation the buffer no longer holds is the
+one thing on that screen that could send the wrong merge.
+
+`^x:` names where the next press goes rather than saying that `^x` cycles - the
+hint under the box already says that, and which operation is one press away is
+the thing worth knowing twice.
+"""
+merge_head(ms, method::AbstractString) =
+    string(Events.merge_label(method), " · ", merge_lands(ms, method),
+           " · ", merge_note(ms),
+           method == "REBASE" ? " · no message to write" : "",
+           length(ms.methods) == 1 ? "" :
+           string(" · ^x: ", Events.merge_label(nextmethod(ms, method, 1))))
+
+"""What lands where, which the composer and the question before the merge both
+say - in the same words, since they are two views of the one sentence.
+
+Onto rather than into for a rebase: it is the one operation that makes no commit
+on the base branch, it writes these ones onto its tip.
+"""
+merge_lands(ms, method::AbstractString) =
+    string(ms.commits, ms.commits == 1 ? " commit " : " commits ",
+           method == "REBASE" ? "onto " : "into ", ms.base)
+
+"The operation after this one, wrapping - `ms.methods` is already in our order."
+function nextmethod(ms, method::AbstractString, dir::Int)
+    i = something(findfirst(==(method), ms.methods), 1)
+    ms.methods[mod1(i + dir, length(ms.methods))]
+end
+
+"""`^x`: the next operation, and the message rewritten for it.
+
+Silently when the message is still the one this program put there, and after a
+question when it is not. That is the same rule `esc` follows in a composer, and
+for the same reason: words that were typed exist in this buffer and in no other
+place, and swapping the operation replaces every one of them.
+
+Declining leaves the operation alone as well as the words. "No" to a question
+raised by `^x` is no to the whole of what `^x` was going to do - changing the
+operation and keeping a squash headline on a merge commit would be a third
+outcome nobody asked for.
+
+One direction, because one key is one direction. Three operations is at most two
+presses to any of them, and the two repos this is used on daily allow two.
+"""
+function merge_cycle!(v::EditorView, ctrl::Controller, ms, cur::Ref{String}, dir::Int)
+    nxt = nextmethod(ms, cur[], dir)
+    swap = () -> begin
+        settext!(v.buf, merge_message(ms, nxt))
+        v.allow_empty = nxt == "REBASE"
+        cur[] = nxt
+        # The note goes with the buffer. It is the only thing on this screen
+        # that says which merge `^s` sends, so leaving it behind would leave the
+        # composer telling the truth about the message and lying about the
+        # operation.
+        v.note = merge_head(ms, nxt)
+        v.status = string("now: ", Events.merge_label(nxt))
+    end
+    if strip(text(v)) == strip(merge_message(ms, cur[]))
+        swap()
+        return
+    end
+    push_view!(ctrl, ConfirmView("Change the operation?",
+        [string("to ", Events.merge_label(nxt)),
+         "what you have written is replaced by GitHub's message for it"],
+        ["yY" => swap];
+        hint = "y replaces it · any other key keeps what you wrote"))
+end
+
+"""The one question this program asks before it changes somebody else's repo.
+
+Behind the composer rather than in front of it, because what makes it worth
+asking - the operation, the number of commits, the branch they land on - is not
+settled until the message is. Declining puts the composer back with the words
+still in it: a question that cost you what you had written would be a worse
+mistake than the one it is guarding against.
+"""
+function merge_confirm(st::BState, ctrl::Controller, it::Item, ms,
+                       method::AbstractString, body::AbstractString)
+    (head, rest) = merge_split(body)
+    push_view!(ctrl, ConfirmView(string("Merge ", it.ref, "?"),
+        [string(Events.merge_label(method), " · ", merge_lands(ms, method)),
+         merge_note(ms),
+         method == "REBASE" ? "the commits are replayed as they were written" :
+                              # The headline only. The body was on the screen
+                              # this one replaced, and repeating it would be a
+                              # box the length of the message asking about the
+                              # one line that names it.
+                              string("“", first(head, 70),
+                                     length(head) > 70 ? "…" : "", "”")],
+        ["yY" => () -> merge_now!(st, it, ms, method, head, rest),
+         # The composer, back with what was in it. Not a new one: this is the
+         # box that was open a keystroke ago and the words in it are the same
+         # words.
+         "\e" => () -> merge_compose(st, ctrl, it, ms, method, body)];
+        hint = "y merges it · esc goes back to the message · any other key cancels"))
+end
+
+"""Send it, and make the row say so without waiting for a refresh.
+
+`merged_by` is set to you deliberately: it is what `mergedbyme` reads, and the
+metadata pane uses it to skip the "new since you last looked" notice and offer
+`x` at once. A merge you pressed the button for is not news to you.
+"""
+function merge_now!(st::BState, it::Item, ms, method::AbstractString,
+                    head::AbstractString, body::AbstractString)
+    r = Events.merge_pr(it.url, ms.id, method, head, body, ms.oid)
+    if !isempty(r)
+        st.status = r
+        return
+    end
+    touch!(it.url)
+    replace_item!(st, with(it; state = "MERGED", merged_by = login()))
+    reread!(st)
+    # Not the operation's own name with a "d" on it: two of the three are
+    # phrases rather than verbs, and "create a merge commitd" was what that got.
+    st.status = string("merged ", it.ref, " · ", Events.merge_label(method),
+                       " · x archives it")
 end
 
 """Pick a view, or write down the one you are in.

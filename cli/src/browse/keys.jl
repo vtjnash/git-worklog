@@ -450,6 +450,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end
     elseif k == Int('C'); compose_action(st, ctrl, it, iw)
     elseif k == Int('A'); review_action(st, ctrl, it)
+    elseif k == Int('M'); merge_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
     elseif k == Int('r')
         # A toggle: on something unread it marks it read, on something read it

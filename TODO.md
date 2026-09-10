@@ -42,12 +42,19 @@ file is not.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
-`delete_review` and the label toggle are written and none has ever been sent,
-because the token here is read-only. It is the only part of the program where a
-failure loses work — the draft-review machinery exists precisely because five
-careful comments are easy to lose — and it needs a fine-grained PAT with
-`issues: write` and `pull_requests: write` on the repositories being reviewed.
-See Infrastructure.
+`discard_pending`, the label toggle and now `merge_pr` are written and none has
+ever been sent, because the token here is read-only. It is the only part of the
+program where a failure loses work — the draft-review machinery exists precisely
+because five careful comments are easy to lose — and it needs a fine-grained PAT
+with `issues: write` and `pull_requests: write` on the repositories being
+reviewed. See Infrastructure.
+
+`merge_pr` is the one of them that is not like the others, and the only key in
+the program whose mistake lands in somebody else's repository: a comment, a
+verdict and a label can each be answered with another write, and a merge cannot.
+It is why `^s` there asks before it sends, which nothing else that writes does,
+and why `expectedHeadOid` goes with it — the first thing to verify when the
+token arrives is that a stale head is refused rather than merged over.
 
 Waiting on other people rather than on us: **FedeClaudi/Term.jl#304**, **#305**
 and **#306**, and **JuliaLang/julia#63081** - the four bugs this program works
@@ -191,8 +198,9 @@ columns (`san`, `+*`, `●`) are spelled out in a legend under the list. Inside 
 hosted pane every key belongs to the child except the prefix `^]`: `^]tab` and
 `^][` read the thread beside it, `^]q` leaves it running, `^]K` ends it, `^]a`
 goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`. A composer is
-drawn in the same split - `c` and `A`'s body open beside the diff they are
-about, with `tab` between them.
+drawn in the same split - `c`, `A`'s body and `M` open beside the diff they are
+about, with `tab` between them - which is why the merge composer cycles the
+operation with `^x`: `tab` moves the keyboard and does nothing else, anywhere.
 
 Use the `julia` on PATH (juliaup, 1.14-DEV). The in-tree
 `/home/vtjnash/julia/usr/bin/julia` does **not** run in this sandbox — it is
@@ -1110,6 +1118,36 @@ beside this one now rather than a paragraph describing one.
 
 ## Known gaps in what has shipped
 
+- **The merge operation `M` opens on is this program's preference, not the
+  repository's — because a repository has none.**
+  `Repository.viewerDefaultMergeMethod` is the only field of that type in the
+  whole GraphQL schema, and it is *viewer*-scoped: it reports what you last
+  merged with there, falling back to the first allowed of merge, squash, rebase
+  in a repository you have never merged in. Measured rather than assumed from
+  the name:
+
+  | repo | allows | it answers | your permission |
+  |---|---|---|---|
+  | `JuliaLang/julia` | merge, squash | `SQUASH` | admin |
+  | `JuliaLang/Pkg.jl` | merge, squash | `SQUASH` | admin |
+  | `JuliaCI/julia-buildkite` | merge, squash | `MERGE` | admin |
+  | `FedeClaudi/Term.jl` | merge, squash, rebase | `MERGE` | read |
+  | `JuliaData/FlatBuffers.jl` | squash, rebase | `SQUASH` | read |
+
+  The identical allowed pair answering two ways across the three you can merge
+  in, and the two you cannot each answering with the first flag they have, is
+  history talking and not settings. So `M` does not ask it: it opens on squash
+  where the repository allows it, then merge, then rebase, and the note above
+  the message says that is ours. `^x` is the way to any of the others, and the
+  message follows the operation because both come from the one query.
+
+  The *text* has no such gap - `viewerMergeHeadlineText` and
+  `viewerMergeBodyText` already honour the repository's squash-title and
+  squash-message settings, so what the composer opens on is what the web UI
+  would have prefilled. Rebase is the exception with no text at all: both come
+  back empty even where rebasing is allowed, because the commits are replayed as
+  they were written rather than joined into a new one.
+
 - **A nested tmux gets no mouse unless *it* has `mouse on`.** Measured against
   tmux 3.5a, and not this program's to fix. A tmux with `mouse on` sets button
   and SGR tracking on the pane it is drawn in, so the wheel is handed over and
@@ -1199,6 +1237,14 @@ Everything below is written and compiles, and its state transitions are tested
 by driving `handle!` directly, but none of it has been exercised through an
 actual TTY:
 
+- **Merging.** `M` is driven end to end in the suite - the composer opens on
+  the operation and the message, `^x` swaps both, `^s` reaches the question and
+  `esc` gets back to the words - with the state put in the cache rather than
+  fetched, so nothing in the suite sends a mutation. What has never run is
+  `merge_pr` itself, and with it the two things only a real merge settles:
+  whether `expectedHeadOid` refuses a stale head the way it should, and whether
+  the row rewritten as merged reads correctly beside the refresh's own version
+  of the same fact when one lands afterwards.
 - Key handling end to end: arrow keys, page keys and Shift-Tab. The decoder
   that produces them is driven directly from an `IOBuffer` in the tests, so the
   byte-to-keycode step is covered; what is not is whether this terminal sends

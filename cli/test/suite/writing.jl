@@ -274,7 +274,7 @@ end
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)   # what run! does
     # The verdict is a question and stays a question; the body it opens is a
-    # page to write on, and goes beside the diff.
+    # page to write on, and goes beside the diff with the other two.
     @test composer(last(ctrl.stack)) isa W.EditorView
     @test composer(last(ctrl.stack)).allow_empty                    # approve needs no words
     pop!(ctrl.stack)
@@ -283,4 +283,174 @@ end
     lv = last(ctrl.stack)
     @test lv isa W.ChooseView && !isempty(W.shown(lv))
     @test all(startswith(o[1], "[x] ") || startswith(o[1], "[ ] ") for o in W.shown(lv))
+end
+
+@testset "merging, on the message GitHub would have written" begin
+    # The state is put in the cache rather than fetched, which is the whole of
+    # what makes this testable without a network: `merge_state` reads a hit back
+    # through exactly the shape a fetch writes, so what the composer sees here
+    # is what it would see off the wire. Nothing below sends anything - the last
+    # question is answered with `esc` every time, and see Infrastructure.
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    ctrl = W.Controller(); W.push_view!(ctrl, st)
+    it = st.items[st.sel]
+    text2 = Dict{String,Any}(
+        "SQUASH" => Dict{String,Any}("headline" => "a fix (#7)",
+                                     "body" => "why it is a fix"),
+        "MERGE" => Dict{String,Any}("headline" => "Merge pull request #7 from o/b",
+                                    "body" => "a fix"),
+        "REBASE" => Dict{String,Any}("headline" => "", "body" => ""))
+    put(; methods = ["SQUASH", "MERGE"], status = "CLEAN", state = "OPEN") =
+        W.cache_put(string("merge:", it.url), Dict{String,Any}(
+            "id" => "PR_x", "oid" => "abc1234def", "state" => state, "draft" => false,
+            "mergeable" => "MERGEABLE", "status" => status, "base" => "master",
+            "commits" => 3, "methods" => methods,
+            "text" => Dict{String,Any}(m => text2[m] for m in methods)))
+
+    # `M` opens the composer straight away. No picker in front of it: the
+    # operation and the message it decides belong on one screen.
+    put()
+    W.handle!(st, Int('M'), ctrl)
+    ev = composer(last(ctrl.stack))
+    @test ev isa W.EditorView
+    @test ev.title == string("Merge ", it.ref)
+    # Squash, because this program prefers it where the repo allows it - not
+    # because GitHub said so, which it cannot: `viewerDefaultMergeMethod` is
+    # what *you* last merged with there. See TODO.md.
+    @test W.text(ev) == "a fix (#7)\n\nwhy it is a fix"
+    # The note is the whole of what is about to happen, so that finding out
+    # never means reading a refusal.
+    @test occursin("squash and merge", ev.note)
+    @test occursin("3 commits into master", ev.note)
+    @test occursin("clean", ev.note)
+    @test occursin("^x: create a merge commit", ev.note)
+    @test occursin("^x cycles", W.astrip(W.render(ev, 90, 20)))
+
+    # `tab` is the choice. Silently, because the message in the buffer is still
+    # the one this program put there a keystroke ago.
+    @test W.handle!(ev, W.C_X, ctrl) === :ok
+    @test W.text(ev) == "Merge pull request #7 from o/b\n\na fix"
+    # The note goes with the buffer, because it is the only thing on this screen
+    # that says which merge `^s` would send.
+    @test occursin("create a merge commit · 3 commits into master", ev.note)
+    @test occursin("^x: squash and merge", ev.note)
+    @test occursin("now: create a merge commit", ev.status)
+    @test length(ctrl.stack) == 2                       # no question asked
+    # ...and round again, since one key can only say forwards. Two operations
+    # here, so the second press is the way back.
+    @test W.handle!(ev, W.C_X, ctrl) === :ok
+    @test W.text(ev) == "a fix (#7)\n\nwhy it is a fix"
+    @test occursin("squash and merge · 3 commits into master", ev.note)
+
+    # Words that were typed exist in this buffer and in no other place, so the
+    # key that would replace them asks first - the same rule `esc` follows.
+    for c in " and why"; W.handle!(ev, W.keycode(c), ctrl); end
+    @test endswith(W.text(ev), "and why")
+    W.handle!(ev, W.C_X, ctrl)
+    q = last(ctrl.stack)
+    @test q isa W.ConfirmView && q.title == "Change the operation?"
+    # Declining leaves the operation alone as well as the words: "no" to what
+    # `tab` was going to do is no to the whole of it.
+    @test W.handle!(q, Int('n'), ctrl) === :pop
+    pop!(ctrl.stack)
+    @test endswith(W.text(ev), "and why")
+    W.handle!(ev, W.C_X, ctrl)
+    q2 = last(ctrl.stack)
+    @test W.handle!(q2, Int('y'), ctrl) === :pop
+    pop!(ctrl.stack)
+    @test W.text(ev) == "Merge pull request #7 from o/b\n\na fix"
+
+    # `^s` does not merge. It asks, and the question can say what the composer
+    # could not until the message was written.
+    @test W.handle!(ev, W.C_S, ctrl) === :pop
+    deleteat!(ctrl.stack, findlast(x -> composer(x) === ev, ctrl.stack))
+    cv = last(ctrl.stack)
+    @test cv isa W.ConfirmView && cv.title == string("Merge ", it.ref, "?")
+    @test any(n -> occursin("create a merge commit", n) &&
+                   occursin("3 commits into master", n), cv.notes)
+    @test any(n -> occursin("Merge pull request #7", n), cv.notes)
+    @test occursin("esc goes back to the message", cv.hint)
+    # And `esc` goes back to it with the words still in it. A question that cost
+    # you what you had written would be the worse mistake of the two.
+    @test W.handle!(cv, 27, ctrl) === :pop
+    # By identity and not off the top, which is what `run!` does and what this
+    # answer needs: it put the composer back before saying it was finished.
+    deleteat!(ctrl.stack, findlast(x -> x === cv, ctrl.stack))
+    back = composer(last(ctrl.stack))
+    @test back isa W.EditorView && W.text(back) == "Merge pull request #7 from o/b\n\na fix"
+    empty!(ctrl.stack); W.push_view!(ctrl, st)
+
+    # A rebase has no message at all - GitHub answers with two empty strings for
+    # one even where it is allowed, because the commits are replayed as they
+    # were written. So the composer empties, says why, and lets `^s` through.
+    put(methods = ["REBASE"])
+    W.handle!(st, Int('M'), ctrl)
+    rv = composer(last(ctrl.stack))
+    @test isempty(W.text(rv)) && rv.allow_empty
+    @test occursin("no message to write", rv.note)
+    # One way to merge is no choice, so `tab` is not bound at all.
+    @test rv.cycle === nothing
+    @test !occursin("^x cycles", W.astrip(W.render(rv, 90, 20)))
+    @test !occursin("^x:", rv.note)
+    # Onto and not into, in the composer and in the question alike: a rebase is
+    # the one operation that makes no commit on the base branch.
+    @test occursin("3 commits onto master", rv.note)
+    @test W.handle!(rv, W.C_S, ctrl) === :pop         # nothing written, and allowed
+    deleteat!(ctrl.stack, findlast(x -> composer(x) === rv, ctrl.stack))
+    rc = last(ctrl.stack)
+    @test any(n -> occursin("3 commits onto master", n), rc.notes)
+    @test any(n -> occursin("replayed as they were written", n), rc.notes)
+    @test !any(n -> occursin("“", n), rc.notes)       # there is no message to quote
+    empty!(ctrl.stack); W.push_view!(ctrl, st)
+
+    # What GitHub would refuse is said instead of attempted, because a refusal
+    # arrives after the message has been written rather than instead of it.
+    for (state, said) in (("MERGED", "is already merged"), ("CLOSED", "is closed"))
+        put(state = state)
+        W.handle!(st, Int('M'), ctrl)
+        @test length(ctrl.stack) == 1 && occursin(said, st.status)
+    end
+    put(methods = String[])
+    W.handle!(st, Int('M'), ctrl)
+    @test length(ctrl.stack) == 1 && occursin("no way to merge", st.status)
+
+    # An issue has nothing to merge, and neither has an adopted branch.
+    iss = findfirst(x -> !x.is_pr, st.items)
+    if iss !== nothing
+        st.sel = iss
+        W.handle!(st, Int('M'), ctrl)
+        @test length(ctrl.stack) == 1 && occursin("not a pull request", st.status)
+    end
+    empty!(ctrl.stack)
+end
+
+@testset "a commit message is one thing to write and two to send" begin
+    # GitHub stores a headline and a body; git has always taken both from one
+    # text split at the first blank line, which is what anybody actually writes.
+    @test W.merge_split("just a headline") == ("just a headline", "")
+    @test W.merge_split("head\n\nbody\n\nmore") == ("head", "body\n\nmore")
+    @test W.merge_split("") == ("", "")
+    # A single newline is not the separator - it is a wrapped headline, which is
+    # git's reading of the same bytes.
+    @test W.merge_split("head\nstill head") == ("head\nstill head", "")
+    @test W.merge_split("  head  \n\n  body  ") == ("head", "body")
+
+    # And the note is `mergeStateStatus`, which knows more than `mergeable`
+    # does: nothing conflicts here and it still cannot be merged.
+    ms(; status = "CLEAN", mergeable = "MERGEABLE", draft = false) =
+        (draft = draft, status = status, mergeable = mergeable, base = "main")
+    @test W.merge_note(ms()) == "clean"
+    @test W.merge_note(ms(status = "BEHIND")) == "behind main"
+    @test occursin("required", W.merge_note(ms(status = "BLOCKED")))
+    @test occursin("conflicts with main", W.merge_note(ms(status = "DIRTY")))
+    @test occursin("none of them required", W.merge_note(ms(status = "UNSTABLE")))
+    @test occursin("draft", W.merge_note(ms(draft = true)))
+    # `UNKNOWN` is GitHub still working it out, which it does lazily on being
+    # asked - so `mergeable` is the second opinion rather than nothing at all.
+    @test W.merge_note(ms(status = "UNKNOWN")) == "mergeable"
+    @test occursin("conflicts", W.merge_note(ms(status = "UNKNOWN",
+                                                mergeable = "CONFLICTING")))
+    @test occursin("still working", W.merge_note(ms(status = "UNKNOWN",
+                                                    mergeable = "UNKNOWN")))
 end

@@ -198,15 +198,23 @@ function add_item!(st::BState, it::Item)
     true
 end
 
-"""A copy of `it` with different labels.
+"""A copy of `it` with some fields changed.
 
 `Item` is immutable - it is built from `facts.json` and read from everywhere -
 so anything that changes one between refreshes hands back a new one. Rebuilt
-from `fieldnames` with the one field swapped, rather than field by field: two
+from `fieldnames` with the named fields swapped, rather than field by field: two
 dozen names written out here would be a list to keep in step with the struct.
+
+Two callers, and both are a write that has landed: `L` knows the label set it
+just changed, and `M` knows the pull request is merged and who merged it. Both
+are facts `facts.json` carries and neither can write, so without this the pane
+went on showing the old one until the next refresh and the status line had to
+apologise for it.
 """
-withlabels(it::Item, labels::Vector{String}) =
-    Item((f === :labels ? labels : getfield(it, f) for f in fieldnames(Item))...)
+with(it::Item; kw...) =
+    Item((get(kw, f, getfield(it, f)) for f in fieldnames(Item))...)
+
+withlabels(it::Item, labels::Vector{String}) = with(it; labels = labels)
 
 "Put a changed copy of an item back where the old one was, keyed by url."
 function replace_item!(st::BState, it::Item)

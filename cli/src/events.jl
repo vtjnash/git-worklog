@@ -540,7 +540,11 @@ _repo_num(url) = (join(split(url, '/')[4:5], '/'), split(url, '/')[end])
 
 "Drop the cached reads an item's own write has just invalidated."
 function _invalidate(url)
-    for k in ("thread:", "reviewcomments:", "itemmeta:")
+    # `merge:` is here rather than only in `merge_pr`, because the writes that
+    # change whether a pull request can be merged are the *other* ones: an
+    # approval takes it from `BLOCKED` to `CLEAN`, and `M` pressed straight
+    # after `A` should not read the state the approval was submitted against.
+    for k in ("thread:", "reviewcomments:", "itemmeta:", "merge:")
         cache_drop(string(k, url))
     end
 end
@@ -731,6 +735,134 @@ HTTP_escape(s::AbstractString) =
     join(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~" ?
          string(c) : string("%", uppercase(string(UInt8(c), base = 16, pad = 2)))
          for c in String(s))
+
+# --- merging ----------------------------------------------------------------
+#
+# The end of the loop `A` and `L` stop one step short of: a review that ends in
+# "yes" still had to be finished on github.com.
+#
+# One query answers everything the composer needs, and it asks for the text of
+# *every* operation the repo allows rather than only the one about to be used.
+# That is not thrift about round trips in general - it is what makes `tab` free:
+# the operation is changed while the composer is open, and a request per press
+# would make choosing cost more than merging.
+
+"""The three operations, in the order this program prefers them.
+
+Which is *this program's* order and not the repository's, because there is no
+repository's to have. See `merge_state`.
+"""
+const MERGE_METHODS = ("SQUASH", "MERGE", "REBASE")
+
+"GitHub's own wording for each, since its button is the thing being recognised."
+merge_label(m::AbstractString) = m == "SQUASH" ? "squash and merge" :
+                                 m == "REBASE" ? "rebase and merge" :
+                                                 "create a merge commit"
+
+# `squashh`/`squashb`, `mergeh`/`mergeb`, `rebaseh`/`rebaseb`. Rebase is asked
+# for with the rest and always answers with two empty strings - see below.
+const _MERGE_TEXT = join(
+    string(lowercase(m), "h: viewerMergeHeadlineText(mergeType: ", m, ")\n      ",
+           lowercase(m), "b: viewerMergeBodyText(mergeType: ", m, ")\n      ")
+    for m in MERGE_METHODS)
+
+"""
+    merge_state(url) -> nt, or nothing when the url names no pull request
+
+Everything `M` needs: what may be done, what each way of doing it would write,
+and whether it can be done at all.
+
+`text` is GitHub's own two boxes - `viewerMergeHeadlineText` and
+`viewerMergeBodyText` - which already honour the repository's squash-title and
+squash-message settings, so the message this program offers is the message the
+web UI would have offered. **Rebasing has no message at all**: both come back
+empty even on a repository that allows it, because the commits are replayed as
+they were written rather than joined into a new one.
+
+`default` is `first(methods)`, and it is not GitHub's answer, because GitHub
+has no repository-level answer to give. `Repository.viewerDefaultMergeMethod` is
+the only field of that type in the whole schema and it is *viewer*-scoped: it
+reports what you last merged with there, which is why the identical allowed pair
+answers `SQUASH` on `JuliaLang/julia` and `MERGE` on `JuliaCI/julia-buildkite`.
+A default that drifts with your own history is not a repository's default, so
+this one is ours, stated as ours, and the same everywhere. TODO.md has the
+measurements.
+
+Cached briefly, and the freshness that matters is not the cache's to keep: `oid`
+goes back to the mutation as `expectedHeadOid`, so a commit pushed while the
+message was being written is refused by GitHub rather than merged over.
+"""
+function merge_state(url::AbstractString; ttl = 30.0)
+    key = string("merge:", url)
+    hit = cache_get(key, ttl)
+    hit === nothing || return _merge_shape(hit[1])
+    d = gh_graphql(
+        "query(\$u: URI!) { resource(url: \$u) { ... on PullRequest {\n" *
+        "      id state isDraft mergeable mergeStateStatus\n" *
+        "      headRefOid baseRefName commits { totalCount }\n      " *
+        _MERGE_TEXT *
+        "repository { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed }\n" *
+        "  } } }"; vars = Dict{String,Any}("u" => String(url)))
+    r = get(d, :resource, nothing)
+    (r === nothing || get(r, :id, nothing) === nothing) && return nothing
+    rp = r.repository
+    allowed = String[m for m in MERGE_METHODS
+                     if (m == "SQUASH" ? rp.squashMergeAllowed :
+                         m == "MERGE" ? rp.mergeCommitAllowed : rp.rebaseMergeAllowed)]
+    txt = OrderedDict{String,Any}(
+        m => OrderedDict{String,Any}(
+            "headline" => String(something(get(r, Symbol(lowercase(m), "h"), ""), "")),
+            "body" => String(something(get(r, Symbol(lowercase(m), "b"), ""), "")))
+        for m in allowed)
+    v = OrderedDict{String,Any}(
+        "id" => String(r.id), "oid" => String(r.headRefOid),
+        "state" => String(something(get(r, :state, ""), "")),
+        "draft" => get(r, :isDraft, false) === true,
+        "mergeable" => String(something(get(r, :mergeable, "UNKNOWN"), "UNKNOWN")),
+        "status" => String(something(get(r, :mergeStateStatus, "UNKNOWN"), "UNKNOWN")),
+        "base" => String(r.baseRefName), "commits" => Int(r.commits.totalCount),
+        "methods" => allowed, "text" => txt)
+    cache_put(key, v)
+    _merge_shape(v)
+end
+
+"Both a fresh fetch and a cache hit reach the caller in the same shape."
+_merge_shape(v) = (id = String(v["id"]), oid = String(v["oid"]),
+                   state = String(v["state"]), draft = v["draft"] === true,
+                   mergeable = String(v["mergeable"]), status = String(v["status"]),
+                   base = String(v["base"]), commits = Int(v["commits"]),
+                   methods = String[String(m) for m in v["methods"]],
+                   text = Dict{String,Tuple{String,String}}(
+                       String(k) => (String(t["headline"]), String(t["body"]))
+                       for (k, t) in pairs(v["text"])))
+
+"""Merge it, with the message that was written for it.
+
+`headline` and `body` go nowhere on a rebase, which has neither - sending them
+would be describing a commit that is not going to be made.
+
+`oid` is the head the message was written against. It goes as `expectedHeadOid`,
+so a merge cannot land on work that arrived while the composer was open: the
+mutation is refused instead, which is the one failure here worth having.
+"""
+function merge_pr(url::AbstractString, id::AbstractString, method::AbstractString,
+                  headline::AbstractString, body::AbstractString,
+                  oid::AbstractString)
+    _write() do
+        rebase = method == "REBASE"
+        gh_graphql(
+            "mutation(\$pr: ID!, \$m: PullRequestMergeMethod!, \$oid: GitObjectID!, " *
+            "\$headline: String, \$body: String) " *
+            "{ mergePullRequest(input: {pullRequestId: \$pr, mergeMethod: \$m, " *
+            "expectedHeadOid: \$oid, commitHeadline: \$headline, commitBody: \$body}) " *
+            "{ pullRequest { merged } } }";
+            vars = Dict{String,Any}("pr" => String(id), "m" => String(method),
+                                    "oid" => String(oid),
+                                    "headline" => rebase ? nothing : String(headline),
+                                    "body" => rebase ? nothing : String(body)))
+        _invalidate(url)
+    end
+end
 
 """Every review comment on a pull request, unabridged.
 

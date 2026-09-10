@@ -193,13 +193,20 @@ function render_frame(st::BState, w::Int, h::Int)
     # the row at the top of the list, permanently on screen and saying what it
     # does. A second copy of it costs the row that the keys which have no such
     # row are competing for.
-    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 L labels \u00b7 r read/unread \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
+    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 M merge \u00b7 L labels \u00b7 r read/unread \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 ",
                    # Beside the mouse, which is the other half of it: a
                    # selection is made with either and copied with `y`. The
                    # first row is full - it was cut at 200 columns with this on
-                   # it - and this row has the space.
+                   # it - and this row had the space.
+                   #
+                   # It no longer has: with `M` on it this row is 194 columns
+                   # and everything past `t term` is cut below 160. Both rows
+                   # are now over budget, so the next key added has to take
+                   # somebody's place rather than be appended - and what it
+                   # should take is decided by row one's rule, which is that
+                   # the keys nobody needs told run at the end.
                    "\u21e7j/k select \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
     # A logged error outranks both: it is standing, and stays until the file
