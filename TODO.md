@@ -891,6 +891,94 @@ program applies. GraphQL will answer the first (`commits(...) { authors }`) and
 the second only by reading commit messages. Neither is free, and neither has
 been costed.
 
+### The seen bit, and the state axis it unlocks
+
+Designed 2026-09-10, not built. This is what "which of these have I looked at"
+needs before the state axis can be reshaped into unread/read/snoozed/archived.
+
+**There are three values, not two, and collapsing them is the whole confusion.**
+Today `unread` means *membership in `inbox.json`'s items*, which is "the activity
+poll saw this move since your cursor". That is bounded by what the poll reaches
+- the repos in `[events].repos`, inside `backfill_days` - and it is neither of
+the two things actually wanted:
+
+| | means | needs | firehose |
+|---|---|---|---|
+| **unseen** | no `read.json` cursor at all | `read.json` only | 773 of 901 |
+| **unread** | a cursor, older than `updated` | cursor + `updated` | 128 of 901 |
+| **read** | cursor at or after `updated` | same | 0 of 901 |
+
+The firehose browse wants **unseen** - 901 open pull requests to walk once and
+decide about. The mode-2 inbox wants **unread** - you looked, it moved, look
+again - and emphatically does not want a 2014 issue in it because you never read
+it. "Is firehose exactly unread?" felt true and measures false for exactly this
+reason: it is exactly *unseen*.
+
+**Nothing new has to be stored.** `read.json` is already the seen bit; what is
+missing is only that the question is asked of the inbox instead of the corpus.
+An item with no entry is unseen, and today that is indistinguishable from "the
+poll never surfaced it" - which is why 773 firehose rows are in neither state.
+The fix is a predicate over `facts.json` + `read.json`, not a new file.
+
+**What marks it: explicit action only.** `r`, a snooze (`apply_snooze!` stamps
+the cursor), `wl read`, and the refresh when it puts something to sleep. Viewing
+does *not*, deliberately - and that is what makes the firehose walk work at all:
+`r` is "I have looked at this", `x` is "and I am done with it", and the pile
+goes down by one of the two.
+
+**What it costs**
+
+1. `unread` leaves `STATES` and becomes an axis of its own, multiselect, over
+   `{unseen, unread, read, snoozed, archived}` - exclusive per item by
+   precedence: archived, then snoozed, then the cursor decides. Snoozing already
+   stamps the cursor, so snoozed∩unread is 2 rows out of 2789 today; archiving
+   does not, and would need to.
+2. One field on `Filters`, one row group in the filter pane, one clause in
+   `filter_summary`, one predicate in `matches`. The radio-to-multiselect change
+   is the only structural part, and `buckets`/`repos`/`labels` are already sets -
+   so it is the shape those have, not a new one.
+3. **`inbox.json` keeps two of its three jobs.** The per-source cursors and
+   `polled` stamps are the poll's own state and nothing else has them. Its
+   `items` are the *only* record of **628 rows** that no fetch lane returns -
+   things that got a comment in a watched repo and are in no lane - which the
+   browser adds as thin placeholder rows (`bucket = "unread"`, forced backlog).
+   What it loses is the third job: being the definition of unread.
+4. **Bootstrap: everything is unseen.** `read.json` is empty after the
+   2026-09-10 rebuild, so the predicate marks all 2789 rows unseen. That is
+   honest - none of them have been read - and it is also precisely the pile the
+   firehose mode exists to walk down.
+
+**`kind` stays orthogonal.** The backlog is the corpus of open work, pull
+requests and issues alike; "all open PRs" is a *view* over it (backlog +
+`kind:pr`), not its definition. The radio is already the right control for that
+and does not move.
+
+### The json files, and which of them are one file
+
+Counted 2026-09-10, prompted by "we may have more json files than needed".
+
+| file | holds | keyed by | re-derivable? |
+|---|---|---|---|
+| `read.json` | seen-up-to timestamp | url | **no** |
+| `touched.json` | last-interaction timestamp | url | **no** |
+| `snooze.json` | armed fingerprint + arm time | url | **no** - the fingerprint is of a past state |
+| `drafts.json` | carries an unsent review | url | slowly, from GitHub |
+| `queue.json` | what `wl next` has shown | — | no, and nothing reads it in the browser |
+| `inbox.json` | poll cursors, poll stamps, **and 628 rows nothing else has** | source, url | cursors no; rows yes, at the cost of a backfill |
+| `facts.json`, `bulk.json` | the fetch | url | yes, entirely |
+
+**Four of them are one small fact per url** - `read`, `touched`, `snooze`,
+`drafts` - and could be one `marks.json` of `url -> {read, touched, fp, fp_at,
+draft}`. That is 4 files to 1, every write goes through one read-modify-write
+instead of four, and the per-url record becomes inspectable in one place, which
+it is not today. Against it: a migration, and the files are individually tiny
+(4KB, and three of them do not exist until you act). Worth doing when one of
+them next needs a field, rather than as its own errand.
+
+`queue.json` is the one that looks vestigial: `wl next` writes it, nothing in
+the browser reads it, and the backlog queue it serves has been replaced by the
+lanes. Check before deleting.
+
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
