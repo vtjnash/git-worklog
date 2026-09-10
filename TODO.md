@@ -863,6 +863,19 @@ Three things follow, and none of them is what the lanes do today:
   a third mode and it already has a home; what it does not have is the two verbs
   as one keystroke each from inside it.
 
+**A review request is a move, not a state, and `needs-review` treats it as one.**
+Somebody asking you to review is an *event*: it moves the item, which makes it
+unread, and from that point what happens is a local decision - act on it, or
+snooze it. `needs-review` instead reads GitHub's standing `review-requested`,
+which keeps saying the same thing for as long as the request is open however
+many times you have looked at it and decided not yet. 42 of the 81 rows in
+"everything from other people" are that bucket, and nothing about them says
+whether you have already dealt with them. The two local records that *do* know -
+the unread cursor and the snooze - are this program's own and are the reason it
+exists; a lane built on them cannot be wrong in that way. Fixing it is not a new
+mechanism, it is deciding that the request is what marks it unread and nothing
+after that is GitHub's to say.
+
 Against that, today's ten `STATES` are the wrong shape rather than the wrong
 number: `mine` is mode one, nothing is mode two (`active` is both modes mixed,
 and 81 of its 157 rows are other people's), and `backlog` is the pile. The
