@@ -303,6 +303,11 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     end
     for u in urls
         println("$(set_fields(u, [cmd => value])) $cmd $u")
+        # Filing something is the end of looking at it, so it is read - the same
+        # rule `x` follows in the browser, and the same one a snooze has always
+        # followed. Without it an archived item can also be unread, which is two
+        # answers to one question.
+        cmd == "archive" && value !== nothing && mark_read([u], at)
     end
     0
 end

@@ -692,11 +692,24 @@ to nothing has no other way out.
 function archive!(st::BState, it::Item, at::DateTime)
     was = get_field(it.url, "archive")
     prevtouch = touched_at(it.url)
+    prevread, wasunread = read_at(it.url), it.url in st.unread
     set_fields(it.url, ["archive" => was === nothing ? string(Date(at)) : nothing], at)
+    # Filing something is the end of looking at it, the same way a snooze is,
+    # and that one has always stamped it read. Without this an archived item
+    # could also be unread - which is two answers to one question, and the
+    # order between them a rule every reader has to remember rather than a
+    # tidiness. Only on the way in: taking it back out is not a claim about
+    # whether you have read it.
+    if was === nothing
+        set_read(it.url, stamp(at))
+        delete!(st.unread, it.url)
+    end
     push!(st.undos, Undo(string(was === nothing ? "archive " : "unarchive ", it.ref),
                          () -> begin
         set_fields(it.url, ["archive" => was])
         set_touched(it.url, prevtouch)
+        set_read(it.url, prevread)
+        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
     refilter!(st)
     was === nothing ? string("archived ", it.ref) : string("back out: ", it.ref)

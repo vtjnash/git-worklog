@@ -109,6 +109,55 @@ isdefault(f::Filters) =
     f.state === :active && f.kind === :both && isempty(f.buckets) &&
     isempty(f.repos) && isempty(f.labels) && isempty(f.authors)
 
+const DISPOSITIONS = [(:unseen, "unseen"), (:unread, "unread"), (:read, "read"),
+                      (:snoozed, "snoozed"), (:archived, "archived")]
+
+"""Where one item stands with you, as a single value.
+
+Five states, exclusive by construction, decided in this order - the first that
+applies wins:
+
+  1. **archived** - `state.toml` carries an `archive` stamp.
+  2. **snoozed**  - it is asleep, as of the last refresh to have looked.
+  3. **unseen**   - no read stamp at all. *Never been in front of you.*
+  4. **unread**   - a stamp, older than the item's `updated`.
+  5. **read**     - a stamp at or after it.
+
+**Unseen and unread are different and both are wanted**, which is the finding
+this is built on. The firehose browse wants *unseen* - almost all of nine
+hundred rows, and it needs nothing but the read stamps. The incoming inbox wants
+*unread* - you looked, it moved, look again - and must not fill with 2014 issues
+merely because nobody ever opened them. The `unread` lane is neither: it is
+membership in `inbox.json`, which is what the poll saw move in the repos it
+watches inside its lookback window, and that is a narrower question than either.
+
+**One value, not five bools.** They are exclusive, so the exclusivity belongs in
+the value rather than in a precedence rule re-applied wherever something is
+read - which is what it is today: `snoozed` is a bool on the item, unread is
+membership in a `Set`, archived is a lookup in a map, and the order between them
+is written out again at every site that cares.
+
+**Computed, not stored.** On `Item` it would be derived state that goes stale
+the moment `r` is pressed: `Item` is immutable and rebuilt by the refresh, so
+the browser would have to rewrite every row it touched. Computed, the filter is
+`disposition(it, ...) in f.seen` and there is nothing to keep in step.
+
+The seen bit is the only mark it needs; `archived` is `state.toml`'s and asleep
+is the refresh's, carried on the item because deciding it here would be a second
+opinion - see `snooze_active`.
+"""
+function disposition(it::Item, read::Dict{String,String} = EMPTY_TOUCHED,
+                     archived::Dict{String,String} = EMPTY_TOUCHED)
+    haskey(archived, it.url) && return :archived
+    it.snoozed && return :snoozed
+    seen = get(read, it.url, nothing)
+    seen === nothing && return :unseen
+    # An item with no `updated` is a synthetic one - an adopted branch, an
+    # import a refresh has not caught up with - and a stamp on it is the only
+    # thing anybody has said about whether it has been seen.
+    seen < it.updated ? :unread : :read
+end
+
 "Does this item belong to one of the exclusive states - the `STATES` radio group?"
 function state_ok(state::Symbol, it::Item, unread::Set{String},
                   touched::Dict{String,String} = EMPTY_TOUCHED,
@@ -609,6 +658,7 @@ function refilter!(st; keeprow::Bool = true)
     m = load_marks()
     st.touched = field_marks(m, "touched")
     st.drafts = field_marks(m, "draft")
+    st.read = field_marks(m, "read")
     st.archived = field_map("archive")
     st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched,
                                        st.archived, st.drafts),

@@ -27,6 +27,28 @@
         lines = W.astrip(join(W.meta_lines(st, it, 50), "\n"))
         @test occursin("archived", lines) && occursin("takes it back out", lines)
 
+        # Filing it is the end of looking at it, so it leaves the unread lane
+        # the way a snooze does - without this an archived item could also be
+        # unread, and the precedence between them would be a repair rather than
+        # a tidiness.
+        @test W.read_at(it.url) !== nothing
+        @test !(it.url in st.unread)
+        @test W.disposition(it, st.read, st.archived) === :archived
+        # And undoing it puts the stamp back to whatever was there, which for
+        # something never read is nothing at all - the same shape every other
+        # undo of a mark has.
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "archive") === nothing
+        @test W.read_at(it.url) === nothing
+        # Back in, from the lane it came out of: the archived lane is empty
+        # now, and `x` acts on the row under the cursor.
+        st.filters.state = :active; W.refilter!(st)
+        st.sel = findfirst(x -> x.url == it.url, st.items)
+        W.handle!(st, Int('x'), ctrl)
+        @test W.read_at(it.url) !== nothing
+        st.filters.state = :archived; W.refilter!(st)
+        @test [x.url for x in st.items] == [it.url]
+
         # A toggle, and undoable either way.
         W.handle!(st, Int('x'), ctrl)
         @test occursin("back out", st.status)

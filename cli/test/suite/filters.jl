@@ -90,6 +90,49 @@ end
     @test isempty(st.items) && isempty(W.load_drafts())
 end
 
+@testset "where an item stands, as one value" begin
+    # Five states, exclusive by construction, in the order the first that
+    # applies wins. Built here rather than taken from the dashboard so that
+    # every branch is reachable: the real corpus has no archived rows today.
+    mk(; kw...) = W.Item(; url = "https://github.com/o/r/pull/1", ref = "r#1",
+                         repo = "o/r", number = 1, title = "t",
+                         updated = "2026-09-02T00:00:00Z", kw...)
+    it = mk()
+    none = W.EMPTY_TOUCHED
+    filed = Dict(it.url => "2026-09-03")
+
+    # Never in front of you, which is not the same as looked at and moved on.
+    @test W.disposition(it, none, none) === :unseen
+    # A stamp older than the item is unread; one at or after it is read.
+    @test W.disposition(it, Dict(it.url => "2026-09-01T00:00:00Z"), none) === :unread
+    @test W.disposition(it, Dict(it.url => "2026-09-02T00:00:00Z"), none) === :read
+    @test W.disposition(it, Dict(it.url => "2026-09-09T00:00:00Z"), none) === :read
+
+    # Asleep and filed outrank all three, and filed outranks asleep: they are
+    # answers about what you decided, and the seen bit is one about what you
+    # have looked at.
+    @test W.disposition(mk(snoozed = true), none, none) === :snoozed
+    @test W.disposition(mk(snoozed = true), Dict(it.url => "2026-09-09T00:00:00Z"),
+                        none) === :snoozed
+    @test W.disposition(it, none, filed) === :archived
+    @test W.disposition(mk(snoozed = true), none, filed) === :archived
+
+    # A synthetic item - an adopted branch, an import no refresh has caught up
+    # with - has no `updated` at all, and a stamp on one is the only thing
+    # anybody has said about whether it has been seen.
+    @test W.disposition(mk(updated = ""), none, none) === :unseen
+    @test W.disposition(mk(updated = ""), Dict(it.url => "2026-09-01T00:00:00Z"),
+                        none) === :read
+
+    # Exclusive by construction: every item on the real dashboard answers
+    # exactly one of the five, which is the property the five bools did not
+    # have and had to be given by a precedence rule at every reader.
+    st = mkstate()
+    ds = [W.disposition(x, st.read, st.archived) for x in st.all]
+    @test all(d -> d in first.(W.DISPOSITIONS), ds)
+    @test length(ds) == length(st.all)
+end
+
 @testset "when a row leaves, the cursor stays where it was" begin
     # `r` in the unread lane takes the row it marks read out of the list, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll

@@ -69,6 +69,11 @@ Base.@kwdef mutable struct BState <: View
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
                                     # than per frame
+    read::Dict{String,String} = Dict{String,String}()      # url -> what it has
+                                    # been seen up to. The seen bit over the
+                                    # whole corpus, which `st.unread` is not:
+                                    # that is the poll's answer about the repos
+                                    # it watches. See `disposition`
     archived::Dict{String,String} = Dict{String,String}()  # url -> the date it
                                     # was put away, from `state.toml`
     drafts::Dict{String,String} = Dict{String,String}()    # url -> when a review
@@ -158,7 +163,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     m = load_marks()
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = field_marks(m, "touched"), archived = field_map("archive"),
-                  drafts = field_marks(m, "draft"),
+                  drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   factsat = mtime(datapath("facts.json")))
     rebuild_axes!(st)
     refilter!(st)
