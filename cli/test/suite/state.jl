@@ -43,35 +43,32 @@
     marks() = isfile(W.marksfile()) ? read(W.marksfile(), String) : ""
     before = marks()
     try
+        # Bare, so the row stays under the cursor: with what the browser opens
+        # on - what moved, awake - `r` takes the row it marks read out of the
+        # list, which is the behaviour the filter suite tests.
         st = mkstate()
+        st.filters = W.Filters(); W.refilter!(st)
         it = st.items[st.sel]
         prev = W.read_at(it.url)
-        # `r` toggles against what is on screen.
-        push!(st.unread, it.url)
+        # `r` toggles against the stamp, which is the axis - not against the
+        # poll's set, which only knows the repos it watches.
+        @test W.seen_of(it, W.Marks(st)) === :unread
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
         @test W.read_at(it.url) !== nothing
         @test !(it.url in st.unread)
+        @test W.seen_of(it, W.Marks(st)) === :read
         W.handle!(st, Int('r'), ctrl)                   # ...and back again
         @test st.status == "marked unread" && it.url in st.unread
+        @test W.read_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
         @test W.read_at(it.url) == prev          # exactly what was there
         @test marks() == before          # byte for byte
 
-        # `r` on something already read puts it back, which is the half `u`
-        # used to do unconditionally before it became the refresh.
-        delete!(st.unread, it.url)
-        W.handle!(st, Int('r'), ctrl)
-        @test st.status == "marked unread" && it.url in st.unread
-        @test W.read_at(it.url) === nothing
-        W.handle!(st, Int('z'), ctrl)
-        @test W.read_at(it.url) == prev
-        @test marks() == before
-
-        # Read is stamped to when the thread was fetched, not to now.
+        # Read is stamped to when the thread was fetched, not to now. A comment
+        # that arrived while you were reading was never in front of you.
         st.nodes = [W.Node("h", "b", :md, true)]
         st.nodes[1].meta["fetched"] = "2020-01-02T03:04:05Z"
-        push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
         @test W.read_at(it.url) == "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
@@ -79,7 +76,6 @@
 
         # A run of them unwinds in order.
         for _ in 1:3
-            push!(st.unread, st.items[st.sel].url)
             W.handle!(st, Int('r'), ctrl)
             st.sel = min(st.sel + 1, length(st.items))
         end
@@ -302,6 +298,6 @@ end
     # goes. A relative snooze that ran out an hour ago is still snoozed here,
     # and stays that way until somebody runs `wl refresh`.
     elapsed = W.Item(; base..., snoozed = true, snooze_why = "for 1d, 0d left")
-    @test W.state_ok(:snoozed, elapsed)
-    @test !W.state_ok(:active, elapsed)
+    @test W.sleep_of(elapsed) === :snoozed
+    @test !W.matches(W.Filters(sleep = Set([:awake])), elapsed)
 end

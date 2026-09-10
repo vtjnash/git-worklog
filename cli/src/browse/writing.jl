@@ -139,11 +139,11 @@ function select_item!(st::BState, it::Item)
         #
         # Cleared rather than widened by whichever axis is hiding it: which one
         # that is is not a question anybody wants answered, and `\`` is the way
-        # back from this the same as from every other jump. `:all` and not the
-        # default `:active`, because archived and snoozed work still has a
-        # worktree and is exactly what you would be going to look at.
+        # back from this the same as from every other jump. Bare and not the
+        # filter the browser opens with, because filed and snoozed work still
+        # has a worktree and is exactly what you would be going to look at.
         st.prev = st.filters
-        st.filters = Filters(); st.filters.state = :all
+        st.filters = Filters()
         # A list search narrows on top of the axes, so it can hide it too.
         st.searchin === :list && (st.search = "")
         refilter!(st)
@@ -665,11 +665,9 @@ function undo!(st::BState)
     u = pop!(st.undos)
     try
         u.undo()
-        # The lanes that are membership in something have to be rebuilt for the
-        # row to come back - `:snoozed` among them, since undoing a snooze is
-        # the same move `apply_snooze!` refilters for on the way in.
-        st.filters.state in (:unread, :archived, :touched, :active,
-                             :snoozed) && refilter!(st)
+        # Every axis is membership in something an undo can put back, so the
+        # list is rebuilt rather than asked whether it cares.
+        refilter!(st)
         string("undid: ", u.what)
     catch e
         string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
@@ -816,10 +814,10 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_read(it.url, prevread)
         wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
-    # The snoozed lane is a filter over this field, so the row has to be able to
-    # leave or arrive on the strength of it - and the unread lane is membership
-    # in the set just changed above.
-    st.filters.state in (:snoozed, :active, :unread) && refilter!(st)
+    # The sleep axis is a filter over this field and the seen axis over the
+    # stamp just written, so the row has to be able to leave or arrive on the
+    # strength of either.
+    refilter!(st)
     val === nothing ? "snooze cleared" : string("snoozed ", val)
 end
 

@@ -7,10 +7,14 @@
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
-        n(s) = (st.filters.state = s; W.refilter!(st); length(st.items))
-        a0, all0 = n(:active), n(:all)
-        @test n(:archived) == 0
-        st.filters.state = :active; W.refilter!(st)
+        # The three selections this testset moves between: awake work, filed
+        # work, and everything.
+        awake, filed, all_ = W.Filters(sleep = Set([:awake])),
+                             W.Filters(sleep = Set([:filed])), W.Filters()
+        n(f) = (st.filters = deepcopy(f); W.refilter!(st); length(st.items))
+        a0, all0 = n(awake), n(all_)
+        @test n(filed) == 0
+        n(awake)
         it = st.items[st.sel]
 
         W.handle!(st, Int('x'), ctrl)
@@ -18,37 +22,37 @@
         # Archiving is a snooze that never wakes, and one field is what says so.
         @test W.get_field(it.url, "snooze") == "forever"
         @test W.snooze_forever(W.get_field(it.url, "snooze"))
-        # Out of the two lanes that answer "what should I be doing", and in the
-        # one that is a record. `all` is everything, so it is unchanged.
-        @test n(:active) == a0 - 1
-        @test n(:archived) == 1
-        @test n(:all) == all0
-        st.filters.state = :archived; W.refilter!(st)
+        # Out of the awake list, and into the one that is a record. Bare is
+        # everything, so it is unchanged.
+        @test n(awake) == a0 - 1
+        @test n(filed) == 1
+        @test n(all_) == all0
+        n(filed)
         @test st.items[1].url == it.url
         # Where the item's facts are, with the way back out.
         lines = W.astrip(join(W.meta_lines(st, it, 50), "\n"))
         @test occursin("archived", lines) && occursin("takes it back out", lines)
 
-        # Filing it is the end of looking at it, so it leaves the unread lane
-        # the way a snooze does - without this an archived item could also be
-        # unread, and the precedence between them would be a repair rather than
-        # a tidiness.
+        # Filing it is the end of looking at it, so it is stamped read the way
+        # a snooze is. It is *not* an answer about whether the thing has moved:
+        # if it does, it is unread again and still filed - two axes, and no
+        # precedence between them.
         @test W.read_at(it.url) !== nothing
-        @test !(it.url in st.unread)
-        @test W.disposition(it, W.Marks(st)) === :archived
+        @test W.sleep_of(it, W.Marks(st)) === :filed
+        @test W.seen_of(it, W.Marks(st)) === :read
         # And undoing it puts the stamp back to whatever was there, which for
         # something never read is nothing at all - the same shape every other
         # undo of a mark has.
         W.handle!(st, Int('z'), ctrl)
         @test W.get_field(it.url, "snooze") === nothing
         @test W.read_at(it.url) === nothing
-        # Back in, from the lane it came out of: the archived lane is empty
-        # now, and `x` acts on the row under the cursor.
-        st.filters.state = :active; W.refilter!(st)
+        # Back in, from the list it came out of: the filed list is empty now,
+        # and `x` acts on the row under the cursor.
+        n(awake)
         st.sel = findfirst(x -> x.url == it.url, st.items)
         W.handle!(st, Int('x'), ctrl)
         @test W.read_at(it.url) !== nothing
-        st.filters.state = :archived; W.refilter!(st)
+        n(filed)
         @test [x.url for x in st.items] == [it.url]
 
         # A toggle, and undoable either way.

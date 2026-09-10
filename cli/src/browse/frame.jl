@@ -177,7 +177,10 @@ function render_frame(st::BState, w::Int, h::Int)
     # Worst-first is the wrong order for a line that gets cut on a narrow
     # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
     # runs at the end and what is worth reading is at the front.
-    keys1 = string("[", filter_summary(st.filters, st.sort), "]  f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
+    # What is applied is on the title bar, and was here too. One copy: the axes
+    # are sets now, so the summary is as long as the selection rather than one
+    # word, and this row was already being cut at 200 columns with `M` on it.
+    keys1 = string("f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a

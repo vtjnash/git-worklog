@@ -6,7 +6,7 @@
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
-        st.filters.state = :all; W.refilter!(st)
+        st.filters = W.Filters(); W.refilter!(st)
         n = length(st.items)
 
         # Everything you have actually done something to. Nothing but an action
@@ -15,7 +15,7 @@
         W.set_touched(a.url, "2020-01-01T00:00:00Z")
         W.set_touched(b.url, "2026-09-02T12:00:00Z")
         W.set_touched(c.url, "2024-06-01T00:00:00Z")
-        st.filters.state = :touched; W.refilter!(st)
+        st.filters = W.Filters(tags = Set([:touched])); W.refilter!(st)
         @test length(st.items) == 3
         @test Set(x.url for x in st.items) == Set([a.url, b.url, c.url])
         # Looking at one does not put it in the lane.
@@ -48,7 +48,7 @@
         @test any(x.url == local_it.url for x in st.items)
         # A pull request that is somebody else's is not.
         theirs = first(x for x in st.all if x.is_pr && x.author != W.login() &&
-                       !(x.snoozed || x.backlog))
+                       !(W.login() in x.assignees) && !x.snoozed)
         @test !any(x.url == theirs.url for x in st.items)
         # ...and it is in the other mode, which is the same axis said the other
         # way round. Between them they are the two lists the work divides into.
@@ -59,16 +59,15 @@
         W.drop_item!(st, local_it.url)
         st.filters = W.Filters(); W.refilter!(st)
 
-        # Both modes are a view, so each is one keystroke from `\'`.
+        # All three modes are a view, so each is one keystroke from `\'`.
         vs = W.views()
         @test any(v -> occursin("my work", v[1]), vs)
-        @test any(v -> occursin("incoming", v[1]), vs)
-        # And `mine` is gone from the radio group it never belonged in.
-        @test !any(x -> x[1] === :mine, W.STATES)
+        @test any(v -> occursin("what moved", v[1]), vs)
+        @test any(v -> occursin("open items", v[1]), vs)
 
         # The order is its own control: any of it makes sense over any of the
         # lanes, so it sits beside the filter rather than inside it.
-        st.filters.state = :all
+        st.filters = W.Filters()
         st.sort = :none; W.refilter!(st)
         # The url order, descending: owner, project, number. It keeps the
         # grouping `facts.json` is written in and reads from the newest of each
@@ -119,7 +118,7 @@
         # it: the default said on every screen is a phrase the reader stops
         # seeing. It is named wherever it is not the lane's own.
         @test !occursin("by when", W.filter_summary(st.filters, st.sort))
-        let f = W.Filters(); f.state = :touched
+        let f = W.Filters(tags = Set([:touched]))
             @test occursin("by when it moved", W.filter_summary(f, :latest))
         end
         @test length(st.items) == n
@@ -137,14 +136,13 @@
         @test st.sort === :none
         @test !occursin("by when", W.filter_summary(st.filters, st.sort))
 
-        # Both new lanes are pickable in the filter pane, with their counts.
+        # Both are tags in the filter pane, with their counts.
         st.lmode = :filters
         rows = W.filter_rows(st)
         txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
         @test occursin("touched", txt) && occursin("second look", txt)
-        states = W.axis_counts(st).states
-        @test states[:touched] == 3
-        @test !haskey(states, :mine)
+        @test W.axis_counts(st).tags[:touched] == 3
+
         for (w, h) in ((80, 24), (200, 50))
             ls = split(W.render(st, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)

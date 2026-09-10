@@ -290,12 +290,15 @@ end
             # re-read the child's screen from here, which is one key of the
             # pane's in the middle of a run of the browser's: the reader would
             # have had to hold a list instead of looking at which side is lit.
+            # Bare, so the row stays under the cursor while it is toggled: the
+            # opening filter is what moved, and reading something takes it out.
+            st.filters = W.Filters(); W.refilter!(st)
             it = st.items[st.sel]
-            was_unread = it.url in st.unread
+            was = W.read_at(it.url)
             W.handle!(v, Int('r'), ctrl)           # the browser's read toggle
-            @test (it.url in st.unread) != was_unread
+            @test W.read_at(it.url) != was
             W.handle!(v, Int('r'), ctrl)           # put it back
-            @test (it.url in st.unread) == was_unread
+            @test W.read_at(it.url) == was
             # `K` is the pane's, so from here it is the browser's - and the
             # browser does not bind it, so nothing happens and nothing dies.
             @test W.handle!(v, Int('K'), ctrl) === :ok

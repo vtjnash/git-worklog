@@ -1,28 +1,58 @@
 # The filter and view model: what is shown, in what order, and the pane that
-# says so. Tag sets over one list rather than a menu of lanes - state is
-# exclusive so it reads as a radio group, categories and repos are additive.
-
-
+# says so. Tag sets over one list rather than a menu of lanes.
+#
 # --- filters ---------------------------------------------------------------
 #
-# The lane menu forced one choice at a time and made you back out to change it.
-# The same information reads better as tag sets applied to a single list: state
-# is exclusive so it behaves as a radio group, while categories and repos are
-# additive and behave as checkboxes.
-
-# `mine` is not here, and was. It said `author == login()` in the state axis,
-# which is the author axis said twice - and the author axis says it better,
-# since `@me` also covers an adopted branch (no author, local url) and an issue
-# you opened, both of which the state refused.
+# The lane menu forced one choice at a time and made you back out to change it,
+# and the radio that replaced it was the same mistake in a smaller box: one
+# `state` answering three unrelated questions at once, so that asking "what is
+# unread" meant giving up "what is mine".
 #
-# It could not be removed until now for one reason: `stale` swept 44 of your own
-# pull requests into the backlog, and `mine` was the only lane that did not
-# subtract the backlog, so it was the only place they could be seen. With the
-# eviction gone, `active` + `@me` is that list and two more besides.
-const STATES = [(:active, "active"), (:unread, "unread"),
-                (:second, "second look"), (:drafts, "drafts"),
-                (:touched, "touched"), (:snoozed, "snoozed"),
-                (:backlog, "backlog"), (:archived, "archived"), (:all, "all")]
+# Every axis here is a set, and an empty set restricts nothing. What each one
+# asks, and what the answers cost:
+#
+#   * **seen** - has it changed since I looked at it? The read stamp against
+#     `updated`, and **nothing overrides it**: an item that moves is unread
+#     again whether it is snoozed, filed, yours or a stranger's. A review
+#     request, a mention and a reply all land here, which is why none of them
+#     needs a lane.
+#   * **sleep** - do I want to see it? One decision, one field, three answers:
+#     awake, snoozed until something, or filed away for good. `x` and `s` write
+#     it and it is yours alone; GitHub has no opinion.
+#   * **state** - is it finished? GitHub's `OPEN` against `CLOSED`/`MERGED`.
+#   * **tag** - the three things worth asking that are not any of the above:
+#     work that has gone quiet (`second look`), work you have acted on
+#     (`touched`), and words you have written and not sent (`drafts`).
+#   * **kind**, **category**, **repo**, **label**, **author** - unchanged.
+#
+# What is *not* here any more: `active`, `backlog` and `mine`. `mine` was the
+# author axis written twice. `active` and `backlog` were one fact wearing a
+# state's clothes - which lane fetched the row - and the answer to "how do I
+# stop seeing the pile" is now the same as the answer for everything else:
+# dismiss it, one item at a time, recorded and undoable. That is the one thing
+# this program knows that GitHub does not.
+
+"Has it changed since you looked at it? Nothing overrides this axis."
+const SEEN = [(:unread, "unread"), (:read, "read")]
+
+"""Do you want to see it? Your decision, and the only axis GitHub cannot see.
+
+`filed` is a snooze with no wake condition - see `archive!` - so this is one
+field with three readings rather than two fields with a precedence rule.
+"""
+const SLEEP = [(:awake, "awake"), (:snoozed, "snoozed"), (:filed, "filed away")]
+
+"Is it finished? GitHub's answer, and the only axis nobody here writes."
+const OVER = [(:open, "open"), (:done, "closed or merged")]
+
+"""The three questions that are not an axis of their own.
+
+Each is a mark or a derivation rather than a field: `second` is worked out every
+refresh from silence, `touched` and `drafts` are rows in `marks.json`. Unlike
+the axes above an item can carry all three at once, so these behave like labels
+- any of the ones you pick brings the row.
+"""
+const TAGS = [(:second, "second look"), (:touched, "touched"), (:drafts, "drafts")]
 
 """How the list is ordered. Its own control, deliberately.
 
@@ -52,22 +82,17 @@ is what made "issues only" impossible to ask for and obvious to want.
 """
 const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
 
-"""The order a lane opens in, where the lane implies one.
+"""The order a selection opens in, where it implies one.
 
-Not a preference, a definition: the `touched` lane *is* the interaction clock -
-membership in it is having acted on something - so the clock is the order it
-means, and arriving in it sorted by anything else asks the reader to press `w`
-to see the thing they came for.
+`touched` alone *is* the interaction clock - membership in it is having acted on
+something - so the clock is the order it means, and arriving in it sorted by
+anything else asks the reader to press `w` to see the thing they came for.
 
-Every other lane is deliberately absent, which reads as newest-first - the
-order an inbox has, and the answer use gave to the question this table used to
-leave open. It is still where a lane that wants a different one says so. `w`
-still overrides, until the lane changes.
+Everything else is newest-first, which is the order an inbox has and the answer
+use gave to the question this table used to leave open. It is still where a
+selection that wants a different one says so.
 """
-const LANE_SORT = Dict(:touched => :touched)
-
-"""The order to open `state` in - newest first, when the lane implies none."""
-lane_sort(state::Symbol) = get(LANE_SORT, state, :latest)
+lane_sort(f) = f.tags == Set([:touched]) ? :touched : :latest
 
 # Whose it is, as two values of the author axis that are not logins.
 #
@@ -80,38 +105,50 @@ lane_sort(state::Symbol) = get(LANE_SORT, state, :latest)
 const AUTHOR_ME = "@me"
 const AUTHOR_OTHERS = "@anyone-else"
 
-mutable struct Filters
-    state::Symbol
-    buckets::Set{String}      # empty means every category
-    repos::Set{String}        # empty means every repo
-    labels::Set{String}       # empty means every label
-    kind::Symbol              # :both | :pr | :issue
-    authors::Set{String}      # empty means anybody; @me and @anyone-else are
-                              # values here as well as logins
-    seen::Set{Symbol}         # empty means every disposition; see `DISPOSITIONS`
+Base.@kwdef mutable struct Filters
+    seen::Set{Symbol} = Set{Symbol}()      # empty means either; see `SEEN`
+    sleep::Set{Symbol} = Set{Symbol}()     # empty means all three; see `SLEEP`
+    over::Set{Symbol} = Set{Symbol}()      # empty means both; see `OVER`
+    tags::Set{Symbol} = Set{Symbol}()      # empty means no restriction; `TAGS`
+    buckets::Set{String} = Set{String}()   # empty means every category
+    repos::Set{String} = Set{String}()     # empty means every repo
+    labels::Set{String} = Set{String}()    # empty means every label
+    kind::Symbol = :both                   # :both | :pr | :issue
+    authors::Set{String} = Set{String}()   # empty means anybody; @me and
+                                           # @anyone-else are values here as
+                                           # well as logins
 end
-# The shorter shapes are the ones from before there was a kind, an author or a
-# disposition, kept because every caller of them means "any of those" - which
-# is what the defaults say.
-Filters(state, buckets, repos, labels, kind, authors) =
-    Filters(state, buckets, repos, labels, kind, authors, Set{Symbol}())
-Filters(state, buckets, repos, labels, kind) =
-    Filters(state, buckets, repos, labels, kind, Set{String}())
-Filters(state, buckets, repos, labels) =
-    Filters(state, buckets, repos, labels, :both, Set{String}())
-Filters() = Filters(:active, Set{String}(), Set{String}(), Set{String}())
 
-"""Is this the filter the browser opens with - nothing asked of it?
+"""What the browser opens on: the notifications, awake.
+
+Unread is what moved since you looked at it, whoever moved it - a review
+request, a mention, a reply, a push - which is the one list that is about
+*today*. Awake because "I do not want to see this" is a decision you made and
+honouring it by default is the whole of what it means.
+
+Every other axis is open, so the corpus is one keystroke away in any direction:
+this is a starting place rather than a lane, and `c` clears it.
+"""
+DEFAULT_FILTERS() = Filters(seen = Set([:unread]), sleep = Set([:awake]))
+
+"""Is anything asked of this filter at all?
 
 Asked of the value rather than tracked, so it stays true however the filter got
 here: a view, a picker, `\`` going back, or every checkbox toggled off one at a
 time all reach the same place, and the row that offers to clear it should say
 so in all four.
+
+`c` clears to *nothing*, not to the opening filter: "clear every filter" has to
+mean what it says, and what it leaves is the corpus - every item fetched,
+including the ones you have filed away. `\`` is the way back to what you had.
 """
 isdefault(f::Filters) =
-    f.state === :active && f.kind === :both && isempty(f.seen) &&
-    isempty(f.buckets) && isempty(f.repos) && isempty(f.labels) &&
-    isempty(f.authors)
+    isempty(f.seen) && isempty(f.sleep) && isempty(f.over) && isempty(f.tags) &&
+    f.kind === :both && isempty(f.buckets) && isempty(f.repos) &&
+    isempty(f.labels) && isempty(f.authors)
+
+"One empty map, shared, for every caller that has no marks to hand."
+const EMPTY_TOUCHED = Dict{String,String}()
 
 """What is recorded about the items on screen, as one argument.
 
@@ -126,7 +163,7 @@ something changes; this is a way of naming all of them at once, made per
 """
 Base.@kwdef struct Marks
     unread::Set{String} = Set{String}()     # what the poll saw move, which is
-                                            # not the seen bit; see `disposition`
+                                            # not the seen bit; see `seen_of`
     read::Dict{String,String} = EMPTY_TOUCHED
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
@@ -134,90 +171,64 @@ Base.@kwdef struct Marks
 end
 Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts)
 
-const DISPOSITIONS = [(:unseen, "unseen"), (:unread, "unread"), (:read, "read"),
-                      (:snoozed, "snoozed"), (:archived, "archived")]
+"""Has this item changed since you last looked at it?
 
-"""Where one item stands with you, as a single value.
+    seen_of(it, marks) -> :unread | :read
 
-Five states, exclusive by construction, decided in this order - the first that
-applies wins:
+The read stamp against `updated`, and **nothing overrides it**. Not a snooze,
+not a filing, not whose it is: movement makes a thing unread, because unread is
+not a claim about wanting to see something - it is a claim about whether it has
+changed since you last did.
 
-  1. **archived** - `state.toml` carries an `archive` stamp.
-  2. **snoozed**  - it is asleep, as of the last refresh to have looked.
-  3. **unseen**   - no read stamp at all. *Never been in front of you.*
-  4. **unread**   - a stamp, older than the item's `updated`.
-  5. **read**     - a stamp at or after it.
+No stamp at all reads as unread, which is what "never been in front of you"
+means. It used to be a third value, `unseen`, on the theory that the firehose
+browse wanted it: it does not. What takes something out of that pile is
+dismissing it, and what an item you have never opened has in common with one
+that moved this morning is exactly that you have not seen what it says now.
 
-**Unseen and unread are different and both are wanted**, which is the finding
-this is built on. The firehose browse wants *unseen* - almost all of nine
-hundred rows, and it needs nothing but the read stamps. The incoming inbox wants
-*unread* - you looked, it moved, look again - and must not fill with 2014 issues
-merely because nobody ever opened them. The `unread` lane is neither: it is
-membership in `inbox.json`, which is what the poll saw move in the repos it
-watches inside its lookback window, and that is a narrower question than either.
-
-**One value, not five bools.** They are exclusive, so the exclusivity belongs in
-the value rather than in a precedence rule re-applied wherever something is
-read - which is what it is today: `snoozed` is a bool on the item, unread is
-membership in a `Set`, archived is a lookup in a map, and the order between them
-is written out again at every site that cares.
-
-**Computed, not stored.** On `Item` it would be derived state that goes stale
-the moment `r` is pressed: `Item` is immutable and rebuilt by the refresh, so
-the browser would have to rewrite every row it touched. Computed, the filter is
-`disposition(it, ...) in f.seen` and there is nothing to keep in step.
-
-The seen bit is the only mark it needs; `archived` is `state.toml`'s and asleep
-is the refresh's, carried on the item because deciding it here would be a second
-opinion - see `snooze_active`.
+Computed rather than stored. On `Item` it would be derived state that goes stale
+the moment `r` is pressed - `Item` is immutable and rebuilt by the refresh - so
+the browser would have to rewrite every row it touched.
 """
-function disposition(it::Item, m::Marks = Marks())
-    haskey(m.archived, it.url) && return :archived
-    it.snoozed && return :snoozed
-    seen = get(m.read, it.url, nothing)
-    seen === nothing && return :unseen
+function seen_of(it::Item, m::Marks = Marks())
+    at = get(m.read, it.url, nothing)
     # An item with no `updated` is a synthetic one - an adopted branch, an
-    # import a refresh has not caught up with - and a stamp on it is the only
+    # import no refresh has caught up with - and a stamp on it is the only
     # thing anybody has said about whether it has been seen.
-    seen < it.updated ? :unread : :read
+    at === nothing ? :unread : at < it.updated ? :unread : :read
 end
 
-"""Is this item one of the five dispositions asked for?
+"""Do you want to see this?
 
-An empty set is every one of them, which is what every other multiselect axis
-here means by empty and what makes the corpus what is left when nothing has
-been narrowed.
+    sleep_of(it, marks) -> :awake | :snoozed | :filed
+
+One decision with three readings. `filed` is the snooze that never wakes, which
+is what `x` writes and what archiving has always been; `snoozed` is one with a
+wake condition the refresh is watching for. Whether it is asleep is the
+refresh's answer, carried on the item - see `snooze_active` - because deciding
+it here would be a second opinion about a thing that has already been decided.
 """
-seen_ok(seen::Set{Symbol}, it::Item, m::Marks) =
-    isempty(seen) || disposition(it, m) in seen
+sleep_of(it::Item, m::Marks = Marks()) =
+    haskey(m.archived, it.url) ? :filed : it.snoozed ? :snoozed : :awake
 
-"Does this item belong to one of the exclusive states - the `STATES` radio group?"
-function state_ok(state::Symbol, it::Item, m::Marks = Marks())
-    unread, touched, archived, drafts = m.unread, m.touched, m.archived, m.drafts
-    state === :unread  && return it.url in unread
-    state === :snoozed && return it.snoozed
-    state === :backlog && return it.backlog
-    # Archived work is out of the two lanes that answer "what should I be doing"
-    # and stays in the rest: `touched` is a record of what happened and `all` is
-    # everything, and neither is a to-do list.
-    state === :archived && return haskey(archived, it.url)
-    state === :active  && return !(it.snoozed || it.backlog || haskey(archived, it.url))
-    # Work that has gone quiet on somebody. Derived rather than asked for - see
-    # `second_look` - so this lane is never empty because you forgot to fill it.
-    state === :second  && return !isempty(it.secondlook) && !haskey(archived, it.url)
-    # Everything you have actually done something to, which is what the
-    # interaction clock is a record of - and nothing else writes to it, so this
-    # is work rather than browsing.
-    state === :touched && return haskey(touched, it.url)
-    # Work you have started saying and not said. Archived items stay in it: a
-    # draft on something you have put away is the strongest reason there is to
-    # be shown it again, since the two together mean you filed the work and
-    # never sent the words.
-    state === :drafts  && return haskey(drafts, it.url)
-    true                                              # :all
+"Is it finished? Empty reads as open, which is what a synthetic item is."
+over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :done : :open
+
+"""The tags an item carries, of the three there are.
+
+Unlike the axes, several can be true at once, so this answers with a set and the
+axis behaves like labels: any tag you pick brings the row.
+"""
+function tags_of(it::Item, m::Marks = Marks())
+    out = Symbol[]
+    isempty(it.secondlook) || push!(out, :second)
+    haskey(m.touched, it.url) && push!(out, :touched)
+    haskey(m.drafts, it.url) && push!(out, :drafts)
+    out
 end
 
-const EMPTY_TOUCHED = Dict{String,String}()
+"An empty set restricts nothing, which is what every axis here means by empty."
+axis_ok(want::Set{Symbol}, v::Symbol) = isempty(want) || v in want
 
 """The timestamp a sorted list is ordered by, under one of two readings of when.
 
@@ -305,10 +316,12 @@ function author_ok(authors::Set{String}, it::Item)
     it.author in authors
 end
 
-"An empty tag set means 'no restriction', so a fresh filter shows everything."
+"An empty tag set means 'no restriction', so a bare filter shows everything."
 function matches(f::Filters, it::Item, m::Marks = Marks())
-    state_ok(f.state, it, m) || return false
-    seen_ok(f.seen, it, m) || return false
+    axis_ok(f.seen, seen_of(it, m))   || return false
+    axis_ok(f.sleep, sleep_of(it, m)) || return false
+    axis_ok(f.over, over_of(it))      || return false
+    isempty(f.tags) || any(in(f.tags), tags_of(it, m)) || return false
     kind_ok(f.kind, it) || return false
     author_ok(f.authors, it) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
@@ -318,13 +331,13 @@ function matches(f::Filters, it::Item, m::Marks = Marks())
 end
 
 """
-    axis_counts(st) -> (; states, seens, kinds, buckets, repos, labels, authors)
+    axis_counts(st) -> (; seens, sleeps, overs, tags, kinds, buckets, repos, labels, authors)
 
 How many items each filter value would select, in one pass over the items.
 
 Every count is against the *other* axes only - a category shows what selecting
 it would add, not a total that ignores the rest of the filter - so there is one
-predicate per axis over the same item, seven of them, and computing them together
+predicate per axis over the same item, nine of them, and computing them together
 is what makes this one pass instead of one per row. It was a pass per row: 93 rows
 over 2050 items came to 190,650 `matches` calls per build and two builds per
 keystroke, which made the filter pane the only part of the UI with visible lag -
@@ -332,55 +345,57 @@ keystroke, which made the filter pane the only part of the UI with visible lag -
 """
 function axis_counts(st)
     f, m = st.filters, Marks(st)
-    states = Dict{Symbol,Int}()
-    seens = Dict{Symbol,Int}()
-    kinds = Dict{Symbol,Int}()
-    buckets = Dict{String,Int}()
-    repos = Dict{String,Int}()
-    labels = Dict{String,Int}()
+    seens = Dict{Symbol,Int}(); sleeps = Dict{Symbol,Int}()
+    overs = Dict{Symbol,Int}(); tagn = Dict{Symbol,Int}()
+    kinds = Dict{Symbol,Int}(); buckets = Dict{String,Int}()
+    repos = Dict{String,Int}(); labels = Dict{String,Int}()
     authors = Dict{String,Int}()
     bump!(d, k) = d[k] = get(d, k, 0) + 1
     for it in st.all
-        bok = isempty(f.buckets) || it.bucket in f.buckets
-        rok = isempty(f.repos)   || it.repo in f.repos
-        lok = isempty(f.labels)  || any(in(f.labels), it.labels)
-        sok = state_ok(f.state, it, m)
-        kok = kind_ok(f.kind, it)
-        aok = author_ok(f.authors, it)
-        # Once per item and not once per value: it is a lookup in two maps and a
-        # comparison, and the axis below would otherwise ask for it five times.
-        d = disposition(it, m)
-        dok = isempty(f.seen) || d in f.seen
-        if bok && rok && lok && kok && aok && dok
-            for (k, _) in STATES
-                state_ok(k, it, m) && bump!(states, k)
+        sn, sl, ov, tg = seen_of(it, m), sleep_of(it, m), over_of(it), tags_of(it, m)
+        # Every axis, answered once, in the order the pane draws them.
+        ok = (axis_ok(f.seen, sn), axis_ok(f.sleep, sl), axis_ok(f.over, ov),
+              isempty(f.tags) || any(in(f.tags), tg),
+              kind_ok(f.kind, it), author_ok(f.authors, it),
+              isempty(f.buckets) || it.bucket in f.buckets,
+              isempty(f.repos) || it.repo in f.repos,
+              isempty(f.labels) || any(in(f.labels), it.labels))
+        # Each count is against the *other* axes only, so a value shows what
+        # picking it would bring rather than a total that ignores the rest of
+        # the filter. Which is: this row already passes everything except
+        # possibly the axis being counted - one subtraction rather than a pass
+        # per axis per row.
+        nfail = count(!, ok)
+        others(i) = nfail == 0 || (nfail == 1 && !ok[i])
+        others(1) && bump!(seens, sn)
+        others(2) && bump!(sleeps, sl)
+        others(3) && bump!(overs, ov)
+        if others(4)
+            for t in tg
+                bump!(tagn, t)
             end
         end
-        # An item answers exactly one disposition, so its own is the only value
-        # it counts towards - which is what makes this axis a partition of the
-        # list and the five counts add up to it.
-        sok && bok && rok && lok && kok && aok && bump!(seens, d)
-        if sok && bok && rok && lok && aok && dok
+        if others(5)
             for (k, _) in KINDS
                 kind_ok(k, it) && bump!(kinds, k)
             end
         end
-        if sok && bok && rok && lok && kok && dok
+        if others(6)
             # One item counts towards its own author *and* towards whichever of
             # the two predicates it answers, since picking either would bring it.
             isempty(it.author) || bump!(authors, it.author)
             author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
             author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
         end
-        sok && rok && lok && kok && aok && dok && bump!(buckets, it.bucket)
-        sok && bok && lok && kok && aok && dok && bump!(repos, it.repo)
-        if sok && bok && rok && kok && aok && dok
+        others(7) && bump!(buckets, it.bucket)
+        others(8) && bump!(repos, it.repo)
+        if others(9)
             for l in it.labels
                 bump!(labels, l)
             end
         end
     end
-    (; states, seens, kinds, buckets, repos, labels, authors)
+    (; seens, sleeps, overs, tags = tagn, kinds, buckets, repos, labels, authors)
 end
 
 apply_filters(f, all, m::Marks = Marks()) = [it for it in all if matches(f, it, m)]
@@ -408,6 +423,11 @@ axis_set(f::Filters, axis::Symbol) =
     axis === :bucket ? f.buckets : axis === :repo ? f.repos :
     axis === :label ? f.labels : f.authors
 
+"The same, for the four axes whose values are symbols rather than names."
+sym_set(f::Filters, axis::Symbol) =
+    axis === :seen ? f.seen : axis === :sleep ? f.sleep :
+    axis === :over ? f.over : f.tags
+
 "How a value of `axis` is written in the pane. Only the author axis has any."
 axis_label(axis::Symbol, v::AbstractString) =
     axis !== :author ? String(v) :
@@ -429,29 +449,29 @@ already established what this program does when it wants to suggest a line for
 it - it prints one to paste.
 """
 const VIEWS = [
-    # The way back to nothing, and the first row for the same reason the import
-    # row leads the item list: `c` already clears the filter pane, and a control
-    # nobody can find is a control nobody uses. It names no axis but `state`,
-    # which - since a view clears every axis it does not name, sort included -
-    # is exactly what a fresh `Filters()` is.
-    ("the default — active, unfiltered, newest first",
-                        Dict("state" => "active")),
-    # The two modes, and the reason they are views rather than lanes: which work
-    # is yours is the author axis, and what state it is in is the state axis.
-    # One axis per question. A `mine` lane was the author axis said a second
-    # time in a place it did not belong, and it is gone.
-    ("my work — what I am carrying",
-                        Dict("state" => "active", "author" => [AUTHOR_ME])),
-    ("incoming — everyone else's",
-                        Dict("state" => "active", "author" => [AUTHOR_OTHERS])),
-    ("waiting on me",  Dict("state" => "second", "kind" => "pr",
-                            "author" => [AUTHOR_OTHERS])),
-    ("waiting on them", Dict("state" => "second", "author" => [AUTHOR_ME])),
-    ("ready to merge", Dict("state" => "active", "bucket" => ["needs-merge"])),
-    ("red CI, mine",   Dict("state" => "active", "author" => [AUTHOR_ME],
-                            "bucket" => ["needs-edits"])),
-    ("unanswered",     Dict("state" => "active", "bucket" => ["needs-reply"])),
-    ("unread",         Dict("state" => "unread")),
+    # The way back to where the browser opens, and the first row for the same
+    # reason the import row leads the item list: `c` clears the pane to
+    # *nothing*, which is a different and equally wanted place, and a control
+    # nobody can find is a control nobody uses.
+    ("what moved — unread, awake",
+                        Dict("seen" => ["unread"], "sleep" => ["awake"])),
+    # The three modes. Which work is yours is the author axis; what has moved is
+    # the seen axis; what is still open is GitHub's. One axis per question, and
+    # none of them a lane.
+    ("my work — mine, open, awake",
+                        Dict("author" => [AUTHOR_ME], "state" => ["open"],
+                             "sleep" => ["awake"])),
+    ("open items — the pile, awake",
+                        Dict("state" => ["open"], "sleep" => ["awake"])),
+    ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
+                            "author" => [AUTHOR_OTHERS], "sleep" => ["awake"])),
+    ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME],
+                             "sleep" => ["awake"])),
+    ("ready to merge", Dict("bucket" => ["needs-merge"], "sleep" => ["awake"])),
+    ("red CI, mine",   Dict("author" => [AUTHOR_ME], "bucket" => ["needs-edits"],
+                            "sleep" => ["awake"])),
+    ("unanswered",     Dict("bucket" => ["needs-reply"], "sleep" => ["awake"])),
+    ("filed away",     Dict("sleep" => ["filed", "snoozed"])),
 ]
 
 "Every view: the built-in ones, then whatever `config.toml` adds or replaces."
@@ -473,26 +493,21 @@ it twice from different places lands in the same list.
 function apply_view!(st, d)
     f = Filters()
     bad = ""
-    if haskey(d, "state")
-        f.state = Symbol(d["state"])
-        # Said rather than silently ignored. `state_ok` ends in `true` - the
-        # `:all` case - so a state that is not one falls through it and shows
-        # *everything*, which reads as a view that has stopped filtering rather
-        # than as one that is misspelt. It cost a real bug the day `mine` was
-        # removed: the built-in "red CI, mine" went on naming it and went on
-        # returning the right twelve rows, because every `needs-edits` item
-        # happened to be yours. `config.toml` writes these by hand.
-        if !any(x -> x[1] === f.state, STATES)
-            bad = string(" \u00b7 no state '", d["state"], "', showing all")
-        end
-    end
-    if haskey(d, "seen")
-        v = d["seen"]
+    # Said rather than silently ignored. An axis takes a set, and an empty set
+    # restricts nothing - so a value that is not one of the axis's would quietly
+    # widen the view instead of narrowing it, which reads as a view that has
+    # stopped filtering rather than as one that is misspelt. It cost a real bug
+    # the day `mine` was removed: the built-in "red CI, mine" went on naming it
+    # and went on returning the right twelve rows, because every `needs-edits`
+    # item happened to be yours. `config.toml` writes these by hand.
+    for (key, values, set) in (("seen", SEEN, f.seen), ("sleep", SLEEP, f.sleep),
+                               ("state", OVER, f.over), ("tag", TAGS, f.tags))
+        haskey(d, key) || continue
+        v = d[key]
         for x in (v isa AbstractString ? [v] : v)
             k = Symbol(x)
-            any(y -> y[1] === k, DISPOSITIONS) ?
-                push!(f.seen, k) :
-                (bad = string(" \u00b7 no disposition '", x, "'"))
+            any(y -> y[1] === k, values) ? push!(set, k) :
+                (bad = string(" \u00b7 no ", key, " '", x, "'"))
         end
     end
     haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
@@ -510,8 +525,8 @@ function apply_view!(st, d)
     # reason: a name has to mean the same list from wherever it is pressed, and
     # an order left over from the list you were in is not that. It also makes
     # the url order nameable, which nothing else could say - a view that names
-    # `sort = "none"` gets it even where the lane would have implied an order.
-    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f.state)
+    # `sort = "none"` gets it even where the selection would have implied one.
+    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f)
     refilter!(st; keeprow = false)
     string("[", filter_summary(f, st.sort), "]", bad)
 end
@@ -524,12 +539,16 @@ by hand is the one worth keeping, and it is also the one you cannot reconstruct
 from memory an hour later.
 """
 function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
-    lines = [string("[views.", repr(String(name)), "]"),
-             string("state = ", repr(String(f.state)))]
-    isempty(f.seen) ||
-        push!(lines, string("seen = [",
-                            join([repr(String(k)) for (k, _) in DISPOSITIONS
-                                  if k in f.seen], ", "), "]"))
+    lines = [string("[views.", repr(String(name)), "]")]
+    for (key, values, set) in (("seen", SEEN, f.seen), ("sleep", SLEEP, f.sleep),
+                               ("state", OVER, f.over), ("tag", TAGS, f.tags))
+        isempty(set) && continue
+        # In the axis's own order rather than the set's, so the same filter
+        # writes the same line every time.
+        push!(lines, string(key, " = [",
+                            join([repr(String(k)) for (k, _) in values if k in set],
+                                 ", "), "]"))
+    end
     f.kind === :both || push!(lines, string("kind = ", repr(String(f.kind))))
     for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
@@ -557,26 +576,29 @@ function filter_rows(st)
     # the pane is the one place the cursor can reach without reading anything.
     push!(rows, (:reset, "", string("  ↺ clear every filter",
                                     isdefault(f) ? "" : "  (c)")))
-    # Where each item stands with you, and the one axis that is a partition:
-    # every row answers exactly one of the five, so these counts add up to the
-    # list. Checkboxes, because "unseen or unread" is the question the firehose
-    # browse and the incoming inbox each ask half of.
-    push!(rows, (:head, "", "seen"))
-    for (k, name) in DISPOSITIONS
-        push!(rows, (:seen, string(k), string(k in f.seen ? "[x] " : "[ ] ",
-                                              rpad(name, 13), get(n.seens, k, 0))))
+    # The axes that are about the item and you rather than about what it is.
+    # The first three are partitions - every row answers exactly one value - so
+    # their counts add up to the list, which is what makes them worth reading;
+    # `tag` is the odd one, where a row can carry all three or none, and it
+    # behaves like the label axis below. Checkboxes throughout: "snoozed or
+    # filed" and "unread or read" are both questions somebody asks, and a radio
+    # cannot say either.
+    for (axis, label, values, tally, sel) in
+            ((:seen, "seen", SEEN, n.seens, f.seen),
+             (:sleep, "sleep", SLEEP, n.sleeps, f.sleep),
+             (:over, "state", OVER, n.overs, f.over),
+             (:tag, "tag", TAGS, n.tags, f.tags))
+        push!(rows, (:head, "", label))
+        for (k, name) in values
+            push!(rows, (axis, string(k), string(k in sel ? "[x] " : "[ ] ",
+                                                 rpad(name, 18), get(tally, k, 0))))
+        end
+        push!(rows, (:head, "", ""))
     end
-    push!(rows, (:head, "", ""))
-    push!(rows, (:head, "", "state"))
-    for (k, name) in STATES
-        push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
-                                              rpad(name, 13), get(n.states, k, 0))))
-    end
-    push!(rows, (:head, "", ""))
     push!(rows, (:head, "", "kind"))
     for (k, name) in KINDS
         push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
-                                              rpad(name, 14), get(n.kinds, k, 0))))
+                                              rpad(name, 18), get(n.kinds, k, 0))))
     end
     for (axis, label, values, tally) in ((:bucket, "category", st.buckets, n.buckets),
                                          (:repo, "repo", st.repos, n.repos),
@@ -672,15 +694,13 @@ function toggle_filter!(st, ctrl = nothing)
     rows = filter_rows(st)
     st.frow = clamp(st.frow, 1, length(rows))
     (axis, val, _) = rows[st.frow]
-    if axis === :seen
-        v = Symbol(val)
-        v in st.filters.seen ? delete!(st.filters.seen, v) : push!(st.filters.seen, v)
-    elseif axis === :state
-        st.filters.state = Symbol(val)
-        # The lane brings its order with it. `w` is still the override, and it
-        # lasts until the lane changes again - which is the only rule here that
-        # can be stated in one sentence, and the reason it is this one.
-        st.sort = lane_sort(st.filters.state)
+    if axis in (:seen, :sleep, :over, :tag)
+        set, v = sym_set(st.filters, axis), Symbol(val)
+        v in set ? delete!(set, v) : push!(set, v)
+        # A selection brings its order with it. `w` is still the override, and
+        # it lasts until the selection changes again - which is the only rule
+        # here that can be stated in one sentence, and the reason it is this one.
+        st.sort = lane_sort(st.filters)
     elseif axis === :kind
         st.filters.kind = Symbol(val)
     elseif axis === :reset
@@ -756,20 +776,24 @@ function refilter!(st; keeprow::Bool = true)
 end
 
 "One-line summary of what is applied, for the frame title."
-function filter_summary(f, order::Symbol = lane_sort(f.state))
-    parts = [string(f.state)]
-    isempty(f.seen) ||
-        push!(parts, join([String(k) for (k, _) in DISPOSITIONS if k in f.seen], "+"))
+function filter_summary(f, order::Symbol = lane_sort(f))
+    parts = String[]
+    for (values, set) in ((SEEN, f.seen), (SLEEP, f.sleep), (OVER, f.over),
+                          (TAGS, f.tags))
+        isempty(set) ||
+            push!(parts, join([last(x) for x in values if first(x) in set], "+"))
+    end
+    isempty(parts) && push!(parts, "everything")
     f.kind === :both || push!(parts, f.kind === :pr ? "pull requests" : "issues")
-    # Named only when it is not the order this lane opens in. Newest-first is
-    # the default everywhere now, and a summary that says so on every screen is
-    # a phrase the reader stops seeing and a footer three words narrower for
+    # Named only when it is not the order this selection opens in. Newest-first
+    # is the default everywhere now, and a summary that says so on every screen
+    # is a phrase the reader stops seeing and a footer three words narrower for
     # the keys - while an order somebody chose with `w` is exactly what wants
-    # saying, and stops being said the moment the lane changes it back.
+    # saying, and stops being said the moment the selection changes it back.
     #
     # Not `sort`: that is the name of the function two lines down, and shadowing
     # it turned `sort(collect(f.buckets))` into a call on a Symbol.
-    order === lane_sort(f.state) ||
+    order === lane_sort(f) ||
         push!(parts, order === :latest ? "by when it moved" :
                      order === :touched ? "by when you acted" : "by url")
     isempty(f.authors) ||

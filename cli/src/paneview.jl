@@ -607,11 +607,20 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     end
     ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
+    # A pull request is matched to a checkout by branch name alone, which is all
+    # `headRefName` gives - and on the *primary* checkout that is a collision
+    # waiting to happen: it sits on `master`, and somebody's fork opens a pull
+    # request from their own `master` about twice a week. Yours is at least
+    # plausibly the work in there; a stranger's is not, and reading "the branch
+    # carries its pull request" off it is simply wrong.
+    carried(w) = let it = get(ix, (w.repo, w.branch), nothing)
+        (it !== nothing && w.main && !author_ok(Set([AUTHOR_ME]), it)) ? nothing : it
+    end
     for w in ws
         k = wtkey(w.path)
         push!(rows, WorktreeRow(w.repo, w.path, basename(rstrip(w.path, '/')), w.branch,
                                 w.staged, w.unstaged, w.ahead, w.behind, w.at, w.main, false,
-                                get(ix, (w.repo, w.branch), nothing),
+                                carried(w),
                                 sort!(pop!(live, k, SessionRow[]); by = r -> r.kind)))
     end
     # By repo and then by name, which is an order that does not move under you.

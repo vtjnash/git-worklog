@@ -55,7 +55,9 @@ Base.@kwdef mutable struct BState <: View
     refreshat::Float64 = 0.0        # and the second it becomes due
     all::Vector{Item}               # unfiltered
     unread::Set{String} = Set{String}()
-    filters::Filters = Filters()
+    filters::Filters = DEFAULT_FILTERS()   # what the browser opens on: what
+                                    # moved, awake. `Filters()` is bare - every
+                                    # axis open - which is where `c` goes
     prev::Union{Nothing,Filters} = nothing   # one slot deep, for `\``: diving
                                              # into a view and getting back out
                                              # is the move, and `z` is for

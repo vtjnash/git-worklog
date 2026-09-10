@@ -123,14 +123,15 @@ end
     # It is a lane of its own in the filter pane, and it needs no enabling -
     # which is the whole difference from a snooze.
     st = mkstate()
-    @test any(x -> x[1] === :second, W.STATES)
+    @test any(x -> x[1] === :second, W.TAGS)
     quiet = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
                    secondlook = "alice asked, then quiet for 3 work days")
-    @test W.state_ok(:second, quiet)
-    @test !W.state_ok(:second, W.Item(url = "u2", ref = "a#2", repo = "a/b",
-                                      number = 2, title = "t"))
-    # Archived work is not waiting on anybody.
-    @test !W.state_ok(:second, quiet, W.Marks(archived = Dict("u" => "2026-09-01")))
+    @test :second in W.tags_of(quiet)
+    @test isempty(W.tags_of(W.Item(url = "u2", ref = "a#2", repo = "a/b",
+                                   number = 2, title = "t")))
+    # Filed work still carries the tag, and the sleep axis is what takes it out
+    # of a list: two questions, two axes, no precedence between them.
+    @test :second in W.tags_of(quiet, W.Marks(archived = Dict("u" => "forever")))
     # And the reason is shown where the item's facts are.
     @test any(l -> occursin("quiet", l) && occursin("3 work days", l),
               W.astrip.(W.meta_lines(st, quiet, 60)))

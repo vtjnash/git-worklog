@@ -28,15 +28,16 @@
     @test st.typing && !occursin("jumped", st.status)   # not until enter
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].ref == want.ref && occursin("jumped", st.status)
-    # ...and it reaches an item the filter was hiding.
+    # ...and it reaches an item the filter was hiding - a snoozed one here,
+    # since what the browser opens on is what moved, awake.
     st = mkstate()
-    hidden = st.all[findfirst(i -> i.backlog, st.all)]
+    hidden = st.all[findfirst(i -> i.snoozed, st.all)]
     @test !any(i -> i.url == hidden.url, st.items)
     W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].url == hidden.url
-    # An archived one is hidden by the same `active` state, and the widen has to
-    # be measured against the archive map the list itself was built with.
+    # A filed one is hidden by the same sleep axis, and the widen has to be
+    # measured against the marks the list itself was built with.
     st = mkstate()
     seen = Dict{Int,Int}()
     for i in st.all

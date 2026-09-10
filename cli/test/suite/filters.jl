@@ -6,10 +6,11 @@
     # What the counts used to be computed by: one full pass per value, with one
     # axis replaced. Slow, obviously correct, and the thing to check against.
     brute(f, axis, v) = begin
-        p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels), f.kind,
-                      copy(f.authors), copy(f.seen))
-        axis === :state  ? (p.state = v) :
+        p = deepcopy(f)
         axis === :seen   ? (p.seen = Set([v])) :
+        axis === :sleep  ? (p.sleep = Set([v])) :
+        axis === :over   ? (p.over = Set([v])) :
+        axis === :tag    ? (p.tags = Set([v])) :
         axis === :kind   ? (p.kind = v) :
         axis === :bucket ? (p.buckets = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
@@ -20,34 +21,38 @@
         # them zero and the comparison vacuous.
         count(it -> W.matches(p, it, W.Marks(st)), st.all)
     end
-    configs = [W.Filters(),
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}()),
-               W.Filters(:backlog, Set{String}(), Set{String}(), Set{String}()),
-               W.Filters(:all, Set(["needs-review"]), Set{String}(), Set{String}()),
-               W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]), Set{String}()),
-               W.Filters(:all, Set(["issue"]), Set(["JuliaLang/julia"]), Set(["docs"])),
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :issue),
-               W.Filters(:active, Set{String}(), Set(["JuliaLang/julia"]),
-                         Set{String}(), :pr),
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
-                         Set([W.AUTHOR_ME])),
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
-                         Set([W.AUTHOR_OTHERS, "Keno"])),
-               # And the axis this is all for, alone and crossed with another.
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
-                         Set{String}(), Set([:unseen])),
-               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
-                         Set{String}(), Set([:unseen, :snoozed])),
-               W.Filters(:active, Set{String}(), Set{String}(), Set{String}(), :pr,
-                         Set([W.AUTHOR_ME]), Set([:unseen]))]
+    configs = [W.Filters(),                      # bare: every axis open
+               W.DEFAULT_FILTERS(),              # what the browser opens on
+               W.Filters(seen = Set([:read])),
+               W.Filters(sleep = Set([:snoozed, :filed])),
+               W.Filters(over = Set([:open]), sleep = Set([:awake])),
+               W.Filters(tags = Set([:second])),
+               W.Filters(tags = Set([:second, :touched, :drafts])),
+               W.Filters(buckets = Set(["needs-review"])),
+               W.Filters(repos = Set(["JuliaLang/julia"]), seen = Set([:unread])),
+               W.Filters(buckets = Set(["issue"]), repos = Set(["JuliaLang/julia"]),
+                         labels = Set(["docs"])),
+               W.Filters(kind = :issue),
+               W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
+               W.Filters(authors = Set([W.AUTHOR_ME])),
+               W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
+               W.Filters(seen = Set([:unread]), sleep = Set([:awake]),
+                         over = Set([:open]), kind = :pr,
+                         authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
         n = W.axis_counts(st)
-        for (k, _) in W.STATES
-            @test get(n.states, k, 0) == brute(f, :state, k)
-        end
-        for (k, _) in W.DISPOSITIONS
+        for (k, _) in W.SEEN
             @test get(n.seens, k, 0) == brute(f, :seen, k)
+        end
+        for (k, _) in W.SLEEP
+            @test get(n.sleeps, k, 0) == brute(f, :sleep, k)
+        end
+        for (k, _) in W.OVER
+            @test get(n.overs, k, 0) == brute(f, :over, k)
+        end
+        for (k, _) in W.TAGS
+            @test get(n.tags, k, 0) == brute(f, :tag, k)
         end
         for (k, _) in W.KINDS
             @test get(n.kinds, k, 0) == brute(f, :kind, k)
@@ -60,7 +65,7 @@
 
     # Three values and no fourth: both is the whole list, and the other two
     # partition it.
-    st.filters = W.Filters(:all, Set{String}(), Set{String}(), Set{String}())
+    st.filters = W.Filters()
     both = length(W.apply_filters(st.filters, st.all))
     st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all))
     st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all))
@@ -82,156 +87,167 @@ end
     it = st.items[st.sel]
     @test isempty(W.load_drafts())
     W.draft!(it.url)
-    st.filters = W.Filters(:drafts, Set{String}(), Set{String}(), Set{String}())
+    st.filters = W.Filters(tags = Set([:drafts]))
     W.refilter!(st)
     @test [x.url for x in st.items] == [it.url]
     # Counted like every other value on the axis, and offered as a row.
-    @test get(W.axis_counts(st).states, :drafts, 0) == 1
-    @test any(r -> r[1] === :state && r[2] == "drafts", W.filter_rows(st))
-    # Archived work stays in it. A draft on something you have put away is the
-    # strongest reason there is to be shown it again: the two together mean the
-    # work was filed and the words were never sent.
-    @test W.state_ok(:drafts, it, W.Marks(archived = Dict(it.url => "2026-01-01"),
-                                          drafts = Dict(it.url => "2026-01-01")))
+    @test get(W.axis_counts(st).tags, :drafts, 0) == 1
+    @test any(r -> r[1] === :tag && r[2] == "drafts", W.filter_rows(st))
+    # Filed work carries it too, and that is the point: a draft on something you
+    # have put away is the strongest reason there is to be shown it again - the
+    # two together mean the work was filed and the words were never sent. The
+    # tag is its own axis, so nothing about sleep can take it away.
+    @test :drafts in W.tags_of(it, W.Marks(archived = Dict(it.url => "forever"),
+                                           drafts = Dict(it.url => "2026-01-01")))
     # Sent or thrown away, it leaves the lane.
     W.undraft!(it.url)
     W.refilter!(st)
     @test isempty(st.items) && isempty(W.load_drafts())
 end
 
-@testset "where an item stands, as one value" begin
-    # Five states, exclusive by construction, in the order the first that
-    # applies wins. Built here rather than taken from the dashboard so that
-    # every branch is reachable: the real corpus has no archived rows today.
+@testset "where an item stands, on three axes that do not overrule each other" begin
+    # Built here rather than taken from the dashboard so that every branch is
+    # reachable: the real corpus has nothing filed away today.
     mk(; kw...) = W.Item(; url = "https://github.com/o/r/pull/1", ref = "r#1",
                          repo = "o/r", number = 1, title = "t",
                          updated = "2026-09-02T00:00:00Z", kw...)
     it = mk()
     seen(at) = W.Marks(read = Dict(it.url => at))
-    filed = W.Marks(archived = Dict(it.url => "2026-09-03"))
+    filed = W.Marks(archived = Dict(it.url => "forever"))
 
-    # Never in front of you, which is not the same as looked at and moved on.
-    @test W.disposition(it) === :unseen
-    # A stamp older than the item is unread; one at or after it is read.
-    @test W.disposition(it, seen("2026-09-01T00:00:00Z")) === :unread
-    @test W.disposition(it, seen("2026-09-02T00:00:00Z")) === :read
-    @test W.disposition(it, seen("2026-09-09T00:00:00Z")) === :read
-
-    # Asleep and filed outrank all three, and filed outranks asleep: they are
-    # answers about what you decided, and the seen bit is one about what you
-    # have looked at.
-    @test W.disposition(mk(snoozed = true)) === :snoozed
-    @test W.disposition(mk(snoozed = true), seen("2026-09-09T00:00:00Z")) === :snoozed
-    @test W.disposition(it, filed) === :archived
-    @test W.disposition(mk(snoozed = true), filed) === :archived
-
+    # Seen: the stamp against `updated`. No stamp at all is unread - never
+    # having looked and having looked before it moved are the same answer to
+    # "have you seen what it says now".
+    @test W.seen_of(it) === :unread
+    @test W.seen_of(it, seen("2026-09-01T00:00:00Z")) === :unread
+    @test W.seen_of(it, seen("2026-09-02T00:00:00Z")) === :read
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z")) === :read
     # A synthetic item - an adopted branch, an import no refresh has caught up
     # with - has no `updated` at all, and a stamp on one is the only thing
     # anybody has said about whether it has been seen.
-    @test W.disposition(mk(updated = "")) === :unseen
-    @test W.disposition(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :read
+    @test W.seen_of(mk(updated = "")) === :unread
+    @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :read
 
-    # Exclusive by construction: every item on the real dashboard answers
-    # exactly one of the five, which is the property the five bools did not
-    # have and had to be given by a precedence rule at every reader. So the
-    # counts partition the list.
+    # **Nothing overrides it.** A snooze and a filing are answers to "do I want
+    # to see this"; they say nothing about whether it has changed, and this is
+    # the correction the whole model turns on.
+    @test W.seen_of(mk(snoozed = true)) === :unread
+    @test W.seen_of(mk(snoozed = true), filed) === :unread
+    @test W.seen_of(mk(snoozed = true), seen("2026-09-09T00:00:00Z")) === :read
+
+    # Sleep: one decision, three readings, and filed is the snooze that never
+    # wakes - so it wins over the snooze bit that is set alongside it.
+    @test W.sleep_of(it) === :awake
+    @test W.sleep_of(mk(snoozed = true)) === :snoozed
+    @test W.sleep_of(mk(snoozed = true), filed) === :filed
+    @test W.sleep_of(it, filed) === :filed
+
+    # Over: GitHub's, and empty reads as open.
+    @test W.over_of(it) === :open
+    @test W.over_of(mk(state = "OPEN")) === :open
+    @test W.over_of(mk(state = "MERGED")) === :done
+    @test W.over_of(mk(state = "CLOSED")) === :done
+
+    # Tags: several at once, or none, which is why they are not an axis of the
+    # kind above.
+    @test isempty(W.tags_of(it))
+    @test W.tags_of(mk(secondlook = "quiet 3 days")) == [:second]
+    @test Set(W.tags_of(mk(secondlook = "q"),
+                        W.Marks(touched = Dict(it.url => "2026-01-01"),
+                                drafts = Dict(it.url => "2026-01-01")))) ==
+          Set([:second, :touched, :drafts])
+
+    # The three axes partition the real dashboard, which is what makes their
+    # counts add up to it.
     st = mkstate()
-    m = W.Marks(st)
-    ds = [W.disposition(x, m) for x in st.all]
-    @test all(d -> d in first.(W.DISPOSITIONS), ds)
-    @test length(ds) == length(st.all)
-    st.filters = W.Filters(); st.filters.state = :all; W.refilter!(st)
+    st.filters = W.Filters(); W.refilter!(st)
     n = W.axis_counts(st)
-    @test sum(get(n.seens, k, 0) for (k, _) in W.DISPOSITIONS) == length(st.items)
+    for (axis, tally) in ((W.SEEN, n.seens), (W.SLEEP, n.sleeps), (W.OVER, n.overs))
+        @test sum(get(tally, k, 0) for (k, _) in axis) == length(st.items)
+    end
 end
 
-@testset "the disposition axis is a multiselect over the corpus" begin
+@testset "the axes are sets, and a set is what a radio could not say" begin
     st = mkstate()
-    st.filters.state = :all
-    W.refilter!(st)
+    st.filters = W.Filters(); W.refilter!(st)
     whole = length(st.items)
-    # Empty means every one of them, the way every other multiselect axis here
-    # reads empty - and the corpus is what is left when nothing is narrowed.
-    @test isempty(st.filters.seen)
+    # Bare means every axis open, which is the corpus: `c` goes here and the
+    # browser does not open here.
+    @test W.isdefault(st.filters)
+    @test occursin("everything", W.filter_summary(st.filters))
 
     counts = Dict{Symbol,Int}()
-    for (k, _) in W.DISPOSITIONS
-        st.filters.seen = Set([k])
-        W.refilter!(st)
+    for (k, _) in W.SLEEP
+        st.filters = W.Filters(sleep = Set([k])); W.refilter!(st)
         counts[k] = length(st.items)
-        @test all(x -> W.disposition(x, W.Marks(st)) === k, st.items)
+        @test all(x -> W.sleep_of(x, W.Marks(st)) === k, st.items)
     end
     @test sum(values(counts)) == whole
-    # Two of them is the union, which is the whole point of it being a set:
-    # "unseen or unread" is the question the two modes each ask half of.
-    st.filters.seen = Set([:unseen, :unread])
-    W.refilter!(st)
-    @test length(st.items) == counts[:unseen] + counts[:unread]
+    # Two of them is the union, which is the whole point of it being a set.
+    st.filters = W.Filters(sleep = Set([:snoozed, :filed])); W.refilter!(st)
+    @test length(st.items) == counts[:snoozed] + counts[:filed]
 
-    # Drawn as checkboxes, counted like every other axis, and toggled by the
-    # same key that toggles the rest.
-    st.filters.seen = Set{Symbol}()
-    W.refilter!(st)
+    # Toggled by the same key that toggles every other axis, and off again -
+    # which is the thing a radio cannot do.
+    st.filters = W.Filters(); W.refilter!(st)
     st.lmode = :filters
     rows = W.filter_rows(st)
-    @test [r[2] for r in rows if r[1] === :seen] == [String(k) for (k, _) in W.DISPOSITIONS]
-    @test all(occursin("[ ] ", r[3]) for r in rows if r[1] === :seen)
-    st.frow = findfirst(r -> r[1] === :seen && r[2] == "unseen", rows)
+    @test [r[2] for r in rows if r[1] === :sleep] == [String(k) for (k, _) in W.SLEEP]
+    st.frow = findfirst(r -> r[1] === :sleep && r[2] == "awake", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.seen == Set([:unseen]) && length(st.items) == counts[:unseen]
-    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "unseen"))
-    @test !W.isdefault(st.filters)
-    # And off again, which is what a radio could not do.
+    @test st.filters.sleep == Set([:awake]) && length(st.items) == counts[:awake]
+    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "awake"))
     @test W.toggle_filter!(st)
-    @test isempty(st.filters.seen) && length(st.items) == whole
-    # It says so in the frame title, and writes itself as a view.
-    st.filters.seen = Set([:unread, :unseen])
-    @test occursin("unseen+unread", W.filter_summary(st.filters))
-    @test occursin("seen = [\"unseen\", \"unread\"]",
-                   W.view_toml(st.filters, st.sort, "x"))
-    # A view names it, and a misspelt one is said rather than ignored.
-    @test occursin("unseen", W.apply_view!(st, Dict("state" => "all", "seen" => ["unseen"])))
-    @test st.filters.seen == Set([:unseen])
-    @test occursin("no disposition", W.apply_view!(st, Dict("seen" => "unred")))
+    @test isempty(st.filters.sleep) && length(st.items) == whole
+
+    # What the browser opens on is what moved, awake - a starting place rather
+    # than a lane, and every other axis is open in it.
+    d = W.DEFAULT_FILTERS()
+    @test d.seen == Set([:unread]) && d.sleep == Set([:awake])
+    @test isempty(d.over) && isempty(d.tags) && isempty(d.authors)
+    @test occursin("unread", W.filter_summary(d)) && occursin("awake", W.filter_summary(d))
+    # And it writes itself as a view, in the axis's own order.
+    @test occursin("seen = [\"unread\"]", W.view_toml(d, :latest, "x"))
+    @test occursin("sleep = [\"awake\"]", W.view_toml(d, :latest, "x"))
+    # A view names the axes, and a misspelt value is said rather than ignored.
+    @test occursin("open", W.apply_view!(st, Dict("state" => ["open"])))
+    @test st.filters.over == Set([:open])
+    @test occursin("no seen", W.apply_view!(st, Dict("seen" => "unred")))
+    @test occursin("no sleep", W.apply_view!(st, Dict("sleep" => ["awake", "asleep"])))
 end
 
 @testset "when a row leaves, the cursor stays where it was" begin
-    # `r` in the unread lane takes the row it marks read out of the list, and a
+    # `r` with `seen: unread` takes the row it marks read out of the list, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
     # back down, r, scroll back down. The url it was on is gone, so the fallback
     # is the row - whatever moved up into the place being read.
-    st = mkstate()
-    st.unread = Set(it.url for it in first(st.items, 5))
-    st.filters.state = :unread
-    W.refilter!(st; keeprow = false)
-    @test length(st.items) == 5 && st.sel == 1
-    st.sel = 3
-    gone = st.items[3].url
-    delete!(st.unread, gone)          # what `r` does before it refilters
-    W.refilter!(st)
-    @test length(st.items) == 4
-    @test st.sel == 3 && st.items[3].url != gone
-    # Clamped, so the last row of a lane leaving lands on the new last row
-    # rather than off the end of it.
-    st.sel = 4
-    delete!(st.unread, st.items[4].url)
-    W.refilter!(st)
-    @test st.sel == length(st.items) == 3
-    # And the item itself still outranks the row: one that is still in the list
-    # keeps the cursor wherever it moved to.
-    st.sel = 3
-    url = st.items[3].url
-    st.sort = :url; W.refilter!(st)
-    @test st.items[st.sel].url == url
-    # Asking for a different list is not the same thing as the list changing
-    # under you. Choosing a view, a filter or a query opens at the top, and the
-    # same disappearance answers 1 there rather than the row it was on.
-    st.unread = Set(it.url for it in first(st.all, 5))
-    W.refilter!(st; keeprow = false)
-    st.sel = 4; st.top = 3
-    delete!(st.unread, st.items[4].url)
-    W.refilter!(st; keeprow = false)
-    @test st.sel == 1 && st.top == 1
+    keep = W.MARKS[]
+    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    try
+        st = mkstate()
+        st.filters = W.Filters(seen = Set([:unread]))
+        W.refilter!(st; keeprow = false)
+        five = [it.url for it in first(st.items, 5)]
+        # Everything else read, in one write: the axis is the stamp against
+        # `updated`, so this is what having looked at the rest amounts to.
+        W.mark_read([it.url for it in st.all if !(it.url in five)], W.utcnow())
+        W.refilter!(st; keeprow = false)
+        @test length(st.items) == 5 && st.sel == 1
+        st.sel = 3
+        gone = st.items[3].url
+        W.mark_read([gone], W.utcnow())     # what `r` does before it refilters
+        W.refilter!(st)
+        @test length(st.items) == 4
+        @test st.sel == 3 && st.items[3].url != gone
+        # Clamped, so the last row of a selection leaving lands on the new last
+        # row rather than off the end of it.
+        st.sel = 4
+        W.mark_read([st.items[4].url], W.utcnow())
+        W.refilter!(st)
+        @test st.sel == length(st.items) == 3
+    finally
+        W.MARKS[] = keep
+    end
 end
 
 @testset "an axis you can search, and whose it is" begin
@@ -337,7 +353,7 @@ end
     # The two predicates partition the list, and your own login is not a row of
     # its own - `@me` is that row, and it carries the adopted branches too.
     st2 = mkstate()
-    st2.filters.state = :all; W.refilter!(st2)
+    st2.filters = W.Filters(); W.refilter!(st2)
     all_ = length(st2.items)
     st2.filters.authors = Set([W.AUTHOR_ME]); W.refilter!(st2)
     mine = length(st2.items)
@@ -352,7 +368,7 @@ end
     # `c` clears every axis, this one included.
     st2.lmode = :filters
     W.handle!(st2, Int('c'), ctrl)
-    @test isempty(st2.filters.authors) && st2.filters.state === :active
+    @test isempty(st2.filters.authors) && W.isdefault(st2.filters)
 end
 
 @testset "the row that clears every filter" begin
@@ -363,6 +379,10 @@ end
 
     # `c` has always done this and nothing on screen said so.
     @test W.isdefault(W.Filters())
+    # ...and the browser does not open bare: what it opens on is a filter like
+    # any other, and `c` is how you get out of it.
+    @test !W.isdefault(W.DEFAULT_FILTERS())
+    st.filters = W.Filters(); W.refilter!(st)
     rows = W.filter_rows(st)
     @test rows[1][1] === :reset
     @test occursin("clear every filter", W.astrip(W.render(st, 160, 50)))
@@ -372,8 +392,8 @@ end
     @test W.toggle_filter!(st, ctrl) === false
     @test st.prev === nothing
 
-    st.filters.labels = Set(["docs"]); st.filters.state = :all
-    st.filters.kind = :issue; W.refilter!(st)
+    st.filters.labels = Set(["docs"]); st.filters.kind = :issue
+    W.refilter!(st)
     @test !W.isdefault(st.filters)
     # Once there is something to clear, the row names the key that also does it.
     @test occursin("(c)", W.filter_rows(st)[1][3])
@@ -397,8 +417,8 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    # reset, then seen, state, kind, category, repo, label, author
-    @test length(g) == 8
+    # reset, then seen, sleep, state, tag, kind, category, repo, label, author
+    @test length(g) == 10
     @test rows[1][1] === :reset && g[1] == 1    # the way out leads the pane
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
@@ -474,8 +494,8 @@ end
 @testset "labels are a filter axis" begin
     st = mkstate()
     @test !isempty(st.labels)
-    # :all, so the state axis does not reject the sample before labels are read.
-    f = W.Filters(); f.state = :all
+    # Bare, so no other axis rejects the sample before the labels are read.
+    f = W.Filters()
     it = st.all[findfirst(x -> !isempty(x.labels), st.all)]
     push!(f.labels, first(it.labels))
     @test W.matches(f, it)
@@ -498,44 +518,48 @@ end
     # away and needs no name.
     names = [n for (n, _) in W.views(Dict{String,Any}())]
     @test "waiting on me" in names && "ready to merge" in names
-    # Except the first, which is the way back to nothing and leads for the same
-    # reason the import row leads the item list.
-    @test occursin("default", first(names))
+    # Except the first, which is the way back to what the browser opens on and
+    # leads for the same reason the import row leads the item list.
+    @test occursin("what moved", first(names))
     # config.toml adds to them, and replaces one of the same name rather than
     # listing it twice.
     cfg = Dict{String,Any}("views" => Dict{String,Any}(
-        "mine, all of it" => Dict("state" => "mine"),
-        "waiting on me" => Dict("state" => "unread")))
+        "mine, all of it" => Dict("author" => ["@me"]),
+        "waiting on me" => Dict("seen" => ["unread"])))
     vs = W.views(cfg)
     @test length(vs) == length(names) + 1
-    @test Dict(vs)["waiting on me"]["state"] == "unread"
+    @test Dict(vs)["waiting on me"]["seen"] == ["unread"]
 
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.
     st.filters.labels = Set(["docs"]); st.filters.kind = :issue
-    W.apply_view!(st, Dict("state" => "all", "bucket" => ["needs-review"]))
-    @test st.filters.state === :all && st.filters.buckets == Set(["needs-review"])
+    W.apply_view!(st, Dict("bucket" => ["needs-review"]))
+    @test st.filters.buckets == Set(["needs-review"])
     @test isempty(st.filters.labels) && st.filters.kind === :both
-    # A single value is as good as a list of one.
-    W.apply_view!(st, Dict("state" => "all", "repo" => "JuliaLang/julia"))
+    @test isempty(st.filters.seen) && isempty(st.filters.sleep)
+    # A single value is as good as a list of one, on every axis.
+    W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "seen" => "read"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
+    @test st.filters.seen == Set([:read])
 
     # The sort is an axis like the rest: a view that names one sets it, and a
     # view that names none puts it back to the order its lane opens in - newest
     # first, unless the lane defines its own. A name has to mean the same list
     # from wherever it is pressed, and an order carried over from the list you
     # were in is not that.
-    W.apply_view!(st, Dict("state" => "all", "sort" => "none"))
+    W.apply_view!(st, Dict("sort" => "none"))
     @test st.sort === :none
-    W.apply_view!(st, Dict("state" => "all"))
+    W.apply_view!(st, Dict("seen" => ["unread"]))
     @test st.sort === :latest
-    W.apply_view!(st, Dict("state" => "touched"))
-    @test st.sort === :touched          # the lane that *is* the clock
+    W.apply_view!(st, Dict("tag" => ["touched"]))
+    @test st.sort === :touched          # the selection that *is* the clock
 
-    # And the first view is the whole default, sort included.
+    # And the first view is the whole of what the browser opens on, sort
+    # included.
     st.sort = :touched; st.filters.labels = Set(["docs"])
     W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
-    @test W.isdefault(st.filters) && st.sort === :latest
+    @test st.filters.seen == Set([:unread]) && st.filters.sleep == Set([:awake])
+    @test isempty(st.filters.labels) && st.sort === :latest
 
     # `\`` is the way back out, and back in again: one slot, which is the depth
     # the move actually has.
@@ -556,8 +580,8 @@ end
     v = last(ctrl.stack)
     @test v isa W.ChooseView && v.title == "Views"
     @test any(o -> o[2] === :save, v.options)          # the way out of the list
-    v.onpick(Dict("state" => "all", "kind" => "issue"))
-    @test st.filters.state === :all && st.filters.kind === :issue
+    v.onpick(Dict("sleep" => ["awake"], "kind" => "issue"))
+    @test st.filters.sleep == Set([:awake]) && st.filters.kind === :issue
     @test occursin("view:", st.status)
 
     # The first ten are on keys of their own: the same ten in the same order
@@ -607,7 +631,8 @@ end
     parsed = W.TOML.parse(toml)["views"]["issues, all of them"]
     st2 = mkstate()
     W.apply_view!(st2, parsed)
-    @test st2.filters.state === st.filters.state && st2.filters.kind === st.filters.kind
+    @test st2.filters.seen == st.filters.seen && st2.filters.kind === st.filters.kind
+    @test st2.filters.sleep == st.filters.sleep && st2.filters.over == st.filters.over
     st.filters.repos = Set(["a/b", "c/d"]); st.filters.authors = Set([W.AUTHOR_ME])
     round2 = W.TOML.parse(W.view_toml(st.filters, st.sort, "x"))["views"]["x"]
     W.apply_view!(st2, round2)
@@ -615,36 +640,41 @@ end
     @test st2.filters.authors == Set([W.AUTHOR_ME])
 end
 
-@testset "a lane brings its order with it" begin
-    # Not a preference, a definition: the `touched` lane *is* the interaction
-    # clock - membership in it is having acted on something - so arriving in it
+@testset "a selection brings its order with it" begin
+    # Not a preference, a definition: the `touched` tag *is* the interaction
+    # clock - carrying it is having acted on something - so arriving in it
     # sorted by anything else asks the reader to press `w` to see what they came
-    # for. Every other lane is absent from the table and reads as newest first,
-    # which is the order every other inbox opens in and the answer use gave to
-    # the question that table used to leave open.
-    @test W.lane_sort(:touched) === :touched
-    @test W.lane_sort(:active) === :latest && W.lane_sort(:unread) === :latest
+    # for. Every other selection reads as newest first, which is the order every
+    # other inbox opens in and the answer use gave to the question this used to
+    # leave open.
+    @test W.lane_sort(W.Filters(tags = Set([:touched]))) === :touched
+    @test W.lane_sort(W.Filters()) === :latest
+    @test W.lane_sort(W.DEFAULT_FILTERS()) === :latest
+    # The clock is the order of the clock *alone*: crossed with anything else it
+    # is one axis of several and has no claim on how the list is read.
+    @test W.lane_sort(W.Filters(tags = Set([:touched, :drafts]))) === :latest
 
     st = mkstate()
-    pick(name) = (st.frow = findfirst(r -> r[1] === :state && r[2] == name,
-                                      W.filter_rows(st)); W.toggle_filter!(st))
+    pick(axis, name) = (st.frow = findfirst(r -> r[1] === axis && r[2] == name,
+                                            W.filter_rows(st)); W.toggle_filter!(st))
+    st.filters = W.Filters(); W.refilter!(st)
     @test st.sort === :latest
-    pick("touched"); @test st.sort === :touched
-    pick("active");  @test st.sort === :latest
-    # `w` overrides, and the override lasts until the lane changes - which is
-    # the only rule here that can be said in one sentence.
+    pick(:tag, "touched"); @test st.sort === :touched
+    pick(:tag, "touched"); @test st.sort === :latest      # and off again
+    # `w` overrides, and the override lasts until the selection changes - which
+    # is the only rule here that can be said in one sentence.
     st.sort = :none
-    pick("unread"); @test st.sort === :latest
+    pick(:seen, "unread"); @test st.sort === :latest
 
-    # A view naming a state gets that lane's order too, since it is clearing
-    # every axis it does not name and the order is one of them.
-    W.apply_view!(st, Dict("state" => "touched"))
+    # A view naming the clock gets its order too, since it is clearing every
+    # axis it does not name and the order is one of them.
+    W.apply_view!(st, Dict("tag" => ["touched"]))
     @test st.sort === :touched
     # ...unless the view says otherwise, which is what makes the url order
-    # nameable even where a lane would have implied an order.
-    W.apply_view!(st, Dict("state" => "touched", "sort" => "none"))
+    # nameable even where a selection would have implied an order.
+    W.apply_view!(st, Dict("tag" => ["touched"], "sort" => "none"))
     @test st.sort === :none
-    # And the summary names an order only when it is not the lane's own: the
+    # And the summary names an order only when it is not the selection's own: the
     # default said on every screen is a phrase the reader stops seeing, and
     # three words the keys row would rather have.
     @test !occursin("by when", W.filter_summary(W.Filters(), :latest))

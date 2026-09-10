@@ -457,7 +457,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # puts it back. `u` used to be the unconditional half of this and is
         # now the whole refresh - two presses of a toggle reach either state,
         # and nothing else in the program could ask for a refresh at all.
-        was = it.url in st.unread
+        # The stamp is what says which way this toggles, not the poll's set:
+        # `st.unread` is what moved in the repos the poll watches, and this key
+        # works on anything on screen - a firehose row the poll never saw
+        # included. The set is kept in step because the metadata pane reads it.
+        was = seen_of(it, Marks(st)) === :unread
         seen = was
         # Read up to when the thread was *fetched*, not to now. A comment that
         # arrived while you were reading - or while you were away from a pane
@@ -478,10 +482,16 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             set_read(it.url, prev)
             was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
         end))
-        # The unread lane is membership in that set, so it has to be rebuilt for
-        # the row to leave or arrive.
-        st.filters.state === :unread && refilter!(st)
-        st.status = seen ? "marked read" : "marked unread"
+        # The list is what the axes say it is, so a row that has just stopped
+        # answering one of them leaves - which for `r` with `seen: unread` is
+        # the whole of reading an inbox. Its own return for the same reason `x`
+        # has one: the selection moves when the row goes, and `load_nodes!`
+        # would put "loading …" over what this has to say.
+        refilter!(st)
+        msg = seen ? "marked read" : "marked unread"
+        load_nodes!(st); load_meta!(st)
+        st.status = msg
+        return :ok
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
     elseif k == Int('R')
