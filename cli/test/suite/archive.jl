@@ -15,7 +15,9 @@
 
         W.handle!(st, Int('x'), ctrl)
         @test st.status == string("archived ", it.ref)     # and not clobbered
-        @test W.get_field(it.url, "archive") == string(Date(W.utcnow()))
+        # Archiving is a snooze that never wakes, and one field is what says so.
+        @test W.get_field(it.url, "snooze") == "forever"
+        @test W.snooze_forever(W.get_field(it.url, "snooze"))
         # Out of the two lanes that answer "what should I be doing", and in the
         # one that is a record. `all` is everything, so it is unchanged.
         @test n(:active) == a0 - 1
@@ -38,7 +40,7 @@
         # something never read is nothing at all - the same shape every other
         # undo of a mark has.
         W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "archive") === nothing
+        @test W.get_field(it.url, "snooze") === nothing
         @test W.read_at(it.url) === nothing
         # Back in, from the lane it came out of: the archived lane is empty
         # now, and `x` acts on the row under the cursor.
@@ -52,9 +54,9 @@
         # A toggle, and undoable either way.
         W.handle!(st, Int('x'), ctrl)
         @test occursin("back out", st.status)
-        @test W.get_field(it.url, "archive") === nothing
+        @test W.get_field(it.url, "snooze") === nothing
         W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "archive") !== nothing
+        @test W.get_field(it.url, "snooze") == "forever"
         W.handle!(st, Int('x'), ctrl)
 
         # Nothing written about it is lost - archiving is not deleting.
@@ -116,7 +118,7 @@
         # Read, and it becomes something to file. Offered, never done silently.
         delete!(st.unread, l.url)
         @test occursin("x archives it", says())
-        @test W.get_field(l.url, "archive") === nothing
+        @test W.get_field(l.url, "snooze") === nothing
 
         # A merge you pushed yourself is not news at all, so the wait is
         # skipped: unread or not, the offer stands on the first frame.

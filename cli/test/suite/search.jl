@@ -50,7 +50,7 @@
         W.handle!(st, 13, ctrl)
         @test st.items[st.sel].url == away.url
     finally
-        W.set_fields(away.url, ["archive" => nothing])
+        W.set_fields(away.url, ["snooze" => nothing])
     end
 
     st = mkstate()

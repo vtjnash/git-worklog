@@ -195,7 +195,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
         kv("draft", string(YEL, b.n, b.n == 1 ? " comment" : " comments", AR, "  ", AD,
                            "c adds one \u00b7 A sends them", AR))
     if haskey(st.archived, it.url)
-        kv("archived", string(st.archived[it.url], "  ", AD, "x takes it back out", AR))
+        kv("archived", string("filed away", "  ", AD, "x takes it back out", AR))
     elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
         # Merged, and you have not looked at it since - or this is the first
         # refresh that has seen it at all, which is the same thing for a repo

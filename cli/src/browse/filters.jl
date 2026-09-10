@@ -725,7 +725,7 @@ function refilter!(st; keeprow::Bool = true)
     st.touched = field_marks(m, "touched")
     st.drafts = field_marks(m, "draft")
     st.read = field_marks(m, "read")
-    st.archived = field_map("archive")
+    st.archived = archived_map()
     st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,

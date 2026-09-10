@@ -679,41 +679,34 @@ end
 """Put work away, or take it back out. `x` toggles.
 
 Done, rejected or merged work should be able to leave without being deleted:
-the note, the snooze and everything else written about it stay in `state.toml`,
-and the `archived` lane is where it can still be found. `active` and `mine`
-stop showing it, which is the whole point - they are the two lanes that answer
-"what should I be doing", and neither should be answering with work that is
-over.
+the note and everything else written about it stay in `state.toml`, and the
+`archived` lane is where it can still be found.
+
+**It is a snooze, and always was.** "File this away" and "not now" are the same
+sentence with a different wake condition, so `x` writes `snooze = "forever"` -
+one field, one undo, one place to look, and `snooze_why` says which kind it is.
+Two fields meant a precedence rule between them at every reader, and an item
+could carry both.
 
 It closes the loop for an adopted branch especially. A merged pull request
 leaves the active lanes on its own once GitHub says so; a local branch that came
 to nothing has no other way out.
 """
 function archive!(st::BState, it::Item, at::DateTime)
-    was = get_field(it.url, "archive")
-    prevtouch = touched_at(it.url)
-    prevread, wasunread = read_at(it.url), it.url in st.unread
-    set_fields(it.url, ["archive" => was === nothing ? string(Date(at)) : nothing], at)
-    # Filing something is the end of looking at it, the same way a snooze is,
-    # and that one has always stamped it read. Without this an archived item
-    # could also be unread - which is two answers to one question, and the
-    # order between them a rule every reader has to remember rather than a
-    # tidiness. Only on the way in: taking it back out is not a claim about
-    # whether you have read it.
-    if was === nothing
-        set_read(it.url, stamp(at))
-        delete!(st.unread, it.url)
-    end
-    push!(st.undos, Undo(string(was === nothing ? "archive " : "unarchive ", it.ref),
-                         () -> begin
-        set_fields(it.url, ["archive" => was])
-        set_touched(it.url, prevtouch)
-        set_read(it.url, prevread)
-        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
-    end))
-    refilter!(st)
-    was === nothing ? string("archived ", it.ref) : string("back out: ", it.ref)
+    was = snooze_forever(get_field(it.url, "snooze"))
+    r = apply_snooze!(st, it, was ? nothing : "forever", at)
+    startswith(r, "bad ") && return r
+    # The undo `apply_snooze!` pushed is the right one; only its name is wrong,
+    # since what the reader pressed was `x`.
+    isempty(st.undos) ||
+        (st.undos[end] = Undo(string(was ? "unarchive " : "archive ", it.ref),
+                              st.undos[end].undo))
+    was ? string("back out: ", it.ref) : string("archived ", it.ref)
 end
+
+"Is this snooze value the one that never wakes - which is what archiving is?"
+snooze_forever(v) = v !== nothing &&
+    (p = parse_snooze(String(v)); p !== nothing && p.mode === :forever)
 
 """Is this item over, as far as GitHub is concerned?
 

@@ -332,8 +332,11 @@ end
 """
     parse_snooze(sv) -> (mode, days, until) or nothing
 
-The four shapes a `snooze` value can take:
+The five shapes a `snooze` value can take:
 
+  * `forever` - hide it and never bring it back. **This is what archiving is.**
+    Filing something away and putting it to sleep are the same sentence with a
+    different wake condition, so they are one field: `x` writes this one.
   * `on-change` (or `until-review`) - hide until the fingerprint differs
   * `on-change/30d` - the same, but give up after that long
   * `3d`, `2w`, `6mo` - hide for a while, counted from when it was set
@@ -343,6 +346,8 @@ The four shapes a `snooze` value can take:
 """
 function parse_snooze(sv::AbstractString)
     s = strip(lowercase(String(sv)))
+    (s == "forever" || s == "archive" || s == "never") &&
+        return (mode = :forever, days = nothing, until = nothing)
     (s == "on-change" || s == "until-review") &&
         return (mode = :onchange, days = nothing, until = nothing)
     if startswith(s, "on-change/") || startswith(s, "until-review/")
@@ -449,6 +454,10 @@ function snooze_active(url, st, fp, snz, at::DateTime, maxdays = nothing)
     p = parse_snooze(sv)
     p === nothing && return (false, "bad snooze value '$sv'")
 
+    # Nothing wakes it, so there is nothing to arm and nothing to check: the
+    # item moving is what makes it *unread*, which is a different question and
+    # not one this answers.
+    p.mode === :forever && return (true, "forever")
     if p.mode === :date
         p.until <= Date(at) && return (false, "woke: snooze expired")
         return (true, "until $(p.until)")

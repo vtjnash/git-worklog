@@ -10,7 +10,10 @@
 "Overridable so a test can write somewhere other than the user's own file."
 const STATE = Ref("")
 statefile() = isempty(STATE[]) ? datapath("state.toml") : STATE[]
-const FIELDS = ["adopted", "archive", "blocked_on", "bucket", "deadline", "note",
+# `archive` is not one of them and was: filing something away is a snooze with
+# no wake condition, so it is `snooze = "forever"` and there is one field for
+# "I do not want to see this", not two that have to be kept in precedence.
+const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "note",
                 "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
 const TRACK = ("close", "normal", "loose", "background")
@@ -159,6 +162,14 @@ function get_field(url::AbstractString, key::AbstractString)
     end
     nothing
 end
+
+"""Every item filed away, as `url -> the value that filed it`.
+
+Archiving is `snooze = "forever"`, so this is the snooze map with the values
+that never wake kept - not a field of its own. See `archive!`.
+"""
+archived_map() = Dict{String,String}(u => v for (u, v) in field_map("snooze")
+                                     if snooze_forever(v))
 
 """Hand back the next slice of untagged backlog, quietest first.
 

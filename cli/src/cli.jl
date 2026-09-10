@@ -19,9 +19,10 @@ Work dashboard.
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 close            close | normal | loose | background
   wl dismiss julia#62452                  retire from the backlog until it moves
-  wl snooze  julia#62452 on-change        or a date, or "off"
+  wl snooze  julia#62452 on-change        or a date, "forever", or "off"
   wl note    julia#62452 "rebase after #62396 lands"
-  wl archive julia#62452 2026-09-02        or: wl adopted local:o/r#branch <date>
+  wl archive julia#62452                  file it away: snooze = forever
+  wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
   wl deadline julia#62452 2026-09-30
   wl bucket  julia#62452 needs-review
   wl blocked julia#62452 JuliaLang/julia#62396
@@ -261,6 +262,22 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         end
         return 0
     end
+    if cmd == "archive"
+        # A snooze with no wake condition, which is the whole of what archiving
+        # ever was: `x` in the browser writes the same value. It takes no date -
+        # the one it used to take was a note to yourself about when you filed
+        # it, and the interaction clock records that already.
+        for u in urls
+            disarm(u)
+            set_fields(u, ["snooze" => "forever"], at)
+            # Filing something is the end of looking at it, the same courtesy a
+            # snooze pays. It goes unread again the moment it moves, which is
+            # what the attention axis is for and is not what this decides.
+            mark_read([u], at)
+            println("archived $u (snooze = forever)")
+        end
+        return 0
+    end
     if cmd == "dismiss"
         # Retire a backlog item: stop caring about churn, but do not go blind to
         # it. Loose tracking plus an on-change snooze means it comes back only if
@@ -296,18 +313,18 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # the snoozed section prints - so `wl snooze julia#1 3days` used to look
         # like it worked and quietly do nothing at all.
         value === nothing || parse_snooze(value) !== nothing ||
-            die("bad snooze value '$value'. Use on-change, on-change/30d, " *
-                "a span like 3d/2w/6mo/1y, or a date like 2026-09-15.")
+            die("bad snooze value '$value'. Use forever, on-change, " *
+                "on-change/30d, a span like 3d/2w/6mo/1y, or a date like " *
+                "2026-09-15.")
     elseif cmd == "blocked_on"
         value = String.(split(value, ","))
     end
     for u in urls
         println("$(set_fields(u, [cmd => value])) $cmd $u")
-        # Filing something is the end of looking at it, so it is read - the same
-        # rule `x` follows in the browser, and the same one a snooze has always
-        # followed. Without it an archived item can also be unread, which is two
-        # answers to one question.
-        cmd == "archive" && value !== nothing && mark_read([u], at)
+        # Putting something to sleep is the end of looking at it. It goes unread
+        # again the moment it moves - a snooze that wakes is news - which is why
+        # this is a stamp and not a claim about wanting to see it.
+        cmd == "snooze" && value !== nothing && mark_read([u], at)
     end
     0
 end
