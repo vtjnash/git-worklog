@@ -2,11 +2,26 @@
 
 ## What is next
 
-Three things are open, and the first of them is a decision rather than a task.
-Everything else that stood here is done; `git log` is the record of it and this
-file is not.
+Three things are open. The first is the largest piece of design this file
+carries and is written out in full below because it was worked out in one
+session and would not survive losing it. Everything else that stood here is
+done; `git log` is the record of it and this file is not.
 
-1. **A comment box drawn inline, between the lines it is about.** An idea to
+1. **Reshape the state axis.** `unread`/`read`/`snoozed`/`archived` as one
+   multiselect axis over the whole corpus, instead of a radio that mixes
+   dispositions with four things that are not. The finding it turns on: there
+   are *three* seen-values and the program has two of them fused - **unseen**
+   (no `read.json` cursor at all, 773 of the firehose's 901 rows) is not
+   **unread** (a cursor, older than `updated`), and the firehose browse wants
+   the first while the incoming inbox wants the second. Nothing new has to be
+   stored; `read.json` already is the seen bit and the question is being asked
+   of `inbox.json` instead of of the corpus. **See "THE STATE AXIS" under
+   Outstanding work for the whole specification, the file layout, the build
+   order and why there is no migration.** The window matters: the history files
+   are empty *today* because of the 2026-09-10 rebuild, so changing their format
+   costs nothing now and more every day.
+
+2. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
    comments hang off the hunk they point into, threaded, with the resolved ones
    folded under it, they are nodes so `n`/`N` walks them, the hunk header counts
@@ -22,7 +37,7 @@ file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
+3. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
    and the shifted arrows extending a selection - is done. On the mouse half,
    everything between the byte and the highlight is exercised by the suite and
    works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
@@ -33,12 +48,6 @@ file is not.
    the drag was over the *item list*, which binds press and wheel and ignores
    motion by design. It needs a real terminal to find out in, which is the one
    thing this sandbox does not have.
-
-3. **`rust#1` is still in the unread lane.** The code that left it there is
-   fixed - undoing an import now takes back the inbox row and the read stamp as
-   well as the `imported` field - but that row predates the fix and is still in
-   `data/inbox.json`. Pressing `r` on it removes it. Left alone because it is
-   the user's own data and one keystroke.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -838,14 +847,26 @@ Worth thinking about separately, and not obviously worth doing: the lane is
 called "second look" in the filter pane, which is what it does and not what it
 is for. Nobody looking for "who is waiting on me" finds it by reading that.
 
-### The two modes, and what the lanes should be
-
-The `active`/`backlog` split was re-examined on 2026-09-10 and half of it was
-wrong; this is the other half, which is a design note rather than a defect.
+### The two modes — built, and what it left behind
 
 **What the work actually is, in the user's own words:** two modes. Either
 *wanting my own work - what I am editing as a (co)author* - or *reviewing what
 came in from everyone else*. Not ten lanes; two, plus a pile.
+
+**The modes themselves are done** (2026-09-10). They are views, not lanes,
+because which work is yours is the *author* axis and what state it is in is the
+state axis - one axis per question. `'` `2` is "my work" (`active` + `@me`, 76
+rows) and `'` `3` is "incoming" (`active` + `@anyone-else`, 81). The `mine` lane
+is gone: it said `author == login()` inside the state axis, which is the author
+axis written twice in the place it does not belong.
+
+It could not go until `stale` stopped evicting, which happened the same day -
+`mine` was the only lane that did not subtract the backlog, so it was the only
+place your 44 quiet pull requests could be seen, which is why the list actually
+worked from was `mine` and not `active`.
+
+What follows is what that left open. The state-axis half of it is specified in
+"THE STATE AXIS" below.
 
 Three things follow, and none of them is what the lanes do today:
 
@@ -891,93 +912,125 @@ program applies. GraphQL will answer the first (`commits(...) { authors }`) and
 the second only by reading commit messages. Neither is free, and neither has
 been costed.
 
-### The seen bit, and the state axis it unlocks
+### THE STATE AXIS — the finalized design, ready to build
 
-Designed 2026-09-10, not built. This is what "which of these have I looked at"
-needs before the state axis can be reshaped into unread/read/snoozed/archived.
+Designed 2026-09-10 across a long session and written out here so that it
+survives losing the conversation. Nothing below is built. Read "The two modes"
+above first; that half *is* built and this is the other half.
 
-**There are three values, not two, and collapsing them is the whole confusion.**
-Today `unread` means *membership in `inbox.json`'s items*, which is "the activity
-poll saw this move since your cursor". That is bounded by what the poll reaches
-- the repos in `[events].repos`, inside `backfill_days` - and it is neither of
-the two things actually wanted:
+#### The shape
 
-| | means | needs | firehose |
+Four independent axes and one order. Every one of them is already a field on
+`Filters` except the first, which is the whole change.
+
+| axis | control | values | today |
 |---|---|---|---|
-| **unseen** | no `read.json` cursor at all | `read.json` only | 773 of 901 |
-| **unread** | a cursor, older than `updated` | cursor + `updated` | 128 of 901 |
-| **read** | cursor at or after `updated` | same | 0 of 901 |
+| **disposition** | multiselect | unseen · unread · read · snoozed · archived | a *radio* called `state`, mixed with four things that are not dispositions |
+| **whose** | multiselect | `@me` · `@anyone-else` · logins | `authors`, already right |
+| **kind** | radio | pr · issue · both | `kind`, already right, stays a radio |
+| **what about it** | multiselect | the buckets, repos, labels | already right |
 
-The firehose browse wants **unseen** - 901 open pull requests to walk once and
-decide about. The mode-2 inbox wants **unread** - you looked, it moved, look
-again - and emphatically does not want a 2014 issue in it because you never read
-it. "Is firehose exactly unread?" felt true and measures false for exactly this
-reason: it is exactly *unseen*.
+The corpus is everything fetched. It is not an axis and not a state: `backlog`
+stops being a lane and becomes what is left when you have not narrowed anything.
+**It is not "all open PRs"** - that is a *view* over it (`kind:pr`), and the two
+must not be conflated, which they were in an earlier draft of this.
 
-**Nothing new has to be stored.** `read.json` is already the seen bit; what is
-missing is only that the question is asked of the inbox instead of the corpus.
-An item with no entry is unseen, and today that is indistinguishable from "the
-poll never surfaced it" - which is why 773 firehose rows are in neither state.
-The fix is a predicate over `facts.json` + `read.json`, not a new file.
+#### The disposition axis
 
-**What marks it: explicit action only.** `r`, a snooze (`apply_snooze!` stamps
-the cursor), `wl read`, and the refresh when it puts something to sleep. Viewing
-does *not*, deliberately - and that is what makes the firehose walk work at all:
-`r` is "I have looked at this", `x` is "and I am done with it", and the pile
-goes down by one of the two.
+Five values, exclusive per item, decided in this order - the first that applies
+wins:
 
-**What it costs**
+1. **archived** — `state.toml` carries an `archive` stamp.
+2. **snoozed** — `state.toml` carries a live snooze (`snooze_active`).
+3. **unseen** — no `read.json` cursor at all. *Never been in front of you.*
+4. **unread** — a cursor exists and is older than the item's `updated`.
+5. **read** — a cursor at or after `updated`.
 
-1. `unread` leaves `STATES` and becomes an axis of its own, multiselect, over
-   `{unseen, unread, read, snoozed, archived}` - exclusive per item by
-   precedence: archived, then snoozed, then the cursor decides. Snoozing already
-   stamps the cursor, so snoozed∩unread is 2 rows out of 2789 today; archiving
-   does not, and would need to.
-2. One field on `Filters`, one row group in the filter pane, one clause in
-   `filter_summary`, one predicate in `matches`. The radio-to-multiselect change
-   is the only structural part, and `buckets`/`repos`/`labels` are already sets -
-   so it is the shape those have, not a new one.
-3. **`inbox.json` keeps two of its three jobs.** The per-source cursors and
-   `polled` stamps are the poll's own state and nothing else has them. Its
-   `items` are the *only* record of **628 rows** that no fetch lane returns -
-   things that got a comment in a watched repo and are in no lane - which the
-   browser adds as thin placeholder rows (`bucket = "unread"`, forced backlog).
-   What it loses is the third job: being the definition of unread.
-4. **Bootstrap: everything is unseen.** `read.json` is empty after the
-   2026-09-10 rebuild, so the predicate marks all 2789 rows unseen. That is
-   honest - none of them have been read - and it is also precisely the pile the
-   firehose mode exists to walk down.
+**3 and 4 are different and both are wanted**, which is the finding this whole
+design turned on. The firehose browse wants *unseen* — 773 of its 901 rows, and
+it needs nothing but `read.json`. The mode-2 inbox wants *unread* — you looked,
+it moved, look again — and must not fill with 2014 issues merely because they
+were never read. Today's `unread` is neither: it is membership in `inbox.json`,
+which means "the poll saw it move", bounded by `[events].repos` and
+`backfill_days`.
 
-**`kind` stays orthogonal.** The backlog is the corpus of open work, pull
-requests and issues alike; "all open PRs" is a *view* over it (backlog +
-`kind:pr`), not its definition. The radio is already the right control for that
-and does not move.
+**What marks them: explicit action only.** `r`, a snooze (`apply_snooze!` stamps
+the cursor), `x`, `wl read`, and the refresh when it puts something to sleep.
+*Viewing does not*, and must not start: `r` is "I have looked at this" and `x`
+is "and I am done with it", and the firehose pile going down by one of those two
+is the whole browse.
 
-### The json files, and which of them are one file
+**One thing to fix while doing it:** snoozing stamps the cursor and archiving
+does not, so an archived item can also be unread. Archiving should stamp it too,
+and then the precedence above is a tidiness rather than a repair.
 
-Counted 2026-09-10, prompted by "we may have more json files than needed".
+#### The files
 
-| file | holds | keyed by | re-derivable? |
-|---|---|---|---|
-| `read.json` | seen-up-to timestamp | url | **no** |
-| `touched.json` | last-interaction timestamp | url | **no** |
-| `snooze.json` | armed fingerprint + arm time | url | **no** - the fingerprint is of a past state |
-| `drafts.json` | carries an unsent review | url | slowly, from GitHub |
-| `queue.json` | what `wl next` has shown | — | no, and nothing reads it in the browser |
-| `inbox.json` | poll cursors, poll stamps, **and 628 rows nothing else has** | source, url | cursors no; rows yes, at the cost of a backfill |
-| `facts.json`, `bulk.json` | the fetch | url | yes, entirely |
+`read.json` **is** the seen bit already; nothing new is stored. The change is
+that the predicate is asked of the corpus instead of of the inbox.
 
-**Four of them are one small fact per url** - `read`, `touched`, `snooze`,
-`drafts` - and could be one `marks.json` of `url -> {read, touched, fp, fp_at,
-draft}`. That is 4 files to 1, every write goes through one read-modify-write
-instead of four, and the per-url record becomes inspectable in one place, which
-it is not today. Against it: a migration, and the files are individually tiny
-(4KB, and three of them do not exist until you act). Worth doing when one of
-them next needs a field, rather than as its own errand.
+Since the files are being rewritten anyway, they collapse:
 
-`queue.json` is the one that looks vestigial: `wl next` writes it, nothing in
-the browser reads it, and the backlog queue it serves has been replaced by the
-lanes. Check before deleting.
+    marks.json     url -> {read, touched, snooze_fp, snooze_at, draft}
+    inbox.json     {cursors, polled, items}      — unchanged
+    facts.json     the fetch                     — unchanged, still untracked
+    bulk.json      the slow fetch                — unchanged, still untracked
+    state.toml     yours                         — untouched
+    repos.toml     yours                         — untouched
+
+`marks.json` replaces `read.json`, `touched.json`, `snooze.json` and
+`drafts.json`: four files that are each one small fact per url, four
+read-modify-writes where there should be one, and no single place to see what is
+recorded about an item.
+
+`queue.json` goes. `wl next` writes it and nothing in the browser reads it;
+check that before deleting it.
+
+**`inbox.json` stays and keeps two of its three jobs.** Its per-source cursors
+and `polled` stamps are the poll's own state and nothing else has them; its
+`items` are the *only* record of **628 rows** that no fetch lane returns —
+things that got a comment in a watched repo and are in no lane, which the
+browser adds as thin placeholder rows (`bucket = "unread"`, forced backlog). It
+loses only the third job, being the definition of unread.
+
+#### There is no migration, and the window is now
+
+Decided 2026-09-10: **wipe and refetch rather than port.** As of that date
+`read.json`, `touched.json`, `drafts.json` and `queue.json` **do not exist** —
+the rebuild earlier the same day deleted them and nothing has recreated them —
+and `snooze.json` holds 4 entries that the next refresh re-arms from
+`state.toml`. So the cost of changing the format is *zero right now* and rises
+with every key pressed from here.
+
+`state.toml`, `repos.toml` and `config.toml` are hand-authored, are the only
+things that cannot be refetched, and are not touched by any of this. The wipe
+recipe is the one from that day: delete everything in `data/` except those, run
+`cli/bin/refresh`, and check the lane counts.
+
+#### Build order
+
+1. `marks.json` and its accessors, replacing four files. No behaviour change —
+   the same facts through one door — so it lands and is exercised on its own.
+2. The disposition predicate over the corpus, alongside the existing `state`
+   axis rather than replacing it, so the two can be compared on real data.
+3. `Filters.state` becomes `Filters.seen::Set{Symbol}` and the filter pane row
+   group becomes a multiselect. `buckets`/`repos`/`labels` are already sets, so
+   this is a shape the pane already draws.
+4. `active`, `backlog`, `second`, `touched`, `drafts` come out of the radio:
+   `active` is `!snoozed && !archived` narrowed by the corpus, `second` is a
+   derived tag that belongs with the buckets, `touched` and `drafts` are
+   `marks.json` fields and can be tags too.
+5. Views rewritten onto the new axes, and `apply_view!`'s unknown-value warning
+   extended to them — it earned its place the day `mine` was removed.
+
+#### Deliberately not in this
+
+- **Mode is the author axis**, not a state and not a sixth disposition. That
+  half is built: `'` `2` and `'` `3`, and the `mine` lane is gone.
+- **`kind` stays a radio.** Three values, mutually exclusive, and a set of them
+  would only ever hold one thing or say nothing.
+- **The order stays newest-first** everywhere. See "Waiting for a reviewer"
+  above for why that is a policy and not a default.
 
 ### What review writing still cannot do
 
