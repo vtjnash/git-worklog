@@ -998,16 +998,20 @@ No migration was written for any of it, and none was needed: everything in
 `fetched.json` comes back from a refresh, and the four small files were
 converted once by hand on the day.
 
-#### What it left open
+#### What it left open, and what became of it
 
-  * `wl next` still pools on `Item.backlog`, which is a fetch-side fact
-    (`bucket in (firehose, mentioned)`) that no filter reads any more. It wants
-    a predicate of its own, or the pile wants to be a bucket selection.
+  * ~~`wl next` pools on `Item.backlog`.~~ **Done.** `in_pile(r)` is the
+    predicate, asked by its two callers - `second_look` and `wl next` - and the
+    field is gone from every row and from `Item`.
   * `track = "background"` stays. It is snooze sensitivity - what counts as
     movement - and not a lane, which is the only reason it survived `backlog`.
-  * The 628 rows only the poll knows about still arrive as thin placeholder
-    `Item`s built in `ui()`. They are rows in the corpus like any other now,
-    but they are still built in a second place from a second shape.
+  * ~~The rows only the poll knows about are built in a second place from a
+    second shape.~~ **Done.** `poll_item` is that conversion, beside
+    `inbox_row`, which is the same conversion the other way. It carries
+    `updated`, `act` and `state` now, which it did not: 634 rows that always
+    read as open and always as unread can now be finished, and can be read.
+    Their bucket is `activity` rather than `unread` - the poll is what they
+    are, and `unread` was the same word on two axes in one pane.
 
 ### What review writing still cannot do
 

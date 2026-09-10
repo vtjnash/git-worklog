@@ -271,6 +271,30 @@ inbox_row(it::Item, at::DateTime = utcnow()) = OrderedDict{String,Any}(
     "author" => it.author, "updated" => isempty(it.act) ? stamp(at) : it.act,
     "comments" => 0, "labels" => it.labels, "mine" => it.author == login())
 
+"""And the other direction: the row a poll wrote, as an `Item` to select.
+
+The activity poll watches whole repos, so most of what it finds is in no lane
+and in no `fetched.json` - 628 rows of it today - and a row nobody can put the
+cursor on is a row nobody can read, snooze or file. This is everything the poll
+knows, which is less than a lane returns: no CI, no review state, no branch.
+`activity` is the bucket, which is what the poll is - not `unread`, which is
+what the *seen* axis says about a row and would be the same word twice on two
+different axes in the same pane.
+
+Beside `inbox_row` because they are one conversion in two directions, and the
+pair of them being apart is how the fields drifted the first time.
+"""
+poll_item(u) = Item(
+    url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
+    ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
+    title = String(u["title"]), bucket = "activity",
+    author = String(nz(get(u, "author", nothing), "")),
+    updated = String(nz(get(u, "updated", nothing), "")),
+    act = String(nz(get(u, "updated", nothing), "")),
+    labels = String[String(l) for l in get(u, "labels", ())],
+    state = uppercase(String(nz(get(u, "state", nothing), "open"))),
+    is_pr = get(u, "is_pr", true))
+
 """Imports that `facts.json` has not caught up with, fetched now.
 
 An import has to be tracked from the moment it is made rather than from the next
@@ -399,14 +423,8 @@ function ui(args = String[], at::DateTime = utcnow())
                               "detail_ttl_minutes", 10)
     unread = Events.unread(cfg, cfg["login"], at; verbose = false)
     idx = Dict(i.url => i for i in items)
-    # Unread threads that are not otherwise tracked still need a row to select.
-    extra = [Item(url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
-                  ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-                  title = String(u["title"]), bucket = "unread",
-                  author = String(nz(get(u, "author", nothing), "")),
-                  labels = String[String(l) for l in get(u, "labels", ())],
-                  is_pr = get(u, "is_pr", true))
-             for u in unread if !haskey(idx, String(u["url"]))]
+    # Threads the poll saw that no lane returns still need a row to select.
+    extra = [poll_item(u) for u in unread if !haskey(idx, String(u["url"]))]
     urls = Set{String}(String(u["url"]) for u in unread)
     # Straight into the browser: what the lane menu used to choose is now a tag.
     browse(vcat(items, extra), "worklog", urls)
