@@ -23,19 +23,42 @@
         W.refilter!(st)
         @test length(st.items) == 3
 
-        # Yours: an open pull request you wrote, or a branch you have claimed.
-        st.filters.state = :mine; W.refilter!(st)
+        # Yours is the *author* axis and not a lane of its own. `mine` was one,
+        # and it said `author == login()` in the state axis - the author axis
+        # written twice, in the place it does not belong. Which work is yours
+        # and what state that work is in are two questions.
+        mine = Set([W.AUTHOR_ME])
+        st.filters = W.Filters(); st.filters.authors = copy(mine)
+        W.refilter!(st)
         @test !isempty(st.items)
-        @test all(x.is_pr && x.author == W.login() for x in st.items)
+        @test all(x.author == W.login() || W.islocal(x) for x in st.items)
+        # An adopted branch has no author at all and is still yours, which is a
+        # thing the axis knows and the lane had to special-case.
         local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
                           title = "t", is_pr = false, branch = "x", bucket = "local")
         W.add_item!(st, local_it)
-        st.filters.state = :mine; W.refilter!(st)
+        st.filters = W.Filters(); st.filters.authors = copy(mine)
+        W.refilter!(st)
         @test any(x.url == local_it.url for x in st.items)
         # A pull request that is somebody else's is not.
-        theirs = first(x for x in st.all if x.is_pr && x.author != W.login())
+        theirs = first(x for x in st.all if x.is_pr && x.author != W.login() &&
+                       !(x.snoozed || x.backlog))
         @test !any(x.url == theirs.url for x in st.items)
+        # ...and it is in the other mode, which is the same axis said the other
+        # way round. Between them they are the two lists the work divides into.
+        st.filters = W.Filters(); st.filters.authors = Set([W.AUTHOR_OTHERS])
+        W.refilter!(st)
+        @test any(x.url == theirs.url for x in st.items)
+        @test !any(x.url == local_it.url for x in st.items)
         W.drop_item!(st, local_it.url)
+        st.filters = W.Filters(); W.refilter!(st)
+
+        # Both modes are a view, so each is one keystroke from `\'`.
+        vs = W.views()
+        @test any(v -> occursin("my work", v[1]), vs)
+        @test any(v -> occursin("incoming", v[1]), vs)
+        # And `mine` is gone from the radio group it never belonged in.
+        @test !any(x -> x[1] === :mine, W.STATES)
 
         # The order is its own control: any of it makes sense over any of the
         # lanes, so it sits beside the filter rather than inside it.
@@ -112,10 +135,10 @@
         st.lmode = :filters
         rows = W.filter_rows(st)
         txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
-        @test occursin("touched", txt) && occursin("mine", txt)
+        @test occursin("touched", txt) && occursin("second look", txt)
         states, _, _, _ = W.axis_counts(st)
         @test states[:touched] == 3
-        @test states[:mine] >= 1
+        @test !haskey(states, :mine)
         for (w, h) in ((80, 24), (200, 50))
             ls = split(W.render(st, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)

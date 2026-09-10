@@ -8,7 +8,7 @@
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
         n(s) = (st.filters.state = s; W.refilter!(st); length(st.items))
-        a0, m0, all0 = n(:active), n(:mine), n(:all)
+        a0, all0 = n(:active), n(:all)
         @test n(:archived) == 0
         st.filters.state = :active; W.refilter!(st)
         it = st.items[st.sel]

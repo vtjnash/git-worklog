@@ -10,7 +10,16 @@
 # is exclusive so it behaves as a radio group, while categories and repos are
 # additive and behave as checkboxes.
 
-const STATES = [(:active, "active"), (:unread, "unread"), (:mine, "mine"),
+# `mine` is not here, and was. It said `author == login()` in the state axis,
+# which is the author axis said twice - and the author axis says it better,
+# since `@me` also covers an adopted branch (no author, local url) and an issue
+# you opened, both of which the state refused.
+#
+# It could not be removed until now for one reason: `stale` swept 44 of your own
+# pull requests into the backlog, and `mine` was the only lane that did not
+# subtract the backlog, so it was the only place they could be seen. With the
+# eviction gone, `active` + `@me` is that list and two more besides.
+const STATES = [(:active, "active"), (:unread, "unread"),
                 (:second, "second look"), (:drafts, "drafts"),
                 (:touched, "touched"), (:snoozed, "snoozed"),
                 (:backlog, "backlog"), (:archived, "archived"), (:all, "all")]
@@ -125,12 +134,6 @@ function state_ok(state::Symbol, it::Item, unread::Set{String},
     # be shown it again, since the two together mean you filed the work and
     # never sent the words.
     state === :drafts  && return haskey(drafts, it.url)
-    # Yours: an open pull request you wrote, or a branch you have claimed.
-    # Both are things you are expected to carry, which is what makes them one
-    # list rather than two.
-    state === :mine    && return !haskey(archived, it.url) &&
-                                 ((it.is_pr && !isempty(it.author) &&
-                                   it.author == login()) || islocal(it))
     true                                              # :all
 end
 
@@ -343,11 +346,20 @@ const VIEWS = [
     # is exactly what a fresh `Filters()` is.
     ("the default — active, unfiltered, newest first",
                         Dict("state" => "active")),
+    # The two modes, and the reason they are views rather than lanes: which work
+    # is yours is the author axis, and what state it is in is the state axis.
+    # One axis per question. A `mine` lane was the author axis said a second
+    # time in a place it did not belong, and it is gone.
+    ("my work — what I am carrying",
+                        Dict("state" => "active", "author" => [AUTHOR_ME])),
+    ("incoming — everyone else's",
+                        Dict("state" => "active", "author" => [AUTHOR_OTHERS])),
     ("waiting on me",  Dict("state" => "second", "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("state" => "second", "author" => [AUTHOR_ME])),
     ("ready to merge", Dict("state" => "active", "bucket" => ["needs-merge"])),
-    ("red CI, mine",   Dict("state" => "mine", "bucket" => ["needs-edits"])),
+    ("red CI, mine",   Dict("state" => "active", "author" => [AUTHOR_ME],
+                            "bucket" => ["needs-edits"])),
     ("unanswered",     Dict("state" => "active", "bucket" => ["needs-reply"])),
     ("unread",         Dict("state" => "unread")),
 ]
@@ -370,7 +382,20 @@ it twice from different places lands in the same list.
 """
 function apply_view!(st, d)
     f = Filters()
-    haskey(d, "state") && (f.state = Symbol(d["state"]))
+    bad = ""
+    if haskey(d, "state")
+        f.state = Symbol(d["state"])
+        # Said rather than silently ignored. `state_ok` ends in `true` - the
+        # `:all` case - so a state that is not one falls through it and shows
+        # *everything*, which reads as a view that has stopped filtering rather
+        # than as one that is misspelt. It cost a real bug the day `mine` was
+        # removed: the built-in "red CI, mine" went on naming it and went on
+        # returning the right twelve rows, because every `needs-edits` item
+        # happened to be yours. `config.toml` writes these by hand.
+        if !any(x -> x[1] === f.state, STATES)
+            bad = string(" \u00b7 no state '", d["state"], "', showing all")
+        end
+    end
     haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
     for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
@@ -389,7 +414,7 @@ function apply_view!(st, d)
     # `sort = "none"` gets it even where the lane would have implied an order.
     st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f.state)
     refilter!(st; keeprow = false)
-    string("[", filter_summary(f, st.sort), "]")
+    string("[", filter_summary(f, st.sort), "]", bad)
 end
 
 """The current filter written as the TOML line that would name it.

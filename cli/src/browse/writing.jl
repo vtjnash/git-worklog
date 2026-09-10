@@ -668,7 +668,7 @@ function undo!(st::BState)
         # The lanes that are membership in something have to be rebuilt for the
         # row to come back - `:snoozed` among them, since undoing a snooze is
         # the same move `apply_snooze!` refilters for on the way in.
-        st.filters.state in (:unread, :archived, :touched, :mine, :active,
+        st.filters.state in (:unread, :archived, :touched, :active,
                              :snoozed) && refilter!(st)
         string("undid: ", u.what)
     catch e
