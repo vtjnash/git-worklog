@@ -591,7 +591,9 @@ usually a small edit of something the program already knows should offer it:
 it is faster to correct than to type, and it says what shape the answer takes.
 """
 PromptView(title, note, onsubmit; initial::AbstractString = "") =
-    PromptView(LineInput(title, note; initial = initial), onsubmit)
+    PromptView(LineInput(title, note; initial = initial,
+                         hint = "enter accept · ^w word · ^a/^e line · esc cancel"),
+               onsubmit)
 
 text(v::PromptView) = TermInput.text(getfield(v, :li))
 
@@ -608,11 +610,17 @@ Base.setproperty!(v::PromptView, f::Symbol, x) =
 render(v::PromptView, w::Int, h::Int) = TermInput.render(getfield(v, :li), w, h)
 
 function handle!(v::PromptView, k::Int, ctrl::Controller)
-    a = TermInput.handle!(v.li, k)
-    # A prompt answered with nothing is somebody changing their mind, which is
-    # `:cancel` there and the same `:pop` here.
-    a === :submit && v.onsubmit(submission(v.li))
-    a in (:submit, :cancel) ? :pop : :ok
+    TermInput.handle!(getfield(v, :li), k) === :ok && return :ok
+    # A text box edits text and does not decide when you are done, so the keys
+    # that finish one are bound here. An answer of nothing is somebody changing
+    # their mind in front of the question, not a submission of nothing.
+    if k in (13, 10)
+        isblank(getfield(v, :li)) || v.onsubmit(submission(getfield(v, :li)))
+        return :pop
+    elseif k == 27 || k == C_G
+        return :pop
+    end
+    :ok
 end
 
 # --- a picker, as a view ----------------------------------------------------
@@ -797,18 +805,19 @@ mutable struct EditorView <: View
     ta::TextArea
     onsubmit::Any            # (String) -> Nothing; not called when cancelled
     suggest::String          # a block `^r` drops in, empty when there is none
+    allow_empty::Bool        # an approval needs no words; a comment does
     # Spelled out so that the default one - three arguments of `Any` - is not
     # generated, because that is the signature the constructor below wants.
-    EditorView(ta::TextArea, onsubmit, suggest::AbstractString) =
-        new(ta, onsubmit, String(suggest))
+    EditorView(ta::TextArea, onsubmit, suggest::AbstractString, allow_empty::Bool) =
+        new(ta, onsubmit, String(suggest), allow_empty)
 end
 
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
                     allow_empty::Bool = false, suggest::AbstractString = "")
     hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
                   "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
-    EditorView(TextArea(title, note; initial = initial, allow_empty = allow_empty,
-                        hint = hint), onsubmit, String(suggest))
+    EditorView(TextArea(title, note; initial = initial, hint = hint),
+               onsubmit, String(suggest), allow_empty)
 end
 
 text(v::EditorView) = TermInput.text(getfield(v, :ta))
@@ -828,25 +837,32 @@ render(v::EditorView, w::Int, h::Int) = TermInput.render(getfield(v, :ta), w, h)
 function handle!(v::EditorView, k::Int, ctrl::Controller)
     # Which terminal to give away is not known when the view is built, and is
     # known here: a composer is only ever driven from the loop that owns one.
-    v.ta.suspend = f -> suspend(f, ctrl)
-    a = TermInput.handle!(v.ta, k)
-    if a === :submit
-        v.onsubmit(submission(v.ta))
+    ta = getfield(v, :ta)
+    ta.suspend = f -> suspend(f, ctrl)
+    TermInput.handle!(ta, k) === :ok && return :ok
+    # What is left is every key that does not edit text, which the composer
+    # hands back because none of it is a text box's to answer.
+    if k == C_S                                     # submit
+        if isblank(ta) && !v.allow_empty
+            ta.status = "nothing to send — esc cancels"
+            return :ok
+        end
+        v.onsubmit(submission(ta))
         return :pop
-    elseif a === :cancel
-        isblank(v.ta) && return :pop
-        ls = length(v.ta.buf.lines)
+    elseif k == 27 || k == C_G                      # give up, and ask first
+        isblank(ta) && return :pop
+        ls = length(ta.buf.lines)
         push_view!(ctrl, ConfirmView("Discard what you have written?",
-            [v.ta.title, string(ls, ls == 1 ? " line" : " lines", " written")],
+            [ta.title, string(ls, ls == 1 ? " line" : " lines", " written")],
             ["yY" => () -> pop_view!(ctrl, v)];
             hint = "y discards it \u00b7 any other key goes back to writing"))
         return :ok
-    elseif a === :unhandled && k == C_R
+    elseif k == C_R                                 # the suggestion block
         if isempty(v.suggest)
-            v.ta.status = "nothing to suggest here — this is not a line comment"
+            ta.status = "nothing to suggest here — this is not a line comment"
         else
-            insertblock!(v.ta.buf, v.suggest)
-            v.ta.status = "suggestion inserted — edit the lines, they replace the ones commented on"
+            insertblock!(ta.buf, v.suggest)
+            ta.status = "suggestion inserted — edit the lines, they replace the ones commented on"
         end
     end
     :ok

@@ -861,12 +861,22 @@ written here before it was done and each item turned into a decision:
   `deletechar!`, `deleteword!`, `killline!`, `move!`, `insertblock!` - with no
   screen attached at all. A program that wants the editing and not the box
   stops there.
-- **A key it does not bind comes *back*.** `handle!` answers `:unhandled`
-  rather than swallowing it, which is what replaced the callback table this
+- **A key it does not bind comes *back*.** `handle!` answers `:ok` or
+  `:unhandled` and nothing else, which is what replaced the callback table this
   program would otherwise have had to register with. It is the same rule
   `TermIFrame` uses for `^]`: the widget claims what is its, and a host claims
-  its own. `^r` - the suggestion block - is this program's key and is bound in
-  `EditorView`, which is now sixty lines of wrapper.
+  its own.
+- **And "finished" is not one of the widget's answers.** It started with
+  `:submit` and `:cancel` as well, which was this program's policy wearing a
+  package's clothes - the tell was the error string, `"nothing to send"`, which
+  is a *comment* being posted and means nothing to a text box, and the
+  `allow_empty` flag beside it, which is "an approval needs no words". A text
+  box holds text and knows how to change it; it does not know what finishing
+  means, whether an empty one may be sent, or what escape costs. So `^s`, `↵`,
+  escape and `^g` all come back like any other non-edit, and `EditorView` and
+  `PromptView` bind them - which puts every question this program answers about
+  a composer in the same sixty lines as the discard dialog and the `^r`
+  suggestion block, rather than half here and half in a package.
 - **The measuring went the other way round.** The note here said it should be
   rewritten against Term's own measurement and that `Panel` was the thing that
   could not be trusted. Writing it down settled it: `Panel` measures markup, and
