@@ -1,0 +1,6 @@
+[submodule "TermInput.jl"]
+	path = TermInput.jl
+	url = https://github.com/vtjnash/TermInput.jl.git
+[submodule "TermIFrame.jl"]
+	path = TermIFrame.jl
+	url = https://github.com/vtjnash/TermIFrame.jl.git

@@ -11,15 +11,22 @@ data/
 # is excluded from that checkout too so it cannot end up in a pull request.
 /Term.jl/
 
-# The two halves that were split out, each a repository of its own now.
-# `cli/Project.toml` reaches them through `[sources]`, so a checkout of each has
-# to be here for the program to build - but their histories are not this one's,
-# the same as `Term.jl/` above.
+# The two halves that were split out are **submodules** and not ignored - see
+# `.gitmodules`. `cli/Project.toml` reaches them through `[sources]`, so a
+# checkout of each has to be here for the program to build at all, and ignoring
+# them meant a fresh clone of this repository could not build it. Their
+# histories are still not this one's; a submodule is how a checkout carries a
+# commit of somebody else's history without adopting it, which is exactly the
+# arrangement. `[compat]` against a registered version is what this becomes
+# once they are registered, and then they stop being directories here.
 #
 # `TermIFrame` is the tmux half: sessions, the control-mode client, and the box
 # a hosted program is drawn in. `TermInput` is the composer, the line prompt,
 # the key vocabulary they bind, and the escape-aware measuring under all of it -
 # which `TermIFrame` depends on for the same measuring, since a text field must
 # not pull a tmux binary in to measure a string.
-/TermIFrame.jl/
-/TermInput.jl/
+#
+# `Term.jl/` above stays ignored, deliberately: it is a clone of somebody
+# else's package kept here to fix bugs in, not something this program builds
+# against - `Term` comes from the registry - so there is no commit of it this
+# repository has any business pinning.
