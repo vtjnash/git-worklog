@@ -123,6 +123,13 @@ end
         @test "on-change" in vals && "2w" in vals && :ask in vals
         # Nothing to clear yet, so "off" is not offered.
         @test !(nothing in vals)
+        # The rows have keys of their own, the same as the views: it is the same
+        # list in the same order every time, so it is reached by memory.
+        @test v.numbered
+        @test occursin("0-9 picks", W.astrip(W.render(v, 100, 30)))
+        # `3` is the third row and not the `3` of "3 days" - which is the trade
+        # numbering makes, and the reason the order below has to be fixed.
+        @test vals[1:3] == ["on-change", "on-change/30d", "3d"]
         for (w, h) in ((80, 24), (165, 50))
             ls = split(W.render(v, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
@@ -134,8 +141,21 @@ end
         # Now that there is one, clearing is offered and says what it is on.
         W.handle!(st, Int('s'), ctrl)
         v2 = pop!(ctrl.stack)
-        @test nothing in [o[2] for o in v2.options]
+        vals2 = [o[2] for o in v2.options]
+        @test nothing in vals2
         @test occursin("now: 2w", v2.note)
+        # And it is offered *last*, so the eight standing rows keep the keys
+        # they had. A row appearing at the top would shift every one of them,
+        # and a number that moves with the item's state is not a number worth
+        # having learned.
+        @test last(vals2) === nothing
+        @test vals2[1:3] == ["on-change", "on-change/30d", "3d"]
+
+        # A digit picks straight off, which is the whole point of the change.
+        picked = Ref{Any}(:none)
+        v3 = W.ChooseView("Snooze", "", v2.options, x -> picked[] = x; numbered = true)
+        @test W.handle!(v3, Int('3'), ctrl) === :pop
+        @test picked[] == "3d"
 
         # A value parse_snooze cannot read is refused rather than written: it
         # would leave the item not snoozed and look like it had worked.

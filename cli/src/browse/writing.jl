@@ -750,16 +750,26 @@ function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
         ("1 month",                       "1mo"),
         ("3 months",                      "3mo"),
         ("a span or a date\u2026",         :ask)]
-    # Only offered when there is something to clear, so the list does not lead
-    # with an option that would do nothing.
-    cur === nothing || pushfirst!(opts, ("off \u2014 wake it now", nothing))
+    # Only offered when there is something to clear, and at the *end* rather
+    # than the front, which is where it used to be. Numbering the rows is what
+    # moved it: a row that comes and goes at the top shifts every key below it,
+    # so "3 days" would be `3` on an item with no snooze and `4` on one that has
+    # got one - which is the whole of what a number is for, gone. Last, the
+    # eight standing options keep their keys and clearing takes the one that
+    # only exists when there is something to clear.
+    cur === nothing || push!(opts, ("off \u2014 wake it now", nothing))
+    # Numbered, the same as the views and for the same reason: it is the same
+    # list in the same order every time, so it is reached by memory rather than
+    # by reading. The cost is real and worth naming - a digit picks instead of
+    # narrowing, so `3` is the third row and no longer types the `3` of "3 days"
+    # or "3 months" - and it is the cost the views already pay.
     push_view!(ctrl, ChooseView(string("Snooze ", it.ref),
         cur === nothing ? it.title : string("now: ", cur), opts,
         v -> v === :ask ?
             push_view!(ctrl, PromptView(string("Snooze ", it.ref),
                 "a span like 3d, 2w, 6mo, 1y - or a date like 2026-09-15",
                 b -> (st.status = apply_snooze!(st, it, strip(b), at)))) :
-            (st.status = apply_snooze!(st, it, v, at))))
+            (st.status = apply_snooze!(st, it, v, at)); numbered = true))
 end
 
 """Write one snooze value, with its undo. `nothing`, or an empty string, clears.

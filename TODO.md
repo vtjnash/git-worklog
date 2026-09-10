@@ -768,6 +768,70 @@ Roughly in the order it is worth doing, and none of it is on the critical path
 of "What is next" at the top. Nothing already shipped is listed; `git log` is
 the record of that.
 
+### "Waiting for a reviewer" is built, and the gap is the order
+
+Asked for on 2026-09-10 as if it were new; it is not, and this is the note so it
+does not get asked a third time. **`'` then `2`, "waiting on me"** is the view:
+`state = second`, `kind = pr`, `author = @anyone-else`. Twelve rows on the
+2026-09-10 dashboard. **`'` then `3`, "waiting on them"** is the same question
+about your own pull requests - eight rows - and between them they are both
+directions of "the author had the last word and nobody has answered".
+
+Every part of the request is already in `second_look` (`refresh.jl`), which
+derives `second_look` on every item every refresh and answers with the sentence
+the metadata pane shows:
+
+- **The last action was the author.** Three cases, checked in order: an approval
+  that is the last thing to have happened, the author commenting with nobody
+  answering (`last_comment_by == author`), or the author pushing with nobody
+  saying anything since. Anything else answers `""` and the row is not in the
+  lane - so a *reviewer* commenting takes it out on its own, without needing to
+  be dismissed.
+- **Older than a threshold in work days.** `second_look_days = 2` in
+  `config.toml`, counted by `workdays_since`, which exists precisely because two
+  days of silence over a weekend is a weekend and not silence.
+- **And not so old that it is a different problem.** `second_look_max_days = 20`
+  is the top of the window; past it the row belongs to `stale`, and a reminder
+  that fires on forty of those every morning is one nobody reads.
+
+**Dismissing one is `s` then `1`, and yes, it is exactly the snooze.**
+`on-change` records a fingerprint of the item at its tracking level and hides it
+until that fingerprint changes; when it does, `snooze_active` writes `WOKE` and
+*stays* awake rather than re-arming, so there is no single-refresh window in
+which to notice. It comes back unread on its own - the read cursor was stamped
+when it was snoozed and whatever moved it is newer than that - which is the
+whole of the "reenters as unread" half. At `normal` track the fingerprint is
+`head_at`, `review_decision`, `ci`, `unresolved`, `review_count` and
+`last_comment_at`, so a new push wakes it and so does CI going green. Nothing
+new to record: `snooze.json` is already this.
+
+**Newest first, and that is the policy rather than the default it looks like.**
+`lane_sort` gives `:second` the ordinary `:latest`, and all of `SORTS` is
+descending. Asked about on 2026-09-10 and answered: it is deliberate, and the
+reason is what to do when the lane cannot be drained.
+
+Serving it newest-first means new work is answered quickly and old work gets
+older. Serving it oldest-first means everything is answered at the same
+mediocre speed. The first is worth more: an answer while the author still has
+the change in their head, against a diff that still applies, is a different
+thing from the same answer three weeks later - and a pull request that has
+already waited a fortnight is not rescued by being fourth in the queue instead
+of fortieth. Uniform slowness is the outcome nobody wants and the one a fair
+queue produces.
+
+`second_look_max_days = 20` is the other half of the same policy and is why it
+does not simply lose the old work: past the cap a row leaves this lane
+altogether for `stale`, rather than accumulating at a bottom nobody reaches. The
+lane is what is worth answering *now*; the pile that has gone past that is a
+different question and has a different place to be asked.
+
+So: no fourth sort, and `w` still cycles three. If this comes up again, it is
+this paragraph that is the answer.
+
+Worth thinking about separately, and not obviously worth doing: the lane is
+called "second look" in the filter pane, which is what it does and not what it
+is for. Nobody looking for "who is waiting on me" finds it by reading that.
+
 ### What review writing still cannot do
 
 `c`, `A` and `L` are wired but unexercised - see Unverified below, and
