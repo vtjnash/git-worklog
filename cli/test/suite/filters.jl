@@ -221,8 +221,8 @@ end
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
     # back down, r, scroll back down. The url it was on is gone, so the fallback
     # is the row - whatever moved up into the place being read.
-    keep = W.MARKS[]
-    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
     try
         st = mkstate()
         st.filters = W.Filters(seen = Set([:unread]))
@@ -246,7 +246,7 @@ end
         W.refilter!(st)
         @test st.sel == length(st.items) == 3
     finally
-        W.MARKS[] = keep
+        W.LOCAL[] = keep
     end
 end
 

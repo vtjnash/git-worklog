@@ -1,4 +1,20 @@
-# Edit state.toml safely.
+# Edit `local.toml` safely.
+#
+# The half of `data/` that is not re-fetchable: what you decided about each
+# item, what you have done to it, and where its repo is checked out. Small,
+# tracked, and the only thing here that cannot be got again from GitHub - which
+# is the whole of why it is one file and `fetched.json` is the other.
+#
+# One flat namespace of blocks, keyed by what the block is about:
+#
+#     ["https://github.com/o/r/pull/1"]   an item
+#     ["local:o/r#some-branch"]           a branch you adopted, which has no url
+#     ["repo:o/r"]                        where that repo is checked out
+#
+# Inside an item's block, your fields and the marks sit together - `note` and
+# `snooze` beside `read` and `touched` - because they are one answer to "what
+# is recorded about this item" and were three files pretending to be three
+# questions.
 #
 # Line-based on purpose: it rewrites only the keys you name, inside only the
 # block you name, and leaves every other block, comment and blank line
@@ -8,8 +24,8 @@
 # wrote for themselves.
 
 "Overridable so a test can write somewhere other than the user's own file."
-const STATE = Ref("")
-statefile() = isempty(STATE[]) ? datapath("state.toml") : STATE[]
+const LOCAL = Ref("")
+localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # `archive` is not one of them and was: filing something away is a snooze with
 # no wake condition, so it is `snooze = "forever"` and there is one field for
 # "I do not want to see this", not two that have to be kept in precedence.
@@ -44,7 +60,7 @@ function resolve(ref::AbstractString)
     hits[1]
 end
 
-load_lines() = isfile(statefile()) ? String.(splitlines(read(statefile(), String))) : String[]
+load_lines() = isfile(localfile()) ? String.(splitlines(read(localfile(), String))) : String[]
 
 """Line range of the `[\"url\"]` table, as `(header, first_line_after)`, or
 `nothing`. The body is `lines[header+1:after-1]`."""
@@ -62,6 +78,77 @@ end
 fmt(v::AbstractVector) = "[" * join((json_dumps(x) for x in v), ", ") * "]"
 fmt(v) = json_dumps(v)
 
+"""Apply named-key updates to any number of blocks, in one pass over the file.
+
+    set_blocks!([url => ["note" => "x", "snooze" => nothing], other => [...]])
+
+One pass and one write, which is what a mark needs: `wl read` stamps 852 items
+at once and a write per item would be a rewrite of the whole file per item.
+
+A block that is not there is appended; a block left with no keys at all is
+removed entirely rather than left as a bare header. Nothing is written when
+nothing changed - the browser's watch on `data/` would refilter for a no-op
+write, and half the callers here set a value that is already there.
+
+Answers with what happened per block: "added", "updated" or "cleared".
+"""
+function set_blocks!(updates)
+    lines = load_lines()
+    want = OrderedDict{String,Any}()
+    for (k, v) in updates
+        want[String(k)] = v
+    end
+    out, said = String[], Dict{String,String}()
+    i, n = 1, length(lines)
+    while i <= n
+        h = match(r"^\[\"(.*)\"\]\s*$", strip(lines[i]))
+        key = h === nothing ? "" : String(h[1])
+        if isempty(key) || !haskey(want, key)
+            push!(out, lines[i]); i += 1; continue
+        end
+        j = i + 1
+        while j <= n && !startswith(lstrip(lines[j]), "[")
+            j += 1
+        end
+        body = lines[i+1:j-1]
+        # The blank line that separates this block from the next one belongs to
+        # the block, and a new key must not land on the far side of it. Hold it
+        # back, write into what is left, and put it on again - filtering it out
+        # instead kept new keys in the right place but took a line out of the
+        # user's file on every write, which "edited key-by-key, never rewritten"
+        # is meant to rule out.
+        tail = 0
+        while tail < length(body) && isempty(strip(body[end-tail]))
+            tail += 1
+        end
+        body, blanks = body[1:end-tail], body[end-tail+1:end]
+        for (k, v) in want[key]
+            pat = Regex("^\\s*\\Q" * k * "\\E\\s*=")
+            body = [b for b in body if match(pat, b) === nothing]
+            v === nothing || push!(body, "$k = $(fmt(v))")
+        end
+        keep = [b for b in body if !isempty(strip(b))]
+        isempty(keep) || append!(out, vcat([lines[i]], body, blanks))
+        said[key] = isempty(keep) ? "cleared" : "updated"
+        delete!(want, key)
+        i = j
+    end
+    # Whatever had no block yet, appended in the order it was asked for.
+    for (key, ups) in want
+        rows = ["$k = $(fmt(v))" for (k, v) in ups if v !== nothing]
+        if isempty(rows)
+            said[key] = "cleared"
+            continue
+        end
+        (isempty(out) || isempty(strip(out[end]))) || push!(out, "")
+        push!(out, "[\"$key\"]")
+        append!(out, rows)
+        said[key] = "added"
+    end
+    out == lines || write_atomic(localfile(), rstripnl(join(out, "\n")) * "\n")
+    said
+end
+
 """Set (or with a `nothing` value, remove) named keys of one item's block.
 
 Setting a field is an interaction, so this stamps the clock - here rather than
@@ -70,77 +157,52 @@ at each caller, because this is the one point every field write passes through:
 has to put the previous timestamp back explicitly, since restoring the value
 comes back through here and stamps again.
 
-`at` is the operation this write belongs to, so that one keystroke setting a
-field and stamping the clock records one instant for both.
+The stamp goes in with the fields rather than through `touch!`, so one keystroke
+is one write of one block: `at` is the operation this write belongs to, and the
+field and the clock record the same instant because they are the same edit.
 """
 function set_fields(url::AbstractString, updates, at::DateTime = utcnow())
-    touch!(url, at)
-    lines = load_lines()
-    span = block_span(lines, url)
-    if span === nothing
-        if !isempty(lines) && !isempty(strip(lines[end]))
-            push!(lines, "")
-        end
-        push!(lines, "[\"$url\"]")
-        for (k, v) in updates
-            v === nothing || push!(lines, "$k = $(fmt(v))")
-        end
-        write_atomic(statefile(), join(lines, "\n") * "\n")
-        return "added"
-    end
-    i, j = span
-    body = lines[i+1:j-1]
-    # The blank line that separates this block from the next one belongs to the
-    # block, and a new key must not land on the far side of it. Hold it back,
-    # write into what is left, and put it on again - filtering it out instead
-    # kept new keys in the right place but took a line out of the user's file on
-    # every write, which "edited key-by-key, never rewritten" is meant to rule
-    # out.
-    tail = 0
-    while tail < length(body) && isempty(strip(body[end-tail]))
-        tail += 1
-    end
-    body, blanks = body[1:end-tail], body[end-tail+1:end]
-    for (k, v) in updates
-        pat = Regex("^\\s*\\Q" * k * "\\E\\s*=")
-        body = [b for b in body if match(pat, b) === nothing]
-        v === nothing || push!(body, "$k = $(fmt(v))")
-    end
-    # An emptied block is removed entirely rather than left as a bare header,
-    # and its separator goes with it.
-    keep = [b for b in body if !isempty(strip(b))]
-    new = vcat(lines[1:i-1],
-               isempty(keep) ? String[] : vcat([lines[i]], body, blanks),
-               lines[j:end])
-    write_atomic(statefile(), rstripnl(join(new, "\n")) * "\n")
-    isempty(keep) ? "cleared" : "updated"
+    ups = Pair{String,Any}[String(k) => v for (k, v) in updates]
+    push!(ups, "touched" => stamp(at))
+    get(set_blocks!([String(url) => ups]), String(url), "updated")
 end
 
-"""Every block's value for one key, in one pass over the file.
+"""Every block's values for the named keys, in one pass over the file.
+
+    field_maps(("read", "touched")) -> key -> field -> value
 
 `get_field` re-reads and re-scans for a single lookup, which is right for one
-and quadratic for a question about every item - and the browser asks two of
-those (`adopted`, `archive`) every time it rebuilds the list.
+and quadratic for a question about every item - and the browser asks for five of
+these every time it rebuilds the list.
 
 Unquoted the same way `get_field` unquotes, so the two agree about what a value
-is.
+is. A table header that is not a block key - there are none today - ends the
+block rather than continuing it, so nothing is ever attributed to the wrong one.
 """
-function field_map(key::AbstractString)
-    out = Dict{String,String}()
-    url = ""
-    pat = Regex("^\\s*\\Q" * key * "\\E\\s*=\\s*(.*?)\\s*\$")
+function field_maps(keys)
+    out = Dict{String,Dict{String,String}}()
+    pats = [(String(k), Regex("^\\s*\\Q" * String(k) * "\\E\\s*=\\s*(.*?)\\s*\$"))
+            for k in keys]
+    cur = ""
     for l in load_lines()
-        h = match(r"^\[\"(.*)\"\]\s*$", strip(l))
-        if h !== nothing
-            url = String(h[1])
+        if startswith(lstrip(l), "[")
+            h = match(r"^\[\"(.*)\"\]\s*$", strip(l))
+            cur = h === nothing ? "" : String(h[1])
             continue
         end
-        isempty(url) && continue
-        m = match(pat, l)
-        m === nothing || (out[url] = String(strip(String(m[1]), '"')))
+        isempty(cur) && continue
+        for (k, pat) in pats
+            m = match(pat, l)
+            m === nothing ||
+                (get!(out, cur, Dict{String,String}())[k] = String(strip(String(m[1]), '"')))
+        end
     end
     out
 end
+
+"One key across every block: the shape the filters and the lanes want."
+field_map(key::AbstractString) =
+    Dict{String,String}(u => r[String(key)] for (u, r) in field_maps((key,)))
 
 """One field of one item's block, as it is written, or `nothing`.
 
@@ -173,7 +235,7 @@ archived_map() = Dict{String,String}(u => v for (u, v) in field_map("snooze")
 """Hand back the next slice of untagged backlog, quietest first.
 
 Pull, never push: nothing from the backlog reaches the dashboard on its own. You
-ask for work when you want it. Items you have already tagged in state.toml are
+ask for work when you want it. Items you have already tagged in local.toml are
 considered triaged and never come back here - and tagging is the only thing that
 retires one. It used to keep a `queue.json` of what it had printed and sort that
 to the back, which is a fifth file of one fact per url to make asking twice in a

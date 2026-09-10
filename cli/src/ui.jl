@@ -234,7 +234,7 @@ end
 #
 # Everything else arrives through a lane, so an issue in an untracked repo that
 # does not mention you cannot be followed at all. An import is the manual
-# answer: a url written into `state.toml`, and the item fetched by it from then
+# answer: a url written into `local.toml`, and the item fetched by it from then
 # on. Being keyed by url is the whole of what it takes to compose with notes,
 # snoozes, the clock, the buckets and archive - the same as adoption above, and
 # archive is its exit too.
@@ -244,7 +244,7 @@ imported_urls() = sort!([u for u in keys(field_map("imported")) if !islocal(u)])
 
 """One item fetched by url, as a lane would have delivered it.
 
-The road is the one `facts.json` takes - `normalize`, then the `state.toml`
+The road is the one `facts.json` takes - `normalize`, then the `local.toml`
 fields, then the record `item_of` reads - because an imported item has to *be*
 an ordinary item rather than resemble one. Mapping a node straight to an `Item`
 here would be a second road, and the two would disagree first about the bucket.
@@ -276,7 +276,7 @@ inbox_row(it::Item, at::DateTime = utcnow()) = OrderedDict{String,Any}(
 """Imports that `facts.json` has not caught up with, fetched now.
 
 An import has to be tracked from the moment it is made rather than from the next
-refresh, or quitting before one would lose it - and it is still in `state.toml`,
+refresh, or quitting before one would lose it - and it is still in `local.toml`,
 so it would come back later as a row that appeared out of nowhere. One request
 covers all of them, and none at all when there is nothing missing. A url that
 answers with nothing is reported and skipped: a repository that went private

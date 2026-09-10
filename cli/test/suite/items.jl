@@ -73,7 +73,7 @@ end
     r["state"] = "MERGED"
     @test first(W.derive_bucket(r, Dict{String,Any}(), cfg, W.utcnow())) == "done"
 
-    before = read(W.statefile(), String)
+    before = read(W.localfile(), String)
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
@@ -210,7 +210,7 @@ end
         # And nothing is fetched for what is already here.
         @test isempty(W.imported_items(Set(x.url for x in st.all)))
     finally
-        write(W.statefile(), before)
+        write(W.localfile(), before)
     end
 end
 
@@ -373,7 +373,7 @@ end
     end
 
     # And `r`'s fallback, for a thread carrying no fetch time at all.
-    before = isfile(W.marksfile()) ? read(W.marksfile(), String) : ""
+    before = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     try
         st.nodes = W.Node[]
         push!(st.unread, it.url)
@@ -386,8 +386,8 @@ end
         W.handle!(st, Int('r'), ctrl)
         @test W.read_at(it.url) > "2020"
     finally
-        isempty(before) ? rm(W.marksfile(); force = true) :
-                          write(W.marksfile(), before)
+        isempty(before) ? rm(W.localfile(); force = true) :
+                          write(W.localfile(), before)
     end
 
     # A refresh measures its whole run against one instant, so it cannot

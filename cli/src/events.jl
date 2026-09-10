@@ -2,7 +2,7 @@
 #
 # Email's real value here is one bit per thread: have you seen it. Everything
 # else it carries - titles, bodies, who spoke - GitHub can answer live, so none
-# of it is stored. The only persisted state is the read stamp in `marks.json`:
+# of it is stored. The only persisted state is the read stamp in `local.toml`:
 # per item, the timestamp you have seen up to. That is precisely the bit an
 # inbox was providing and the one thing that cannot be re-derived from GitHub -
 # and it is a fact about the whole corpus, which is why it lives there and not
@@ -429,7 +429,7 @@ in_inbox(url::AbstractString) = haskey(load_inbox()["items"], String(url))
 
 An import that is undone has to undo both halves of the hand-delivery, and the
 row is the half that outlives the session: `imported` goes back out of
-`state.toml` and the read stamp is put back, but an entry left in `inbox.json`
+`local.toml` and the read stamp is put back, but an entry left in `fetched.json`
 keeps the item in the unread lane for as long as it stays there - there is no
 poll that would ever clear it, because the reason the item was imported is that
 no poll covers its repo.

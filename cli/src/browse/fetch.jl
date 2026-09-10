@@ -314,17 +314,17 @@ end
 
 """Files whose contents are on screen, and what changing one costs to adopt.
 
-`fetched.json` carries the item list itself and is rebuilt from disk. The other
-two are records the filters read - `marks.json` is several of them now - and
-taking them again is a `refilter!`. Everything else in there is the cache, which
-the browser does not read again after it starts and which changes on every fetch
-this program makes.
+Both of them, which is all `data/` holds now: `fetched.json` carries the item
+list and is rebuilt from disk, and `local.toml` carries the marks and the
+fields the filters read, which is a `refilter!`. Everything else in there is
+the cache, which the browser does not read again after it starts and which
+changes on every fetch this program makes.
 
 `fetched.json` is also written by another window's *poll*, which is not a
 refresh landing - the items in it are unchanged - so `reload_data!` compares
 mtimes and rebuilds the list only when the fetch that moved it was a real one.
 """
-const WATCHED = ("fetched.json", "state.toml", "marks.json")
+const WATCHED = ("fetched.json", "local.toml")
 
 """Watch `data/` and flag the browser when somebody else writes in it.
 

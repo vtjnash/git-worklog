@@ -12,8 +12,9 @@ index of the rest:
   * `events.jl`  the activity poll, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, and the snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
-  * `fetched.jl` the other half of `data/`: everything GitHub can answer again
-  * `state.jl`   the comment-preserving line editor for state.toml
+  * `fetched.jl` one half of `data/`: everything GitHub can answer again
+  * `state.jl`   the other half: the comment-preserving line editor for
+                 `local.toml`, which holds every block anything here writes
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
   * `controller.jl` the view stack that owns stdin, the decoder that turns its
@@ -29,9 +30,12 @@ own - see `datadir()`.
   | file          | owner   | lifetime                          |
   |---------------|---------|-----------------------------------|
   | `config.toml`      | you     | edited by hand, only ever read    |
-  | `data/state.toml`  | you     | edited key-by-key, never rewritten|
-  | `data/marks.json`  | machine | what you have done to each item   |
-  | `data/fetched.json`| machine | everything GitHub can answer again|
+  | `data/local.toml`  | both    | edited key-by-key, never rewritten, tracked |
+  | `data/fetched.json`| machine | everything GitHub can answer again, ignored |
+
+Two files and one line between them: what can be got again from GitHub, and
+what cannot. The second is what you decided about each item and what you have
+done to it - it is worth a history, and it is small enough to read one.
 """
 module Worklog
 

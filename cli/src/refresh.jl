@@ -6,10 +6,10 @@
 #
 # File ownership is strict, because it is what keeps your notes safe - the
 # table is in `Worklog.jl`, and this half of it is the load-bearing part:
-# `config.toml` and `state.toml` are read here and *never* written here, while
+# `config.toml` and `local.toml` are read here and *never* written here, while
 # `facts.json` is overwritten every run and the snooze marks with it.
 #
-# Judgement calls this deliberately does not make (they belong in `state.toml`,
+# Judgement calls this deliberately does not make (they belong in `local.toml`,
 # written by hand or by a model reading the same files): whether a red CI
 # is mechanical enough to delegate, what the real next action is, and priority
 # order.
@@ -209,7 +209,7 @@ function second_look(r, at::DateTime, days::Int)
     # the ceiling was solving a crowding problem that the order does not have.
     #
     # `s` `1` is what takes one out now: an on-change snooze, which is a
-    # decision somebody made, is written down in `marks.json`, comes back by
+    # decision somebody made, is written down in `local.toml`, comes back by
     # itself when the thing moves, and can be undone with `z`. None of those
     # five things is true of a number in `config.toml`.
     n < days && return ""
@@ -231,9 +231,9 @@ end
 
 # --- bucketing -------------------------------------------------------------
 # Every rule below is a fact GitHub already knows. Anything requiring judgement
-# is left to the model via a state.toml override.
+# is left to the model via a local.toml override.
 
-"""Everything about an item that comes from `state.toml` rather than GitHub.
+"""Everything about an item that comes from `local.toml` rather than GitHub.
 
 Its own function because a refresh is no longer the only place an item is built:
 an import arrives in the middle of a session and has to be bucketed by the same
@@ -614,22 +614,24 @@ function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
     (lanes, spent, how)
 end
 
-"""Read state.toml.
+"""Read the item blocks of `local.toml`.
 
 Dates written unquoted (`deadline = 2026-09-30`) come back as `Date`; everything
 downstream compares and prints them as ISO strings, so flatten them here. The
 Python raised `TypeError` out of `json.dumps` on the same input.
 """
 function load_state()
-    # `statefile()` and not `datapath`, so a test that points `STATE` somewhere
+    # `localfile()` and not `datapath`, so a test that points `LOCAL` somewhere
     # disposable is pointing *this* somewhere disposable too. It read the real
     # file through the redirect for as long as it has been here.
-    p = statefile()
+    p = localfile()
     isfile(p) || return Dict{String,Any}()
     raw = TOML.parse(read(p, String))
+    # Item blocks only. The file's other inhabitants are keyed by what they are
+    # - `repo:o/r` - and a refresh has no business reading them.
     Dict{String,Any}(u => Dict{String,Any}(
         k => (v isa Union{Date,DateTime,Dates.Time} ? string(v) : v) for (k, v) in st)
-        for (u, st) in raw if st isa AbstractDict)
+        for (u, st) in raw if st isa AbstractDict && !startswith(u, "repo:"))
 end
 
 """Drafts on the items that have just left the dashboard.
@@ -638,7 +640,7 @@ Everything still in the list reconciles itself by being opened: the metadata
 says whether the pending review is still there, and asking costs nothing until
 somebody looks. An item that has *gone* is the one case where that can never
 happen - the lane is items, so a mark on a url that is no longer one of them
-cannot be shown, cannot be navigated to, and would sit in `marks.json` for
+cannot be shown, cannot be navigated to, and would sit in `local.toml` for
 good.
 
 So the refresh asks about exactly those and only those, which is usually none
@@ -827,7 +829,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     reconcile_drafts!(gone)
 
     # Once each, after the loop: both of these rewrite a file, and a refresh
-    # that puts twenty items to sleep should not rewrite `marks.json` twenty
+    # that puts twenty items to sleep should not rewrite `local.toml` twenty
     # times. `overwrite = false` leaves a poll's own richer row alone, which is
     # the same courtesy an import pays.
     #

@@ -21,23 +21,23 @@ The split that makes it safe to let a model touch this:
 | file | owner | lifetime |
 |---|---|---|
 | `config.toml` | you | edited by hand |
-| `data/state.toml` | you + the model, via `wl` | **never machine-rewritten** |
-| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw (not tracked; ~4MB) |
-| `data/marks.json` | any write | per item: seen, touched, snoozed, drafted |
-| `data/repos.toml` | the browser | GitHub repo → local checkout |
+| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, touched, drafted). Plus a `repo:` block per local checkout. Tracked |
+| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw. Not tracked; ~4MB |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
-own: what can be re-fetched from GitHub is gitignored there, and what records
-something you did is tracked.
+own. Two files and one line between them: what can be re-fetched from GitHub is
+gitignored, and what records something you did is tracked.
 
-The refresh reads `state.toml` and never writes it. Every snooze and note you
-set survives any refresh, and a confused model cannot erase your triage.
+The refresh never rewrites `local.toml` - it edits the keys it owns, in the
+blocks it names, and leaves every other line byte-identical. Every snooze and
+note you set survives any refresh, and a confused model cannot erase your
+triage.
 
 Buckets are derived from facts by rules, not guessed: changes-requested or
 unresolved threads or red CI → **needs-edits**; `CONFLICTING` → **needs-stacking**;
 approved and green → **ready to merge**; they pushed after your last review →
 **needs-review**. Judgement is not made here at all: what a red CI really means,
-what the next action is, and what is urgent are written into `state.toml`, by
+what the next action is, and what is urgent are written into `local.toml`, by
 you or by a model reading the same files.
 
 ## Snooze until it moves
@@ -168,7 +168,7 @@ reading pane puts on the line you are on.
 
 Under the item list is a metadata pane: who has reviewed and who was asked,
 labels, the check tally, milestone, mergeable state, and the tracking level and
-note from `state.toml`. It sits there rather than beside the detail because ten
+note from `local.toml`. It sits there rather than beside the detail because ten
 item numbers at a time is plenty and the thing being read wants the height.
 Everything in it that `facts.json` already knows is on screen immediately; the
 two that need a request — per-person review state and the per-check breakdown —

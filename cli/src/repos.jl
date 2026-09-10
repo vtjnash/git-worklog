@@ -10,9 +10,11 @@
 # The path the user gives may well be a worktree - resolving to the common git
 # dir means one entry covers every worktree of the same repository.
 
-const REPOS_FILE = Ref("")
-repos_file() = (isempty(REPOS_FILE[]) &&
-                (REPOS_FILE[] = datapath("repos.toml")); REPOS_FILE[])
+# Kept as `repo:` blocks of `local.toml`, in the same flat namespace as the
+# items: it is local, it is small, and it cannot be re-fetched - which is the
+# only test this half of `data/` applies. `repos.toml` was a third file because
+# it was written first, not because it is a different kind of thing.
+const REPO_PREFIX = "repo:"
 
 struct GitError <: Exception
     msg::String
@@ -52,19 +54,30 @@ you are standing.
 """
 userpath(p::AbstractString) = isempty(p) ? String(p) : expanduser(String(p))
 
-load_repos() = isfile(repos_file()) ? TOML.parsefile(repos_file()) : Dict{String,Any}()
-
-function save_repos(d)
-    io = IOBuffer()
-    println(io, "# GitHub repo -> local checkout. Written by the browser when it")
-    println(io, "# first needs file content; edit or delete entries freely.")
-    for (k, v) in sort(collect(d); by = first)
-        println(io, "\n[\"", k, "\"]")
-        for (kk, vv) in sort(collect(v); by = first)
-            println(io, kk, " = ", repr(String(vv)))
-        end
+"Every pinned repo: `owner/name -> {gitdir, worktree, remotes}`."
+function load_repos()
+    isfile(localfile()) || return Dict{String,Any}()
+    raw = try
+        TOML.parsefile(localfile())
+    catch
+        return Dict{String,Any}()
     end
-    write_atomic(repos_file(), String(take!(io)))
+    Dict{String,Any}(k[length(REPO_PREFIX)+1:end] => v
+                     for (k, v) in raw if startswith(k, REPO_PREFIX) && v isa AbstractDict)
+end
+
+"""Write one repo's entry, or with `nothing` forget it.
+
+A block at a time through the line editor, so an entry edited by hand keeps its
+comment and its spelling: this file says at the top of itself that it can be
+edited freely, and a whole-file rewrite is what that rules out.
+"""
+function save_repo!(name::AbstractString, fields)
+    set_blocks!([string(REPO_PREFIX, name) =>
+                 (fields === nothing ?
+                  ["gitdir" => nothing, "worktree" => nothing, "remotes" => nothing] :
+                  [String(k) => v for (k, v) in sort(collect(fields); by = first)])])
+    nothing
 end
 
 """The directory holding the real object store.
@@ -114,13 +127,10 @@ is broken by leaving a stale entry - which means removing one can wait for
 somebody to ask.
 """
 function prune_repos!()
-    d = load_repos()
     gone = [name for (name, _, there) in pinned_repos() if !there]
-    isempty(gone) && return String[]
     for name in gone
-        delete!(d, name)
+        save_repo!(name, nothing)
     end
-    save_repos(d)
     gone
 end
 
@@ -138,10 +148,8 @@ function register_repo!(name::AbstractString, path::AbstractString)
         throw(GitError("not a git checkout: $p"))
     end
     rs = try remote_names(p) catch; String[] end
-    d = load_repos()
-    d[String(name)] = Dict("worktree" => p, "gitdir" => gd,
-                           "remotes" => join(rs, ","))
-    save_repos(d)
+    save_repo!(name, Dict("worktree" => p, "gitdir" => gd,
+                          "remotes" => join(rs, ",")))
     (path = p, gitdir = gd, matched = String(name) in rs)
 end
 

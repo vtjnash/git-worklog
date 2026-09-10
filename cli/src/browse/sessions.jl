@@ -47,7 +47,7 @@ composer already showed that a homegrown editor is a lot of keybindings to
 reinvent badly. `less` binds `v` for exactly this and this borrows the key.
 
 An unchanged file writes nothing, so opening a note to read it cannot
-accidentally rewrite `state.toml`, and an emptied one clears the note rather
+accidentally rewrite `local.toml`, and an emptied one clears the note rather
 than storing a blank.
 """
 function edit_note(st::BState, it::Item, ctrl)

@@ -658,7 +658,7 @@ end
 """Take back the newest local action, and say what it was.
 
 Reports rather than throwing: an undo that fails over the frame would take the
-browser down for the sake of a line in `state.toml`.
+browser down for the sake of a line in `local.toml`.
 """
 function undo!(st::BState)
     isempty(st.undos) && return "nothing to undo"
@@ -677,7 +677,7 @@ end
 """Put work away, or take it back out. `x` toggles.
 
 Done, rejected or merged work should be able to leave without being deleted:
-the note and everything else written about it stay in `state.toml`, and the
+the note and everything else written about it stay in `local.toml`, and the
 `archived` lane is where it can still be found.
 
 **It is a snooze, and always was.** "File this away" and "not now" are the same
@@ -794,7 +794,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     set_fields(it.url, ["snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
     # sleep marks it read - here as well as in the refresh, which is what does
-    # it for `wl snooze` and for a snooze typed into `state.toml`. The refresh
+    # it for `wl snooze` and for a snooze typed into `local.toml`. The refresh
     # would get to this one too, on its own edge; doing it now is what makes the
     # row leave the unread lane in the session where the key was pressed.
     #

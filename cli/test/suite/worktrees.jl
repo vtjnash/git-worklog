@@ -42,8 +42,8 @@ end
     issue = W.Item(url = "https://example.invalid/i/9", ref = "wt#9",
                    repo = pr.repo, number = 9, title = "an issue", is_pr = false)
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
     try
         W.register_repo!(pr.repo, main)
 
@@ -145,8 +145,7 @@ end
             end
         end
     finally
-        W.REPOS_FILE[] = REPOS_SANDBOX
-        W.MARKS[] = keept
+        W.LOCAL[] = keept
     end
 end
 
@@ -175,7 +174,8 @@ end
     side = joinpath(root, "side")
     W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
     try
         W.register_repo!(pr.repo, main)
         rows = W.worktree_rows(items)
@@ -318,6 +318,6 @@ end
 
         @test W.handle!(W.worktree_view(items), Int('q'), ctrl) === :pop
     finally
-        W.REPOS_FILE[] = REPOS_SANDBOX
+        W.LOCAL[] = REPOS_SANDBOX
     end
 end

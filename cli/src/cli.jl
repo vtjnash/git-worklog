@@ -81,7 +81,7 @@ per item so they arrive in the unread lane - which is the difference from `i`,
 where you are already looking at the thing.
 
 A url that resolves to nothing is reported and skipped rather than written: a
-line in `state.toml` that fetches nothing on every refresh forever is worse than
+line in `local.toml` that fetches nothing on every refresh forever is worse than
 a typo that says so.
 """
 function import_urls(urls::Vector{String}, at::DateTime)

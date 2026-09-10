@@ -2,8 +2,8 @@
 # adoption, and the branch list that is the second lens on a worktree.
 
 @testset "archive lets work leave without deleting it" begin
-    keept = W.MARKS[]; W.MARKS[] = joinpath(mktempdir(), "marks.json")
-    before = read(W.statefile(), String)
+    keept = W.LOCAL[]; W.LOCAL[] = fresh_local()
+    before = read(W.localfile(), String)
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
@@ -68,8 +68,8 @@
         W.handle!(st, Int('x'), ctrl)
         @test W.get_field(it.url, "note") == "why this ended"
     finally
-        write(W.statefile(), before)
-        W.MARKS[] = keept
+        write(W.localfile(), before)
+        W.LOCAL[] = keept
     end
 
     # A merge is news until it has been read, and only then is it filing.
@@ -94,9 +94,9 @@
     @test !W.merged_here(main, "")
     @test !W.merged_here(main, "landed"; base = "no-such-base")
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
-    before = read(W.statefile(), String)
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
+    before = read(W.localfile(), String)
     try
         W.register_repo!("o/m", main)
         for b in ("landed", "inflight")
@@ -145,9 +145,8 @@
         @test occursin("new since you last looked", line(theirs))
         @test occursin("new since you last looked", line(old))
     finally
-        write(W.statefile(), before)
-        W.REPOS_FILE[] = REPOS_SANDBOX
-        W.MARKS[] = keept
+        write(W.localfile(), before)
+        W.LOCAL[] = keept
     end
 end
 
@@ -200,9 +199,9 @@ end
     @test W.localref("a/b", "x/y") == "b#x/y"
     @test W.islocal("local:a/b#c") && !W.islocal("https://github.com/a/b/pull/1")
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
-    keept = W.MARKS[]; W.MARKS[] = joinpath(root, "marks.json")
-    state = read(W.statefile(), String)
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
+    state = read(W.localfile(), String)
     try
         W.register_repo!("o/main", main)
         items = W.loaditems()
@@ -312,9 +311,8 @@ end
         @test length(gone) == 1 && occursin("gone", gone[1].why)
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
-        write(W.statefile(), state)
-        W.REPOS_FILE[] = REPOS_SANDBOX
-        W.MARKS[] = keept
+        write(W.localfile(), state)
+        W.LOCAL[] = keept
     end
 end
 
@@ -337,7 +335,8 @@ end
     W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
     W.git(main, "branch", "homeless")
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
     try
         W.register_repo!(pr.repo, main)
         v = W.worktree_view(items)
@@ -436,11 +435,11 @@ end
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))
     finally
-        W.REPOS_FILE[] = REPOS_SANDBOX
+        W.LOCAL[] = REPOS_SANDBOX
     end
 
     # With nothing registered the view still renders, and says so.
-    W.REPOS_FILE[] = joinpath(mktempdir(), "none.toml")
+    W.LOCAL[] = joinpath(mktempdir(), "none.toml")
     try
         v = W.worktree_view(items)
         @test isempty(v.rows)
@@ -448,6 +447,6 @@ end
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no worktrees", join(ls, "\n"))
     finally
-        W.REPOS_FILE[] = REPOS_SANDBOX
+        W.LOCAL[] = REPOS_SANDBOX
     end
 end

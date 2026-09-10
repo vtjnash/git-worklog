@@ -1,8 +1,8 @@
 # The lanes that decide what is on the dashboard at all.
 
 @testset "two more lanes, and an order of their own" begin
-    keept = W.MARKS[]
-    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    keept = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
@@ -155,7 +155,7 @@
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
     finally
-        W.MARKS[] = keept
+        W.LOCAL[] = keept
     end
 end
 

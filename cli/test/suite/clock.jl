@@ -4,8 +4,8 @@
 @testset "the interaction clock" begin
     # Redirected again inside the testset so it starts empty and nothing else in
     # the suite can have written to it first.
-    keep = W.MARKS[]
-    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
     try
         u = W.loaditems()[1].url
         @test W.touched_at(u) === nothing          # nothing has been done to it
@@ -30,7 +30,7 @@
         @test W.touched_at(u) == "2026-01-02T03:04:05Z"
 
         # Setting any field stamps it, through the one point they all pass.
-        state = read(W.statefile(), String)
+        state = read(W.localfile(), String)
         try
             W.set_fields(u, ["note" => "a passing thought"])
             @test W.touched_at(u) != "2026-01-02T03:04:05Z"
@@ -40,18 +40,18 @@
             @test W.touched_at(u) == "2000-01-02T03:04:05Z"
         finally
             W.set_fields(u, ["note" => nothing])
-            write(W.statefile(), state)
+            write(W.localfile(), state)
         end
     finally
-        W.MARKS[] = keep
+        W.LOCAL[] = keep
     end
 end
 
 @testset "what the clock does not count" begin
-    keep = W.MARKS[]
+    keep = W.LOCAL[]
     # The read stamps are in here too now, so redirecting the file is the whole
     # of what this testset has to put back: `r` below writes one.
-    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    W.LOCAL[] = fresh_local()
     try
         st = mkstate()
         ctrl = W.Controller()
@@ -83,7 +83,7 @@ end
         # which for a first interaction means back to nothing at all. `s` opens
         # a picker now, so the interaction is the choice, not the key.
         snooze!(v) = (W.handle!(st, Int('s'), ctrl); pop!(ctrl.stack).onpick(v))
-        state = read(W.statefile(), String)
+        state = read(W.localfile(), String)
         try
             snooze!("on-change")
             @test st.status == "snoozed on-change"
@@ -99,10 +99,10 @@ end
             W.handle!(st, Int('z'), ctrl)
             @test W.touched_at(it.url) == "2026-01-02T03:04:05Z"
         finally
-            write(W.statefile(), state)
+            write(W.localfile(), state)
         end
     finally
-        W.MARKS[] = keep
+        W.LOCAL[] = keep
     end
 end
 
@@ -115,9 +115,9 @@ end
     st = mkstate(); st.filters = W.Filters(); W.refilter!(st)
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
-    state = read(W.statefile(), String)
-    keep = W.MARKS[]
-    W.MARKS[] = joinpath(mktempdir(), "marks.json")
+    state = read(W.localfile(), String)
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
     try
         W.handle!(st, Int('s'), ctrl)
         v = pop!(ctrl.stack)
@@ -199,36 +199,45 @@ end
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end
         @test W.get_field(it.url, "snooze") === nothing
     finally
-        write(W.statefile(), state)
-        W.MARKS[] = keep
+        write(W.localfile(), state)
+        W.LOCAL[] = keep
     end
 end
 
 @testset "notes, and the file they land in" begin
-    # `state.toml` is the user's, edited key-by-key and never rewritten. A key
-    # added and then removed has to leave the file exactly as it was found -
-    # including the blank line separating one block from the next, which used
-    # to be filtered out on every write to keep new keys in the right place.
-    u = W.loaditems()[1].url
-    before = read(W.statefile(), String)
+    # `local.toml` is edited key-by-key and never rewritten. A key added and
+    # then removed has to leave the file exactly as it was found - including the
+    # blank line separating one block from the next, which used to be filtered
+    # out on every write to keep new keys in the right place.
+    #
+    # Apart from the clock, which is the one thing a field write leaves behind
+    # on purpose: setting a field is an interaction, and it is recorded in the
+    # same block now rather than in a file of its own.
+    #
+    # An item that already has a block, so that what is being compared is the
+    # edit rather than the block's own arrival.
+    u = first(sort(collect(keys(W.field_map("snooze")))))
+    clean(s) = replace(s, r"\ntouched = \"[^\"]*\"" => "")
+    before = clean(read(W.localfile(), String))
     W.set_fields(u, ["note" => "a passing thought"])
-    mid = read(W.statefile(), String)
+    mid = read(W.localfile(), String)
     @test occursin("a passing thought", mid)
     @test W.get_field(u, "note") == "a passing thought"
+    @test W.touched_at(u) !== nothing        # and the clock says so
     W.set_fields(u, ["note" => nothing])
-    @test read(W.statefile(), String) == before
+    @test clean(read(W.localfile(), String)) == before
     @test W.get_field(u, "note") === nothing
 
     # A new key belongs inside its block, not after the blank line that ends it.
     W.set_fields(u, ["note" => "inside"])
-    lines = split(read(W.statefile(), String), "\n")
+    lines = split(read(W.localfile(), String), "\n")
     at = findfirst(l -> occursin("note = \"inside\"", l), lines)
     @test at !== nothing
     # Whatever follows it is either more of this block or the separator; it is
     # never a header that this key has jumped over.
     @test !startswith(strip(lines[at - 1]), "[")|| true
     W.set_fields(u, ["note" => nothing])
-    @test read(W.statefile(), String) == before
+    @test clean(read(W.localfile(), String)) == before
 
     # `v` opens in a pane beside the thread, the same as `t` and `T`. The note
     # is nearly always *about* what is on the other half, and taking the whole
@@ -240,9 +249,9 @@ end
         ctrl = W.Controller(); ctrl.running = true
         push!(ctrl.stack, st)
         it = st.items[st.sel]
-        keept = W.MARKS[]
-        W.MARKS[] = joinpath(mktempdir(), "marks.json")
-        before2 = read(W.statefile(), String)
+        keept = W.LOCAL[]
+        W.LOCAL[] = fresh_local()
+        before2 = read(W.localfile(), String)
         try
             # An editor that writes and exits at once is gone before there is
             # anything to attach to. The note is still taken: being quick is
@@ -284,8 +293,8 @@ end
                 pop!(ctrl.stack)
             end
         finally
-            write(W.statefile(), before2)
-            W.MARKS[] = keept
+            write(W.localfile(), before2)
+            W.LOCAL[] = keept
         end
     end
 

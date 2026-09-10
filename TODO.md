@@ -227,8 +227,9 @@ linked against a newer glibc.
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
 | `cli/src/events.jl` | the incremental inbox and live thread fetch (submodule `Events`) |
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, the snapshot diff |
-| `cli/src/marks.jl` | what you have done to an item: seen, touched, snoozed, drafted — one row per url in `marks.json` |
-| `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
+| `cli/src/marks.jl` | what you have done to an item: seen, touched, snoozed, drafted — five keys in its `local.toml` block |
+| `cli/src/fetched.jl` | the other half of `data/`: `fetched.json`, everything GitHub can answer again |
+| `cli/src/state.jl` | the line-based `local.toml` editor - one block per item, repo or adopted branch - and the `next` queue |
 | `cli/src/controller.jl` | the view controller that owns stdin; input decoding; the `View` protocol; `ChooseView` and `ConfirmView`, and the two thin wrappers that make `TermInput`'s widgets views |
 | `cli/src/browse/` | the browser: filters, panes, folding, diffs, checks, writing (`Worklog.jl`'s include list is the index) |
 | `cli/src/ci.jl` | check contexts and Buildkite drill-down |
@@ -241,9 +242,9 @@ linked against a newer glibc.
 | `cli/test/latency.jl` | the three startup waits, measured; not part of the suite |
 
 **The state lives in `data/`, which is its own git repository.** It stopped
-being ephemeral — `marks.json` and `inbox.json` are records of what has been
-read, acted on and seen, and `state.toml` holds the notes, snoozes, adoptions
-and archives — so it is worth a history, but not the code's:
+being ephemeral — `local.toml` is the record of what you decided and what you
+have done: the notes, snoozes and adoptions, and beside them what has been read,
+acted on, drafted and armed — so it is worth a history, but not the code's:
 mixed into this one it buried the diffs that matter and dirtied the tree on
 every refresh. `datapath(name)` resolves it; `WORKLOG_DATA` points it elsewhere,
 which is how a test gets a disposable one. `config.toml` stays beside the code,
@@ -252,10 +253,11 @@ being configuration rather than state.
 **Careful: `git rev-parse --show-toplevel` from inside `data/` answers with the
 data repo.** Run it from the code checkout, or keep an absolute path.
 
-Owner rules still matter: `config.toml`, `data/state.toml` and `data/repos.toml`
-are **yours** — `refresh` reads `state.toml` and never writes it, and only `wl`
-edits it, through a line-based editor that preserves comments. The rest of
-`data/` is machine-owned, and `facts.json`, `bulk.json`, `cache/` and
+Owner rules still matter: `config.toml` and `data/local.toml` are **yours** —
+nothing rewrites either of them, and every write to `local.toml` goes through a
+line-based editor that changes the keys it names inside the block it names and
+leaves every other line byte-identical. The rest of
+`data/` is machine-owned, and `fetched.json`, `cache/` and
 `errors.log` are gitignored inside it as re-fetchable or noise. `errors.log` is
 written by the browser when something throws, and deleting it is how its
 standing footer warning is dismissed.

@@ -18,53 +18,38 @@ const W = Worklog
 # tests below write and delete this file themselves anyway.
 isfile(W.errlog()) && rm(W.errlog())
 
-# The marks are redirected for the whole run, and to an empty file rather than
-# to a copy of the real one. Several tests below set a field, and setting a
-# field stamps the interaction clock - against the user's own file that would
-# reorder their lists as a side effect of running the suite - while the testsets
-# that add a comment to a review write a draft mark, and one left in the real
-# file would put an item in a lane that has nothing in it.
+# Every path this program writes through is a `Ref`, and the rule is that all of
+# them are pointed somewhere else for the whole run - not that each leak is
+# fixed as it turns up. Both halves of `data/` are redirected here: a test that
+# pressed `r` stamped a real item as read, and one that adopted a branch left a
+# block behind in a file whose `finally` did not run.
 #
-# Empty and not seeded, unlike the files below it, because the one thing in here
-# that used to be a copy of the user's own is the read stamps and no test
-# asserts anything about what is in them: each records what it found and puts it
-# back. A file that starts empty is also exactly what a fresh dashboard has.
-W.MARKS[] = joinpath(mktempdir(), "marks.json")
-
-# And the same for `state.toml`, for a stronger reason. Several testsets below
-# adopt a branch or write a note, and each one reads the file first and writes
-# it back in a `finally` - so a run that ends part-way through never reaches
-# that, and the *next* run fails on counts that are one too high. Redirected,
-# there is no `finally` to fail to run and no way for a test to reach the
-# user's file at all. Seeded from the real one, because the read-only tests are
-# tests of whatever is actually in there.
-let d = joinpath(mktempdir(), "state.toml")
-    isfile(W.statefile()) ? cp(W.statefile(), d) : write(d, "")
-    W.STATE[] = d
-end
-
-# And the rest of them, found the same way: a test that pressed `r` stamped a
-# real item as read a moment ago. Every path this program writes through is a
-# `Ref`, and the rule is that all of them are pointed somewhere else for the
-# whole run - not that each leak is fixed as it turns up. Seeded from the real
-# files, because the read-only testsets are tests of whatever is in them; the
-# cache is not, since a cache is rebuildable by definition and starting empty is
-# the honest state for one.
+# Seeded from the real files, because the read-only testsets are tests of
+# whatever is actually in them. The cache is not, since a cache is rebuildable
+# by definition and starting empty is the honest state for one.
 #
 # `errors.log` is the deliberate exception: the suite deletes the real one at
 # startup and several tests assert on the footer warning it produces.
 let d = mktempdir()
     for (r, real, empty) in ((W.FETCHED, W.fetchedfile(), "{}"),
-                             (W.REPOS_FILE, W.repos_file(), ""))
+                             (W.LOCAL, W.localfile(), ""))
         to = joinpath(d, basename(real))
         isfile(real) ? cp(real, to) : write(to, empty)
         r[] = to
     end
     W.CACHE_DIR[] = joinpath(d, "cache")
 end
-# Where the testsets that point `REPOS_FILE` at a temp repo put it back, since
-# "" would mean the user's own file again.
-const REPOS_SANDBOX = W.REPOS_FILE[]
+# Where the testsets that point `LOCAL` at a temp file put it back, since ""
+# would mean the user's own file again.
+const REPOS_SANDBOX = W.LOCAL[]
+
+"""A fresh, empty `local.toml` for a testset that wants to start from nothing.
+
+Empty rather than absent: several testsets read the file to put it back
+afterwards, and "not there yet" is a state only the very first run of the
+program is ever in.
+"""
+fresh_local() = (p = joinpath(mktempdir(), "local.toml"); write(p, ""); p)
 
 # Shared by every file below: the dashboard as it actually is, and a state
 # over it whose fetch is already satisfied so that no test reaches the

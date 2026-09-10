@@ -1,6 +1,6 @@
 # A JSON writer that reproduces CPython's `json.dumps` byte for byte.
 #
-# Not gratuitous. The state files are committed - `marks.json`, `inbox.json` -
+# Not gratuitous. The state files are committed - `local.toml`, `fetched.json` -
 # so their serialisation is part of the file format: those are written with
 # `indent=1, sort_keys=True`, and the GraphQL request bodies with the default
 # `", "` / `": "` separators. JSON3's writer emits neither shape, so every

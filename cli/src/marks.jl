@@ -1,8 +1,8 @@
 # What this program knows about an item that GitHub cannot answer.
 #
-# Five facts, one file, one row per url:
+# Five facts, in the item's own block of `local.toml`:
 #
-#     marks.json   url -> {read, touched, snooze_fp, snooze_at, draft}
+#     read · touched · snooze_fp · snooze_at · draft
 #
 #   * `read`      the timestamp you have seen this item up to
 #   * `touched`   when you last *did* something to it
@@ -25,7 +25,7 @@
 #
 # **The read stamp is the seen bit, and it is a fact about the corpus.** Whether
 # an item is unread is a question to ask of the item and this file, not
-# membership in `inbox.json` - which is the poll's own record of what moved in
+# membership in `fetched.json` - which is the poll's own record of what moved in
 # the repos it watches, bounded by a lookback window, and answers a narrower
 # question than the one most of the program asks.
 #
@@ -49,52 +49,29 @@
 # exactly as `review:banana` does. So the only way to have a lane of them is to
 # write them down as they are made.
 
-"Overridable so a test can write somewhere other than the real file."
-const MARKS = Ref("")
-marksfile() = isempty(MARKS[]) ? datapath("marks.json") : MARKS[]
+"""The five marks, as `url -> field -> value`, in one pass over `local.toml`.
 
-"""The whole file: `url -> field -> value`, every value a string.
-
-Read whole and written whole. It is a few hundred short rows - the four files it
-replaces were each read in full by every accessor they had - and holding it
-anywhere would mean deciding when to let go of it.
+They live in the item's own block, beside the note and the snooze that are your
+words about the same item: one place to look, one file to write, and no
+precedence to keep in step between a "what I decided" file and a "what I did"
+one.
 """
-function load_marks()
-    out = Dict{String,Dict{String,String}}()
-    isfile(marksfile()) || return out
-    for (u, rec) in JSON3.read(read(marksfile(), String))
-        r = Dict{String,String}()
-        for (k, v) in rec
-            v === nothing || (r[String(k)] = String(v))
-        end
-        isempty(r) || (out[String(u)] = r)
-    end
-    out
-end
+const MARK_FIELDS = ("draft", "read", "snooze_at", "snooze_fp", "touched")
 
-"""Write it back, dropping any url left with nothing recorded about it.
-
-An empty record is what clearing the last field on an item leaves behind, and
-keeping it would grow the file by one line per item ever looked at.
-"""
-write_marks(m::Dict{String,Dict{String,String}}) = write_atomic(marksfile(),
-    json_dumps(Dict{String,Any}(u => r for (u, r) in m if !isempty(r));
-               indent = 1, sortkeys = true))
+load_marks() = field_maps(MARK_FIELDS)
 
 """One field across every item: `url -> value`, for the urls that carry it.
 
-The shape each of the four files used to have, which is what the filters and the
-lanes still want - they ask "is this url in the drafts map", and the map is now
-a projection rather than a file.
+The shape the filters and the lanes want - they ask "is this url in the drafts
+map", and the map is a projection of the file rather than a file of its own.
 """
 field_marks(m::Dict{String,Dict{String,String}}, field::AbstractString) =
     Dict{String,String}(u => r[field] for (u, r) in m if haskey(r, field))
 
-load_field(field::AbstractString) = field_marks(load_marks(), field)
+load_field(field::AbstractString) = field_map(field)
 
 "One field of one item, or `nothing` if it has never been recorded."
-mark_at(url::AbstractString, field::AbstractString) =
-    get(get(load_marks(), String(url), Dict{String,String}()), field, nothing)
+mark_at(url::AbstractString, field::AbstractString) = get_field(url, field)
 
 """Set, or with `nothing` clear, one field of one item.
 
@@ -102,51 +79,32 @@ The primitive behind every mark and behind undoing one: the undo of a mark is
 not "mark it the other way", it is putting back whatever was there before, which
 may have been nothing at all.
 
-Unchanged is not written. Nothing downstream can tell a no-op write from a real
-one - the browser's watch on `data/` would refilter for it - and the four files
-this replaces disagreed about it, `set_draft` alone getting it right.
+Deliberately *not* through `set_fields`, which stamps the interaction clock:
+marking something read is the end of looking at it rather than the start of
+doing anything to it, and a clock that moved when your eye did would make the
+list a record of browsing.
 """
-function set_mark!(url::AbstractString, field::AbstractString,
-                   at::Union{Nothing,AbstractString})
-    m = load_marks()
-    u = String(url)
-    r = get(m, u, Dict{String,String}())
-    was = get(r, field, nothing)
-    was == at && return nothing
-    at === nothing ? delete!(r, field) : (r[field] = String(at))
-    m[u] = r
-    write_marks(m)
-    nothing
-end
+set_mark!(url::AbstractString, field::AbstractString,
+          at::Union{Nothing,AbstractString}) =
+    (set_blocks!([String(url) => [String(field) => at]]); nothing)
 
 """Set one field on many items at once, and answer how many were named.
 
-Once, not once per url: a refresh that puts twenty items to sleep should rewrite
-this file once.
+Once, not once per url: `wl read` stamps every unread thread at a stroke, and a
+refresh that puts twenty items to sleep should rewrite this file once.
 """
 function set_marks!(urls, field::AbstractString, at::AbstractString)
-    m = load_marks()
-    n, s = 0, String(at)
-    for u in urls
-        r = get!(m, String(u), Dict{String,String}())
-        r[field] = s
-        n += 1
-    end
-    n == 0 || write_marks(m)
-    n
+    us = unique(String(u) for u in urls)
+    isempty(us) || set_blocks!([u => [String(field) => String(at)] for u in us])
+    length(us)
 end
 
 "Clear one field on many items, and answer how many actually carried it."
 function clear_marks!(urls, field::AbstractString)
-    m = load_marks()
-    n = 0
-    for u in urls
-        r = get(m, String(u), nothing)
-        r === nothing && continue
-        haskey(r, field) && (delete!(r, field); n += 1)
-    end
-    n == 0 || write_marks(m)
-    n
+    have = field_map(field)
+    us = [u for u in unique(String(u) for u in urls) if haskey(have, u)]
+    isempty(us) || set_blocks!([u => [String(field) => nothing] for u in us])
+    length(us)
 end
 
 # --- the seen bit ------------------------------------------------------------
@@ -242,33 +200,28 @@ end
 """Put a refresh's whole snooze map back, dropping what is no longer in it.
 
 A sync rather than a merge: `refresh` deletes the entry for an item that has
-left the dashboard, and the file has to lose it too.
+left the dashboard, and the file has to lose it too. One pass and one write,
+however many armings moved.
 """
 function save_snoozes!(snz::Dict{String,Any})
-    m = load_marks()
     want = Dict{String,Tuple{Union{Nothing,String},Union{Nothing,String}}}()
     for (u, v) in snz
         fp, at = snooze_entry(v)
         want[String(u)] = (fp === nothing ? nothing : String(fp),
                            at === nothing ? nothing : String(at))
     end
-    dirty = false
-    for (u, r) in m, (k, v) in zip(("snooze_fp", "snooze_at"),
-                                   get(want, u, (nothing, nothing)))
-        get(r, k, nothing) == v && continue
-        v === nothing ? delete!(r, k) : (r[k] = v)
-        dirty = true
+    ups = Pair{String,Any}[]
+    for (u, r) in load_marks()
+        fp, at = get(want, u, (nothing, nothing))
+        (get(r, "snooze_fp", nothing) == fp && get(r, "snooze_at", nothing) == at) && continue
+        push!(ups, u => ["snooze_fp" => fp, "snooze_at" => at])
+        delete!(want, u)
     end
     for (u, (fp, at)) in want
-        haskey(m, u) && continue
         fp === nothing && at === nothing && continue
-        r = Dict{String,String}()
-        fp === nothing || (r["snooze_fp"] = fp)
-        at === nothing || (r["snooze_at"] = at)
-        m[u] = r
-        dirty = true
+        push!(ups, u => ["snooze_fp" => fp, "snooze_at" => at])
     end
-    dirty && write_marks(m)
+    isempty(ups) || set_blocks!(ups)
     nothing
 end
 
@@ -276,15 +229,8 @@ end
 
 The one thing outside a refresh that may touch these, and it only ever forgets:
 what it is undoing is an arming, not a decision about whether the item is
-asleep, which is `state.toml`'s to make.
+asleep, which is the `snooze` field's to make.
 """
-function disarm(url::AbstractString)
-    m = load_marks()
-    r = get(m, String(url), nothing)
-    r === nothing && return nothing
-    (haskey(r, "snooze_fp") || haskey(r, "snooze_at")) || return nothing
-    delete!(r, "snooze_fp")
-    delete!(r, "snooze_at")
-    write_marks(m)
-    nothing
-end
+disarm(url::AbstractString) =
+    (set_blocks!([String(url) => ["snooze_fp" => nothing, "snooze_at" => nothing]]);
+     nothing)

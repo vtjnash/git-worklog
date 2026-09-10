@@ -48,7 +48,7 @@ const OVER = [(:open, "open"), (:done, "closed or merged")]
 """The three questions that are not an axis of their own.
 
 Each is a mark or a derivation rather than a field: `second` is worked out every
-refresh from silence, `touched` and `drafts` are rows in `marks.json`. Unlike
+refresh from silence, `touched` and `drafts` are rows in `local.toml`. Unlike
 the axes above an item can carry all three at once, so these behave like labels
 - any of the ones you pick brings the row.
 """
@@ -739,7 +739,7 @@ function refilter!(st; keeprow::Bool = true)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
-    # has to be current for a row to arrive in it. One read of `marks.json` for
+    # has to be current for a row to arrive in it. One read of `local.toml` for
     # both of the maps that come out of it, which is what one file buys.
     m = load_marks()
     st.touched = field_marks(m, "touched")

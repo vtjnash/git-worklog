@@ -16,11 +16,11 @@
     write(joinpath(main, "a"), "x")
     W.git(main, "add", "a"); W.git(main, "commit", "--quiet", "-m", "first")
 
-    keepr, keeph = W.REPOS_FILE[], get(ENV, "HOME", "")
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    keepr, keeph = W.LOCAL[], get(ENV, "HOME", "")
+    W.LOCAL[] = joinpath(root, "local.toml")
     try
         # Written the way a person writes it, not the way the program does.
-        write(W.REPOS_FILE[], "[\"o/r\"]\nworktree = \"~/main\"\n")
+        write(W.LOCAL[], "[\"repo:o/r\"]\nworktree = \"~/main\"\n")
         ENV["HOME"] = root
         @test W.repo_path("o/r") == main
         # And the survey sees it too, which is what the worktree list is built
@@ -29,7 +29,7 @@
         @test any(w -> w.repo == "o/r", ws)
     finally
         ENV["HOME"] = keeph
-        W.REPOS_FILE[] = keepr
+        W.LOCAL[] = keepr
     end
 
     # WORKLOG_DATA is not always set by a shell, and an unexpanded `~` there
@@ -55,14 +55,14 @@ end
     # which is exactly why removing one waits to be asked for.
     root = mktempdir()
     here = joinpath(root, "here"); mkpath(here)
-    keepr = W.REPOS_FILE[]
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    keepr = W.LOCAL[]
+    W.LOCAL[] = joinpath(root, "local.toml")
     try
-        write(W.REPOS_FILE[], """
-              ["o/here"]
+        write(W.LOCAL[], """
+              ["repo:o/here"]
               worktree = $(repr(here))
 
-              ["o/gone"]
+              ["repo:o/gone"]
               worktree = $(repr(joinpath(root, "not-there")))
               """)
         rs = W.pinned_repos()
@@ -70,19 +70,19 @@ end
         @test [r.there for r in rs] == [false, true]
         # The path comes back as written, not as resolved: a `~` somebody typed
         # is their text and worth showing back to them unchanged.
-        write(W.REPOS_FILE[], """
-              ["o/tilde"]
+        write(W.LOCAL[], """
+              ["repo:o/tilde"]
               worktree = "~/nowhere-at-all"
               """)
         @test first(W.pinned_repos()).path == "~/nowhere-at-all"
         @test !first(W.pinned_repos()).there
 
         # Pruning takes the missing ones and leaves the rest.
-        write(W.REPOS_FILE[], """
-              ["o/here"]
+        write(W.LOCAL[], """
+              ["repo:o/here"]
               worktree = $(repr(here))
 
-              ["o/gone"]
+              ["repo:o/gone"]
               worktree = $(repr(joinpath(root, "not-there")))
               """)
         @test W.prune_repos!() == ["o/gone"]
@@ -91,6 +91,6 @@ end
         # And nothing to do is not an error.
         @test isempty(W.prune_repos!())
     finally
-        W.REPOS_FILE[] = keepr
+        W.LOCAL[] = keepr
     end
 end

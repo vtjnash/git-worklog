@@ -40,7 +40,7 @@
     # r/u against the marks file, put back afterwards either way - and "put
     # back" includes the file not existing yet, which is what a dashboard that
     # has never been read has.
-    marks() = isfile(W.marksfile()) ? read(W.marksfile(), String) : ""
+    marks() = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     before = marks()
     try
         # Bare, so the row stays under the cursor: with what the browser opens
@@ -83,8 +83,8 @@
         for _ in 1:3; W.handle!(st, Int('z'), ctrl); end
         @test isempty(st.undos) && marks() == before
     finally
-        isempty(before) ? rm(W.marksfile(); force = true) :
-                          write(W.marksfile(), before)
+        isempty(before) ? rm(W.localfile(); force = true) :
+                          write(W.localfile(), before)
     end
 
     # The footer counts what is pending.

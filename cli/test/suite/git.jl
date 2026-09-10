@@ -36,7 +36,8 @@
     g(main, "push", "--quiet", "origin", "--delete", "placed")
     g(main, "fetch", "--quiet", "--prune", "origin")
 
-    W.REPOS_FILE[] = joinpath(root, "repos.toml")
+    W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
     try
         W.register_repo!("t/one", main)
 
@@ -114,14 +115,13 @@
         g(main, "checkout", "--quiet", "--", "a.txt")
 
         # A registered repo whose folder has gone is skipped, not an error -
-        # the same rule `repo_path` follows, since `repos.toml` is never pruned.
-        d = W.load_repos()
-        d["t/gone"] = Dict("worktree" => joinpath(root, "not-there"),
-                           "gitdir" => "", "remotes" => "")
-        W.save_repos(d)
+        # the same rule `repo_path` follows, since an entry is never pruned
+        # until somebody asks.
+        W.save_repo!("t/gone", Dict("worktree" => joinpath(root, "not-there"),
+                                    "gitdir" => "", "remotes" => ""))
         @test all(w.repo == "t/one" for w in first(W.survey(; withdirty = false)))
     finally
-        W.REPOS_FILE[] = REPOS_SANDBOX
+        W.LOCAL[] = REPOS_SANDBOX
     end
 
     # The parse of `%(upstream:track)`, which is why git is run under LC_ALL=C.
@@ -164,16 +164,16 @@ end
     try
         W.DATA_DIR[] = d
         # Not a repository: nothing to do, and nothing said about it.
-        write(joinpath(d, "marks.json"), "{}")
+        write(joinpath(d, "local.toml"), "{}")
         @test W.commit_data!() == ""
         W.git(d, "init", "-q")
         W.git(d, "config", "user.email", "test@example.com")
         W.git(d, "config", "user.name", "test")
         said = W.commit_data!()
         @test occursin("committed 1 file", said)
-        @test occursin("marks.json", W.git(d, "log", "-1", "--format=%s"))
+        @test occursin("local.toml", W.git(d, "log", "-1", "--format=%s"))
         # Once a day: the same day again is a no-op, however dirty it gets.
-        write(joinpath(d, "repos.toml"), "")
+        write(joinpath(d, "local.toml"), "")
         @test W.commit_data!() == ""
         @test length(split(strip(W.git(d, "log", "--format=%h")), '\n')) == 1
         # A clean tree is nothing to commit even when the day has turned.
@@ -185,10 +185,10 @@ end
         end
         @test W.commit_data!() == ""
         # Dirty and a day old: committed, and the message names what moved.
-        write(joinpath(d, "state.toml"), "# hello\n")
+        write(joinpath(d, "local.toml"), "# hello\n")
         said = W.commit_data!()
         @test occursin("first run since 2020-01-01", said)
-        @test occursin("state.toml", W.git(d, "log", "-1", "--format=%s"))
+        @test occursin("local.toml", W.git(d, "log", "-1", "--format=%s"))
     finally
         W.DATA_DIR[] = was
     end

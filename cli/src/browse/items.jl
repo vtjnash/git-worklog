@@ -64,7 +64,7 @@ user just asked for by hand and is waiting on the answer to, and a row that
 appears a second later somewhere in a list of two thousand is not an answer.
 
 Nothing is written until the item is known to exist: a url that resolves to
-nothing would otherwise leave a line in `state.toml` that fetches nothing on
+nothing would otherwise leave a line in `local.toml` that fetches nothing on
 every refresh forever.
 """
 function import_url!(st::BState, raw::AbstractString, at::DateTime)
@@ -140,7 +140,7 @@ end
 
 """Give a branch back: it stops being an item and its row goes.
 
-Whatever was written about it stays in `state.toml` - a note is not undone by
+Whatever was written about it stays in `local.toml` - a note is not undone by
 deciding the work is not yours - so re-adopting finds it again.
 """
 function unadopt!(st::BState, repo, branch, at::DateTime)

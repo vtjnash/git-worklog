@@ -110,7 +110,7 @@ anchor or out of the files tab is the same item as the url copied off the title;
 `/pulls/` becomes `/pull/`, which is what `resource` will answer to.
 
 It is also the guard on what reaches the query, which is why it is a whitelist
-rather than a trim: these urls come out of `state.toml`, which is a file the
+rather than a trim: these urls come out of `local.toml`, which is a file the
 user edits, and they are interpolated into GraphQL as literals.
 """
 function item_url(text::AbstractString)

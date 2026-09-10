@@ -21,10 +21,10 @@
     # An inbox entry is how an imported item reaches the unread lane: no poll
     # will ever find one, since its repo is not watched - which is why it was
     # imported.
-    keepi, keepm = W.FETCHED[], W.MARKS[]
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
     W.FETCHED[] = joinpath(d, "fetched.json")
-    W.MARKS[] = joinpath(d, "marks.json")
+    W.LOCAL[] = joinpath(d, "local.toml")
     try
         u = "https://github.com/o/r/issues/3"
         W.mark_read([u], W.utcnow())          # read from some earlier life
@@ -61,7 +61,7 @@
         # Nothing is claimed to have been polled: no cursor moves.
         @test isempty(W.Events.load_inbox()["cursors"])
     finally
-        W.FETCHED[] = keepi; W.MARKS[] = keepm
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end
 end
 

@@ -73,9 +73,9 @@ function hermetic(f)
         ENV["WORKLOG_TMUX"] = joinpath(d, "no-tmux-here")
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
-        Worklog.STATE[] = joinpath(d, "state.toml")
-        Worklog.MARKS[] = joinpath(d, "marks.json")
-        Worklog.REPOS_FILE[] = joinpath(d, "repos.toml")
+        Worklog.LOCAL[] = joinpath(d, "local.toml")
+        Worklog.LOCAL[] = joinpath(d, "local.toml")
+        Worklog.LOCAL[] = joinpath(d, "local.toml")
         Worklog.FETCHED[] = joinpath(d, "fetched.json")
         redirect_stdout(devnull) do
             f()
@@ -86,9 +86,9 @@ function hermetic(f)
         Worklog.LOGIN[] = ""
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
-        Worklog.STATE[] = ""
-        Worklog.MARKS[] = ""
-        Worklog.REPOS_FILE[] = ""
+        Worklog.LOCAL[] = ""
+        Worklog.LOCAL[] = ""
+        Worklog.LOCAL[] = ""
         Worklog.FETCHED[] = ""
         rm(d; recursive = true, force = true)
     end
