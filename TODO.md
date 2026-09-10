@@ -11,18 +11,21 @@ done; `git log` is the record of it and this file is not.
    multiselect axis over the whole corpus, instead of a radio that mixes
    dispositions with four things that are not. The finding it turns on: there
    are *three* seen-values and the program has two of them fused - **unseen**
-   (no `read.json` cursor at all, 773 of the firehose's 901 rows) is not
-   **unread** (a cursor, older than `updated`), and the firehose browse wants
-   the first while the incoming inbox wants the second. Nothing new has to be
-   stored; `read.json` already is the seen bit and the question is being asked
-   of `inbox.json` instead of of the corpus. The disposition is **one computed
-   enum**, not five flags, because the five are exclusive and that belongs in
-   the value rather than in a precedence rule re-applied wherever something is
-   read. **See "THE STATE AXIS" under Outstanding work for the whole
-   specification, the file layout, the build order and why there is no
-   migration.** The window matters: *nothing in any machine-written file is
-   live*, because all of it has been waiting on this fix, so changing the format
-   costs nothing now and more every day. Write no migration code.
+   (no read stamp at all) is not **unread** (a stamp, older than `updated`), and
+   the firehose browse wants the first while the incoming inbox wants the
+   second. Nothing new has to be stored; the read stamp already is the seen bit
+   and the question is being asked of `inbox.json` instead of of the corpus. The
+   disposition is **one computed enum**, not five flags, because the five are
+   exclusive and that belongs in the value rather than in a precedence rule
+   re-applied wherever something is read.
+   **Steps 1 and 2 of the build order are built**: the four one-fact-per-url
+   files are `marks.json`, and `disposition(it, read, archived)` answers the
+   five over the corpus. It filters nothing yet - step 3 is where the radio
+   becomes the multiselect. Measured across the change, today's `unread` lane is
+   847 rows of which 845 have never been in front of you and 2 are snoozed,
+   which is the finding holding up on real data. **See "THE STATE AXIS" under
+   Outstanding work for the whole specification, the file layout and what is
+   left of the build order.**
 
 2. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
@@ -224,7 +227,7 @@ linked against a newer glibc.
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
 | `cli/src/events.jl` | the incremental inbox and live thread fetch (submodule `Events`) |
 | `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, the snapshot diff |
-| `cli/src/touched.jl` | the interaction clock: when you last acted on an item |
+| `cli/src/marks.jl` | what you have done to an item: seen, touched, snoozed, drafted — one row per url in `marks.json` |
 | `cli/src/state.jl` | the line-based `state.toml` editor, `next` queue |
 | `cli/src/controller.jl` | the view controller that owns stdin; input decoding; the `View` protocol; `ChooseView` and `ConfirmView`, and the two thin wrappers that make `TermInput`'s widgets views |
 | `cli/src/browse/` | the browser: filters, panes, folding, diffs, checks, writing (`Worklog.jl`'s include list is the index) |
@@ -238,9 +241,9 @@ linked against a newer glibc.
 | `cli/test/latency.jl` | the three startup waits, measured; not part of the suite |
 
 **The state lives in `data/`, which is its own git repository.** It stopped
-being ephemeral — `read.json`, `touched.json` and `inbox.json` are records of
-what has been read, acted on and seen, and `state.toml` holds the notes,
-snoozes, adoptions and archives — so it is worth a history, but not the code's:
+being ephemeral — `marks.json` and `inbox.json` are records of what has been
+read, acted on and seen, and `state.toml` holds the notes, snoozes, adoptions
+and archives — so it is worth a history, but not the code's:
 mixed into this one it buried the diffs that matter and dirtied the tree on
 every refresh. `datapath(name)` resolves it; `WORKLOG_DATA` points it elsewhere,
 which is how a test gets a disposable one. `config.toml` stays beside the code,
@@ -310,11 +313,11 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   build; `PATH` still beats the bundled one, so an existing tmux and the
   sessions in it are what a real run uses.
 - **Every path the program writes through is redirected at the top of the run**
-  — `STATE`, `READ`, `INBOX` and `REPOS_FILE` seeded from the real files,
-  `CACHE_DIR` started empty, alongside `TOUCHED`. The rule is that *all* of them
-  go, not that each leak is fixed as it turns up: `state.toml` was found by an
-  adoption testset whose `finally` did not run, and `read.json` by a test that
-  pressed `r` and stamped a real item as read. A testset that points
+  — `STATE`, `INBOX` and `REPOS_FILE` seeded from the real files, `CACHE_DIR`
+  and `MARKS` started empty. The rule is that *all* of them go, not that each
+  leak is fixed as it turns up: `state.toml` was found by an adoption testset
+  whose `finally` did not run, and the read stamps by a test that pressed `r`
+  and stamped a real item as read. A testset that points
   `REPOS_FILE` at a temp repo puts it back to `REPOS_SANDBOX`, never to `""`,
   which means the user's own file again. `errors.log` is the deliberate
   exception — the suite deletes the real one at startup and several tests assert
@@ -349,8 +352,8 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   asserts what is written there.
 - The events lane is an **incremental sync**, not a window: `inbox.json` holds a
   cursor per source and everything seen and not yet read. A source seen for the
-  first time starts at *now*, so turning one on is inbox zero. `read.json` is
-  still what decides an item leaves.
+  first time starts at *now*, so turning one on is inbox zero. The read stamp
+  is still what decides an item leaves.
 - It takes `owner/*` as well as `owner/name`. A glob is two searches (`is:issue`
   and `is:pull-request` under `user:<owner>`), so it is cheap to add one and it
   truncates at 1000 where a named repo does not.
@@ -768,7 +771,7 @@ forwarded.
 
 **Key bindings: a capital reaches GitHub, lowercase does not.** `C`, `A` and `L`
 post a comment, submit a review and set a label; everything lowercase stays on
-this machine, `r` and `s` included — `read.json` and `state.toml` are local
+this machine, `r` and `s` included — `marks.json` and `state.toml` are local
 files, and `e` only launches an editor. The line is *remote*, not *writes
 something*, which is also why `z` below can offer to undo the lowercase set and
 must never offer to undo the capitals.
@@ -813,7 +816,7 @@ when it was snoozed and whatever moved it is newer than that - which is the
 whole of the "reenters as unread" half. At `normal` track the fingerprint is
 `head_at`, `review_decision`, `ci`, `unresolved`, `review_count` and
 `last_comment_at`, so a new push wakes it and so does CI going green. Nothing
-new to record: `snooze.json` is already this.
+new to record: the snooze marks are already this.
 
 **Newest first, and that is the policy rather than the default it looks like.**
 `lane_sort` gives `:second` the ordinary `:latest`, and all of `SORTS` is
@@ -843,7 +846,7 @@ exceeded leaves on a day nobody chose, with nothing written down and nothing to
 undo.
 
 `s` `1` is what takes one out now. That is a decision somebody made, it is in
-`snooze.json`, `z` undoes it, and it comes back on its own when the thing
+`state.toml` with its fingerprint in `marks.json`, `z` undoes it, and it comes back on its own when the thing
 finally moves. None of those is true of a threshold.
 
 Worth thinking about separately, and not obviously worth doing: the lane is
@@ -918,8 +921,10 @@ been costed.
 ### THE STATE AXIS — the finalized design, ready to build
 
 Designed 2026-09-10 across a long session and written out here so that it
-survives losing the conversation. Nothing below is built. Read "The two modes"
-above first; that half *is* built and this is the other half.
+survives losing the conversation. **Steps 1 and 2 of the build order are built**
+- `marks.json` and `disposition` - and the rest is not; each step below says
+which. Read "The two modes" above first; that half *is* built and this is the
+other half.
 
 #### The shape
 
@@ -945,13 +950,14 @@ wins:
 
 1. **archived** — `state.toml` carries an `archive` stamp.
 2. **snoozed** — `state.toml` carries a live snooze (`snooze_active`).
-3. **unseen** — no `read.json` cursor at all. *Never been in front of you.*
+3. **unseen** — no read stamp at all. *Never been in front of you.*
 4. **unread** — a cursor exists and is older than the item's `updated`.
 5. **read** — a cursor at or after `updated`.
 
 **3 and 4 are different and both are wanted**, which is the finding this whole
-design turned on. The firehose browse wants *unseen* — 773 of its 901 rows, and
-it needs nothing but `read.json`. The mode-2 inbox wants *unread* — you looked,
+design turned on. The firehose browse wants *unseen* — 901 of its 901 rows
+once the read stamps were wiped, 773 before that — and it needs nothing but
+them. The mode-2 inbox wants *unread* — you looked,
 it moved, look again — and must not fill with 2014 issues merely because they
 were never read. Today's `unread` is neither: it is membership in `inbox.json`,
 which means "the poll saw it move", bounded by `[events].repos` and
@@ -984,16 +990,17 @@ to keep in step.
 `Item.snoozed` therefore goes; `snooze_why` stays, being a sentence about *why*
 rather than a duplicate of *whether*.
 
-**One thing to fix while doing it:** snoozing stamps the read cursor and
-archiving does not, so an archived item can also be unread. Archiving should
-stamp it too - then the precedence above is a tidiness rather than a repair.
+**One thing to fix while doing it** - *done*: snoozing stamped the read cursor
+and archiving did not, so an archived item could also be unread. Archiving
+stamps it too now, in the browser (`x`) and in `wl archive`, on the way in only.
+The precedence above is a tidiness rather than a repair.
 
 #### The files
 
-`read.json` **is** the seen bit already; nothing new is stored. The change is
+The read stamp **is** the seen bit already; nothing new is stored. The change is
 that the predicate is asked of the corpus instead of of the inbox.
 
-Since the files are being rewritten anyway, they collapse:
+Since the files are being rewritten anyway, they collapse - **built**:
 
     marks.json     url -> {read, touched, snooze_fp, snooze_at, draft}
     inbox.json     {cursors, polled, items}      — unchanged
@@ -1002,13 +1009,12 @@ Since the files are being rewritten anyway, they collapse:
     state.toml     yours                         — untouched
     repos.toml     yours                         — untouched
 
-`marks.json` replaces `read.json`, `touched.json`, `snooze.json` and
-`drafts.json`: four files that are each one small fact per url, four
+`marks.json` replaced `read.json`, `touched.json`, `snooze.json` and
+`drafts.json`: four files that were each one small fact per url, four
 read-modify-writes where there should be one, and no single place to see what is
-recorded about an item.
-
-`queue.json` goes. `wl next` writes it and nothing in the browser reads it;
-check that before deleting it.
+recorded about an item. `queue.json` went with them - `wl next` wrote it and
+nothing read it but `wl next`'s own "never shown first" ordering, which the tag
+in `state.toml` already records; asking twice in a row now shows the same slice.
 
 **`inbox.json` stays and keeps two of its three jobs.** Its per-source cursors
 and `polled` stamps are the poll's own state and nothing else has them; its
@@ -1017,32 +1023,42 @@ things that got a comment in a watched repo and are in no lane, which the
 browser adds as thin placeholder rows (`bucket = "unread"`, forced backlog). It
 loses only the third job, being the definition of unread.
 
-#### There is no migration, and the window is now
+#### There was no migration, and the window was taken
 
-Decided 2026-09-10: **wipe and refetch rather than port. Nothing in any
-machine-written file is live**, because all of it has been waiting on this fix
-to the model. `read.json`, `touched.json`, `drafts.json` and `queue.json` **do
-not exist** — the rebuild earlier the same day deleted them and nothing has
-recreated them — and `snooze.json`'s 4 entries are not worth carrying either:
-the snooze *values* are in `state.toml`, and the fingerprints re-arm from them
-on the next refresh. So the cost of changing the format is *zero right now* and
-rises with every key pressed from here. Write no migration code.
-
-`state.toml`, `repos.toml` and `config.toml` are hand-authored, are the only
-things that cannot be refetched, and are not touched by any of this. The wipe
-recipe is the one from that day: delete everything in `data/` except those, run
-`cli/bin/refresh`, and check the lane counts.
+Decided and done 2026-09-10: **wiped rather than ported**. `read.json`,
+`touched.json`, `drafts.json` and `queue.json` did not exist - the rebuild
+earlier that day deleted them and nothing had recreated them - and
+`snooze.json`'s 4 entries were not worth carrying: the snooze *values* are in
+`state.toml`, and the fingerprints re-armed from them on the first refresh, to
+the same four fingerprints they had. `state.toml`, `repos.toml` and
+`config.toml` are hand-authored, are the only things that cannot be refetched,
+and were not touched by any of it.
 
 #### Build order
 
-1. `marks.json` and its accessors, replacing four files. No behaviour change —
-   the same facts through one door — so it lands and is exercised on its own.
-   Delete the old four rather than reading them; see above.
-2. The disposition predicate over the corpus, alongside the existing `state`
-   axis rather than replacing it, so the two can be compared on real data.
+1. ~~`marks.json` and its accessors, replacing four files.~~ **Built.** No
+   behaviour change - the same facts through one door. The accessors kept their
+   names (`read_at`, `touch!`, `load_drafts`, `disarm`), so nothing above them
+   moved; underneath, they are one `set_mark!` and one file for the watcher to
+   watch, and a refilter reads it once for both maps it takes out of it. The
+   read stamp came out of `Events` with it: it is the corpus's seen bit and
+   always was, and what `Events` owns is the poll.
+2. ~~The disposition predicate over the corpus, alongside the existing `state`
+   axis.~~ **Built**, and the comparison on 2789 real rows is in the commit:
+   today's `unread` lane is 847 rows of which **845 are unseen** and **2 are
+   snoozed** - it is neither question, and it shows work you have said "not now"
+   about. Archiving stamps the read cursor now, at both doors, which was the
+   repair the design asked for while passing.
+   * **`Item.snoozed` cannot go**, unlike the design's guess. It is not a
+     duplicate of anything: it is the refresh's answer about whether the item is
+     still asleep, carried on the row because deciding it in the browser would
+     be a second opinion (see `snooze_active`). `disposition` reads it. What
+     goes is the *precedence rule* re-applied at every reader, and that is what
+     the enum takes.
 3. `Filters.state` becomes `Filters.seen::Set{Symbol}` and the filter pane row
    group becomes a multiselect. `buckets`/`repos`/`labels` are already sets, so
-   this is a shape the pane already draws.
+   this is a shape the pane already draws. `DISPOSITIONS` is the list of values,
+   beside `STATES`, and `BState` already carries the read map the filter needs.
 4. `active`, `backlog`, `second`, `touched`, `drafts` come out of the radio:
    `active` is `!snoozed && !archived` narrowed by the corpus, `second` is a
    derived tag that belongs with the buckets, `touched` and `drafts` are
@@ -1518,7 +1534,7 @@ beside this one now rather than a paragraph describing one.
   checks have never been fetched shows the one-word rollup from `facts.json`
   until the lazy fetch lands.
 - **A snooze cap is measured from when it was armed, not from when you set it.**
-  `snooze.json` records the time the fingerprint was first taken, which is the
+  `snooze_at` records the time the fingerprint was first taken, which is the
   next refresh after the value appears in `state.toml` — close enough for a
   thirty-day cap, wrong if you wanted the day you typed it. Entries written
   before arming times existed adopt one on first sight rather than counting as
