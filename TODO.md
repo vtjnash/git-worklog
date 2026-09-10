@@ -1066,102 +1066,105 @@ and were not touched by any of it.
 5. Views rewritten onto the new axes, and `apply_view!`'s unknown-value warning
    extended to them — it earned its place the day `mine` was removed.
 
-#### What step 4 walked into: `active` is not a state, it is a *source*
+#### What step 4 walked into, and the corrections that came back
 
-Written 2026-09-10, after steps 1-3 landed and before step 4 was built, because
-step 4 - "`active` comes out of the radio" - has nowhere to put it. Taking the
-design at its word (`active` is `!snoozed && !archived` over the corpus) turns
-158 rows into 2157 and mode 2 into 2014, and the reason is that **`active` was
-never a state at all**. Today it is:
+Written 2026-09-10 after steps 1-3 landed, revised the same day by the person
+whose dashboard this is. Step 4 - "`active` comes out of the radio" - has
+nowhere to put it: taking the design at its word (`active` is `!snoozed &&
+!archived` over the corpus) turns 158 rows into 2157, because the term doing the
+work in today's `active` is the third one:
 
     !snoozed && !archived && !backlog        backlog = bucket in (firehose, mentioned)
 
-and the load-bearing term is the third one, which is a fact about *where the row
-came from*. Nothing about you, nothing you did: a lane returned it or the pile
-did.
+and that is a fact about *where the row came from*. Nothing about you, nothing
+you did. `active` is `direct` lanes (141) + the 20 `needs-reply` promotions +
+the local items = 162, of which 158 are awake, exactly.
 
-**Three questions, and the radio was answering all three at once.**
+**The first draft of this section proposed a source axis** - direct ·
+participating · watching · pile - and that is wrong, for a reason worth keeping:
+those are GitHub's own filters, and **GitHub is where to go for them**. This
+program is not a second copy of the notification UI. What it has that GitHub
+does not is the record of what *you* have decided about each item.
 
-| axis | the question | values | where it comes from | what changes it |
+**Three corrections, and they are the model.**
+
+**1. Movement always makes an item unread. Nothing overrides that.** Not a
+snooze, not an archive. So the five-value `disposition` enum is wrong in its
+precedence: unread is not something archiving can outrank, because unread is not
+a claim about what you want to see - it is a claim about whether the thing has
+changed since you last looked at it. Attention and decision are two axes, and
+fusing them was the mistake.
+
+**2. Archive *is* a snooze with no wake condition.** Both say the same thing -
+"I do not want to see this any more" - and they differ only in whether anything
+brings it back. So there is one field, one key press behind it, and
+`snooze_why` already says which kind it is: "until it moves", "until
+2026-09-15", "forever". `state.toml` carries 4 snooze keys and 0 archive keys
+today, so the merge costs nothing.
+
+**3. "Mine" is author *or assignee*, and a review request is neither.** Being
+asked to review something, or being named in a thread, makes it **unread** -
+which is the axis that already answers "somebody wants something from me". It
+does not make it yours. Today `mine` on an item means `author == login`, and the
+`assigned` lane is the only place assignment shows up at all.
+
+#### The axes, after the corrections
+
+| axis | the question | values | from | what changes it |
 |---|---|---|---|---|
-| **attention** | have I looked at this? | unseen · unread · read | the read stamp in `marks.json`, against `updated` | `r`, and the item moving |
-| **decision** | what did I decide about it? | none · snoozed · archived | `state.toml` | `s`, `x`, and a snooze waking |
-| **source** | who put it in front of me? | direct · participating · watching · pile | the lane that returned it (`lane`, already in `facts.json`) | the fetch, never you |
+| **attention** | has it changed since I looked? | unread · read | the read stamp in `marks.json` against `updated` | `r`, and *any* movement |
+| **dismissed** | do I want to see it? | awake · asleep | one `snooze` in `state.toml`; `x` writes the one that never wakes | `s`, `x`, and a wake condition coming true |
+| **over** | is it finished? | open · closed/merged | GitHub's `state` | GitHub |
+| **whose** | is it mine? | `@me` (author **or** assignee) · `@anyone-else` · logins | the item | the fetch |
+| **kind** | pr · issue · both | | | |
+| **what about it** | the buckets, repos, labels, and the tags `second look` / `touched` / `drafts` | | | |
 
-`disposition` fuses the first two on purpose - they are exclusive in practice
-and the precedence is worth having in the value - and that is still right. What
-is missing is the third, which has no home and has been living inside `active`,
-`backlog` and `track = background`.
+`active`, `backlog` and the source axis are all gone from that table. What
+subtracts the pile is not provenance any more: it is **dismissal**, one item at
+a time, recorded and reversible - which is the one thing that cannot be asked of
+GitHub and the whole reason this program exists.
 
-**The three things, said plainly.**
+**The three work modes, one selection each:**
 
-  * **read** is about *your attention*, and the item can take it back. "I have
-    seen this up to T." Something happens after T and it is unread again,
-    without anybody deciding anything. It is the only one of the three that
-    activity can reverse.
-  * **archive** is a *decision that outlives movement*. "I am done with this."
-    New comments do not bring it back; only `x` does. That is exactly what
-    makes it different from read, and why an archived item that is also unread
-    was a bug worth fixing rather than a state worth having.
-  * **backlog** is *not about you at all*. Nobody put it in front of you: it is
-    the whole-repo scan, or a mention thread you commented on two years ago. It
-    is provenance, and it belongs on an axis of its own where it can be *chosen*
-    rather than subtracted by a rule buried in `derive_bucket`.
+  1. **mine** — `@me`, meaning author or assignee. **157 rows**, against the 77
+     that `active` + `@me` gives today: the difference is your own issues and
+     pull requests that arrived through a mention or comment lane and were
+     filed in the pile for it.
+  2. **unread** — the attention axis. Everything that has moved since you looked
+     at it, whoever moved it and wherever it came from: a review request, a
+     mention, a reply, a push.
+  3. **open items** — `open` + `awake`. **2147 rows** today (2151 open, 4
+     asleep), and the way it goes down is `s` and `x`, not `r`.
 
-**Four sources, and the counts are exact** (2160 fetched rows + 628 the inbox
-alone knows about):
+#### What it costs, and what is already built
 
-    direct          141   the lanes that ask you for something: mine, review,
-                          assigned, landed, reviewed, resolved, imported
-    participating  1118   mentioned_*, commented_*: threads you are named in or
-                          have spoken in. 20 of them carry `needs-reply`, which
-                          is the one promotion out of the pile the refresh makes
-    watching        628   the activity poll: something moved in a repo you
-                          follow. Only `inbox.json` has these, and they arrive
-                          as thin placeholder rows
-    pile            901   `repo:JuliaLang/julia is:open is:pr`. Nobody named
-                          you; it is simply open
+  * `disposition` splits. The five-value enum becomes two computed values -
+    attention and dismissed - which is where step 2's work goes; the `Marks`
+    bundle, the multiselect plumbing and the axis counts from step 3 all stand.
+  * `Item.snoozed` stays (the refresh's carried answer) and `Item.state`
+    becomes a filter axis rather than only a bucketing input.
+  * `Item` gains an assignee bit, so `@me` can mean author-or-assignee.
+  * `archive` merges into `snooze`: `parse_snooze` gains a "forever" mode, `x`
+    writes it, and the `archive` key stops being written.
+  * `it.backlog` and `state === :active` both go. `wl next` pulls its queue from
+    `backlog`, so that becomes its own predicate. `track = "background"` stays -
+    it is snooze sensitivity, not a lane.
 
-`active` = `direct` + the 20 promoted rows + the local items = 162, of which 158
-are awake. So the lane that the whole dashboard opens on is one value of the
-source axis, and it has been wearing a state's clothes.
+**Open before building it:**
 
-**The three work modes are then one selection each**, and the third one is the
-one the "two modes" note above never stated:
-
-  1. **my PRs** — `@me` on the author axis. 143 rows across every source, which
-     is *better* than today's `active` + `@me` = 77: the 66 it adds are your own
-     issues and pull requests that arrived through a mention or comment lane and
-     were filed in the pile for it.
-  2. **notifications** — `source: participating + watching`, 1746 rows, browsed
-     by attention: `unread` is the inbox proper and `unseen` is everything
-     nobody has ever opened.
-  3. **open items** — `source: pile`, 901 rows, browsed by `unseen`: the
-     triage sweep, and the count going down is the whole point of it.
-
-Mode 2 taking two source values is the argument for the axis being a
-multiselect like the others rather than four radio buttons.
-
-**What this costs.** `Item` gains `lane` (it is in `facts.json` already and
-`item_of` simply drops it) and a `source(it)` that groups it; the inbox
-placeholders are `watching` by construction. `Filters` gains
-`sources::Set{Symbol}`. `it.backlog` and `state === :active` both go, and with
-them the `backlog` field the refresh writes - except that `wl next` pulls its
-queue from it, so that becomes `source in (participating, pile)`.
-`track = "background"` stays: it is snooze sensitivity, not a lane.
-
-**Open before building it.**
-
-  * The words. `direct`/`participating`/`watching`/`pile` borrow GitHub's own
-    notification vocabulary for the middle two, but `participating` is long and
-    `pile` is not what the config calls the firehose. Names wanted.
-  * Is a **review request** `direct` or `participating`? It is somebody else's
-    pull request, which argues for the second; it asks you for an action, which
-    argues for the first. 45 rows ride on it.
-  * Does the browser still **open on `direct`**, or on nothing narrowed? The
-    design says the corpus is what is left when you have not narrowed anything;
-    keeping a default selection is a hidden rule, and having none means opening
-    on 2789 rows.
+  * Does **unseen** survive as a filter value? With movement always unreading,
+    "never seen at all" is a strict refinement of unread rather than a third
+    value, and the pile is defined by `open + awake` rather than by it.
+  * **Assignee**: ask GraphQL for `assignees` on every lane (exact, one more
+    field), or derive it from the `assigned` lane (free, and wrong for an item
+    another lane returned first)?
+  * **What the browser opens on**, now that no 158-row list exists: `@me` (157),
+    or `open + awake` (2147) with the modes a keystroke away.
+  * **Where dismissals live.** One `state.toml` block per dismissed item is how
+    it works today, and taming a 901-row pile means hundreds of them. That file
+    is yours and hand-editable, which is the argument for keeping them there;
+    `marks.json` is machine-owned and already has a row per url, which is the
+    argument for moving them.
 
 #### Deliberately not in this
 
