@@ -126,12 +126,11 @@ end
     @test any(x -> x[1] === :second, W.STATES)
     quiet = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
                    secondlook = "alice asked, then quiet for 3 work days")
-    @test W.state_ok(:second, quiet, Set{String}())
+    @test W.state_ok(:second, quiet)
     @test !W.state_ok(:second, W.Item(url = "u2", ref = "a#2", repo = "a/b",
-                                      number = 2, title = "t"), Set{String}())
+                                      number = 2, title = "t"))
     # Archived work is not waiting on anybody.
-    @test !W.state_ok(:second, quiet, Set{String}(), W.EMPTY_TOUCHED,
-                      Dict("u" => "2026-09-01"))
+    @test !W.state_ok(:second, quiet, W.Marks(archived = Dict("u" => "2026-09-01")))
     # And the reason is shown where the item's facts are.
     @test any(l -> occursin("quiet", l) && occursin("3 work days", l),
               W.astrip.(W.meta_lines(st, quiet, 60)))

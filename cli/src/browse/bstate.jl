@@ -80,7 +80,8 @@ Base.@kwdef mutable struct BState <: View
                                     # was last written to on it and not sent;
                                     # the one lane GitHub cannot be asked for
     lmode::Symbol = :items          # :items | :filters
-    frow::Int = 3        # the first state row; 1 is the reset row and 2 its head
+    frow::Int = 3        # the first disposition row; 1 is the reset row and 2
+                         # its head
     wake::Any = nothing             # set by the controller; called when a fetch lands
     hdr::Int = 0           # rows of item title above the nodes in the detail
                            # pane; the mouse needs it to turn a screen row into

@@ -88,10 +88,13 @@ mutable struct Filters
     kind::Symbol              # :both | :pr | :issue
     authors::Set{String}      # empty means anybody; @me and @anyone-else are
                               # values here as well as logins
+    seen::Set{Symbol}         # empty means every disposition; see `DISPOSITIONS`
 end
-# The shorter shapes are the ones from before there was a kind and before there
-# was an author, kept because every caller of them means "any of those" - which
+# The shorter shapes are the ones from before there was a kind, an author or a
+# disposition, kept because every caller of them means "any of those" - which
 # is what the defaults say.
+Filters(state, buckets, repos, labels, kind, authors) =
+    Filters(state, buckets, repos, labels, kind, authors, Set{Symbol}())
 Filters(state, buckets, repos, labels, kind) =
     Filters(state, buckets, repos, labels, kind, Set{String}())
 Filters(state, buckets, repos, labels) =
@@ -106,8 +109,30 @@ time all reach the same place, and the row that offers to clear it should say
 so in all four.
 """
 isdefault(f::Filters) =
-    f.state === :active && f.kind === :both && isempty(f.buckets) &&
-    isempty(f.repos) && isempty(f.labels) && isempty(f.authors)
+    f.state === :active && f.kind === :both && isempty(f.seen) &&
+    isempty(f.buckets) && isempty(f.repos) && isempty(f.labels) &&
+    isempty(f.authors)
+
+"""What is recorded about the items on screen, as one argument.
+
+Five maps that the filters ask of every row: the poll's `unread` set, and the
+four marks. They travelled as four and then five positional arguments with
+defaults, which is a list that grows every time the model learns something and
+is wrong the moment one caller passes them in the other order.
+
+References, not copies - `BState` owns the maps and re-reads them whenever
+something changes; this is a way of naming all of them at once, made per
+`refilter!` and thrown away with it.
+"""
+Base.@kwdef struct Marks
+    unread::Set{String} = Set{String}()     # what the poll saw move, which is
+                                            # not the seen bit; see `disposition`
+    read::Dict{String,String} = EMPTY_TOUCHED
+    touched::Dict{String,String} = EMPTY_TOUCHED
+    archived::Dict{String,String} = EMPTY_TOUCHED
+    drafts::Dict{String,String} = EMPTY_TOUCHED
+end
+Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts)
 
 const DISPOSITIONS = [(:unseen, "unseen"), (:unread, "unread"), (:read, "read"),
                       (:snoozed, "snoozed"), (:archived, "archived")]
@@ -146,11 +171,10 @@ The seen bit is the only mark it needs; `archived` is `state.toml`'s and asleep
 is the refresh's, carried on the item because deciding it here would be a second
 opinion - see `snooze_active`.
 """
-function disposition(it::Item, read::Dict{String,String} = EMPTY_TOUCHED,
-                     archived::Dict{String,String} = EMPTY_TOUCHED)
-    haskey(archived, it.url) && return :archived
+function disposition(it::Item, m::Marks = Marks())
+    haskey(m.archived, it.url) && return :archived
     it.snoozed && return :snoozed
-    seen = get(read, it.url, nothing)
+    seen = get(m.read, it.url, nothing)
     seen === nothing && return :unseen
     # An item with no `updated` is a synthetic one - an adopted branch, an
     # import a refresh has not caught up with - and a stamp on it is the only
@@ -158,11 +182,18 @@ function disposition(it::Item, read::Dict{String,String} = EMPTY_TOUCHED,
     seen < it.updated ? :unread : :read
 end
 
+"""Is this item one of the five dispositions asked for?
+
+An empty set is every one of them, which is what every other multiselect axis
+here means by empty and what makes the corpus what is left when nothing has
+been narrowed.
+"""
+seen_ok(seen::Set{Symbol}, it::Item, m::Marks) =
+    isempty(seen) || disposition(it, m) in seen
+
 "Does this item belong to one of the exclusive states - the `STATES` radio group?"
-function state_ok(state::Symbol, it::Item, unread::Set{String},
-                  touched::Dict{String,String} = EMPTY_TOUCHED,
-                  archived::Dict{String,String} = EMPTY_TOUCHED,
-                  drafts::Dict{String,String} = EMPTY_TOUCHED)
+function state_ok(state::Symbol, it::Item, m::Marks = Marks())
+    unread, touched, archived, drafts = m.unread, m.touched, m.archived, m.drafts
     state === :unread  && return it.url in unread
     state === :snoozed && return it.snoozed
     state === :backlog && return it.backlog
@@ -269,11 +300,9 @@ function author_ok(authors::Set{String}, it::Item)
 end
 
 "An empty tag set means 'no restriction', so a fresh filter shows everything."
-function matches(f::Filters, it::Item, unread::Set{String},
-                 touched::Dict{String,String} = EMPTY_TOUCHED,
-                 archived::Dict{String,String} = EMPTY_TOUCHED,
-                 drafts::Dict{String,String} = EMPTY_TOUCHED)
-    state_ok(f.state, it, unread, touched, archived, drafts) || return false
+function matches(f::Filters, it::Item, m::Marks = Marks())
+    state_ok(f.state, it, m) || return false
+    seen_ok(f.seen, it, m) || return false
     kind_ok(f.kind, it) || return false
     author_ok(f.authors, it) || return false
     isempty(f.buckets) || it.bucket in f.buckets || return false
@@ -283,21 +312,22 @@ function matches(f::Filters, it::Item, unread::Set{String},
 end
 
 """
-    axis_counts(st) -> (states, kinds, buckets, repos, labels, authors)
+    axis_counts(st) -> (; states, seens, kinds, buckets, repos, labels, authors)
 
 How many items each filter value would select, in one pass over the items.
 
 Every count is against the *other* axes only - a category shows what selecting
 it would add, not a total that ignores the rest of the filter - so there is one
-predicate per axis over the same item, six of them, and computing them together
+predicate per axis over the same item, seven of them, and computing them together
 is what makes this one pass instead of one per row. It was a pass per row: 93 rows
 over 2050 items came to 190,650 `matches` calls per build and two builds per
 keystroke, which made the filter pane the only part of the UI with visible lag -
 128ms a frame against 0.7ms for the item list.
 """
 function axis_counts(st)
-    f = st.filters
+    f, m = st.filters, Marks(st)
     states = Dict{Symbol,Int}()
+    seens = Dict{Symbol,Int}()
     kinds = Dict{Symbol,Int}()
     buckets = Dict{String,Int}()
     repos = Dict{String,Int}()
@@ -308,41 +338,46 @@ function axis_counts(st)
         bok = isempty(f.buckets) || it.bucket in f.buckets
         rok = isempty(f.repos)   || it.repo in f.repos
         lok = isempty(f.labels)  || any(in(f.labels), it.labels)
-        sok = state_ok(f.state, it, st.unread, st.touched, st.archived, st.drafts)
+        sok = state_ok(f.state, it, m)
         kok = kind_ok(f.kind, it)
         aok = author_ok(f.authors, it)
-        if bok && rok && lok && kok && aok
+        # Once per item and not once per value: it is a lookup in two maps and a
+        # comparison, and the axis below would otherwise ask for it five times.
+        d = disposition(it, m)
+        dok = isempty(f.seen) || d in f.seen
+        if bok && rok && lok && kok && aok && dok
             for (k, _) in STATES
-                state_ok(k, it, st.unread, st.touched, st.archived, st.drafts) &&
-                    bump!(states, k)
+                state_ok(k, it, m) && bump!(states, k)
             end
         end
-        if sok && bok && rok && lok && aok
+        # An item answers exactly one disposition, so its own is the only value
+        # it counts towards - which is what makes this axis a partition of the
+        # list and the five counts add up to it.
+        sok && bok && rok && lok && kok && aok && bump!(seens, d)
+        if sok && bok && rok && lok && aok && dok
             for (k, _) in KINDS
                 kind_ok(k, it) && bump!(kinds, k)
             end
         end
-        if sok && bok && rok && lok && kok
+        if sok && bok && rok && lok && kok && dok
             # One item counts towards its own author *and* towards whichever of
             # the two predicates it answers, since picking either would bring it.
             isempty(it.author) || bump!(authors, it.author)
             author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
             author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
         end
-        sok && rok && lok && kok && aok && bump!(buckets, it.bucket)
-        sok && bok && lok && kok && aok && bump!(repos, it.repo)
-        if sok && bok && rok && kok && aok
+        sok && rok && lok && kok && aok && dok && bump!(buckets, it.bucket)
+        sok && bok && lok && kok && aok && dok && bump!(repos, it.repo)
+        if sok && bok && rok && kok && aok && dok
             for l in it.labels
                 bump!(labels, l)
             end
         end
     end
-    (states, kinds, buckets, repos, labels, authors)
+    (; states, seens, kinds, buckets, repos, labels, authors)
 end
 
-apply_filters(f, all, unread, touched = EMPTY_TOUCHED, archived = EMPTY_TOUCHED,
-              drafts = EMPTY_TOUCHED) =
-    [it for it in all if matches(f, it, unread, touched, archived, drafts)]
+apply_filters(f, all, m::Marks = Marks()) = [it for it in all if matches(f, it, m)]
 
 """Which axes list only what is applied, and reach the rest through the picker.
 
@@ -445,6 +480,15 @@ function apply_view!(st, d)
             bad = string(" \u00b7 no state '", d["state"], "', showing all")
         end
     end
+    if haskey(d, "seen")
+        v = d["seen"]
+        for x in (v isa AbstractString ? [v] : v)
+            k = Symbol(x)
+            any(y -> y[1] === k, DISPOSITIONS) ?
+                push!(f.seen, k) :
+                (bad = string(" \u00b7 no disposition '", x, "'"))
+        end
+    end
     haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
     for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
@@ -476,6 +520,10 @@ from memory an hour later.
 function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
     lines = [string("[views.", repr(String(name)), "]"),
              string("state = ", repr(String(f.state)))]
+    isempty(f.seen) ||
+        push!(lines, string("seen = [",
+                            join([repr(String(k)) for (k, _) in DISPOSITIONS
+                                  if k in f.seen], ", "), "]"))
     f.kind === :both || push!(lines, string("kind = ", repr(String(f.kind))))
     for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
@@ -487,8 +535,8 @@ function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
     join(lines, "\n")
 end
 
-"""Rows for the filter pane: the way out, two radio groups, then four checkbox
-axes.
+"""Rows for the filter pane: the way out, the disposition checkboxes, two radio
+groups, then four more checkbox axes.
 
 Counts are computed against the other axes only, so a category shows how many
 items selecting it would actually add rather than a total that ignores the rest
@@ -496,35 +544,43 @@ of the filter.
 """
 function filter_rows(st)
     f, rows = st.filters, Tuple{Symbol,String,String}[]
-    (nstate, nkind, nbucket, nrepo, nlabel, nauthor) = axis_counts(st)
+    n = axis_counts(st)
     # The way out, at the top, for the same argument the import row won: `c`
     # has always done this and nothing on screen said so. It leads because a
     # filter you want to abandon is one you are already lost in, and the top of
     # the pane is the one place the cursor can reach without reading anything.
     push!(rows, (:reset, "", string("  ↺ clear every filter",
                                     isdefault(f) ? "" : "  (c)")))
+    # Where each item stands with you, and the one axis that is a partition:
+    # every row answers exactly one of the five, so these counts add up to the
+    # list. Checkboxes, because "unseen or unread" is the question the firehose
+    # browse and the incoming inbox each ask half of.
+    push!(rows, (:head, "", "seen"))
+    for (k, name) in DISPOSITIONS
+        push!(rows, (:seen, string(k), string(k in f.seen ? "[x] " : "[ ] ",
+                                              rpad(name, 13), get(n.seens, k, 0))))
+    end
+    push!(rows, (:head, "", ""))
     push!(rows, (:head, "", "state"))
     for (k, name) in STATES
-        n = get(nstate, k, 0)
         push!(rows, (:state, string(k), string(f.state === k ? "(•) " : "( ) ",
-                                              rpad(name, 13), n)))
+                                              rpad(name, 13), get(n.states, k, 0))))
     end
     push!(rows, (:head, "", ""))
     push!(rows, (:head, "", "kind"))
     for (k, name) in KINDS
-        n = get(nkind, k, 0)
         push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
-                                              rpad(name, 14), n)))
+                                              rpad(name, 14), get(n.kinds, k, 0))))
     end
-    for (axis, label, values, tally) in ((:bucket, "category", st.buckets, nbucket),
-                                         (:repo, "repo", st.repos, nrepo),
-                                         (:label, "label", st.labels, nlabel),
-                                         (:author, "author", st.authors, nauthor))
+    for (axis, label, values, tally) in ((:bucket, "category", st.buckets, n.buckets),
+                                         (:repo, "repo", st.repos, n.repos),
+                                         (:label, "label", st.labels, n.labels),
+                                         (:author, "author", st.authors, n.authors))
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
         sel = axis_set(f, axis)
         for v in values
-            n = get(tally, v, 0)
+            cnt = get(tally, v, 0)
             on = v in sel
             # `me` and `anyone else` are the axis's two controls rather than two
             # of its values, and a control is worth offering when it would
@@ -535,7 +591,7 @@ function filter_rows(st)
             # A label nothing here carries is noise - and there are hundreds of
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
-            n == 0 && !on && !always && continue
+            cnt == 0 && !on && !always && continue
             # What is applied is listed, and on the long axes that is all that
             # is: the picker row below has every value and narrows by typing,
             # which is the only thing that scales to several hundred labels.
@@ -543,7 +599,7 @@ function filter_rows(st)
             # question.
             (!on && !always && axis in AXIS_APPLIED_ONLY) && continue
             push!(rows, (axis, v, string(on ? "[x] " : "[ ] ",
-                                         rpad(first(axis_label(axis, v), 22), 24), n)))
+                                         rpad(first(axis_label(axis, v), 22), 24), cnt)))
         end
         # The rest of them, behind a picker you can type into. Offered even when
         # everything fits, so the row is in the same place every time.
@@ -557,9 +613,10 @@ end
 
 """First selectable row of each group in the filter pane.
 
-The groups are what you actually move between - the way out, then state, kind,
-category, repo, label, author - and with a couple of hundred labels one of them
-is long enough that stepping into it a row at a time is not stepping into it.
+The groups are what you actually move between - the way out, then seen, state,
+kind, category, repo, label, author - and with a couple of hundred labels one of
+them is long enough that stepping into it a row at a time is not stepping into
+it.
 """
 function filter_groups(rows)
     starts, prev_head = Int[], true
@@ -583,8 +640,8 @@ Values already applied are left out. They are on screen a few rows above, where
 `\u21b5` takes them off again.
 """
 function pick_axis!(st, ctrl, axis::Symbol)
-    tallies = axis_counts(st)
-    tally = axis === :repo ? tallies[4] : axis === :label ? tallies[5] : tallies[6]
+    n = axis_counts(st)
+    tally = axis === :repo ? n.repos : axis === :label ? n.labels : n.authors
     values = axis === :repo ? st.repos : axis === :label ? st.labels : st.authors
     sel = axis_set(st.filters, axis)
     opts = Tuple{String,Any}[(string(rpad(axis_label(axis, v), 30), " ",
@@ -609,7 +666,10 @@ function toggle_filter!(st, ctrl = nothing)
     rows = filter_rows(st)
     st.frow = clamp(st.frow, 1, length(rows))
     (axis, val, _) = rows[st.frow]
-    if axis === :state
+    if axis === :seen
+        v = Symbol(val)
+        v in st.filters.seen ? delete!(st.filters.seen, v) : push!(st.filters.seen, v)
+    elseif axis === :state
         st.filters.state = Symbol(val)
         # The lane brings its order with it. `w` is still the override, and it
         # lasts until the lane changes again - which is the only rule here that
@@ -660,8 +720,7 @@ function refilter!(st; keeprow::Bool = true)
     st.drafts = field_marks(m, "draft")
     st.read = field_marks(m, "read")
     st.archived = field_map("archive")
-    st.items = sortitems(apply_filters(st.filters, st.all, st.unread, st.touched,
-                                       st.archived, st.drafts),
+    st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,
     # so the counts in the filter pane keep describing the tags alone - which is
@@ -693,6 +752,8 @@ end
 "One-line summary of what is applied, for the frame title."
 function filter_summary(f, order::Symbol = lane_sort(f.state))
     parts = [string(f.state)]
+    isempty(f.seen) ||
+        push!(parts, join([String(k) for (k, _) in DISPOSITIONS if k in f.seen], "+"))
     f.kind === :both || push!(parts, f.kind === :pr ? "pull requests" : "issues")
     # Named only when it is not the order this lane opens in. Newest-first is
     # the default everywhere now, and a summary that says so on every screen is

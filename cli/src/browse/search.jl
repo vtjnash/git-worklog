@@ -120,13 +120,15 @@ function commit_search!(st::BState, w::Int)
     end
     target, ref = st.all[k].url, st.all[k].ref
     st.search = ""
-    # With the same maps `refilter!` uses, or the question is asked of a
+    # With the same marks `refilter!` uses, or the question is asked of a
     # different list than the one on screen: without them an archived item
     # reads as active, the widen does not happen, and the jump lands nowhere.
-    any(it -> it.url == target,
-        apply_filters(st.filters, st.all, st.unread, st.touched, st.archived,
-                      st.drafts)) ||
-        (st.filters.state = :all)
+    # Widening drops the disposition axis with the state: a number typed into
+    # `/` is a jump to one item, and every axis that could be hiding it goes.
+    if !any(it -> it.url == target, apply_filters(st.filters, st.all, Marks(st)))
+        st.filters.state = :all
+        empty!(st.filters.seen)
+    end
     refilter!(st)
     j = findfirst(it -> it.url == target, st.items)
     j === nothing || (st.sel = j)

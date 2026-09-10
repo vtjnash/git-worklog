@@ -302,6 +302,6 @@ end
     # goes. A relative snooze that ran out an hour ago is still snoozed here,
     # and stays that way until somebody runs `wl refresh`.
     elapsed = W.Item(; base..., snoozed = true, snooze_why = "for 1d, 0d left")
-    @test W.state_ok(:snoozed, elapsed, Set{String}())
-    @test !W.state_ok(:active, elapsed, Set{String}())
+    @test W.state_ok(:snoozed, elapsed)
+    @test !W.state_ok(:active, elapsed)
 end

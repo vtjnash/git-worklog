@@ -33,7 +33,7 @@
         # a tidiness.
         @test W.read_at(it.url) !== nothing
         @test !(it.url in st.unread)
-        @test W.disposition(it, st.read, st.archived) === :archived
+        @test W.disposition(it, W.Marks(st)) === :archived
         # And undoing it puts the stamp back to whatever was there, which for
         # something never read is nothing at all - the same shape every other
         # undo of a mark has.

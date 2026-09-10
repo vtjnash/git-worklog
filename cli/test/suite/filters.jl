@@ -7,18 +7,18 @@
     # axis replaced. Slow, obviously correct, and the thing to check against.
     brute(f, axis, v) = begin
         p = W.Filters(f.state, copy(f.buckets), copy(f.repos), copy(f.labels), f.kind,
-                      copy(f.authors))
+                      copy(f.authors), copy(f.seen))
         axis === :state  ? (p.state = v) :
+        axis === :seen   ? (p.seen = Set([v])) :
         axis === :kind   ? (p.kind = v) :
         axis === :bucket ? (p.buckets = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
         axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
-        # The same maps the counts are computed against, or the two sides are
+        # The same marks the counts are computed against, or the two sides are
         # answering about different lists: `archived` and `drafts` are
         # membership in a file, and an empty one here would make every count of
         # them zero and the comparison vacuous.
-        count(it -> W.matches(p, it, st.unread, st.touched, st.archived, st.drafts),
-              st.all)
+        count(it -> W.matches(p, it, W.Marks(st)), st.all)
     end
     configs = [W.Filters(),
                W.Filters(:all, Set{String}(), Set{String}(), Set{String}()),
@@ -32,28 +32,38 @@
                W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
                          Set([W.AUTHOR_ME])),
                W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
-                         Set([W.AUTHOR_OTHERS, "Keno"]))]
+                         Set([W.AUTHOR_OTHERS, "Keno"])),
+               # And the axis this is all for, alone and crossed with another.
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
+                         Set{String}(), Set([:unseen])),
+               W.Filters(:all, Set{String}(), Set{String}(), Set{String}(), :both,
+                         Set{String}(), Set([:unseen, :snoozed])),
+               W.Filters(:active, Set{String}(), Set{String}(), Set{String}(), :pr,
+                         Set([W.AUTHOR_ME]), Set([:unseen]))]
     for f in configs
         st.filters = f
-        (ns, nk, nb, nr, nl, na) = W.axis_counts(st)
+        n = W.axis_counts(st)
         for (k, _) in W.STATES
-            @test get(ns, k, 0) == brute(f, :state, k)
+            @test get(n.states, k, 0) == brute(f, :state, k)
+        end
+        for (k, _) in W.DISPOSITIONS
+            @test get(n.seens, k, 0) == brute(f, :seen, k)
         end
         for (k, _) in W.KINDS
-            @test get(nk, k, 0) == brute(f, :kind, k)
+            @test get(n.kinds, k, 0) == brute(f, :kind, k)
         end
-        for v in st.buckets;  @test get(nb, v, 0) == brute(f, :bucket, v); end
-        for v in first(st.repos, 12);  @test get(nr, v, 0) == brute(f, :repo, v); end
-        for v in first(st.labels, 12); @test get(nl, v, 0) == brute(f, :label, v); end
-        for v in first(st.authors, 12); @test get(na, v, 0) == brute(f, :author, v); end
+        for v in st.buckets;  @test get(n.buckets, v, 0) == brute(f, :bucket, v); end
+        for v in first(st.repos, 12);  @test get(n.repos, v, 0) == brute(f, :repo, v); end
+        for v in first(st.labels, 12); @test get(n.labels, v, 0) == brute(f, :label, v); end
+        for v in first(st.authors, 12); @test get(n.authors, v, 0) == brute(f, :author, v); end
     end
 
     # Three values and no fourth: both is the whole list, and the other two
     # partition it.
     st.filters = W.Filters(:all, Set{String}(), Set{String}(), Set{String}())
-    both = length(W.apply_filters(st.filters, st.all, st.unread))
-    st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all, st.unread))
-    st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all, st.unread))
+    both = length(W.apply_filters(st.filters, st.all))
+    st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all))
+    st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all))
     @test prs + iss == both && prs > 0 && iss > 0
     @test occursin("issues", W.filter_summary(st.filters))
     st.filters.kind = :pr
@@ -76,14 +86,13 @@ end
     W.refilter!(st)
     @test [x.url for x in st.items] == [it.url]
     # Counted like every other value on the axis, and offered as a row.
-    (nstate, _, _, _, _, _) = W.axis_counts(st)
-    @test get(nstate, :drafts, 0) == 1
+    @test get(W.axis_counts(st).states, :drafts, 0) == 1
     @test any(r -> r[1] === :state && r[2] == "drafts", W.filter_rows(st))
     # Archived work stays in it. A draft on something you have put away is the
     # strongest reason there is to be shown it again: the two together mean the
     # work was filed and the words were never sent.
-    @test W.state_ok(:drafts, it, Set{String}(), W.EMPTY_TOUCHED,
-                     Dict(it.url => "2026-01-01"), Dict(it.url => "2026-01-01"))
+    @test W.state_ok(:drafts, it, W.Marks(archived = Dict(it.url => "2026-01-01"),
+                                          drafts = Dict(it.url => "2026-01-01")))
     # Sent or thrown away, it leaves the lane.
     W.undraft!(it.url)
     W.refilter!(st)
@@ -98,39 +107,92 @@ end
                          repo = "o/r", number = 1, title = "t",
                          updated = "2026-09-02T00:00:00Z", kw...)
     it = mk()
-    none = W.EMPTY_TOUCHED
-    filed = Dict(it.url => "2026-09-03")
+    seen(at) = W.Marks(read = Dict(it.url => at))
+    filed = W.Marks(archived = Dict(it.url => "2026-09-03"))
 
     # Never in front of you, which is not the same as looked at and moved on.
-    @test W.disposition(it, none, none) === :unseen
+    @test W.disposition(it) === :unseen
     # A stamp older than the item is unread; one at or after it is read.
-    @test W.disposition(it, Dict(it.url => "2026-09-01T00:00:00Z"), none) === :unread
-    @test W.disposition(it, Dict(it.url => "2026-09-02T00:00:00Z"), none) === :read
-    @test W.disposition(it, Dict(it.url => "2026-09-09T00:00:00Z"), none) === :read
+    @test W.disposition(it, seen("2026-09-01T00:00:00Z")) === :unread
+    @test W.disposition(it, seen("2026-09-02T00:00:00Z")) === :read
+    @test W.disposition(it, seen("2026-09-09T00:00:00Z")) === :read
 
     # Asleep and filed outrank all three, and filed outranks asleep: they are
     # answers about what you decided, and the seen bit is one about what you
     # have looked at.
-    @test W.disposition(mk(snoozed = true), none, none) === :snoozed
-    @test W.disposition(mk(snoozed = true), Dict(it.url => "2026-09-09T00:00:00Z"),
-                        none) === :snoozed
-    @test W.disposition(it, none, filed) === :archived
-    @test W.disposition(mk(snoozed = true), none, filed) === :archived
+    @test W.disposition(mk(snoozed = true)) === :snoozed
+    @test W.disposition(mk(snoozed = true), seen("2026-09-09T00:00:00Z")) === :snoozed
+    @test W.disposition(it, filed) === :archived
+    @test W.disposition(mk(snoozed = true), filed) === :archived
 
     # A synthetic item - an adopted branch, an import no refresh has caught up
     # with - has no `updated` at all, and a stamp on one is the only thing
     # anybody has said about whether it has been seen.
-    @test W.disposition(mk(updated = ""), none, none) === :unseen
-    @test W.disposition(mk(updated = ""), Dict(it.url => "2026-09-01T00:00:00Z"),
-                        none) === :read
+    @test W.disposition(mk(updated = "")) === :unseen
+    @test W.disposition(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :read
 
     # Exclusive by construction: every item on the real dashboard answers
     # exactly one of the five, which is the property the five bools did not
-    # have and had to be given by a precedence rule at every reader.
+    # have and had to be given by a precedence rule at every reader. So the
+    # counts partition the list.
     st = mkstate()
-    ds = [W.disposition(x, st.read, st.archived) for x in st.all]
+    m = W.Marks(st)
+    ds = [W.disposition(x, m) for x in st.all]
     @test all(d -> d in first.(W.DISPOSITIONS), ds)
     @test length(ds) == length(st.all)
+    st.filters = W.Filters(); st.filters.state = :all; W.refilter!(st)
+    n = W.axis_counts(st)
+    @test sum(get(n.seens, k, 0) for (k, _) in W.DISPOSITIONS) == length(st.items)
+end
+
+@testset "the disposition axis is a multiselect over the corpus" begin
+    st = mkstate()
+    st.filters.state = :all
+    W.refilter!(st)
+    whole = length(st.items)
+    # Empty means every one of them, the way every other multiselect axis here
+    # reads empty - and the corpus is what is left when nothing is narrowed.
+    @test isempty(st.filters.seen)
+
+    counts = Dict{Symbol,Int}()
+    for (k, _) in W.DISPOSITIONS
+        st.filters.seen = Set([k])
+        W.refilter!(st)
+        counts[k] = length(st.items)
+        @test all(x -> W.disposition(x, W.Marks(st)) === k, st.items)
+    end
+    @test sum(values(counts)) == whole
+    # Two of them is the union, which is the whole point of it being a set:
+    # "unseen or unread" is the question the two modes each ask half of.
+    st.filters.seen = Set([:unseen, :unread])
+    W.refilter!(st)
+    @test length(st.items) == counts[:unseen] + counts[:unread]
+
+    # Drawn as checkboxes, counted like every other axis, and toggled by the
+    # same key that toggles the rest.
+    st.filters.seen = Set{Symbol}()
+    W.refilter!(st)
+    st.lmode = :filters
+    rows = W.filter_rows(st)
+    @test [r[2] for r in rows if r[1] === :seen] == [String(k) for (k, _) in W.DISPOSITIONS]
+    @test all(occursin("[ ] ", r[3]) for r in rows if r[1] === :seen)
+    st.frow = findfirst(r -> r[1] === :seen && r[2] == "unseen", rows)
+    @test W.toggle_filter!(st)
+    @test st.filters.seen == Set([:unseen]) && length(st.items) == counts[:unseen]
+    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "unseen"))
+    @test !W.isdefault(st.filters)
+    # And off again, which is what a radio could not do.
+    @test W.toggle_filter!(st)
+    @test isempty(st.filters.seen) && length(st.items) == whole
+    # It says so in the frame title, and writes itself as a view.
+    st.filters.seen = Set([:unread, :unseen])
+    @test occursin("unseen+unread", W.filter_summary(st.filters))
+    @test occursin("seen = [\"unseen\", \"unread\"]",
+                   W.view_toml(st.filters, st.sort, "x"))
+    # A view names it, and a misspelt one is said rather than ignored.
+    @test occursin("unseen", W.apply_view!(st, Dict("state" => "all", "seen" => ["unseen"])))
+    @test st.filters.seen == Set([:unseen])
+    @test occursin("no disposition", W.apply_view!(st, Dict("seen" => "unred")))
 end
 
 @testset "when a row leaves, the cursor stays where it was" begin
@@ -195,7 +257,7 @@ end
     st.filters = W.Filters(); W.refilter!(st)
     # Category is exempt: a dozen values, each a different kind of work, short
     # enough to read whole. It still drops the ones that would select nothing.
-    (_, _, nb, _, _, _) = W.axis_counts(st)
+    nb = W.axis_counts(st).buckets
     @test length(axis_rows(:bucket)) == count(b -> get(nb, b, 0) > 0, st.buckets)
     @test length(axis_rows(:bucket)) > 8                     # and so, uncapped
     @test isempty([r for r in rows if r[1] === :pick && r[2] == "bucket"])
@@ -335,8 +397,8 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    # reset, then state, kind, category, repo, label, author
-    @test length(g) == 7
+    # reset, then seen, state, kind, category, repo, label, author
+    @test length(g) == 8
     @test rows[1][1] === :reset && g[1] == 1    # the way out leads the pane
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
@@ -416,9 +478,9 @@ end
     f = W.Filters(); f.state = :all
     it = st.all[findfirst(x -> !isempty(x.labels), st.all)]
     push!(f.labels, first(it.labels))
-    @test W.matches(f, it, Set{String}())
+    @test W.matches(f, it)
     other = st.all[findfirst(x -> isempty(x.labels), st.all)]
-    @test !W.matches(f, other, Set{String}())
+    @test !W.matches(f, other)
     @test occursin(first(it.labels), W.filter_summary(f))
     # Every label row the pane offers actually selects something.
     st.filters = f

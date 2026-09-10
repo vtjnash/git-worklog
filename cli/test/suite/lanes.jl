@@ -136,7 +136,7 @@
         rows = W.filter_rows(st)
         txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
         @test occursin("touched", txt) && occursin("second look", txt)
-        states, _, _, _ = W.axis_counts(st)
+        states = W.axis_counts(st).states
         @test states[:touched] == 3
         @test !haskey(states, :mine)
         for (w, h) in ((80, 24), (200, 50))
