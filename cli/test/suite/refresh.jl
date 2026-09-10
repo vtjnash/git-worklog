@@ -79,7 +79,7 @@ end
 
     at = W.DateTime(2026, 9, 3, 12)
     base() = Dict{String,Any}("state" => "OPEN", "backlog" => false, "author" => "alice")
-    look(r) = W.second_look(r, at, 2, 20)
+    look(r) = W.second_look(r, at, 2)
 
     # The author spoke and nobody answered.
     r = base(); r["last_comment_by"] = "alice"
@@ -100,10 +100,17 @@ end
     r5 = copy(r); r5["approved_at"] = "2026-08-01T10:00:00Z"
     @test occursin("alice asked", look(r5))
 
-    # A window and not a floor, at both ends.
-    @test isempty(W.second_look(r3, W.DateTime(2026, 9, 2, 9), 2, 20))   # not late yet
+    # A floor, and only a floor.
+    @test isempty(W.second_look(r3, W.DateTime(2026, 9, 2, 9), 2))   # not late yet
+    # There is no ceiling any more. A pull request quiet since last January is
+    # still a pull request waiting on somebody, and it used to stop being
+    # reported at 20 work days - leaving the lane on a day nobody chose, with
+    # nothing recorded and nothing to undo. The lane is ordered newest first, so
+    # it is at the bottom rather than in the way, and `s` `1` is what takes it
+    # out: a decision, in `snooze.json`, undone by `z`, back when it moves.
     old = base(); old["head_at"] = "2025-01-02T00:00:00Z"
-    @test isempty(look(old))                                   # not news any more
+    @test occursin("alice pushed", look(old))
+    @test occursin("work days", look(old))
     # And nothing fires on work that is over, or on the pile that is not a
     # to-do list.
     done_ = copy(r); done_["state"] = "MERGED"

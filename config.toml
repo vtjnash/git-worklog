@@ -16,11 +16,12 @@ reply_days = 30
 # quiet without anyone deciding it should - and unlike `nudge_days` it is about
 # an answer being owed rather than about a pull request being old.
 second_look_days = 2
-# And the far end of the same window: past this the quiet is not news. A pull
-# request nobody has touched since last spring is a different problem - that is
-# what `stale` and a search are for - and a reminder firing on forty of them
-# every day is one nobody reads.
-second_look_max_days = 20
+# There is no far end. `second_look_max_days` used to cap it at 20, so quiet
+# past that stopped being reported at all - which meant a row left the lane on a
+# day nobody chose and with nothing written down about it. The lane is newest
+# first, so an old row is at the bottom rather than in the way, and taking one
+# out is `s` `1`: a decision, recorded, reversible with `z`, and it comes back
+# on its own when the thing finally moves.
 
 [lanes]
 # GitHub search syntax. Each lane is one paginated GraphQL search.

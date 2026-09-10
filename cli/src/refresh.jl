@@ -177,7 +177,7 @@ but a bot commenting *after* the author leaves us unable to see the author's
 comment at all - `comments(last: 1)` is one comment - so that case quietly
 does not fire rather than firing on a stale reading.
 """
-function second_look(r, at::DateTime, days::Int, cap::Int = 20)
+function second_look(r, at::DateTime, days::Int)
     get(r, "state", nothing) in ("MERGED", "CLOSED") && return ""
     truthy(get(r, "backlog", false)) && return ""
     hd, lc = ts(get(r, "head_at", nothing)), ts(get(r, "last_comment_at", nothing))
@@ -186,11 +186,19 @@ function second_look(r, at::DateTime, days::Int, cap::Int = 20)
     isempty(events) && return ""
     last_ = maximum(events)
     n = workdays_since(stamp(last_), at)
-    # A window, not a floor. Below it nobody is late yet; above it the silence
-    # is not news - a pull request nobody has touched since last spring is a
-    # different problem, and a reminder that fires on forty of those every day
-    # is one nobody reads. That is what `stale` is for, and what a search is for.
-    (n < days || n > cap) && return ""
+    # A floor and not a window. There used to be a ceiling too - `n > cap` -
+    # on the grounds that a pull request nobody has touched since last spring is
+    # a different problem. It is, and dropping it out of the lane was the wrong
+    # way to say so: the row did not go anywhere, it *stopped existing* on a day
+    # nobody chose, and nothing recorded that it had. The lane is ordered newest
+    # first, so an old row is already at the bottom and already out of the way -
+    # the ceiling was solving a crowding problem that the order does not have.
+    #
+    # `s` `1` is what takes one out now: an on-change snooze, which is a
+    # decision somebody made, is written down in `snooze.json`, comes back by
+    # itself when the thing moves, and can be undone with `z`. None of those
+    # five things is true of a number in `config.toml`.
+    n < days && return ""
     day(n) = string(n, n == 1 ? " work day" : " work days")
     # An approval that is the last thing to have happened. Checked first: it is
     # the more specific reading of the same silence, and the more actionable.
@@ -651,7 +659,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # A default cap for on-change snoozes that carry none of their own.
     snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
     second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
-    second_cap = Int(get(cfg["thresholds"], "second_look_max_days", 20))
     snzp = datapath("snooze.json")
     snz = Dict{String,Any}()
     if isfile(snzp)
@@ -732,7 +739,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # after the snooze, since an item you have said "not now" about is not
         # one to be reminded of.
         r["second_look"] = r["snoozed"] ? "" :
-                           second_look(r, at, second_days, second_cap)
+                           second_look(r, at, second_days)
         old = jget(prev_items, Symbol(url))
         # A snooze is "not now", and an item you have said that about should not
         # also be sitting in the unread lane asking to be read. So falling

@@ -819,14 +819,22 @@ already waited a fortnight is not rescued by being fourth in the queue instead
 of fortieth. Uniform slowness is the outcome nobody wants and the one a fair
 queue produces.
 
-`second_look_max_days = 20` is the other half of the same policy and is why it
-does not simply lose the old work: past the cap a row leaves this lane
-altogether for `stale`, rather than accumulating at a bottom nobody reaches. The
-lane is what is worth answering *now*; the pile that has gone past that is a
-different question and has a different place to be asked.
-
 So: no fourth sort, and `w` still cycles three. If this comes up again, it is
 this paragraph that is the answer.
+
+**And the ceiling came off, for the same reason the order stays.**
+`second_look_max_days = 20` had been the other half of this - past the cap the
+quiet stopped being reported, on the grounds that a pull request nobody has
+touched since last spring is a different problem. It is a different problem, and
+a cap was the wrong way to say so twice over: the crowding it was solving is
+what newest-first already solves, since an old row is at the bottom rather than
+in the way; and a row leaving the lane because a number in `config.toml` was
+exceeded leaves on a day nobody chose, with nothing written down and nothing to
+undo.
+
+`s` `1` is what takes one out now. That is a decision somebody made, it is in
+`snooze.json`, `z` undoes it, and it comes back on its own when the thing
+finally moves. None of those is true of a threshold.
 
 Worth thinking about separately, and not obviously worth doing: the lane is
 called "second look" in the filter pane, which is what it does and not what it
