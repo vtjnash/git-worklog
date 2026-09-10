@@ -12,6 +12,7 @@ index of the rest:
   * `events.jl`  the activity poll, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, and the snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
+  * `fetched.jl` the other half of `data/`: everything GitHub can answer again
   * `state.jl`   the comment-preserving line editor for state.toml
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
@@ -29,10 +30,8 @@ own - see `datadir()`.
   |---------------|---------|-----------------------------------|
   | `config.toml`      | you     | edited by hand, only ever read    |
   | `data/state.toml`  | you     | edited key-by-key, never rewritten|
-  | `data/facts.json`  | machine | overwritten every refresh         |
-  | `data/bulk.json`   | machine | slow-lane cache, refetched every 6h|
   | `data/marks.json`  | machine | what you have done to each item   |
-  | `data/inbox.json`  | machine | the event cursors, and what the poll saw|
+  | `data/fetched.json`| machine | everything GitHub can answer again|
 """
 module Worklog
 
@@ -86,6 +85,7 @@ datapath(name::AbstractString) = joinpath(datadir(), name)
 include("pyjson.jl")
 include("util.jl")
 include("marks.jl")
+include("fetched.jl")
 include("cache.jl")
 include("repos.jl")
 include("ci.jl")

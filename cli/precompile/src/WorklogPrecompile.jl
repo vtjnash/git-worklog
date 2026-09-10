@@ -76,7 +76,7 @@ function hermetic(f)
         Worklog.STATE[] = joinpath(d, "state.toml")
         Worklog.MARKS[] = joinpath(d, "marks.json")
         Worklog.REPOS_FILE[] = joinpath(d, "repos.toml")
-        Worklog.Events.INBOX[] = joinpath(d, "inbox.json")
+        Worklog.FETCHED[] = joinpath(d, "fetched.json")
         redirect_stdout(devnull) do
             f()
         end
@@ -89,7 +89,7 @@ function hermetic(f)
         Worklog.STATE[] = ""
         Worklog.MARKS[] = ""
         Worklog.REPOS_FILE[] = ""
-        Worklog.Events.INBOX[] = ""
+        Worklog.FETCHED[] = ""
         rm(d; recursive = true, force = true)
     end
 end
@@ -197,7 +197,7 @@ end
                 # thing between the user and a frame is a JSON3 parse and a row
                 # of `item_of` per item, and neither was in the image while the
                 # only items here were constructed in Julia.
-                write(Worklog.datapath("facts.json"), sample_facts())
+                write(Worklog.fetchedfile(), sample_facts())
                 st = Worklog.BState(vcat(Worklog.loaditems(), items), "worklog",
                                     Set{String}([items[2].url]))
                 # Both layouts: side by side above the split width, stacked below.
@@ -205,8 +205,8 @@ end
                     Worklog.render(st, w, h)
                 end
                 Worklog.refilter!(st)
-                Worklog.apply_view!(st, Dict("state" => "all"))
-                Worklog.apply_view!(st, Dict("state" => "active", "kind" => "pr"))
+                Worklog.apply_view!(st, Dict("seen" => ["unread"]))
+                Worklog.apply_view!(st, Dict("sleep" => ["awake"], "kind" => "pr"))
                 Worklog.filter_summary(st.filters, st.sort)
                 Worklog.view_toml(st.filters, st.sort, "a name")
 

@@ -128,17 +128,16 @@ end
 
 """Every item in the last snapshot, as `Item`s.
 
-`facts.json` is a map keyed by url whose rows *also* carry `url`, which is the
+`items` is a map keyed by url whose rows *also* carry `url`, which is the
 same fact twice - deliberately, and left that way: the row is what `normalize`,
 `apply_state!` and `snooze_active` are handed, and each of them asks it which
 item it is. Threading the key through all of them to save a hundred bytes a row
 would put the identity of an item somewhere other than in the item.
 """
 function loaditems()
-    f = datapath("facts.json")
-    isfile(f) || die("no facts.json — run `wl refresh` first")
-    raw = JSON3.read(read(f, String))
-    [item_of(r) for (_, r) in raw.items]
+    its = fetched("items")
+    its === nothing && die("nothing fetched yet — run `wl refresh` first")
+    [item_of(r) for (_, r) in its]
 end
 
 """The GitHub login from `config.toml`, read once.

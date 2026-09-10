@@ -97,14 +97,14 @@ end
     was = W.DATA_DIR[]
     try
         W.DATA_DIR[] = d
-        write(joinpath(d, "facts.json"), "{}")
+        write(joinpath(d, "fetched.json"), "{}")
         st = W.BState(W.Item[], "watched")
         woke = Ref(0)
         st.wake = () -> (woke[] += 1)
         W.watch_data!(st)
-        # Not every file in there is on screen: the cache and the inbox cursors
-        # change on every fetch this program makes.
-        write(joinpath(d, "bulk.json"), "{}")
+        # Not every file in there is on screen: the checkout map is read once
+        # at startup and the cache changes on every fetch this program makes.
+        write(joinpath(d, "repos.toml"), "")
         # ...and one that is.
         write(joinpath(d, "marks.json"), "{}")
         t0 = time()

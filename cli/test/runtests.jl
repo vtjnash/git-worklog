@@ -54,7 +54,7 @@ end
 # `errors.log` is the deliberate exception: the suite deletes the real one at
 # startup and several tests assert on the footer warning it produces.
 let d = mktempdir()
-    for (r, real, empty) in ((W.Events.INBOX, W.Events.inboxfile(), "{}"),
+    for (r, real, empty) in ((W.FETCHED, W.fetchedfile(), "{}"),
                              (W.REPOS_FILE, W.repos_file(), ""))
         to = joinpath(d, basename(real))
         isfile(real) ? cp(real, to) : write(to, empty)

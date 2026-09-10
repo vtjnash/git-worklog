@@ -239,18 +239,18 @@ drop_forks(rows, forks::Set{String}) =
 
 """The accumulated inbox: `cursors`, `polled` and `items`.
 
-Machine-owned. `cursors` is how far each source has been read, `polled` is when
-it was last asked, and `items` is everything seen and not yet marked read.
+One part of `fetched.json`, because that is what it is: `cursors` is how far
+each source has been polled, `polled` is when it was last asked, and `items` is
+everything the poll has seen. All of it comes back from GitHub on the next
+`wl refresh` - the cursors reset to `backfill_days` and the rows arrive again -
+which is the whole test for which half of `data/` a thing belongs in.
 """
-const INBOX = Ref("")
-inboxfile() = isempty(INBOX[]) ? datapath("inbox.json") : INBOX[]
-
 function load_inbox()
     d = Dict("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
              "items" => Dict{String,Any}())
-    isfile(inboxfile()) || return d
+    raw = Worklog.fetched("inbox")
+    raw === nothing && return d
     try
-        raw = JSON3.read(read(inboxfile(), String))
         for k in ("cursors", "polled")
             for (kk, vv) in get(raw, Symbol(k), (;))
                 d[k][String(kk)] = String(vv)
@@ -267,7 +267,14 @@ function load_inbox()
     d
 end
 
-save_inbox(d) = write_atomic(inboxfile(), json_dumps(d; indent = 1, sortkeys = true))
+"""Put it back, and only it.
+
+A fresh read of the file first, because a poll is several HTTP requests long and
+`R` runs a refresh in a subprocess while the browser is open: carrying the
+`items` this process read a minute ago back over the ones that landed in the
+meantime is exactly the race that is worth not having.
+"""
+save_inbox(d) = Worklog.put_fetched!("inbox", d)
 
 """Everything seen on the tracked repos and not yet marked read.
 

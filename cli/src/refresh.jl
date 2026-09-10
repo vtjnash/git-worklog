@@ -537,13 +537,12 @@ at ~993, so any query approaching the cap is re-run partitioned by creation year
 and the slices unioned.
 """
 function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
-    cache = datapath("bulk.json")
+    cached = fetched("bulk")
     hours = get(cfg["bulk"], "refresh_hours", 6)
-    if isfile(cache) && !force
-        c = JSON3.read(read(cache, String))
-        age_h = Dates.value(at - ts(c.fetched_at)) / 3_600_000
+    if cached !== nothing && !force
+        age_h = Dates.value(at - ts(cached.fetched_at)) / 3_600_000
         if age_h < hours
-            return (OrderedDict{String,Any}(String(k) => v for (k, v) in c.lanes), 0,
+            return (OrderedDict{String,Any}(String(k) => v for (k, v) in cached.lanes), 0,
                     @sprintf("cached %.1fh old", age_h))
         end
     end
@@ -552,12 +551,16 @@ function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
     # These fetches take minutes; losing a completed lane to a later 502 is the
     # difference between a slow refresh and a wasted one.
     prev = OrderedDict{String,Any}()
-    if isfile(cache)
-        for (k, v) in JSON3.read(read(cache, String)).lanes
-            prev[String(k)] = v
-        end
+    cached === nothing || for (k, v) in cached.lanes
+        prev[String(k)] = v
     end
     lanes = copy(prev)
+    # Persisted after every lane rather than at the end, so a run that dies
+    # halfway keeps what it has. It writes the whole store because that is what
+    # a part of it costs now - the alternative was a file per fetch, split by
+    # which query wrote it rather than by what any of it is.
+    keep() = put_fetched!("bulk", Dict{String,Any}("fetched_at" => now_isoformat(at),
+                                                   "lanes" => lanes))
     spent = 0
     failed = String[]
     for (lane, q) in ordered(cfg["bulk"]["queries"], cfgtext, "bulk.queries")
@@ -603,10 +606,9 @@ function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
                     lane, length(get(prev, lane, ())), why(e.msg))
             continue
         end
-        # Persist after every lane, not at the end.
-        write_atomic(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
+        keep()
     end
-    write_atomic(cache, json_dumps(["fetched_at" => now_isoformat(at), "lanes" => lanes]))
+    keep()
     how = "fetched $(sum(length(v) for v in values(lanes); init=0))"
     isempty(failed) || (how *= ", $(length(failed)) lane(s) stale")
     (lanes, spent, how)
@@ -619,7 +621,10 @@ downstream compares and prints them as ISO strings, so flatten them here. The
 Python raised `TypeError` out of `json.dumps` on the same input.
 """
 function load_state()
-    p = datapath("state.toml")
+    # `statefile()` and not `datapath`, so a test that points `STATE` somewhere
+    # disposable is pointing *this* somewhere disposable too. It read the real
+    # file through the redirect for as long as it has been here.
+    p = statefile()
     isfile(p) || return Dict{String,Any}()
     raw = TOML.parse(read(p, String))
     Dict{String,Any}(u => Dict{String,Any}(
@@ -677,8 +682,11 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
     state = load_state()
-    factsp = datapath("facts.json")
-    prev_items = isfile(factsp) ? JSON3.read(read(factsp, String)).items : (;)
+    # What the last run left, to diff this one against. Read once and held: the
+    # parts of the file this run writes - the poll's inbox, the bulk cache, the
+    # items themselves - each go back through a fresh read at the moment they
+    # are written, since between them they span minutes of network.
+    prev_items = something(fetched("items"), (;))
     # A default cap for on-change snoozes that carry none of their own.
     snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
     second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
@@ -717,12 +725,18 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     end
 
     # For the poll it does, not for the answer: the events lane advances its
-    # cursors and writes what is unread into `inbox.json`, and every reader of
+    # cursors and writes what it saw into `fetched.json`, and every reader of
     # that asks for itself. Nothing in this run looks at the list any more.
     Events.unread(cfg, login, at)
     bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
     spent += c
-    for (lane, nodes) in bulk
+    # The first lane to claim an item names it, and `derive_bucket` reads that
+    # name - so a mention becomes a `needs-reply` and a row the firehose claimed
+    # first can never be one. A lane that names *you* therefore beats the one
+    # that names a repo, and the discovery sweep goes last. It used to depend on
+    # the order the cache file happened to be in, which was the order the lanes
+    # had been added to `config.toml` over a year.
+    for (lane, nodes) in sort(collect(bulk); by = p -> first(p) == "firehose")
         kept = 0
         for n in nodes
             u = String(n.url)
@@ -833,8 +847,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             @printf(stderr, "  %-16s %s  (%s)\n", "snooze", w, u)
     end
 
-    write_atomic(factsp, json_dumps(["fetched_at" => now_isoformat(at), "points" => spent,
-                                     "items" => items]; indent = 1, sortkeys = true))
+    store = load_fetched()
+    store["fetched_at"], store["points"], store["items"] = now_isoformat(at), spent, items
+    save_fetched(store)
     save_snoozes!(snz)
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already

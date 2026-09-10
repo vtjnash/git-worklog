@@ -122,8 +122,8 @@ end
         # already carried is the common case rather than the odd one: an old
         # issue in a repo that is tracked anyway, a pull request of yours in one
         # that is not. No second row, no second request, and unread either way.
-        keepi = W.Events.INBOX[]
-        W.Events.INBOX[] = joinpath(mktempdir(), "inbox.json")
+        keepi = W.FETCHED[]
+        W.FETCHED[] = joinpath(mktempdir(), "fetched.json")
         try
             here = st.all[1]
             n0 = length(st.all)
@@ -159,7 +159,7 @@ end
             @test haskey(W.Events.load_inbox()["items"], poll.url)
             @test W.read_at(poll.url) == W.stamp(at)
         finally
-            W.Events.INBOX[] = keepi
+            W.FETCHED[] = keepi
         end
 
         # `i` is not a key about the selected item: an empty list is where the

@@ -207,7 +207,7 @@ for too much too fast. It is not the hourly quota - `rateLimit.remaining` was
 5000 of 5000 while this was being returned - and it clears in minutes rather
 than seconds, so retrying it on the 5xx schedule spends every attempt inside
 the window and reports failure anyway. That is exactly what a cold start did:
-every lane is a burst, and with `bulk.json` deleted there is no previous copy
+every lane is a burst, and with the bulk cache deleted there is no previous copy
 behind any of them to fall back to, so five lanes came back empty and the
 dashboard was a third of its size. Three attempts at a minute, two and four -
 seven minutes of waiting at worst, and then it really has failed.

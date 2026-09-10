@@ -1,6 +1,6 @@
 # On-disk cache for the slow reads.
 #
-# The bulk search lanes already cache in bulk.json on a six-hour cadence, but
+# The bulk search lanes already cache in `fetched.json` on a six-hour cadence, but
 # every thread and diff was fetched fresh each time an item was selected -
 # several REST calls or a `gh pr diff` per keystroke, which is what makes the
 # browser feel slow when moving back and forth over the same few items.

@@ -182,7 +182,7 @@ end
 
 # Records reach the renderer from two places with two key types: freshly
 # normalised items are `Dict{String,Any}`, while items recovered from the
-# previous `facts.json` are JSON3 objects keyed by `Symbol`. One accessor for
+# previous `fetched.json` are JSON3 objects keyed by `Symbol`. One accessor for
 # both, so a lookup cannot silently miss.
 pget(o::AbstractDict{String}, k::AbstractString) = get(o, k, nothing)
 pget(o, k::AbstractString) = get(o, Symbol(k), nothing)

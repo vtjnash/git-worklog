@@ -97,7 +97,7 @@ when_str(s::AbstractString) =
 """Lines for the metadata pane: what is true of this item, rather than what is
 in it.
 
-Everything cheap comes from `facts.json` and is on screen immediately; the two
+Everything cheap comes from the fetched row and is on screen immediately; the two
 that need a request - who has actually reviewed, and the per-check breakdown -
 arrive when `load_meta!` lands and say so until then.
 """

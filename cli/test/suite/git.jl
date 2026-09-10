@@ -173,7 +173,7 @@ end
         @test occursin("committed 1 file", said)
         @test occursin("marks.json", W.git(d, "log", "-1", "--format=%s"))
         # Once a day: the same day again is a no-op, however dirty it gets.
-        write(joinpath(d, "inbox.json"), "{}")
+        write(joinpath(d, "repos.toml"), "")
         @test W.commit_data!() == ""
         @test length(split(strip(W.git(d, "log", "--format=%h")), '\n')) == 1
         # A clean tree is nothing to commit even when the day has turned.

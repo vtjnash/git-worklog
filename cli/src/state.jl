@@ -28,9 +28,8 @@ die(msg) = throw(CliError(msg))
 "Accept a full URL, owner/repo#N, repo#N, or #N (Julia)."
 function resolve(ref::AbstractString)
     startswith(ref, "http") && return String(rstrip(ref, '/'))
-    facts = datapath("facts.json")
-    isfile(facts) || die("no facts.json yet - run `wl refresh` first")
-    items = JSON3.read(read(facts, String)).items
+    items = fetched("items")
+    items === nothing && die("nothing fetched yet - run `wl refresh` first")
     occursin('#', ref) || die("cannot parse ref '$ref'")
     i = findlast('#', ref)
     repo, num = ref[1:prevind(ref, i)], ref[nextind(ref, i):end]
@@ -182,9 +181,8 @@ row show two different slices; the tag is the record of having dealt with
 something, and there was never a second one worth keeping.
 """
 function next_batch(n::Int)
-    facts = datapath("facts.json")
-    isfile(facts) || die("no facts.json yet - run `wl refresh` first")
-    items = JSON3.read(read(facts, String)).items
+    items = fetched("items")
+    items === nothing && die("nothing fetched yet - run `wl refresh` first")
     state = load_state()
     pool = String[String(u) for (u, r) in pairs(items)
                   if truthy(jget(r, :backlog)) && !truthy(jget(r, :snoozed)) &&

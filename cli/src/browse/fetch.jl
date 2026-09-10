@@ -314,13 +314,17 @@ end
 
 """Files whose contents are on screen, and what changing one costs to adopt.
 
-`facts.json` is the item list itself and is rebuilt from disk. The other two are
-records the filters read - `marks.json` is several of them now - and taking them
-again is a `refilter!`. Everything else in there - the cache, the inbox cursors
-- is either not read by the browser or not read again after it starts, and a
-watch that woke for those would be waking for every fetch this program makes.
+`fetched.json` carries the item list itself and is rebuilt from disk. The other
+two are records the filters read - `marks.json` is several of them now - and
+taking them again is a `refilter!`. Everything else in there is the cache, which
+the browser does not read again after it starts and which changes on every fetch
+this program makes.
+
+`fetched.json` is also written by another window's *poll*, which is not a
+refresh landing - the items in it are unchanged - so `reload_data!` compares
+mtimes and rebuilds the list only when the fetch that moved it was a real one.
 """
-const WATCHED = ("facts.json", "state.toml", "marks.json")
+const WATCHED = ("fetched.json", "state.toml", "marks.json")
 
 """Watch `data/` and flag the browser when somebody else writes in it.
 
@@ -439,12 +443,12 @@ end
 Returns true when the frame has to be drawn again, which is the whole contract
 `onwake!` has with the controller.
 
-The item list is only rebuilt when `facts.json` is the file that moved, because
-that is the only change that can add or remove a row - and rebuilding it is a
-read of the file plus a walk of the local checkouts, which is a cost worth
+The item list is only rebuilt when `fetched.json` is the file that moved,
+because that is the only change that can add or remove a row - and rebuilding it
+is a read of the file plus a walk of the local checkouts, which is a cost worth
 paying every few minutes and not every keystroke somebody else types.
 
-Rows that came from the unread poll rather than from `facts.json` are carried
+Rows that came from the unread poll rather than from a lane are carried
 across: they are the threads that are unread and untracked, this process asked
 GitHub for them at startup, and a refresh that does not mention them is not
 evidence that they are gone.
@@ -452,7 +456,7 @@ evidence that they are gone.
 function reload_data!(st::BState)
     st.reload || return false
     st.reload = false
-    facts = datapath("facts.json")
+    facts = fetchedfile()
     m = mtime(facts)
     if m != st.factsat && isfile(facts)
         st.factsat = m

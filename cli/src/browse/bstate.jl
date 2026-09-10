@@ -128,7 +128,7 @@ Base.@kwdef mutable struct BState <: View
     refreshsaid::String = ""   # what a refresh started from *this* window
                                # reported, so that the reload it causes can say
                                # so rather than blame somebody else
-    factsat::Float64 = 0.0 # mtime of `facts.json` as the item list was built
+    factsat::Float64 = 0.0 # mtime of `fetched.json` as the item list was built
                            # from it, so a refresh landing is told from a note
 end
 """The four listed axes, from the items that are in hand.
@@ -168,7 +168,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = field_marks(m, "touched"), archived = archived_map(),
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
-                  factsat = mtime(datapath("facts.json")))
+                  factsat = mtime(fetchedfile()))
     rebuild_axes!(st)
     refilter!(st)
     st

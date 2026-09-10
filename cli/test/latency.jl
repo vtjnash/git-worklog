@@ -95,7 +95,7 @@ function child(mod::String, probe::String)
     load = (time_ns() - t0) / 1e9
     let d = mktempdir()
         for (r, name) in ((Worklog.STATE, "state.toml"), (Worklog.MARKS, "marks.json"),
-                          (Worklog.Events.INBOX, "inbox.json"),
+                          (Worklog.FETCHED, "fetched.json"),
                           (Worklog.REPOS_FILE, "repos.toml"))
             r[] = joinpath(d, name)
         end

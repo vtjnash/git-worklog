@@ -40,7 +40,7 @@ config() = TOML.parse(read(joinpath(ROOT, "config.toml"), String))
 """Lines of stdin, blanks and `#` comments dropped, first word of each.
 
 The raw half of `refs`: a url needs no resolving, and requiring one to be in
-`facts.json` first would refuse exactly the items `import` exists for.
+the fetched items first would refuse exactly what `import` exists for.
 
 The stream is an argument for the same reason the clock is one: a test drives it
 from an `IOBuffer`, the way `readevent` is driven, rather than by taking the
@@ -96,9 +96,9 @@ function import_urls(urls::Vector{String}, at::DateTime)
     unique!(want)
     isempty(want) && return 1
     # What is already carried needs no request: an old issue in a tracked repo
-    # or a pull request of yours somewhere else is usually in facts.json
+    # or a pull request of yours somewhere else is usually fetched already
     # already, and importing it means "unread again", not "fetch it again".
-    known = Dict(x.url => x for x in (isfile(datapath("facts.json")) ? loaditems() : Item[]))
+    known = Dict(x.url => x for x in (fetched("items") === nothing ? Item[] : loaditems()))
     fresh = [u for u in want if !haskey(known, u)]
     nodes = isempty(fresh) ? Any[] : fetch_urls(fresh)
     got = Dict(String(n.url) => n for n in nodes)

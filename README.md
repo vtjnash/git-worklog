@@ -22,10 +22,8 @@ The split that makes it safe to let a model touch this:
 |---|---|---|
 | `config.toml` | you | edited by hand |
 | `data/state.toml` | you + the model, via `wl` | **never machine-rewritten** |
-| `data/facts.json` | `wl refresh` | overwritten every run (not tracked; ~2MB) |
-| `data/bulk.json` | `wl refresh` | slow-lane cache, refetched every 6h |
+| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw (not tracked; ~4MB) |
 | `data/marks.json` | any write | per item: seen, touched, snoozed, drafted |
-| `data/inbox.json` | the events poll | its cursors, and what it saw move |
 | `data/repos.toml` | the browser | GitHub repo → local checkout |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its

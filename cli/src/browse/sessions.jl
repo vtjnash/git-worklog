@@ -128,7 +128,7 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
     after == strip(before) && return "note unchanged"
     set_fields(it.url, ["note" => isempty(after) ? nothing : String(after)])
     # The pane reads the note off the item, so the item has to carry it before
-    # the next refresh rewrites `facts.json`. Found by url rather than by the
+    # the next refresh rewrites the item list. Found by url rather than by the
     # cursor: with the editor in a pane the selection can have moved on by the
     # time this runs. In both lists, since `st.items` is rebuilt out of `st.all`
     # by the next thing that refilters - and a note that survived until then

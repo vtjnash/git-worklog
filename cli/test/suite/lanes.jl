@@ -11,7 +11,14 @@
 
         # Everything you have actually done something to. Nothing but an action
         # writes to the clock, so this is work rather than browsing.
-        a, b, c = st.all[1], st.all[2], st.all[3]
+        # Chosen by what GitHub last said about them rather than by position:
+        # `b`'s clock has to be the later of the two readings for the pair of
+        # them to differ, and `a`'s the earlier.
+        a = first(x for x in st.all if !isempty(x.act) && x.act > "2026-01")
+        b = first(x for x in st.all if !isempty(x.act) && x.act < "2026-09-02" &&
+                                       x.url != a.url)
+        c = first(x for x in st.all if !isempty(x.act) && x.act < "2024-06-01" &&
+                                       !(x.url in (a.url, b.url)))
         W.set_touched(a.url, "2020-01-01T00:00:00Z")
         W.set_touched(b.url, "2026-09-02T12:00:00Z")
         W.set_touched(c.url, "2024-06-01T00:00:00Z")
@@ -205,8 +212,8 @@ end
     # The inbox is incremental: a cursor per source, and what has been seen and
     # not yet read. A source seen for the first time starts at now, so turning
     # one on is inbox zero rather than a month of history to dismiss.
-    keep = E.INBOX[]
-    E.INBOX[] = joinpath(mktempdir(), "inbox.json")
+    keep = W.FETCHED[]
+    W.FETCHED[] = joinpath(mktempdir(), "fetched.json")
     try
         d = E.load_inbox()
         @test isempty(d["cursors"]) && isempty(d["items"]) && isempty(d["polled"])
@@ -219,11 +226,11 @@ end
         @test back["items"]["u"]["updated"] == "2026-09-02T12:00:00Z"
         # A damaged inbox is an empty one: the cursors reset to now, which loses
         # one poll of history rather than every poll after it.
-        write(E.INBOX[], "{not json")
+        write(W.FETCHED[], "{not json")
         empty = E.load_inbox()
         @test isempty(empty["cursors"]) && isempty(empty["items"])
     finally
-        E.INBOX[] = keep
+        W.FETCHED[] = keep
     end
 end
 
