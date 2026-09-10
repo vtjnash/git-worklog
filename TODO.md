@@ -893,6 +893,28 @@ written here before it was done and each item turned into a decision:
 - **A width of zero divided by zero.** `bufferrows` takes `pre % w`, and a host
   mid-resize can ask for a box with no room in it. One column is a legal answer.
 
+**The readline set is surveyed rather than sampled.** `TermInput`'s README has
+the whole emacs-mode binding table with each key marked implemented, skipped or
+not relevant, which is what turned "the readline keys people know" from a claim
+into a checklist. Filling the gaps it found added `^y` and a one-slot kill
+buffer that `^k`/`^u`/`^w`/`⌥⌫`/`⌥d` feed - a run of kills is one yank, and
+backward kills go on the front so `^w^w` yanks back in the order it was typed -
+plus `⌥d`, `^t`, `^g`, and `^b`/`^f`/`^p`/`^n` as the motion keys they are in
+every emacs-mode line editor. `readevent` grew one case for `⌥d`.
+
+**`^u` changed meaning here, deliberately.** It killed the whole line and now
+kills back to the start of it, which is readline's `unix-line-discard` and not
+zsh's `kill-whole-line`. The two only differ when the cursor is not at the end
+of the line, which is exactly when somebody meant one of them in particular -
+and with `^y` there now, what it took is not gone either way.
+
+**Undo is the one deliberate omission worth revisiting.** `^_` and `^x^u` are
+not bound: the answer has been that `⌥e` opens `$EDITOR`, where undo, search
+and your own keymap already live. That is a good answer for a long edit and a
+weak one for the `^w` you did not mean, which is the case that actually comes
+up. It is not free - a snapshot stack, and a rule for what counts as one
+undoable step - which is why it is written down here rather than added.
+
 **What is left to decide is the InputBox question**, which is its own section
 below.
 

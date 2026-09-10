@@ -86,6 +86,7 @@ end
     @test ev("\eb") == W.KeyEvent(W.K_WORD_LEFT)     # Terminal.app
     @test ev("\ef") == W.KeyEvent(W.K_WORD_RIGHT)
     @test ev("\e\x7f") == W.KeyEvent(W.K_WORD_BACK) # alt-backspace, everywhere
+    @test ev("\ed") == W.KeyEvent(W.K_WORD_KILL)    # alt-d, its mirror
     @test ev("\e[1;3D") == W.KeyEvent(W.K_WORD_LEFT) # CSI with a modifier
     @test ev("\e[1;5C") == W.KeyEvent(W.K_WORD_RIGHT)# ctrl counts as by-word too
     @test ev("\e\e[D") == W.KeyEvent(W.K_WORD_LEFT) # iTerm's Esc+

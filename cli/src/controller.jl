@@ -168,6 +168,10 @@ function readevent(io::IO)
         a == 0x7f && return KeyEvent(K_WORD_BACK)
         a == UInt8('b') && return KeyEvent(K_WORD_LEFT)
         a == UInt8('f') && return KeyEvent(K_WORD_RIGHT)
+        # `ESC d` is kill-word, the mirror of alt-backspace. The composer binds
+        # both, and the difference between them is the whole reason readline
+        # has two.
+        a == UInt8('d') && return KeyEvent(K_WORD_KILL)
         # The REPL binds `\ee` to edit_input - the same move this makes, so the
         # same key. (`^Q` there opens a numbered frame from the last backtrace,
         # which is a different thing entirely.)
