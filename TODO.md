@@ -2,32 +2,13 @@
 
 ## What is next
 
-Three things are open. The first is the largest piece of design this file
-carries and is written out in full below because it was worked out in one
-session and would not survive losing it. Everything else that stood here is
-done; `git log` is the record of it and this file is not.
+Two things are open, and both are ideas to design rather than tasks to pick up.
+The state axis that stood at the head of this list is **built** - see "THE STATE
+AXIS" under Outstanding work for what it settled and what it left open.
+Everything else that stood here is done; `git log` is the record of it and this
+file is not.
 
-1. **Reshape the state axis.** `unread`/`read`/`snoozed`/`archived` as one
-   multiselect axis over the whole corpus, instead of a radio that mixes
-   dispositions with four things that are not. The finding it turns on: there
-   are *three* seen-values and the program has two of them fused - **unseen**
-   (no read stamp at all) is not **unread** (a stamp, older than `updated`), and
-   the firehose browse wants the first while the incoming inbox wants the
-   second. Nothing new has to be stored; the read stamp already is the seen bit
-   and the question is being asked of `inbox.json` instead of of the corpus. The
-   disposition is **one computed enum**, not five flags, because the five are
-   exclusive and that belongs in the value rather than in a precedence rule
-   re-applied wherever something is read.
-   **Steps 1 and 2 of the build order are built**: the four one-fact-per-url
-   files are `marks.json`, and `disposition(it, read, archived)` answers the
-   five over the corpus. It filters nothing yet - step 3 is where the radio
-   becomes the multiselect. Measured across the change, today's `unread` lane is
-   847 rows of which 845 have never been in front of you and 2 are snoozed,
-   which is the finding holding up on real data. **See "THE STATE AXIS" under
-   Outstanding work for the whole specification, the file layout and what is
-   left of the build order.**
-
-2. **A comment box drawn inline, between the lines it is about.** An idea to
+1. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
    comments hang off the hunk they point into, threaded, with the resolved ones
    folded under it, they are nodes so `n`/`N` walks them, the hunk header counts
@@ -43,7 +24,7 @@ done; `git log` is the record of it and this file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-3. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
+2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
    and the shifted arrows extending a selection - is done. On the mouse half,
    everything between the byte and the highlight is exercised by the suite and
    works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
@@ -315,12 +296,12 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   build; `PATH` still beats the bundled one, so an existing tmux and the
   sessions in it are what a real run uses.
 - **Every path the program writes through is redirected at the top of the run**
-  — `STATE`, `INBOX` and `REPOS_FILE` seeded from the real files, `CACHE_DIR`
-  and `MARKS` started empty. The rule is that *all* of them go, not that each
-  leak is fixed as it turns up: `state.toml` was found by an adoption testset
-  whose `finally` did not run, and the read stamps by a test that pressed `r`
-  and stamped a real item as read. A testset that points
-  `REPOS_FILE` at a temp repo puts it back to `REPOS_SANDBOX`, never to `""`,
+  — `LOCAL` and `FETCHED` seeded from the real files, `CACHE_DIR` started
+  empty. The rule is that *all* of them go, not that each leak is fixed as it
+  turns up: `local.toml` was found by an adoption testset whose `finally` did
+  not run, and the read stamps by a test that pressed `r` and stamped a real
+  item as read. A testset that points `LOCAL` at a temp file puts it back to
+  `REPOS_SANDBOX`, never to `""`,
   which means the user's own file again. `errors.log` is the deliberate
   exception — the suite deletes the real one at startup and several tests assert
   on the footer warning it produces.
@@ -352,8 +333,8 @@ There is no TTY here, so the UI is tested by construction rather than by use:
 - The suite deletes `errors.log` at startup. The standing warning takes the
   footer's second row, so a log left from a previous run fails every test that
   asserts what is written there.
-- The events lane is an **incremental sync**, not a window: `inbox.json` holds a
-  cursor per source and everything seen and not yet read. A source seen for the
+- The events lane is an **incremental sync**, not a window: `fetched.json`'s
+  `inbox` holds a cursor per source and everything it has seen. A source seen for the
   first time starts at *now*, so turning one on is inbox zero. The read stamp
   is still what decides an item leaves.
 - It takes `owner/*` as well as `owner/name`. A glob is two searches (`is:issue`
@@ -512,7 +493,7 @@ Do not "simplify" any of these away.
 
 **A whole refresh is a burst, and only some failures were worth retrying.**
 Found by deleting `data/` and starting from nothing on 2026-09-10, which is the
-one arrangement that had never been run: with `bulk.json` gone there is no
+one arrangement that had never been run: with the bulk cache gone there is no
 previous copy behind any lane, so every one of them that failed came back empty
 instead of stale. Five did, and the dashboard was 541 items instead of 2160.
 
@@ -697,7 +678,7 @@ substitutes only between them.
     cursor is hidden for the whole run, so a hosted child has none unless
     `viewcursor` puts the terminal's own where the child's is.
 
-**state.toml**
+**local.toml**
 24. The blank line separating one block from the next lives *inside* the block.
     Filtering it out to keep new keys in the right place took a line out of the
     user's file on every write; hold it back and re-append it instead.
@@ -773,8 +754,7 @@ forwarded.
 
 **Key bindings: a capital reaches GitHub, lowercase does not.** `C`, `A` and `L`
 post a comment, submit a review and set a label; everything lowercase stays on
-this machine, `r` and `s` included — `marks.json` and `state.toml` are local
-files, and `e` only launches an editor. The line is *remote*, not *writes
+this machine, `r` and `s` included — `local.toml` is a local file, and `e` only launches an editor. The line is *remote*, not *writes
 something*, which is also why `z` below can offer to undo the lowercase set and
 must never offer to undo the capitals.
 
@@ -848,8 +828,8 @@ exceeded leaves on a day nobody chose, with nothing written down and nothing to
 undo.
 
 `s` `1` is what takes one out now. That is a decision somebody made, it is in
-`state.toml` with its fingerprint in `marks.json`, `z` undoes it, and it comes back on its own when the thing
-finally moves. None of those is true of a threshold.
+`local.toml`, `z` undoes it, and it comes back on its own when the thing finally
+moves. None of those is true of a threshold.
 
 Worth thinking about separately, and not obviously worth doing: the lane is
 called "second look" in the filter pane, which is what it does and not what it
@@ -873,8 +853,9 @@ It could not go until `stale` stopped evicting, which happened the same day -
 place your 44 quiet pull requests could be seen, which is why the list actually
 worked from was `mine` and not `active`.
 
-What follows is what that left open. The state-axis half of it is specified in
-"THE STATE AXIS" below.
+What follows is what that left open. The state-axis half of it is **built** -
+"THE STATE AXIS" below is the record - and the third mode named here is one of
+its three: `open` + `awake`, browsed and dismissed rather than read.
 
 Three things follow, and none of them is what the lanes do today:
 
@@ -920,262 +901,113 @@ program applies. GraphQL will answer the first (`commits(...) { authors }`) and
 the second only by reading commit messages. Neither is free, and neither has
 been costed.
 
-### THE STATE AXIS — the finalized design, ready to build
+### THE STATE AXIS — built, 2026-09-10
 
-Designed 2026-09-10 across a long session and written out here so that it
-survives losing the conversation. **Steps 1 and 2 of the build order are built**
-- `marks.json` and `disposition` - and the rest is not; each step below says
-which. Read "The two modes" above first; that half *is* built and this is the
-other half.
+Designed and built in one long session, and written out here because the design
+changed twice while it was being built and the reasons are worth keeping. The
+whole of the build order below is done; what follows is what it settled.
 
-#### The shape
+#### One radio was answering four questions
 
-Four independent axes and one order. Every one of them is already a field on
-`Filters` except the first, which is the whole change.
-
-| axis | control | values | today |
-|---|---|---|---|
-| **disposition** | multiselect | unseen · unread · read · snoozed · archived | a *radio* called `state`, mixed with four things that are not dispositions |
-| **whose** | multiselect | `@me` · `@anyone-else` · logins | `authors`, already right |
-| **kind** | radio | pr · issue · both | `kind`, already right, stays a radio |
-| **what about it** | multiselect | the buckets, repos, labels | already right |
-
-The corpus is everything fetched. It is not an axis and not a state: `backlog`
-stops being a lane and becomes what is left when you have not narrowed anything.
-**It is not "all open PRs"** - that is a *view* over it (`kind:pr`), and the two
-must not be conflated, which they were in an earlier draft of this.
-
-#### The disposition axis
-
-Five values, exclusive per item, decided in this order - the first that applies
-wins:
-
-1. **archived** — `state.toml` carries an `archive` stamp.
-2. **snoozed** — `state.toml` carries a live snooze (`snooze_active`).
-3. **unseen** — no read stamp at all. *Never been in front of you.*
-4. **unread** — a cursor exists and is older than the item's `updated`.
-5. **read** — a cursor at or after `updated`.
-
-**3 and 4 are different and both are wanted**, which is the finding this whole
-design turned on. The firehose browse wants *unseen* — 901 of its 901 rows
-once the read stamps were wiped, 773 before that — and it needs nothing but
-them. The mode-2 inbox wants *unread* — you looked,
-it moved, look again — and must not fill with 2014 issues merely because they
-were never read. Today's `unread` is neither: it is membership in `inbox.json`,
-which means "the poll saw it move", bounded by `[events].repos` and
-`backfill_days`.
-
-**What marks them: explicit action only.** `r`, a snooze (`apply_snooze!` stamps
-the cursor), `x`, `wl read`, and the refresh when it puts something to sleep.
-*Viewing does not*, and must not start: `r` is "I have looked at this" and `x`
-is "and I am done with it", and the firehose pile going down by one of those two
-is the whole browse.
-
-**One enum, not five bools.** Because the five are exclusive, the thing that
-says which one an item is should be a single value rather than a row of flags -
-otherwise the exclusivity is a rule that has to be remembered and re-applied
-everywhere something is read, which is what it is today: `Item.snoozed` is a
-bool, unread is membership in a `Set`, archived is a lookup in another map, and
-the precedence between them is written out at each site that cares.
-
-Computed rather than stored:
-
-    disposition(it, marks) -> :archived | :snoozed | :unseen | :unread | :read
-
-as a function over the item and its `marks.json` record, resolving the order
-above and returning one value. Stored on `Item` it would be derived state that
-goes stale the moment `r` is pressed - `Item` is immutable and rebuilt by the
-refresh, and the browser would have to `with(it; ...)` every row it touched.
-Computed, the filter is `disposition(it, marks) in f.seen` and there is nothing
-to keep in step.
-
-`Item.snoozed` therefore goes; `snooze_why` stays, being a sentence about *why*
-rather than a duplicate of *whether*.
-
-**One thing to fix while doing it** - *done*: snoozing stamped the read cursor
-and archiving did not, so an archived item could also be unread. Archiving
-stamps it too now, in the browser (`x`) and in `wl archive`, on the way in only.
-The precedence above is a tidiness rather than a repair.
-
-#### The files
-
-The read stamp **is** the seen bit already; nothing new is stored. The change is
-that the predicate is asked of the corpus instead of of the inbox.
-
-Since the files are being rewritten anyway, they collapse - **built**:
-
-    marks.json     url -> {read, touched, snooze_fp, snooze_at, draft}
-    inbox.json     {cursors, polled, items}      — unchanged
-    facts.json     the fetch                     — unchanged, still untracked
-    bulk.json      the slow fetch                — unchanged, still untracked
-    state.toml     yours                         — untouched
-    repos.toml     yours                         — untouched
-
-`marks.json` replaced `read.json`, `touched.json`, `snooze.json` and
-`drafts.json`: four files that were each one small fact per url, four
-read-modify-writes where there should be one, and no single place to see what is
-recorded about an item. `queue.json` went with them - `wl next` wrote it and
-nothing read it but `wl next`'s own "never shown first" ordering, which the tag
-in `state.toml` already records; asking twice in a row now shows the same slice.
-
-**`inbox.json` stays and keeps two of its three jobs.** Its per-source cursors
-and `polled` stamps are the poll's own state and nothing else has them; its
-`items` are the *only* record of **628 rows** that no fetch lane returns —
-things that got a comment in a watched repo and are in no lane, which the
-browser adds as thin placeholder rows (`bucket = "unread"`, forced backlog). It
-loses only the third job, being the definition of unread.
-
-#### There was no migration, and the window was taken
-
-Decided and done 2026-09-10: **wiped rather than ported**. `read.json`,
-`touched.json`, `drafts.json` and `queue.json` did not exist - the rebuild
-earlier that day deleted them and nothing had recreated them - and
-`snooze.json`'s 4 entries were not worth carrying: the snooze *values* are in
-`state.toml`, and the fingerprints re-armed from them on the first refresh, to
-the same four fingerprints they had. `state.toml`, `repos.toml` and
-`config.toml` are hand-authored, are the only things that cannot be refetched,
-and were not touched by any of it.
-
-#### Build order
-
-1. ~~`marks.json` and its accessors, replacing four files.~~ **Built.** No
-   behaviour change - the same facts through one door. The accessors kept their
-   names (`read_at`, `touch!`, `load_drafts`, `disarm`), so nothing above them
-   moved; underneath, they are one `set_mark!` and one file for the watcher to
-   watch, and a refilter reads it once for both maps it takes out of it. The
-   read stamp came out of `Events` with it: it is the corpus's seen bit and
-   always was, and what `Events` owns is the poll.
-2. ~~The disposition predicate over the corpus, alongside the existing `state`
-   axis.~~ **Built**, and the comparison on 2789 real rows is in the commit:
-   today's `unread` lane is 847 rows of which **845 are unseen** and **2 are
-   snoozed** - it is neither question, and it shows work you have said "not now"
-   about. Archiving stamps the read cursor now, at both doors, which was the
-   repair the design asked for while passing.
-   * **`Item.snoozed` cannot go**, unlike the design's guess. It is not a
-     duplicate of anything: it is the refresh's answer about whether the item is
-     still asleep, carried on the row because deciding it in the browser would
-     be a second opinion (see `snooze_active`). `disposition` reads it. What
-     goes is the *precedence rule* re-applied at every reader, and that is what
-     the enum takes.
-3. `Filters.state` becomes `Filters.seen::Set{Symbol}` and the filter pane row
-   group becomes a multiselect. `buckets`/`repos`/`labels` are already sets, so
-   this is a shape the pane already draws. `DISPOSITIONS` is the list of values,
-   beside `STATES`, and `BState` already carries the read map the filter needs.
-4. `active`, `backlog`, `second`, `touched`, `drafts` come out of the radio:
-   `active` is `!snoozed && !archived` narrowed by the corpus, `second` is a
-   derived tag that belongs with the buckets, `touched` and `drafts` are
-   `marks.json` fields and can be tags too.
-5. Views rewritten onto the new axes, and `apply_view!`'s unknown-value warning
-   extended to them — it earned its place the day `mine` was removed.
-
-#### What step 4 walked into, and the corrections that came back
-
-Written 2026-09-10 after steps 1-3 landed, revised the same day by the person
-whose dashboard this is. Step 4 - "`active` comes out of the radio" - has
-nowhere to put it: taking the design at its word (`active` is `!snoozed &&
-!archived` over the corpus) turns 158 rows into 2157, because the term doing the
-work in today's `active` is the third one:
-
-    !snoozed && !archived && !backlog        backlog = bucket in (firehose, mentioned)
-
-and that is a fact about *where the row came from*. Nothing about you, nothing
-you did. `active` is `direct` lanes (141) + the 20 `needs-reply` promotions +
-the local items = 162, of which 158 are awake, exactly.
-
-**The first draft of this section proposed a source axis** - direct ·
-participating · watching · pile - and that is wrong, for a reason worth keeping:
-those are GitHub's own filters, and **GitHub is where to go for them**. This
-program is not a second copy of the notification UI. What it has that GitHub
-does not is the record of what *you* have decided about each item.
-
-**Three corrections, and they are the model.**
-
-**1. Movement always makes an item unread. Nothing overrides that.** Not a
-snooze, not an archive. So the five-value `disposition` enum is wrong in its
-precedence: unread is not something archiving can outrank, because unread is not
-a claim about what you want to see - it is a claim about whether the thing has
-changed since you last looked at it. Attention and decision are two axes, and
-fusing them was the mistake.
-
-**2. Archive *is* a snooze with no wake condition.** Both say the same thing -
-"I do not want to see this any more" - and they differ only in whether anything
-brings it back. So there is one field, one key press behind it, and
-`snooze_why` already says which kind it is: "until it moves", "until
-2026-09-15", "forever". `state.toml` carries 4 snooze keys and 0 archive keys
-today, so the merge costs nothing.
-
-**3. "Mine" is author *or assignee*, and a review request is neither.** Being
-asked to review something, or being named in a thread, makes it **unread** -
-which is the axis that already answers "somebody wants something from me". It
-does not make it yours. Today `mine` on an item means `author == login`, and the
-`assigned` lane is the only place assignment shows up at all.
-
-#### The axes, after the corrections
+`state` was a single exclusive choice over ten values that were not alternatives
+to each other: `unread` and `snoozed` and `active` and `backlog` answer
+different questions, so asking one of them meant giving up the answers to the
+rest. Four axes now, each a set, each empty-means-everything like the tag axes
+beside them:
 
 | axis | the question | values | from | what changes it |
 |---|---|---|---|---|
-| **attention** | has it changed since I looked? | unread · read | the read stamp in `marks.json` against `updated` | `r`, and *any* movement |
-| **dismissed** | do I want to see it? | awake · asleep | one `snooze` in `state.toml`; `x` writes the one that never wakes | `s`, `x`, and a wake condition coming true |
-| **over** | is it finished? | open · closed/merged | GitHub's `state` | GitHub |
-| **whose** | is it mine? | `@me` (author **or** assignee) · `@anyone-else` · logins | the item | the fetch |
-| **kind** | pr · issue · both | | | |
-| **what about it** | the buckets, repos, labels, and the tags `second look` / `touched` / `drafts` | | | |
+| **seen** | has it changed since I looked? | unread · read | the read stamp against `updated` | `r`, and *any* movement |
+| **sleep** | do I want to see it? | awake · snoozed · filed | one `snooze` field | `s`, `x`, and a wake condition coming true |
+| **state** | is it finished? | open · closed or merged | GitHub | GitHub |
+| **tag** | anything else worth asking | second look · touched · drafts | derived, or a mark | the refresh, and what you do |
 
-`active`, `backlog` and the source axis are all gone from that table. What
-subtracts the pile is not provenance any more: it is **dismissal**, one item at
-a time, recorded and reversible - which is the one thing that cannot be asked of
-GitHub and the whole reason this program exists.
+with **whose** (`@me` = author or assignee · `@anyone-else` · logins), **kind**
+(a radio: pr · issue · both) and **category/repo/label** unchanged beside them.
 
-**The three work modes, one selection each:**
+The browser opens on `unread · awake` - what moved, minus what you have said you
+do not want to see - and `c` clears to *nothing*, which is the whole corpus
+including what you filed. Both are one keystroke from the other.
 
-  1. **mine** — `@me`, meaning author or assignee. **157 rows**, against the 77
-     that `active` + `@me` gives today: the difference is your own issues and
-     pull requests that arrived through a mention or comment lane and were
-     filed in the pile for it.
-  2. **unread** — the attention axis. Everything that has moved since you looked
-     at it, whoever moved it and wherever it came from: a review request, a
-     mention, a reply, a push.
-  3. **open items** — `open` + `awake`. **2147 rows** today (2151 open, 4
-     asleep), and the way it goes down is `s` and `x`, not `r`.
+#### The three corrections that arrived mid-build
 
-#### What it costs, and what is already built
+The first draft of this had one five-value enum (`unseen · unread · read ·
+snoozed · archived`), a source axis, and `mine` meaning `author == login`. All
+three were wrong, and the corrections are the model:
 
-  * `disposition` splits. The five-value enum becomes two computed values -
-    attention and dismissed - which is where step 2's work goes; the `Marks`
-    bundle, the multiselect plumbing and the axis counts from step 3 all stand.
-  * `Item.snoozed` stays (the refresh's carried answer) and `Item.state`
-    becomes a filter axis rather than only a bucketing input.
-  * `Item` gains an assignee bit, so `@me` can mean author-or-assignee.
-  * `archive` merges into `snooze`: `parse_snooze` gains a "forever" mode, `x`
-    writes it, and the `archive` key stops being written.
-  * `it.backlog` and `state === :active` both go. `wl next` pulls its queue from
-    `backlog`, so that becomes its own predicate. `track = "background"` stays -
-    it is snooze sensitivity, not a lane.
+**1. Movement always makes an item unread. Nothing overrides it.** Not a snooze,
+not a filing. Unread is not a claim about wanting to see something - it is a
+claim about whether it has changed since you last looked - so attention and
+decision are two axes, and fusing them into one enum with a precedence rule was
+the mistake. It also killed `unseen`: with movement always unreading, "never
+opened" is a refinement of unread rather than a value beside it, and what takes
+something out of the pile is dismissing it rather than looking at it.
 
-**Open before building it:**
+**2. Archive *is* a snooze with no wake condition.** Both say "I do not want to
+see this" and differ only in whether anything brings it back. So `parse_snooze`
+gained `forever`, `x` writes it, `archive!` is four lines over `apply_snooze!`,
+and the `archive` field is gone. `snooze_why` already said which kind of sleep
+it was.
 
-  * Does **unseen** survive as a filter value? With movement always unreading,
-    "never seen at all" is a strict refinement of unread rather than a third
-    value, and the pile is defined by `open + awake` rather than by it.
-  * **Assignee**: ask GraphQL for `assignees` on every lane (exact, one more
-    field), or derive it from the `assigned` lane (free, and wrong for an item
-    another lane returned first)?
-  * **What the browser opens on**, now that no 158-row list exists: `@me` (157),
-    or `open + awake` (2147) with the modes a keystroke away.
-  * **Where dismissals live.** One `state.toml` block per dismissed item is how
-    it works today, and taming a 901-row pile means hundreds of them. That file
-    is yours and hand-editable, which is the argument for keeping them there;
-    `marks.json` is machine-owned and already has a row per url, which is the
-    argument for moving them.
+**3. "Mine" is author *or assignee*, and a review request is neither.** Being
+asked to review something, or being named in a thread, makes it **unread** -
+which is the axis that answers "somebody wants something from me" - and does not
+put it in your pile. Every lane asks for `assignees` now: 158 rows against 144,
+at 52 rate-limit points on a six-hourly refetch and no extra requests.
 
-#### Deliberately not in this
+**And the source axis is not wanted.** The draft proposed one - direct ·
+participating · watching · pile - because today's `active` is exactly "a lane
+asked for you" (141 rows + 20 promoted `needs-reply` + the local items = 162, of
+which 158 awake). But those are GitHub's own filters, and GitHub is where to go
+for them. What this program has that GitHub does not is the record of what *you*
+decided, so what subtracts the pile is **dismissal**: one item at a time,
+recorded, undoable. `active` and `backlog` are gone and nothing replaces them.
 
-- **Mode is the author axis**, not a state and not a sixth disposition. That
-  half is built: `'` `2` and `'` `3`, and the `mine` lane is gone.
-- **`kind` stays a radio.** Three values, mutually exclusive, and a set of them
-  would only ever hold one thing or say nothing.
-- **The order stays newest-first** everywhere. See "Waiting for a reviewer"
-  above for why that is a policy and not a default.
+#### The three work modes, one selection each
+
+  1. **mine** — `@me`. 157 rows, against the 77 that `active` + `@me` gave:
+     the difference is your own issues and pull requests that arrived through a
+     mention or comment lane and were filed in the pile for it.
+  2. **what moved** — the seen axis. Everything that has changed since you
+     looked at it, whoever moved it and wherever it came from.
+  3. **open items** — `open` + `awake`. 2147 of 2159, and the way it goes down
+     is `s` and `x`, not `r`.
+
+All three are views, and `'` reaches any of them in one keystroke.
+
+#### The files, which fell out of it
+
+Two, and one line between them - **what GitHub can answer again, and what it
+cannot**:
+
+    fetched.json   {items, bulk, inbox}          re-fetchable, ~4MB, untracked
+    local.toml     one block per item, repo or   yours, small, tracked
+                   adopted branch
+
+`fetched.json` was `facts.json` + `bulk.json` + `inbox.json`, split by which
+part of the fetch wrote them rather than by what they are. `local.toml` was
+`state.toml` + `marks.json` + `repos.toml` (and before that `read.json`,
+`touched.json`, `snooze.json`, `drafts.json` and `queue.json`), split by which
+key press wrote them. Your note and its read stamp are two lines of the same
+block now.
+
+The line editor grew `set_blocks!`: any number of blocks, one pass, one write,
+nothing written when nothing changed. `wl read` stamping 852 items is 60ms.
+
+No migration was written for any of it, and none was needed: everything in
+`fetched.json` comes back from a refresh, and the four small files were
+converted once by hand on the day.
+
+#### What it left open
+
+  * `wl next` still pools on `Item.backlog`, which is a fetch-side fact
+    (`bucket in (firehose, mentioned)`) that no filter reads any more. It wants
+    a predicate of its own, or the pile wants to be a bucket selection.
+  * `track = "background"` stays. It is snooze sensitivity - what counts as
+    movement - and not a lane, which is the only reason it survived `backlog`.
+  * The 628 rows only the poll knows about still arrive as thin placeholder
+    `Item`s built in `ui()`. They are rows in the corpus like any other now,
+    but they are still built in a second place from a second shape.
 
 ### What review writing still cannot do
 
