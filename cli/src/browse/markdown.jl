@@ -3,16 +3,14 @@
 # markup, code spans, the wrap map, and the fold state a row belongs to - and,
 # at the end, the bordered pane those rows are drawn in.
 
-const AB, AD, AR = "\e[1m", "\e[2m", "\e[0m"
-
 function diffline(l)
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
-    startswith(l, "@@") && return "\e[36m" * l * AR
+    startswith(l, "@@") && return THEME.diff_hunk * l * THEME.reset
     (startswith(l, "+++") || startswith(l, "---") || startswith(l, "index ")) &&
-        return AD * l * AR
-    startswith(l, "+") && return "\e[32m" * l * AR
-    startswith(l, "-") && return "\e[31m" * l * AR
+        return THEME.diff_meta * l * THEME.reset
+    startswith(l, "+") && return THEME.diff_add * l * THEME.reset
+    startswith(l, "-") && return THEME.diff_del * l * THEME.reset
     String(l)
 end
 
@@ -108,7 +106,8 @@ themselves, and an unmarked link is one nobody discovers.
 Note tmux only forwards OSC 8 from tmux 3.4; older versions strip it, and the
 link silently becomes plain text.
 """
-osc8(url, text) = string("\e]8;;", url, "\e\\\e[4m", text, "\e[24m\e]8;;\e\\")
+osc8(url, text) = string("\e]8;;", url, "\e\\", THEME.link, text, THEME.link_off,
+                         "\e]8;;\e\\")
 
 """Protect text from the two markup layers that would eat it.
 
@@ -172,9 +171,14 @@ end
 # usually a variable name. Setting the theme to a colour nothing else emits
 # makes the delimiters findable afterwards, which is the only way to reach the
 # span itself.
+#
+# Not a theme role, and the one colour in the program that is not: it is a
+# handshake with Term's own theme (`__init__` sets `md_code` to the same
+# `#ff00ff`), it is never on screen - `style_code_spans` has replaced every one
+# of them before the row is drawn - and a theme that changed it here and not
+# there would break the span, not recolour it.
 const MD_CODE_SENTINEL = "\e[38;2;255;0;255m"
 const CODE_DELIM = MD_CODE_SENTINEL * "`" * "\e[39m"
-const CODEBG = "\e[48;5;238m"
 
 """Draw a code span as a quiet background instead of loud punctuation.
 
@@ -189,7 +193,9 @@ it would have been with none of this.
 """
 function style_code_spans(str::AbstractString)
     occursin(CODE_DELIM, str) || return String(str)
-    tick = "\e[2m`\e[22m"                   # dim, without resetting the background
+    # Dim and no more: a reset here would end the background the span is drawn
+    # on, which is what `dim_off` exists for.
+    tick = string(THEME.dim, "`", THEME.dim_off)
     out = IOBuffer()
     for (i, line) in enumerate(split(str, '\n'))
         i == 1 || write(out, '\n')
@@ -199,12 +205,13 @@ function style_code_spans(str::AbstractString)
         d = 1
         while d <= nd
             if d + 1 <= nd
-                write(out, CODEBG, tick,
-                      replace(String(parts[d + 1]), AR => AR * CODEBG), tick, NOBG)
+                write(out, THEME.code_bg, tick,
+                      rearm(String(parts[d + 1]), THEME.code_bg), tick,
+                      THEME.code_bg_off)
                 write(out, parts[d + 2])
                 d += 2
             else
-                write(out, "\e[2m`\e[0m", parts[d + 1])
+                write(out, THEME.dim, "`", THEME.reset, parts[d + 1])
                 d += 1
             end
         end
@@ -213,7 +220,7 @@ function style_code_spans(str::AbstractString)
     # leaving the sentinel alone on a line with no pair to find. Anything still
     # carrying it becomes dim, so a stray delimiter is quiet rather than
     # magenta.
-    replace(String(take!(out)), MD_CODE_SENTINEL => "\e[2m")
+    replace(String(take!(out)), MD_CODE_SENTINEL => THEME.dim)
 end
 
 """Rewrite the parsed markdown into what Term can actually render.
@@ -418,8 +425,8 @@ function nodelines(n::Node, w::Int)
             # inside a link; identity has neither problem. It is also the only
             # way these are links at all beside a hosted pane, which draws the
             # detail on its own and never reaches `linkify`.
-            push!(out, string(AD, "[", i, "]", AR, " \e[34m",
-                              osc8(u, shortlink(u, max(20, w - 8))), AR))
+            push!(out, string(THEME.dim, "[", i, "]", THEME.reset, " ", THEME.url,
+                              osc8(u, shortlink(u, max(20, w - 8))), THEME.reset))
             # The whole URL, not the elided form on screen: a shortened link is
             # the one thing on the row that is useless once pasted.
             push!(srcs, (0, string("[", i, "] ", u)))
@@ -514,7 +521,7 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false)
         markw = marks ? awidth(COPYMARK) + 1 : 0
         for (k, hl) in enumerate(hls)
             txt = k == 1 ? hl : string("  ", hl)
-            core = string(AB, isempty(u) ? txt : osc8(u, txt), AR)
+            core = string(THEME.bold, isempty(u) ? txt : osc8(u, txt), THEME.reset)
             width = awidth(txt)
             if k == length(hls)
                 # A rule out to the edge of the pane on the last row of the
@@ -524,14 +531,16 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false)
                 # was written in.
                 if n.depth == 0
                     gap = iw - width - 1 - markw
-                    gap > 2 && (core = string(core, " ", AD, "─"^gap, AR);
+                    gap > 2 && (core = string(core, " ", THEME.dim, "─"^gap,
+                                              THEME.reset);
                                 width += 1 + gap)
                 end
                 # And the mark, right-aligned on the row a click has to land on.
                 # Only where it fits: a header that fills the pane keeps its
                 # words, and loses the offer.
                 if markw > 0 && iw - width >= markw
-                    core = string(core, " "^(iw - width - markw), " ", AD, COPYMARK, AR)
+                    core = string(core, " "^(iw - width - markw), " ",
+                                  THEME.dim, COPYMARK, THEME.reset)
                 end
             end
             push!(out, Row(i, true, string(pad, core), hsrc, k == 1 ? 0 : 1))

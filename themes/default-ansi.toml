@@ -1,0 +1,83 @@
+# The colours the dashboard is drawn in, as the sixteen ANSI colours the
+# terminal's own palette decides - so it follows whatever scheme is set there
+# rather than fighting it. Named in `config.toml`:
+#
+#     theme = "default-ansi.toml"
+#
+# A name is a *role* - what a colour means to the program - and not a place on
+# the screen: `blocked` is red wherever the program says something is blocked,
+# which is the review verdict, the conflicting merge, the failing check and the
+# worktree that is gone. Restyling one of those alone is not something this
+# file can do, and deliberately: they are one question asked in four places, and
+# a theme that answered it differently in each would be lying about that.
+#
+# The value is words, in any order:
+#
+#   * an attribute — `bold`, `dim`, `italic`, `underline`, `reverse`
+#   * a colour — `black red green yellow blue magenta cyan white`,
+#     `bright <name>` for the high eight, or `0`-`255` for a 256-colour index
+#   * `on` in front of a colour, making it the background
+#
+# So `"bold white"`, `"black on yellow"`, `"on 236"`, `"bright red"`, `"244"`.
+# An empty value draws the role without colour, which is how one is turned off
+# without turning the file off. A role this file does not name is empty too, so
+# a theme can be a handful of lines.
+#
+# There is no entry for the resets. They end a colour rather than beginning one,
+# so there is nothing to choose: the escape that closes a role is worked out
+# from the role's own value, which is why a `dim` drawn as a grey foreground
+# closes correctly and a `dim` drawn as `dim` does too.
+
+# --- weight and quiet --------------------------------------------------------
+# Most of the screen is one of these three. `bold` is the thing being read and
+# the rows not yet read; `dim` is everything that is not the point — legends,
+# timestamps, counts, the chrome around the content; `focus` is the one row the
+# keyboard is on, in a list of rows that are all otherwise alike.
+bold  = "bold"
+dim   = "dim"
+focus = "bold white"
+
+# --- the three verdicts, and a name ------------------------------------------
+# How something stands, which is the same question wherever it is asked: an
+# approval, a green check, a staged change and an attached session are all
+# `settled`; changes requested, a failure, a conflict and a checkout that is
+# gone are all `blocked`; a review that was asked for and not given, a thread
+# nobody answered, a rebase, and what is new since you last looked are all
+# `waiting`. `accent` is not a verdict at all - it is a name or a place: a
+# label, a branch, `file.jl:544`, the `💬` on a line being talked about.
+settled = "green"
+blocked = "red"
+waiting = "yellow"
+accent  = "cyan"
+
+# --- the diff ----------------------------------------------------------------
+# The one surface where the colour *is* the content, which is why it is not
+# drawn in the verdicts above: an added line is not a settled one. `diff_meta`
+# is the `+++`/`---`/`index` lines nobody reads, and the hunk header of a
+# range-diff's inner diff.
+diff_add  = "green"
+diff_del  = "red"
+diff_hunk = "cyan"
+diff_meta = "dim"
+# An inline code span, drawn as a quiet background instead of loud punctuation.
+# A background and not a foreground on purpose: the span is usually an
+# identifier in a sentence, and marking it must not compete with the sentence.
+code_bg = "on 238"
+
+# --- where you are -----------------------------------------------------------
+# The cursor is a background rather than a weight, because weight already says
+# whether a row has been read. `select_bg` is a drag or a shifted move over the
+# reading pane, `match_bg` a search hit inside a row that has colours of its
+# own, and `caret` the block after what you have typed.
+cursor_bg = "on 236"
+select_bg = "on 24"
+match_bg  = "black on yellow"
+caret     = "reverse"
+
+# --- links -------------------------------------------------------------------
+# `link` marks every OSC 8 hyperlink, and it is not decoration: terminals differ
+# on whether they mark one themselves, and an unmarked link is one nobody
+# discovers. `url` is the footnote rows under a comment, where the urls pulled
+# out of its markdown links are listed.
+link = "underline"
+url  = "blue"

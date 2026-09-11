@@ -127,21 +127,17 @@ function selection_text(st::BState, w::Int)
     join(out, "\n")
 end
 
-const CURBG = "\e[48;5;236m"
-const SELBG = "\e[48;5;24m"
-
 """Lay a background over a whole row, re-arming it after every reset.
 
 A row carries its own colours, and the `\\e[0m` that ends one of them ends the
 background too - so a highlight applied naively stops at the first styled word
-on the line.
+on the line. `rearm` is the general form; the background going back to the
+default counts as an ending here as much as a reset does, which is what lets a
+search hit inside the cursor's row end without taking the cursor with it.
 """
 hlrow(s::AbstractString, bg::AbstractString) =
-    string(bg, replace(replace(s, AR => AR * bg), NOBG => NOBG * bg), AR)
-
-"Default background, which ends a span highlight without touching the colours."
-const NOBG = "\e[49m"
-const HITBG = "\e[43m\e[30m"     # a match, dark on yellow
+    isempty(bg) ? String(s) :
+    string(bg, rearm(s, bg, (THEME.reset, THEME.no_bg)), THEME.reset)
 
 """Lay a background over given ranges of a row's *plain* characters.
 
@@ -151,7 +147,7 @@ each span with `\\e[49m` rather than a reset - so a match inside coloured text
 keeps its colour, and `hlrow` can still lay the cursor's background over the top.
 """
 function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractString;
-               off::AbstractString = NOBG)
+               off::AbstractString = THEME.no_bg)
     isempty(ranges) && return s
     io, i, n, open_ = IOBuffer(), firstindex(s), 0, false
     while i <= lastindex(s)

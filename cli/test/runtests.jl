@@ -43,6 +43,12 @@ end
 # would mean the user's own file again.
 const REPOS_SANDBOX = W.LOCAL[]
 
+# And the colours, for the same reason the paths are redirected: a test that
+# asserts a row is bold is a test of the program, not of whatever `config.toml`
+# happens to name - `theme = ""` there would otherwise make every one of those
+# assertions vacuously true, since `occursin("", row)` is.
+@assert isempty(W.load_theme!(joinpath(W.ROOT, "themes", "default-ansi.toml")))
+
 """A fresh, empty `local.toml` for a testset that wants to start from nothing.
 
 Empty rather than absent: several testsets read the file to put it back
@@ -66,6 +72,7 @@ end
 # One file per thing being tested, mirroring `src/browse/`. The order is not
 # cosmetic: several of these leave a file, a session or a filter behind that
 # the next one reads.
+include("suite/theme.jl")
 include("suite/input.jl")
 include("suite/composer.jl")
 include("suite/frame.jl")

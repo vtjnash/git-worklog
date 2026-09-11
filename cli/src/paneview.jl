@@ -753,8 +753,8 @@ function session_marks(r::WorktreeRow)
     for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
         i = findfirst(x -> x.kind === kind, r.sessions)
         out *= i === nothing ? " " :
-               r.sessions[i].attached ? string("\e[32m", ch, "\e[0m") :
-                                        string("\e[2m", ch, "\e[0m")
+               r.sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
+                                        string(THEME.dim, ch, THEME.reset)
     end
     out
 end
@@ -788,8 +788,8 @@ is in the middle of a commit, which is a different thing to have walked away
 from than a checkout that was merely edited - and `+*` says so at a glance.
 """
 function change_marks(r::WorktreeRow)
-    string(r.staged ? "\e[32m+\e[0m" : " ",
-           r.unstaged ? "\e[33m*\e[0m" : " ")
+    string(r.staged ? string(THEME.settled, "+", THEME.reset) : " ",
+           r.unstaged ? string(THEME.waiting, "*", THEME.reset) : " ")
 end
 
 """The width the tip date costs on a worktree row, which is nothing when the
@@ -810,15 +810,15 @@ wt_label(iw::Int) = max(12, iw - WT_RUN - 1 - WT_CHG - 1 - WT_NAME - 1 -
 "One worktree row, drawn."
 function wt_line(r::WorktreeRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
-            r.orphan ? "\e[31mworktree is gone\e[0m" :
-            isempty(r.repo) ? "" : string("\e[2m", r.repo, "\e[0m")
+            r.orphan ? string(THEME.blocked, "worktree is gone", THEME.reset) :
+            isempty(r.repo) ? "" : string(THEME.dim, r.repo, THEME.reset)
     string(session_marks(r), " ", change_marks(r), " ",
            apad(afit(r.name, WT_NAME), WT_NAME), " ",
-           "\e[36m", apad(amid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
-                          WT_BRANCH), "\e[0m ",
+           THEME.accent, apad(amid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
+                              WT_BRANCH), THEME.reset, " ",
            wt_date(iw) == 0 ? "" :
-               string("\e[2m", apad(first(r.at, WT_DATE), WT_DATE), "\e[0m "),
-           "\e[2m", apad(afit(track_mark(r), WT_TRACK), WT_TRACK), "\e[0m ",
+               string(THEME.dim, apad(first(r.at, WT_DATE), WT_DATE), THEME.reset, " "),
+           THEME.dim, apad(afit(track_mark(r), WT_TRACK), WT_TRACK), THEME.reset, " ",
            apad(afit(label, wt_label(iw)), wt_label(iw)))
 end
 
@@ -833,12 +833,14 @@ br_label(iw::Int) = max(12, iw - 1 - 1 - BR_NAME - 1 - BR_REPO - 1 -
 
 function br_line(r::BranchRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
-            r.gone ? "\e[2mupstream is gone\e[0m" : ""
-    string(isempty(r.worktree) ? " " : "\e[32m\u25cf\e[0m", " ",
-           "\e[36m", apad(amid(r.name, BR_NAME), BR_NAME), "\e[0m ",
-           "\e[2m", apad(afit(last(split(r.repo, '/')), BR_REPO), BR_REPO), "\e[0m ",
-           "\e[2m", apad(first(r.at, BR_DATE), BR_DATE), "\e[0m ",
-           "\e[2m", apad(afit(track_mark(r), BR_TRACK), BR_TRACK), "\e[0m ",
+            r.gone ? string(THEME.dim, "upstream is gone", THEME.reset) : ""
+    string(isempty(r.worktree) ? " " :
+           string(THEME.settled, "\u25cf", THEME.reset), " ",
+           THEME.accent, apad(amid(r.name, BR_NAME), BR_NAME), THEME.reset, " ",
+           THEME.dim, apad(afit(last(split(r.repo, '/')), BR_REPO), BR_REPO),
+           THEME.reset, " ",
+           THEME.dim, apad(first(r.at, BR_DATE), BR_DATE), THEME.reset, " ",
+           THEME.dim, apad(afit(track_mark(r), BR_TRACK), BR_TRACK), THEME.reset, " ",
            apad(afit(label, br_label(iw)), br_label(iw)))
 end
 
@@ -859,7 +861,7 @@ function list_header(branches::Bool, iw::Int)
                wt_date(iw) == 0 ? "" : string(apad("tip", WT_DATE), " "),
                apad("\u00b1upstream", WT_TRACK), " ",
                apad("pull request", wt_label(iw)))
-    string("\e[2m", afit(line, iw), "\e[0m")
+    string(THEME.dim, afit(line, iw), THEME.reset)
 end
 
 """What the one-character columns mean, spelled out.
@@ -892,18 +894,19 @@ function render(v::WorktreeView, w::Int, h::Int)
     body = [list_header(branches, iw)]
     for i in win
         line = branches ? br_line(v.brows[i], iw) : wt_line(v.rows[i], iw)
-        push!(body, i == sel ? hlrow(apad(line, iw), SELBG) : line)
+        push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
     end
     # `n`, not `body`: the header is always in there, so an empty list is one
     # that has no rows rather than one that drew nothing.
-    n == 0 && push!(body, branches ?
-        "\e[2mno branches — none of the registered repos is here\e[0m" :
-        "\e[2mno worktrees — register a repo with e, t or T on an item\e[0m")
+    n == 0 && push!(body, string(THEME.dim, branches ?
+        "no branches — none of the registered repos is here" :
+        "no worktrees — register a repo with e, t or T on an item", THEME.reset))
     keys = branches ? "↵ its worktree, or make one · i item · tab worktrees · r refresh · q back" :
                       "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
     rows = vcat(bordered(body, w, h - 2, branches ? "branches" : "worktrees", true),
-                [string("\e[2m", afit(list_legend(branches), w), "\e[0m"),
-                 string("\e[2m", afit(isempty(v.status) ? keys : v.status, w), "\e[0m")])
+                [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
+                 string(THEME.dim, afit(isempty(v.status) ? keys : v.status, w),
+                        THEME.reset)])
     while length(rows) < h
         push!(rows, "")
     end

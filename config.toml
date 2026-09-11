@@ -3,6 +3,14 @@
 
 login = "vtjnash"
 
+# Which file under `themes/` the colours are read from. One name, and it is the
+# only thing that turns colour on: an empty value, a missing key or a file that
+# is not there draws everything plain, with no escapes printed at all - so
+# `theme = ""` is the way to ask for that. A misspelt role or colour inside the
+# file is reported on stderr at startup and drawn as nothing; the file itself
+# says what the roles are and what a colour may be written as.
+theme = "default-ansi.toml"
+
 [thresholds]
 # Your PR has been green and waiting on a reviewer this long -> needs-nudge.
 nudge_days = 7

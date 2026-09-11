@@ -79,7 +79,7 @@
     @test length(st.items) == before
 
     f = W.render(st, 150, 40)
-    @test occursin(W.HITBG, f)                          # matches are marked
+    @test occursin(W.THEME.match_bg, f)                          # matches are marked
     @test occursin("2 matches", W.astrip(f))            # and counted
     @test all(W.awidth(l) == 150 for l in split(f, "\n"))
 

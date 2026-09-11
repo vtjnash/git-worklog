@@ -206,9 +206,10 @@ function push_node(run, url::AbstractString)
     peek = strip(first(replace(String(run[end]["headline"]), r"\s+" => " "), 58))
     body = join((string(first(c["oid"], 8), "  ", first(c["at"], 16), "  ",
                         oneline(c["headline"])) for c in Iterators.reverse(run)), "\n")
-    hd = string(GRN, "↑ pushed ", n, n == 1 ? " commit" : " commits", AR)
-    nd = Node(string(hd, "  ", AD, who, when, AR, "   ", peek), body, :plain, n <= 3)
-    nd.meta["byline"] = string(hd, "  ", AD, who, when, AR)
+    hd = string(THEME.settled, "↑ pushed ", n, n == 1 ? " commit" : " commits", THEME.reset)
+    nd = Node(string(hd, "  ", THEME.dim, who, when, THEME.reset, "   ", peek),
+              body, :plain, n <= 3)
+    nd.meta["byline"] = string(hd, "  ", THEME.dim, who, when, THEME.reset)
     nd.meta["src"] = string("pushed ", n, n == 1 ? " commit" : " commits",
                             "  ", astrip(who), when)
     # The branch's own page, since a push is not a comment and has no anchor in
@@ -230,8 +231,9 @@ It is a node rather than a decoration so that `n`/`N` reaches it, folding above
 it works, and `collect_pending!` has something to open the pane on.
 """
 function newmark_node(n::Int)
-    nd = Node(string(YEL, "new since you last looked", AR, "  ", AD,
-                     n, n == 1 ? " entry" : " entries", AR),
+    nd = Node(string(THEME.waiting, "new since you last looked", THEME.reset,
+                     "  ", THEME.dim, n, n == 1 ? " entry" : " entries",
+                     THEME.reset),
               "", :plain, true)
     nd.meta["newmark"] = true
     nd.meta["src"] = "--- new since you last looked ---"
@@ -488,8 +490,10 @@ thread: `💬` on the line is the sentence, and `💬1` is it said twice.
 """
 markof(m::Union{Nothing,Tuple{Int,Int}}) =
     m === nothing ? "" :
-    string(m[1] == 0 ? "" : string("  ", CYA, "💬", m[1] == 1 ? "" : m[1], AR),
-           m[2] == 0 ? "" : string("  ", AD, "✓", m[2] == 1 ? "" : m[2], AR))
+    string(m[1] == 0 ? "" : string("  ", THEME.accent, "💬", m[1] == 1 ? "" : m[1],
+                                   THEME.reset),
+           m[2] == 0 ? "" : string("  ", THEME.dim, "✓", m[2] == 1 ? "" : m[2],
+                                   THEME.reset))
 
 """Where a review comment was pointing: `file.jl:544`, or empty for a plain one.
 
@@ -501,7 +505,7 @@ function comment_loc(c)
     p = String(nz(get(c, "path", nothing), ""))
     isempty(p) && return ""
     ln = something(get(c, "line", nothing), get(c, "original_line", nothing), "?")
-    string("  ", CYA, last(split(p, '/')), ":", ln, AR)
+    string("  ", THEME.accent, last(split(p, '/')), ":", ln, THEME.reset)
 end
 
 """Header for one review comment, as it is drawn under its hunk: who, when and
@@ -610,8 +614,9 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         # Kept as well as appended: `[`/`]` rebuilds this header from the file
         # and the range, and would otherwise drop the tally on the way past.
         n.meta["tally"] = string(
-            isempty(live) ? "" : string("  ", CYA, "💬", length(live), AR),
-            isempty(settled) ? "" : string("  ", AD, "✓", length(settled), AR))
+            isempty(live) ? "" : string("  ", THEME.accent, "💬", length(live), THEME.reset),
+            isempty(settled) ? "" : string("  ", THEME.dim, "✓", length(settled),
+                                           THEME.reset))
         n.header = string(n.header, n.meta["tally"])
         # And the line each thread points at, so the hunk says *where* it is
         # being talked about and not only that it is. Kept as the line number
@@ -635,8 +640,8 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
             # resolved is not the same as irrelevant, and the code it was about
             # is the thing that makes it readable at all. Closed, so it costs a
             # row rather than a screen.
-            h = Node(string(AD, "\u2713 ", length(settled), " resolved",
-                            length(settled) == 1 ? "" : " threads", AR),
+            h = Node(string(THEME.dim, "\u2713 ", length(settled), " resolved",
+                            length(settled) == 1 ? "" : " threads", THEME.reset),
                      "", :plain, false, n.depth + 1)
             push!(out, h)
             for c in settled
@@ -658,7 +663,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         isempty(group) && continue
         # Folded, and folding now hides the run nested under it, so this really
         # does put them away.
-        push!(out, Node(string(AD, label, AR), "", :plain, false))
+        push!(out, Node(string(THEME.dim, label, THEME.reset), "", :plain, false))
         for c in group
             emit!(out, c, 1)
         end
@@ -692,16 +697,23 @@ is the reason you are looking.
 function rangeline(l::AbstractString)
     ncodeunits(l) >= 5 || return String(l)
     o = codeunit(l, 5)
-    o == UInt8('+') && return string(GRN, l, AR)
-    o == UInt8('-') && return string(RED, l, AR)
-    occursin(r"^\s*@@", l) ? string(AD, l, AR) : String(l)
+    o == UInt8('+') && return string(THEME.diff_add, l, THEME.reset)
+    o == UInt8('-') && return string(THEME.diff_del, l, THEME.reset)
+    occursin(r"^\s*@@", l) ? string(THEME.diff_meta, l, THEME.reset) : String(l)
 end
 
-"""How `git range-diff` marks each pair of commits, and what it means here."""
-# Padded to ten in the header rather than to nine, because "unchanged" is nine
-# characters long and ran straight into the sha beside it.
-const RANGE_MARK = Dict('=' => (AD, "unchanged"), '!' => (YEL, "changed"),
-                        '<' => (RED, "gone"), '>' => (GRN, "new"))
+"""How `git range-diff` marks each pair of commits, and what it means here.
+
+Padded to ten in the header rather than to nine, because "unchanged" is nine
+characters long and ran straight into the sha beside it. A function rather than
+a `Dict` for the reason `rev_mark` is one: a table of colours built when the
+module loads is built before the theme is read.
+"""
+range_mark(c::Char) =
+    c == '=' ? (THEME.dim, "unchanged") :
+    c == '!' ? (THEME.waiting, "changed") :
+    c == '<' ? (THEME.diff_del, "gone") :
+    c == '>' ? (THEME.diff_add, "new") : nothing
 
 """Where one pair of commits ends and the next begins in `git range-diff` output.
 
@@ -756,15 +768,17 @@ function rangediff_nodes(txt::AbstractString)
             continue
         end
         flush!()
-        (col, what) = get(RANGE_MARK, first(m[3]), (AR, String(m[3])))
+        (col, what) = something(range_mark(first(m[3])), (THEME.reset, String(m[3])))
         # Which sha to show: the one that still exists. A commit the rebase
         # dropped has no new sha and a commit it added has no old one, and
         # `-------` is not something to put in front of a subject line.
         sha = m[5] == "-------" ? m[2] : m[5]
-        n = Node(string(col, rpad(what, 10), AR, AD, first(sha, 8), AR, "  ", m[6]),
+        n = Node(string(col, rpad(what, 10), THEME.reset,
+                        THEME.dim, first(sha, 8), THEME.reset, "  ", m[6]),
                  "", :plain, first(m[3]) != '=')
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", m[6])
-        n.meta["byline"] = string(col, rpad(what, 10), AR, AD, first(sha, 8), AR)
+        n.meta["byline"] = string(col, rpad(what, 10), THEME.reset,
+                                  THEME.dim, first(sha, 8), THEME.reset)
         push!(ns, n)
     end
     flush!()
@@ -833,16 +847,18 @@ function pushed_nodes(it::Item)
     # count did not change says so by not mentioning it, which is the common
     # case and the one where the count would be noise.
     said = kind === :diff ?
-           string(GRN, mv.now - mv.then, mv.now - mv.then == 1 ? " commit" : " commits",
-                  " added", AR) :
-           string(YEL, mv.moved > 0 ? "rebased" : "rewritten", AR,
+           string(THEME.settled, mv.now - mv.then,
+                  mv.now - mv.then == 1 ? " commit" : " commits", " added",
+                  THEME.reset) :
+           string(THEME.waiting, mv.moved > 0 ? "rebased" : "rewritten", THEME.reset,
                   mv.moved > 0 ?
-                  string(AD, "  onto ", mv.moved, " newer ",
-                         mv.moved == 1 ? "commit" : "commits", AR) : "",
+                  string(THEME.dim, "  onto ", mv.moved, " newer ",
+                         mv.moved == 1 ? "commit" : "commits", THEME.reset) : "",
                   mv.then == mv.now ? "" :
-                  string(AD, "  ", mv.now, mv.now == 1 ? " commit" : " commits",
-                         ", was ", mv.then, AR))
-    lead = Node(string(said, "  ", AD, first(old, 8), " → ", first(new, 8), AR),
+                  string(THEME.dim, "  ", mv.now, mv.now == 1 ? " commit" : " commits",
+                         ", was ", mv.then, THEME.reset))
+    lead = Node(string(said, "  ", THEME.dim, first(old, 8), " → ", first(new, 8),
+                       THEME.reset),
                 kind === :diff ?
                 "The head you saw is still in this branch's history and the base " *
                 "has not moved under it, so this is the plain diff from that head " *

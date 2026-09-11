@@ -518,17 +518,18 @@ end
     # cut at `leftw - 1` leaves the pane's own right border out of the answer.
     row(it) = last(split(W.afit(first(l for l in lines if startswith(W.astrip(l), "│") &&
                                       occursin(it.ref, first(W.astrip(l), W.leftw(150)))),
-                                W.leftw(150) - 1), W.AR; limit = 2))
-    @test occursin(W.AB, row(unread))
-    @test !occursin(W.AB, row(read_))
-    @test !occursin(W.AD, row(read_))       # nor dim, which is the whole point
+                                W.leftw(150) - 1), W.THEME.reset; limit = 2))
+    @test occursin(W.THEME.bold, row(unread))
+    @test !occursin(W.THEME.bold, row(read_))
+    @test !occursin(W.THEME.dim, row(read_))       # nor dim, which is the whole point
     # The cursor is a background now, the way the reading pane's line is: bold
     # is spoken for, and a bright-white bold row among bold rows is not a
     # cursor. It covers the row rather than the words on it.
-    @test occursin(W.CURBG, row(st.items[st.sel]))
-    @test !occursin(W.CURBG, row(unread)) && !occursin(W.CURBG, row(read_))
-    @test W.awidth(first(l for l in lines if occursin(W.CURBG, l))) == 150
+    @test occursin(W.THEME.cursor_bg, row(st.items[st.sel]))
+    @test !occursin(W.THEME.cursor_bg, row(unread)) &&
+          !occursin(W.THEME.cursor_bg, row(read_))
+    @test W.awidth(first(l for l in lines if occursin(W.THEME.cursor_bg, l))) == 150
     # The import row keeps its dim, being the one row that is not an item.
-    @test occursin(W.AD, first(l for l in lines if occursin("import an item",
+    @test occursin(W.THEME.dim, first(l for l in lines if occursin("import an item",
                                                            W.astrip(l))))
 end

@@ -202,8 +202,8 @@ end
 
     # The colour says which range a line is in, which is the whole question
     # here - the inner diff is a change both versions make.
-    @test startswith(W.rangeline("    ++TWOO"), W.GRN)
-    @test startswith(W.rangeline("    -+TWO"), W.RED)
+    @test startswith(W.rangeline("    ++TWOO"), W.THEME.diff_add)
+    @test startswith(W.rangeline("    -+TWO"), W.THEME.diff_del)
     @test W.rangeline("     -two") == "     -two"
     @test W.rangeline("   ") == "   "          # too short to have a marker
     @test W.astrip(W.rangeline("     @@")) == "     @@"

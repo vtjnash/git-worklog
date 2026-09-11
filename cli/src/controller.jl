@@ -422,7 +422,8 @@ function safe_render(v::View, w::Int, h::Int)
         render(v, w, h)
     catch e
         line = logerror!(e, catch_backtrace(), "render")
-        rows = vcat(["\e[31mthis view could not be drawn\e[0m"], awrap(line, w),
+        rows = vcat([string(THEME.blocked, "this view could not be drawn",
+                            THEME.reset)], awrap(line, w),
                     [""], awrap(errnote(), w))
         while length(rows) < h
             push!(rows, "")
@@ -681,8 +682,8 @@ function render(v::ChooseView, w::Int, h::Int)
     v.top = clamp(v.top, 1, max(1, length(opts) - bh + 1))
 
     out = [b.head(v.title)]
-    isempty(v.note) || push!(out, b.row(v.note, "\e[2m"))
-    push!(out, b.row(string("/ ", v.query, "\e[7m \e[0m")))
+    isempty(v.note) || push!(out, b.row(v.note, THEME.dim))
+    push!(out, b.row(string("/ ", v.query, THEME.caret, " ", THEME.caret_off)))
     for i in v.top:(v.top + bh - 1)
         if i > length(opts)
             push!(out, b.row(""))
@@ -690,10 +691,10 @@ function render(v::ChooseView, w::Int, h::Int)
             # The digit, or a space where it has run out, so the names stay
             # in one column whether or not the row has a key of its own.
             label = v.numbered ? string(numkey(i), "  ", opts[i][1]) : opts[i][1]
-            push!(out, b.row(label, i == v.sel ? "\e[1;37m" : "\e[2m"))
+            push!(out, b.row(label, i == v.sel ? THEME.focus : THEME.dim))
         end
     end
-    isempty(opts) && (out[end] = b.row("nothing matches", "\e[2m"))
+    isempty(opts) && (out[end] = b.row("nothing matches", THEME.dim))
     push!(out, b.foot())
     push!(out, b.hint(v.numbered ? "0-9 picks · ↑/↓ move · ↵ pick · esc cancel" :
                                    "↑/↓ move · ↵ pick · esc cancel"))
@@ -770,7 +771,7 @@ function render(v::ConfirmView, w::Int, h::Int)
     b = dialogbox(w; width = 76)
     out = [b.head(v.title)]
     for n in v.notes
-        push!(out, b.row(n, "\e[2m"))
+        push!(out, b.row(n, THEME.dim))
     end
     push!(out, b.foot())
     push!(out, b.hint(v.hint))

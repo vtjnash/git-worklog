@@ -21,6 +21,7 @@ The split that makes it safe to let a model touch this:
 | file | owner | lifetime |
 |---|---|---|
 | `config.toml` | you | edited by hand |
+| `themes/*.toml` | you | edited by hand; which one is read is a line in `config.toml`, and none being read is plain text |
 | `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, drafted). Plus a `repo:` block per local checkout. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw. Not tracked; ~4MB |
 
@@ -357,6 +358,37 @@ comment thread beside it, of which 0.96s is loading the module. `julia
 The GraphQL search lanes shell out to `gh api graphql` because GitHub.jl exports
 neither GraphQL nor search; the REST side (`events.jl`) uses GitHub.jl directly,
 though not its paginating helpers - see the `--paginate` note below.
+
+## Colours
+
+`config.toml` names a file under `themes/`, and that file says what colour each
+role is drawn in:
+
+```toml
+theme = "default-ansi.toml"
+```
+
+A role is what a colour *means* to the program, not where it is on screen:
+`settled`, `blocked`, `waiting`, `accent`, `diff_add`, `cursor_bg`, and a dozen
+more. So one line moves every green in the dashboard - the approval, the passing
+check, the staged change and the attached session are one question asked in four
+places - and the code names no colour anywhere, which is what makes a second
+theme possible without re-reading it.
+
+A value is words, in any order: an attribute (`bold`, `dim`, `italic`,
+`underline`, `reverse`), one of the eight ANSI colours or `bright <name>`, or a
+256-colour index, with `on` in front of a colour to make it the background. So
+`"bold white"`, `"black on yellow"`, `"on 236"`, `"244"`. The shipped theme is
+the sixteen ANSI colours wherever it can be, so it follows whatever scheme the
+terminal is set to rather than fighting it.
+
+Nothing else turns colour on. An empty value, no `theme` line at all, or a name
+that is not there draws the whole program plain - not one escape printed, resets
+included - so `theme = ""` is the way to ask for that. A file that *is* there and
+has a misspelt role or colour in it says so on stderr at startup and draws that
+one role as nothing; the rest of the theme still applies. The one thing a theme
+does not reach is the weight of a pane's own border, which belongs to
+[TermIFrame](TermIFrame.jl).
 
 ## Saving
 

@@ -230,6 +230,8 @@ linked against a newer glibc.
 | `TermIFrame.jl/` | the tmux half, split out: sessions, the control-mode client, and the box a hosted program is drawn in (`bordered`, which used to be `pane`). Its own package and its own repository, MIT — `cli/Project.toml` `[sources]` points at the checkout beside this one until it is registered |
 | `TermInput.jl/` | the composer half, split out: `TextBuffer` (the editing model, with no view attached), `TextArea`, `LineInput`, the key vocabulary they bind, the dialog box in Term's box characters, `suspend`, and the escape-aware text measuring under all of it (`awidth`/`afit`/`apad`/`amid`/`awrap`, which used to be `TermIFrame`'s). Same terms, same arrangement. `TermIFrame` depends on it for the measuring, so the dependency runs iframe → input and never the other way: a text field must not pull a tmux binary in to measure a string |
 | `cli/src/paneview.jl` | a `TermIFrame` drawn beside the thread it is working on; the worktree list |
+| `cli/src/theme.jl` | every colour the program prints: the roles, the spec language they are written in, and the file under `themes/` that `config.toml` names. Nothing else emits an SGR escape, and with no theme named nothing emits one at all |
+| `themes/` | the theme files themselves, hand-edited and read-only to the program. `default-ansi.toml` is the sixteen ANSI colours plus the 256 cube, and reproduces byte-for-byte what was hard-coded before there was a theme |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
 | `cli/test/latency.jl` | the three startup waits, measured; not part of the suite |
@@ -246,8 +248,8 @@ being configuration rather than state.
 **Careful: `git rev-parse --show-toplevel` from inside `data/` answers with the
 data repo.** Run it from the code checkout, or keep an absolute path.
 
-Owner rules still matter: `config.toml` and `data/local.toml` are **yours** —
-nothing rewrites either of them, and every write to `local.toml` goes through a
+Owner rules still matter: `config.toml`, `themes/*.toml` and `data/local.toml`
+are **yours** — nothing rewrites any of them, and every write to `local.toml` goes through a
 line-based editor that changes the keys it names inside the block it names and
 leaves every other line byte-identical. The rest of
 `data/` is machine-owned, and `fetched.json`, `cache/` and
@@ -279,6 +281,9 @@ There is no TTY here, so the UI is tested by construction rather than by use:
 - `handle!(view, keycode, ctrl)` takes a keycode and returns an action, so real
   keystrokes can be driven directly without stdin.
 - Strip escapes before measuring: both SGR (`\e[...m`) and OSC 8 hyperlinks.
+- The suite pins the theme to `themes/default-ansi.toml` before anything runs.
+  Without that, a `theme = ""` in `config.toml` would make every assertion about
+  a bold row or a cursor background pass by saying nothing: `occursin("", x)`.
 - A background fetch signals completion by pushing a `WakeEvent`; in a test,
   `take!(ctrl.events)` then `onwake!(view)`.
 - `readevent(io)` is a pure function of a byte stream, so keys and mouse reports
@@ -763,6 +768,17 @@ child, `esc`/`t`/`T` out to the list) and everything else is the browser's.
 Through the prefix it runs the other way: `^]` already means "this one is not
 the child's", so the six the pane layer names are its own and the rest are
 forwarded.
+
+**A colour is a role, never an escape.** Every SGR sequence in the program comes
+from a field of `THEME` (`cli/src/theme.jl`), and a call site names what the
+colour *means* - `THEME.blocked`, `THEME.diff_add` - rather than which colour it
+is. Two consequences worth knowing before adding one: a table of colours built
+at the top level captures the theme *before* it is read, which is why
+`rev_mark`, `ci_color` and `range_mark` are functions and not the `Dict`s they
+were; and a role drawn inside other colour needs the `<role>_off` closer rather
+than a reset, or it ends the background it was drawn on. Adding a role means a
+field in `Theme` and a line in every theme file - the suite asserts both
+directions of that.
 
 **Key bindings: a capital reaches GitHub, lowercase does not.** `C`, `A` and `L`
 post a comment, submit a review and set a label; everything lowercase stays on

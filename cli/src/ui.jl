@@ -6,9 +6,6 @@
 # calls, so the comment-preserving TOML writer and the GitHub quirks live in
 # exactly one place rather than two.
 
-const DIM = "\e[2m"; const B = "\e[1m"; const R = "\e[0m"
-const RED = "\e[31m"; const YEL = "\e[33m"; const GRN = "\e[32m"; const CYA = "\e[36m"
-
 """One row of the dashboard.
 
 Keyword-constructed: it carries enough fields now - the metadata pane wants
@@ -359,7 +356,7 @@ function show_md(raw)
         println("  ", l)
     end
     for (i, u) in enumerate(urls)
-        println("  ", DIM, "[", i, "]", R, " ", osc8(u, u))
+        println("  ", THEME.dim, "[", i, "]", THEME.reset, " ", osc8(u, u))
     end
 end
 

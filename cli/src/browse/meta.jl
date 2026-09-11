@@ -1,11 +1,19 @@
 
 # --- the metadata pane ------------------------------------------------------
 
-const REV_MARK = Dict("APPROVED" => ("\e[32m", "✓"),
-                      "CHANGES_REQUESTED" => ("\e[31m", "✗"),
-                      "COMMENTED" => ("\e[2m", "·"),
-                      "DISMISSED" => ("\e[2m", "✗"),
-                      "PENDING" => ("\e[33m", "…"))
+"""One person's review, as the colour and the glyph it is drawn in.
+
+A function and not the `Dict` this was, because a `Dict` is built when the
+module loads and `__init__` reads the theme after that - so it would have
+captured five empty strings, once, for good. Every colour in the program is a
+field read at the moment of drawing for the same reason.
+"""
+rev_mark(state::AbstractString) =
+    state == "APPROVED" ? (THEME.settled, "✓") :
+    state == "CHANGES_REQUESTED" ? (THEME.blocked, "✗") :
+    state == "COMMENTED" ? (THEME.dim, "·") :
+    state == "DISMISSED" ? (THEME.dim, "✗") :
+    state == "PENDING" ? (THEME.waiting, "…") : (THEME.dim, "?")
 
 """
     load_meta!(st)
@@ -104,54 +112,59 @@ arrive when `load_meta!` lands and say so until then.
 function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     it === nothing && return String[]
     out = String[]
-    head(t) = push!(out, string(AB, t, AR))
+    head(t) = push!(out, string(THEME.bold, t, THEME.reset))
     kv(k, v) = isempty(string(v)) ? nothing :
-               push!(out, string(AD, rpad(k, 10), AR, afit(string(v), max(4, w - 10))))
+               push!(out, string(THEME.dim, rpad(k, 10), THEME.reset,
+                                 afit(string(v), max(4, w - 10))))
     wait_ = st.metakey == it.url && st.metapending !== nothing
 
     if it.is_pr
         dec = it.review_decision
         head(string("reviews", isempty(dec) ? "" :
-                    string("  ", dec == "APPROVED" ? GRN :
-                                 dec == "CHANGES_REQUESTED" ? RED : YEL,
-                           lowercase(replace(dec, "_" => " ")), AR)))
+                    string("  ", dec == "APPROVED" ? THEME.settled :
+                                 dec == "CHANGES_REQUESTED" ? THEME.blocked :
+                                 THEME.waiting,
+                           lowercase(replace(dec, "_" => " ")), THEME.reset)))
         m = st.meta
         if m === nothing
-            push!(out, string(AD, wait_ ? "  loading…" : "  —", AR))
+            push!(out, string(THEME.dim, wait_ ? "  loading…" : "  —", THEME.reset))
         else
             for r in m.reviews
-                (col, mark) = get(REV_MARK, r.state, (AD, "?"))
-                push!(out, string("  ", col, mark, AR, " ",
+                (col, mark) = rev_mark(r.state)
+                push!(out, string("  ", col, mark, THEME.reset, " ",
                                   afit(rpad(r.login, 16), max(4, w - 6)),
-                                  AD, first(r.at, 10), AR))
+                                  THEME.dim, first(r.at, 10), THEME.reset))
             end
             for who in vcat(m.requested, ["@" * t for t in m.teams])
-                push!(out, string("  ", YEL, "○", AR, " ", afit(rpad(who, 16), max(4, w - 6)),
-                                  AD, "requested", AR))
+                push!(out, string("  ", THEME.waiting, "○", THEME.reset, " ",
+                                  afit(rpad(who, 16), max(4, w - 6)),
+                                  THEME.dim, "requested", THEME.reset))
             end
             isempty(m.reviews) && isempty(m.requested) && isempty(m.teams) &&
-                push!(out, string(AD, "  nobody yet", AR))
+                push!(out, string(THEME.dim, "  nobody yet", THEME.reset))
         end
         it.unresolved > 0 &&
-            push!(out, string("  ", YEL, it.unresolved, " unresolved thread",
-                              it.unresolved == 1 ? "" : "s", AR))
+            push!(out, string("  ", THEME.waiting, it.unresolved, " unresolved thread",
+                              it.unresolved == 1 ? "" : "s", THEME.reset))
         push!(out, "")
 
         head("checks")
         c = st.checks
         if c === nothing
             push!(out, string("  ", isempty(it.ci) ? (wait_ ? "loading…" : "—") :
-                              string(get(CI_COLOR, uppercase(it.ci), ""), lowercase(it.ci), AR)))
+                              string(ci_color(it.ci), lowercase(it.ci), THEME.reset)))
         else
             tally = Dict{String,Int}()
             for x in c.contexts
                 k = uppercase(x.state)
                 tally[k] = get(tally, k, 0) + 1
             end
-            parts = [string(get(CI_COLOR, k, ""), get(Dict("SUCCESS" => "✓", "FAILURE" => "✗",
-                            "ERROR" => "✗", "PENDING" => "…"), k, "·"), " ", n, AR)
+            parts = [string(ci_color(k), get(Dict("SUCCESS" => "✓", "FAILURE" => "✗",
+                            "ERROR" => "✗", "PENDING" => "…"), k, "·"), " ", n, THEME.reset)
                      for (k, n) in sort(collect(tally); by = first)]
-            push!(out, string("  ", isempty(parts) ? string(AD, "none", AR) : join(parts, "  ")))
+            push!(out, string("  ", isempty(parts) ?
+                                    string(THEME.dim, "none", THEME.reset) :
+                                    join(parts, "  ")))
         end
         push!(out, "")
     end
@@ -159,7 +172,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     if !isempty(it.labels)
         head("labels")
         for l in awrap(join(it.labels, ", "), max(8, w - 2))
-            push!(out, string("  ", CYA, l, AR))
+            push!(out, string("  ", THEME.accent, l, THEME.reset))
         end
         push!(out, "")
     end
@@ -188,27 +201,33 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # snapshot written before it did.
     it.is_pr && (isempty(it.state) || it.state == "OPEN") &&
         kv("mergeable", it.mergeable == "CONFLICTING" ?
-                        string(RED, "conflicting", AR) : lowercase(it.mergeable))
-    isempty(it.secondlook) || kv("quiet", string(YEL, it.secondlook, AR))
+                        string(THEME.blocked, "conflicting", THEME.reset) :
+                        lowercase(it.mergeable))
+    isempty(it.secondlook) ||
+        kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
     b = batch_of(st, it)
     b === nothing ||
-        kv("draft", string(YEL, b.n, b.n == 1 ? " comment" : " comments", AR, "  ", AD,
-                           "c adds one \u00b7 A sends them", AR))
+        kv("draft", string(THEME.waiting, b.n,
+                           b.n == 1 ? " comment" : " comments", THEME.reset,
+                           "  ", THEME.dim, "c adds one \u00b7 A sends them",
+                           THEME.reset))
     if haskey(st.archived, it.url)
-        kv("archived", string("filed away", "  ", AD, "x takes it back out", AR))
+        kv("archived", string("filed away", "  ", THEME.dim,
+                              "x takes it back out", THEME.reset))
     elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
         # Merged, and you have not looked at it since - or this is the first
         # refresh that has seen it at all, which is the same thing for a repo
         # the event poller does not cover. That is news, not filing: a merge you
         # did not do is exactly the thing to be told about.
-        kv("state", string(lowercase(it.state), "  ", AD, "new since you last looked", AR))
+        kv("state", string(lowercase(it.state), "  ", THEME.dim,
+                           "new since you last looked", THEME.reset))
     elseif isdone(it)
         # Offered once the notice has been read, and never done silently: a
         # merged pull request is usually finished with and occasionally the one
         # thing you still owe a reply on, and this cannot tell the difference.
-        kv("state", string(lowercase(it.state), "  ", AD,
+        kv("state", string(lowercase(it.state), "  ", THEME.dim,
                            mergedbyme(it) ? "you merged it \u00b7 x archives it" :
-                                            "x archives it", AR))
+                                            "x archives it", THEME.reset))
     elseif !isempty(it.state) && it.state != "OPEN"
         kv("state", lowercase(it.state))
     end
@@ -227,7 +246,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
     kv("why", it.why)
     if !isempty(it.note)
-        push!(out, string(AD, "note", AR))
+        push!(out, string(THEME.dim, "note", THEME.reset))
         for l in awrap(it.note, max(8, w - 2))
             push!(out, string("  ", l))
         end
@@ -239,7 +258,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # and it redraws per frame.
     live = [r for r in st.sessions if r.item == it.ref]
     if !isempty(live)
-        push!(out, string(AD, "running", AR))
+        push!(out, string(THEME.dim, "running", THEME.reset))
         for r in sort(live; by = x -> x.kind)
             push!(out, string("  ", r.kind == "agent" ? "agent  T to watch" : "shell  t to open"))
         end

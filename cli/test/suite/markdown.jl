@@ -36,8 +36,8 @@ end
     plain(t, w) = strip(join([W.astrip(l) for l in lines(t, w)], " "))
 
     ls = lines("call `Sockets.bind` and `false` here", 70)
-    @test count(l -> occursin(W.CODEBG, l), ls) >= 1
-    @test sum(count(W.CODEBG, l) for l in ls) == 2          # one per span
+    @test count(l -> occursin(W.THEME.code_bg, l), ls) >= 1
+    @test sum(count(W.THEME.code_bg, l) for l in ls) == 2          # one per span
     # The backticks stay, so a copy keeps the formatting the author wrote.
     @test plain("call `Sockets.bind` and `false` here", 70) ==
           "call `Sockets.bind` and `false` here"
@@ -100,7 +100,7 @@ end
 @testset "a match cut by the wrap is marked on both rows" begin
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
     # The highlight markers, made visible without astrip eating them first.
-    seen(f) = W.astrip(replace(replace(f, W.HITBG => "<"), W.NOBG => ">"))
+    seen(f) = W.astrip(replace(replace(f, W.THEME.match_bg => "<"), W.THEME.no_bg => ">"))
     detail(st) = [l for l in split(seen(W.render(st, 150, 40)), "\n") if occursin("<", l)]
 
     st = mkstate()
@@ -153,14 +153,15 @@ end
 
 @testset "span highlighting" begin
     s = "\e[31mred\e[0m and green"
-    hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.HITBG)
+    hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.THEME.match_bg)
     @test W.astrip(hl) == W.astrip(s)          # nothing printable is disturbed
-    @test occursin(W.HITBG * "green", hl)
-    @test endswith(hl, W.NOBG)                 # ends the background, not the colour
+    @test occursin(W.THEME.match_bg * "green", hl)
+    @test endswith(hl, W.THEME.no_bg)                 # ends the background, not the colour
     @test W.findhits("aXbXc", "x") == [2:2, 4:4]
     @test isempty(W.findhits("abc", ""))
-    @test W.hlspan("plain", UnitRange{Int}[], W.HITBG) == "plain"
+    @test W.hlspan("plain", UnitRange{Int}[], W.THEME.match_bg) == "plain"
     # A match inside styled text keeps the style around it.
     s2 = "\e[32mfoo bar baz\e[0m"
-    @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"), W.HITBG)) == "foo bar baz"
+    @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"),
+                            W.THEME.match_bg)) == "foo bar baz"
 end

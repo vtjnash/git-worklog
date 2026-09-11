@@ -26,11 +26,11 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # long thread.
     rrows = Row[]
     if it !== nothing
-        htitle = osc8(it.url, string(AB, it.ref, AR, "  ", it.title))
+        htitle = osc8(it.url, string(THEME.bold, it.ref, THEME.reset, "  ", it.title))
         for l in awrap(htitle, riw)
             push!(rrows, Row(0, false, l, string(it.ref, "  ", it.title), 0))
         end
-        push!(rrows, Row(0, false, string(AD, "─"^riw, AR), "", 0))
+        push!(rrows, Row(0, false, string(THEME.dim, "─"^riw, THEME.reset), "", 0))
     end
     # The mouse turns a screen row into an `nrow` by subtracting this, and only
     # here is it known - the item title wraps to however many rows it wraps to.
@@ -65,7 +65,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                 out
             end
             isempty(hs) && continue
-            rrows[i + st.hdr] = Row(r.node, r.header, hlspan(r.text, hs, HITBG),
+            rrows[i + st.hdr] = Row(r.node, r.header, hlspan(r.text, hs, THEME.match_bg),
                                     r.src, r.part)
         end
     end
@@ -77,7 +77,8 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         (insel || cur) || continue
         r = rrows[i + st.hdr]
         rrows[i + st.hdr] = Row(r.node, r.header,
-                                hlrow(apad(afit(r.text, riw), riw), insel ? SELBG : CURBG),
+                                hlrow(apad(afit(r.text, riw), riw),
+                                      insel ? THEME.select_bg : THEME.cursor_bg),
                                 r.src, r.part)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
@@ -87,7 +88,9 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                     it === nothing ? "" : string("  ", it.ref),
                     total > 0 ? string("  ", st.ntop, "-",
                                        min(total, st.ntop + rh - 3), "/", total) : "",
-                    sr === nothing ? "" : string("  ", AB, sr[2] - sr[1] + 1, " selected", AR))
+                    sr === nothing ? "" :
+                        string("  ", THEME.bold, sr[2] - sr[1] + 1, " selected",
+                               THEME.reset))
 
     bordered(rvis, rw, rh, rtitle, focused)
 end
@@ -115,8 +118,10 @@ function render_frame(st::BState, w::Int, h::Int)
         lrows = Row[]
         for (j, (axis, _, text)) in enumerate(frows)
             on = j == st.frow && st.focus === :list && axis !== :head
-            push!(lrows, Row(j, true, string(axis === :head ? AB : on ? "\e[1;37m" : AD,
-                                             afit(text, liw), AR), text, 0))
+            push!(lrows, Row(j, true,
+                             string(axis === :head ? THEME.bold :
+                                    on ? THEME.focus : THEME.dim,
+                                    afit(text, liw), THEME.reset), text, 0))
         end
         lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
         ltitle = "filters"
@@ -124,8 +129,8 @@ function render_frame(st::BState, w::Int, h::Int)
         # The import row leads, always: a list of two thousand rows is not
         # somewhere a control can be discovered at the bottom of.
         lrows = Row[Row(0, true,
-                        string(st.sel == 0 && st.focus === :list ? "\e[1;37m" : AD,
-                               afit(NEWROW, liw), AR), NEWROW, 0)]
+                        string(st.sel == 0 && st.focus === :list ? THEME.focus : THEME.dim,
+                               afit(NEWROW, liw), THEME.reset), NEWROW, 0)]
         for i in 1:length(st.items)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
@@ -136,16 +141,17 @@ function render_frame(st::BState, w::Int, h::Int)
             # import row, which is the only row that is not an item - two
             # thousand dimmed rows were what made the unread ones invisible
             # among them.
-            styled = string(it_.url in st.unread ? AB : "", txt, AR)
+            styled = string(it_.url in st.unread ? THEME.bold : "", txt, THEME.reset)
             (isempty(st.search) || st.searchin !== :list) ||
-                (styled = hlspan(styled, findhits(astrip(styled), st.search), HITBG))
+                (styled = hlspan(styled, findhits(astrip(styled), st.search),
+                                 THEME.match_bg))
             # The cursor is a background now rather than a weight, since weight
             # is spoken for: bright-white bold among bold rows is not a cursor
             # anybody can find. Laid over the padded row the way the detail
             # pane's is, and by the same `hlrow`, which re-arms the background
             # after every reset the row carries - including the ones a search
             # highlight leaves behind, which is why it goes on last.
-            on && (styled = hlrow(apad(styled, liw), CURBG))
+            on && (styled = hlrow(apad(styled, liw), THEME.cursor_bg))
             push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end
@@ -218,7 +224,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # whatever newlines `showerror` put in it, and one of those in a one-row
     # field makes the frame taller than the screen.
     msg = oneline(isempty(errnote()) ? st.status : errnote())
-    foot1 = string(AD, afit(keys1, w), AR)
+    foot1 = string(THEME.dim, afit(keys1, w), THEME.reset)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
         # the terminal's being hidden for the whole run.
@@ -232,8 +238,9 @@ function render_frame(st::BState, w::Int, h::Int)
         tally = isempty(st.search) ? "" :
                 string(found, unit,
                        st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
-        string(AB, "/", AR, st.search, "\e[7m \e[0m", AD, "   ", tally,
-               st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", AR)
+        string(THEME.bold, "/", THEME.reset, st.search, THEME.caret, " ", THEME.caret_off,
+               THEME.dim, "   ", tally,
+               st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", THEME.reset)
     elseif !isempty(st.search) && isempty(msg)
         # Only when there is nothing to say. A live search is *standing*
         # information - it is re-derived every frame and the query is on screen
@@ -242,15 +249,15 @@ function render_frame(st::BState, w::Int, h::Int)
         # ("`claude` is not on PATH") never appeared at all, and the key looked
         # broken rather than refused.
         nmatch = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
-        string(AB, "/", st.search, AR, AD, "  ", nmatch,
+        string(THEME.bold, "/", st.search, THEME.reset, THEME.dim, "  ", nmatch,
                st.searchin === :detail ?
                    string(nmatch == 1 ? " match · " : " matches · n/N steps them · ") :
                    (nmatch == 1 ? " item · " : " items · "),
-               "/ to search again", AR)
+               "/ to search again", THEME.reset)
     else
-        string(AD, afit(isempty(msg) ? keys2 : msg, w), AR)
+        string(THEME.dim, afit(isempty(msg) ? keys2 : msg, w), THEME.reset)
     end
-    foot2 = string(AD, afit(foot2, w), AR)
+    foot2 = string(THEME.dim, afit(foot2, w), THEME.reset)
     # Padded to the screen as well as laid out to it: the columns add up to `w`
     # by construction, and this is what keeps a frame the width of the terminal
     # if they ever stop.
@@ -262,10 +269,11 @@ function render_frame(st::BState, w::Int, h::Int)
     # scrolls the pane to make room for its own status line - never lands on
     # content. Everything real starts at row 2.
     bar = if it === nothing
-        string(" worklog  ", AD, length(st.items), " items", AR)
+        string(" worklog  ", THEME.dim, length(st.items), " items", THEME.reset)
     else
         link = osc8(it.url, string(it.ref, "  ", it.title))
-        string(" ", AB, link, AR, "  ", AD, "[", filter_summary(st.filters, st.sort), "]", AR)
+        string(" ", THEME.bold, link, THEME.reset, "  ", THEME.dim,
+               "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
     end
     # Clamp to the terminal rather than trusting the arithmetic: on a very short
     # terminal the pane minimums add up to more than there is room for, and a

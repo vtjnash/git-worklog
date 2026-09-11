@@ -8,6 +8,8 @@ One module, so that the file-format quirks and the GitHub quirks live in
 exactly one place. The pieces, with the includes at the foot of this file as the
 index of the rest:
 
+  * `theme.jl`   every colour the program prints, and the file under `themes/`
+                 that `config.toml` names as the one to read them from
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  the activity poll, over GitHub.jl's REST
   * `refresh.jl` bucketing, snoozes, and the snapshot diff
@@ -88,6 +90,7 @@ datapath(name::AbstractString) = joinpath(datadir(), name)
 
 include("pyjson.jl")
 include("util.jl")
+include("theme.jl")
 include("marks.jl")
 include("fetched.jl")
 include("cache.jl")
@@ -145,6 +148,17 @@ precompile(next_batch, (Int,))
 precompile(ui, (Vector{String}, DateTime))
 
 function __init__()
+    # The colours, before anything can draw. Said on stderr rather than thrown:
+    # a misspelt colour must not stop the dashboard, and must not go unnoticed
+    # either - the role it names is drawn as nothing until the line is fixed.
+    try
+        for p in load_theme!()
+            println(stderr, "worklog: ", p)
+        end
+    catch
+        # A theme is decoration. Not being able to read one is not a reason for
+        # the program to refuse to start, and `THEME` is already all empty.
+    end
     # The sessions this program owns are the ones named for it, and
     # `WORKLOG_TMUX` is the variable its own documentation tells you to export.
     # Both are TermIFrame's defaults to be told, not its business to guess.
