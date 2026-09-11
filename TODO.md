@@ -1629,6 +1629,52 @@ which is what #119 was closed without - is wanted in `reshape_text` or beside
 it. Until that is answered, the copy lives in `TermInput` and `TermIFrame`
 depends on it, which is one copy rather than two and is not the end state.
 
+### StyledStrings, and why the escapes are still strings
+
+Asked on 2026-09-11, while the theme was being built: would `StyledStrings`
+remove the need for the `<role>_off` closers and the re-arming around them?
+
+**For text this program composes, yes, and by exactly the mechanism those
+imitate.** An `AnnotatedString` carries faces as *ranges* rather than as
+escapes, so the renderer knows what each annotation turned on and closes only
+that. Measured, not assumed:
+
+```julia
+row = styled"plain {red:coloured} more"
+face!(row, 1:ncodeunits(row), Face(background = :blue))
+# "\e[44mplain \e[31mcoloured\e[39m more\e[49m"
+```
+
+That `\e[39m` is the whole point: the inner colour ends without taking the
+background with it. `hlrow`, `rearm`, `hlspan`'s `off` and every `_off` field
+exist to produce that by hand. `textwidth` of an annotated string is the width
+of what prints, so `awidth`/`astrip` would go the same way.
+
+**For text that arrives as escapes, no, and that is most of a row.** A comment
+body is Term's output, a hosted pane is `capture-pane -e`, a diff is `git`'s
+own colours: all `String`s with SGR already in them, and nothing in the stdlib
+parses those back into annotations - `textwidth("a \e[31mred\e[0m word")` is 17
+rather than 10. So a migration is not "swap the strings": it is an ANSI parser
+at every boundary where foreign text enters, and until that exists both models
+run side by side, which is worse than either.
+
+**And it cannot say `on 236`.** A `Face` colour is one of sixteen names or an
+RGB triple; a 256-colour *index* is not expressible. It comes out right by
+accident - `#303030` renders as `\e[38;5;236m` because the downgrade quantises
+to the cube - but only on a terminal that declares 256 and not truecolour. The
+theme here promises the index it was given, which is what makes a theme follow
+the terminal's own palette rather than argue with it.
+
+Version is *not* the obstacle, which is worth recording because it looks like
+one: the registered `StyledStrings` package is compat `1.0 - 1.10` and the
+stdlib takes over at 1.11, so `TermInput` could depend on it and keep its 1.10
+floor.
+
+So: not now, and the shape of "later" is written down. If the ANSI parser gets
+written - it is the same work as the "measurement that does not strip markup"
+question above, from the other end - then `theme.jl` becomes a table of `Face`s,
+the closers go, and `TermInput`'s measuring becomes `textwidth`.
+
 ## Upstream
 
 All four bugs are filed. The three Term.jl ones came out of the checkout beside
