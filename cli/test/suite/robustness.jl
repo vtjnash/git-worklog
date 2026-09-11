@@ -346,3 +346,50 @@ end
     st.status = ""
 
 end
+
+# `uv_walk` over the default loop, counting the handle types a spawn makes. Used
+# by the testset below and nowhere else; a `const` because `@cfunction` can name
+# a global but not close over a local.
+const SPAWN_HANDLES = Ref(0)
+function count_spawn_handles()
+    SPAWN_HANDLES[] = 0
+    cb = @cfunction(function (h::Ptr{Cvoid}, _::Ptr{Cvoid})
+        ty = ccall(:uv_handle_get_type, Cint, (Ptr{Cvoid},), h)
+        nm = unsafe_string(ccall(:uv_handle_type_name, Cstring, (Cint,), ty))
+        (nm == "pipe" || nm == "process") && (SPAWN_HANDLES[] += 1)
+        nothing
+    end, Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}))
+    ccall(:uv_walk, Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}),
+          Base.eventloop(), cb, C_NULL)
+    SPAWN_HANDLES[]
+end
+
+@testset "a gh that is not there is looked for, not spawned" begin
+    # A `run` that fails to spawn is not free. `gh_run` feeds stdin from an
+    # `IOBuffer`, and `Base.setup_stdio` answers that with a pipe and a task to
+    # pour the buffer into it - reachable only through the `Process` that a
+    # failed spawn never returns. So an empty `PATH` used to leave a live pipe
+    # with an orphaned writer on it, and a `uv_process_t` already carrying the
+    # pid of the fork whose `exec` failed going into an asynchronous close.
+    # Neither is in `INFLIGHT`, so `drain_fetches!` could not wait for them, and
+    # precompiling `WorklogPrecompile` - which empties `PATH` on purpose - ended
+    # in "Waiting for background task / IO / timer to finish" naming both.
+    #
+    # Looking first is the whole fix, and this is what it has to keep true.
+    before = count_spawn_handles()
+    withenv("PATH" => "") do
+        rc, out, err = W.gh_run(["api", "graphql", "--input", "-"], "{\"query\":\"x\"}")
+        # 127 is what a shell says for a command it could not find, and every
+        # caller reads a non-zero code as a failed request and stderr as why.
+        @test rc == 127
+        @test isempty(out)
+        @test occursin("gh", err) && occursin("PATH", err)
+        @test W.retry_wait(err, 0) === nothing   # and it is not worth retrying
+    end
+    # Immediately, and not after a settle: the point is that nothing was
+    # spawned, not that what was spawned tidied itself up. A failed spawn does
+    # leave handles behind for a turn of the loop - `git` under the same empty
+    # `PATH` does exactly that - and they go away on their own only because
+    # nothing is holding them. A buffer on stdin is what holds one.
+    @test count_spawn_handles() == before
+end

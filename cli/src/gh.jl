@@ -174,8 +174,30 @@ function fetch_url(url::AbstractString)
     ns[1]
 end
 
-"Run `gh` with `input` on stdin, capturing both streams instead of raising."
+"""Run `gh` with `input` on stdin, capturing both streams instead of raising.
+
+`ignorestatus` covers a `gh` that runs and fails; the `Sys.which` in front of it
+covers a `gh` that is not there to run, which is neither the same thing nor - on
+this path - merely a nicer error message.
+
+An `IOBuffer` on `stdin` is not handed to the child: `Base.setup_stdio` makes a
+pipe and starts a task to pour the buffer into it, and `run` waits for that task
+only through the `Process` it gets back. When the spawn *fails* there is no
+`Process`, so the throw leaves the writer task and its pipe behind with nothing
+holding a handle - and the process handle libuv already had the forked pid in
+goes into an asynchronous close beside them. Nothing this program owns can wait
+for either, which is exactly what `INFLIGHT` and `drain_fetches!` cannot help
+with, and it is why precompiling `WorklogPrecompile` - which takes `PATH` away
+on purpose - would sometimes end in "Waiting for background task / IO / timer to
+finish: pipe ... process ...". Looking first means the spawn is never attempted,
+so there is nothing left over to wait for.
+
+127 is what a shell says for a command it could not find, and the callers here
+all read a non-zero code as a failed request and the captured stderr as the
+reason - so this reports itself the same way a refused request does.
+"""
 function gh_run(args::Vector{String}, input::AbstractString = "")
+    Sys.which("gh") === nothing && return (127, "", "gh is not on PATH")
     out, err = IOBuffer(), IOBuffer()
     p = run(pipeline(ignorestatus(Cmd(["gh"; args]));
                      stdin = IOBuffer(input), stdout = out, stderr = err))

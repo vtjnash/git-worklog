@@ -465,6 +465,26 @@ keep the two rules it already follows: nothing that spawns a process, and
 `load_nodes!`/`load_meta!` satisfied before any `handle!` call, or the workload
 starts a fetch and hangs.
 
+**The spawn that was not avoided by not spawning.** Precompiling the wrapper
+would sometimes end in `Waiting for background task / IO / timer to finish`,
+naming a `pipe` and a `process` — the two `gh api graphql` calls the workload's
+keys make, which an empty `PATH` is supposed to turn into instant failures with
+nothing left over. It does not, quite. `gh_run` fed stdin from an `IOBuffer`,
+and `Base.setup_stdio` answers that with a pipe and a task to pour the buffer
+into it; `run` waits for that task only through the `Process` it gets back, and
+a spawn that fails never returns one. So the throw left a live pipe with an
+orphaned writer on it and a `uv_process_t` — already carrying the pid of the
+fork whose `exec` failed — going into an asynchronous close. Neither is in
+`INFLIGHT`, so `drain_fetches!` could not see them, and whether precompilation
+noticed came down to which of them the loop cleared first. `gh_run` calls
+`Sys.which("gh")` before it spawns now and answers 127 when there is none, which
+is the same shape its callers already read as a failed request, and
+`robustness.jl` holds it there by counting libuv's pipe and process handles
+across the call. `repos.jl` was checked and needs nothing: a failed `git` spawn
+leaves handles for a turn of the loop too, but an `IOBuffer` on *stdout* is a
+reader task that sees EOF and goes away, so nothing holds them. Only a buffer on
+stdin leaves a writer with nowhere to put its bytes.
+
 **Its manifest is `cli/Manifest.toml` plus one entry, and must stay that way.**
 Resolved fresh it is not — a fresh resolve is free to move versions the other
 project has pinned, and the two images would then be built from different code.

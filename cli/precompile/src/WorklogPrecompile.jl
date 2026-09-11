@@ -54,12 +54,20 @@ package that leaves live subprocesses behind stops precompilation dead with
 moves the selection and leaves the pin behind.
 
 So the binaries are taken away rather than the calls avoided. An empty `PATH`
-makes `run` throw before it forks, and `WORKLOG_TMUX` at a path that does not
-exist makes `mux_bin` answer `nothing` without looking. Every fetch then fails
-instantly, in the ordinary way the program already handles, and there is nothing
-left running to wait for. That is a property of the *environment* rather than of
-which keys this workload happens to press, which is what makes it survive
-somebody adding a key to it.
+finds no `gh`, and `WORKLOG_TMUX` at a path that does not exist makes `mux_bin`
+answer `nothing` without looking. Every fetch then fails instantly, in the
+ordinary way the program already handles, and there is nothing left running to
+wait for. That is a property of the *environment* rather than of which keys this
+workload happens to press, which is what makes it survive somebody adding a key
+to it.
+
+"Nothing left running" is the half that had to be earned. A `run` that *tries*
+to spawn and fails is not free: `gh_run` fed stdin from an `IOBuffer`, and the
+writer task Base starts for that is reachable only through the `Process` a
+failed spawn never returns - so an empty `PATH` used to leave a live pipe and a
+half-closed process handle behind, and precompilation ended in "Waiting for
+background task / IO / timer to finish" often enough to be noticed. `gh_run`
+looks for `gh` before it spawns now; see its docstring in `gh.jl`.
 
 Everything is restored in a `finally`, the `Ref`s to `""` rather than to what
 they held: `""` is what a freshly loaded module has, and the point is that
@@ -74,8 +82,6 @@ function hermetic(f)
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.LOCAL[] = joinpath(d, "local.toml")
-        Worklog.LOCAL[] = joinpath(d, "local.toml")
-        Worklog.LOCAL[] = joinpath(d, "local.toml")
         Worklog.FETCHED[] = joinpath(d, "fetched.json")
         redirect_stdout(devnull) do
             f()
@@ -86,8 +92,6 @@ function hermetic(f)
         Worklog.LOGIN[] = ""
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
-        Worklog.LOCAL[] = ""
-        Worklog.LOCAL[] = ""
         Worklog.LOCAL[] = ""
         Worklog.FETCHED[] = ""
         rm(d; recursive = true, force = true)
