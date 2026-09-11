@@ -435,8 +435,17 @@ which no workload can touch, and 0.18s is what is left of the thread. Of the
 measurement named it, and dropped from 0.31s to 0.03s.
 
 `julia --project=cli cli/test/latency.jl` is where every number here comes from:
-three waits, both projects, interleaved, best of three. It is not a test and not
-part of the suite — a ceiling asserted on a shared machine would be flaky, and
+three waits, both projects, interleaved, best of three. **It had stopped
+running**, and the numbers above predate that: the probe redirected
+`Worklog.STATE` - a ref renamed `LOCAL` some time ago - so it threw an
+`UndefVarError` before it measured anything, and behind that it also pointed
+`FETCHED` at an empty temporary directory, where every probe would have died in
+`loaditems` with "nothing fetched yet". The rule the docstring states is
+*writes*, and a probe only reads; `LOCAL` and the cache are redirected and
+`fetched.json` is left alone. With `Term` 2.2 and the real two thousand items it
+now prints 1.36 / 1.46 / 1.73 against 1.32 / 4.79 / 5.13 - the wrapper saves 3.3s
+on the list and 3.4s on the thread, and costs 0.05s on `--help`. It is not a
+test and not part of the suite — a ceiling asserted on a shared machine would be flaky, and
 the suite must not pay to build this image.
 
 **One caveat about the baseline, on Julia 1.14.** The runtime now writes code
@@ -467,14 +476,12 @@ keep the two rules it already follows: nothing that spawns a process, and
 starts a fetch and hangs.
 
 **Its manifest is `cli/Manifest.toml` plus one entry, and must stay that way.**
-Resolved fresh it was not: `Pkg.resolve()` in an empty project picked a newer
-`Term`, which pulls a newer `Highlights`, which depends on `Pkg` and
-`TreeSitter` — and with them `LibGit2`, `Downloads`, `Tar`, `LibCURL` and four
-jlls. None of that came from `PrecompileTools`, which `Term` has depended on all
-along (`cli/Manifest.toml`), and which therefore costs this package nothing at
-all. The cure is to copy `cli/Manifest.toml` over and `Pkg.resolve()`, which
-keeps every version already pinned and adds only `WorklogPrecompile`. Check it
-with:
+Resolved fresh it is not — a fresh resolve is free to move versions the other
+project has pinned, and the two images would then be built from different code.
+The cure is to copy `cli/Manifest.toml` over, fix the two relative paths (the
+copy sits one directory deeper, so `../TermIFrame.jl` becomes
+`../../TermIFrame.jl`, and the same for `TermInput`), and `Pkg.resolve()`, which
+keeps every version and adds only `WorklogPrecompile`. Check it with:
 
 ```bash
 diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
@@ -482,6 +489,16 @@ diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
 ```
 
 which should print exactly one line, for `WorklogPrecompile` itself.
+
+**What `Term` 2.2 costs, and where it goes.** This used to warn against the
+newer `Term` because of what it drags in; it is the pinned one now, taken for
+its tree-sitter code renderer, and the warning is the price tag instead.
+`Highlights` 0.6 depends on `TreeSitter` *and on `Pkg`*, and with `Pkg` come
+`LibGit2`, `Downloads`, `Tar`, `LibCURL` and four jlls — 66 manifest entries to
+83. Measured on this machine, `using Worklog` went **0.98s → 1.34s**, and
+`using Pkg` alone is 0.345s: the whole of the regression is `Pkg`, on every
+launch of a dashboard that never resolves a package. See Upstream for what
+`Highlights` wants it for, which is one registry search on an error path.
 
 **Open decision: whether to drop `PrecompileTools` anyway.** Measured in one
 batch on the comment-thread path: 1.37s with `@compile_workload`, 1.99s with the
@@ -1618,7 +1635,19 @@ They stay on this list until each lands *and* a release carries it, because the
 workarounds here are what to delete then - and deleting them is the point of
 having filed.
 
-A fifth is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
+A fifth is found and not filed, and it is not Term's either:
+**`Highlights` 0.6 imports `Pkg` at load time**, which costs every downstream
+package 0.35s of startup - measured here when `Term` 2.2 made it a dependency of
+this program (see "What `Term` 2.2 costs"). It is one `import Pkg` in
+`src/Highlights.jl`, and the only use of it is `Pkg.Registry.reachable_registries()`
+in `languages.jl:40`, reached when a grammar is *missing* so that the error can
+suggest which `tree_sitter_<lang>_jll` to install. A lazy `Base.require` at that
+point, or an extension, or simply naming the package in the message without
+searching for it, would hand back a third of a second to everything that
+renders a code span. Worth filing with the measurement, since the fix is small
+and the cost is paid by every user of every package that highlights anything.
+
+A sixth is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
 after a multi-byte character** - `input_text[1:(end - 1)]` is a byte slice, so
 `aée` gives `StringIndexError: invalid index [3]`. See the `InputBox` section
 above, which is also where the question of whether these widgets should be one

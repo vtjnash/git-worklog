@@ -84,9 +84,16 @@ const ENVS = [("wrapper", joinpath(ROOT, "cli", "precompile"), "WorklogPrecompil
 """One cold process: load the module, then do the work, and print both.
 
 The data directory is left pointing at the real one - the dashboard being read
-is the point - but every path the program *writes* through is redirected first,
-which is the same rule `runtests.jl` follows and for the same reason: measuring
-must not stamp an item as read or reorder the user's lists.
+is the point, and two thousand real items is the load this measures - but every
+path the program *writes* through is redirected first, which is the same rule
+`runtests.jl` follows and for the same reason: measuring must not stamp an item
+as read or reorder the user's lists.
+
+Which is why `fetched.json` is **not** among them, and why `STATE` is not
+either: this pointed both at an empty temporary directory, so every probe died
+in `loaditems` with "nothing fetched yet" - and had been throwing an
+`UndefVarError` on `Worklog.STATE` since that ref was renamed `LOCAL`, which is
+what hid it. The rule is writes, and a probe only reads.
 """
 function child(mod::String, probe::String)
     """
@@ -94,11 +101,7 @@ function child(mod::String, probe::String)
     using $mod
     load = (time_ns() - t0) / 1e9
     let d = mktempdir()
-        for (r, name) in ((Worklog.STATE, "local.toml"), (Worklog.LOCAL, "local.toml"),
-                          (Worklog.FETCHED, "fetched.json"),
-                          (Worklog.LOCAL, "local.toml"))
-            r[] = joinpath(d, name)
-        end
+        Worklog.LOCAL[] = joinpath(d, "local.toml")
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
     end
     const BODY = $(repr(BODY))
