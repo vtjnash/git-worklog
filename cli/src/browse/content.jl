@@ -698,6 +698,8 @@ function rangeline(l::AbstractString)
 end
 
 """How `git range-diff` marks each pair of commits, and what it means here."""
+# Padded to ten in the header rather than to nine, because "unchanged" is nine
+# characters long and ran straight into the sha beside it.
 const RANGE_MARK = Dict('=' => (AD, "unchanged"), '!' => (YEL, "changed"),
                         '<' => (RED, "gone"), '>' => (GRN, "new"))
 
@@ -715,7 +717,11 @@ function rangediff_nodes(txt::AbstractString)
         empty!(buf)
     end
     for l in split(txt, "\n")
-        m = match(r"^(\d+|-):\s+(\S+)\s+([=!<>])\s+(\d+|-):\s+(\S+)\s*(.*)$", String(l))
+        # Leading space allowed, and it is not cosmetic: past nine commits git
+        # right-aligns the numbers, so every row of a ten-commit range-diff is
+        # indented by one and an anchored `^\d` matches none of them. A pane
+        # that said "no textual change" about a rebase was this.
+        m = match(r"^\s*(\d+|-):\s+(\S+)\s+([=!<>])\s+(\d+|-):\s+(\S+)\s*(.*)$", String(l))
         if m === nothing
             isempty(ns) || push!(buf, String(l))
             continue
@@ -726,10 +732,10 @@ function rangediff_nodes(txt::AbstractString)
         # dropped has no new sha and a commit it added has no old one, and
         # `-------` is not something to put in front of a subject line.
         sha = m[5] == "-------" ? m[2] : m[5]
-        n = Node(string(col, rpad(what, 9), AR, AD, first(sha, 8), AR, "  ", m[6]),
+        n = Node(string(col, rpad(what, 10), AR, AD, first(sha, 8), AR, "  ", m[6]),
                  "", :plain, first(m[3]) != '=')
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", m[6])
-        n.meta["byline"] = string(col, rpad(what, 9), AR, AD, first(sha, 8), AR)
+        n.meta["byline"] = string(col, rpad(what, 10), AR, AD, first(sha, 8), AR)
         push!(ns, n)
     end
     flush!()
@@ -772,31 +778,56 @@ function pushed_nodes(it::Item)
                             "two heads of the same pull request.\n\nPress `e`, " *
                             "`t` or `T` on this item to pin one, or " *
                             "`wl repo add ", it.repo, " <path>`."), :md, true)]
+    rem = remote_for(repo, it.repo)
     for sha in (old, new)
-        ensure_commit!(repo, sha, it.number) ||
+        ensure_commit!(repo, sha, it.number; remote = rem) ||
             return [failednode(string("commit ", first(sha, 8), " is not in ", repo),
-                               "It could not be fetched either - a force-push can " *
-                               "leave the head you saw unreachable from any ref, " *
-                               "and GitHub will not always serve one by sha.")]
+                               "It could not be fetched either. A head that was " *
+                               "force-pushed away is normally still served by " *
+                               "sha - see `ensure_commit!` for the measurement - " *
+                               "so this is a repository or a network that is not " *
+                               "answering rather than a commit that is gone.")]
     end
-    kind, txt = try
-        branch_moved(repo, old, new)
+    # The branch this is to be merged into, brought up to date, because the
+    # merge base against it is what separates their commits from its own. Only
+    # here: it is one more round trip, and it is worth it exactly when there is
+    # a range to measure.
+    base = ensure_base!(repo, it.repo, it.base)
+    mv = try
+        branch_moved(repo, old, new; base = base)
     catch e
         return [failednode("could not diff the two heads",
                            first(sprint(showerror, e), 200))]
     end
-    ahead = commits_ahead(repo, old, new)
-    lead = Node(string(kind === :diff ?
-                       string(GRN, ahead, ahead == 1 ? " commit" : " commits",
-                              " added", AR) :
-                       string(YEL, "rebased", AR),
-                       "  ", AD, first(old, 8), " → ", first(new, 8), AR),
+    kind, txt = mv.kind, mv.text
+    # What happened, in the order somebody would say it. A rebase whose commit
+    # count did not change says so by not mentioning it, which is the common
+    # case and the one where the count would be noise.
+    said = kind === :diff ?
+           string(GRN, mv.now - mv.then, mv.now - mv.then == 1 ? " commit" : " commits",
+                  " added", AR) :
+           string(YEL, mv.moved > 0 ? "rebased" : "rewritten", AR,
+                  mv.moved > 0 ?
+                  string(AD, "  onto ", mv.moved, " newer ",
+                         mv.moved == 1 ? "commit" : "commits", AR) : "",
+                  mv.then == mv.now ? "" :
+                  string(AD, "  ", mv.now, mv.now == 1 ? " commit" : " commits",
+                         ", was ", mv.then, AR))
+    lead = Node(string(said, "  ", AD, first(old, 8), " → ", first(new, 8), AR),
                 kind === :diff ?
-                "The head you saw is still in this branch's history, so this is " *
-                "the plain diff from it to the head now." :
-                "The head you saw is no longer in this branch's history, so this " *
-                "is a `git range-diff`: the old commits paired with the new ones, " *
-                "and what differs between each pair.", :md, false)
+                "The head you saw is still in this branch's history and the base " *
+                "has not moved under it, so this is the plain diff from that head " *
+                "to the head now." :
+                string("The commits are different objects now, so this is a ",
+                       "`git range-diff`: the old commits paired with the new ",
+                       "ones, and what differs between each pair.",
+                       isempty(base) ? "\n\nMeasured from where the two heads " *
+                       "meet, because this item has no base branch to measure " *
+                       "from - so commits the base gained in between are counted " *
+                       "here as pushed." :
+                       string("\n\nEach side is measured from `", base,
+                              "`, so the base's own commits are the number above ",
+                              "rather than rows in the list.")), :md, false)
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
     lead.meta["url"] = string(it.url, "/files")
     ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files")) : rangediff_nodes(txt)

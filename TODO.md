@@ -1150,14 +1150,33 @@ written down; all four are in. What they were, and what each turned into:
    snooze, an archive and `wl read` all stamp `read` while knowing nothing about
    what you were looking at, so they leave the sha alone rather than writing a
    wrong one.
-   The fetch carries the other end: `headRefOid` is a scalar beside
-   `headRefName` in both queries, so every row has its head sha for nothing, and
+   The fetch carries the other end: `headRefOid` and `baseRefName` are scalars
+   beside `headRefName` in both queries, so every row has both for nothing, and
    `head_sha` only shells out for the rows no lane covers.
    Two commands rather than one, because a branch moves two ways.
-   `merge-base --is-ancestor` decides: still reachable means they only added to
-   it and the plain `git diff` between the two heads is what to read; not
-   reachable means a rebase, and `git range-diff old...new` is the only thing
-   that pairs the old commits with the new ones. The pane says which it used.
+   `merge-base --is-ancestor` decides: still reachable and the base unmoved
+   means they only added to it and the plain `git diff` between the two heads is
+   what to read; anything else means the commits are different objects, and
+   `git range-diff` is the only thing that pairs the old ones with the new.
+   The pane says which it used.
+
+   **And the base branch is what makes the second one readable** (2026-09-11,
+   the same day, after the first cut shipped without it). `git range-diff
+   old...new` measures both sides from the merge base *of the two heads*, which
+   after a rebase is where the branch originally left the base - so every commit
+   the base gained in between falls inside the new range and is reported as
+   newly pushed. Measured in a scratch repository: a two-commit pull request
+   rebased over ten commits of master reported **twelve** commits, ten of them
+   somebody else's, with the one real change last. Measured from `base` instead
+   - `merge-base base old` and `merge-base base new`, one range each - it
+   reports the two, and the ten become a number in the header: "rebased onto 10
+   newer commits". An item with no base falls back to the old behaviour, and the
+   pane says that is what it did.
+   The base ref is fetched before it is measured against, because a stale copy
+   is a wrong answer rather than an old one: every commit the checkout has not
+   heard about yet lands inside the range. One ref, 0.26-0.52s against a current
+   checkout, and an explicit refspec so what moves is the remote-tracking ref
+   rather than the `FETCH_HEAD` every worktree shares.
 
 3. **Interleave the pushes with the comments in one activity list.** Built, and
    `timelineItems` was not needed. What the item wanted from it was the commits
@@ -1183,13 +1202,25 @@ written down; all four are in. What they were, and what each turned into:
 
 What it left open:
 
-* **A force-pushed head can be unfetchable.** `read_head` is a commit that may
-  be reachable from no ref once it has been rewritten away. `ensure_commit!`
-  tries `pull/N/head` and then the bare sha, and GitHub serves the second one
-  more often than not - but not always, and when it does not, the pane says so
-  and there is nothing else to try. Keeping a copy would mean fetching the head
-  of everything you read, which is a clone per item on the strength of a guess
-  that you will come back to it.
+* ~~A force-pushed head can be unfetchable.~~ **It is fetchable, and that was
+  measured rather than feared** (2026-09-11). The worry was that `read_head`
+  names a commit reachable from no ref once the branch has been rewritten over
+  it. GitHub serves it anyway: three orphaned heads taken from
+  `HeadRefForcePushedEvent` on FedeClaudi/Term.jl - 2026-09-02, 2026-06-03 and
+  2025-07-25 - all came back from `git fetch <remote> <sha>`, the oldest of them
+  fourteen months after it stopped being anybody's head. The whole `p` path then
+  ran end to end against `Term.jl#302`, whose old head is one of those three:
+  0.98s, and the range-diff correctly reports the patch as unchanged, which is a
+  CompatHelper recommit and is exactly what it was.
+  What that leaves is not "the commit is gone" but "this repository or this
+  network is not answering", and the pane now says so.
+* **Which remote is the project is a question, and `origin` was the wrong
+  answer.** A checkout of somebody else's work has two remotes and which one is
+  called `origin` is whichever way round it was cloned - the Term.jl checkout
+  beside this one has `origin` on the fork. `refs/pull/N/head` exists only on
+  the project, so `ensure_commit!` was fetching it from a repository that does
+  not carry one. `remote_for` matches the url instead, and `expand_hunk!` gets
+  the fix too.
 * **`p` needs a pinned checkout and always will.** There is no GitHub endpoint
   that compares two heads of one pull request; `compare` is between refs, and
   the old head is not one. The pane names both shas and says how to pin, which
@@ -1751,18 +1782,23 @@ actual TTY:
   rather than sending Meta at all, in which case none of them arrive.
 - `^s` in the composer. Ctrl-S is XOFF under terminal flow control; raw mode
   should be clearing IXON, which has not been confirmed against a real tty.
-- **`p` against a real force-push.** The git half is driven end to end in the
-  suite against a temporary repository - a rebase reads as a range-diff, an
-  added commit reads as a plain diff, and a pinned checkout is found - but the
-  sandbox has no clone of any watched repo, so `ensure_commit!` fetching a head
-  that was rewritten away has never run against GitHub. That is the one step
-  that can fail for a reason nothing here can see coming, and the pane's answer
-  to it is a sentence rather than a stack trace.
+- **`p` against a rebase whose base moved.** Both halves are covered but in
+  two places rather than one. The base-moved arithmetic is driven in the suite
+  against a scratch repository - ten commits of master under a rebased branch,
+  and the answer is the one commit that changed. The *network* half ran against
+  the real FedeClaudi/Term.jl clone and real force-pushed heads, but every pull
+  request there sat on an unmoved base, so it reported "rewritten" rather than
+  "rebased onto N newer commits". The two have never been true at once in one
+  run, which needs a checkout of a repo whose base moves - JuliaLang/julia, and
+  the sandbox has no clone of it.
 - `open_editor`: `code` is not on PATH in the sandbox, so the launch is
   untested. The worktree *selection* around it is tested against a real
   worktree list.
-- `ensure_commit!`'s fetch path: every PR tried so far already had its head
-  commit locally, so the fetch fallback has never run.
+- ~~`ensure_commit!`'s fetch path.~~ Run on 2026-09-11, against three heads
+  that a force-push had left reachable from no ref (FedeClaudi/Term.jl, the
+  oldest from 2025-07-25). All three came back from `git fetch <remote> <sha>`.
+  What is still unrun is the `pull/N/head` spec that is tried first, since the
+  bare sha answered every time.
 - ~~A hosted pane through a real terminal.~~ Answered on 2026-09-03: `^]` does
   arrive as `0x1d` and nothing between the terminal and here binds it first —
   the report that `^]tab` and `^]esc` behaved wrongly is a report from somebody

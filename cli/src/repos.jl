@@ -221,16 +221,47 @@ end
 have_commit(path, sha) =
     try; git(path, "cat-file", "-e", string(sha, "^{commit}")); true; catch; false; end
 
+"""Which remote points at `repo`, or `origin` when none does.
+
+A checkout of somebody else's project has two, and which one is called `origin`
+is whichever way round the user cloned it: the Term.jl checkout beside this one
+has `origin` on the fork and `upstream` on the project. That decides where the
+fetch below can work at all - `refs/pull/N/head` exists only on the project, and
+a fork does not carry one.
+"""
+function remote_for(path, repo::AbstractString)
+    want = lowercase(String(repo))
+    try
+        for l in split(git(path, "remote", "-v"), "\n")
+            m = match(r"^(\S+)\s+\S*github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?\s",
+                      l * " ")
+            m === nothing && continue
+            lowercase(string(m[2], "/", m[3])) == want && return String(m[1])
+        end
+    catch
+    end
+    "origin"
+end
+
 """Make `sha` available locally, fetching the pull request head if need be.
 
 Fetched once and kept: the point of pinning a checkout is that expanding
 context afterwards costs nothing.
+
+**A head that was force-pushed away is still fetchable, and that was measured
+rather than assumed.** The worry was that `read_head` names a commit reachable
+from no ref once the branch has been rewritten over it, so there would be
+nothing to diff against. GitHub serves it anyway: three orphaned heads taken
+from `HeadRefForcePushedEvent` on FedeClaudi/Term.jl - from 2026-09-02,
+2026-06-03 and 2025-07-25 - all came back from `git fetch <remote> <sha>` on
+2026-09-11, the oldest of them fourteen months after it stopped being anybody's
+head. That is why the bare sha is a real second try and not a formality.
 """
-function ensure_commit!(path, sha, prnum::Integer)
+function ensure_commit!(path, sha, prnum::Integer; remote::AbstractString = "origin")
     have_commit(path, sha) && return true
     for spec in ("pull/$prnum/head", string(sha))
         try
-            git(path, "fetch", "--quiet", "origin", spec)
+            git(path, "fetch", "--quiet", remote, spec)
             have_commit(path, sha) && return true
         catch
         end
@@ -238,37 +269,110 @@ function ensure_commit!(path, sha, prnum::Integer)
     false
 end
 
+"What a branch name may look like before it is written into a refspec."
+const REF_OK = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+
+"""Bring the base branch up to date locally, and answer with the ref holding it.
+
+The merge base is measured against this, so a stale copy is a wrong answer
+rather than merely an old one: every commit the base has gained since this
+checkout last heard of it falls *inside* the range and is reported as part of
+what somebody pushed. One ref and one round trip - 0.26-0.52s against a current
+checkout - which is the same order as the two head fetches beside it.
+
+An explicit refspec, so what moves is the remote-tracking ref. `FETCH_HEAD`
+would be fresher and is a single file shared by every worktree of the
+repository, which two of these running at once would tear.
+"""
+function ensure_base!(path, repo::AbstractString, base::AbstractString)
+    (isempty(base) || match(REF_OK, base) === nothing) && return ""
+    r = remote_for(path, repo)
+    ref = "refs/remotes/$r/$base"
+    try
+        git(path, "fetch", "--quiet", r, "+refs/heads/$base:$ref")
+    catch
+        # No network, no such branch, no such remote. Whatever is already here
+        # is still worth measuring against - it is only ever too old, never
+        # wrong about which commits are the base's.
+    end
+    for cand in (ref, "refs/heads/$base")
+        try
+            git(path, "rev-parse", "--verify", "--quiet", cand)
+            return cand
+        catch
+        end
+    end
+    ""
+end
+
+"The newest commit two revisions share, or empty when they share none."
+merge_base(path, a, b) =
+    try; String(strip(git(path, "merge-base", string(a), string(b)))); catch; ""; end
+
 "Is `a` reachable from `b`? False rather than an error when either is missing."
 is_ancestor(path, a, b) =
     try; git(path, "merge-base", "--is-ancestor", string(a), string(b)); true
     catch; false; end
 
-"""What happened to a branch between two of its heads.
-
-Two commands, because a branch moves in two ways and they want different
-answers. When the old head is still reachable from the new one the push only
-added to it, and the plain diff between the two trees is the change to read.
-When it is not, the branch was rebased or amended - the commits are different
-objects and a tree diff would report every line the base branch moved as well -
-and `git range-diff` is the one command that pairs the old commits with the new
-ones and shows what actually differs between them.
-
-Returns `(kind, text)`, where `kind` is `:diff` or `:range`, so the caller knows
-which of the two it is drawing.
-"""
-function branch_moved(path, old, new)
-    is_ancestor(path, old, new) ?
-        (:diff, git(path, "diff", string(old), string(new))) :
-        (:range, git(path, "range-diff", "--no-color", string(old, "...", new)))
-end
-
-"How many commits `new` has that `old` does not."
-function commits_ahead(path, old, new)
+"How many commits `b` has that `a` does not, and 0 when git will not say."
+function commits_ahead(path, a, b)
     try
-        parse(Int, strip(git(path, "rev-list", "--count", string(old, "..", new))))
+        parse(Int, strip(git(path, "rev-list", "--count", string(a, "..", b))))
     catch
         0
     end
+end
+
+"""What happened to a branch between two of its heads, measured against the
+branch it is to be merged into.
+
+Answers `(kind, text, then, now, moved)`: `:diff` or `:range`, the text to draw,
+how many commits the pull request had at each end, and how far the base moved
+under it.
+
+Two commands, because a branch moves in two ways and they want different
+answers. When the old head is still in the new one's history and the base has
+not moved, the push only added commits, and the plain diff between the two trees
+is the change to read. Otherwise the commits are different objects - rebased,
+amended, or carrying a merge of a base that moved - and `git range-diff` is the
+one command that pairs the old commits with the new ones and shows what differs
+between each pair.
+
+**The base is what makes the second one readable.** `git range-diff old...new`
+measures both sides from the merge base *of the two heads*, which after a rebase
+is where the branch originally left the base - so every commit the base gained
+in between falls inside the new range and is reported as newly added. Rebasing a
+two-commit pull request over ten commits of master reported twelve commits, ten
+of them somebody else's, with the one real change last. Measured from `base`
+instead, each side is the pull request's own commits as they stood, and the ten
+are where they belong: a number in the header.
+
+With no base to measure against - an item no lane gave one, a checkout with no
+remote for it, a branch the fetch could not find - the two merge bases collapse
+to the merge base of the heads, which is exactly the `old...new` this did before
+and the best guess there is.
+"""
+function branch_moved(path, old, new; base::AbstractString = "")
+    ob = isempty(base) ? "" : merge_base(path, base, old)
+    nb = isempty(base) ? "" : merge_base(path, base, new)
+    (isempty(ob) || isempty(nb)) && (ob = nb = merge_base(path, old, new))
+    if isempty(ob)
+        # Unrelated histories, or a merge base git will not name. Ranges cannot
+        # be built at all here - `..old` is not an empty left-hand side, it is
+        # `HEAD..old` - so this hands git the two heads and lets it answer.
+        return (kind = :range,
+                text = git(path, "range-diff", "--no-color", string(old, "...", new)),
+                then = 0, now = 0, moved = 0)
+    end
+    then_, now_ = commits_ahead(path, ob, old), commits_ahead(path, nb, new)
+    if ob == nb && is_ancestor(path, old, new)
+        return (kind = :diff, text = git(path, "diff", string(old), string(new)),
+                then = then_, now = now_, moved = 0)
+    end
+    (kind = :range,
+     text = git(path, "range-diff", "--no-color",
+                string(ob, "..", old), string(nb, "..", new)),
+     then = then_, now = now_, moved = commits_ahead(path, ob, nb))
 end
 
 "File contents at a commit, as lines. `nothing` when the path is absent there."

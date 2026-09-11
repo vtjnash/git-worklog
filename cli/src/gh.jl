@@ -15,7 +15,7 @@ Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
 
 const PR_FIELDS = "\n" * """
       url number title isDraft createdAt updatedAt state
-      headRefName headRefOid
+      headRefName headRefOid baseRefName
       mergedBy { login }
       repository { nameWithOwner }
       author { login }
@@ -46,9 +46,10 @@ const ISSUE_FIELDS = "\n" * """
 # The firehose is ~1000 PRs, so it drops the expensive nested connections
 # (review threads, review history, comments). Background items are never
 # bucketed on those fields, and shedding them buys 100 nodes/page at 2 points.
-# `headRefName` and `headRefOid` stay in both: they are scalars, they cost
-# nothing, and they are what lets a local branch be matched to its pull request -
-# and what a range-diff is taken against - without a request per row.
+# The three head/base scalars stay in both: they cost nothing, and between them
+# they are what lets a local branch be matched to its pull request (`headRefName`)
+# and what a range-diff is taken between and measured against (`headRefOid` and
+# `baseRefName`) - all without a request per row.
 #
 # Both inline fragments are required even though most of the bulk lanes are
 # `is:pr`: a search that returns an Issue against a selection spreading only
@@ -62,7 +63,7 @@ query(\$q: String!, \$cursor: String) {
     pageInfo { hasNextPage endCursor }
     nodes { __typename ... on PullRequest {
       url number title isDraft createdAt updatedAt state
-      headRefName headRefOid
+      headRefName headRefOid baseRefName
       repository { nameWithOwner }
       author { login }
       reviewDecision mergeable

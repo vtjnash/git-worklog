@@ -66,6 +66,10 @@ Base.@kwdef struct Item
                            # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
+    base::String = ""      # the branch it is to be merged into. With `head`
+                           # it is what makes "what was pushed since I looked"
+                           # answerable: the merge base against it is what
+                           # separates their commits from the base's own
     head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
                            # a push happened; this says what it pushed, which is
                            # the other end of the range-diff `p` takes against
@@ -127,6 +131,7 @@ function item_of(r)
             state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
             head = nz(jget(r, :head_sha), ""),
+            base = nz(jget(r, :base), ""),
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
             draft = nz(jget(r, :draft), false),

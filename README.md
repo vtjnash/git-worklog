@@ -143,8 +143,18 @@ head commit it was made at, and `p` diffs that against the head now:
 
 | what the branch did | what `p` shows |
 |---|---|
-| only added to it — the old head is still in its history | the plain diff between the two heads, and how many commits arrived |
+| only added to it — the old head is still in its history, on the same base | the plain diff between the two heads, and how many commits arrived |
 | rebased, amended, force-pushed | `git range-diff`, one foldable node per commit, marked `unchanged` / `changed` / `gone` / `new` |
+
+**Both sides are measured from the branch it will be merged into**, which is the
+difference between a readable answer and an unreadable one. `git range-diff
+old...new` measures from where the two heads meet, so a two-commit pull request
+rebased over ten commits of master reports twelve commits — ten of them somebody
+else's, with the one real change last. Measured from the base, it reports two,
+and the ten are the number in the header: `rebased  onto 10 newer commits`. That
+is what `baseRefName` is fetched for, and the base ref is brought up to date
+before it is used, because a stale copy puts the commits it has not heard about
+back inside the answer.
 
 It needs a pinned checkout, because there is no GitHub endpoint that compares
 two heads of one pull request — `compare` is between refs and the head you saw
@@ -152,6 +162,11 @@ is not one. It also needs to have been marked read once; on an item that never
 has been, the pane says which key makes one rather than showing an empty box.
 Only `r` writes that sha — a snooze, an archive and `wl read` stamp "not now"
 and know nothing about what you were looking at, so they leave it alone.
+
+A head that was force-pushed away is still fetchable, which was measured rather
+than assumed: orphaned heads up to fourteen months old came back from `git fetch
+<remote> <sha>`. So "the commit is gone" is not a state this has to handle — a
+failure there means the repository or the network is not answering.
 
 ## Working the pile
 

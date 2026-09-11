@@ -880,7 +880,10 @@ function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
     repo === nothing && return :needs_repo
     sha = head_sha(it)
     isempty(sha) && return "could not determine the head commit"
-    ensure_commit!(repo, sha, it.number) ||
+    # The remote that is this item's repository, which on a checkout of somebody
+    # else's project is as often `upstream` as `origin` - and only that one
+    # carries `refs/pull/N/head`.
+    ensure_commit!(repo, sha, it.number; remote = remote_for(repo, it.repo)) ||
         return "commit $(first(sha, 8)) is not in $repo and could not be fetched"
     lines = file_at(repo, sha, node.meta["file"])
     lines === nothing && return "$(node.meta["file"]) is absent at $(first(sha, 8))"

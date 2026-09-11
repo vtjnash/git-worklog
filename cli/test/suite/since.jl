@@ -193,8 +193,8 @@ end
     ns = W.rangediff_nodes(txt)
     @test length(ns) == 4
     @test [W.astrip(n.header) for n in ns] ==
-          ["changed  1565527  change two", "gone     7005033  change four",
-           "new      319d524  change four", "new      df0f13a  change one"]
+          ["changed   1565527  change two", "gone      7005033  change four",
+           "new       319d524  change four", "new       df0f13a  change one"]
     # A commit the rebase dropped keeps the sha it had, since the other column
     # is `-------`; everything the rebase touched opens.
     @test all(n -> n.open, ns)
@@ -207,6 +207,13 @@ end
     @test W.rangeline("     -two") == "     -two"
     @test W.rangeline("   ") == "   "          # too short to have a marker
     @test W.astrip(W.rangeline("     @@")) == "     @@"
+
+    # Past nine commits git right-aligns the numbers and every row gains a
+    # leading space. Anchoring on the digit matched none of them.
+    wide = W.rangediff_nodes(join([" -:  ------- >  $i:  abcdef$i commit $i" for i in 1:10],
+                                  "\n") * "\n")
+    @test length(wide) == 10
+    @test W.astrip(wide[10].header) == "new       abcdef10  commit 10"
 
     # A run of `=` commits keeps its header and folds.
     eq = W.rangediff_nodes("1:  aaaaaaa = 1:  bbbbbbb same commit\n")
@@ -234,11 +241,11 @@ end
         ns = W.pushed_nodes(it)
         @test occursin("nothing to compare", ns[1].header) && occursin("`r`", ns[1].raw)
 
-        # A real branch, force-pushed, with the old head recorded. The file is
-        # long enough for `git range-diff` to pair the two versions of the
-        # commit rather than reporting one dropped and one added - which is its
-        # own answer to a rewrite that kept nothing, and not the one being
-        # tested here.
+        # A real branch, rebased onto a base that moved ten commits under it,
+        # with the old head recorded. The file is long enough for
+        # `git range-diff` to pair the two versions of the commit rather than
+        # reporting one dropped and one added - which is its own answer to a
+        # rewrite that kept nothing, and not the one being tested here.
         main = joinpath(root, "main"); mkpath(main)
         W.git(main, "init", "--quiet", "--initial-branch=master", ".")
         W.git(main, "config", "user.email", "t@e.com")
@@ -250,38 +257,69 @@ end
         write(joinpath(main, "f.txt"), lines("TWO"))
         W.git(main, "commit", "--quiet", "-am", "change the middle")
         old = strip(W.git(main, "rev-parse", "HEAD"))
+        # Ten commits of somebody else's work land on the base.
+        W.git(main, "checkout", "--quiet", "master")
         W.git(main, "reset", "--quiet", "--hard", base)
+        for i in 1:10
+            write(joinpath(main, "m.txt"), string("master ", i))
+            W.git(main, "add", "m.txt")
+            W.git(main, "commit", "--quiet", "-m", "master work $i")
+        end
+        moved = strip(W.git(main, "rev-parse", "HEAD"))
+        # And the branch is rebased onto it, with one line changed again.
         write(joinpath(main, "f.txt"), lines("TWOO"))
-        W.git(main, "commit", "--quiet", "-am", "change the middle")
+        W.git(main, "add", "f.txt")
+        W.git(main, "commit", "--quiet", "-m", "change the middle")
         newh = strip(W.git(main, "rev-parse", "HEAD"))
+        W.git(main, "reset", "--quiet", "--hard", moved)
         # The head it stands at now comes off the item, so nothing shells out.
-        moved = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
-                       head = newh)
+        # `base` names the branch it is to be merged into, which is what keeps
+        # the ten out of the answer.
+        rebased = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
+                         head = newh, base = "master")
 
         W.set_read_mark(u, "2026-09-01T00:00:00Z", old)
         # No checkout pinned yet: the pane names both commits and says how to
         # pin one, because nothing else in the program can answer this.
-        ns = W.pushed_nodes(moved)
+        ns = W.pushed_nodes(rebased)
         @test occursin("no checkout pinned", ns[1].header)
         @test occursin(first(old, 8), ns[1].raw) && occursin("wl repo add", ns[1].raw)
 
         W.save_repo!("o/r", ["worktree" => main])
         @test W.repo_path("o/r") == main
 
-        ns = W.pushed_nodes(moved)
+        # **The whole point of carrying the base.** Measured from it, the answer
+        # is the one commit that changed; measured from where the two heads meet
+        # - which is what `old...new` does and what an item with no base falls
+        # back to - it is that commit plus all ten of somebody else's.
+        ns = W.pushed_nodes(rebased)
         @test occursin("rebased", W.astrip(ns[1].header))
+        @test occursin("onto 10 newer commits", W.astrip(ns[1].header))
         @test occursin(string(first(old, 8), " \u2192 ", first(newh, 8)),
                        W.astrip(ns[1].header))
+        @test count(n -> n.kind === :plain && !isempty(n.raw), ns) == 1
+        @test length(ns) == 2                      # the lead, and one commit
         @test any(n -> occursin("TWOO", n.raw), ns)
+        @test !any(n -> occursin("master work", W.astrip(n.header)), ns)
+
+        # Without it, the ten come back - as the rows this change exists to
+        # remove, and as a pane that says so rather than pretending otherwise.
+        nobase = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
+                        head = newh)
+        ns = W.pushed_nodes(nobase)
+        @test occursin("rewritten", W.astrip(ns[1].header))   # no base, so no "onto"
+        @test occursin("no base branch to measure from", ns[1].raw)
+        @test count(n -> occursin("master work", W.astrip(n.header)), ns) == 10
 
         # A push that only added to the branch is a plain diff instead, and
         # counts what arrived.
+        W.git(main, "checkout", "--quiet", "--detach", newh)
         write(joinpath(main, "f.txt"), string(lines("TWOO"), "\nTHREE"))
         W.git(main, "commit", "--quiet", "-am", "add a line")
         ahead = strip(W.git(main, "rev-parse", "HEAD"))
         W.set_read_mark(u, "2026-09-01T00:00:00Z", newh)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
-                                   title = "t", head = ahead))
+                                   title = "t", head = ahead, base = "master"))
         @test occursin("1 commit added", W.astrip(ns[1].header))
         @test any(n -> n.kind === :diff && occursin("THREE", n.raw), ns)
 
@@ -289,7 +327,7 @@ end
         # the half of "what changed" that is not the branch.
         W.set_read_mark(u, "2026-09-01T00:00:00Z", ahead)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
-                                   title = "t", head = ahead))
+                                   title = "t", head = ahead, base = "master"))
         @test occursin("nothing pushed", ns[1].header) && occursin("`o`", ns[1].raw)
     finally
         W.LOCAL[] = keep

@@ -85,6 +85,11 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # on the same node every lane already selects, so it costs nothing and
         # arrives for every row rather than for the one under the cursor.
         rec["head_sha"] = something(jget(n, :headRefOid), "")
+        # And what it is to be merged *into*, which is what the head is measured
+        # against: a rebase moves the branch onto a newer base, and without
+        # knowing which branch that is there is no way to tell the base's own
+        # commits from the ones somebody pushed. See `branch_moved`.
+        rec["base"] = something(jget(n, :baseRefName), "")
         # Who pushed the button, and only ever asked of the closed lanes -
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)
