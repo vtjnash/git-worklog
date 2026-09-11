@@ -346,8 +346,8 @@ function show_md(raw)
     w = max(40, min(displaysize(stdout)[2] - 4, 100))
     body, urls = delink(txt)
     out = try
-        Term.apply_style(string(Term.TermMarkdown.parse_md(
-            Markdown.parse(body); width = w)))
+        plain_term(Term.apply_style(string(Term.TermMarkdown.parse_md(
+            Markdown.parse(body); width = w))))
     catch e
         @warn "markdown render failed, showing raw text" exception = e maxlog = 1
         body

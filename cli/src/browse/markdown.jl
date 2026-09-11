@@ -173,11 +173,12 @@ end
 # span itself.
 #
 # Not a theme role, and the one colour in the program that is not: it is a
-# handshake with Term's own theme (`__init__` sets `md_code` to the same
-# `#ff00ff`), it is never on screen - `style_code_spans` has replaced every one
-# of them before the row is drawn - and a theme that changed it here and not
-# there would break the span, not recolour it.
-const MD_CODE_SENTINEL = "\e[38;2;255;0;255m"
+# handshake with Term's own theme, which `load_theme!` sets to
+# `MD_CODE_SENTINEL_HEX` whatever else the theme says, and it is never on screen
+# - `style_code_spans` has replaced every one of them before the row is drawn.
+# A theme that set `md_code` would not recolour a code span, it would stop one
+# being drawn, which is why the `[term]` table refuses that one field.
+const MD_CODE_SENTINEL = sgr((38, 2, hex2rgb(MD_CODE_SENTINEL_HEX)...))
 const CODE_DELIM = MD_CODE_SENTINEL * "`" * "\e[39m"
 
 """Draw a code span as a quiet background instead of loud punctuation.
@@ -280,7 +281,7 @@ function render_md(body::AbstractString, w::Int)
     try
         a = apply_style(string(Term.TermMarkdown.parse_md(
                 for_term(Markdown.parse(escape_source(body))); width = max(20, w))))
-        style_code_spans(replace(a, "{{" => "{", "}}" => "}"))
+        plain_term(style_code_spans(replace(a, "{{" => "{", "}}" => "}")))
     catch e
         logerror!(e, catch_backtrace(), "render_md")
         String(body)          # the raw text; this path bypasses Term entirely

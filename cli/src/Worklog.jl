@@ -164,13 +164,6 @@ function __init__()
     # Both are TermIFrame's defaults to be told, not its business to guess.
     MUX_PREFIX[] = "wl"
     MUX_ENV[] = "WORKLOG_TMUX"
-    # A colour nothing else emits, so `style_code_spans` can find the code-span
-    # delimiters Term marks and turn them into a background. Set here rather
-    # than at precompile time: the theme is a mutable global of Term's.
-    try
-        Term.TERM_THEME[].md_code = "#ff00ff"
-    catch
-    end
 end
 
 end # module Worklog

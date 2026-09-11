@@ -81,3 +81,91 @@ caret     = "reverse"
 # out of its markdown links are listed.
 link = "underline"
 url  = "blue"
+
+# --- Term's own palette ------------------------------------------------------
+# Term renders the markdown in every comment body, and it has a palette of its
+# own that this program used to leave alone: the six heading levels, the block
+# quote, the footnote, the table, the admonitions, and the ten token colours its
+# tree-sitter highlighter paints a code span with. They are written here in the
+# same language as everything above and translated into Term's on the way in, so
+# a theme is one file rather than two.
+#
+# In ANSI, like the rest of this file. Term's own defaults are hex - #9FA8DA for
+# a heading, #64b565 for a string - which look the same in every terminal
+# precisely because they ignore its palette; these follow it. A theme that wants
+# Term's exact colours back can write them: `md_h1 = "bold #9FA8DA"` works.
+#
+# `md_code` is missing on purpose and is refused if named: it is the sentinel the
+# code-span machinery finds its delimiters by, never drawn, and setting it would
+# stop a code span being marked rather than recolour it. The inline span's own
+# look is `code_bg` and `dim`, above.
+[term]
+# The prose around the code: headings deepening as they narrow, the quote bar,
+# the `[1]` of a footnote, and the two weights Term gives emphasis.
+md_h1 = "bold blue"
+md_h2 = "bold blue underline"
+md_h3 = "bold blue"
+md_h4 = "bold cyan"
+md_h5 = "bold cyan"
+md_h6 = "cyan"
+md_quote = "blue"
+md_footnote = "bright blue"
+md_latex = "yellow italic"
+emphasis = "bold blue"
+emphasis_light = "yellow"
+text_accent = "white"
+text = ""
+line = ""
+link = "underline cyan"
+
+# A code block Term draws itself - one inside a list or a quote, since a fenced
+# block at the top level is lifted out and drawn here instead. The `_bg` fields
+# take one colour and no attributes: Term reads them as `on_<colour>`.
+md_codeblock_bg = "236"
+
+# Tables, and the admonition boxes.
+md_table_header = "bold yellow"
+tb_style = "blue"
+tb_header = "bold white"
+tb_columns = ""
+tb_footer = ""
+md_admonition_note = "blue"
+md_admonition_info = "blue"
+md_admonition_warning = "yellow"
+md_admonition_danger = "red"
+md_admonition_tip = "green"
+
+# Not colours: the box *characters*, by Term's name for them. `box` is the one
+# every widget here follows - `TermInput.boxstyle()` reads it - so this is also
+# what the dialogs and the pane borders are drawn with. ROUNDED, HEAVY, DOUBLE,
+# SQUARE, ASCII and the rest are in `Term.Boxes`.
+box = "ROUNDED"
+tb_box = "MINIMAL_HEAVY_HEAD"
+
+# --- code, which is a third palette ------------------------------------------
+# Term 2.2 highlights with tree-sitter, and the colours it does it in are *not*
+# part of its theme: they are `Term.CodeTheme`, a dictionary keyed by tree-sitter
+# capture name, hard-coded in hex and unreachable from `set_theme`. It is a
+# `Dict` behind a `const`, so its contents can be replaced, which is what this
+# table does. (The theme fields that look like they do this - `string`, `number`,
+# `operator`, `type` - belong to Term's older regex highlighter, which the
+# markdown path no longer uses at all. They are not set above for that reason.)
+#
+# The names are the grammar's captures and are looked up along the dots, so
+# `keyword.return` falls back to `keyword` and anything unmatched to `text` -
+# which also means a name misspelt here is the one thing in this file that fails
+# silently, and a name Term does not ship is a legitimate way to colour a capture
+# that currently falls back.
+[code]
+text = ""
+keyword = "magenta"
+boolean = "magenta"
+constant = "magenta"
+function = "yellow"
+macro = "yellow"
+operator = "red"
+punctuation = "dim"
+string = "green"
+character = "green"
+comment = "dim green"
+number = "blue"

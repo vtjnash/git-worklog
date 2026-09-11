@@ -382,13 +382,23 @@ A value is words, in any order: an attribute (`bold`, `dim`, `italic`,
 the sixteen ANSI colours wherever it can be, so it follows whatever scheme the
 terminal is set to rather than fighting it.
 
+Two more tables in the same file are the palettes that are not this program's.
+`[term]` is `Term.TERM_THEME[]` - the six markdown heading levels, the block
+quote, the footnote, the table, the admonitions, and, not being colours at all,
+the box *characters* every box here is drawn with (`box = "ROUNDED"`). `[code]`
+is `Term.CodeTheme`, which is where the colours of a highlighted code span
+actually live: Term 2.2 highlights with tree-sitter, and that palette is a
+dictionary keyed by capture name - `keyword`, `string`, `operator` - rather than
+part of its theme. Both are written in the language above and translated on the
+way in, so a theme is one file rather than three.
+
 Nothing else turns colour on. An empty value, no `theme` line at all, or a name
 that is not there draws the whole program plain - not one escape printed, resets
-included - so `theme = ""` is the way to ask for that. A file that *is* there and
-has a misspelt role or colour in it says so on stderr at startup and draws that
-one role as nothing; the rest of the theme still applies. The one thing a theme
-does not reach is the weight of a pane's own border, which belongs to
-[TermIFrame](TermIFrame.jl).
+included, and a markdown body comes back as text, since Term prints its own
+attribute resets whatever its palette says and with no theme those are noise.
+So `theme = ""` is the way to ask for that. A file that *is* there and has a
+misspelt role or colour in it says so on stderr at startup and draws that one
+role as nothing; the rest of the theme still applies.
 
 ## Saving
 

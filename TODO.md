@@ -230,7 +230,7 @@ linked against a newer glibc.
 | `TermIFrame.jl/` | the tmux half, split out: sessions, the control-mode client, and the box a hosted program is drawn in (`bordered`, which used to be `pane`). Its own package and its own repository, MIT — `cli/Project.toml` `[sources]` points at the checkout beside this one until it is registered |
 | `TermInput.jl/` | the composer half, split out: `TextBuffer` (the editing model, with no view attached), `TextArea`, `LineInput`, the key vocabulary they bind, the dialog box in Term's box characters, `suspend`, and the escape-aware text measuring under all of it (`awidth`/`afit`/`apad`/`amid`/`awrap`, which used to be `TermIFrame`'s). Same terms, same arrangement. `TermIFrame` depends on it for the measuring, so the dependency runs iframe → input and never the other way: a text field must not pull a tmux binary in to measure a string |
 | `cli/src/paneview.jl` | a `TermIFrame` drawn beside the thread it is working on; the worktree list |
-| `cli/src/theme.jl` | every colour the program prints: the roles, the spec language they are written in, and the file under `themes/` that `config.toml` names. Nothing else emits an SGR escape, and with no theme named nothing emits one at all |
+| `cli/src/theme.jl` | every colour the program prints: the roles, the spec language they are written in, and the file under `themes/` that `config.toml` names. Nothing else emits an SGR escape, and with no theme named nothing emits one at all - Term's output included, which is stripped rather than left speckled with its own resets. Also the two palettes that are Term's: `[term]` is `TERM_THEME[]` (markdown, and the box *characters*), `[code]` is `Term.CodeTheme` (the tree-sitter captures), both translated from our spec language into Term's |
 | `themes/` | the theme files themselves, hand-edited and read-only to the program. `default-ansi.toml` is the sixteen ANSI colours plus the 256 cube, and reproduces byte-for-byte what was hard-coded before there was a theme |
 | `cli/src/cache.jl` | on-disk cache with TTL |
 | `cli/test/runtests.jl` | everything testable without a terminal |
@@ -789,7 +789,13 @@ forwarded.
 **A colour is a role, never an escape.** Every SGR sequence in the program comes
 from a field of `THEME` (`cli/src/theme.jl`), and a call site names what the
 colour *means* - `THEME.blocked`, `THEME.diff_add` - rather than which colour it
-is. Two consequences worth knowing before adding one: a table of colours built
+is. The two palettes that belong to Term are set from the same file and are
+where a surprise lives: **the colours of a highlighted code span are not in
+Term's theme.** `Term.CodeTheme` is a `const` binding to a plain `Dict` of hex
+strings keyed by tree-sitter capture, unreachable from `set_theme`, and the
+theme fields that look like they do that job - `string`, `number`, `operator`,
+`type` - drive Term's older regex highlighter, which the markdown path stopped
+using in 2.2. The `Dict` being mutable is the only reason a theme can reach it. Two consequences worth knowing before adding one: a table of colours built
 at the top level captures the theme *before* it is read, which is why
 `rev_mark`, `ci_color` and `range_mark` are functions and not the `Dict`s they
 were; and a role drawn inside other colour needs the `<role>_off` closer rather
@@ -1647,7 +1653,20 @@ searching for it, would hand back a third of a second to everything that
 renders a code span. Worth filing with the measurement, since the fix is small
 and the cost is paid by every user of every package that highlights anything.
 
-A sixth is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
+A sixth, found while wiring the theme up and worth offering as a patch rather
+than a report: **Term 2.2's code palette is not part of its theme.**
+`Term.CodeTheme` (`src/theme.jl`) is a hard-coded `Dict` of hex strings keyed by
+tree-sitter capture name, it is what every highlighted code span in a markdown
+body is painted with, and neither `Theme` nor `set_theme` touches it - so a
+package that sets a theme gets Term's markdown colours and Term's code colours,
+and can only change the first. The `Theme` fields that read as though they did
+this (`string`, `number`, `operator`, `type`, `func`, `symbol`, `expression`,
+`code`) now drive only the older regex `highlight`, which the markdown path no
+longer calls. Making them the same palette - or giving `Theme` a `code::Dict`
+field that `set_theme` swaps - is a small change with an obvious shape, and the
+fork beside this one is where to make it.
+
+A seventh is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
 after a multi-byte character** - `input_text[1:(end - 1)]` is a byte slice, so
 `aée` gives `StringIndexError: invalid index [3]`. See the `InputBox` section
 above, which is also where the question of whether these widgets should be one

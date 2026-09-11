@@ -10,6 +10,9 @@
 
 using Test
 using Worklog
+# By name where a test asks Term what this program told it - the two palettes
+# under `[term]` and `[code]` in a theme file are Term's globals, not ours.
+import Term
 const W = Worklog
 
 # The standing error warning takes the footer's second row, so a log left over
