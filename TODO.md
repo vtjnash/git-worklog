@@ -1667,7 +1667,7 @@ the closers go, and `TermInput`'s measuring becomes `textwidth`.
 
 ## Upstream
 
-Five bugs, four of them filed. The Term.jl ones came out of the checkout beside
+Six bugs, four of them filed. The Term.jl ones came out of the checkout beside
 this one - `Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored
 there) with each bug reproduced against v2.2.0, the cause located and the
 decision spelled out - and are **#304**, **#305** and **#306**. One is not
@@ -1684,6 +1684,29 @@ mid-line; at a 170-column console the table in JuliaLang/julia#63110 came out
 `fixme.md`. The workaround here wraps each header cell in a `Paragraph` -
 the one container whose handler passes `inline` down - so the cell goes through
 Term's own inline path rather than a copy of it.
+
+The sixth was found underneath the fifth and is **not filed yet** either, and it
+is not `TermMarkdown`'s: **a renderable wider than the console is rewrapped when
+it is aligned.** `leftalign`, `center` and `rightalign` (and their `!` forms)
+convert with `Renderable(::AbstractString)`, which builds a `RenderableText` at
+`min(get_width(text), console_width())` - so the functions whose documented job
+is to pad content to a common width re-wrap anything wider than the terminal
+first. A `Table` sizes its columns from its own content, and `table_row` stacks
+a row's parts with `vstack`, which starts by calling `leftalign`; so a wide table
+came out with its *header* block cut at the terminal and its body rows whole,
+because a row with a border above and below reaches `vstack` as three arguments
+and a row with only a border below reaches `vstack(::String, ::String)`, which
+concatenates and never builds a renderable at all. That asymmetry is the whole
+reason it reads as a header bug. Branch `fix-layout-align-rewrap`, with a test
+in `09_test_layout.jl` and one in `18_test_table.jl`, and bug 5 in `fixme.md`.
+
+**There is no workaround for that one here, and there does not need to be.** It
+bites only when a table is wider than the *terminal*, and `render_md` is handed
+a pane width, which is never more than that - a table too wide for the pane and
+narrower than the terminal reaches `awrap` intact and is wrapped there, which is
+this program's own business. It is worth fixing upstream because what it does
+instead is worse than wrapping: it cuts three rows out of five and pads the
+pieces back out to the full width, so the table is drawn over its own borders.
 
 They stay on this list until each lands *and* a release carries it, because the
 workarounds here are what to delete then - and deleting them is the point of
