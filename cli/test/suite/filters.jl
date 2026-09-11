@@ -7,9 +7,6 @@
     # axis replaced. Slow, obviously correct, and the thing to check against.
     brute(f, axis, v) = begin
         p = deepcopy(f)
-        axis === :seen   ? (p.seen = Set([v])) :
-        axis === :sleep  ? (p.sleep = Set([v])) :
-        axis === :over   ? (p.over = Set([v])) :
         axis === :tag    ? (p.tags = Set([v])) :
         axis === :kind   ? (p.kind = v) :
         axis === :bucket ? (p.buckets = Set([v])) :
@@ -21,35 +18,40 @@
         # them zero and the comparison vacuous.
         count(it -> W.matches(p, it, W.Marks(st)), st.all)
     end
-    configs = [W.Filters(),                      # bare: every axis open
-               W.DEFAULT_FILTERS(),              # what the browser opens on
-               W.Filters(seen = Set([:read])),
-               W.Filters(sleep = Set([:snoozed, :filed])),
-               W.Filters(over = Set([:open]), sleep = Set([:awake])),
+    # The disposition boxes are not a tally of values but a delta: what each one
+    # is holding in, or would bring in. So the slow way to say it is the two
+    # filters either side of the box, counted whole.
+    brute_show(f, v) = begin
+        on, off = deepcopy(f), deepcopy(f)
+        push!(on.show, v); delete!(off.show, v)
+        count(it -> W.matches(on, it, W.Marks(st)) &&
+                    !W.matches(off, it, W.Marks(st)), st.all)
+    end
+    configs = [W.Filters(),                      # the base box alone
+               W.DEFAULT_FILTERS(),              # which is what it opens on
+               W.everything(),                   # and all five boxes on
+               W.Filters(show = Set{Symbol}()),  # and none of them: no rows
+               W.Filters(show = Set([:base, :read])),
+               W.Filters(show = Set([:read])),   # the read ones instead
+               W.Filters(show = Set([:snoozed, :filed])),
+               W.Filters(show = Set([:done])),
                W.Filters(tags = Set([:second])),
                W.Filters(tags = Set([:second, :touched, :drafts])),
                W.Filters(buckets = Set(["needs-review"])),
-               W.Filters(repos = Set(["JuliaLang/julia"]), seen = Set([:unread])),
+               W.Filters(repos = Set(["JuliaLang/julia"]), show = Set([:read])),
                W.Filters(buckets = Set(["issue"]), repos = Set(["JuliaLang/julia"]),
                          labels = Set(["docs"])),
                W.Filters(kind = :issue),
                W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
                W.Filters(authors = Set([W.AUTHOR_ME])),
                W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
-               W.Filters(seen = Set([:unread]), sleep = Set([:awake]),
-                         over = Set([:open]), kind = :pr,
+               W.Filters(show = Set([:read, :done]), kind = :pr,
                          authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
         n = W.axis_counts(st)
-        for (k, _) in W.SEEN
-            @test get(n.seens, k, 0) == brute(f, :seen, k)
-        end
-        for (k, _) in W.SLEEP
-            @test get(n.sleeps, k, 0) == brute(f, :sleep, k)
-        end
-        for (k, _) in W.OVER
-            @test get(n.overs, k, 0) == brute(f, :over, k)
+        for (k, _) in W.SHOW
+            @test get(n.shows, k, 0) == brute_show(f, k)
         end
         for (k, _) in W.TAGS
             @test get(n.tags, k, 0) == brute(f, :tag, k)
@@ -65,7 +67,7 @@
 
     # Three values and no fourth: both is the whole list, and the other two
     # partition it.
-    st.filters = W.Filters()
+    st.filters = W.everything()
     both = length(W.apply_filters(st.filters, st.all))
     st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all))
     st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all))
@@ -157,67 +159,160 @@ end
                                 drafts = Dict(it.url => "2026-01-01")))) ==
           Set([:second, :touched, :drafts])
 
-    # The three axes partition the real dashboard, which is what makes their
-    # counts add up to it.
+    # The three readings still partition the corpus, which is what the merged
+    # axis is built out of: one answer each, per row, however it is shown.
     st = mkstate()
-    st.filters = W.Filters(); W.refilter!(st)
-    n = W.axis_counts(st)
-    for (axis, tally) in ((W.SEEN, n.seens), (W.SLEEP, n.sleeps), (W.OVER, n.overs))
-        @test sum(get(tally, k, 0) for (k, _) in axis) == length(st.items)
+    st.filters = W.everything(); W.refilter!(st)
+    m = W.Marks(st)
+    for reading in (x -> W.seen_of(x, m), x -> W.sleep_of(x, m), W.over_of)
+        @test sum(count(x -> reading(x) === v, st.items)
+                  for v in Set(reading(x) for x in st.items)) == length(st.items)
+    end
+    # And the five boxes cover the corpus between them: every row answers to at
+    # least one, so all five on is everything and taking any one off can only
+    # lose rows. Four of them can only ever lose rows the base did not have -
+    # and the fifth *is* the base, which is the one that can drop below the list
+    # the browser opens on, and drops to exactly the rest of the corpus.
+    base = length(W.apply_filters(W.Filters(), st.all, m))
+    @test 0 < base < length(st.all)
+    @test length(W.apply_filters(W.everything(), st.all, m)) == length(st.all)
+    for (k, _) in W.SHOW
+        f = W.everything(); delete!(f.show, k)
+        n = length(W.apply_filters(f, st.all, m))
+        @test n <= length(st.all)
+        @test k === :base ? n == length(st.all) - base : n >= base
     end
 end
 
-@testset "the axes are sets, and a set is what a radio could not say" begin
+@testset "one axis that only adds, and a base you have to mean to take off" begin
     st = mkstate()
     st.filters = W.Filters(); W.refilter!(st)
-    whole = length(st.items)
-    # Bare means every axis open, which is the corpus: `c` goes here and the
-    # browser does not open here.
+    base = length(st.items)
+    # Bare is the base box alone, which is also what the browser opens on:
+    # unread, awake and open, with nothing narrowing it. `c` goes here too - the
+    # list this program is for is what a filter says when it has been asked
+    # nothing, rather than one of the things it can be asked for.
     @test W.isdefault(st.filters)
-    @test occursin("everything", W.filter_summary(st.filters))
+    @test W.isdefault(W.DEFAULT_FILTERS())
+    @test st.filters.show == W.SHOW_BASE
+    @test occursin("unread, awake, open", W.filter_summary(st.filters))
+    @test all(x -> W.seen_of(x, W.Marks(st)) === :unread &&
+                   W.sleep_of(x, W.Marks(st)) === :awake &&
+                   W.over_of(x) === :open, st.items)
 
+    # Each box brings its own kind of row beside the base, and no box can take
+    # another one's rows away: that is the whole of what "only adds" means.
     counts = Dict{Symbol,Int}()
-    for (k, _) in W.SLEEP
-        st.filters = W.Filters(sleep = Set([k])); W.refilter!(st)
-        counts[k] = length(st.items)
-        @test all(x -> W.sleep_of(x, W.Marks(st)) === k, st.items)
+    for (k, _) in W.SHOW
+        k === :base && continue
+        st.filters = W.Filters(show = Set([:base, k])); W.refilter!(st)
+        counts[k] = length(st.items) - base
+        @test length(st.items) >= base
     end
-    @test sum(values(counts)) == whole
-    # Two of them is the union, which is the whole point of it being a set.
-    st.filters = W.Filters(sleep = Set([:snoozed, :filed])); W.refilter!(st)
-    @test length(st.items) == counts[:snoozed] + counts[:filed]
+    # Two of them is at least the union of what each brings, and more where a
+    # row needed both - a closed item you have read is held out twice.
+    st.filters = W.Filters(show = Set([:base, :read, :done])); W.refilter!(st)
+    @test length(st.items) >= base + counts[:read] + counts[:done]
+    # All five is the corpus, and the corpus is the only thing that is.
+    st.filters = W.everything(); W.refilter!(st)
+    @test length(st.items) == length(st.all)
 
-    # Toggled by the same key that toggles every other axis, and off again -
-    # which is the thing a radio cannot do.
+    # Taking the base off is how one of the other four is asked for *alone* -
+    # the closed ones instead of today's work rather than beside it. It is the
+    # one question the axis could not be asked while the base was a floor, and
+    # it takes a deliberate press to ask: nothing clears to here.
+    #
+    # A box alone holds exactly what it adds beside the base, which is the same
+    # rows either way - the base is what it is *added to*, not a condition on
+    # what it brings - and none of what it holds is base work.
+    for (k, _) in W.SHOW
+        k === :base && continue
+        st.filters = W.Filters(show = Set([k])); W.refilter!(st)
+        @test length(st.items) == counts[k]
+        @test !any(x -> W.seen_of(x, W.Marks(st)) === :unread &&
+                        W.sleep_of(x, W.Marks(st)) === :awake &&
+                        W.over_of(x) === :open, st.items)
+    end
+    # The one of the four this dashboard has rows for today, said in full.
+    st.filters = W.Filters(show = Set([:done])); W.refilter!(st)
+    @test 0 < length(st.items) < length(st.all)
+    @test all(x -> W.over_of(x) === :done, st.items)
+    @test occursin("only closed or merged", W.filter_summary(st.filters))
+    # The base box holds exactly the base list in, so taking it off the corpus
+    # leaves the rest of the corpus and nothing else.
+    nobase = W.everything(); delete!(nobase.show, :base)
+    st.filters = nobase; W.refilter!(st)
+    @test length(st.items) == length(st.all) - base
+    # And every box off is an empty list. That is the honest reading of an axis
+    # that adds rather than narrows, and not a case to special-case: an empty
+    # set of things to show is no things.
+    st.filters = W.Filters(show = Set{Symbol}()); W.refilter!(st)
+    @test isempty(st.items)
+    @test occursin("nothing shown", W.filter_summary(st.filters))
+
+    # Toggled by the same key that toggles every other axis, and off again.
     st.filters = W.Filters(); W.refilter!(st)
     st.lmode = :filters
     rows = W.filter_rows(st)
-    @test [r[2] for r in rows if r[1] === :sleep] == [String(k) for (k, _) in W.SLEEP]
-    st.frow = findfirst(r -> r[1] === :sleep && r[2] == "awake", rows)
+    @test [r[2] for r in rows if r[1] === :show] == [String(k) for (k, _) in W.SHOW]
+    # The base leads the axis as a row like the other four, checked, with the
+    # number it is holding in beside it - which is what unchecking it would cost.
+    brow = first(r for r in rows if r[1] === :show)
+    @test brow[2] == "base"
+    @test occursin("[x] ", brow[3]) && occursin(string(base), brow[3])
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "snoozed", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.sleep == Set([:awake]) && length(st.items) == counts[:awake]
-    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "awake"))
+    @test st.filters.show == Set([:base, :snoozed])
+    @test length(st.items) == base + counts[:snoozed]
+    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "snoozed"))
     @test W.toggle_filter!(st)
-    @test isempty(st.filters.sleep) && length(st.items) == whole
+    @test st.filters.show == W.SHOW_BASE && length(st.items) == base
+    # Including the base itself, which is the one row here whose being checked
+    # is a default rather than a choice - and `c` is what puts it back.
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "base", W.filter_rows(st))
+    @test W.toggle_filter!(st)
+    @test isempty(st.filters.show) && isempty(st.items) && !W.isdefault(st.filters)
 
-    # What the browser opens on is what moved, awake - a starting place rather
-    # than a lane, and every other axis is open in it.
-    d = W.DEFAULT_FILTERS()
-    @test d.seen == Set([:unread]) && d.sleep == Set([:awake])
-    @test isempty(d.over) && isempty(d.tags) && isempty(d.authors)
-    @test occursin("unread", W.filter_summary(d)) && occursin("awake", W.filter_summary(d))
-    # And it writes itself as a view, in the axis's own order.
-    @test occursin("seen = [\"unread\"]", W.view_toml(d, :latest, "x"))
-    @test occursin("sleep = [\"awake\"]", W.view_toml(d, :latest, "x"))
+    # What the browser opens on says itself, and what has been added to it says
+    # that instead - the base is true of almost every screen there is, so naming
+    # it on each one is a phrase the reader stops seeing. Off, it is the most
+    # important thing on the screen and is said first.
+    @test occursin("unread, awake, open", W.filter_summary(W.DEFAULT_FILTERS()))
+    @test occursin("also read+snoozed",
+                   W.filter_summary(W.Filters(show = Set([:base, :read, :snoozed]))))
+    @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
+    @test occursin("nothing shown", W.filter_summary(W.Filters(show = Set{Symbol}())))
+    # And it writes itself as a view, in the axis's own order. The base is left
+    # out of the TOML while it is on, because that is what a view naming no
+    # `show` gets anyway - and `show = []` is written, because an empty axis is
+    # a real filter here rather than an unasked question.
+    @test occursin("show = [\"base\", \"read\", \"filed\"]",
+                   W.view_toml(W.Filters(show = Set([:filed, :read, :base])), :latest, "x"))
+    @test occursin("show = [\"read\", \"filed\"]",
+                   W.view_toml(W.Filters(show = Set([:filed, :read])), :latest, "x"))
+    @test occursin("show = []", W.view_toml(W.Filters(show = Set{Symbol}()), :latest, "x"))
+    @test !occursin("show", W.view_toml(W.DEFAULT_FILTERS(), :latest, "x"))
     # A view names the axes, and a misspelt value is said rather than ignored.
-    @test occursin("open", W.apply_view!(st, Dict("state" => ["open"])))
-    @test st.filters.over == Set([:open])
-    @test occursin("no seen", W.apply_view!(st, Dict("seen" => "unred")))
-    @test occursin("no sleep", W.apply_view!(st, Dict("sleep" => ["awake", "asleep"])))
+    @test occursin("only read", W.apply_view!(st, Dict("show" => ["read"])))
+    @test st.filters.show == Set([:read])
+    # Named means named *whole*: a view that wants the base beside what it adds
+    # says so, and one that names no `show` at all keeps the default.
+    @test occursin("also read", W.apply_view!(st, Dict("show" => ["base", "read"])))
+    @test st.filters.show == Set([:base, :read])
+    @test W.apply_view!(st, Dict("kind" => "pr")) isa String
+    @test st.filters.show == W.SHOW_BASE
+    @test occursin("no show", W.apply_view!(st, Dict("show" => "raed")))
+    @test occursin("no show", W.apply_view!(st, Dict("show" => ["read", "asleep"])))
+    # So is an axis that is not one either, which the three keys this one
+    # replaced would otherwise have become: a view still spelling `sleep` would
+    # have gone on being applied and meant something else.
+    @test occursin("no axis 'sleep'", W.apply_view!(st, Dict("sleep" => ["awake"])))
+    @test occursin("no axis 'seen'", W.apply_view!(st, Dict("seen" => ["unread"])))
+    @test W.isdefault(st.filters)
 end
 
 @testset "when a row leaves, the cursor stays where it was" begin
-    # `r` with `seen: unread` takes the row it marks read out of the list, and a
+    # `r` in the base list takes the row it marks read out of it, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
     # back down, r, scroll back down. The url it was on is gone, so the fallback
     # is the row - whatever moved up into the place being read.
@@ -225,7 +320,7 @@ end
     W.LOCAL[] = fresh_local()
     try
         st = mkstate()
-        st.filters = W.Filters(seen = Set([:unread]))
+        st.filters = W.Filters()
         W.refilter!(st; keeprow = false)
         five = [it.url for it in first(st.items, 5)]
         # Everything else read, in one write: the axis is the stamp against
@@ -379,9 +474,12 @@ end
 
     # `c` has always done this and nothing on screen said so.
     @test W.isdefault(W.Filters())
-    # ...and the browser does not open bare: what it opens on is a filter like
-    # any other, and `c` is how you get out of it.
-    @test !W.isdefault(W.DEFAULT_FILTERS())
+    # ...and it lands where the browser opens, which is the same place now: the
+    # unread, awake and open list is what is left when every filter is off.
+    @test W.isdefault(W.DEFAULT_FILTERS())
+    # The corpus is a filter now rather than the absence of one, so `c` does not
+    # reach it and the four boxes are the way there.
+    @test !W.isdefault(W.everything())
     st.filters = W.Filters(); W.refilter!(st)
     rows = W.filter_rows(st)
     @test rows[1][1] === :reset
@@ -417,8 +515,8 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    # reset, then seen, sleep, state, tag, kind, category, repo, label, author
-    @test length(g) == 10
+    # reset, then show, tag, kind, category, repo, label, author
+    @test length(g) == 8
     @test rows[1][1] === :reset && g[1] == 1    # the way out leads the pane
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
@@ -520,15 +618,18 @@ end
     @test "waiting on me" in names && "ready to merge" in names
     # Except the first, which is the way back to what the browser opens on and
     # leads for the same reason the import row leads the item list.
-    @test occursin("what moved", first(names))
+    @test occursin("notification firehose", first(names))
+    # And the corpus has a name of its own, which is where it went when `c`
+    # stopped reaching it.
+    @test any(n -> occursin("everything", n), names)
     # config.toml adds to them, and replaces one of the same name rather than
     # listing it twice.
     cfg = Dict{String,Any}("views" => Dict{String,Any}(
         "mine, all of it" => Dict("author" => ["@me"]),
-        "waiting on me" => Dict("seen" => ["unread"])))
+        "waiting on me" => Dict("show" => ["snoozed"])))
     vs = W.views(cfg)
     @test length(vs) == length(names) + 1
-    @test Dict(vs)["waiting on me"]["seen"] == ["unread"]
+    @test Dict(vs)["waiting on me"]["show"] == ["snoozed"]
 
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.
@@ -536,11 +637,14 @@ end
     W.apply_view!(st, Dict("bucket" => ["needs-review"]))
     @test st.filters.buckets == Set(["needs-review"])
     @test isempty(st.filters.labels) && st.filters.kind === :both
-    @test isempty(st.filters.seen) && isempty(st.filters.sleep)
+    # "Cleared" is what the axis says when it is asked nothing, which on `show`
+    # is the base box rather than the empty set: a view that names no `show` is
+    # a view of today's work, and an empty one would be a view of nothing.
+    @test st.filters.show == W.SHOW_BASE
     # A single value is as good as a list of one, on every axis.
-    W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "seen" => "read"))
+    W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "show" => "read"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
-    @test st.filters.seen == Set([:read])
+    @test st.filters.show == Set([:read])
 
     # The sort is an axis like the rest: a view that names one sets it, and a
     # view that names none puts it back to the order its lane opens in - newest
@@ -549,7 +653,7 @@ end
     # were in is not that.
     W.apply_view!(st, Dict("sort" => "none"))
     @test st.sort === :none
-    W.apply_view!(st, Dict("seen" => ["unread"]))
+    W.apply_view!(st, Dict("show" => ["read"]))
     @test st.sort === :latest
     W.apply_view!(st, Dict("tag" => ["touched"]))
     @test st.sort === :touched          # the selection that *is* the clock
@@ -558,7 +662,7 @@ end
     # included.
     st.sort = :touched; st.filters.labels = Set(["docs"])
     W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
-    @test st.filters.seen == Set([:unread]) && st.filters.sleep == Set([:awake])
+    @test W.isdefault(st.filters)
     @test isempty(st.filters.labels) && st.sort === :latest
 
     # `\`` is the way back out, and back in again: one slot, which is the depth
@@ -580,8 +684,8 @@ end
     v = last(ctrl.stack)
     @test v isa W.ChooseView && v.title == "Views"
     @test any(o -> o[2] === :save, v.options)          # the way out of the list
-    v.onpick(Dict("sleep" => ["awake"], "kind" => "issue"))
-    @test st.filters.sleep == Set([:awake]) && st.filters.kind === :issue
+    v.onpick(Dict("show" => ["snoozed"], "kind" => "issue"))
+    @test st.filters.show == Set([:snoozed]) && st.filters.kind === :issue
     @test occursin("view:", st.status)
 
     # The first ten are on keys of their own: the same ten in the same order
@@ -631,8 +735,8 @@ end
     parsed = W.TOML.parse(toml)["views"]["issues, all of them"]
     st2 = mkstate()
     W.apply_view!(st2, parsed)
-    @test st2.filters.seen == st.filters.seen && st2.filters.kind === st.filters.kind
-    @test st2.filters.sleep == st.filters.sleep && st2.filters.over == st.filters.over
+    @test st2.filters.show == st.filters.show && st2.filters.kind === st.filters.kind
+    @test st2.filters.tags == st.filters.tags
     st.filters.repos = Set(["a/b", "c/d"]); st.filters.authors = Set([W.AUTHOR_ME])
     round2 = W.TOML.parse(W.view_toml(st.filters, st.sort, "x"))["views"]["x"]
     W.apply_view!(st2, round2)
@@ -664,7 +768,7 @@ end
     # `w` overrides, and the override lasts until the selection changes - which
     # is the only rule here that can be said in one sentence.
     st.sort = :none
-    pick(:seen, "unread"); @test st.sort === :latest
+    pick(:show, "read"); @test st.sort === :latest
 
     # A view naming the clock gets its order too, since it is clearing every
     # axis it does not name and the order is one of them.

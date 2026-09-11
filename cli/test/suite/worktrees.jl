@@ -257,7 +257,10 @@ end
         v4.sel = findfirst(r -> r.name == "side", v4.rows)
         @test W.handle!(v4, Int('i'), ctrl) === :pop
         @test st2.items[st2.sel].url == pr.url
-        @test W.isdefault(st2.filters) || st2.filters.state === :all
+        # Everything, since the row being jumped to may be filed or closed: the
+        # jump clears the axes *and* turns the four disposition boxes on.
+        @test st2.filters.show == W.everything().show
+        @test isempty(st2.filters.repos) && isempty(st2.filters.tags)
         @test isempty(st2.search)
         # And `\`` is the way back, the same as from every other jump.
         @test st2.prev !== nothing && st2.prev.repos == Set(["nothing/here"])

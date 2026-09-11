@@ -67,10 +67,10 @@ end
         @test all(W.touched_at(x.url) === nothing for x in st.items)
 
         # Nor is read/unread, which is the end of looking rather than the start
-        # of doing, and has its own axis already. Bare, so the row stays under
-        # the cursor: reading something takes it out of what the browser opens
-        # on, which is what moved.
-        st = mkstate(); st.filters = W.Filters(); W.refilter!(st)
+        # of doing, and is one of the four boxes already. Everything, so the row
+        # stays under the cursor: reading something takes it out of what the
+        # browser opens on, which is what moved.
+        st = mkstate(); st.filters = W.everything(); W.refilter!(st)
         it = st.items[st.sel]
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
@@ -110,9 +110,9 @@ end
     # `s` used to write on-change and say nothing, which is the right default
     # and was the wrong only choice - `parse_snooze` has always taken spans and
     # dates, and only `wl snooze` could reach them.
-    # Bare, so the row stays under the cursor once it is snoozed: what the
-    # browser opens on is awake work, and snoozing something takes it out.
-    st = mkstate(); st.filters = W.Filters(); W.refilter!(st)
+    # Everything, so the row stays under the cursor once it is snoozed: what
+    # the browser opens on is awake work, and snoozing something takes it out.
+    st = mkstate(); st.filters = W.everything(); W.refilter!(st)
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
     state = read(W.localfile(), String)

@@ -43,11 +43,13 @@
     marks() = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     before = marks()
     try
-        # Bare, so the row stays under the cursor: with what the browser opens
-        # on - what moved, awake - `r` takes the row it marks read out of the
-        # list, which is the behaviour the filter suite tests.
+        # Everything, so the row stays under the cursor: in the list the browser
+        # opens on - unread, awake and open - `r` takes the row it marks read
+        # out of the list, which is the behaviour the filter suite tests. The
+        # cursor goes to an unread row, since a toggle needs somewhere to start.
         st = mkstate()
-        st.filters = W.Filters(); W.refilter!(st)
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = findfirst(x -> W.seen_of(x, W.Marks(st)) === :unread, st.items)
         it = st.items[st.sel]
         prev = W.read_at(it.url)
         # `r` toggles against the stamp, which is the axis - not against the
@@ -299,5 +301,6 @@ end
     # and stays that way until somebody runs `wl refresh`.
     elapsed = W.Item(; base..., snoozed = true, snooze_why = "for 1d, 0d left")
     @test W.sleep_of(elapsed) === :snoozed
-    @test !W.matches(W.Filters(sleep = Set([:awake])), elapsed)
+    @test !W.matches(W.Filters(), elapsed)
+    @test W.matches(W.Filters(show = Set([:snoozed])), elapsed)
 end

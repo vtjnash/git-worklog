@@ -139,11 +139,11 @@ function select_item!(st::BState, it::Item)
         #
         # Cleared rather than widened by whichever axis is hiding it: which one
         # that is is not a question anybody wants answered, and `\`` is the way
-        # back from this the same as from every other jump. Bare and not the
-        # filter the browser opens with, because filed and snoozed work still
+        # back from this the same as from every other jump. Everything, and not
+        # the list the browser opens with, because filed and snoozed work still
         # has a worktree and is exactly what you would be going to look at.
         st.prev = st.filters
-        st.filters = Filters()
+        st.filters = everything()
         # A list search narrows on top of the axes, so it can hide it too.
         st.searchin === :list && (st.search = "")
         refilter!(st)

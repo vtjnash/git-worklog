@@ -164,11 +164,29 @@ pane. Inline code is a quiet grey span instead of yellow punctuation, and
 `snake_case` names keep their underscores — Julia's Markdown reads them as
 emphasis, which CommonMark forbids and GitHub does not do.
 
-It opens on **what moved, awake**: `seen: unread` and `sleep: awake`, and
-nothing else narrowed. So an item leaves the opening list two ways - you read
-it, or you put it away with `s` or `x` - and comes back the same two ways, with
-"moved" meaning what `track` says it means for that item. `c` clears every axis,
-which is the whole corpus including what you have filed.
+It opens on **what moved, awake and open**. So an item leaves the opening list
+two ways - you read it, or you put it away with `s` or `x` - and comes back the
+same two ways, with "moved" meaning what `track` says it means for that item.
+
+That list is one box on an axis that only **adds**. Five checkboxes -
+`unread, awake, open`, `read`, `snoozed`, `filed away`, `closed or merged` -
+and each brings its own kind of row *beside* the others rather than instead of
+them, so no box can take another's rows away. The number next to each is what
+checking it would bring, or what unchecking it would take away. All five is the
+corpus, and `'` has it by name ("everything"); `c` clears every filter, which
+lands on the first box alone rather than on the corpus.
+
+The first box is checked when nothing has been asked - it is what the dashboard
+*is*, and `c`, a fresh filter and a view that names no `show` all leave it on -
+so the screen cannot be emptied by accident. Unchecking it is how you ask for
+one of the other four **alone**: the filed work on its own, rather than beside
+today's. Uncheck all five and you get no rows, which is what an empty set of
+things to show means.
+
+The `read` box is a question about awake work only: putting something away
+stamps it read, so `snoozed` and `filed away` bring what they name whether or
+not it has been read. A box that insisted on both would have been a control that
+did nothing.
 
 The list itself says what has been read: unread rows are bold and read ones
 plain, and the cursor is a background rather than a weight - the same mark the
@@ -255,7 +273,7 @@ its diff needs it to go on meaning that.
 Coming back to an item lands on the line you were reading in it, per item and
 per mode - a comment thread and a diff of one pull request are two readings of
 it and two places to come back to. And when a row leaves the list under you -
-`r` with `seen: unread` applied, `x`, `s` - the cursor stays on the row it was on rather
+`r`, `x`, `s`, each of which takes the row out of the opening list - the cursor stays on the row it was on rather
 than jumping to the top, so an inbox is read by pressing `r`. Choosing a view, a
 filter or a query is asking for a different list, and those open at the top.
 

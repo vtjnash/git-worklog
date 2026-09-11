@@ -6,7 +6,10 @@
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
-        st.filters = W.Filters(); W.refilter!(st)
+        # Everything, since this counts the corpus and then checks that an
+        # order is not a filter: the list the browser opens on leaves out the
+        # read, the snoozed, the filed and the closed by construction.
+        st.filters = W.everything(); W.refilter!(st)
         n = length(st.items)
 
         # Everything you have actually done something to. Nothing but an action
@@ -22,7 +25,8 @@
         W.set_touched(a.url, "2020-01-01T00:00:00Z")
         W.set_touched(b.url, "2026-09-02T12:00:00Z")
         W.set_touched(c.url, "2024-06-01T00:00:00Z")
-        st.filters = W.Filters(tags = Set([:touched])); W.refilter!(st)
+        st.filters = W.everything(); st.filters.tags = Set([:touched])
+        W.refilter!(st)
         @test length(st.items) == 3
         @test Set(x.url for x in st.items) == Set([a.url, b.url, c.url])
         # Looking at one does not put it in the lane.
@@ -39,7 +43,7 @@
         # however it reached the dashboard, and a mention or a review request
         # is not - that makes it unread, which is a different question again.
         mine = Set([W.AUTHOR_ME])
-        st.filters = W.Filters(); st.filters.authors = copy(mine)
+        st.filters = W.everything(); st.filters.authors = copy(mine)
         W.refilter!(st)
         @test !isempty(st.items)
         @test all(x.author == W.login() || W.login() in x.assignees || W.islocal(x)
@@ -50,7 +54,7 @@
         local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
                           title = "t", is_pr = false, branch = "x", bucket = "local")
         W.add_item!(st, local_it)
-        st.filters = W.Filters(); st.filters.authors = copy(mine)
+        st.filters = W.everything(); st.filters.authors = copy(mine)
         W.refilter!(st)
         @test any(x.url == local_it.url for x in st.items)
         # A pull request that is somebody else's is not.
@@ -59,22 +63,22 @@
         @test !any(x.url == theirs.url for x in st.items)
         # ...and it is in the other mode, which is the same axis said the other
         # way round. Between them they are the two lists the work divides into.
-        st.filters = W.Filters(); st.filters.authors = Set([W.AUTHOR_OTHERS])
+        st.filters = W.everything(); st.filters.authors = Set([W.AUTHOR_OTHERS])
         W.refilter!(st)
         @test any(x.url == theirs.url for x in st.items)
         @test !any(x.url == local_it.url for x in st.items)
         W.drop_item!(st, local_it.url)
-        st.filters = W.Filters(); W.refilter!(st)
+        st.filters = W.everything(); W.refilter!(st)
 
         # All three modes are a view, so each is one keystroke from `\'`.
         vs = W.views()
         @test any(v -> occursin("my work", v[1]), vs)
-        @test any(v -> occursin("what moved", v[1]), vs)
+        @test any(v -> occursin("notification firehose", v[1]), vs)
         @test any(v -> occursin("open items", v[1]), vs)
 
         # The order is its own control: any of it makes sense over any of the
         # lanes, so it sits beside the filter rather than inside it.
-        st.filters = W.Filters()
+        st.filters = W.everything()
         st.sort = :none; W.refilter!(st)
         # The url order, descending: owner, project, number. It keeps the
         # grouping `facts.json` is written in and reads from the newest of each

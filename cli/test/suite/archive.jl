@@ -7,13 +7,19 @@
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
-        # The three selections this testset moves between: awake work, filed
-        # work, and everything.
-        awake, filed, all_ = W.Filters(sleep = Set([:awake])),
-                             W.Filters(sleep = Set([:filed])), W.Filters()
+        # The four selections this testset moves between: the base, which is
+        # today's awake work; the base plus what has been filed; the filed work
+        # on its own, which is what taking the base off asks for; and everything.
+        awake, filed = W.Filters(), W.Filters(show = Set([:base, :filed]))
+        only, all_ = W.Filters(show = Set([:filed])), W.everything()
         n(f) = (st.filters = deepcopy(f); W.refilter!(st); length(st.items))
+        # Filed work is what the one in the middle adds, so the count of it is
+        # the difference the box makes - and it is also the whole of what the
+        # third one holds, since the box adds the same rows either way.
+        nfiled() = (W.refilter!(st);
+                    count(x -> W.sleep_of(x, W.Marks(st)) === :filed, st.items))
         a0, all0 = n(awake), n(all_)
-        @test n(filed) == 0
+        @test n(filed) == a0 && n(only) == 0
         n(awake)
         it = st.items[st.sel]
 
@@ -22,13 +28,14 @@
         # Archiving is a snooze that never wakes, and one field is what says so.
         @test W.get_field(it.url, "snooze") == "forever"
         @test W.snooze_forever(W.get_field(it.url, "snooze"))
-        # Out of the awake list, and into the one that is a record. Bare is
-        # everything, so it is unchanged.
+        # Out of the base list, and into the one that is a record. Everything
+        # is everything, so it is unchanged.
         @test n(awake) == a0 - 1
-        @test n(filed) == 1
+        @test n(filed) == a0
+        @test n(only) == 1
         @test n(all_) == all0
         n(filed)
-        @test st.items[1].url == it.url
+        @test nfiled() == 1
         # Where the item's facts are, with the way back out.
         lines = W.astrip(join(W.meta_lines(st, it, 50), "\n"))
         @test occursin("archived", lines) && occursin("takes it back out", lines)
@@ -53,9 +60,13 @@
         W.handle!(st, Int('x'), ctrl)
         @test W.read_at(it.url) !== nothing
         n(filed)
-        @test [x.url for x in st.items] == [it.url]
+        @test [x.url for x in st.items if W.sleep_of(x, W.Marks(st)) === :filed] ==
+              [it.url]
 
-        # A toggle, and undoable either way.
+        # A toggle, and undoable either way. The filed row is one of many in
+        # this list rather than the whole of it, so the cursor is put on it -
+        # `x` acts on the row under the cursor, here as everywhere.
+        st.sel = findfirst(x -> x.url == it.url, st.items)
         W.handle!(st, Int('x'), ctrl)
         @test occursin("back out", st.status)
         @test W.get_field(it.url, "snooze") === nothing

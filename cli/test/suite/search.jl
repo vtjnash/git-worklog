@@ -29,7 +29,7 @@
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].ref == want.ref && occursin("jumped", st.status)
     # ...and it reaches an item the filter was hiding - a snoozed one here,
-    # since what the browser opens on is what moved, awake.
+    # since what the browser opens on is what moved, awake and open.
     st = mkstate()
     hidden = st.all[findfirst(i -> i.snoozed, st.all)]
     @test !any(i -> i.url == hidden.url, st.items)

@@ -75,21 +75,30 @@ commented_issue = "is:open is:issue commenter:vtjnash archived:false"
 mentioned_team_pr    = "is:open is:pr in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 
-# Named filter sets for `'` in the browser. Nine are built in - what moved, my
-# work, open items, waiting on me, waiting on them, ready to merge, red CI mine,
-# unanswered, filed away - and a table here adds one, or replaces a built-in of
-# the same name. Every axis the view does not name is cleared when it is
-# applied, so a name always means the same list. `'` then the last entry copies
-# the TOML for whatever filter you are looking at, to paste in here; the browser
-# never writes this file.
+# Named filter sets for `'` in the browser. Nine are built in - notification
+# firehose, my work, open items, waiting on me, waiting on them, ready to merge,
+# red CI mine, unanswered, everything - and a table here adds one, or replaces a
+# built-in of the same name. Every axis the view does not name is cleared when
+# it is applied, so a name always means the same list. `'` then the last entry
+# copies the TOML for whatever filter you are looking at, to paste in here; the
+# browser never writes this file.
 #
-# The axes: `seen` (unread, read), `sleep` (awake, snoozed, filed), `state`
-# (open, done), `tag` (second, touched, drafts), `kind`, `bucket`, `repo`,
-# `label`, `author`, `sort`.
+# The axes: `show` (base, read, snoozed, filed, done), `tag` (second, touched,
+# drafts), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
+#
+# `show` is the one that only ever adds: each value brings a kind of row in
+# beside the others, and none of them takes another's rows away. `base` is the
+# unread, awake and open work this dashboard is for, and it is what a view that
+# names no `show` at all gets - so the firehose names nothing. A view that does
+# name `show` names the whole of it, `base` included: `show = ["base", "read"]`
+# is today's work with the read ones beside it, and `show = ["filed"]` is the
+# filed work on its own. An axis or a value that is not one of the above is
+# reported when the view is applied rather than ignored - `seen`, `sleep` and
+# `state` were three axes here until they merged, and a view still naming one
+# would otherwise go on being applied and mean something else.
 #
 # [views."subtyping, quiet"]
 # tag = ["second"]
-# sleep = ["awake"]
 # repo = ["JuliaLang/julia"]
 # label = ["types and dispatch"]
 

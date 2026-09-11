@@ -160,21 +160,26 @@ over the reading pane selects rows for `y` to copy and `c` to comment on, and
 `shift-J`/`shift-K` or the shifted arrows do the same from the keyboard. The list opens newest first - by when anything last
 happened, yours or GitHub's - and `w` reaches the other two orders: the
 interaction clock, and the url (owner, project, number, descending). A row that
-leaves the list under you - `r` with `seen: unread` applied, `x`, `s` - leaves the cursor
-where it was rather than at the top, and coming back to an item lands on the
-line you were reading in it, per item and per mode.
+leaves the list under you - `r`, `x`, `s`, each of which takes it out of the
+list the browser opens on - leaves the cursor where it was rather than at the
+top, and coming back to an item lands on the line you were reading in it, per
+item and per mode.
 
 `'` is the named views - nine built in, more from `config.toml`, and its last
 entry copies the current filter as the TOML that would name it. The first ten
 are on `1`-`9` and `0`; `` ` `` goes back to the filter you were in before.
 
 `f` opens the filter pane. Every axis there is a **set**, and an empty set
-restricts nothing: **seen** (unread · read), **sleep** (awake · snoozed · filed
-away), **state** (open · closed or merged), **tag** (second look · touched ·
-drafts), and then category, repo, label and author - each long one listing its
-head and offering the rest as a picker you type into. `kind` is the one radio,
-being three values that exhaust each other. The browser opens on `unread` +
-`awake`; `c` clears to nothing at all, which is the whole corpus.
+restricts nothing - except the first, **show**, which adds rather than narrows
+and where empty is therefore no rows at all. Its five boxes are `unread, awake,
+open` · `read` · `snoozed` · `filed away` · `closed or merged`, each bringing
+its own kind of row beside the others; the first is on when nothing has been
+asked, and unchecking it is how one of the other four is asked for alone. Then
+**tag** (second look · touched · drafts), and category, repo, label and author -
+each long one listing its head and offering the rest as a picker you type into.
+`kind` is the one radio, being three values that exhaust each other. `c` clears
+to the first box alone, which is where the browser opens; the corpus is all
+five, and `'` has it by name.
 
 There is no `active` and no `backlog`: they were one fact - which lane fetched
 the row - wearing a state's clothes, and what takes something out of view now is
@@ -858,7 +863,9 @@ be three, the pile being one of them rather than a thing the other two subtract.
 **The modes are done** (2026-09-10). They are views, not lanes, because each is
 one axis answering one question: `'` `2` is "my work" (`@me` + open + awake, 155
 rows), `'` `1` is "what moved" (the seen axis, 2157), and `'` `3` is "open
-items" (the pile, awake, 2148). The `mine` lane is gone - it said `author == login()` inside
+items" (the pile, awake, 2148). (`'` `1` is the "notification firehose" now, and
+names no axis at all: the list it goes to is what is left when every filter is
+off. See "The dispositions are one axis now".) The `mine` lane is gone - it said `author == login()` inside
 the state axis, which is the author axis written twice in the place it does not
 belong - and so is `active`, which was the *lane* axis written where a state
 belonged.
@@ -918,6 +925,11 @@ changed twice while it was being built and the reasons are worth keeping. The
 whole of the build order below is done; what follows is what it settled, and
 what the day after it settled about `track`.
 
+**Three of the four axes have since merged into one that only adds** — see "The
+dispositions are one axis now" at the end of this section. The three questions
+below are all still asked of every row; what is gone is the ability to answer
+them with *no*.
+
 #### One radio was answering four questions
 
 `state` was a single exclusive choice over ten values that were not alternatives
@@ -938,7 +950,9 @@ with **whose** (`@me` = author or assignee · `@anyone-else` · logins), **kind*
 
 The browser opens on `unread · awake` - what moved, minus what you have said you
 do not want to see - and `c` clears to *nothing*, which is the whole corpus
-including what you filed. Both are one keystroke from the other.
+including what you filed. Both are one keystroke from the other. (Both halves of
+that changed when the three merged: `c` now lands where the browser opens, and
+the corpus is a view by name.)
 
 #### The three corrections that arrived mid-build
 
@@ -1014,10 +1028,12 @@ as well as the snooze wake, which is what it has always read like it did.
      `active` + `@me` gave: the difference is your own issues and pull requests
      that arrived through a mention or comment lane and were filed in the pile
      for it, plus the 16 issues GitHub has assigned to you.
-  2. **what moved** — the seen axis. Everything that has changed since you
-     looked at it, whoever moved it and wherever it came from.
-  3. **open items** — `open` + `awake`. 2148 of 2160, and the way it goes down
-     is `s` and `x`, not `r`.
+  2. **what moved** — the seen axis, and the "notification firehose" since the
+     dispositions merged. Everything that has changed since you looked at it,
+     whoever moved it and wherever it came from.
+  3. **open items** — `open` + `awake`, which is the base box rather than a
+     selection: the view checks that and `read` beside it. 2148 of 2160, and
+     the way it goes down is `s` and `x`, not `r`.
 
 All three are views, and `'` reaches any of them in one keystroke.
 
@@ -1060,6 +1076,61 @@ converted once by hand on the day.
     read as open and always as unread can now be finished, and can be read.
     Their bucket is `activity` rather than `unread` - the poll is what they
     are, and `unread` was the same word on two axes in one pane.
+
+#### The dispositions are one axis now (2026-09-11)
+
+`seen`, `sleep` and `state` were three axes that could each be turned off, and
+what they had in common is that **turning one off is never what anybody wants**.
+`seen: read` alone hid everything that had moved; `sleep: snoozed` alone hid all
+the work; a row could be filtered out of the dashboard by pressing return on the
+wrong line and the way back was not obvious from the screen. The eight built-in
+views each had to spell `sleep = ["awake"]` to avoid it, which is what a default
+looks like when it has been written in the wrong place.
+
+So the three are one axis, `show`, and it only ever **adds**: five boxes, each
+bringing its own kind of row in beside the others and none of them able to take
+another's rows away. `unread, awake, open` is the first, and it is what this
+dashboard *is* - the box that is checked when nothing has been asked - and the
+four beside it are the four things that list leaves out: `read`, `snoozed`,
+`filed away`, `closed or merged`. All five is the corpus. What follows from
+that:
+
+  * **`c` and the opening filter are the same place.** Clearing every filter
+    leaves the list the browser opens on, because "cleared" for this axis is
+    the base box rather than the empty set. The corpus is reached by name
+    instead - `'` `9`, "everything" - and by the two jumps that need it (a
+    number typed into `/`, and `i` from the worktree list), which set all five
+    boxes rather than clearing the pane.
+  * **The base is the fifth box** (2026-09-11, the same day). It began as a
+    floor with no control at all, on the argument that every way of turning it
+    off was a way of emptying the screen. That argument was about *accidents*,
+    and it bought safety by making one question unaskable: the filed rows
+    *alone*, rather than beside today's work. So the base is a checkbox like
+    the other four, checked whenever nothing has been asked - by `c`, by a
+    fresh `Filters`, by a view that names no `show` - and unchecking it is a
+    deliberate press that nothing in the program does on your behalf. Every box
+    off is an empty list, which is the honest reading of an axis that adds
+    rather than narrows.
+  * **The counts became a delta.** A tally of values makes no sense on an axis
+    whose values are not alternatives, so each number is what its box is
+    holding in - what checking it would bring, or what unchecking it would take
+    away. A closed pull request you read last week is held out twice and counted
+    under neither until one of the two is on.
+  * **`read` is asked of awake work only.** Putting something away stamps it
+    read - a snooze and a filing both do - so a `snoozed` box that also wanted
+    the unread stamp would have shown nothing at all. This is the one asymmetry
+    in the axis and it is written down in `show_ok`.
+  * **A view names `show`, and an unknown key is now reported.** `seen`, `sleep`
+    and `state` were keys in `config.toml`; a view still naming one would have
+    gone on being applied and meant something else, so `apply_view!` says "no
+    axis 'sleep'" the way it has always said "no seen 'unred'". A view that
+    names `show` names the whole of it, `base` included - which is what makes
+    `show = ["filed"]` a nameable view - and one that names none of it keeps
+    the base, which is what "cleared" means here.
+  * **"what moved" is the "notification firehose".** It is the same view - the
+    one that names no axis at all - under the name that says what it is: every
+    item that has moved and that you have not put down, which is the thing an
+    email notification stream would have been.
 
 ### Showing *what* changed, not just that something did — four ideas
 

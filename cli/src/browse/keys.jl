@@ -483,8 +483,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
         end))
         # The list is what the axes say it is, so a row that has just stopped
-        # answering one of them leaves - which for `r` with `seen: unread` is
-        # the whole of reading an inbox. Its own return for the same reason `x`
+        # answering one of them leaves - which for `r` in the base list is the
+        # whole of reading an inbox. Its own return for the same reason `x`
         # has one: the selection moves when the row goes, and `load_nodes!`
         # would put "loading …" over what this has to say.
         refilter!(st)

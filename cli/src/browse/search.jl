@@ -125,10 +125,12 @@ function commit_search!(st::BState, w::Int)
     # reads as active, the widen does not happen, and the jump lands nowhere.
     # Widening drops the disposition axis with the state: a number typed into
     # `/` is a jump to one item, and every axis that could be hiding it goes.
-    # Bare, not widened one axis at a time: a number typed into `/` is a jump
-    # to one item, and every axis that could be hiding it goes.
+    # Everything, not widened one axis at a time: a number typed into `/` is a
+    # jump to one item, and every axis that could be hiding it goes - including
+    # the disposition boxes, since read, snoozed, filed and closed are four of
+    # the reasons the item you are looking for is not on screen.
     any(it -> it.url == target, apply_filters(st.filters, st.all, Marks(st))) ||
-        (st.filters = Filters())
+        (st.filters = everything())
     refilter!(st)
     j = findfirst(it -> it.url == target, st.items)
     j === nothing || (st.sel = j)
