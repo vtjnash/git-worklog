@@ -378,9 +378,16 @@ theme possible without re-reading it.
 A value is words, in any order: an attribute (`bold`, `dim`, `italic`,
 `underline`, `reverse`), one of the eight ANSI colours or `bright <name>`, or a
 256-colour index, with `on` in front of a colour to make it the background. So
-`"bold white"`, `"black on yellow"`, `"on 236"`, `"244"`. The shipped theme is
-the sixteen ANSI colours wherever it can be, so it follows whatever scheme the
-terminal is set to rather than fighting it.
+`"bold white"`, `"black on yellow"`, `"on 236"`, `"244"`.
+
+Three themes ship. `default-ansi.toml` is the sixteen ANSI colours wherever it
+can be, so it follows whatever scheme the terminal is set to rather than
+fighting it. `github-light-256.toml` and `github-dark-256.toml` do the opposite:
+every colour is a fixed index into the 256-colour cube, the nearest entry to the
+hex in GitHub's Primer palette, so they look the same in every terminal that has
+256 colours - at the price of assuming the ground they are drawn on, which is
+why there are two of them. They are not each other inverted: GitHub's dark
+palette moves the hues as well as the lightness, and the files follow it.
 
 Two more tables in the same file are the palettes that are not this program's.
 `[term]` is `Term.TERM_THEME[]` - the six markdown heading levels, the block

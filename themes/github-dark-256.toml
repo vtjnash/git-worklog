@@ -1,0 +1,129 @@
+# GitHub's colours on a dark terminal, as 256-colour indices.
+#
+#     theme = "github-dark-256.toml"
+#
+# The twin of `github-light-256.toml`, and the notes there apply here: every
+# colour is a fixed index into the 256-colour cube rather than one of the
+# sixteen the terminal owns, chosen as the nearest entry to the hex in GitHub's
+# Primer palette, so the dashboard looks the same wherever it is drawn. A theme
+# has no role for the canvas, so this one assumes the terminal's is dark -
+# GitHub's is #0d1117 - and the greys below are picked to sit on that.
+#
+# It is not the light file with the greys flipped. GitHub's dark palette moves
+# the hues as well as the lightness: the red loses its depth and becomes a
+# salmon (#cf222e -> #f85149), the keyword red goes further still (#ff7b72),
+# the attention olive comes back up to a real yellow (#9a6700 -> #d29922), and
+# the strings turn from navy to pale blue. Those are the changes that make a
+# dark scheme readable rather than merely inverted, and they are followed here.
+#
+# The roles and the spec language are `default-ansi.toml`'s; that file is the
+# one to read for what a role *means*.
+
+# --- weight and quiet --------------------------------------------------------
+# fg.default (#e6edf3 -> 255) and fg.muted (#9198a1), the latter a step down at
+# 245 rather than the nearest 247: the grey is the chrome, the timestamps and
+# every pane border on the screen, and GitHub's muted has more contrast against
+# a page's white gutters than it needs against a terminal's black. `focus` is
+# the loudest thing there is, which on a dark ground is white.
+bold  = "bold 255"
+dim   = "245"
+focus = "bold 231"
+
+# --- the three verdicts, and a name ------------------------------------------
+# success.fg, danger.fg, attention.fg, accent.fg - the dark forms, which are
+# the lightened ones: the check is #3fb950 rather than #1a7f37, the failure
+# #f85149 rather than #d1242f.
+settled = "71"
+blocked = "203"
+waiting = "172"
+accent  = "69"
+
+# --- the diff ----------------------------------------------------------------
+# Foregrounds, not the tinted rows GitHub draws: a line here is styled to the
+# end of its text and not to the end of the pane, so a background would stop
+# mid-line. Same green and red as the verdicts, as on GitHub.
+diff_add  = "71"
+diff_del  = "203"
+diff_hunk = "69"
+diff_meta = "243"
+# The grey behind an inline code span, a step lighter than the cursor row so a
+# span under the cursor is still marked.
+code_bg = "on 238"
+
+# --- where you are -----------------------------------------------------------
+# neutral.muted for the cursor row, accent.emphasis for a selection, and a
+# search hit on attention.emphasis (#9e6a03) with the text over it forced
+# white, since the row underneath may carry colour of its own.
+cursor_bg = "on 236"
+select_bg = "on 26"
+match_bg  = "231 on 94"
+caret     = "reverse"
+
+# --- links -------------------------------------------------------------------
+link = "underline"
+url  = "67"
+
+# --- Term's own palette ------------------------------------------------------
+# As in the light file: GitHub renders headings in the text colour and lets
+# size carry the level, which a terminal cannot, so the weight carries it
+# instead - bold, then bold muted, then muted, with h2 underlined for the rule
+# GitHub draws beneath it.
+[term]
+md_h1 = "bold 255"
+md_h2 = "bold 255 underline"
+md_h3 = "bold 255"
+md_h4 = "bold 245"
+md_h5 = "bold 245"
+md_h6 = "245"
+md_quote = "245"
+md_footnote = "69"
+md_latex = "172 italic"
+emphasis = "bold"
+emphasis_light = "italic"
+text_accent = "255"
+text = ""
+line = ""
+link = "underline 69"
+
+# A code block Term draws itself, inside a list or a quote: canvas.subtle,
+# which on dark is *lighter* than the canvas rather than darker.
+md_codeblock_bg = "234"
+
+# Tables and admonition boxes. The border is GitHub's #3d444d, one step up from
+# the nearest index for the same reason the light file goes one step down.
+md_table_header = "bold 255"
+tb_style = "239"
+tb_header = "bold 255"
+tb_columns = ""
+tb_footer = ""
+# Note, Tip, Important, Warning, Caution - GitHub's five alerts, in Term's five
+# names, with `info` taking the purple that Important is.
+md_admonition_note = "69"
+md_admonition_info = "141"
+md_admonition_warning = "172"
+md_admonition_danger = "203"
+md_admonition_tip = "71"
+
+# Box characters, not colours.
+box = "ROUNDED"
+tb_box = "MINIMAL_HEAVY_HEAD"
+
+# --- code, which is a third palette ------------------------------------------
+# Primer's dark syntax colours: keyword #ff7b72, string #a5d6ff, constant
+# #79c0ff, entity #d2a8ff, variable #ffa657, comment #9198a1. The keyword takes
+# 210 (#ff8787) and not the marginally nearer 209 (#ff875f), which is an
+# orange: with the variables and the numbers already warm, a keyword that drifts
+# that way stops being a different token at a glance.
+[code]
+text = "255"
+keyword = "210"
+boolean = "111"
+constant = "111"
+function = "183"
+macro = "183"
+operator = "210"
+punctuation = "245"
+string = "153"
+character = "153"
+comment = "245"
+number = "111"

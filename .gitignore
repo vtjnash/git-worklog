@@ -30,3 +30,8 @@ data/
 # else's package kept here to fix bugs in, not something this program builds
 # against - `Term` comes from the registry - so there is no commit of it this
 # repository has any business pinning.
+
+# Vim's undo files, which it drops beside whatever is being edited. Only
+# `config.toml` and the theme files are hand-edited here often enough for one to
+# appear, but the pattern is the editor's and not those files'.
+*.un~

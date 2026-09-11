@@ -9,7 +9,7 @@ login = "vtjnash"
 # `theme = ""` is the way to ask for that. A misspelt role or colour inside the
 # file is reported on stderr at startup and drawn as nothing; the file itself
 # says what the roles are and what a colour may be written as.
-theme = "default-ansi.toml"
+theme = "github-light-256.toml"
 
 [thresholds]
 # Your PR has been green and waiting on a reviewer this long -> needs-nudge.
