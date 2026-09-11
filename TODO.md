@@ -130,7 +130,7 @@ cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/refresh --firehose   # force the 6-hourly bulk lanes too  (~6min)
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view
-./cli/bin/wl next 10           # pull untagged backlog to triage
+./cli/bin/wl next 10           # pull untriaged items from the pile
 ./cli/bin/wl watching          # repos you watch, and which are tracked
 ./cli/bin/wl import <url>...   # follow items, landed unread; `i` in the browser
                                # is the same thing, one at a time
@@ -152,7 +152,7 @@ that in about a minute.
 The browser's keys divide by case: **lowercase shows you something, uppercase
 changes something on GitHub.** `/` searches, `C` composes, `A` reviews, `L`
 labels, `r` toggles read, `s` asks how long to snooze for, `u` re-fetches the
-whole dashboard in the background, `w` cycles the three orders, `x` archives,
+whole dashboard in the background, `w` cycles the three orders, `x` files it away,
 `z` undoes the last local action. A click on a url copies it, whole even where
 the wrapping cut it, a double click copies the word - or the item's url, in the
 list - and the `⧉` at the end of every header copies that block whole. A drag
@@ -160,20 +160,25 @@ over the reading pane selects rows for `y` to copy and `c` to comment on, and
 `shift-J`/`shift-K` or the shifted arrows do the same from the keyboard. The list opens newest first - by when anything last
 happened, yours or GitHub's - and `w` reaches the other two orders: the
 interaction clock, and the url (owner, project, number, descending). A row that
-leaves the list under you - `r` in the unread lane, `x`, `s` - leaves the cursor
+leaves the list under you - `r` with `seen: unread` applied, `x`, `s` - leaves the cursor
 where it was rather than at the top, and coming back to an item lands on the
 line you were reading in it, per item and per mode.
 
-`'` is the named views - seven built in, more from `config.toml`, and its last
+`'` is the named views - nine built in, more from `config.toml`, and its last
 entry copies the current filter as the TOML that would name it. The first ten
-are on `1`-`9` and `0`; `` ` `` goes back to the filter you were in before. `f` opens the filter pane, whose ten
-states are `active` / `unread` / `mine` / `second look` / `drafts` / `touched` /
-`snoozed` / `backlog` / `archived` / `all` - `active` being everything that is
-not snoozed, not archived and not in the backlog pile, which is the only one of
-the ten that is a subtraction - with a second radio group
-for issues, pull requests or both, and checkbox axes for category, repo, label
-and author — each long one listing its head and offering the rest as a picker
-you type into.
+are on `1`-`9` and `0`; `` ` `` goes back to the filter you were in before.
+
+`f` opens the filter pane. Every axis there is a **set**, and an empty set
+restricts nothing: **seen** (unread · read), **sleep** (awake · snoozed · filed
+away), **state** (open · closed or merged), **tag** (second look · touched ·
+drafts), and then category, repo, label and author - each long one listing its
+head and offering the rest as a picker you type into. `kind` is the one radio,
+being three values that exhaust each other. The browser opens on `unread` +
+`awake`; `c` clears to nothing at all, which is the whole corpus.
+
+There is no `active` and no `backlog`: they were one fact - which lane fetched
+the row - wearing a state's clothes, and what takes something out of view now is
+dismissing it, one item at a time, recorded and undoable.
 
 Two ways in for work no lane returns: `i` imports an item by url, and so does
 `↵` on the row above the first item, which is the only row in the list that is
@@ -843,27 +848,26 @@ Worth thinking about separately, and not obviously worth doing: the lane is
 called "second look" in the filter pane, which is what it does and not what it
 is for. Nobody looking for "who is waiting on me" finds it by reading that.
 
-### The two modes — built, and what it left behind
+### The modes — built, and what it left behind
 
 **What the work actually is, in the user's own words:** two modes. Either
 *wanting my own work - what I am editing as a (co)author* - or *reviewing what
-came in from everyone else*. Not ten lanes; two, plus a pile.
+came in from everyone else*. Not ten lanes; two, plus a pile. It turned out to
+be three, the pile being one of them rather than a thing the other two subtract.
 
-**The modes themselves are done** (2026-09-10). They are views, not lanes,
-because which work is yours is the *author* axis and what state it is in is the
-state axis - one axis per question. `'` `2` is "my work" (`active` + `@me`, 76
-rows) and `'` `3` is "incoming" (`active` + `@anyone-else`, 81). The `mine` lane
-is gone: it said `author == login()` inside the state axis, which is the author
-axis written twice in the place it does not belong.
+**The modes are done** (2026-09-10). They are views, not lanes, because each is
+one axis answering one question: `'` `2` is "my work" (`@me` + open + awake, 155
+rows), `'` `1` is "what moved" (the seen axis, 2157), and `'` `3` is "open
+items" (the pile, awake, 2148). The `mine` lane is gone - it said `author == login()` inside
+the state axis, which is the author axis written twice in the place it does not
+belong - and so is `active`, which was the *lane* axis written where a state
+belonged.
 
-It could not go until `stale` stopped evicting, which happened the same day -
-`mine` was the only lane that did not subtract the backlog, so it was the only
-place your 44 quiet pull requests could be seen, which is why the list actually
-worked from was `mine` and not `active`.
+`mine` could not go until `stale` stopped evicting, which happened the same day:
+it was the only lane that did not subtract the pile, so it was the only place
+your 44 quiet pull requests could be seen.
 
-What follows is what that left open. The state-axis half of it is **built** -
-"THE STATE AXIS" below is the record - and the third mode named here is one of
-its three: `open` + `awake`, browsed and dismissed rather than read.
+What follows is what that left open, with what has since happened to each.
 
 Three things follow, and none of them is what the lanes do today:
 
@@ -886,34 +890,33 @@ Somebody asking you to review is an *event*: it moves the item, which makes it
 unread, and from that point what happens is a local decision - act on it, or
 snooze it. `needs-review` instead reads GitHub's standing `review-requested`,
 which keeps saying the same thing for as long as the request is open however
-many times you have looked at it and decided not yet. 42 of the 81 rows in
-"everything from other people" are that bucket, and nothing about them says
-whether you have already dealt with them. The two local records that *do* know -
-the unread cursor and the snooze - are this program's own and are the reason it
-exists; a lane built on them cannot be wrong in that way. Fixing it is not a new
-mechanism, it is deciding that the request is what marks it unread and nothing
-after that is GitHub's to say.
+many times you have looked at it and decided not yet.
 
-Against that, today's ten `STATES` are the wrong shape rather than the wrong
-number: `mine` is mode one, nothing is mode two (`active` is both modes mixed,
-and 81 of its 157 rows are other people's), and `backlog` is the pile. The
-author axis already carries `@me` and `@anyone-else`, so mode two may be a view
-rather than a lane - `active` + `@anyone-else` - which would cost nothing and
-wants trying before anything is built.
+**Half done.** The visibility half is: a review request no longer *puts*
+anything anywhere, because the lane it used to put it in is gone - it is a
+bucket you can filter on and nothing more, and whether the row is in front of
+you is the seen axis's answer. What is not done is the event: `reviewRequests`
+is not fetched at all, and none of `review_count`, `review_decision` or
+`human_comment_at` changes when somebody asks you *again*. A first request
+arrives as a new item and is unread for that reason; a re-request on something
+you have read passes unnoticed. Fetching `reviewRequests` and putting it in the
+key set would close it.
 
-**One thing mode one cannot express at all.** `mine` is `it.author == login()`.
-"What I am editing as a **(co)author**" is wider than that and nothing here
-knows it: a pull request somebody else opened that you have pushed commits to,
-or that carries you in a `Co-authored-by` trailer, is not yours by any test this
-program applies. GraphQL will answer the first (`commits(...) { authors }`) and
-the second only by reading commit messages. Neither is free, and neither has
-been costed.
+**One thing mode one could not express, half of which is now fetched.** `mine`
+was `it.author == login()`. "What I am editing as a **(co)author**" is wider,
+and **assignee is now in** - every lane asks for `assignees`, so an issue GitHub
+put on you is yours however it was found. Still outside: a pull request somebody
+else opened that you have pushed commits to, or that carries you in a
+`Co-authored-by` trailer. GraphQL will answer the first
+(`commits(...) { authors }`) and the second only by reading commit messages.
+Neither is free, and neither has been costed.
 
-### THE STATE AXIS — built, 2026-09-10
+### THE STATE AXIS — built, 2026-09-10 and -11
 
 Designed and built in one long session, and written out here because the design
 changed twice while it was being built and the reasons are worth keeping. The
-whole of the build order below is done; what follows is what it settled.
+whole of the build order below is done; what follows is what it settled, and
+what the day after it settled about `track`.
 
 #### One radio was answering four questions
 
@@ -925,7 +928,7 @@ beside them:
 
 | axis | the question | values | from | what changes it |
 |---|---|---|---|---|
-| **seen** | has it changed since I looked? | unread · read | the read stamp against `updated` | `r`, and *any* movement |
+| **seen** | has it changed since I looked? | unread · read | the read stamp against `moved_at` | `r`, and any movement *at this item's level* |
 | **sleep** | do I want to see it? | awake · snoozed · filed | one `snooze` field | `s`, `x`, and a wake condition coming true |
 | **state** | is it finished? | open · closed or merged | GitHub | GitHub |
 | **tag** | anything else worth asking | second look · touched · drafts | derived, or a mark | the refresh, and what you do |
@@ -971,14 +974,49 @@ for them. What this program has that GitHub does not is the record of what *you*
 decided, so what subtracts the pile is **dismissal**: one item at a time,
 recorded, undoable. `active` and `backlog` are gone and nothing replaces them.
 
+#### What `track` turned out to be (2026-09-11)
+
+The axis was measured against GitHub's `updated`, and the question that found
+the hole was "I want to know closely when my PRs get an approval or CI finishes,
+but not anyone else's". **`updated` cannot answer either half.** It does not
+move when a check run finishes - julia#62841 is stamped 20:55:52 and its three
+suites completed at 20:56:04, :07 and :19, and it has not moved since - so CI
+turning green had never once made anything unread. And it *does* move for a
+label edit on a stranger's pull request.
+
+The thing that did know is the fingerprint, which has `ci` in its key set - and
+it only ever spoke when a snooze woke. So:
+
+  * the refresh records **`moved_at`**: when it last saw a change at that item's
+    tracking level. The old row is re-fingerprinted at *today's* level rather
+    than read out of its stored `fp`, so changing `track` is not itself
+    movement; first sight seeds from what GitHub says, so a rebuilt
+    `fetched.json` does not read as everything moving at once. Unlike a snooze,
+    which compares against the value armed when you said "not now", this is
+    "since you last looked" - a red-green-red flap is two stamps.
+  * **`track` asks whose it is**, which it never did: it defaulted by bucket, so
+    your pull request and the one you were asked to review were both `normal`.
+    Whose it is now decides, and *before* the lane rules - 66 items of your own
+    reached through a mention lane were `background`, whose key set is empty, so
+    a reply on your own issue could never have made it unread.
+  * **two levels, not four.** `close` was `normal` plus `mergeable` and
+    `labels`, a distinction nobody sets by hand; `background` was a dismissal
+    you could not see or undo. What is left says itself: *your unfinished work
+    is tracked normally, everything else loosely* - 156 and 2003. `all` is the
+    key set `fp_full` hashes at, is not a level, and `wl track` will not take it.
+
+So `track` is one knob for "what counts as movement", governing the unread bit
+as well as the snooze wake, which is what it has always read like it did.
+
 #### The three work modes, one selection each
 
-  1. **mine** — `@me`. 157 rows, against the 77 that `active` + `@me` gave:
-     the difference is your own issues and pull requests that arrived through a
-     mention or comment lane and were filed in the pile for it.
+  1. **mine** — `@me`, meaning author or assignee. 159 rows against the 77 that
+     `active` + `@me` gave: the difference is your own issues and pull requests
+     that arrived through a mention or comment lane and were filed in the pile
+     for it, plus the 16 issues GitHub has assigned to you.
   2. **what moved** — the seen axis. Everything that has changed since you
      looked at it, whoever moved it and wherever it came from.
-  3. **open items** — `open` + `awake`. 2147 of 2159, and the way it goes down
+  3. **open items** — `open` + `awake`. 2148 of 2160, and the way it goes down
      is `s` and `x`, not `r`.
 
 All three are views, and `'` reaches any of them in one keystroke.
@@ -1011,8 +1049,10 @@ converted once by hand on the day.
   * ~~`wl next` pools on `Item.backlog`.~~ **Done.** `in_pile(r)` is the
     predicate, asked by its two callers - `second_look` and `wl next` - and the
     field is gone from every row and from `Item`.
-  * `track = "background"` stays. It is snooze sensitivity - what counts as
-    movement - and not a lane, which is the only reason it survived `backlog`.
+  * ~~`track = "background"` stays, being snooze sensitivity rather than a
+    lane.~~ **Gone too**, with `close`: the levels are `normal` and `loose`, and
+    `track` now decides whether an item is *unread* as well as whether a snooze
+    on it wakes. See "How closely you track an item" in the README.
   * ~~The rows only the poll knows about are built in a second place from a
     second shape.~~ **Done.** `poll_item` is that conversion, beside
     `inbox_row`, which is the same conversion the other way. It carries
@@ -1525,11 +1565,11 @@ beside this one now rather than a paragraph describing one.
   between two panes and nothing says so on screen.
 - **Per-check counts come from the same cache the `C` pane uses.** So the
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
-  checks have never been fetched shows the one-word rollup from `facts.json`
+  checks have never been fetched shows the one-word rollup from `fetched.json`
   until the lazy fetch lands.
 - **A snooze cap is measured from when it was armed, not from when you set it.**
   `snooze_at` records the time the fingerprint was first taken, which is the
-  next refresh after the value appears in `state.toml` — close enough for a
+  next refresh after the value appears in `local.toml` — close enough for a
   thirty-day cap, wrong if you wanted the day you typed it. Entries written
   before arming times existed adopt one on first sight rather than counting as
   infinitely old, so an upgrade wakes nothing.
@@ -1641,7 +1681,7 @@ so they are not mistaken for bugs later:
 - `set_fields` moves edited keys to the end of their block and drops blank
   lines *inside* an edited block. This matched the Python exactly. Note the
   block's own trailing blank counts as inside it — `block_span` runs to the next
-  `[`, so the separator before the next block goes too, and `state.toml` grows
+  `[`, so the separator before the next block goes too, and `local.toml` grows
   denser as blocks are edited. `z` therefore restores the *value* exactly and
   the file only nearly: undoing a snooze leaves the key as it was and the blank
   line gone.
@@ -1691,7 +1731,7 @@ so they are not mistaken for bugs later:
 
   **What search genuinely cannot reach**: Discussions, releases, security
   advisories, `ci_activity`. Only these would still need notifications, and CI
-  is already covered by the checks in `facts.json`.
+  is already covered by the checks in `fetched.json`.
 
   **And one thing notifications would make worse.** It carries GitHub's own
   read state, and this program deliberately owns its cursor — "the cursor is

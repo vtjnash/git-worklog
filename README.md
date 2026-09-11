@@ -115,16 +115,16 @@ somebody relabels a pull request you have no interest in. So "has this changed
 since I looked" is measured against `moved_at`: when this program last saw a
 change at the item's own level.
 
-## Working the backlog
+## Working the pile
 
-The background pile is about two thousand items: every open PR in
-JuliaLang/julia (~950), everything you were mentioned in or commented on
-(~1000), and your own that have gone quiet (~45). None of it appears in the
-dashboard — not even as a collapsed list, just a one-line count. You pull a batch when you want
-one and work through it by tagging:
+The pile is about two thousand items: every open PR in JuliaLang/julia (~690),
+and everything you were mentioned in or commented on (~1300). It is in the
+corpus like everything else - the browser opens on what *moved*, so it is not in
+front of you until it does - and `wl next` is the other way at it: pull a batch
+when you want one and work through it by tagging.
 
 ```bash
-cli/bin/wl next 10                 # next untagged backlog items, quietest first
+cli/bin/wl next 10                 # next untriaged items, quietest first
 cli/bin/wl dismiss julia#43202     # retire: loose + wake only on real movement
 cli/bin/wl track   julia#43257 loose
 cli/bin/wl note    julia#44005 "still relevant; rebase onto the new pass manager"
@@ -138,10 +138,11 @@ still leads with the relevant end of it.
 
 ## The stale pile
 
-Yours, quiet for 60 days, and unclaimed → **Stale — decide**, collapsed and out
-of the lanes. Setting any of `note` / `deadline` / `snooze` claims
-an item and pulls it back into an active lane; `track` alone marks it triaged
-without reviving it.
+Yours, quiet for 60 days, and unclaimed → the **stale** bucket. It is a true
+thing to say about a row and no longer decides whether you see it: nothing is
+evicted for being quiet, since a row leaving on a day nobody chose is the one
+thing a dashboard must not do. `second_look` is the live half of this - work
+that has gone quiet *on somebody*, derived every refresh and never stored.
 
 ## The browser
 
@@ -163,11 +164,11 @@ pane. Inline code is a quiet grey span instead of yellow punctuation, and
 `snake_case` names keep their underscores — Julia's Markdown reads them as
 emphasis, which CommonMark forbids and GitHub does not do.
 
-`active` is the lane it opens in, and it is defined by subtraction: everything
-that is not snoozed, not archived and not in the backlog pile. So an item leaves
-it three ways - `s` snoozes, `x` archives, and the refresh puts the stale,
-firehose and mention buckets (or anything tracked `background`) in the backlog -
-and comes back the same three ways.
+It opens on **what moved, awake**: `seen: unread` and `sleep: awake`, and
+nothing else narrowed. So an item leaves the opening list two ways - you read
+it, or you put it away with `s` or `x` - and comes back the same two ways, with
+"moved" meaning what `track` says it means for that item. `c` clears every axis,
+which is the whole corpus including what you have filed.
 
 The list itself says what has been read: unread rows are bold and read ones
 plain, and the cursor is a background rather than a weight - the same mark the
@@ -177,7 +178,7 @@ Under the item list is a metadata pane: who has reviewed and who was asked,
 labels, the check tally, milestone, mergeable state, and the tracking level and
 note from `local.toml`. It sits there rather than beside the detail because ten
 item numbers at a time is plenty and the thing being read wants the height.
-Everything in it that `facts.json` already knows is on screen immediately; the
+Everything in it that `fetched.json` already knows is on screen immediately; the
 two that need a request — per-person review state and the per-check breakdown —
 are fetched for the selected item only. The light GraphQL query the bulk lanes
 use carries no reviews, so widening it would pay for ~2000 items to answer a
@@ -186,11 +187,11 @@ question about the one on screen.
 The list opens newest first - by when anything last happened to an item, yours
 or GitHub's - which is the order every other inbox has. `w` cycles the other
 two: the interaction clock, and url order - owner, project, number, descending -
-which keeps the grouping `facts.json` is written in and reads from the newest of
+which keeps the grouping the fetch is written in and reads from the newest of
 each repo. The number is sorted as a number, not as the digits it is written
 with, so `#6661` is below `#62836` rather than above it. An order you choose
-lasts until the lane changes, and the `[...]` summary names it only while it is
-not the one the lane opens in.
+lasts until the selection changes, and the `[...]` summary names it only while
+it is not the one that selection opens in.
 
 `/` searches. In the item list it narrows by title or ref, and a bare number is
 a jump — reaching past the filter that is hiding the item, since being unable to
@@ -254,7 +255,7 @@ its diff needs it to go on meaning that.
 Coming back to an item lands on the line you were reading in it, per item and
 per mode - a comment thread and a diff of one pull request are two readings of
 it and two places to come back to. And when a row leaves the list under you -
-`r` in the unread lane, `x`, `s` - the cursor stays on the row it was on rather
+`r` with `seen: unread` applied, `x`, `s` - the cursor stays on the row it was on rather
 than jumping to the top, so an inbox is read by pressing `r`. Choosing a view, a
 filter or a query is asking for a different list, and those open at the top.
 
