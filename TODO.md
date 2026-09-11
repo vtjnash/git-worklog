@@ -2,11 +2,13 @@
 
 ## What is next
 
-Two things are open, and both are ideas to design rather than tasks to pick up.
+One thing is open, and it is an idea to design rather than a task to pick up.
 The state axis that stood at the head of this list is **built**, and so is
 "showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
-Outstanding work for what each settled and what each left open. Everything else
-that stood here is done; `git log` is the record of it and this file is not.
+Outstanding work for what each settled and what each left open. The drag that
+stood second here was the last thing waiting on a real terminal, and it is
+answered: see "Unverified" at the foot of this file. Everything else that stood
+here is done; `git log` is the record of it and this file is not.
 
 1. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
@@ -23,18 +25,6 @@ that stood here is done; `git log` is the record of it and this file is not.
    one problem for the arithmetic of keeping four ranges in step; the honest
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
-
-2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
-   and the shifted arrows extending a selection - is done. On the mouse half,
-   everything between the byte and the highlight is exercised by the suite and
-   works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
-   `sela`/`selb`, and the frame draws those rows in `SELBG` - checked against a
-   real render, not only in the test. So what is left is outside this program:
-   whether the terminal sends motion reports at all under `1002`, whether tmux
-   or the terminal is taking the drag for its own selection first, and whether
-   the drag was over the *item list*, which binds press and wheel and ignores
-   motion by design. It needs a real terminal to find out in, which is the one
-   thing this sandbox does not have.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -1896,8 +1886,11 @@ beside this one now rather than a paragraph describing one.
 ## Unverified — needs a real terminal
 
 Everything below is written and compiles, and its state transitions are tested
-by driving `handle!` directly, but none of it has been exercised through an
-actual TTY:
+by driving `handle!` directly, but has not been exercised through an actual
+TTY. An entry that gets used in one is struck through rather than deleted: what
+a real terminal *did* is the answer the list existed to get, and the mouse one
+below is the case for keeping it - the next move on a drag that would not
+select would otherwise have been to go looking for a bug in `onmouse!`.
 
 - **Merging.** `M` is driven end to end in the suite - the composer opens on
   the operation and the message, `^x` swaps both, `^s` reaches the question and
@@ -1911,13 +1904,21 @@ actual TTY:
   that produces them is driven directly from an `IOBuffer` in the tests, so the
   byte-to-keycode step is covered; what is not is whether this terminal sends
   the bytes the tests feed it.
-- Click-to-row and drag-to-select in the *browser's* panes. The mouse round
-  trip itself is answered — `\e[?1006h\e[?1002h` goes out, SGR reports come
-  back, they survive the user's tmux, and `retarget_mouse` lands them inside a
-  hosted pane correctly enough for an editor two multiplexers down to respond
-  (2026-09-03, from the nested-tmux report). What that does not pin is the
-  browser's own geometry: `onmouse!` maps a click through `layout(w, h)` and
-  `st.hdr`, and only synthetic events have ever gone through it.
+- ~~Click-to-row and drag-to-select in the *browser's* panes.~~ **Answered,
+  2026-09-11: it works, and the implementation was right all along.** The
+  drag that would not select was the terminal taking it first - VS Code's, or
+  the tmux inside it - and in a terminal that forwards motion reports under
+  `1002` the whole path behaves: `\e[<32;40;12M` arrives as a `:drag`,
+  `onmouse!` maps it through `layout(w, h)` and `st.hdr` to real rows, and the
+  frame draws them in the selection background. Nothing here needed changing,
+  which is worth saying because the obvious next move would have been to go
+  looking in `onmouse!` for a bug that was never in it. `m` is the escape
+  hatch when the terminal wants the drag for itself, and that is now a known
+  arrangement rather than a suspicion.
+  The earlier half of this was already answered on 2026-09-03 from the
+  nested-tmux report: the round trip goes out and comes back, survives the
+  user's tmux, and `retarget_mouse` lands reports inside a hosted pane
+  correctly enough for an editor two multiplexers down to respond.
 - Whether giving up the terminal's own selection is the right trade in practice.
   `m` turns mouse reporting off and hands it back, which is the escape hatch,
   but only real use will say whether that toggle is reached for constantly.
