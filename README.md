@@ -90,23 +90,30 @@ that would put forty items a week in front of you.
 
 ## How closely you track an item
 
-`track` sets both how sensitive its wake is and how prominently it shows. It is
-the answer to "I want to watch this one, and barely watch that one":
+`track` is what counts as this item having *moved* - which decides both whether
+it goes unread and whether a snooze on it wakes. Two levels, because two is what
+anybody sets:
 
-| level | wakes on | default for |
+| level | counts as movement | default for |
 |---|---|---|
-| `close` | anything, including a relabel | — (pinned to the top of its lane, marked `*`) |
-| `normal` | pushes, CI, reviews, comments | your PRs, review requests |
-| `loose` | review decisions and **human** replies only — bot comments and CI churn are ignored | assigned issues, reviewed-and-waiting |
-| `background` | nothing; never surfaces on its own | the stale pile, the firehose |
+| `normal` | a push, CI finishing, a review verdict, an unresolved thread resolving, any comment | **your unfinished work** |
+| `loose` | a review verdict or a **human** reply — bot comments and CI churn are ignored | everything else, and anything finished |
 
 ```bash
 cli/bin/wl track julia#62452 loose
 ```
 
-Because the fingerprint is computed from the level's key set, this is a real
-difference in behaviour, not a label: a CI flip wakes `normal` but not `loose`,
-a relabel wakes only `close`, a human reply wakes all three.
+This is a real difference in behaviour rather than a label, because the
+fingerprint is hashed from the level's key set: CI turning green on your own
+pull request makes it unread, the same on a stranger's does not, and a human
+reply reaches you either way.
+
+It also answers a thing GitHub cannot. `updated_at` does not move when a check
+run finishes - a pull request stamped 20:55:52 had its three suites complete at
+20:56:04, :07 and :19 and the stamp never moved - and it *does* move when
+somebody relabels a pull request you have no interest in. So "has this changed
+since I looked" is measured against `moved_at`: when this program last saw a
+change at the item's own level.
 
 ## Working the backlog
 

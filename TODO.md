@@ -2,11 +2,11 @@
 
 ## What is next
 
-Two things are open, and both are ideas to design rather than tasks to pick up.
-The state axis that stood at the head of this list is **built** - see "THE STATE
-AXIS" under Outstanding work for what it settled and what it left open.
-Everything else that stood here is done; `git log` is the record of it and this
-file is not.
+Three things are open, and all of them are ideas to design rather than tasks to
+pick up. The state axis that stood at the head of this list is **built** - see
+"THE STATE AXIS" under Outstanding work for what it settled and what it left
+open. Everything else that stood here is done; `git log` is the record of it and
+this file is not.
 
 1. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
@@ -24,7 +24,15 @@ file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
+2. **Showing what changed, not just that something did.** The read mark is one
+   timestamp, and three ideas all want it to be a small record instead - which
+   comment you had got to, which head commit you saw - so that an item coming
+   back unread opens *where you left it* rather than at the top. Written out
+   under "Showing what changed" in Outstanding work: a read marker in the
+   comment list, a range-diff since you last looked, and the pushes interleaved
+   with the comments as one activity list.
+
+3. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
    and the shifted arrows extending a selection - is done. On the mouse half,
    everything between the byte and the highlight is exercised by the suite and
    works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
@@ -1012,6 +1020,54 @@ converted once by hand on the day.
     read as open and always as unread can now be finished, and can be read.
     Their bucket is `activity` rather than `unread` - the poll is what they
     are, and `unread` was the same word on two axes in one pane.
+
+### Showing *what* changed, not just that something did — four ideas
+
+Raised 2026-09-11, after `moved_at` made "has this changed at the level I asked
+about" a thing the program can answer. The next question is the obvious one and
+the program cannot answer it at all: **what changed?** It can say a pull request
+moved and it can say why in one word - `CI 'FAILURE'->'SUCCESS'`, `new push` -
+but when you open the item you are handed the whole thread and the whole diff
+and left to find the new part yourself.
+
+**All four of these want the same thing: the read mark stops being one
+timestamp.** It is `read = "2026-09-11T00:30:14Z"` in the item's block today.
+What these ask for is a small record of *where you were* when you marked it -
+which comment, which head commit - and everything else follows from having it.
+None of it needs a new file: it is more keys in a block that already exists.
+
+1. **`r` records the comment view's scroll position, so the next comment
+   arrives below a marker.** Marking read is the end of looking; what you were
+   looking *at* is the last comment you had read, and the thread is already a
+   list of nodes with a cursor in it. Record which one, and an item that comes
+   back unread opens on that node with the new ones below it, rather than at the
+   top of a forty-comment thread you have read thirty-nine of. `st.place`
+   already remembers a position per thread for the length of a session; this is
+   the same fact, kept, and keyed to the read mark rather than to the session.
+
+2. **A range-diff since you last marked it read.** When the head commit has
+   changed since you looked, the question is never "what does this pull request
+   do" - you know - it is "what did they change in the rebase". `git range-diff`
+   answers exactly that, and the checkout is already pinned (`repo:` blocks), so
+   the machinery is there. What is missing is the *old* head: `head_at` is a
+   timestamp, and a range-diff needs the sha. So the read mark has to record the
+   head sha it was made against, and the fetch has to carry the sha at all.
+
+3. **Interleave the pushes with the comments in one activity list.** A thread
+   today is comments; the pushes are a field on the item. But "they replied,
+   then pushed, then replied" is one sequence and reading it as two is the
+   reason you scroll back and forth. GraphQL's `timelineItems` returns both in
+   order, and a `PullRequestCommit` node carries the sha and the date - which is
+   also how (2) gets its sha. Investigate what it costs: the thread fetch is
+   per-item and already the slow one.
+
+4. ~~Two tracking levels, not four.~~ **Done** - `close` and `background` are
+   gone; see `TRACK_KEYS`.
+
+Worth noticing that (1), (2) and (3) are the same feature seen from three
+sides: an item has a history, you have a position in it, and the program should
+open you at your position rather than at the beginning. The `💬` marks and the
+hunk counts from the inline-comment work are the same idea one level down.
 
 ### What review writing still cannot do
 
