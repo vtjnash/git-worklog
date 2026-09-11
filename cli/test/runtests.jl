@@ -13,6 +13,9 @@ using Worklog
 # By name where a test asks Term what this program told it - the two palettes
 # under `[term]` and `[code]` in a theme file are Term's globals, not ours.
 import Term
+# And the two widget packages, for the one hook a theme reaches into them
+# through: the weights a box is drawn in.
+import TermInput, TermIFrame
 const W = Worklog
 
 # The standing error warning takes the footer's second row, so a log left over

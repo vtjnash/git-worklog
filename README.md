@@ -392,11 +392,20 @@ dictionary keyed by capture name - `keyword`, `string`, `operator` - rather than
 part of its theme. Both are written in the language above and translated on the
 way in, so a theme is one file rather than three.
 
+The boxes follow as well, which is the part that is not in this repository at
+all: the dialogs, the composer and the pane a hosted program is drawn in come
+from [TermInput](TermInput.jl) and [TermIFrame](TermIFrame.jl), and each took
+its bold, its dim and its reset as escapes written into the source. They read
+`TermInput.CHROME` now - three weights a host sets once - so `bold` and `dim`
+here reach every border on the screen. The one escape those keep for themselves
+is the block marking where the cursor is in a composer: that is not emphasis,
+it is the only thing saying where typing will go.
+
 Nothing else turns colour on. An empty value, no `theme` line at all, or a name
 that is not there draws the whole program plain - not one escape printed, resets
-included, and a markdown body comes back as text, since Term prints its own
-attribute resets whatever its palette says and with no theme those are noise.
-So `theme = ""` is the way to ask for that. A file that *is* there and has a
+included, the borders reduced to bare line art, and a markdown body coming back
+as text - Term prints its own attribute resets whatever its palette says, and
+with no theme those are noise. So `theme = ""` is the way to ask for that. A file that *is* there and has a
 misspelt role or colour in it says so on stderr at startup and draws that one
 role as nothing; the rest of the theme still applies.
 

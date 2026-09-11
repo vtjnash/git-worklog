@@ -413,6 +413,23 @@ function apply_code!(tbl, probs::Vector{String}, where_::AbstractString)
     probs
 end
 
+"""Hand the widget packages the weights they draw their boxes in.
+
+`TermInput.CHROME` is their one hook for it, and `TermIFrame` reads the same
+one - the box a hosted program is drawn in and the box a composer is drawn in
+are the same box as far as a theme is concerned. Three roles cover it: a title
+and a focused border are `bold`, everything else about a border is `dim`, and
+the reset is the reset. With no theme all three are empty, and the boxes come
+out as bare characters, which is the whole of what "drawing plain" means for
+something that is drawn in line-art.
+
+Not their business and not set from here: the block that marks the cursor in a
+composer. `TermInput` keeps that as reverse video whatever a theme says,
+because it is the only thing on screen saying where typing will go.
+"""
+chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
+                                   reset = THEME.reset); nothing)
+
 """Term's output, with its escapes taken back off when there is no theme.
 
 The last half-inch of drawing plain. Term always wraps what it renders in a
@@ -457,7 +474,11 @@ stopped being drawn is exactly the kind of failure nobody reports, so the
 problems come back as sentences and `__init__` prints them.
 
 Every field is cleared first: loading a second theme must not leave the first
-one's colours behind in the roles the second does not name.
+one's colours behind in the roles the second does not name. The same goes for
+the three palettes that are not ours - Term's, the highlighter's, and the
+weights the widget packages draw their boxes in - each of which is set from
+here on every load, so that "the theme" means one file and not four globals
+that drifted apart.
 """
 function load_theme!(path::AbstractString = themefile())
     probs = String[]
@@ -466,6 +487,7 @@ function load_theme!(path::AbstractString = themefile())
     end
     term_plain!()
     term_code_plain!()
+    chrome!()
     isempty(path) && return probs
     if !isfile(path)
         push!(probs, string("no theme file at ", path, " - drawing without colour"))
@@ -507,5 +529,6 @@ function load_theme!(path::AbstractString = themefile())
             end
         end
     end
+    chrome!()
     probs
 end

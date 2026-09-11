@@ -111,14 +111,11 @@ end
         # not this program's to turn off - the question here is about the frame.
         st.nodes = [W.Node("alice  2026-08-01   first", "a paragraph", :plain, true)]
         f = W.render(st, 150, 40)
-        # Not one colour, anywhere: no foreground, no background, no 256.
-        @test !occursin(r"\e\[(?:[349][0-9]|10[0-7]|[34]8;)", f)
-        # And what is left is the pane's own border, which is `TermIFrame`'s
-        # weight rather than this program's colour - the one styling on screen
-        # that a theme here does not reach. Named as a set so that a colour
-        # leaking back in fails this rather than hiding among them.
-        @test Set(m.match for m in eachmatch(r"\e\[[0-9;]*m", f)) ⊆
-              Set(["\e[0m", "\e[1m", "\e[2m"])
+        # Not one SGR escape anywhere on the screen - not a colour, and not the
+        # weight a border is drawn in either: the two widget packages take
+        # those from `TermInput.CHROME`, which this sets too.
+        @test !occursin(r"\e\[[0-9;]*m", f)
+        @test TermInput.CHROME[] == (strong = "", quiet = "", reset = "")
         # Still a frame, though: the geometry is not the theme's business.
         @test all(W.awidth(l) == 150 for l in split(f, "\n"))
         # Hyperlinks are not colour and stay - OSC 8 is how a url is followed,
@@ -129,6 +126,9 @@ end
         @test W.hlrow("plain", W.THEME.cursor_bg) == "plain"
         @test W.hlspan("plain", [1:2], W.THEME.match_bg) == "plain"
         @test W.rearm("a\e[0mb", W.THEME.code_bg) == "a\e[0mb"
+        # A bordered box is bare line art, which is what drawing plain means
+        # for something drawn in characters rather than in words.
+        @test TermIFrame.bordered(["x"], 20, 3, "t", true)[1] == "╭─ t ──────────────╮"
     finally
         W.load_theme!(THEME_DEFAULT)
     end
@@ -169,6 +169,8 @@ end
         @test W.term_style("") == W.TERM_PLAIN == "default"
 
         @test isempty(W.load_theme!(THEME_DEFAULT))
+        @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
+                                     reset = W.THEME.reset)
         @test t.md_h1 == "bold blue" && t.md_quote == "blue"
         @test t.md_codeblock_bg == "#303030"      # Term reads it as on_<colour>
         @test t.box === :ROUNDED                   # a name, not a colour
