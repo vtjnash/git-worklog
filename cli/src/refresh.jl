@@ -104,54 +104,54 @@ function normalize(n, lane::AbstractString, login::AbstractString)
     rec
 end
 
-# How closely you are tracking an item decides what counts as it having moved.
-# A loosely-tracked PR should not wake you because CI flapped or someone
-# relabelled it; a closely-tracked one should wake on anything at all.
+# How closely you are tracking an item decides what counts as it having moved -
+# for the snooze that wakes on it, and for whether it is unread.
+#
+# **Two levels, and there were four.** `close` added `mergeable` and `labels` to
+# `normal`, which is a distinction nobody ever wanted to make by hand, and
+# `background` had an empty key set - a constant fingerprint, so nothing about
+# the item could ever reach you. The pile does not need that: what takes
+# something out of view is dismissing it, one item at a time, and a level that
+# means "never tell me anything" is a dismissal you cannot see and cannot undo.
+#
+# `all` is not a level and is not settable - `TRACK` is what `wl track` accepts.
+# It is every key there is, which is what `fp_full` is hashed at, so the
+# refresh's change list can report something the item's own level ignores.
 const TRACK_KEYS = Dict(
-    "close"      => ("head_at", "review_decision", "mergeable", "ci", "unresolved",
-                     "review_count", "last_comment_at", "labels"),
-    "normal"     => ("head_at", "review_decision", "ci", "unresolved",
-                     "review_count", "last_comment_at"),
-    "loose"      => ("review_decision", "review_count", "human_comment_at"),
-    "background" => (),          # empty key set -> constant -> never wakes
+    "normal" => ("head_at", "review_decision", "ci", "unresolved",
+                 "review_count", "last_comment_at"),
+    "loose"  => ("review_decision", "review_count", "human_comment_at"),
+    "all"    => ("head_at", "review_decision", "mergeable", "ci", "unresolved",
+                 "review_count", "last_comment_at", "labels"),
 )
 
 "What counts as 'this item moved', at the given tracking level."
-function fingerprint(rec, level::AbstractString = "close")
+function fingerprint(rec, level::AbstractString = "all")
     ks = get(TRACK_KEYS, level, TRACK_KEYS["normal"])
     key = Any[k == "labels" ? sort(get(rec, "labels", String[])) : get(rec, k, nothing)
               for k in ks]
     bytes2hex(SHA.sha256(json_dumps(key)))[1:16]
 end
 
-"""Explicit setting wins; otherwise whose it is picks the default, then the lane.
+"""Explicit setting wins; otherwise **your unfinished work is tracked normally
+and everything else loosely**.
 
-**Whose it is, first.** What counts as movement is not a property of the lane an
-item arrived in - it is a property of how much of your attention it has a claim
-on. Your own pull request should reach you when CI turns green or somebody
-approves it; the one you have been asked to review should reach you when there
-is a verdict or a human reply, and not because their CI flapped or somebody
-relabelled it. That is `normal` against `loose`, and it was `normal` for both:
-the levels defaulted by bucket and never once asked whose work it was.
+What counts as movement is not a property of the lane an item arrived in - it is
+a property of how much of your attention it has a claim on. Your own pull
+request should reach you when CI turns green or somebody approves it; the one
+you were asked to review should reach you when there is a verdict or a human
+reply, and not because their CI flapped or somebody relabelled it.
 
-`stale` is deliberately not given `background`. It was, and that made an
-on-change snooze on one a snooze that could never wake: `background` has an
-empty key set, so the fingerprint is a constant and nothing ever changes it.
-Dismissing a quiet pull request with `s` `1` is the whole way one leaves the
-list now, so it has to be a dismissal that comes back.
+It defaulted by bucket and never once asked whose the work was, which is how
+your pull request and a stranger's ended up at the same level - and how 66 items
+of your own, reached through a mention lane, ended up at a level where nothing
+about them could reach you at all.
+
+Finished work is loose whoever it belongs to: nothing about it should wake you.
 """
-function resolve_track(st, r)
-    t = get(st, "track", nothing)
-    t isa AbstractString && haskey(TRACK_KEYS, t) && return t
-    bucket = pget(r, "bucket")
-    bucket == "done" && return "loose"   # over; nothing about it should wake you
-    # Before the lane rules and not after them: your own issue reached through a
-    # mention lane is still yours, and 66 of them were `background` - which has
-    # an empty key set, so a reply on your own issue could never make it unread.
-    pget(r, "mine") === true && return "normal"
-    bucket in ("firehose", "mentioned") && return "background"
-    bucket in ("issue", "reviewed", "blocked") && return "loose"
-    "loose"
+resolve_track(st, r) = let t = get(st, "track", nothing)
+    t isa AbstractString && t in TRACK ? t :
+    (pget(r, "mine") === true && pget(r, "bucket") != "done") ? "normal" : "loose"
 end
 
 """Whole working days between two instants, counting Monday to Friday.
@@ -430,8 +430,7 @@ waiting on a reviewer - which `second_look` could not say either, since it
 refuses the pile. Two thresholds, both silent, both unrecorded, both hiding the
 same work.
 """
-in_pile(r) = pget(r, "bucket") in ("firehose", "mentioned") ||
-             pget(r, "track") == "background"
+in_pile(r) = pget(r, "bucket") in ("firehose", "mentioned")
 
 """Which edge of a snooze this refresh crossed: `:slept`, `:woke`, or nothing.
 
@@ -799,7 +798,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         end
         apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])
-        r["fp_full"] = fingerprint(r, "close")
+        r["fp_full"] = fingerprint(r, "all")
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # After the bucket, which `in_pile` reads and the pile is not a to-do

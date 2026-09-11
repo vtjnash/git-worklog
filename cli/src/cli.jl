@@ -17,7 +17,7 @@ Work dashboard.
   wl next    [n]                          pull the next untriaged items from the pile
   wl watching                             repos you watch, and which are tracked
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
-  wl track   julia#62452 close            close | normal | loose | background
+  wl track   julia#62452 loose           normal | loose - what counts as it moving
   wl dismiss julia#62452                  retire from the pile until it moves
   wl snooze  julia#62452 on-change        or a date, "forever", or "off"
   wl note    julia#62452 "rebase after #62396 lands"

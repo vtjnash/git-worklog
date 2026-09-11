@@ -116,14 +116,13 @@ end
     # to-do list.
     done_ = copy(r); done_["state"] = "MERGED"
     @test isempty(look(done_))
-    # The pile is asked for by name rather than carried on the row: both of the
-    # things `backlog` used to say, said by the bucket it was derived from.
+    # The pile is asked for by name rather than carried on the row, and it is
+    # the bucket that says so - `track = "background"` was the other half of it
+    # and is gone, along with the level that could never wake.
     for b in ("firehose", "mentioned")
         pile = copy(r); pile["bucket"] = b
         @test isempty(look(pile)) && W.in_pile(pile)
     end
-    bg = copy(r); bg["track"] = "background"
-    @test isempty(look(bg)) && W.in_pile(bg)
     @test !W.in_pile(r)
     # Nothing to measure at all is not silence.
     @test isempty(look(base()))

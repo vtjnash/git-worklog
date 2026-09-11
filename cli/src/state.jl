@@ -32,7 +32,9 @@ localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "note",
                 "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
-const TRACK = ("close", "normal", "loose", "background")
+# Two, and there were four: see `TRACK_KEYS` for what `close` and `background`
+# were and why neither was worth keeping.
+const TRACK = ("normal", "loose")
 
 "A message for the user and a non-zero exit, the way `sys.exit(str)` behaved."
 struct CliError <: Exception

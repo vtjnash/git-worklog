@@ -101,7 +101,7 @@ the answer to "I want to watch this one, and barely watch that one":
 | `background` | nothing; never surfaces on its own | the stale pile, the firehose |
 
 ```bash
-cli/bin/wl track julia#62452 close
+cli/bin/wl track julia#62452 loose
 ```
 
 Because the fingerprint is computed from the level's key set, this is a real

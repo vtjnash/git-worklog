@@ -279,7 +279,14 @@ end
     @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
     @test "ci" in W.TRACK_KEYS["normal"] && !("ci" in W.TRACK_KEYS["loose"])
     # And what you said by hand wins over both.
-    @test W.resolve_track(Dict{String,Any}("track" => "close"), theirs) == "close"
+    @test W.resolve_track(Dict{String,Any}("track" => "normal"), theirs) == "normal"
+    # Two levels, and there were four: a value that is no longer one is not a
+    # level, and the default answers instead of it.
+    @test W.TRACK == ("normal", "loose")
+    @test W.resolve_track(Dict{String,Any}("track" => "background"), theirs) == "loose"
+    # `all` is every key there is, which is what the change list is hashed at -
+    # not a level, and not settable.
+    @test !("all" in W.TRACK) && issubset(W.TRACK_KEYS["normal"], W.TRACK_KEYS["all"])
     # And it is a value on the bucket axis, which is where finished work is read
     # now that nothing renders a page of sections.
     @test "done" in mkstate().buckets
