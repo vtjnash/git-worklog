@@ -844,8 +844,15 @@ end
 
 # --- context expansion ------------------------------------------------------
 
-"Head commit of a pull request, cached: expansion needs the file as it will be."
+"""Head commit of a pull request: what the lanes carry, else one request.
+
+`facts.json` has carried the sha since the lanes started selecting
+`headRefOid`, which is every row of the dashboard and every import. The request
+below is for the rest: a branch adopted into being an item, a row the activity
+poll wrote, and a snapshot written before the field was asked for.
+"""
 function head_sha(it::Item)
+    isempty(it.head) || return it.head
     key = string("headsha:", it.repo, "#", it.number)
     hit = cache_get(key, 86_400.0)
     hit === nothing || return String(hit[1])

@@ -21,7 +21,7 @@ The split that makes it safe to let a model touch this:
 | file | owner | lifetime |
 |---|---|---|
 | `config.toml` | you | edited by hand |
-| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, touched, drafted). Plus a `repo:` block per local checkout. Tracked |
+| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, drafted). Plus a `repo:` block per local checkout. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw. Not tracked; ~4MB |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
@@ -115,6 +115,44 @@ somebody relabels a pull request you have no interest in. So "has this changed
 since I looked" is measured against `moved_at`: when this program last saw a
 change at the item's own level.
 
+## Showing what changed, not just that something did
+
+Knowing an item moved is half an answer. The other half is *what* moved, and
+without it, opening something you have already read means being handed the whole
+thread and the whole diff again with the new part somewhere in them.
+
+Three things answer it, and all three are read off the mark `r` leaves behind:
+
+**The thread is one activity list.** The comments and the pushes are one
+sequence — "they replied, then pushed, then replied" — and reading it as two is
+why you scroll back and forth. The commits are drawn in among the comments in
+the order they happened, with a run of them that nobody spoke between folded
+into one `↑ pushed 3 commits` entry.
+
+**A rule says where the new part starts.** `r` marks a thread read up to the
+moment it was *fetched*, so everything written before the stamp was on screen
+and everything written after it was not. An item that comes back unread opens on
+that rule with the new entries below it, rather than at the top of a forty-entry
+thread you have read thirty-nine of. That is also why nothing records *which*
+comment you had got to: the stamp already answers it, and a second answer is one
+that can disagree with the first.
+
+**`p` is what has been pushed since you last looked.** The stamp cannot answer
+this one — a rebase is invisible to a clock — so the read mark also records the
+head commit it was made at, and `p` diffs that against the head now:
+
+| what the branch did | what `p` shows |
+|---|---|
+| only added to it — the old head is still in its history | the plain diff between the two heads, and how many commits arrived |
+| rebased, amended, force-pushed | `git range-diff`, one foldable node per commit, marked `unchanged` / `changed` / `gone` / `new` |
+
+It needs a pinned checkout, because there is no GitHub endpoint that compares
+two heads of one pull request — `compare` is between refs and the head you saw
+is not one. It also needs to have been marked read once; on an item that never
+has been, the pane says which key makes one rather than showing an empty box.
+Only `r` writes that sha — a snooze, an archive and `wl read` stamp "not now"
+and know nothing about what you were looking at, so they leave it alone.
+
 ## Working the pile
 
 The pile is about two thousand items: every open PR in JuliaLang/julia (~690),
@@ -163,6 +201,10 @@ pasted log folds away to one line and never gets drawn as a box wider than the
 pane. Inline code is a quiet grey span instead of yellow punctuation, and
 `snake_case` names keep their underscores — Julia's Markdown reads them as
 emphasis, which CommonMark forbids and GitHub does not do.
+
+`d` is the diff, `o` the thread, `p` what has been pushed since you last looked,
+and `c` the per-check breakdown — see "Showing what changed" above for the last
+of those and for the rule the thread opens on.
 
 It opens on **what moved, awake and open**. So an item leaves the opening list
 two ways - you read it, or you put it away with `s` or `x` - and comes back the

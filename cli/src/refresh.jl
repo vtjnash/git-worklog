@@ -79,6 +79,12 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         mine_reviews = [r for r in reviews
                         if jget(jget(r, :author), :login) == login && jget(r, :submittedAt) !== nothing]
         rec["branch"] = something(jget(n, :headRefName), "")
+        # The head *sha*, and not only the date it was made. `head_at` says a
+        # push happened; only the sha says what it pushed, which is what a diff
+        # against the head you last saw has to be taken between. It is a scalar
+        # on the same node every lane already selects, so it costs nothing and
+        # arrives for every row rather than for the one under the cursor.
+        rec["head_sha"] = something(jget(n, :headRefOid), "")
         # Who pushed the button, and only ever asked of the closed lanes -
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)

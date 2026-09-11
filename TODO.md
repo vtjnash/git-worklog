@@ -2,11 +2,11 @@
 
 ## What is next
 
-Three things are open, and all of them are ideas to design rather than tasks to
-pick up. The state axis that stood at the head of this list is **built** - see
-"THE STATE AXIS" under Outstanding work for what it settled and what it left
-open. Everything else that stood here is done; `git log` is the record of it and
-this file is not.
+Two things are open, and both are ideas to design rather than tasks to pick up.
+The state axis that stood at the head of this list is **built**, and so is
+"showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
+Outstanding work for what each settled and what each left open. Everything else
+that stood here is done; `git log` is the record of it and this file is not.
 
 1. **A comment box drawn inline, between the lines it is about.** An idea to
    design rather than a task to pick up, and the rest of that item is done: the
@@ -24,15 +24,7 @@ this file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Showing what changed, not just that something did.** The read mark is one
-   timestamp, and three ideas all want it to be a small record instead - which
-   comment you had got to, which head commit you saw - so that an item coming
-   back unread opens *where you left it* rather than at the top. Written out
-   under "Showing what changed" in Outstanding work: a read marker in the
-   comment list, a range-diff since you last looked, and the pushes interleaved
-   with the comments as one activity list.
-
-3. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
+2. **Whether a drag is reported at all.** The keyboard half of this - `shift-J`
    and the shifted arrows extending a selection - is done. On the mouse half,
    everything between the byte and the highlight is exercised by the suite and
    works: `\e[<32;40;12M` decodes to a `:drag`, `onmouse!` puts the range in
@@ -1132,53 +1124,90 @@ that:
     item that has moved and that you have not put down, which is the thing an
     email notification stream would have been.
 
-### Showing *what* changed, not just that something did — four ideas
+### Showing *what* changed, not just that something did — **built**
 
 Raised 2026-09-11, after `moved_at` made "has this changed at the level I asked
-about" a thing the program can answer. The next question is the obvious one and
-the program cannot answer it at all: **what changed?** It can say a pull request
-moved and it can say why in one word - `CI 'FAILURE'->'SUCCESS'`, `new push` -
-but when you open the item you are handed the whole thread and the whole diff
-and left to find the new part yourself.
+about" a thing the program can answer, and built the same day. Four ideas were
+written down; all four are in. What they were, and what each turned into:
 
-**All four of these want the same thing: the read mark stops being one
-timestamp.** It is `read = "2026-09-11T00:30:14Z"` in the item's block today.
-What these ask for is a small record of *where you were* when you marked it -
-which comment, which head commit - and everything else follows from having it.
-None of it needs a new file: it is more keys in a block that already exists.
+1. **A marker in the comment list, so the next comment arrives below a rule.**
+   Built, and *without* the key the item asked for. The proposal was to record
+   which comment you had got to; the stamp already answers that, because `r`
+   marks the thread read up to the moment it was **fetched** rather than to now
+   - so every comment written before the stamp was on screen and every comment
+   written after it was not. A `read_seen` key would have been a second copy of
+   an answer `read` already gives, and the two can disagree. `newmark_node` is
+   the rule, `openrow` is the pane opening on it, and `st.place` still wins for
+   a thread visited in this session, because in-session you were *somewhere*
+   rather than at a mark.
 
-1. **`r` records the comment view's scroll position, so the next comment
-   arrives below a marker.** Marking read is the end of looking; what you were
-   looking *at* is the last comment you had read, and the thread is already a
-   list of nodes with a cursor in it. Record which one, and an item that comes
-   back unread opens on that node with the new ones below it, rather than at the
-   top of a forty-comment thread you have read thirty-nine of. `st.place`
-   already remembers a position per thread for the length of a session; this is
-   the same fact, kept, and keyed to the read mark rather than to the session.
+2. **A range-diff since you last marked it read.** Built, as the `p` pane. This
+   is the one that genuinely needed the mark to stop being a timestamp: a rebase
+   is invisible to a clock, and the question is a diff between two commits. So
+   the mark carries `read_head`, and `r` is the only thing that writes it - a
+   snooze, an archive and `wl read` all stamp `read` while knowing nothing about
+   what you were looking at, so they leave the sha alone rather than writing a
+   wrong one.
+   The fetch carries the other end: `headRefOid` is a scalar beside
+   `headRefName` in both queries, so every row has its head sha for nothing, and
+   `head_sha` only shells out for the rows no lane covers.
+   Two commands rather than one, because a branch moves two ways.
+   `merge-base --is-ancestor` decides: still reachable means they only added to
+   it and the plain `git diff` between the two heads is what to read; not
+   reachable means a rebase, and `git range-diff old...new` is the only thing
+   that pairs the old commits with the new ones. The pane says which it used.
 
-2. **A range-diff since you last marked it read.** When the head commit has
-   changed since you looked, the question is never "what does this pull request
-   do" - you know - it is "what did they change in the rebase". `git range-diff`
-   answers exactly that, and the checkout is already pinned (`repo:` blocks), so
-   the machinery is there. What is missing is the *old* head: `head_at` is a
-   timestamp, and a range-diff needs the sha. So the read mark has to record the
-   head sha it was made against, and the fetch has to carry the sha at all.
-
-3. **Interleave the pushes with the comments in one activity list.** A thread
-   today is comments; the pushes are a field on the item. But "they replied,
-   then pushed, then replied" is one sequence and reading it as two is the
-   reason you scroll back and forth. GraphQL's `timelineItems` returns both in
-   order, and a `PullRequestCommit` node carries the sha and the date - which is
-   also how (2) gets its sha. Investigate what it costs: the thread fetch is
-   per-item and already the slow one.
+3. **Interleave the pushes with the comments in one activity list.** Built, and
+   `timelineItems` was not needed. What the item wanted from it was the commits
+   and their order; `commits(last: 30)` is one request and one rate-limit point
+   for exactly the end anybody reads, where REST pages forward from the oldest.
+   The order then comes from the timestamps, which is where it was always going
+   to come from - `timelineItems` would have supplied a second connection to
+   page and a second shape to normalise for a sort this already does.
+   Consecutive commits with nothing said between them fold into one "pushed N
+   commits" entry. That is not GitHub's push event and does not pretend to be:
+   two pushes a minute apart read as one here, which is what somebody coming
+   back to the thread wanted anyway.
+   It costs one GraphQL request per thread, started *beside* the REST reads
+   rather than after them, and it lives in the thread's own cache entry rather
+   than in one of its own - so one age covers everything the pane draws, and a
+   cached thread can never be a miss on half of itself.
+   Measured against JuliaLang/julia on 2026-09-11: the commits query is
+   0.35-0.40s and the REST half of the same thread is 3.0-5.3s, so the overlap
+   hides it completely and the pane costs what it always did.
 
 4. ~~Two tracking levels, not four.~~ **Done** - `close` and `background` are
    gone; see `TRACK_KEYS`.
 
-Worth noticing that (1), (2) and (3) are the same feature seen from three
-sides: an item has a history, you have a position in it, and the program should
-open you at your position rather than at the beginning. The `💬` marks and the
-hunk counts from the inline-comment work are the same idea one level down.
+What it left open:
+
+* **A force-pushed head can be unfetchable.** `read_head` is a commit that may
+  be reachable from no ref once it has been rewritten away. `ensure_commit!`
+  tries `pull/N/head` and then the bare sha, and GitHub serves the second one
+  more often than not - but not always, and when it does not, the pane says so
+  and there is nothing else to try. Keeping a copy would mean fetching the head
+  of everything you read, which is a clone per item on the strength of a guess
+  that you will come back to it.
+* **`p` needs a pinned checkout and always will.** There is no GitHub endpoint
+  that compares two heads of one pull request; `compare` is between refs, and
+  the old head is not one. The pane names both shas and says how to pin, which
+  is the whole of what it can do.
+* **`git range-diff` shows nothing for a commit it could not pair.** A rewrite
+  that kept too little reads as one commit dropped and one added, with no diff
+  under either. That is git's `--creation-factor` and is left at its default:
+  tuning it would trade this case for wrongly pairing two unrelated commits,
+  and the header still says which commits are which.
+* **`c` on a line of the `p` pane writes on the item, not on the line.** The
+  hunks there are real and `[`/`]` widens them, because both read the new side
+  and the new side is the head either way. Anchoring a *comment* is the half
+  that does not carry over: GitHub's `LEFT` means the pull request's base, and
+  the left side of this diff is the head you last saw, so a remark on a deleted
+  line would land somewhere nobody deleted anything. Restricting it to the right
+  side would work and is the obvious next move; `d` is one key away meanwhile.
+* **The rule is per item, not per pane.** `p` has no "new since" of its own
+  because it *is* the new since. The diff pane does not have one either, and
+  the honest version of that is the inline comment box in "What is next" rather
+  than a second marker.
 
 ### What review writing still cannot do
 
@@ -1718,6 +1747,13 @@ actual TTY:
   rather than sending Meta at all, in which case none of them arrive.
 - `^s` in the composer. Ctrl-S is XOFF under terminal flow control; raw mode
   should be clearing IXON, which has not been confirmed against a real tty.
+- **`p` against a real force-push.** The git half is driven end to end in the
+  suite against a temporary repository - a rebase reads as a range-diff, an
+  added commit reads as a plain diff, and a pinned checkout is found - but the
+  sandbox has no clone of any watched repo, so `ensure_commit!` fetching a head
+  that was rewritten away has never run against GitHub. That is the one step
+  that can fail for a reason nothing here can see coming, and the pane's answer
+  to it is a sentence rather than a stack trace.
 - `open_editor`: `code` is not on PATH in the sandbox, so the launch is
   untested. The worktree *selection* around it is tested against a real
   worktree list.

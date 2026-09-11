@@ -66,6 +66,11 @@ Base.@kwdef struct Item
                            # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
+    head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
+                           # a push happened; this says what it pushed, which is
+                           # the other end of the range-diff `p` takes against
+                           # the head the read mark was made at. Empty on an
+                           # issue, and on a synthetic row that never saw a lane
     secondlook::String = "" # why this wants looking at again, empty when it does
                             # not. Derived every refresh and never stored: it is
                             # a fact about silence, and silence keeps changing
@@ -121,6 +126,7 @@ function item_of(r)
             review_decision = nz(jget(r, :review_decision), ""),
             state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
+            head = nz(jget(r, :head_sha), ""),
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
             draft = nz(jget(r, :draft), false),

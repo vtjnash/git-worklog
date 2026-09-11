@@ -181,7 +181,7 @@ function render_frame(st::BState, w::Int, h::Int)
     # are sets now, so the summary is as long as the selection rather than one
     # word, and this row was already being cut at 200 columns with `M` on it.
     keys1 = string("f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
-                   "d diff \u00b7 o comments \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
+                   "d diff \u00b7 o comments \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a
                    # footer that names only one of the three is why the row at

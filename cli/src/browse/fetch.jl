@@ -153,6 +153,27 @@ function load_nodes!(st::BState)
     st.status = "loading " * it.ref * "…"
 end
 
+"""Where a thread opens when the reader has never been in it this session.
+
+The top of it, unless it carries the rule saying where the new part starts - in
+which case that, with the new part below the fold of the screen rather than
+above it. Coming back to a forty-comment thread you have read thirty-nine of and
+landing on comment one is the thing this is for; `st.place` already answers it
+for a thread visited in *this* session, and the rule is what answers it across
+sessions, because it is drawn from a mark on disk.
+
+The width is the one the pane was last drawn at, which is known because a fetch
+only ever lands after the frame that said "loading …" has been on screen.
+"""
+function openrow(st::BState)
+    i = findfirst(n -> get(n.meta, "newmark", false) === true, st.nodes)
+    i === nothing && return (1, 1)
+    r = headerrow(st, i, max(20, st.diw))
+    # One row of what came before it, so the rule reads as a division rather
+    # than as the top of the pane.
+    (r, max(1, r - 1))
+end
+
 """Start a background re-read of what is already on screen.
 
 What makes it a refresh is everything it does not do: the nodes stay, the cursor
@@ -277,7 +298,9 @@ function collect_pending!(st::BState)
     # than either of the two above.
     if !quiet
         st.nkey = st.loaded
-        st.nrow, st.ntop = get(st.place, st.loaded, (1, 1))
+        st.nrow, st.ntop = get(st.place, st.loaded) do
+            openrow(st)
+        end
         st.status = ""
     end
     clearsel!(st)          # either way, it indexed rows that are gone

@@ -31,7 +31,7 @@ Base.@kwdef mutable struct BState <: View
                            # row knows which node it belongs to
     ntop::Int = 1
     focus::Symbol = :list           # :list | :detail
-    mode::Symbol = :comments        # :comments | :diff | :checks
+    mode::Symbol = :comments        # :comments | :diff | :pushed | :checks
     loaded::String = ""
     place::Dict{String,NTuple{2,Int}} = Dict{String,NTuple{2,Int}}()
                            # where the reader was in each thread they have been

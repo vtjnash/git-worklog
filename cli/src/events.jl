@@ -448,11 +448,25 @@ function inbox_drop!(urls)
     n
 end
 
-"Fetch a thread's recent comments live - the part email used to hand you."
+"""Fetch a thread live - the part email used to hand you.
+
+Returns `(body, comments, commits)`. The commits are what the thread is read
+*with*: "they replied, then pushed, then replied" is one sequence, and having
+them arrive on a second cadence from a second cache is how it came to be read as
+two. Callers that only want the conversation destructure the first two and are
+none the wiser.
+
+The commit query is started before the REST reads and waited on after them, so
+what a person waits for is the slower of the two rather than the sum. It is
+also the only part allowed to come back empty on failure: an issue has no
+branch, and a pull request whose commits could not be read is a line missing
+from a list rather than a reason to show no thread at all.
+"""
 function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
+    commits = @async try; pr_commits(url); catch; OrderedDict{String,Any}[]; end
     body = api_get("/repos/$owner_repo/issues/$num")[1]
     cs = api_paged("/repos/$owner_repo/issues/$num/comments")
     try
@@ -461,7 +475,57 @@ function thread(url::AbstractString; limit::Int = 10)
         e isa ApiError || rethrow()   # not a PR, or no review comments
     end
     sort!(cs; by = c -> c["created_at"])
-    (body, cs[max(1, end - limit + 1):end])
+    (body, cs[max(1, end - limit + 1):end],
+     try; fetch(commits); catch; OrderedDict{String,Any}[]; end)
+end
+
+"""The last commits on a pull request's branch: `oid`, `at`, `headline`, `by`.
+
+Empty for an issue, which has no branch - `resource` answers `null` against a
+selection that only spreads `... on PullRequest`.
+
+GraphQL rather than `/pulls/N/commits`, for one reason that decides it: REST
+returns commits oldest-first and pages forward, so the *newest* thirty of a
+four-hundred-commit branch are four requests away, while `commits(last: 30)` is
+one request and one rate-limit point for exactly the end anybody is reading.
+
+`committedDate` and not `authoredDate`: a rebase rewrites the first and keeps
+the second, and the question this answers is when the branch moved rather than
+when the work was originally done.
+
+Uncached on purpose. It is stored inside the thread's own cache entry, so it
+ages with the thread it is drawn into and a hit on one can never be a miss on
+the other - which is what the two-threshold window on that entry is for: a
+cached thread goes up at once, and a fetch that had to wait on this would have
+been exactly the pause it exists to avoid.
+"""
+function pr_commits(url::AbstractString; n::Int = 30)
+    d = gh_graphql(
+        "query(\$u: URI!, \$n: Int!) { resource(url: \$u) { ... on PullRequest {\n" *
+        "      commits(last: \$n) { nodes { commit {\n" *
+        "        oid committedDate messageHeadline\n" *
+        "        author { user { login } name }\n" *
+        "      } } }\n  } } }";
+        vars = Dict{String,Any}("u" => String(url), "n" => n))
+    r = get(d, :resource, nothing)
+    cc = r === nothing ? nothing : get(r, :commits, nothing)
+    ns = cc === nothing ? () : something(get(cc, :nodes, nothing), ())
+    out = OrderedDict{String,Any}[]
+    for x in ns
+        c = get(x, :commit, nothing)
+        c === nothing && continue
+        # The GitHub login where the committer has an account, the name off the
+        # commit where they do not - a co-author or an unlinked email is still
+        # somebody, and "?" beside a push reads as a bug rather than as a fact.
+        a = something(get(c, :author, nothing), Dict{Symbol,Any}())
+        u = something(get(a, :user, nothing), Dict{Symbol,Any}())
+        who = something(get(u, :login, nothing), get(a, :name, nothing), "")
+        push!(out, OrderedDict{String,Any}(
+            "oid" => String(c.oid), "at" => String(c.committedDate),
+            "headline" => String(something(get(c, :messageHeadline, nothing), "")),
+            "by" => String(who)))
+    end
+    out
 end
 
 # --- writing ---------------------------------------------------------------

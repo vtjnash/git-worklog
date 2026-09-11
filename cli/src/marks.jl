@@ -1,10 +1,11 @@
 # What this program knows about an item that GitHub cannot answer.
 #
-# Five facts, in the item's own block of `local.toml`:
+# Six facts, in the item's own block of `local.toml`:
 #
-#     read · touched · snooze_fp · snooze_at · draft
+#     read · read_head · touched · snooze_fp · snooze_at · draft
 #
 #   * `read`      the timestamp you have seen this item up to
+#   * `read_head` the head commit it stood at when you saw it
 #   * `touched`   when you last *did* something to it
 #   * `snooze_fp` the fingerprint an "until it moves" snooze was armed against,
 #                 or the string `WOKE` once it has moved
@@ -29,6 +30,33 @@
 # the repos it watches, bounded by a lookback window, and answers a narrower
 # question than the one most of the program asks.
 #
+# **The read mark is a record of where you were, not only of when.** Saying an
+# item has changed is not the same as saying *what* changed, and the difference
+# is what you are handed when you open it: the whole thread and the whole diff,
+# with the new part somewhere in them.
+#
+# For the thread, the stamp alone answers it. `r` stamps the moment the thread
+# was *fetched* - see the key - so every comment written before it was on
+# screen, every comment written after it was not, and "new since you last
+# looked" is a comparison the file already supports. That is why there is no
+# key here recording which comment you had got to: it would be a second copy of
+# an answer `read` already gives, and one that could disagree with it.
+#
+# For the diff it does not. A rebase is invisible to a timestamp - the question
+# is not "when did the branch move" but "what did they change in it", and that
+# is a diff between two commits. So the mark carries `read_head`: the sha this
+# item stood at when the stamp was made. `p` takes a range-diff between it and
+# the head now, and an item with no `read_head` simply has no such view to show
+# - which is the honest state for one marked read before this existed.
+#
+# Only `r` writes it, because only `r` means "I have looked at this". The other
+# things that stamp `read` - a snooze, an archive, `wl read` over the whole
+# lane - are saying "not now", and they know when you decided that and nothing
+# at all about what you were looking at. They leave the sha alone rather than
+# writing a wrong one or clearing a right one, so it goes on meaning the head
+# as of your last actual look. Going unread clears it: that is the one thing
+# that says you are no longer anywhere in this item.
+#
 # **The interaction clock is not a viewing clock.** Opening an item, scrolling
 # it, searching, folding a comment and changing filters are all *looking*, and
 # looking must not reorder the list you are looking at - a clock that moved as
@@ -49,14 +77,14 @@
 # exactly as `review:banana` does. So the only way to have a lane of them is to
 # write them down as they are made.
 
-"""The five marks, as `url -> field -> value`, in one pass over `local.toml`.
+"""The six marks, as `url -> field -> value`, in one pass over `local.toml`.
 
 They live in the item's own block, beside the note and the snooze that are your
 words about the same item: one place to look, one file to write, and no
 precedence to keep in step between a "what I decided" file and a "what I did"
 one.
 """
-const MARK_FIELDS = ("draft", "read", "snooze_at", "snooze_fp", "touched")
+const MARK_FIELDS = ("draft", "read", "read_head", "snooze_at", "snooze_fp", "touched")
 
 load_marks() = field_maps(MARK_FIELDS)
 
@@ -99,14 +127,6 @@ function set_marks!(urls, field::AbstractString, at::AbstractString)
     length(us)
 end
 
-"Clear one field on many items, and answer how many actually carried it."
-function clear_marks!(urls, field::AbstractString)
-    have = field_map(field)
-    us = [u for u in unique(String(u) for u in urls) if haskey(have, u)]
-    isempty(us) || set_blocks!([u => [String(field) => nothing] for u in us])
-    length(us)
-end
-
 # --- the seen bit ------------------------------------------------------------
 
 "Every seen-up-to timestamp: `url -> ISO8601`."
@@ -115,18 +135,58 @@ load_read() = load_field("read")
 "The seen-up-to timestamp for one item, or `nothing` if it has never been read."
 read_at(url::AbstractString) = mark_at(url, "read")
 
+"""The head commit this item stood at when it was marked read, or `nothing`.
+
+Empty as well as absent answers `nothing`: an issue has no head to record and a
+row the activity poll wrote has no sha to record one from, so "" is what a mark
+made on either of them carries, and neither is a commit to diff against.
+"""
+function read_head(url::AbstractString)
+    h = mark_at(url, "read_head")
+    (h === nothing || isempty(h)) ? nothing : h
+end
+
 "Set, or with `nothing` clear, one item's seen-up-to timestamp."
 set_read(url::AbstractString, at::Union{Nothing,AbstractString}) =
     set_mark!(url, "read", at)
 
-"""Forget the seen-up-to timestamps for these items, making them unread again.
+"""Set both halves of one item's read mark at once, or with `nothing` clear both.
+
+The pair is written in one pass because it is one fact - where you were - and
+the two halves disagreeing is the only way `p` can show a diff from somewhere
+you never stood. `head` may be empty for an item that has no head commit to
+have; the key is then dropped rather than written blank.
+"""
+function set_read_mark(url::AbstractString, at::Union{Nothing,AbstractString},
+                       head::Union{Nothing,AbstractString} = nothing)
+    h = (at === nothing || head === nothing || isempty(head)) ? nothing : String(head)
+    set_blocks!([String(url) => ["read" => at === nothing ? nothing : String(at),
+                                 "read_head" => h]])
+    nothing
+end
+
+"""Forget the read marks on these items, making them unread again.
 
 An item counts as unread when it moved more recently than its stamp here, so
-dropping the key restores it.
+dropping the key restores it. Both halves go: a `read_head` outliving the stamp
+it was made with is a commit nothing is measured from any more.
 """
-mark_unread(urls) = clear_marks!(urls, "read")
+function mark_unread(urls)
+    have = field_map("read")
+    us = unique(String(u) for u in urls)
+    named = [u for u in us if haskey(have, u)]
+    isempty(us) || set_blocks!([u => ["read" => nothing, "read_head" => nothing]
+                                for u in us])
+    length(named)
+end
 
-"Record that these items have been seen up to `at`."
+"""Record that these items have been seen up to `at`.
+
+The stamp only. This is `wl read` over the whole unread lane and the refresh
+putting a batch to sleep - neither of which knows what you were looking at, so
+neither writes `read_head`, and an item that carries one from the last time you
+actually opened it keeps it.
+"""
 mark_read(urls, at::DateTime) = set_marks!(urls, "read", stamp(at))
 
 # --- the interaction clock ---------------------------------------------------

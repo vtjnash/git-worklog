@@ -238,6 +238,39 @@ function ensure_commit!(path, sha, prnum::Integer)
     false
 end
 
+"Is `a` reachable from `b`? False rather than an error when either is missing."
+is_ancestor(path, a, b) =
+    try; git(path, "merge-base", "--is-ancestor", string(a), string(b)); true
+    catch; false; end
+
+"""What happened to a branch between two of its heads.
+
+Two commands, because a branch moves in two ways and they want different
+answers. When the old head is still reachable from the new one the push only
+added to it, and the plain diff between the two trees is the change to read.
+When it is not, the branch was rebased or amended - the commits are different
+objects and a tree diff would report every line the base branch moved as well -
+and `git range-diff` is the one command that pairs the old commits with the new
+ones and shows what actually differs between them.
+
+Returns `(kind, text)`, where `kind` is `:diff` or `:range`, so the caller knows
+which of the two it is drawing.
+"""
+function branch_moved(path, old, new)
+    is_ancestor(path, old, new) ?
+        (:diff, git(path, "diff", string(old), string(new))) :
+        (:range, git(path, "range-diff", "--no-color", string(old, "...", new)))
+end
+
+"How many commits `new` has that `old` does not."
+function commits_ahead(path, old, new)
+    try
+        parse(Int, strip(git(path, "rev-list", "--count", string(old, "..", new))))
+    catch
+        0
+    end
+end
+
 "File contents at a commit, as lines. `nothing` when the path is absent there."
 function file_at(path, sha, file)
     try

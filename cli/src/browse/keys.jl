@@ -357,7 +357,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             end
         end))
 
-    if k in (Int('['), Int(']')) && st.mode === :diff
+    if k in (Int('['), Int(']')) && st.mode in (:diff, :pushed)
         i = curnode(st, iw)
         if i > 0
             dir = k == Int('[') ? -1 : 1
@@ -427,6 +427,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # composer and `C` the checks pane, which had it exactly backwards.
     if k == Int('d');     st.mode = :diff
     elseif k == Int('o'); st.mode = :comments
+    # The fourth reading of an item, and the only one that is about *you*: the
+    # other three are what it is, what it changes and whether it builds, and
+    # this one is what has happened to it since you were last here.
+    elseif k == Int('p'); st.mode = :pushed
     elseif k == Int('c'); st.mode = :checks
     elseif k == Int('y')
         # OSC 52, so the copy works over ssh and through tmux. Also shown in the
@@ -470,16 +474,24 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # whose `updated_at` moved for a label edit would then be permanently
         # unread, because marking it read could never catch up to it.
         fi = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
-        prev = read_at(it.url)
+        prev, prevhead = read_at(it.url), mark_at(it.url, "read_head")
         if seen
-            set_read(it.url,
-                            fi === nothing ? stamp(at) : st.nodes[fi].meta["fetched"])
+            # And the head it stood at, which is the other half of where you
+            # were: the stamp says a comment written after it is new, and the
+            # sha is what `p` diffs the branch against. Taken off the item
+            # rather than asked for - `head_sha` would shell out for the rows
+            # the lanes do not cover, on the key loop, to answer a question
+            # about a pull request that may not even have moved. A row with no
+            # sha records none and has no `p` view, which is what it had before.
+            set_read_mark(it.url,
+                          fi === nothing ? stamp(at) : st.nodes[fi].meta["fetched"],
+                          it.head)
         else
             mark_unread([it.url])
         end
         seen ? delete!(st.unread, it.url) : push!(st.unread, it.url)
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
-            set_read(it.url, prev)
+            set_read_mark(it.url, prev, prevhead)
             was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
         end))
         # The list is what the axes say it is, so a row that has just stopped

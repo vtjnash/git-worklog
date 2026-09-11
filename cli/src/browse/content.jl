@@ -183,8 +183,83 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
 end
 body_nodes(header, body, url, open::Bool) = body_nodes!(Node[], header, body, url, open)
 
+"""One run of commits with no comment between them, as a node.
+
+Consecutive is what a push is here. GitHub records the push events themselves
+and GraphQL will hand them over, but only as part of `timelineItems` - a second
+connection on the same node, paged separately from the comments, for a fact that
+is already implied by the order: commits nobody said anything between are
+commits that arrived together. Two of somebody's pushes a minute apart do read
+as one here, and that is the same thing a reader coming back to the thread
+cares about anyway.
+
+Folded past three, with the newest headline as the peek: a rebase of forty
+commits is context for the comment under it rather than forty lines to scroll.
+"""
+function push_node(run, url::AbstractString)
+    n = length(run)
+    when = first(run[end]["at"], 16)
+    # The last commit's author, which is whose push it was except where a run
+    # collected two people's. A list of names on the header would be a byline
+    # about the push rather than about a person, which is not what a byline is.
+    who = isempty(run[end]["by"]) ? "" : string(run[end]["by"], "  ")
+    peek = strip(first(replace(String(run[end]["headline"]), r"\s+" => " "), 58))
+    body = join((string(first(c["oid"], 8), "  ", first(c["at"], 16), "  ",
+                        oneline(c["headline"])) for c in Iterators.reverse(run)), "\n")
+    hd = string(GRN, "↑ pushed ", n, n == 1 ? " commit" : " commits", AR)
+    nd = Node(string(hd, "  ", AD, who, when, AR, "   ", peek), body, :plain, n <= 3)
+    nd.meta["byline"] = string(hd, "  ", AD, who, when, AR)
+    nd.meta["src"] = string("pushed ", n, n == 1 ? " commit" : " commits",
+                            "  ", astrip(who), when)
+    # The branch's own page, since a push is not a comment and has no anchor in
+    # the thread to point at.
+    nd.meta["url"] = string(url, "/commits")
+    nd.meta["push"] = n
+    nd
+end
+
+"""The rule the new part of a thread begins under.
+
+Drawn from the read stamp alone, which is the whole of what it needs: `r` marks
+the thread read up to the moment it was *fetched*, so everything written before
+that stamp was on screen and everything written after it was not. There is no
+second record of where you had got to, because a second record is a second
+answer that can disagree with this one.
+
+It is a node rather than a decoration so that `n`/`N` reaches it, folding above
+it works, and `collect_pending!` has something to open the pane on.
+"""
+function newmark_node(n::Int)
+    nd = Node(string(YEL, "new since you last looked", AR, "  ", AD,
+                     n, n == 1 ? " entry" : " entries", AR),
+              "", :plain, true)
+    nd.meta["newmark"] = true
+    nd.meta["src"] = "--- new since you last looked ---"
+    nd
+end
+
+"""Consecutive pushes folded into one entry, keeping everything else in place.
+
+The run is stamped at its *last* commit, so a push that is half older than the
+read mark still lands wholly below the rule. That is the safe direction: it
+shows a commit you had already seen among the new ones, where the other way
+round hides one you have not.
+"""
+function group_pushes(evs)
+    out = Any[]
+    for e in evs
+        if e.kind === :push && !isempty(out) && out[end].kind === :push
+            run = push!(out[end].c, e.c)
+            out[end] = (kind = :push, at = e.at, c = run)
+        else
+            push!(out, e.kind === :push ? (kind = :push, at = e.at, c = Any[e.c]) : e)
+        end
+    end
+    out
+end
+
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
-    local body, cs
+    local body, cs, cms
     stale = false
     # When the fetch *started*, which is the whole reason `at` is threaded here
     # rather than read off a clock below. `r` marks the thread read up to this,
@@ -196,10 +271,14 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         key = "thread:" * it.url
         hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
         if hit === nothing
-            body, cs = Events.thread(it.url; limit = 30)
-            cache_put(key, (body = body, comments = cs))
+            body, cs, cms = Events.thread(it.url; limit = 30)
+            cache_put(key, (body = body, comments = cs, commits = cms))
         else
             body, cs = hit[1].body, hit[1].comments
+            # Absent on an entry written before the pushes were drawn in here.
+            # A thread kept for a week is worth showing without them rather
+            # than dropped for want of a field that is new.
+            cms = something(jget(hit[1], :commits), ())
             stale = hit[2] > DETAIL_TTL[]
             # When this thread was actually read from GitHub, not when it came
             # out of the cache. Measured back from the start of *this*
@@ -218,7 +297,37 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         body_nodes!(ns, string(nz(who0, "?"), " opened this"), btxt,
                     String(nz(get(body, "html_url", nothing), it.url)), true)
     end
-    for c in cs
+    # The activity list: comments and pushes in the order they happened, which
+    # is one sequence and was being read as two. "They replied, then pushed,
+    # then replied" is the shape of most review conversations, and the pushes
+    # were a field on the item while the replies were the pane.
+    #
+    # Only the pushes that fall inside the window the comments are shown for -
+    # the thread is the last thirty of those - so a branch with two hundred
+    # commits does not arrive above the first thing anybody said.
+    from = isempty(cs) ? "" : String(first(cs)["created_at"])
+    evs = Any[(kind = :comment, at = String(c["created_at"]), c = c) for c in cs]
+    for c in cms
+        t = String(c["at"])
+        (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
+    end
+    # A commit and a comment stamped the same second: the commit first, because
+    # the reply is about the push in that case and never the other way round.
+    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : 1))
+    evs = group_pushes(evs)
+    # Where the new part starts, and how much of it there is. Nothing at all for
+    # an item never marked read: the whole thread is new then, and a rule above
+    # the first line of it says nothing.
+    seen = read_at(it.url)
+    mk = seen === nothing ? nothing : findfirst(e -> e.at > seen, evs)
+    mark = mk === nothing ? 0 : mk
+    for (k, e) in enumerate(evs)
+        k == mark && push!(ns, newmark_node(length(evs) - mark + 1))
+        if e.kind === :push
+            push!(ns, push_node(e.c, it.url))
+            continue
+        end
+        c = e.c
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
         when = first(String(c["created_at"]), 16)
         txt = strip(nz(get(c, "body", nothing), ""))
@@ -279,6 +388,22 @@ function diff_nodes(it::Item; fresh::Bool = false)
         return [failednode("no diff (not a PR, or gh failed)",
                            first(sprint(showerror, e), 200))]
     end
+    ns = hunk_nodes(txt, string(it.url, "/files"))
+    isempty(ns) && return [Node("empty diff", "", :plain, true)]
+    out = place_comments(ns, it)
+    stale && !isempty(out) && (out[1].meta["stale"] = true)
+    out
+end
+
+"""Unified diff text as one node per hunk, carrying the ranges that `[`/`]` and
+`place_comments` measure against.
+
+Its own function because there are two diffs in this program now: the pull
+request's whole change, and what has been pushed to it since you last looked.
+They differ in where the text comes from and in nothing else, and a second
+parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
+"""
+function hunk_nodes(txt::AbstractString, url::AbstractString)
     ns, file, buf, hdr = Node[], "", String[], ""
     pending_range, pending_old = (0, 0), (0, 0)
     flush!() = if !isempty(hdr)
@@ -296,7 +421,7 @@ function diff_nodes(it::Item; fresh::Bool = false)
         n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
         n.meta["up"] = 0
         n.meta["down"] = 0
-        n.meta["url"] = string(it.url, "/files")
+        n.meta["url"] = String(url)
         push!(ns, n)
     end
     for l in split(txt, "\n")
@@ -318,10 +443,7 @@ function diff_nodes(it::Item; fresh::Bool = false)
         end
     end
     flush!()
-    isempty(ns) && return [Node("empty diff", "", :plain, true)]
-    out = place_comments(ns, it)
-    stale && !isempty(out) && (out[1].meta["stale"] = true)
-    out
+    ns
 end
 
 """
@@ -544,6 +666,145 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
     out
 end
 
+# --- what has been pushed since you last looked ------------------------------
+#
+# The third question about an item, after "what is it" and "what does it
+# change": *what changed since I was here*. The thread answers it for the
+# conversation - the rule `r` leaves behind - and nothing answered it for the
+# branch, which is where it matters most: you already know what the pull request
+# does, and what you came back for is the rebase.
+#
+# It needs two commits and a checkout. The new head rides in on the item
+# (`headRefOid`, selected by every lane); the old one is `read_head`, written by
+# `r` and by nothing else. An item that has neither has no view here and says
+# so - that is the honest answer for a pull request nobody has marked read yet,
+# and it becomes a real one the first time `r` is pressed on it.
+
+"""One line's worth of `git range-diff`, coloured by which range it is in.
+
+Column five is the *outer* marker - whether this line belongs to the old range,
+the new one, or both - and column six is the inner diff the two ranges share.
+The outer one is what this view is about, so it is what gets the colour: green
+is what the new commits do and the old ones did not, red is the other way
+round, and an unmarked line is a change both versions make and neither of them
+is the reason you are looking.
+"""
+function rangeline(l::AbstractString)
+    ncodeunits(l) >= 5 || return String(l)
+    o = codeunit(l, 5)
+    o == UInt8('+') && return string(GRN, l, AR)
+    o == UInt8('-') && return string(RED, l, AR)
+    occursin(r"^\s*@@", l) ? string(AD, l, AR) : String(l)
+end
+
+"""How `git range-diff` marks each pair of commits, and what it means here."""
+const RANGE_MARK = Dict('=' => (AD, "unchanged"), '!' => (YEL, "changed"),
+                        '<' => (RED, "gone"), '>' => (GRN, "new"))
+
+"""`git range-diff` output as one node per commit.
+
+The same grain the diff pane uses for hunks and for the same reason: a commit is
+the unit you move between with `n`/`N`, and a rebase of forty is forty things to
+walk rather than one wall of text. A commit the rebase left alone folds to its
+header, which is all anybody wants of it.
+"""
+function rangediff_nodes(txt::AbstractString)
+    ns, buf = Node[], String[]
+    flush!() = if !isempty(ns) && !isempty(buf)
+        ns[end].raw = join((rangeline(l) for l in buf), "\n")
+        empty!(buf)
+    end
+    for l in split(txt, "\n")
+        m = match(r"^(\d+|-):\s+(\S+)\s+([=!<>])\s+(\d+|-):\s+(\S+)\s*(.*)$", String(l))
+        if m === nothing
+            isempty(ns) || push!(buf, String(l))
+            continue
+        end
+        flush!()
+        (col, what) = get(RANGE_MARK, first(m[3]), (AR, String(m[3])))
+        # Which sha to show: the one that still exists. A commit the rebase
+        # dropped has no new sha and a commit it added has no old one, and
+        # `-------` is not something to put in front of a subject line.
+        sha = m[5] == "-------" ? m[2] : m[5]
+        n = Node(string(col, rpad(what, 9), AR, AD, first(sha, 8), AR, "  ", m[6]),
+                 "", :plain, first(m[3]) != '=')
+        n.meta["src"] = string(what, "  ", first(sha, 8), "  ", m[6])
+        n.meta["byline"] = string(col, rpad(what, 9), AR, AD, first(sha, 8), AR)
+        push!(ns, n)
+    end
+    flush!()
+    ns
+end
+
+"""What has been pushed to this branch since the read mark was made.
+
+Every way this can have nothing to show is a sentence rather than an empty pane
+or an error, because each of them is a different thing to do about it: press
+`r`, pin a checkout, or nothing at all because nothing was pushed.
+"""
+function pushed_nodes(it::Item)
+    it.is_pr || return [Node("no pushes - this is an issue, not a pull request",
+                             "", :plain, true)]
+    old = read_head(it.url)
+    old === nothing &&
+        return [Node("nothing to compare against yet",
+                     "This view is the diff between the head commit you last " *
+                     "looked at and the head commit now, and the first half of " *
+                     "that is written by `r`.\n\nMark it read once and the next " *
+                     "time it comes back unread, this pane is the rebase.",
+                     :md, true)]
+    new = head_sha(it)
+    isempty(new) &&
+        return [failednode("could not determine the head commit",
+                           string("You last saw ", first(old, 8),
+                                  "; GitHub did not answer with what it is now."))]
+    old == new &&
+        return [Node("nothing pushed since you last looked",
+                     string("The branch is still at `", first(new, 8),
+                            "`, which is where it was when you marked this read.\n\n" *
+                            "`o` has what has been *said* since then."), :md, true)]
+    repo = repo_path(it.repo)
+    repo === nothing &&
+        return [Node(string("no checkout pinned for ", it.repo),
+                     string("The two commits are `", first(old, 8), "` and `",
+                            first(new, 8), "`, and diffing them is a local " *
+                            "operation - GitHub has no endpoint that compares " *
+                            "two heads of the same pull request.\n\nPress `e`, " *
+                            "`t` or `T` on this item to pin one, or " *
+                            "`wl repo add ", it.repo, " <path>`."), :md, true)]
+    for sha in (old, new)
+        ensure_commit!(repo, sha, it.number) ||
+            return [failednode(string("commit ", first(sha, 8), " is not in ", repo),
+                               "It could not be fetched either - a force-push can " *
+                               "leave the head you saw unreachable from any ref, " *
+                               "and GitHub will not always serve one by sha.")]
+    end
+    kind, txt = try
+        branch_moved(repo, old, new)
+    catch e
+        return [failednode("could not diff the two heads",
+                           first(sprint(showerror, e), 200))]
+    end
+    ahead = commits_ahead(repo, old, new)
+    lead = Node(string(kind === :diff ?
+                       string(GRN, ahead, ahead == 1 ? " commit" : " commits",
+                              " added", AR) :
+                       string(YEL, "rebased", AR),
+                       "  ", AD, first(old, 8), " → ", first(new, 8), AR),
+                kind === :diff ?
+                "The head you saw is still in this branch's history, so this is " *
+                "the plain diff from it to the head now." :
+                "The head you saw is no longer in this branch's history, so this " *
+                "is a `git range-diff`: the old commits paired with the new ones, " *
+                "and what differs between each pair.", :md, false)
+    lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
+    lead.meta["url"] = string(it.url, "/files")
+    ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files")) : rangediff_nodes(txt)
+    isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
+    pushfirst!(ns, lead)
+    ns
+end
+
 """A load that failed, marked as such.
 
 A background refresh has to be able to tell a fetch that came back from one that
@@ -559,4 +820,5 @@ end
 
 mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
     mode === :comments ? comment_nodes(it, at; fresh = fresh) :
-    mode === :diff     ? diff_nodes(it; fresh = fresh) : check_nodes(it)
+    mode === :diff     ? diff_nodes(it; fresh = fresh) :
+    mode === :pushed   ? pushed_nodes(it) : check_nodes(it)
