@@ -101,6 +101,37 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["unresolved"] = light ? nothing :
                             count(t -> !t.isResolved && !t.isOutdated, threads)
         rec["review_count"] = length(reviews)
+        # **Being asked is an event, and this is the only key that records one.**
+        # Everything else here is a state that happens to change. Somebody
+        # asking you to review is somebody addressing you, and until this was
+        # fetched a *re*-request - the only kind you can get on something you
+        # have already read - moved nothing at all: `reviewDecision` does not
+        # change, `review_count` does not change, and no comment is posted. So
+        # the first request arrived as a new item and every one after it was
+        # silent.
+        #
+        # True or absent, and never `false`. This is hashed into the
+        # fingerprint, so `false` on every row would differ from the missing key
+        # on every row already in `fetched.json` and the first refresh after
+        # this shipped would mark the whole dashboard unread. Absent matches
+        # absent, so what flips on that run is exactly the items you are being
+        # asked about.
+        #
+        # Only *you*. A request of somebody else is not news at either level -
+        # on a stranger's pull request it is the churn `loose` exists to ignore,
+        # and on your own it is not a thing to be told twice. A request of a
+        # *team* you are in is invisible here and stays that way: `/user/teams`
+        # is 403 for this token, so there is nothing to match the slug against.
+        #
+        # `requestedReviewer` is null for a reviewer that is neither a User nor
+        # a Team - a deleted account, or a type this selection does not spread.
+        # julia#62245 has one today, which is why the lookup goes through
+        # `jget` rather than a field access.
+        reqs = jget(jget(n, :reviewRequests), :nodes)
+        rec["review_requested"] =
+            (reqs !== nothing &&
+             any(rr -> jget(jget(rr, :requestedReviewer), :login) == login, reqs)) ?
+            true : nothing
         rec["my_last_review_at"] = isempty(mine_reviews) ? nothing :
                                    maximum(r.submittedAt for r in mine_reviews)
         rec["my_last_review_state"] = isempty(mine_reviews) ? nothing :
@@ -128,12 +159,19 @@ end
 # `all` is not a level and is not settable - `TRACK` is what `wl track` accepts.
 # It is every key there is, which is what `fp_full` is hashed at, so the
 # refresh's change list can report something the item's own level ignores.
+#
+# `review_requested` is in all three, which nothing else fetched per-lane is.
+# It is not a property of the item that might interest you - it is somebody
+# naming you, and there is no level at which being asked to review something is
+# noise. `loose` exists to ignore a stranger's CI and a bot's comment, and a
+# human asking you for a review is the opposite of both.
 const TRACK_KEYS = Dict(
     "normal" => ("head_at", "review_decision", "ci", "unresolved",
-                 "review_count", "last_comment_at"),
-    "loose"  => ("review_decision", "review_count", "human_comment_at"),
+                 "review_count", "last_comment_at", "review_requested"),
+    "loose"  => ("review_decision", "review_count", "human_comment_at",
+                 "review_requested"),
     "all"    => ("head_at", "review_decision", "mergeable", "ci", "unresolved",
-                 "review_count", "last_comment_at", "labels"),
+                 "review_count", "last_comment_at", "labels", "review_requested"),
 )
 
 "What counts as 'this item moved', at the given tracking level."
@@ -858,6 +896,13 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             r["new"] = false
             if jget(old, :fp) != r["fp"]
                 d = String[]
+                # Said as what happened, because it is an event and not a value:
+                # "review_requested nothing->true" is the same sentence written
+                # for a machine, and this is the line a person reads to find out
+                # why their dashboard changed.
+                rq0, rq = jget(old, :review_requested), get(r, "review_requested", nothing)
+                rq0 == rq || push!(d, rq === true ? "review requested" :
+                                      "review request withdrawn")
                 for (f, lab) in (("ci", "CI"), ("review_decision", "review"),
                                  ("mergeable", "mergeable"), ("unresolved", "unresolved"),
                                  ("head_at", "new push"), ("last_comment_at", "new comment"))

@@ -272,3 +272,39 @@ end
     W.undraft!(still)
     @test isempty(W.load_drafts())
 end
+
+@testset "being asked to review is a move" begin
+    # A *re*-request is the only kind you get on something you have already
+    # read, and until `reviewRequests` was fetched nothing about it changed:
+    # `reviewDecision` stays where it was, `review_count` stays where it was,
+    # and GitHub's re-request button posts no comment. So the item stayed read.
+    rec(; kw...) = merge(Dict{String,Any}("review_decision" => "REVIEW_REQUIRED",
+                                         "review_count" => 2, "ci" => "SUCCESS",
+                                         "head_at" => "2026-09-01T00:00:00Z",
+                                         "last_comment_at" => "2026-09-01T00:00:00Z",
+                                         "human_comment_at" => "2026-09-01T00:00:00Z",
+                                         "unresolved" => 0),
+                         Dict{String,Any}(String(k) => v for (k, v) in kw))
+    quiet = rec()
+    asked = rec(; review_requested = true)
+    # Every level, because there is no level at which being named is noise -
+    # `loose` ignores a stranger's CI and a bot's comment, and this is neither.
+    for lvl in ("normal", "loose", "all")
+        @test W.fingerprint(quiet, lvl) != W.fingerprint(asked, lvl)
+    end
+
+    # True or absent, never false: the key is hashed, so a `false` written on
+    # every row would differ from the missing key on every row already in
+    # `fetched.json`, and the first refresh after this shipped would stamp the
+    # whole dashboard as moved. Absent has to match absent.
+    @test W.fingerprint(quiet, "all") == W.fingerprint(rec(; review_requested = nothing), "all")
+
+    # And nothing else about the item had to change for that to be true, which
+    # is the whole complaint: the two records differ in this key alone.
+    @test setdiff(keys(asked), keys(quiet)) == Set(["review_requested"])
+    @test all(quiet[k] == asked[k] for k in keys(quiet))
+
+    # Withdrawing it moves the item too. That is the same event read backwards -
+    # you are off the hook - and it is what `r` on it was waiting to hear.
+    @test W.fingerprint(asked, "loose") != W.fingerprint(quiet, "loose")
+end

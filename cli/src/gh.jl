@@ -29,6 +29,8 @@ const PR_FIELDS = "\n" * """
         statusCheckRollup { state }
       } } }
       reviewThreads(first: 100) { nodes { isResolved isOutdated } }
+      reviewRequests(first: 20) { nodes { requestedReviewer {
+        __typename ... on User { login } ... on Team { slug } } } }
       comments(last: 1) { nodes { author { login } createdAt } }
       reviews(last: 20) { nodes { author { login } state submittedAt } }
 """

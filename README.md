@@ -99,6 +99,12 @@ anybody sets:
 | `normal` | a push, CI finishing, a review verdict, an unresolved thread resolving, any comment | **your unfinished work** |
 | `loose` | a review verdict or a **human** reply — bot comments and CI churn are ignored | everything else, and anything finished |
 
+**Somebody asking you to review counts at both levels**, and it is the only
+thing that does. Everything else in the table is a state that happens to
+change; a review request is a person naming you, and there is no level at which
+that is noise — `loose` exists to ignore a stranger's CI and a bot's comment,
+and this is the opposite of both.
+
 ```bash
 cli/bin/wl track julia#62452 loose
 ```
@@ -107,6 +113,13 @@ This is a real difference in behaviour rather than a label, because the
 fingerprint is hashed from the level's key set: CI turning green on your own
 pull request makes it unread, the same on a stranger's does not, and a human
 reply reaches you either way.
+
+It is also what makes a **re-request** arrive at all. A first request shows up
+as a new item and is unread for that reason; a second one, on something you have
+already read and decided about, changes nothing else GitHub will tell you —
+`reviewDecision` stays where it was, the review count stays where it was, and
+the button posts no comment — so before `reviewRequests` was fetched it passed
+in silence.
 
 It also answers a thing GitHub cannot. `updated_at` does not move when a check
 run finishes - a pull request stamped 20:55:52 had its three suites complete at

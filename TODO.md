@@ -893,15 +893,45 @@ snooze it. `needs-review` instead reads GitHub's standing `review-requested`,
 which keeps saying the same thing for as long as the request is open however
 many times you have looked at it and decided not yet.
 
-**Half done.** The visibility half is: a review request no longer *puts*
-anything anywhere, because the lane it used to put it in is gone - it is a
-bucket you can filter on and nothing more, and whether the row is in front of
-you is the seen axis's answer. What is not done is the event: `reviewRequests`
-is not fetched at all, and none of `review_count`, `review_decision` or
-`human_comment_at` changes when somebody asks you *again*. A first request
-arrives as a new item and is unread for that reason; a re-request on something
-you have read passes unnoticed. Fetching `reviewRequests` and putting it in the
-key set would close it.
+**Done** (2026-09-11). The visibility half was already: a review request no
+longer *puts* anything anywhere, because the lane it used to put it in is gone -
+it is a bucket you can filter on and nothing more, and whether the row is in
+front of you is the seen axis's answer. The event half is what landed now.
+`reviewRequests(first: 20)` joins `PR_FIELDS`, `review_requested` joins all
+three key sets, and a re-request makes the item unread.
+
+It had to be fetched because nothing else moves when somebody asks you again:
+`reviewDecision` stays where it was, `review_count` stays where it was, and the
+re-request button posts no comment. A first request arrived as a new item and
+was unread for that reason; every one after it was silent.
+
+**In all three levels, which nothing else fetched per-lane is.** It is not a
+property of the item that might interest you, it is somebody naming you - and
+`loose` exists to ignore a stranger's CI and a bot's comment, which is the
+opposite of that.
+
+**True or absent, never `false`.** The value is hashed into the fingerprint, so
+`false` written on every row would differ from the missing key on every row
+already in `fetched.json`, and the first refresh after this shipped would stamp
+the whole dashboard as moved. Checked against the real file: of 2159 stored
+rows, **0** change fingerprint when the key arrives absent, and all 2159 change
+when it arrives true - so the key is live at every level and inert for the rows
+that do not carry it. What flips on the first run is the 46 items the `review`
+lane returns, which go unread because you are in fact being asked about them.
+
+**One point per page, measured.** The `review` lane costs 3 without the
+connection and 4 with it, over 46 items. It is not in `FIREHOSE_QUERY`, for the
+same reason `reviewThreads` and `reviews` are not - and it does not need to be,
+because an active lane claims a requested item before the bulk sweep sees it.
+
+**`requestedReviewer` can be null**, for a reviewer that is neither a User nor a
+Team - a deleted account, or a type the selection does not spread.
+JuliaLang/julia#62245 has one today, which is why the lookup goes through `jget`
+rather than a field access.
+
+What it does not reach: a request of a **team** you are in. `/user/teams` is 403
+for this token, so there is nothing to match the slug against - see
+Infrastructure, where the same wall stops `team:ORG/TEAM` being settled.
 
 **One thing mode one could not express, half of which is now fetched.** `mine`
 was `it.author == login()`. "What I am editing as a **(co)author**" is wider,
