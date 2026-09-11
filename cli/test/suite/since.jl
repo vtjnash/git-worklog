@@ -215,6 +215,32 @@ end
     @test length(wide) == 10
     @test W.astrip(wide[10].header) == "new       abcdef10  commit 10"
 
+    # A diff whose own content looks like a range-diff header. Not a contrived
+    # case: this file is full of such lines, so reviewing a change to it was
+    # exactly what would break. git reported one pair; the parser read three,
+    # and the real diff went under the second invented heading.
+    trap = """
+1:  bc0f10e ! 1:  b54f028 tweak
+    @@ doc.md
+      1:  8aee051 ! 1:  1565527 change two
+      2:  7005033 < -:  ------- change four
+     -VALUE
+    -+OLDVALUE
+    ++NEWVALUE
+      more
+"""
+    tn = W.rangediff_nodes(trap)
+    @test length(tn) == 1
+    @test W.astrip(tn[1].header) == "changed   b54f028  tweak"
+    # And the body it kept is all of it, the header-shaped rows included.
+    @test occursin("1565527", W.astrip(tn[1].raw))
+    @test occursin("NEWVALUE", W.astrip(tn[1].raw))
+    # Four spaces is what says "body", so a header is never indented that far
+    # and an inner diff line never is not.
+    @test W.RANGE_PAIR !== nothing
+    @test match(W.RANGE_PAIR, "      1:  aaaaaaa ! 1:  bbbbbbb x") === nothing
+    @test match(W.RANGE_PAIR, " 1:  aaaaaaa ! 1:  bbbbbbb x") !== nothing
+
     # A run of `=` commits keeps its header and folds.
     eq = W.rangediff_nodes("1:  aaaaaaa = 1:  bbbbbbb same commit\n")
     @test length(eq) == 1 && !eq[1].open

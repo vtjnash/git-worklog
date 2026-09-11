@@ -1225,6 +1225,29 @@ What it left open:
   that compares two heads of one pull request; `compare` is between refs, and
   the old head is not one. The pane names both shas and says how to pin, which
   is the whole of what it can do.
+* **There is no porcelain mode for `git range-diff`, and the invariant to lean
+  on is the indent.** Checked on 2.54.0: the options are `--no-dual-color`,
+  `--creation-factor`, `--left-only`/`--right-only`, `--notes` and the ordinary
+  diff-format ones - and those last apply to the *inner* diffs, so `--raw` or
+  `-z` would destroy the patch text that is the whole point while leaving the
+  pair header exactly as it is.
+  Two bugs came from reading the header's shape instead. Past nine commits git
+  right-aligns the numbers, so an anchored pattern matched no row of a
+  ten-commit range-diff and the pane said "no textual change". Allowing leading
+  whitespace then matched the *wrong* rows: a diff whose own content looks like
+  a range-diff header - which `cli/test/suite/since.jl` is now full of, so
+  reviewing a change to it was exactly what would break - was read as three
+  commits where git reported one, with the real diff filed under an invented
+  heading. Both are in the suite now.
+  What holds is that every line of an inner diff is indented by exactly four
+  spaces before its dual-color marker, and a pair header's leading spaces are
+  number padding. So `RANGE_PAIR` refuses any line with four, and fails only for
+  a range of ten thousand commits or more - where the pane shows one unfolded
+  node rather than an invented structure, which is the right way round.
+  `git range-diff -s` prints the pair headers and nothing else, so splitting the
+  full output at exactly those lines would need no pattern at all. It is the
+  escape hatch if this ever needs more, and it is not used because it pays for
+  the whole cost matrix a second time.
 * **`git range-diff` shows nothing for a commit it could not pair.** A rewrite
   that kept too little reads as one commit dropped and one added, with no diff
   under either. That is git's `--creation-factor` and is left at its default:

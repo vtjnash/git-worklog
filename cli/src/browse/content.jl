@@ -703,6 +703,39 @@ end
 const RANGE_MARK = Dict('=' => (AD, "unchanged"), '!' => (YEL, "changed"),
                         '<' => (RED, "gone"), '>' => (GRN, "new"))
 
+"""Where one pair of commits ends and the next begins in `git range-diff` output.
+
+**There is no porcelain mode.** `git range-diff -h` on 2.54.0 offers
+`--no-dual-color`, `--creation-factor`, `--left-only`/`--right-only`, `--notes`
+and the ordinary diff-format options - and those last apply to the *inner*
+diffs, so `--raw` or `-z` would destroy the patch text that is the whole point
+while leaving the pair header exactly as it is. So this reads the human output,
+and the only question is which invariant to lean on.
+
+Not the shape of the header, which is what two bugs came from. Past nine commits
+git right-aligns the numbers, so every row of a ten-commit range-diff is
+indented by one and an anchored `^` plus a digit matched none of them - a rebase
+came out as "no textual change". Allowing leading whitespace instead then matched the
+*wrong* lines: a diff whose own content looks like a range-diff header - which
+`cli/test/suite/since.jl` is now full of - was read as three commits where git
+reported one, and the real diff went under an invented heading.
+
+The invariant that holds is the indent. Every line of an inner diff is indented
+by exactly four spaces before its dual-color marker; a pair header's leading
+spaces are number padding and there are `len(string(n)) - 1` of them. So four
+spaces means body, and nothing else does. It fails only for a range of ten
+thousand commits or more, where the padding reaches four - at which point the
+pane shows one unfolded node rather than an invented structure, which is the
+right way round.
+
+`git range-diff -s` is the escape hatch if this ever needs more: it prints the
+pair headers and nothing else, so splitting the full output at exactly those
+lines needs no pattern at all. It is not used because it pays for the whole
+cost matrix a second time, and that is the expensive half of a range-diff.
+"""
+const RANGE_PAIR =
+    r"^(?! {4})\s*(\d+|-):\s+(\S+)\s+([=!<>])\s+(\d+|-):\s+(\S+)\s*(.*)$"
+
 """`git range-diff` output as one node per commit.
 
 The same grain the diff pane uses for hunks and for the same reason: a commit is
@@ -717,11 +750,7 @@ function rangediff_nodes(txt::AbstractString)
         empty!(buf)
     end
     for l in split(txt, "\n")
-        # Leading space allowed, and it is not cosmetic: past nine commits git
-        # right-aligns the numbers, so every row of a ten-commit range-diff is
-        # indented by one and an anchored `^\d` matches none of them. A pane
-        # that said "no textual change" about a rebase was this.
-        m = match(r"^\s*(\d+|-):\s+(\S+)\s+([=!<>])\s+(\d+|-):\s+(\S+)\s*(.*)$", String(l))
+        m = match(RANGE_PAIR, String(l))
         if m === nothing
             isempty(ns) || push!(buf, String(l))
             continue
