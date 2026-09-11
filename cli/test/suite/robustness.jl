@@ -204,6 +204,20 @@ end
     nested = W.render_md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
 
+    # A code span in a table's *header* is the third shape, and the quiet one:
+    # `parse_md(::Markdown.Table)` passes `inline = true` for the body rows and
+    # not for the header, so a span there came out a code *block* - a panel
+    # three lines tall and `width - 12` across. The table then sized itself to
+    # that cell and its borders were wrapped mid-line. Each header cell is
+    # wrapped in a paragraph now, which is the one container whose handler
+    # passes `inline` down.
+    plain = split(rstrip(W.render_md("| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
+    spans = split(rstrip(W.render_md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
+    @test length(plain) == 5              # border, header, rule, row, border
+    @test length(spans) == length(plain)  # and the span did not grow the header
+    @test occursin("f(::T)", W.astrip(spans[2]))
+    @test all(W.awidth(l) <= 60 for l in spans)
+
     # An empty list item is the other shape that takes a whole comment down:
     # `parse_md(::Markdown.List)` indexes [1] on every item, and Julia parses
     # `- a`/`-`/`- b` into items of length [1, 0, 1]. Ordered or not, nested or

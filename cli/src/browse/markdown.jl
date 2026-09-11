@@ -226,20 +226,24 @@ end
 
 """Rewrite the parsed markdown into what Term can actually render.
 
-One walk of the tree, because both of the things it fixes are Term crashing on
-a shape Julia's parser produces perfectly happily - and each one takes the
-*whole* comment down to raw text, since `render_md` can only catch the throw,
-not the node that caused it.
+One walk of the tree, for three shapes Julia's parser produces and Term's does
+not handle. Two of them throw, and a throw costs the whole comment: `render_md`
+can catch it but not the node that caused it.
 
 **A table inside a list or a block quote.**
 `Term.TermMarkdown.parse_md(::Markdown.Table)` accepts `width` and nothing else,
-but Term's own recursion passes `inline` to whatever it finds nested. A table
-there is a `MethodError`. Keyword arguments take no part in dispatch, so this
-cannot be fixed by adding a method: any definition for `Markdown.Table` would
-replace Term's rather than extend it. The table is moved instead - nested, it
-becomes a code block of its own markdown source, which keeps every cell and
-loses only the box drawing; at the top level, where Term renders it properly, it
-is left alone. Upstream the fix is one `inline = false` in a signature.
+while Term's recursion passes `inline` to whatever it finds nested. Keyword
+arguments take no part in dispatch, so a method of our own would replace Term's
+rather than extend it; the table is moved instead. Nested, it becomes a code
+block of its own markdown source, which keeps every cell and loses only the box
+drawing. At the top level Term renders it properly, so it is left alone.
+
+**A code span in a table's header row.** `parse_md(::Markdown.Table)` parses the
+body rows with `inline = true` and the header without it, and a code span that
+is not inline is a code *block* - a panel three lines tall and `width - 12`
+across, which a header cell has no room for. Each header cell is wrapped in a
+`Paragraph`, the one container whose handler passes `inline` down, so the cell
+takes Term's own inline path and the header row is one line.
 
 **An empty list item.** `parse_md(::Markdown.List)` indexes `[1]` on every item,
 and `- a` / `-` / `- b` parses to items of length `[1, 0, 1]`, so a lone `-`
@@ -249,7 +253,9 @@ ordered list would renumber everything after it.
 """
 for_term(x, nested::Bool = false) = x
 for_term(t::Markdown.Table, nested::Bool) =
-    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) : t
+    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) :
+    Markdown.Table([i == 1 ? Any[Any[Markdown.Paragraph(cell)] for cell in row] : row
+                    for (i, row) in enumerate(t.rows)], t.align)
 for_term(md::Markdown.MD, nested::Bool = false) =
     Markdown.MD([for_term(c, nested) for c in md.content])
 for_term(l::Markdown.List, nested::Bool) =

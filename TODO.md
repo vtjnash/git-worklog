@@ -1667,17 +1667,29 @@ the closers go, and `TermInput`'s measuring becomes `textwidth`.
 
 ## Upstream
 
-All four bugs are filed. The three Term.jl ones came out of the checkout beside
+Five bugs, four of them filed. The Term.jl ones came out of the checkout beside
 this one - `Term.jl/` is a clone (ignored here, and `fixme.md` in it is ignored
 there) with each bug reproduced against v2.2.0, the cause located and the
-decision spelled out - and are **#304**, **#305** and **#306**. The fourth was
-never Term's: **JuliaLang/julia#63081**, which is a fix and not only a report.
+decision spelled out - and are **#304**, **#305** and **#306**. One is not
+Term's: **JuliaLang/julia#63081**, which is a fix and not only a report.
+
+The fifth is the newest and is **not filed yet**: `parse_md(::Markdown.Table)`
+passes `inline = true` when it parses the body rows and not when it parses the
+header, so a code span in a header cell is drawn as a code *block* - a panel
+three lines tall and `width - 12` across. The table sizes itself to that cell,
+comes out far wider than the width it was handed, and has its borders wrapped
+mid-line; at a 170-column console the table in JuliaLang/julia#63110 came out
+356 columns wide. It is one `inline = true` on one more call, on the branch
+`fix-markdown-table-header-inline` in the fork, with a test and bug 4 in
+`fixme.md`. The workaround here wraps each header cell in a `Paragraph` -
+the one container whose handler passes `inline` down - so the cell goes through
+Term's own inline path rather than a copy of it.
 
 They stay on this list until each lands *and* a release carries it, because the
 workarounds here are what to delete then - and deleting them is the point of
 having filed.
 
-A fifth is found and not filed, and it is not Term's either:
+A sixth is found and not filed, and it is not Term's either:
 **`Highlights` 0.6 imports `Pkg` at load time**, which costs every downstream
 package 0.35s of startup - measured here when `Term` 2.2 made it a dependency of
 this program (see "What `Term` 2.2 costs"). It is one `import Pkg` in
@@ -1689,7 +1701,7 @@ searching for it, would hand back a third of a second to everything that
 renders a code span. Worth filing with the measurement, since the fix is small
 and the cost is paid by every user of every package that highlights anything.
 
-A sixth, found while wiring the theme up and worth offering as a patch rather
+A seventh, found while wiring the theme up and worth offering as a patch rather
 than a report: **Term 2.2's code palette is not part of its theme.**
 `Term.CodeTheme` (`src/theme.jl`) is a hard-coded `Dict` of hex strings keyed by
 tree-sitter capture name, it is what every highlighted code span in a markdown
@@ -1702,7 +1714,7 @@ longer calls. Making them the same palette - or giving `Theme` a `code::Dict`
 field that `set_theme` swaps - is a small change with an obvious shape, and the
 fork beside this one is where to make it.
 
-A seventh is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
+An eighth is found and not filed: **`Term.Live`'s `InputBox` throws on backspace
 after a multi-byte character** - `input_text[1:(end - 1)]` is a byte slice, so
 `aée` gives `StringIndexError: invalid index [3]`. See the `InputBox` section
 above, which is also where the question of whether these widgets should be one
