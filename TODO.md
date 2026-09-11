@@ -91,7 +91,9 @@ items - own PRs, review requests, assigned issues, recently merged or closed
 ones, personal and team mentions, comment history, and every open
 JuliaLang/julia PR as a background pile - tracks which threads are unread so
 per-event email notification can stay off, and browses them in a terminal UI of
-three panes: the item list, its metadata, and the thread or diff.
+three panes: the item list, its metadata, and a detail pane that is the thread
+(`o`), the diff (`d`), what has been pushed since you last looked (`p`) or the
+checks (`c`).
 
 Beyond GitHub it also knows about *local* work: a branch with no pull request
 can be adopted and becomes an item like any other, and finished work is archived
@@ -651,7 +653,7 @@ substitutes only between them.
     CommonMark forbids, so `deliver_result and connect_to_peer` loses both
     underscores and italicises what is between them. It takes two to pair, so a
     single identifier looks fine and a real comment does not. Every parse goes
-    through `escape_intraword` first.
+    through `escape_source` first.
 
 **tmux** (all of these are silent - each returns success and the wrong answer)
 14. A session name has `.` and `:` rewritten to `_` without a word, so a session
@@ -1662,7 +1664,9 @@ beside this one now rather than a paragraph describing one.
   pane past its two minutes is a pause rather than a stale frame with a fetch
   behind it. That is defensible - a check that is two minutes out of date is
   wrong in a way a comment thread is not - but it is a difference in behaviour
-  between two panes and nothing says so on screen.
+  between two panes and nothing says so on screen. `p` is outside the question
+  rather than a third answer to it: two `git` calls against a local checkout,
+  with nothing cached and nothing to be stale.
 - **Per-check counts come from the same cache the `C` pane uses.** So the
   rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
   checks have never been fetched shows the one-word rollup from `fetched.json`
@@ -1768,7 +1772,7 @@ actual TTY:
   every lane opens by when anything last happened, `touched` excepted, because
   that lane *is* the clock. `w` still reaches the other two - the clock, and the
   url. Whether `mine`, `second` or `unread` want one of their own is still a
-  question only use can answer, and `LANE_SORT` is a one-line change when it
+  question only use can answer, and `lane_sort` is a one-line change when it
   does.
 - `u`, end to end. It spawns `bin/refresh` as a child, and nothing here has run
   one: the token is read-only for writes but a refresh is thirty seconds of real
@@ -1804,10 +1808,11 @@ so they are not mistaken for bugs later:
 
 - **A PAT, for two separate things — and both are writes.** The notifications
   one below is gone, so this is the only credential still outstanding. `origin` is now
-  `vtjnash/git-worklog` and is readable, but its `master` is still at the last
-  commit made before any of this - pushing has never been attempted, and the
-  sandbox's App token is read-only for contents everywhere, so it is expected to
-  fail. That needs `Contents: read/write`. Writing a review needs a *different*
+  `vtjnash/git-worklog` and is readable, but its `master` is 34 commits behind
+  the local one as of 2026-09-11 - it is at `aaa2cec`, made on 2026-09-10.
+  Pushing has never been attempted, and the sandbox's App token is read-only for
+  contents everywhere, so it is expected to fail. That needs
+  `Contents: read/write`. Writing a review needs a *different*
   pair of permissions on the repositories being reviewed - `issues: write` and
   `pull_requests: write` - which the same fine-grained PAT can carry but which
   are not implied by the first. A *fine-grained* PAT carries both; nothing here

@@ -187,7 +187,7 @@ that has gone quiet *on somebody*, derived every refresh and never stored.
 The same program with no arguments is an interactive browser over the same data:
 
 ```bash
-cli/bin/wl              # the item list, its metadata, and the thread or diff
+cli/bin/wl              # the item list, its metadata, and the detail pane
 cli/bin/wl --refresh    # re-fetch first
 ```
 
