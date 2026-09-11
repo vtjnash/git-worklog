@@ -269,7 +269,17 @@ end
     @test W.derive_bucket(merge(base, Dict("state" => "MERGED")),
                           Dict{String,Any}("bucket" => "needs-review"), cfg, at)[1] ==
           "needs-review"
-    @test W.resolve_track(Dict{String,Any}(), "done") == "loose"
+    @test W.resolve_track(Dict{String,Any}(), Dict("bucket" => "done")) == "loose"
+    # Whose it is decides the rest, which is the whole of "closely on mine, not
+    # on anyone else's": your own pull request wakes on CI and on a review
+    # verdict, theirs wakes on the verdict and a human reply and nothing else.
+    yours = Dict{String,Any}("bucket" => "needs-review", "mine" => true)
+    theirs = Dict{String,Any}("bucket" => "needs-review", "mine" => false)
+    @test W.resolve_track(Dict{String,Any}(), yours) == "normal"
+    @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
+    @test "ci" in W.TRACK_KEYS["normal"] && !("ci" in W.TRACK_KEYS["loose"])
+    # And what you said by hand wins over both.
+    @test W.resolve_track(Dict{String,Any}("track" => "close"), theirs) == "close"
     # And it is a value on the bucket axis, which is where finished work is read
     # now that nothing renders a page of sections.
     @test "done" in mkstate().buckets

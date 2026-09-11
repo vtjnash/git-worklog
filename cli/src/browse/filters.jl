@@ -175,10 +175,19 @@ Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts)
 
     seen_of(it, marks) -> :unread | :read
 
-The read stamp against `updated`, and **nothing overrides it**. Not a snooze,
+The read stamp against `moved_at`, and **nothing overrides it**. Not a snooze,
 not a filing, not whose it is: movement makes a thing unread, because unread is
 not a claim about wanting to see something - it is a claim about whether it has
 changed since you last did.
+
+**`moved_at` and not `updated`.** GitHub's own timestamp does not move when a
+check run finishes and does move when somebody relabels a pull request, so it
+misses the thing you asked to be told about and reports things you did not.
+`moved_at` is when the refresh last saw a change *at this item's tracking
+level* - so your own pull request turning green is unread and a stranger's is
+not, which is what `track` is for and what it did not used to reach. An item no
+refresh has bucketed - a row the activity poll alone knows about - has no
+fingerprint to compare, and there `updated` is the only answer anybody has.
 
 No stamp at all reads as unread, which is what "never been in front of you"
 means. It used to be a third value, `unseen`, on the theory that the firehose
@@ -192,10 +201,12 @@ the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
     at = get(m.read, it.url, nothing)
-    # An item with no `updated` is a synthetic one - an adopted branch, an
-    # import no refresh has caught up with - and a stamp on it is the only
-    # thing anybody has said about whether it has been seen.
-    at === nothing ? :unread : at < it.updated ? :unread : :read
+    at === nothing && return :unread
+    # An item with neither is a synthetic one - an adopted branch, an import no
+    # refresh has caught up with - and a stamp on it is the only thing anybody
+    # has said about whether it has been seen.
+    moved = isempty(it.moved_at) ? it.updated : it.moved_at
+    at < moved ? :unread : :read
 end
 
 """Do you want to see this?

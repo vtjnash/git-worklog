@@ -124,19 +124,34 @@ function fingerprint(rec, level::AbstractString = "close")
     bytes2hex(SHA.sha256(json_dumps(key)))[1:16]
 end
 
-"Explicit setting wins; otherwise the lane picks a sensible default."
-function resolve_track(st, bucket)
+"""Explicit setting wins; otherwise whose it is picks the default, then the lane.
+
+**Whose it is, first.** What counts as movement is not a property of the lane an
+item arrived in - it is a property of how much of your attention it has a claim
+on. Your own pull request should reach you when CI turns green or somebody
+approves it; the one you have been asked to review should reach you when there
+is a verdict or a human reply, and not because their CI flapped or somebody
+relabelled it. That is `normal` against `loose`, and it was `normal` for both:
+the levels defaulted by bucket and never once asked whose work it was.
+
+`stale` is deliberately not given `background`. It was, and that made an
+on-change snooze on one a snooze that could never wake: `background` has an
+empty key set, so the fingerprint is a constant and nothing ever changes it.
+Dismissing a quiet pull request with `s` `1` is the whole way one leaves the
+list now, so it has to be a dismissal that comes back.
+"""
+function resolve_track(st, r)
     t = get(st, "track", nothing)
     t isa AbstractString && haskey(TRACK_KEYS, t) && return t
+    bucket = pget(r, "bucket")
     bucket == "done" && return "loose"   # over; nothing about it should wake you
-    # `stale` is deliberately *not* here. It was, and that made an on-change
-    # snooze on one a snooze that could never wake: `background` has an empty
-    # key set, so the fingerprint is a constant and nothing ever changes it.
-    # Dismissing a quiet pull request with `s` `1` is the whole way one leaves
-    # the list now, so it has to be a dismissal that comes back.
+    # Before the lane rules and not after them: your own issue reached through a
+    # mention lane is still yours, and 66 of them were `background` - which has
+    # an empty key set, so a reply on your own issue could never make it unread.
+    pget(r, "mine") === true && return "normal"
     bucket in ("firehose", "mentioned") && return "background"
     bucket in ("issue", "reviewed", "blocked") && return "loose"
-    "normal"
+    "loose"
 end
 
 """Whole working days between two instants, counting Monday to Friday.
@@ -242,7 +257,7 @@ bucket is what decides where a row shows up at all.
 """
 function apply_state!(r, st, cfg, at::DateTime)
     r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
-    r["track"] = resolve_track(st, r["bucket"])
+    r["track"] = resolve_track(st, r)
     r["note"] = get(st, "note", nothing)
     r["deadline"] = get(st, "deadline", nothing)
     r["blocked_on"] = get(st, "blocked_on", String[])
@@ -803,6 +818,29 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             e === :woke && push!(woke, woke_row(r, at))
         end
         r["moved"] = old !== nothing && jget(old, :fp_full) != r["fp_full"]
+        # **When this program last saw a change you asked to be told about** -
+        # what the seen axis compares your read stamp against.
+        #
+        # Not `updated`, which is wrong in both directions: GitHub does not move
+        # it when a check run finishes (julia#62841 was stamped 20:55:52 and its
+        # three suites completed at 20:56:04, :07 and :19, and it has not moved
+        # since), and it does move it for a label edit on somebody else's pull
+        # request. So "has it changed" was answered by a clock that cannot see
+        # CI and can see things nobody asked about.
+        #
+        # The level decides what counts, which is what `track` always read like
+        # it did and until now only governed snoozes. The *old* row is
+        # re-fingerprinted at today's level rather than read out of its stored
+        # `fp`, so changing `track` is not itself movement.
+        #
+        # Unlike a snooze - which compares against the value armed when you said
+        # "not now", and so ignores a change that undoes itself - this is "since
+        # you last looked": red, green, red again is two stamps and two reasons
+        # to look. And on first sight it is what GitHub says rather than now,
+        # or a rebuilt `fetched.json` would read as every item moving at once.
+        r["moved_at"] = old === nothing ? activity_at(r) :
+                        fingerprint(old, r["track"]) != r["fp"] ? stamp(at) :
+                        String(nz(jget(old, :moved_at), activity_at(r)))
         if old === nothing
             r["new"] = true
             push!(changes, (url, r, "new"))

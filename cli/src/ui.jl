@@ -31,6 +31,10 @@ Base.@kwdef struct Item
     updated::String = ""   # changed by anything at all - a label edit counts,
                            # which is what makes `act` below a different fact
                            # and not a better-named one
+    moved_at::String = ""  # when this program last saw a change at this item's
+                           # tracking level - what the seen axis is measured
+                           # against. Empty on an item no refresh has bucketed,
+                           # where `updated` is the only answer anybody has
     act::String = ""       # when this last moved: the head commit, else the last
                            # comment, else `updated`. Stored as the timestamp
                            # and not as an age in days, because an age is only
@@ -102,6 +106,7 @@ function item_of(r)
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             mergeable = nz(jget(r, :mergeable), ""),
             act = String(nz(act, "")),
+            moved_at = String(nz(jget(r, :moved_at), "")),
             created = String(nz(jget(r, :created), "")),
             updated = String(nz(jget(r, :updated), "")),
             new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
@@ -291,6 +296,8 @@ poll_item(u) = Item(
     author = String(nz(get(u, "author", nothing), "")),
     updated = String(nz(get(u, "updated", nothing), "")),
     act = String(nz(get(u, "updated", nothing), "")),
+    # The poll has no fingerprint to compare, so what it saw *is* the movement.
+    moved_at = String(nz(get(u, "updated", nothing), "")),
     labels = String[String(l) for l in get(u, "labels", ())],
     state = uppercase(String(nz(get(u, "state", nothing), "open"))),
     is_pr = get(u, "is_pr", true))
