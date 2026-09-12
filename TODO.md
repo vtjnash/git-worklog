@@ -41,8 +41,8 @@ here is done; `git log` is the record of it and this file is not.
    The fingerprint half of the same question is **done** - `mergeable` and
    `unresolved` are keys at no level, `all`/`fp_full`/`moved` are gone, and a
    movement in a timestamped key is dated by the key rather than by the poll.
-   What is left of it is `review_requested_at`, which is a cost to measure. See
-   "Read and snooze are one state" under Outstanding work.
+   `review_requested_at` landed too, and the connection cost nothing to
+   measure. See "Read and snooze are one state" under Outstanding work.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -975,7 +975,9 @@ longer *puts* anything anywhere, because the lane it used to put it in is gone -
 it is a bucket you can filter on and nothing more, and whether the row is in
 front of you is the seen axis's answer. The event half is what landed now.
 `reviewRequests(first: 20)` joins `PR_FIELDS`, `review_requested` joins all
-three key sets, and a re-request makes the item unread.
+three key sets, and a re-request makes the item unread. (Since 2026-09-12 the
+key is `review_requested_at`, the time of the event rather than the bool - see
+"Read and snooze are one state" below.)
 
 It had to be fetched because nothing else moves when somebody asks you again:
 `reviewDecision` stays where it was, `review_count` stays where it was, and the
@@ -1321,20 +1323,24 @@ everything by the poll.
     forward - an item unread since an 11:00 CI change would otherwise be marked
     read by a deletion at 09:00, which loses the change nobody looked at rather
     than the comment nobody can.
-  * **`review_requested` should become `review_requested_at`.** It is a bool in
-    all three key sets because being asked is an event with no timestamp in the
-    selection - but the timestamp exists:
-    `timelineItems(last: N, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT])`
-    carries `createdAt` and `requestedReviewer`. As a stamp it compares against
-    the read mark directly, needs no true-or-absent-never-false dance to avoid
-    unreading the dashboard on the day it ships, and says "asked at 14:02"
-    rather than "review requested". Unmeasured: what the connection costs per
-    page (the `review` lane is 3 without `reviewRequests` and 4 with it);
-    `last: N` truncates a pull request re-requested more than N times; a request
-    of a **team** stays invisible either way. The standing `reviewRequests`
-    connection is a separate question and probably stays - the bucket filter
-    asks "am I requested *now*", which an event cannot answer after a
-    withdrawal.
+  * **Done, 2026-09-12: `review_requested` became `review_requested_at`.** It
+    was a bool in every key set because being asked is an event with no
+    timestamp in the selection - but the timestamp exists:
+    `timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT])`
+    carries `createdAt` and `requestedReviewer`, and the key is the newest of
+    either kind naming you. Both kinds, because the old test already said a
+    withdrawal moves the item - you are off the hook, which is what `r` was
+    waiting to hear - and now it is dated by the letting-off rather than by
+    the refresh. As a stamp it compares against the read mark directly, needs
+    no true-or-absent-never-false dance, and the "key that arrives" rule in
+    `moved_stamp` covers the row that had the bool and gains the time.
+    **Measured**: a page of the `review` lane costs 4 with the connection and
+    4 without, at `last:` 10, 20 and 50 alike, so the truncation depth was
+    free to choose; 30 is against julia#51908's ten, the widest today. What is
+    still true: a request of a **team** stays invisible, and the standing
+    `reviewRequests` connection stays - the bool it produces is not a key any
+    more, but it is what the change list reads to say which way the time
+    moved.
   * **Done, 2026-09-12: `mergeable` and `unresolved` are keys at no level.**
     Mergeable is computed lazily, answers `UNKNOWN` on the first read of every
     pull request - `carried_mergeable` is the workaround - and 671 of 2167 rows
@@ -1391,11 +1397,10 @@ everything by the poll.
     already recorded is the record catching up, and the mark stays put; arriving
     with a newer one is a genuine first comment or first review.
   * **What is left with no clock at all**, and so still hashed rather than
-    compared: `ci_failed` and `review_requested`, two bools. Everything else
-    that was in the key set has either left it - `mergeable`, `unresolved`,
-    `labels`, `review_decision`, `review_count`, `ci`, `head_at` - or become a
-    time. `review_requested` is the one that could stop being a bool, and that
-    is the measurement above.
+    compared: `ci_failed`, one bool. Everything else that was in the key set
+    has either left it - `mergeable`, `unresolved`, `labels`,
+    `review_decision`, `review_count`, `ci`, `head_at`, `review_requested` -
+    or become a time.
 
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 

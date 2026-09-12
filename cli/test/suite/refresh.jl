@@ -275,7 +275,7 @@ end
 
 @testset "being asked to review is a move" begin
     # A *re*-request is the only kind you get on something you have already
-    # read, and until `reviewRequests` was fetched nothing about it changed:
+    # read, and until the request was fetched nothing about it changed:
     # `reviewDecision` stays where it was, `review_count` stays where it was,
     # and GitHub's re-request button posts no comment. So the item stayed read.
     rec(; kw...) = merge(Dict{String,Any}("review_decision" => "REVIEW_REQUIRED",
@@ -286,28 +286,40 @@ end
                                          "unresolved" => 0),
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
     quiet = rec()
-    asked = rec(; review_requested = true)
+    asked = rec(; review_requested = true, review_requested_at = "2026-09-02T14:02:00Z")
     # Both levels, because there is no level at which being named is noise -
     # `loose` ignores a stranger's CI and a bot's comment, and this is neither.
     for lvl in ("normal", "loose")
         @test W.fingerprint(quiet, lvl) != W.fingerprint(asked, lvl)
     end
 
-    # True or absent, never false: the key is hashed, so a `false` written on
-    # every row would differ from the missing key on every row already in
-    # `fetched.json`, and the first refresh after this shipped would stamp the
-    # whole dashboard as moved. Absent has to match absent.
-    @test W.fingerprint(quiet, "normal") ==
-          W.fingerprint(rec(; review_requested = nothing), "normal")
+    # **The key is the time and not the bool.** Being asked is an event, and
+    # the timeline says when; the standing `reviewRequests` connection says
+    # only whether you are asked now, and says it to the change list, not to
+    # the fingerprint. So whether the bool is true, absent or - written by a
+    # hand that did not know better - false makes no difference to the hash.
+    @test W.fingerprint(asked, "normal") ==
+          W.fingerprint(rec(; review_requested = nothing,
+                            review_requested_at = "2026-09-02T14:02:00Z"), "normal") ==
+          W.fingerprint(rec(; review_requested = false,
+                            review_requested_at = "2026-09-02T14:02:00Z"), "normal")
 
     # And nothing else about the item had to change for that to be true, which
-    # is the whole complaint: the two records differ in this key alone.
-    @test setdiff(keys(asked), keys(quiet)) == Set(["review_requested"])
+    # is the whole complaint: the two records differ in the request alone.
+    @test setdiff(keys(asked), keys(quiet)) == Set(["review_requested", "review_requested_at"])
     @test all(quiet[k] == asked[k] for k in keys(quiet))
 
+    # A re-request is a newer time on the same standing bool, and moves.
+    again = rec(; review_requested = true, review_requested_at = "2026-09-05T09:00:00Z")
+    @test W.fingerprint(again, "loose") != W.fingerprint(asked, "loose")
+
     # Withdrawing it moves the item too. That is the same event read backwards -
-    # you are off the hook - and it is what `r` on it was waiting to hear.
-    @test W.fingerprint(asked, "loose") != W.fingerprint(quiet, "loose")
+    # you are off the hook - and it is what `r` on it was waiting to hear. It is
+    # a `ReviewRequestRemovedEvent` naming you and carries a time of its own,
+    # so the stamp moves forward to it rather than the key going back to absent.
+    off = rec(; review_requested = nothing, review_requested_at = "2026-09-03T08:00:00Z")
+    @test W.fingerprint(off, "loose") != W.fingerprint(asked, "loose")
+    @test W.fingerprint(off, "loose") != W.fingerprint(quiet, "loose")
 end
 
 @testset "a movement is dated by the thing that moved" begin
@@ -346,10 +358,21 @@ end
     @test W.moved_stamp(old, row(; head_at = "2026-09-12T10:30:00Z"), now_) ==
           "2026-09-12T09:00:00Z"
 
-    # Neither the CI bool nor the review request has a clock anywhere, so the
-    # refresh that saw it is the only date there is.
+    # Being asked is dated by the asking, and being let off by the letting
+    # off: both are timeline events naming you, and both carry a time.
+    @test W.moved_stamp(old, row(; review_requested = true,
+                                 review_requested_at = "2026-09-12T10:20:00Z"), now_) ==
+          "2026-09-12T10:20:00Z"
+    @test W.moved_stamp(old, row(; review_requested = nothing,
+                                 review_requested_at = "2026-09-12T10:20:00Z"), now_) ==
+          "2026-09-12T10:20:00Z"
+    # The standing bool is not a key, so it flipping on its own - the timeline
+    # truncated past the event that flipped it - is not a movement.
+    @test W.moved_stamp(old, row(; review_requested = true), now_) == "2026-09-12T09:00:00Z"
+
+    # The CI bool has no clock anywhere, so the refresh that saw it is the
+    # only date there is.
     @test W.moved_stamp(old, row(; ci_failed = true), now_) == W.stamp(now_)
-    @test W.moved_stamp(old, row(; review_requested = true), now_) == W.stamp(now_)
     # Mixed is now: dating the pair by the comment would say the item moved
     # before the CI failure that moved it beside it did.
     @test W.moved_stamp(old, row(; ci_failed = true,
@@ -385,6 +408,17 @@ end
     # comment, and counts.
     @test W.moved_stamp(husk, row(; review_at = "2026-09-12T10:45:00Z"), now_) ==
           "2026-09-12T10:45:00Z"
+    # The request that was a bool on the old row and is a time on the new one
+    # is the same arrival: a request made before the item last moved is the
+    # record catching up, and one made after it is the request you were never
+    # told about while the bool was silent on a row that had already moved.
+    bool_row = was(row(; review_requested = true))
+    @test W.moved_stamp(bool_row, row(; review_requested = true,
+                                      review_requested_at = "2026-09-12T08:45:00Z"), now_) ==
+          "2026-09-12T09:00:00Z"
+    @test W.moved_stamp(bool_row, row(; review_requested = true,
+                                      review_requested_at = "2026-09-12T09:30:00Z"), now_) ==
+          "2026-09-12T09:30:00Z"
 
     # The level decides which keys are asked about, here as everywhere else.
     # `loose` watches the human comment and the review and not the head, so a

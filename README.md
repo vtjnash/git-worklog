@@ -130,8 +130,10 @@ It is also what makes a **re-request** arrive at all. A first request shows up
 as a new item and is unread for that reason; a second one, on something you have
 already read and decided about, changes nothing else GitHub will tell you —
 `reviewDecision` stays where it was, the review count stays where it was, and
-the button posts no comment — so before `reviewRequests` was fetched it passed
-in silence.
+the button posts no comment — so before the request was fetched it passed in
+silence. It is fetched as a **time**: the moment of the newest timeline event
+naming you, asked or let off, so it compares against the read mark like a
+comment does rather than being a bool dated by whichever refresh noticed it.
 
 It also answers a thing GitHub cannot. `updated_at` does not move when a check
 run finishes - a pull request stamped 20:55:52 had its three suites complete at

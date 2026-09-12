@@ -110,21 +110,13 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["unresolved"] = light ? nothing :
                             count(t -> !t.isResolved && !t.isOutdated, threads)
         rec["review_count"] = length(reviews)
-        # **Being asked is an event, and this is the only key that records one.**
-        # Everything else here is a state that happens to change. Somebody
-        # asking you to review is somebody addressing you, and until this was
-        # fetched a *re*-request - the only kind you can get on something you
-        # have already read - moved nothing at all: `reviewDecision` does not
-        # change, `review_count` does not change, and no comment is posted. So
-        # the first request arrived as a new item and every one after it was
-        # silent.
-        #
-        # True or absent, and never `false`. This is hashed into the
-        # fingerprint, so `false` on every row would differ from the missing key
-        # on every row already in `fetched.json` and the first refresh after
-        # this shipped would mark the whole dashboard unread. Absent matches
-        # absent, so what flips on that run is exactly the items you are being
-        # asked about.
+        # **Are you asked right now**, which is a state, and is not a key. It
+        # was, as true-or-absent-never-false, because being asked is somebody
+        # addressing you and until it was fetched a *re*-request - the only
+        # kind you can get on something you have already read - moved nothing
+        # at all: `reviewDecision` did not change, `review_count` did not
+        # change, and no comment is posted. The key is now the time below;
+        # this is what the change list reads to say which way it went.
         #
         # Only *you*. A request of somebody else is not news at either level -
         # on a stranger's pull request it is the churn `loose` exists to ignore,
@@ -141,6 +133,26 @@ function normalize(n, lane::AbstractString, login::AbstractString)
             (reqs !== nothing &&
              any(rr -> jget(jget(rr, :requestedReviewer), :login) == login, reqs)) ?
             true : nothing
+        # **When you were last asked, or last let off.** Being asked is an
+        # event, and the bool above recorded one without its time - so it had
+        # to be hashed, and hashed as true-or-absent so that the day it shipped
+        # did not read as every row moving. The timeline has the time: the
+        # newest `ReviewRequestedEvent` or `ReviewRequestRemovedEvent` naming
+        # you, and as a stamp it compares against the read mark directly. Both
+        # kinds, because a withdrawal is the same event read backwards - you
+        # are off the hook, and it is what `r` on the item was waiting to hear.
+        #
+        # `last: 30` of the two types together, at no rate-limit cost - a page
+        # of the `review` lane is 4 with it and 4 without, measured at 10, 20
+        # and 50. What it truncates is a pull request with thirty request and
+        # withdrawal events after the last one naming you; julia#51908, the
+        # widest today, has ten. `nothing` for an issue, for a row the bulk
+        # lanes returned, and for a pull request nobody ever asked you about.
+        evs = jget(jget(n, :timelineItems), :nodes)
+        rec["review_requested_at"] = evs === nothing ? nothing :
+            maximum((String(t) for t in (jget(e, :createdAt) for e in evs
+                     if jget(jget(e, :requestedReviewer), :login) == login)
+                     if t !== nothing); init = "") |> (s -> isempty(s) ? nothing : s)
         # **When anybody last reviewed it**, which is a review *arriving* and so
         # has a time of its own - where `review_decision` is the standing
         # verdict and `review_count` is how many there have been, neither of
@@ -183,7 +195,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # went red.
         #
         # **True or absent, never `false`**, for the reason `review_requested`
-        # is: the value is hashed, so a `false` on every row would differ from
+        # was: the value is hashed, so a `false` on every row would differ from
         # the missing key on every row already in `fetched.json` and the first
         # refresh after this shipped would stamp the whole dashboard as moved.
         rec["ci_failed"] = (rec["mine"] && rec["ci"] == "FAILURE") ? true : nothing
@@ -211,11 +223,11 @@ end
 # alone - and with it the one list-valued key, which is why `fingerprint` no
 # longer has to sort anything before it hashes it.
 #
-# `review_requested` is in all three, which nothing else fetched per-lane is.
-# It is not a property of the item that might interest you - it is somebody
-# naming you, and there is no level at which being asked to review something is
-# noise. `loose` exists to ignore a stranger's CI and a bot's comment, and a
-# human asking you for a review is the opposite of both.
+# `review_requested_at` is in both, which nothing else fetched per-lane is. It
+# is not a property of the item that might interest you - it is somebody naming
+# you, and there is no level at which being asked to review something is noise.
+# `loose` exists to ignore a stranger's CI and a bot's comment, and a human
+# asking you for a review is the opposite of both.
 #
 # **Two fetched facts are deliberately not keys: `mergeable` and `unresolved`.**
 # Mergeable is computed lazily and answers `UNKNOWN` on the first read of every
@@ -229,9 +241,9 @@ end
 # bucketed on them and the metadata pane prints both - and neither is a reason
 # to put an item back in front of you.
 const TRACK_KEYS = Dict(
-    "normal" => ("their_head", "last_comment_at", "review_at", "review_requested",
+    "normal" => ("their_head", "last_comment_at", "review_at", "review_requested_at",
                  "ci_failed"),
-    "loose"  => ("human_comment_at", "review_at", "review_requested"),
+    "loose"  => ("human_comment_at", "review_at", "review_requested_at"),
 )
 
 """What counts as 'this item moved', at the given tracking level.
@@ -255,12 +267,17 @@ committer date of the commit it now points at, which is the closest thing GitHub
 offers and is checked against the high-water mark in `moved_stamp` because a
 force-push can carry an older one.
 
-Everything not in here - `ci_failed`, `review_requested` - has no clock anywhere
-and is dated by the refresh that first saw it differ.
+A request for review carries the moment it was made too, or withdrawn; the
+standing `reviewRequests` connection says only whether you are asked *now*, and
+the timeline says when that last changed, which is what the key is.
+
+The one thing not in here - `ci_failed` - has no clock anywhere and is dated by
+the refresh that first saw it differ.
 """
 const TIMED_KEYS = Dict("last_comment_at" => "last_comment_at",
                         "human_comment_at" => "human_comment_at",
                         "review_at" => "review_at",
+                        "review_requested_at" => "review_requested_at",
                         "their_head" => "head_at")
 
 """When the change this refresh just found actually happened.
@@ -280,8 +297,9 @@ that happened beside it would say the item moved before it did.
 returned carries no reviews at all, so `review_at` appears the day an active
 lane claims it; a key added to `TRACK_KEYS` appears on every row at once. Either
 would otherwise read as movement on every row it lands on - which is what made
-`review_requested` have to be true-or-absent, and what would have marked the
-whole dashboard unread on the day the sha replaced the clock. So a key arriving
+`review_requested` have to be true-or-absent while it was a key, and what would
+have marked the whole dashboard unread on the day the sha replaced the clock,
+and again on the day the request became a time. So a key arriving
 with a time *older than the movement already recorded* is the record catching up
 rather than something happening, and the mark stays where it was. Arriving with
 a newer one is a genuine first comment, or a first review, and counts.
@@ -1083,12 +1101,16 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             if jget(old, :fp) != r["fp"]
                 d = String[]
                 # Said as what happened, because it is an event and not a value:
-                # "review_requested nothing->true" is the same sentence written
-                # for a machine, and this is the line a person reads to find out
-                # why their dashboard changed.
+                # "review_requested_at 14:02->16:40" is the same sentence
+                # written for a machine, and this is the line a person reads to
+                # find out why their dashboard changed. The time says that it
+                # happened and the standing bool says which way; a withdrawal
+                # and a re-request between two refreshes leave the bool where
+                # it was and move the time, and are said as the request they
+                # ended on.
                 rq0, rq = jget(old, :review_requested), get(r, "review_requested", nothing)
-                rq0 == rq || push!(d, rq === true ? "review requested" :
-                                      "review request withdrawn")
+                (rq0 == rq && jget(old, :review_requested_at) == get(r, "review_requested_at", nothing)) ||
+                    push!(d, rq === true ? "review requested" : "review request withdrawn")
                 # The events say what happened; the states say what they went
                 # from and to. `their_head` and `review_at` are printed as
                 # events even though they are a sha and a timestamp, because

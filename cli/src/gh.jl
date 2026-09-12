@@ -33,6 +33,11 @@ const PR_FIELDS = "\n" * """
       reviewThreads(first: 100) { nodes { isResolved isOutdated } }
       reviewRequests(first: 20) { nodes { requestedReviewer {
         __typename ... on User { login } ... on Team { slug } } } }
+      timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) {
+        nodes {
+          ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } }
+          ... on ReviewRequestRemovedEvent { createdAt requestedReviewer { ... on User { login } } }
+        } }
       comments(last: 1) { nodes { author { login } createdAt } }
       reviews(last: 20) { nodes { author { login } state submittedAt } }
 """
