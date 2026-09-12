@@ -327,6 +327,12 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   which means the user's own file again. `errors.log` is the deliberate
   exception — the suite deletes the real one at startup and several tests assert
   on the footer warning it produces.
+- **Seeded from the real files, and that is an open question**, not a settled
+  rule: 32 testsets pick a row out of the live corpus by predicate, which is an
+  undeclared precondition that errors rather than fails when it stops holding,
+  and `fetched.json` is untracked so a fresh clone has no corpus at all. See
+  "The suite is pinned to the real dashboard" under Outstanding work. Until it
+  is settled: never search the corpus for a row with a property, construct it.
 - **The suite runs against `Worklog` directly** (`--project=cli`), never through
   `cli/precompile`. That is the point of the wrapper being a separate package:
   the workload is `wl`'s tax and not the edit-test loop's.
@@ -1345,6 +1351,60 @@ everything by the poll.
     `review_count`, which are derivable from `reviews(last: 20)` submission
     times but only by reading them. So the hash shrinks to the facts that
     genuinely have no clock; it does not disappear.
+
+### The suite is pinned to the real dashboard, and 32 testsets pick a row out of it
+
+Raised 2026-09-12, after `search.jl` errored on `findfirst(i -> i.snoozed,
+st.all)` - the second testset in two days to do it, after `clock.jl` took the
+first snoozed item for a block that already exists.
+
+**What it is now, and the argument for it.** Every path the program writes
+through is redirected at the top of the run, but `LOCAL` and `FETCHED` are
+*seeded from the real files* - "because the read-only testsets are tests of
+whatever is actually in them". That is right for one class of test and wrong for
+another, and nothing in the suite separates them:
+
+  * **A sweep.** Does the program survive 2167 rows of GitHub's real weirdness -
+    a null `requestedReviewer`, the husk rows the bulk lanes return, a bot
+    comment hiding the author's, a row with no `state` at all. A handwritten
+    fixture there is a fiction that agrees with the code by construction. These
+    want the real file, and want asserting over *every* row.
+  * **A behaviour.** `/` reaches a row the filter is hiding. This wants *a row
+    with a property*, and hunting the corpus for one makes an undeclared
+    precondition out of a fact about your inbox on the day it was written.
+
+**The count is 32**, by `findfirst(...)` and `first(x for x in st.all if ...)`
+over `st.all` and `st.items`, in 20 of the 22 files. When one stops holding it
+is `nothing` as an index - an **error**, not a failure, so it takes the whole
+file down and every file included after it silently stops running. That is the
+same shape as the tmux assertion that hid seven files, and it is how `clock.jl`
+took `since.jl` with it.
+
+**And the corpus is untracked by design.** `fetched.json` is in `data/`'s own
+`.gitignore` - megabytes, churned by every refresh, and tracking it would bury
+the diff of what you actually did. So the suite's fixtures are machine-local and
+rewritten by normal use of the program they test. On a fresh clone there is
+nothing to run at all: `loaditems()` throws `nothing fetched yet - run wl refresh
+first` before the first testset (measured, by pointing `FETCHED` at a path that
+does not exist).
+
+**The rule to write down: never search the corpus for a row with a property -
+construct it.** The filed half of that same `/` testset already does, with
+`archive!` and a `finally` that puts it back, which is why only the snoozed half
+broke. The snoozed half cannot use `local.toml` the way it does, because being
+asleep is the refresh's answer carried on the row and `sleep_of` reads
+`it.snoozed`; it builds the row instead and asks `refilter!` again.
+
+**The work, which is not large.** A `fixture()` of a dozen rows covering each
+axis value - snoozed, filed, unread, closed, issue, pull request, yours, a
+synthetic with no author, one whose last comment is a bot's - and
+`mkstate(items)` beside today's argumentless one. `filters`, `search`, `lanes`,
+`state` and `items` move onto it; `robustness`, `frame`, `markdown` and the
+render sweeps keep the real corpus and assert over every row rather than one
+picked out of it. The fixture has to be written *from* real rows rather than
+invented, because the husks are exactly what catches an `nz` that should have
+been there - which is the whole of the argument this displaces, kept where it
+earns its keep.
 
 ### Showing *what* changed, not just that something did — **built**
 
