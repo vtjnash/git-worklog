@@ -346,12 +346,19 @@ end
           W.stamp(now_)
 
     # Never backwards. `head_at` is a committer date and not a push time, so a
-    # force-push of an older commit carries an older one, and a deleted comment
-    # moves `last_comment_at` back to the one before it. Either would date this
-    # movement earlier than the movement already recorded and quietly mark a
-    # moved item read, so a time that cannot account for the change does not get
-    # to explain it.
+    # force-push of an older commit carries an older one - and there is something
+    # to show for that, so dating the push by the commit it put back would leave
+    # the item read. A time that cannot account for the change does not get to
+    # explain it.
     @test W.moved_stamp(old, row(; head_at = "2026-09-12T07:00:00Z"), now_) == W.stamp(now_)
+    # A deleted comment moves `last_comment_at` back to the one before it, and
+    # that one is fine either way: what moved the key is gone, so missing it
+    # costs nothing and catching it costs an unread item with nothing new in it.
+    # It falls out the same way rather than being asked for - what the rule is
+    # really protecting is that `moved_at` only goes forward, since an item
+    # unread since an 11:00 CI change would otherwise be marked read by a
+    # deletion at 09:00, losing the change nobody looked at rather than the
+    # comment nobody can.
     @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T08:30:00Z",
                                  human_comment_at = "2026-09-12T08:30:00Z"), now_) ==
           W.stamp(now_)

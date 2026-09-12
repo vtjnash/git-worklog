@@ -1313,10 +1313,14 @@ everything by the poll.
     by the refresh that first sees it, and comes back unread. One expression, no
     file format change, no snooze woken. **Done, 2026-09-12**: `moved_stamp`,
     which also declines a time that cannot account for the change - `head_at` is
-    a committer date and a force-push of an older commit carries an older one,
-    and a deleted comment moves `last_comment_at` backwards. Either would date a
-    movement earlier than the movement already recorded, and quietly mark a
-    moved item read.
+    a committer date, so a force-push of an older commit carries an older one,
+    and there *is* something to show for that. A deleted comment moves
+    `last_comment_at` backwards too and is fine either way, being a value that
+    went and came back: missing it costs nothing, catching it costs an unread
+    item with nothing in it. What the rule protects is that `moved_at` only goes
+    forward - an item unread since an 11:00 CI change would otherwise be marked
+    read by a deletion at 09:00, which loses the change nobody looked at rather
+    than the comment nobody can.
   * **`review_requested` should become `review_requested_at`.** It is a bool in
     all three key sets because being asked is an event with no timestamp in the
     selection - but the timestamp exists:

@@ -223,12 +223,24 @@ So a movement in the timestamped keys is dated by the keys, and a movement in
 anything else by now. Mixed is now: a stamp older than a CI change that happened
 beside it would say the item moved before it did.
 
-**Never backwards, and that is what the last line is for.** `head_at` is a
-*committer* date, not a push time - a force-push of an older commit carries an
-older date - and a deleted comment moves `last_comment_at` back to the one
-before it. Either would date this movement earlier than the movement already
-recorded, which would quietly mark a moved item read. A time that cannot account
-for the change is not used to explain it.
+**Never backwards, and that is what the last line is for.** Two things move a
+timestamped key to an *earlier* value, and only one of them matters.
+
+`head_at` is a *committer* date rather than a push time, so a force-push of an
+older commit carries an older date. There is something to show there - the
+branch is not what you last saw - and dating the push by the commit it put back
+would leave the item read. So a time that cannot account for the change does not
+get to explain it, and the refresh clock is what is left.
+
+A **deleted comment** is the other, and it is fine either way: the thing that
+moved the key is gone, so missing it costs nothing and catching it costs an
+unread item with nothing new in it. It is not the argument for this line and was
+written down as though it were.
+
+What the line is really protecting is that `moved_at` **only ever goes forward**.
+It is a high-water mark: an item unread since a CI change at 11:00 that took a
+comment deletion at 09:00 would be marked read again, and what that loses is not
+the deleted comment - it is the CI change nobody ever looked at.
 
 First sight has no old row and is not this: it is `activity_at`, what GitHub
 says, or a rebuilt `fetched.json` would read as every item moving at once.
