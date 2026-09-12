@@ -214,9 +214,17 @@ end
     # on purpose: setting a field is an interaction, and it is recorded in the
     # same block now rather than in a file of its own.
     #
-    # An item that already has a block, so that what is being compared is the
-    # edit rather than the block's own arrival.
-    u = first(sort(collect(keys(W.field_map("snooze")))))
+    # A block that is already there, so that what is being compared is the edit
+    # rather than the block's own arrival. Whichever block the file happens to
+    # carry, and not the first snoozed item, which is what this asked for until
+    # the day the last snooze was cleared: a testset about the *editor* has no
+    # business needing the user to have something asleep, and when it stopped
+    # being true this errored rather than failed and took `since.jl` down with
+    # it. Seeded when there is nothing at all, which a fresh `local.toml` is.
+    blocks = sort([k for (k, v) in W.TOML.parse(read(W.localfile(), String))
+                   if v isa AbstractDict])
+    u = isempty(blocks) ? "https://github.com/o/r/pull/1" : first(blocks)
+    isempty(blocks) && W.set_fields(u, ["note" => "a block to edit"])
     clean(s) = replace(s, r"\ntouched = \"[^\"]*\"" => "")
     before = clean(read(W.localfile(), String))
     W.set_fields(u, ["note" => "a passing thought"])
