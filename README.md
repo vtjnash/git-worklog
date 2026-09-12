@@ -43,9 +43,9 @@ you or by a model reading the same files.
 
 ## Snooze until it moves
 
-`snooze = "on-change"` fingerprints the PR (head commit, review decision,
-mergeability, CI, unresolved threads, last comment, labels) and hides it until
-that fingerprint differs. For a PR waiting on a reviewer this is the right
+`snooze = "on-change"` fingerprints the PR (head commit, review decision, CI,
+review count, last comment, and whether you are being asked to review it) and
+hides it until that fingerprint differs. For a PR waiting on a reviewer this is the right
 primitive — a timer is guessing, and Octobox only offers 1h/1d/1w/1mo. Once
 woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
 
@@ -97,7 +97,7 @@ anybody sets:
 
 | level | counts as movement | default for |
 |---|---|---|
-| `normal` | a push, CI finishing, a review verdict, an unresolved thread resolving, any comment | **your unfinished work** |
+| `normal` | a push, CI finishing, a review verdict, a review submitted, any comment | **your unfinished work** |
 | `loose` | a review verdict or a **human** reply — bot comments and CI churn are ignored | everything else, and anything finished |
 
 **Somebody asking you to review counts at both levels**, and it is the only
@@ -128,6 +128,14 @@ run finishes - a pull request stamped 20:55:52 had its three suites complete at
 somebody relabels a pull request you have no interest in. So "has this changed
 since I looked" is measured against `moved_at`: when this program last saw a
 change at the item's own level.
+
+**Dated by the thing that moved**, where it can be. A push and a comment carry
+the moment they were made, so that is what a movement in them is stamped with;
+CI and a verdict carry no clock of their own and are stamped with the refresh
+that first saw them differ. It used to be the refresh either way, which dated a
+comment by the poll — and `r` stamps you read at the moment the *thread* was
+fetched, fresher than any refresh, so a comment read at 10:00 came back unread
+when the 11:00 refresh first saw it.
 
 ## Showing what changed, not just that something did
 
@@ -490,5 +498,9 @@ total crosses 950. Long paginations also hit transient 502s, so pages retry.
 
 `mergeable` is computed **lazily** — the first read of a PR returns `UNKNOWN` and
 merely schedules the computation (94 of 145 on a cold run). Concluding from it
-flaps the needs-stacking lane and spuriously wakes `on-change` snoozes, so the
-last known value is carried forward until a real one arrives.
+flaps the needs-stacking lane, so the last known value is carried forward until
+a real one arrives. It is not a key at any tracking level for the same reason: a
+value that has to be carried forward to stop it flapping cannot also be trusted
+to have *changed*. Neither is the unresolved-thread count, which moves when
+somebody resolves a thread — what there was to resolve arrived as a comment or a
+review, and moved the fingerprint on the day it did.
