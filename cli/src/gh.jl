@@ -26,6 +26,8 @@ const PR_FIELDS = "\n" * """
       labels(first: 20) { nodes { name } }
       commits(last: 1) { nodes { commit {
         committedDate
+        author { user { login } }
+        committer { user { login } }
         statusCheckRollup { state }
       } } }
       reviewThreads(first: 100) { nodes { isResolved isOutdated } }
@@ -72,7 +74,8 @@ query(\$q: String!, \$cursor: String) {
       milestone { title dueOn }
       assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
-      commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+      commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state }
+        author { user { login } } committer { user { login } } } } }
       comments(last: 1) { nodes { author { login } createdAt } }
     }
     ... on Issue {

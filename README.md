@@ -43,9 +43,9 @@ you or by a model reading the same files.
 
 ## Snooze until it moves
 
-`snooze = "on-change"` fingerprints the PR (head commit, review decision, CI,
-review count, last comment, and whether you are being asked to review it) and
-hides it until that fingerprint differs. For a PR waiting on a reviewer this is the right
+`snooze = "on-change"` fingerprints the PR (the head **somebody else** pushed,
+the last comment, the last review, whether you are being asked to review it, and
+whether your own CI is failing) and hides it until that fingerprint differs. For a PR waiting on a reviewer this is the right
 primitive — a timer is guessing, and Octobox only offers 1h/1d/1w/1mo. Once
 woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
 
@@ -97,8 +97,8 @@ anybody sets:
 
 | level | counts as movement | default for |
 |---|---|---|
-| `normal` | a push, CI finishing, a review verdict, a review submitted, any comment | **your unfinished work** |
-| `loose` | a review verdict or a **human** reply — bot comments and CI churn are ignored | everything else, and anything finished |
+| `normal` | a push **somebody else** made, your own CI going red, a review, any comment | **your unfinished work** |
+| `loose` | a review or a **human** reply — bot comments, CI and pushes are ignored | everything else, and anything finished |
 
 **Somebody asking you to review counts at both levels**, and it is the only
 thing that does. Everything else in the table is a state that happens to
@@ -111,9 +111,20 @@ cli/bin/wl track julia#62452 loose
 ```
 
 This is a real difference in behaviour rather than a label, because the
-fingerprint is hashed from the level's key set: CI turning green on your own
-pull request makes it unread, the same on a stranger's does not, and a human
-reply reaches you either way.
+fingerprint is hashed from the level's key set: your own pull request going red
+makes it unread, a stranger's does not, and a human reply reaches you either way.
+
+**Three of those keys say what they are rather than what they were.** A push is
+a **sha** and not a clock — a rebase rewrites the committer date, a force-push
+of an older commit walks it backwards, and two shas are equal or they are not.
+It is the head *somebody else* put there, so your own push carries the previous
+value forward: you know what you pushed. A review is the **time the newest one
+arrived**, not the standing verdict and not a count, because the verdict only
+ever moves because a review arrived and the arrival is the half with a clock on
+it. And CI is one **bool** — is your own pull request failing — rather than the
+whole state, so a run starting, a run finishing green on something that was
+never red, and the flap between pending and success are the machine talking to
+itself. A green that follows a fix arrives as the push that fixed it.
 
 It is also what makes a **re-request** arrive at all. A first request shows up
 as a new item and is unread for that reason; a second one, on something you have

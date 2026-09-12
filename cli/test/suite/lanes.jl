@@ -271,13 +271,22 @@ end
           "needs-review"
     @test W.resolve_track(Dict{String,Any}(), Dict("bucket" => "done")) == "loose"
     # Whose it is decides the rest, which is the whole of "closely on mine, not
-    # on anyone else's": your own pull request wakes on CI and on a review
-    # verdict, theirs wakes on the verdict and a human reply and nothing else.
+    # on anyone else's": your own pull request wakes on a failing CI and on a
+    # push somebody else made, theirs wakes on a review and a human reply and
+    # nothing else.
     yours = Dict{String,Any}("bucket" => "needs-review", "mine" => true)
     theirs = Dict{String,Any}("bucket" => "needs-review", "mine" => false)
     @test W.resolve_track(Dict{String,Any}(), yours) == "normal"
     @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
-    @test "ci" in W.TRACK_KEYS["normal"] && !("ci" in W.TRACK_KEYS["loose"])
+    for k in ("ci_failed", "their_head")
+        @test k in W.TRACK_KEYS["normal"] && !(k in W.TRACK_KEYS["loose"])
+    end
+    # A review is in both, and it is a *time* rather than a verdict and a count:
+    # the verdict only ever moves because a review arrived, and the arrival is
+    # the thing that has a clock.
+    @test all("review_at" in ks for ks in values(W.TRACK_KEYS))
+    @test !any("review_decision" in ks || "review_count" in ks
+               for ks in values(W.TRACK_KEYS))
     # And what you said by hand wins over both.
     @test W.resolve_track(Dict{String,Any}("track" => "normal"), theirs) == "normal"
     # Two levels, and there were four: a value that is no longer one is not a

@@ -97,6 +97,15 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["review_decision"] = jget(n, :reviewDecision)
         rec["mergeable"] = jget(n, :mergeable)
         rec["head_at"] = jget(commit, :committedDate)
+        # **Who put the head there**, which decides whether a push is news.
+        # The committer and not the author: somebody rebasing your branch leaves
+        # you as the author of every commit on it and is the one who moved it,
+        # and a commit you wrote that they pushed is a thing to look at. The
+        # author is the fallback for a commit with no committer user - the web
+        # flow, and anything pushed by an app.
+        rec["head_by"] = something(jget(jget(jget(commit, :committer), :user), :login),
+                                   jget(jget(jget(commit, :author), :user), :login),
+                                   "")
         rec["ci"] = jget(roll, :state)
         rec["unresolved"] = light ? nothing :
                             count(t -> !t.isResolved && !t.isOutdated, threads)
@@ -132,6 +141,26 @@ function normalize(n, lane::AbstractString, login::AbstractString)
             (reqs !== nothing &&
              any(rr -> jget(jget(rr, :requestedReviewer), :login) == login, reqs)) ?
             true : nothing
+        # **When anybody last reviewed it**, which is a review *arriving* and so
+        # has a time of its own - where `review_decision` is the standing
+        # verdict and `review_count` is how many there have been, neither of
+        # which can say when it changed. Both were keys and this replaces them:
+        # a verdict only ever moves because a review was submitted or dismissed,
+        # and the count only ever moves because one was submitted, so the time
+        # of the newest review is the same news dated by the event instead of by
+        # the poll that noticed it.
+        #
+        # What it does not see is a *dismissal*, which leaves `submittedAt`
+        # where it was. Dismissing a review that new commits already invalidated
+        # is the common case and the push moves `head_at` beside it; a bare
+        # dismissal on an unchanged head is the one that passes in silence.
+        #
+        # `nothing` for a row the bulk lanes returned, which fetch no reviews at
+        # all - see `light`. A key arriving is not an event, and `moved_stamp`
+        # is where that is written down.
+        rec["review_at"] = isempty(reviews) ? nothing :
+            maximum(String(t) for t in (jget(r, :submittedAt) for r in reviews)
+                    if t !== nothing; init = "") |> (s -> isempty(s) ? nothing : s)
         rec["my_last_review_at"] = isempty(mine_reviews) ? nothing :
                                    maximum(r.submittedAt for r in mine_reviews)
         rec["my_last_review_state"] = isempty(mine_reviews) ? nothing :
@@ -142,6 +171,22 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         approvals = [jget(r, :submittedAt) for r in reviews
                      if jget(r, :state) == "APPROVED" && jget(r, :submittedAt) !== nothing]
         rec["approved_at"] = isempty(approvals) ? nothing : maximum(approvals)
+        # **One bool, where the whole CI state used to be a key.** What is worth
+        # being told is that your own pull request is failing; a run starting,
+        # a run finishing green on something that was never red, and the flap
+        # between `PENDING` and `SUCCESS` are all the machine talking to itself.
+        # 374 of today's 2167 rows say `FAILURE` and 42 of them are yours.
+        #
+        # It carries `mine` rather than leaning on the level to mean it. `track`
+        # defaults by whose the work is but can be set by hand, and a stranger's
+        # pull request tracked `normal` should not wake you because their CI
+        # went red.
+        #
+        # **True or absent, never `false`**, for the reason `review_requested`
+        # is: the value is hashed, so a `false` on every row would differ from
+        # the missing key on every row already in `fetched.json` and the first
+        # refresh after this shipped would stamp the whole dashboard as moved.
+        rec["ci_failed"] = (rec["mine"] && rec["ci"] == "FAILURE") ? true : nothing
     end
     rec
 end
@@ -184,10 +229,9 @@ end
 # bucketed on them and the metadata pane prints both - and neither is a reason
 # to put an item back in front of you.
 const TRACK_KEYS = Dict(
-    "normal" => ("head_at", "review_decision", "ci",
-                 "review_count", "last_comment_at", "review_requested"),
-    "loose"  => ("review_decision", "review_count", "human_comment_at",
-                 "review_requested"),
+    "normal" => ("their_head", "last_comment_at", "review_at", "review_requested",
+                 "ci_failed"),
+    "loose"  => ("human_comment_at", "review_at", "review_requested"),
 )
 
 """What counts as 'this item moved', at the given tracking level.
@@ -202,13 +246,22 @@ function fingerprint(rec, level::AbstractString)
     bytes2hex(SHA.sha256(json_dumps(Any[get(rec, k, nothing) for k in ks])))[1:16]
 end
 
-"""The keys that know when they happened, which is what dates a movement.
+"""Each key that can be dated, and the field that dates it.
 
-A push and a comment carry the moment they were made; `ci` and a verdict and a
-count do not, and can only be dated by the refresh that first saw them differ.
-Everything in `TRACK_KEYS` is on one side of this line or the other.
+A comment and a review carry the moment they were made and date themselves. A
+push does not: `their_head` is a *sha*, which is the exact answer to whether the
+branch moved and no answer at all to when - so it is dated by `head_at`, the
+committer date of the commit it now points at, which is the closest thing GitHub
+offers and is checked against the high-water mark in `moved_stamp` because a
+force-push can carry an older one.
+
+Everything not in here - `ci_failed`, `review_requested` - has no clock anywhere
+and is dated by the refresh that first saw it differ.
 """
-const TIMED_KEYS = ("head_at", "last_comment_at", "human_comment_at")
+const TIMED_KEYS = Dict("last_comment_at" => "last_comment_at",
+                        "human_comment_at" => "human_comment_at",
+                        "review_at" => "review_at",
+                        "their_head" => "head_at")
 
 """When the change this refresh just found actually happened.
 
@@ -219,9 +272,19 @@ refresh, so a comment posted at 09:55 and read at 10:00 was dated 11:00 by the
 refresh that first saw it and the item came back unread for something you had
 already read.
 
-So a movement in the timestamped keys is dated by the keys, and a movement in
-anything else by now. Mixed is now: a stamp older than a CI change that happened
-beside it would say the item moved before it did.
+So a movement in a key `TIMED_KEYS` can date is dated by what dates it, and a
+movement in anything else by now. Mixed is now: a stamp older than a CI failure
+that happened beside it would say the item moved before it did.
+
+**A key that was not there before is not an event.** A row the bulk lanes
+returned carries no reviews at all, so `review_at` appears the day an active
+lane claims it; a key added to `TRACK_KEYS` appears on every row at once. Either
+would otherwise read as movement on every row it lands on - which is what made
+`review_requested` have to be true-or-absent, and what would have marked the
+whole dashboard unread on the day the sha replaced the clock. So a key arriving
+with a time *older than the movement already recorded* is the record catching up
+rather than something happening, and the mark stays where it was. Arriving with
+a newer one is a genuine first comment, or a first review, and counts.
 
 **Never backwards, and that is what the last line is for.** Two things move a
 timestamped key to an *earlier* value, and only one of them matters.
@@ -246,17 +309,25 @@ First sight has no old row and is not this: it is `activity_at`, what GitHub
 says, or a rebuilt `fetched.json` would read as every item moving at once.
 """
 function moved_stamp(old, r, at::DateTime)
+    prev = jget(old, :moved_at)
+    high = prev isa AbstractString ? String(prev) : ""
     ev = String[]
     for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
-        n = get(r, k, nothing)
-        jget(old, Symbol(k)) == n && continue
-        k in TIMED_KEYS || return stamp(at)
-        truthy(n) && push!(ev, String(n))
+        was, now_ = jget(old, Symbol(k)), get(r, k, nothing)
+        was == now_ && continue
+        by = get(TIMED_KEYS, k, nothing)
+        by === nothing && return stamp(at)
+        t = get(r, by, nothing)
+        truthy(t) || return stamp(at)
+        # The record catching up rather than something happening; see above.
+        (was === nothing && !isempty(high) && String(t) <= high) || push!(ev, String(t))
     end
-    isempty(ev) && return stamp(at)
+    # Nothing moved at this level, or only keys that were arriving: the mark
+    # stays where it is. Reached in a test rather than in a run - the caller
+    # asks only when the fingerprint differs - and it is what "no news" means.
+    isempty(ev) && return isempty(high) ? stamp(at) : high
     m = maximum(ev)
-    prev = jget(old, :moved_at)
-    (prev isa AbstractString && m <= prev) ? stamp(at) : m
+    m <= high ? stamp(at) : m
 end
 
 """Explicit setting wins; otherwise **your unfinished work is tracked normally
@@ -517,6 +588,34 @@ function snooze_entry(v)
 end
 
 snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
+
+"""The head as of the last time somebody else moved it, or `nothing`.
+
+**The sha says whether there is something new to review; nothing else does.**
+`head_at` is a committer date and a rebase rewrites it, a force-push of an older
+commit walks it backwards, and a branch moved onto a newer base carries dates
+that say nothing about when the push happened. Two shas are equal or they are
+not.
+
+**And your own push is not news.** You know what you pushed; being told about it
+is the dashboard reporting your own keystrokes back to you. So the key is the
+newest head *somebody else* put there: a push of your own carries the previous
+value forward, the way `carried_mergeable` carries a value GitHub will not
+answer, and a push of theirs replaces it. They push after you, and it moves;
+you push after them, and it does not move back.
+
+Carried and not cleared, which is the whole of why this is a separate value from
+`head_sha`: clearing it on your own push would be a change like any other, and
+the item would go unread for the thing this exists to ignore.
+
+`nothing` for an issue, for a row no lane has fetched commits for, and for a
+pull request only ever pushed to by you - which is the honest state for each.
+"""
+function their_head(r, old, login::AbstractString)
+    sha = get(r, "head_sha", nothing)
+    truthy(sha) || return nothing
+    get(r, "head_by", nothing) == login ? jget(old, :their_head) : String(sha)
+end
 
 """What `mergeable` should say when GitHub has answered `UNKNOWN`.
 
@@ -924,6 +1023,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             r["mergeable"] = carried_mergeable(get(r, "state", nothing),
                                                jget(jget(prev_items, Symbol(url)), :mergeable))
         end
+        r["their_head"] = their_head(r, jget(prev_items, Symbol(url)), login)
         apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
@@ -989,11 +1089,17 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
                 rq0, rq = jget(old, :review_requested), get(r, "review_requested", nothing)
                 rq0 == rq || push!(d, rq === true ? "review requested" :
                                       "review request withdrawn")
-                for (f, lab) in (("ci", "CI"), ("review_decision", "review"),
-                                 ("mergeable", "mergeable"), ("unresolved", "unresolved"),
-                                 ("head_at", "new push"), ("last_comment_at", "new comment"))
+                # The events say what happened; the states say what they went
+                # from and to. `their_head` and `review_at` are printed as
+                # events even though they are a sha and a timestamp, because
+                # "new push 0a1b2c->3d4e5f" is not a sentence anybody reads.
+                for (f, lab) in (("their_head", "new push"),
+                                 ("last_comment_at", "new comment"),
+                                 ("review_at", "new review"),
+                                 ("ci", "CI"), ("review_decision", "review"),
+                                 ("mergeable", "mergeable"), ("unresolved", "unresolved"))
                     if jget(old, Symbol(f)) != get(r, f, nothing)
-                        push!(d, f in ("head_at", "last_comment_at") ? lab :
+                        push!(d, f in ("their_head", "last_comment_at", "review_at") ? lab :
                                  "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")
                     end
                 end

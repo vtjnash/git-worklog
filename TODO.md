@@ -1361,14 +1361,41 @@ everything by the poll.
     the level as an argument rather than defaulting to a level that no longer
     exists. The read-through list calls this class "arguments that outlived the
     code needing them".
-  * **What would keep a hash either way.** `ci` - `statusCheckRollup` has a
-    state and no time, and the check runs under it have `completedAt` at 100
-    nodes a row, which is the `FIREHOSE_QUERY` trade over again. And
-    `review_decision` and `review_count`, which are derivable from
-    `reviews(last: 20)` submission times but only by reading them. That is the
-    whole of what is left: `labels` was a key of the `all` level alone and went
-    with it, and `mergeable` and `unresolved` are not keys any more either. So
-    the hash shrinks to three facts with no clock; it does not disappear.
+  * **Done, 2026-09-12: the status half is one bool, and the rest moved into
+    the timed half.** The table was `ci` · `review_decision` · `review_count` ·
+    `review_requested` against a clock; what is worth being told is that *your
+    own* CI is failing, so that is one bool - `ci_failed`, true or absent, which
+    carries `mine` rather than leaning on the level to mean it. A run starting,
+    a run finishing green on something that was never red and the flap between
+    pending and success are the machine talking to itself, and a green that
+    follows a fix arrives as the push that fixed it.
+    The verdict and the count went to the timed half as `review_at`, the moment
+    the newest review arrived: a verdict only ever moves because a review was
+    submitted or dismissed, and a submission has a clock where a verdict has
+    none. What that does not see is a bare dismissal on an unchanged head.
+  * **Done, 2026-09-12: a push is a sha, and the clock stopped covering for
+    it.** `head_at` is out of every key set. It is a *committer* date - a rebase
+    rewrites it, a force-push of an older commit walks it backwards - and
+    whether there is something new to look at is a question two shas answer
+    exactly. `their_head` is the key: the newest head **somebody else** put
+    there, carried forward across a push of your own, because you know what you
+    pushed and being told about it is the dashboard reporting your own
+    keystrokes back to you. `head_at` still *dates* a push, which is what
+    `TIMED_KEYS` is a map rather than a list for.
+  * **And a key that arrives is not an event.** A row the bulk lanes returned
+    carries no reviews, so `review_at` appears the day an active lane claims it;
+    a key added to `TRACK_KEYS` appears on every row at once. Either read as
+    movement on every row it landed on - the wave that made `review_requested`
+    have to be true-or-absent, and that three key-set changes in one day would
+    otherwise have set off. A key arriving with a time *older* than the movement
+    already recorded is the record catching up, and the mark stays put; arriving
+    with a newer one is a genuine first comment or first review.
+  * **What is left with no clock at all**, and so still hashed rather than
+    compared: `ci_failed` and `review_requested`, two bools. Everything else
+    that was in the key set has either left it - `mergeable`, `unresolved`,
+    `labels`, `review_decision`, `review_count`, `ci`, `head_at` - or become a
+    time. `review_requested` is the one that could stop being a bool, and that
+    is the measurement above.
 
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 

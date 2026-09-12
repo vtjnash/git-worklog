@@ -318,11 +318,11 @@ end
     # it, and the item came back unread for something you had already read.
     now_ = W.ts("2026-09-12T11:00:00Z")
     row(; kw...) = merge(Dict{String,Any}("track" => "normal",
+                                          "their_head" => "a1b2c3",
                                           "head_at" => "2026-09-12T08:00:00Z",
                                           "last_comment_at" => "2026-09-12T09:00:00Z",
                                           "human_comment_at" => "2026-09-12T09:00:00Z",
-                                          "review_decision" => "REVIEW_REQUIRED",
-                                          "ci" => "SUCCESS", "review_count" => 2,
+                                          "review_at" => "2026-09-12T08:30:00Z",
                                           "moved_at" => "2026-09-12T09:00:00Z"),
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
     # The shape the snapshot is read back in: a row `jget` can be asked about.
@@ -331,49 +331,92 @@ end
     @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T09:55:00Z",
                                  human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
-    # A push says when it was pushed, by the same rule.
-    @test W.moved_stamp(old, row(; head_at = "2026-09-12T10:30:00Z"), now_) ==
-          "2026-09-12T10:30:00Z"
+    # A review says when it was submitted, by the same rule.
+    @test W.moved_stamp(old, row(; review_at = "2026-09-12T10:15:00Z"), now_) ==
+          "2026-09-12T10:15:00Z"
 
-    # CI has no clock of its own - GitHub does not move `updatedAt` for it
-    # either - so the refresh that saw it is the only date anybody has.
-    @test W.moved_stamp(old, row(; ci = "FAILURE"), now_) == W.stamp(now_)
-    @test W.moved_stamp(old, row(; review_decision = "APPROVED"), now_) == W.stamp(now_)
+    # **A push is a sha and the sha has no time**, so it is dated by `head_at` -
+    # the committer date of the commit the branch now points at, which is the
+    # closest thing GitHub offers.
+    @test W.moved_stamp(old, row(; their_head = "ffff", head_at = "2026-09-12T10:30:00Z"),
+                        now_) == "2026-09-12T10:30:00Z"
+    # And `head_at` moving on its own is not a movement at all any more: a
+    # rebase rewrites it, and whether there is anything new to look at is what
+    # the sha says.
+    @test W.moved_stamp(old, row(; head_at = "2026-09-12T10:30:00Z"), now_) ==
+          "2026-09-12T09:00:00Z"
+
+    # Neither the CI bool nor the review request has a clock anywhere, so the
+    # refresh that saw it is the only date there is.
+    @test W.moved_stamp(old, row(; ci_failed = true), now_) == W.stamp(now_)
+    @test W.moved_stamp(old, row(; review_requested = true), now_) == W.stamp(now_)
     # Mixed is now: dating the pair by the comment would say the item moved
-    # before the CI change that moved it beside it did.
-    @test W.moved_stamp(old, row(; ci = "FAILURE",
+    # before the CI failure that moved it beside it did.
+    @test W.moved_stamp(old, row(; ci_failed = true,
                                  last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           W.stamp(now_)
 
-    # Never backwards. `head_at` is a committer date and not a push time, so a
-    # force-push of an older commit carries an older one - and there is something
-    # to show for that, so dating the push by the commit it put back would leave
-    # the item read. A time that cannot account for the change does not get to
-    # explain it.
-    @test W.moved_stamp(old, row(; head_at = "2026-09-12T07:00:00Z"), now_) == W.stamp(now_)
+    # Never backwards. `head_at` is a committer date, so a force-push of an
+    # older commit carries an older one - and there is something to show for
+    # that, since the sha says the branch is not what you last saw. A time that
+    # cannot account for the change does not get to explain it.
+    @test W.moved_stamp(old, row(; their_head = "ffff",
+                                 head_at = "2026-09-12T07:00:00Z"), now_) == W.stamp(now_)
     # A deleted comment moves `last_comment_at` back to the one before it, and
     # that one is fine either way: what moved the key is gone, so missing it
     # costs nothing and catching it costs an unread item with nothing new in it.
     # It falls out the same way rather than being asked for - what the rule is
     # really protecting is that `moved_at` only goes forward, since an item
-    # unread since an 11:00 CI change would otherwise be marked read by a
+    # unread since an 11:00 CI failure would otherwise be marked read by a
     # deletion at 09:00, losing the change nobody looked at rather than the
     # comment nobody can.
     @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T08:30:00Z",
                                  human_comment_at = "2026-09-12T08:30:00Z"), now_) ==
           W.stamp(now_)
-    # A human comment that goes away - a bot posted after it - offers no new
-    # time at all, and is dated now for that reason rather than by the key.
-    @test W.moved_stamp(old, row(; human_comment_at = nothing), now_) == W.stamp(now_)
+
+    # **A key that was not there before is not an event.** A row the bulk lanes
+    # returned carries no reviews at all, so `review_at` arrives the day an
+    # active lane claims it; a key added to `TRACK_KEYS` arrives on every row at
+    # once. Either would read as movement on every row it lands on - which is
+    # the wave that made `review_requested` have to be true-or-absent.
+    husk = was(row(; review_at = nothing, their_head = nothing))
+    @test W.moved_stamp(husk, row(), now_) == "2026-09-12T09:00:00Z"
+    # Arriving with a *newer* time is a genuine first review, or a first
+    # comment, and counts.
+    @test W.moved_stamp(husk, row(; review_at = "2026-09-12T10:45:00Z"), now_) ==
+          "2026-09-12T10:45:00Z"
 
     # The level decides which keys are asked about, here as everywhere else.
-    # `loose` watches the human comment and not the head, so the same two
-    # changes are dated the other way round from `normal`.
+    # `loose` watches the human comment and the review and not the head, so a
+    # push is not a movement at all and a bot's comment after a human is not
+    # either.
     loose = was(row(; track = "loose"))
+    @test W.moved_stamp(loose, row(; track = "loose", their_head = "ffff",
+                                  head_at = "2026-09-12T10:30:00Z"), now_) ==
+          "2026-09-12T09:00:00Z"
     @test W.moved_stamp(loose, row(; track = "loose",
                                   human_comment_at = "2026-09-12T09:55:00Z",
                                   last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
-    @test W.moved_stamp(loose, row(; track = "loose", review_count = 3), now_) ==
-          W.stamp(now_)
+end
+
+@testset "a push of your own is not news" begin
+    # The sha is the exact answer to whether the branch moved; who put it there
+    # decides whether that is worth being told. Your own push is the dashboard
+    # reporting your own keystrokes back to you.
+    me = "vtjnash"
+    r(sha, by) = Dict{String,Any}("head_sha" => sha, "head_by" => by)
+    @test W.their_head(r("aaa", "someone"), nothing, me) == "aaa"
+    # Yours carries the previous value forward rather than clearing it, because
+    # clearing would be a change like any other and the item would go unread for
+    # the thing this exists to ignore.
+    @test W.their_head(r("bbb", me), (their_head = "aaa",), me) == "aaa"
+    # They push after you and it moves; you push after them and it does not
+    # move back.
+    @test W.their_head(r("ccc", "someone"), (their_head = "aaa",), me) == "ccc"
+    @test W.their_head(r("ddd", me), (their_head = "ccc",), me) == "ccc"
+    # A pull request only ever pushed to by you has nothing here at all, and
+    # neither has an issue or a row no lane fetched commits for.
+    @test W.their_head(r("bbb", me), nothing, me) === nothing
+    @test W.their_head(Dict{String,Any}(), nothing, me) === nothing
 end
