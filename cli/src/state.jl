@@ -29,8 +29,13 @@ localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # `archive` is not one of them and was: filing something away is a snooze with
 # no wake condition, so it is `snooze = "forever"` and there is one field for
 # "I do not want to see this", not two that have to be kept in precedence.
-const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "note",
-                "snooze", "track"]
+# `imported` is, and was not: it is written by `wl import` and by the browser,
+# so leaving it out meant `wl clear` cleared the other seven and left the item
+# imported - tagged by nothing, and still fetched by url every run. It sits here
+# beside `adopted` for the same reason that one does: the field is the record,
+# and the command that makes it is a convenience over the field.
+const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "imported",
+                "note", "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
 # Two, and there were four: see `TRACK_KEYS` for what `close` and `background`
 # were and why neither was worth keeping.
