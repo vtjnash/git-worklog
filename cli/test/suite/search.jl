@@ -22,7 +22,7 @@
 
     # A bare number jumps, but only once it is finished being typed.
     st = mkstate()
-    want = st.all[findfirst(i -> i.number > 999, st.all)]
+    want = fixture_item("a number above 999, for the `/` jump")
     W.handle!(st, Int('/'), ctrl)
     type!(st, string(want.number))
     @test st.typing && !occursin("jumped", st.status)   # not until enter
@@ -31,31 +31,22 @@
     # ...and it reaches an item the filter was hiding - a snoozed one here,
     # since what the browser opens on is what moved, awake and open.
     #
-    # **Put to sleep here rather than found asleep.** Being snoozed is the
-    # refresh's answer carried on the row - `sleep_of` reads `it.snoozed` and
-    # not `local.toml`, which is why `archive!` below can be used for the filed
-    # half and nothing can be used for this one - so this asked the real
-    # dashboard to have something asleep in it, and errored rather than failed
-    # on the day the last snooze was cleared. A number that only one row carries,
-    # for the same reason the filed half picks one: `/` jumps by number.
+    # The fixture carries a row that is asleep, which a real dashboard need not:
+    # being snoozed is the refresh's answer carried on the row - `sleep_of`
+    # reads `it.snoozed`, and only `filed` is a mark - so this cannot be written
+    # into `local.toml` the way the filed half below writes its own condition.
+    # It used to take the first snoozed row it could find in the live corpus,
+    # and errored rather than failed on the day the last snooze was cleared.
     st = mkstate()
-    seen = Dict{Int,Int}()
-    for i in st.all
-        seen[i.number] = get(seen, i.number, 0) + 1
-    end
-    asleep = st.items[findfirst(i -> seen[i.number] == 1, st.items)]
-    hidden = W.Item(; (; (f => getfield(asleep, f) for f in fieldnames(W.Item))...,
-                        snoozed = true)...)
-    st.all[findfirst(i -> i.url == hidden.url, st.all)] = hidden
-    W.refilter!(st)
-    @test !any(i -> i.url == hidden.url, st.items)
+    hidden = fixture_item("somebody else's again, to be the one asleep")
+    @test hidden.snoozed && !any(i -> i.url == hidden.url, st.items)
     W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].url == hidden.url
     # A filed one is hidden by the same sleep axis, and the widen has to be
     # measured against the marks the list itself was built with.
     st = mkstate()
-    away = st.items[findfirst(i -> seen[i.number] == 1, st.items)]
+    away = fixture_item("an issue")
     try
         W.archive!(st, away, W.utcnow())
         @test !any(i -> i.url == away.url, st.items)

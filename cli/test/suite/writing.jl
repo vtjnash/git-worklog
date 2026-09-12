@@ -416,7 +416,7 @@ end
     @test length(ctrl.stack) == 1 && occursin("no way to merge", st.status)
 
     # An issue has nothing to merge, and neither has an adopted branch.
-    iss = findfirst(x -> !x.is_pr, st.items)
+    iss = findfirst(x -> x.url == fixture_item("an issue").url, st.items)
     if iss !== nothing
         st.sel = iss
         W.handle!(st, Int('M'), ctrl)

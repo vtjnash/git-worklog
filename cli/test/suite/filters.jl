@@ -594,10 +594,10 @@ end
     @test !isempty(st.labels)
     # Bare, so no other axis rejects the sample before the labels are read.
     f = W.Filters()
-    it = st.all[findfirst(x -> !isempty(x.labels), st.all)]
+    it = fixture_item("yours, open, with a branch and labels")
     push!(f.labels, first(it.labels))
     @test W.matches(f, it)
-    other = st.all[findfirst(x -> isempty(x.labels), st.all)]
+    other = fixture_item("no labels at all")
     @test !W.matches(f, other)
     @test occursin(first(it.labels), W.filter_summary(f))
     # Every label row the pane offers actually selects something.

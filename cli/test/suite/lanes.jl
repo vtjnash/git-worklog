@@ -17,11 +17,9 @@
         # Chosen by what GitHub last said about them rather than by position:
         # `b`'s clock has to be the later of the two readings for the pair of
         # them to differ, and `a`'s the earlier.
-        a = first(x for x in st.all if !isempty(x.act) && x.act > "2026-01")
-        b = first(x for x in st.all if !isempty(x.act) && x.act < "2026-09-02" &&
-                                       x.url != a.url)
-        c = first(x for x in st.all if !isempty(x.act) && x.act < "2024-06-01" &&
-                                       !(x.url in (a.url, b.url)))
+        a = fixture_item("yours, open, with a branch and labels")
+        b = fixture_item("quiet since the spring")
+        c = fixture_item("quiet since 2024")
         W.set_touched(a.url, "2020-01-01T00:00:00Z")
         W.set_touched(b.url, "2026-09-02T12:00:00Z")
         W.set_touched(c.url, "2024-06-01T00:00:00Z")
@@ -58,8 +56,7 @@
         W.refilter!(st)
         @test any(x.url == local_it.url for x in st.items)
         # A pull request that is somebody else's is not.
-        theirs = first(x for x in st.all if x.is_pr && x.author != W.login() &&
-                       !(W.login() in x.assignees) && !x.snoozed)
+        theirs = fixture_item("somebody else's, open, awake")
         @test !any(x.url == theirs.url for x in st.items)
         # ...and it is in the other mode, which is the same axis said the other
         # way round. Between them they are the two lists the work divides into.
@@ -112,8 +109,7 @@
         pos(u) = findfirst(x -> x.url == u, st.items)
         @test pos(b.url) < pos(c.url) < pos(a.url)
         @test W.sortkey(b, st.touched) == "2026-09-02T12:00:00Z"     # the clock
-        untouched = first(x for x in st.all if !haskey(st.touched, x.url) &&
-                                               !isempty(x.act))
+        untouched = fixture_item("an issue")
         @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
         # And it says so where the filter says what it is.
         @test occursin("by when you acted", W.filter_summary(st.filters, st.sort))

@@ -30,7 +30,7 @@ end
     # asking about something that is not in doubt is worse than guessing.
     items = W.loaditems()
     shown = W.BState(items, "worklog", Set{String}())
-    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+    pr = fixture_item("yours, open, with a branch and labels")
     root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
     W.git(main, "init", "--quiet", "--initial-branch=master", ".")
     W.git(main, "config", "user.email", "t@example.com")

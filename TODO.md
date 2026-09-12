@@ -327,12 +327,16 @@ There is no TTY here, so the UI is tested by construction rather than by use:
   which means the user's own file again. `errors.log` is the deliberate
   exception — the suite deletes the real one at startup and several tests assert
   on the footer warning it produces.
-- **Seeded from the real files, and that is an open question**, not a settled
-  rule: 32 testsets pick a row out of the live corpus by predicate, which is an
-  undeclared precondition that errors rather than fails when it stops holding,
-  and `fetched.json` is untracked so a fresh clone has no corpus at all. See
-  "The suite is pinned to the real dashboard" under Outstanding work. Until it
-  is settled: never search the corpus for a row with a property, construct it.
+- **The corpus is `cli/test/fixture.json`** — 29 real rows, committed, made by
+  `cli/test/fixture.jl` and named there by the property each was taken for. It
+  used to be the real dashboard, which is untracked and churns on every refresh,
+  so the suite could not run on a fresh clone and 18 testsets depended on facts
+  about somebody's inbox that day. **Never search the corpus for a row with a
+  property** — ask for it by name: `fixture_item("an issue")`. A property the
+  fixture has not got is added to `WANTED` and the file regenerated, which is a
+  deliberate act on a machine that has a dashboard. `suite/corpus.jl` is the one
+  place the real one is still read, over every row and never for one of them,
+  and it skips itself when there is no `data/` here.
 - **The suite runs against `Worklog` directly** (`--project=cli`), never through
   `cli/precompile`. That is the point of the wrapper being a separate package:
   the workload is `wl`'s tax and not the edit-test loop's.
@@ -1352,59 +1356,73 @@ everything by the poll.
     times but only by reading them. So the hash shrinks to the facts that
     genuinely have no clock; it does not disappear.
 
-### The suite is pinned to the real dashboard, and 32 testsets pick a row out of it
+### The suite runs on a fixture now, and the real dashboard is one sweep
 
-Raised 2026-09-12, after `search.jl` errored on `findfirst(i -> i.snoozed,
-st.all)` - the second testset in two days to do it, after `clock.jl` took the
-first snoozed item for a block that already exists.
+Raised and built 2026-09-12, after `search.jl` errored on
+`findfirst(i -> i.snoozed, st.all)` - the second testset in two days to do it,
+after `clock.jl` took the first snoozed item for a block that already exists.
 
-**What it is now, and the argument for it.** Every path the program writes
-through is redirected at the top of the run, but `LOCAL` and `FETCHED` are
-*seeded from the real files* - "because the read-only testsets are tests of
-whatever is actually in them". That is right for one class of test and wrong for
-another, and nothing in the suite separates them:
+**What it was, and the argument for it.** Every path the program writes through
+is redirected at the top of the run, but `LOCAL` and `FETCHED` were *seeded from
+the real files* - "because the read-only testsets are tests of whatever is
+actually in them". That covers one kind of testset and not the other, and
+nothing separated them:
 
   * **A sweep.** Does the program survive 2167 rows of GitHub's real weirdness -
     a null `requestedReviewer`, the husk rows the bulk lanes return, a bot
     comment hiding the author's, a row with no `state` at all. A handwritten
-    fixture there is a fiction that agrees with the code by construction. These
-    want the real file, and want asserting over *every* row.
+    fixture there is a fiction that agrees with the code by construction.
   * **A behaviour.** `/` reaches a row the filter is hiding. This wants *a row
-    with a property*, and hunting the corpus for one makes an undeclared
-    precondition out of a fact about your inbox on the day it was written.
+    with a property*, which is a fixture whether or not it is written as one,
+    and hunting the corpus for one makes an undeclared precondition out of a
+    fact about somebody's inbox on the day it was written.
 
-**The count is 32**, by `findfirst(...)` and `first(x for x in st.all if ...)`
-over `st.all` and `st.items`, in 20 of the 22 files. When one stops holding it
-is `nothing` as an index - an **error**, not a failure, so it takes the whole
-file down and every file included after it silently stops running. That is the
-same shape as the tmux assertion that hid seven files, and it is how `clock.jl`
-took `since.jl` with it.
+**18 sites did the second thing**, in 8 files. (An earlier count here said 32 in
+20 files, which was the grep and not the class: two thirds of those hits are a
+`findfirst` by url over a row already in hand, or a search through rendered text,
+and neither is a claim about the corpus.) When one stops holding it is `nothing`
+as an index - an **error**, not a failure, so it takes the whole file down and
+every file included after it silently stops running.
 
-**And the corpus is untracked by design.** `fetched.json` is in `data/`'s own
-`.gitignore` - megabytes, churned by every refresh, and tracking it would bury
-the diff of what you actually did. So the suite's fixtures are machine-local and
-rewritten by normal use of the program they test. On a fresh clone there is
-nothing to run at all: `loaditems()` throws `nothing fetched yet - run wl refresh
-first` before the first testset (measured, by pointing `FETCHED` at a path that
-does not exist).
+**And the corpus was untracked.** `fetched.json` is in `data/`'s own
+`.gitignore` - megabytes, churned by every refresh - so the suite's fixtures
+were machine-local and rewritten by ordinary use of the program under test. On a
+fresh clone there was nothing to run: `loaditems()` threw `nothing fetched yet`
+before the first testset.
 
-**The rule to write down: never search the corpus for a row with a property -
-construct it.** The filed half of that same `/` testset already does, with
-`archive!` and a `finally` that puts it back, which is why only the snoozed half
-broke. The snoozed half cannot use `local.toml` the way it does, because being
-asleep is the refresh's answer carried on the row and `sleep_of` reads
-`it.snoozed`; it builds the row instead and asks `refilter!` again.
+**What landed.** More than the plan above, because the measurement said it was
+free: the plan was to move five files onto a fixture and leave the rest on the
+real corpus, and the whole suite turned out to pass on a 29-row fixture with
+three failures, all in one testset and all of them corpus assumptions worth
+losing (a hardcoded `libuv/libuv`, a bucket axis asserted to be longer than
+eight, a repo with none of your work in it).
 
-**The work, which is not large.** A `fixture()` of a dozen rows covering each
-axis value - snoozed, filed, unread, closed, issue, pull request, yours, a
-synthetic with no author, one whose last comment is a bot's - and
-`mkstate(items)` beside today's argumentless one. `filters`, `search`, `lanes`,
-`state` and `items` move onto it; `robustness`, `frame`, `markdown` and the
-render sweeps keep the real corpus and assert over every row rather than one
-picked out of it. The fixture has to be written *from* real rows rather than
-invented, because the husks are exactly what catches an `nz` that should have
-been there - which is the whole of the argument this displaces, kept where it
-earns its keep.
+  * **`cli/test/fixture.json`, 29 real rows, committed.** `cli/test/fixture.jl`
+    is the program that makes it: `WANTED` is a list of *properties with names*
+    - "an issue GitHub put on you", "a number above 999, for the `/` jump",
+    "quiet since 2024" - and one real row is taken for each, plus one row per
+    bucket so the category axis has something to be uncapped about. Nothing is
+    edited on the way through except the row that is put to sleep, because being
+    asleep is the refresh's answer carried on the row and no refresh runs in a
+    test. Regenerating is a deliberate act on a machine that has a dashboard;
+    the output is what the suite reads.
+  * **`fixture_item("an issue")`.** The names are written into the file beside
+    the rows, so a testset asks for what it needs by the name of the property.
+    The dependency is greppable from both ends and a fixture that has stopped
+    carrying one says so by name. 16 of the 18 hunts are gone; the two left -
+    "a row this testset adopted" and "some other row" - are not claims about the
+    corpus.
+  * **`local.toml` starts empty**, which is the honest state for a file that is
+    a record of what you have done. Every testset that wants a mark writes one.
+  * **`suite/corpus.jl`** is the sweep, and the only thing left that reads
+    `data/`: every row becomes an `Item`, every row has an answer on each axis,
+    the list renders at three shapes with the cursor at both ends and the
+    middle, and the metadata pane draws for **every** row - which is where a
+    husk tells, since the fields it has not got are read there by name. It skips
+    itself when there is no dashboard, because a corpus nobody has fetched is
+    not a failure. 17 assertions, 0.3s.
+  * **The suite runs on a fresh clone**, which is the whole of it: `data/`
+    absent, 22 files, everything passes and the sweep reports itself skipped.
 
 ### Showing *what* changed, not just that something did — **built**
 

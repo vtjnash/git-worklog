@@ -23,7 +23,7 @@ end
     # facts.json is the item's source and the browser cannot write it, so an
     # item that changes mid-session has to be rebuilt and put back.
     st = mkstate()
-    it = first(x for x in st.items if !isempty(x.labels))
+    it = fixture_item("yours, open, with a branch and labels")
     l = "a-brand-new-label"
     @test !(l in st.labels)
     n = W.withlabels(it, sort(vcat(it.labels, l)))

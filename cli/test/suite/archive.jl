@@ -262,7 +262,7 @@ end
 
         # A branch that already has a pull request is refused: a second item
         # keyed on it would be the same work listed twice.
-        pr = first(x for x in items if x.is_pr && !isempty(x.branch))
+        pr = fixture_item("yours, open, with a branch and labels")
         fake = W.BranchRow(pr.repo, pr.branch, "", 0, 0, false, "", "", pr)
         @test occursin("pull request already", W.adopt_row(v, fake))
         # And a detached head has no branch to adopt.
@@ -333,7 +333,7 @@ end
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true
     shown = W.BState(items, "worklog", Set{String}())
-    pr = first(it for it in shown.items if it.is_pr && !isempty(it.branch))
+    pr = fixture_item("yours, open, with a branch and labels")
 
     root = mktempdir()
     main = joinpath(root, "main"); mkpath(main)

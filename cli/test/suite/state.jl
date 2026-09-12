@@ -49,7 +49,12 @@
         # cursor goes to an unread row, since a toggle needs somewhere to start.
         st = mkstate()
         st.filters = W.everything(); W.refilter!(st)
-        st.sel = findfirst(x -> W.seen_of(x, W.Marks(st)) === :unread, st.items)
+        # A row of its own rather than "the first unread one": what is read by
+        # now depends on which files ran before this, and a cursor that lands
+        # somewhere different every run is not a test of `r`.
+        st.sel = findfirst(x -> x.url == fixture_item("unresolved review threads").url,
+                           st.items)
+        @test W.seen_of(st.items[st.sel], W.Marks(st)) === :unread
         it = st.items[st.sel]
         prev = W.read_at(it.url)
         # `r` toggles against the stamp, which is the axis - not against the

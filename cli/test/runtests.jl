@@ -30,19 +30,33 @@ isfile(W.errlog()) && rm(W.errlog())
 # pressed `r` stamped a real item as read, and one that adopted a branch left a
 # block behind in a file whose `finally` did not run.
 #
-# Seeded from the real files, because the read-only testsets are tests of
-# whatever is actually in them. The cache is not, since a cache is rebuildable
-# by definition and starting empty is the honest state for one.
+# **Seeded from `fixture.json`, and it used to be from the real files** - on the
+# argument that a read-only testset is a test of whatever is actually in them.
+# That argument covers a sweep and not a testset that needs *a row with a
+# property*, which is a fixture whether or not it is written as one; hunting the
+# live corpus for one made an undeclared precondition out of a fact about
+# somebody's inbox that day, and when the last snooze was cleared two of them
+# errored - `nothing` as an index, which takes down every file after it rather
+# than naming itself. `fetched.json` is untracked besides, so a fresh clone had
+# no corpus at all and could not run the suite.
+#
+# The rows in the fixture are real ones, picked by property; `fixture.jl` is
+# the record of which property each was picked for and how to make another.
+# `suite/corpus.jl` is where the real dashboard is still read, over every row
+# and never for one of them, and it skips itself when there is no `data/` here.
+#
+# `local.toml` starts **empty**, which is the honest state for a file that is a
+# record of what you have done: the testsets that want a mark write it. The
+# cache starts empty too, being rebuildable by definition.
 #
 # `errors.log` is the deliberate exception: the suite deletes the real one at
 # startup and several tests assert on the footer warning it produces.
+const REAL_FETCHED = W.fetchedfile()
 let d = mktempdir()
-    for (r, real, empty) in ((W.FETCHED, W.fetchedfile(), "{}"),
-                             (W.LOCAL, W.localfile(), ""))
-        to = joinpath(d, basename(real))
-        isfile(real) ? cp(real, to) : write(to, empty)
-        r[] = to
-    end
+    cp(joinpath(@__DIR__, "fixture.json"), joinpath(d, "fetched.json"))
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml")
+    write(W.LOCAL[], "")
     W.CACHE_DIR[] = joinpath(d, "cache")
 end
 # Where the testsets that point `LOCAL` at a temp file put it back, since ""
@@ -75,6 +89,24 @@ mkstate() = begin
     st
 end
 
+"""The fixture row put there for this, under the name `fixture.jl` gave it.
+
+    fixture_item("an issue")
+
+A testset that needs a row with a property asks for it by name rather than
+searching the corpus for one. The property is then declared in one place, the
+dependency is greppable from both ends, and a fixture that has stopped carrying
+it says so by name - where `findfirst` over the corpus handed back `nothing` to
+be used as an index, which errors rather than fails and takes the file down.
+"""
+function fixture_item(name::AbstractString)
+    u = W.jget(W.fetched("wanted"), Symbol(name))
+    u === nothing && error("no fixture row for \"$name\" - see cli/test/fixture.jl")
+    i = findfirst(x -> x.url == String(u), items)
+    i === nothing && error("the fixture row for \"$name\" is not in the corpus")
+    items[i]
+end
+
 # One file per thing being tested, mirroring `src/browse/`. The order is not
 # cosmetic: several of these leave a file, a session or a filter behind that
 # the next one reads.
@@ -100,3 +132,6 @@ include("suite/git.jl")
 include("suite/items.jl")
 include("suite/clock.jl")
 include("suite/since.jl")
+# Last, because it is the one file that reads `data/` and it puts the redirect
+# back when it is done.
+include("suite/corpus.jl")
