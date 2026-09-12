@@ -41,8 +41,10 @@ here is done; `git log` is the record of it and this file is not.
    The fingerprint half of the same question is **done** - `mergeable` and
    `unresolved` are keys at no level, `all`/`fp_full`/`moved` are gone, and a
    movement in a timestamped key is dated by the key rather than by the poll.
-   `review_requested_at` landed too, and the connection cost nothing to
-   measure. See "Read and snooze are one state" under Outstanding work.
+   The wake table was then reviewed whole and is complete as of 2026-09-12 -
+   see "The wake table, reviewed" under Outstanding work - and `fingerprint`
+   is read by the snooze alone, which is the last thing keeping it.
+   See "Read and snooze are one state" under Outstanding work.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -1327,11 +1329,13 @@ everything by the poll.
     was a bool in every key set because being asked is an event with no
     timestamp in the selection - but the timestamp exists:
     `timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT])`
-    carries `createdAt` and `requestedReviewer`, and the key is the newest of
-    either kind naming you. Both kinds, because the old test already said a
-    withdrawal moves the item - you are off the hook, which is what `r` was
-    waiting to hear - and now it is dated by the letting-off rather than by
-    the refresh. As a stamp it compares against the read mark directly, needs
+    carries `createdAt` and `requestedReviewer`, and the key is the newest
+    naming you. It took both kinds for an afternoon, because the old test said
+    a withdrawal moves the item - you are off the hook, which is what `r` was
+    waiting to hear - and that was decided the other way the same day: being
+    let off is the end of a claim on your attention, not a claim on it, and
+    the `Removed` event is not fetched. As a stamp it compares against the
+    read mark directly, needs
     no true-or-absent-never-false dance, and the "key that arrives" rule in
     `moved_stamp` covers the row that had the bool and gains the time.
     **Measured**: a page of the `review` lane costs 4 with the connection and
@@ -1396,11 +1400,86 @@ everything by the poll.
     otherwise have set off. A key arriving with a time *older* than the movement
     already recorded is the record catching up, and the mark stays put; arriving
     with a newer one is a genuine first comment or first review.
-  * **What is left with no clock at all**, and so still hashed rather than
-    compared: `ci_failed`, one bool. Everything else that was in the key set
-    has either left it - `mergeable`, `unresolved`, `labels`,
+  * **What is left with no clock at all**: `ci_failed`, one bool, and it is
+    not hashed either - see the next section. Everything else that was in the
+    key set has either left it - `mergeable`, `unresolved`, `labels`,
     `review_decision`, `review_count`, `ci`, `head_at`, `review_requested` -
     or become a time.
+
+### The wake table, reviewed
+
+Done 2026-09-12, as one pass over `TRACK_KEYS` and `TIMED_KEYS` asking two
+things: is it complete, and is hashing a bool doing anything. It was not
+complete and the hash was doing harm.
+
+**The table now**, both levels unless said:
+
+| event | key | dated by | own action excluded |
+|---|---|---|---|
+| somebody pushed | `their_head` | `head_at` | committer |
+| somebody commented | `their_comment_at` (`normal`) / `human_comment_at` (`loose`, no bots) | itself | author, carried |
+| somebody reviewed, or dismissed a review | `review_at` | itself | author / actor |
+| somebody asked you to review | `review_requested_at` | itself | actor |
+| somebody assigned you | `assigned_at` | itself | actor |
+| somebody closed, merged or reopened it | `state_at` | itself | actor |
+| your own CI went red | `ci_failed` (`normal`) | refresh clock, **rising edge** | n/a |
+
+**What the pass found, and what was decided.**
+
+  * **A bool hashed wakes on both edges.** `true → absent` differed in the
+    hash, so red→green woke the item and a rerun through pending woke it twice
+    for one failure - against what the commit that made it a bool said. A
+    bool is an edge now: `moved_stamp` counts it becoming true and ignores it
+    clearing. That is not expressible as a hash of a value, which is the
+    answer to "is hashing true/false necessary": no, and it was wrong.
+  * **The hash was gating a walk with the same walk.** `fingerprint` was
+    recomputed on the old row to decide whether to call `moved_stamp`, which
+    then compared the same keys again. `moved_stamp` is the one arbiter now,
+    asked about every row with an old one, and "nothing moved" is an answer it
+    gives. The change list is gated on `moved_at` advancing rather than on the
+    hash. `fingerprint` survives for `snooze_fp` alone - with the bug that the
+    table no longer has, since it hashes `ci_failed` as a value - and goes when
+    the snooze's arming does, which is the next section.
+  * **Your own comment and review woke you.** `their_head` excluded you as
+    committer and nothing excluded you as author: a reply from the web came
+    back unread on the next refresh, and every inline reply is a `COMMENTED`
+    review. `their_comment_at` and the redefined `human_comment_at` are the
+    newest by somebody else, carried across your own because
+    `comments(last: 1)` cannot see past it; `review_at` is the newest by
+    somebody else, deep enough at 20 not to need carrying. Which also fixed a
+    bug nobody had noticed: `human_comment_at` went to `nothing` when a bot
+    spoke after a human, and that was a change like any other, so a `loose`
+    item woke for exactly the comment that level exists to ignore. Carried now.
+  * **One rule for the timeline.** `event_at` is every timeline key with one
+    argument changed: the newest event of the given kinds whose actor is not
+    you and - where it names somebody - names you. The connection is
+    `timelineItems(last: 50)` over six types on a pull request and three on an
+    issue, and costs nothing: 4 points a page on the `review`, `assigned` and
+    `landed` lanes, same as without it.
+  * **A close or a merge left no trace.** `state` was fetched and not a key,
+    and julia#62396 - yours, merged by somebody else on the 3rd - had
+    `moved_at` at the comment before it. Taken as `state_at` at both levels,
+    because it is one of the things GitHub mails about and there is nothing
+    to keep a snooze waiting for on something finished. On the first refresh
+    julia#63103, merged at 20:21 that day after its last recorded movement,
+    was the one row that re-dated; the other sixteen with the key caught up.
+  * **Assignment had the review-request shape and its bug**: a first
+    assignment arrived as a new item and a reassignment was silent.
+    `assigned_at`, both levels, issues too.
+  * **Being let off is not movement.** A withdrawal and an unassignment are
+    the end of a claim on your attention; the `Removed` and `Unassigned`
+    events are not fetched, and the test that said a withdrawal was what `r`
+    was waiting to hear says the opposite now.
+  * **A push counts at `loose` too.** Not something to review, but the item
+    being active, which is what a loosely-watched item is watched to know.
+    Still somebody else's push: yours is your own keystroke at every level.
+  * **Not taken**: ready-for-review, which arrives with a request in practice;
+    labels, milestones, title edits, which were out already; a *team* being
+    asked, which the token cannot see.
+
+Left with the old shape until the snooze deletion: an `on-change` snooze still
+compares `fp`, so it wakes on a green and on your own comment. It is the last
+reader of the hash.
 
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 

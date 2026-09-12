@@ -31,6 +31,37 @@ end
 
 activity_age(r, at::DateTime) = days_since(activity_at(r), at)
 
+"""The newest timeline event of the given kinds that **somebody else did**, and
+- when `who` names a field - did **to you**; or `nothing`.
+
+Every key in the wake table that comes from the timeline is this with one
+argument changed, and the rule is the same for all of them: an event is news
+when somebody else was the actor. You assigning yourself an issue, closing your
+own pull request, or dismissing a review on it are your own keystrokes, and the
+dashboard reporting them back to you is what `their_head` exists to stop for a
+push.
+
+And being **let off** is not news: a review request withdrawn or an assignment
+removed is the end of a claim on your attention, not a claim on it, so the
+`Removed` and `Unassigned` events are not fetched at all. The one exception is
+a close or a merge, which is asked for by name below.
+
+`evs` is `nothing` for a row the bulk lanes returned, which fetch no timeline,
+and for an imported row before the refresh has caught up with it.
+"""
+function event_at(evs, login::AbstractString, kinds, who::Union{Symbol,Nothing})
+    evs === nothing && return nothing
+    best = ""
+    for e in evs
+        jget(e, :__typename) in kinds || continue
+        jget(jget(e, :actor), :login) == login && continue
+        who === nothing || jget(jget(e, who), :login) == login || continue
+        t = jget(e, :createdAt)
+        t === nothing || (best = max(best, String(t)))
+    end
+    isempty(best) ? nothing : best
+end
+
 "Flatten one GraphQL node into the record the rest of the script uses."
 function normalize(n, lane::AbstractString, login::AbstractString)
     typename = jget(n, :__typename, "PullRequest")
@@ -65,8 +96,25 @@ function normalize(n, lane::AbstractString, login::AbstractString)
     lastc = jget(jget(n, :comments), :nodes, ())
     rec["last_comment_by"] = isempty(lastc) ? nothing : jget(jget(lastc[1], :author), :login)
     rec["last_comment_at"] = isempty(lastc) ? nothing : jget(lastc[1], :createdAt)
-    rec["human_comment_at"] =
-        endswith(something(rec["last_comment_by"], ""), "[bot]") ? nothing : rec["last_comment_at"]
+    # `their_comment_at` and `human_comment_at` - the keys - are set beside
+    # `their_head` in the refresh loop, which is where the old row is: your
+    # own comment carries the previous value forward, and `comments(last: 1)`
+    # cannot see past it.
+    #
+    # **When you were last assigned this**, which has the shape of a review
+    # request and had its bug: a first assignment arrived as a new item through
+    # the `assigned` lane, and an unassign-and-reassign was silent. Issues and
+    # pull requests alike, since both are assigned.
+    evs = jget(jget(n, :timelineItems), :nodes)
+    rec["assigned_at"] = event_at(evs, login, ("AssignedEvent",), :assignee)
+    # **When somebody else closed, merged or reopened it.** `state` says what
+    # it is and not when it got there, and without this a pull request of
+    # yours merged by somebody else left `moved_at` where the last comment put
+    # it - julia#62396, merged on a Thursday, never moved for it. It is one
+    # of the things GitHub itself mails about, and the reason to be told is the
+    # reason not to wait for a snooze to expire on something already finished.
+    # Yours - you closed it, you pressed merge - is not news, as everywhere.
+    rec["state_at"] = event_at(evs, login, ("ClosedEvent", "MergedEvent", "ReopenedEvent"), nothing)
 
     if is_pr
         commits = n.commits.nodes
@@ -133,26 +181,23 @@ function normalize(n, lane::AbstractString, login::AbstractString)
             (reqs !== nothing &&
              any(rr -> jget(jget(rr, :requestedReviewer), :login) == login, reqs)) ?
             true : nothing
-        # **When you were last asked, or last let off.** Being asked is an
-        # event, and the bool above recorded one without its time - so it had
-        # to be hashed, and hashed as true-or-absent so that the day it shipped
-        # did not read as every row moving. The timeline has the time: the
-        # newest `ReviewRequestedEvent` or `ReviewRequestRemovedEvent` naming
-        # you, and as a stamp it compares against the read mark directly. Both
-        # kinds, because a withdrawal is the same event read backwards - you
-        # are off the hook, and it is what `r` on the item was waiting to hear.
+        # **When you were last asked.** Being asked is an event, and the bool
+        # above recorded one without its time - so it had to be hashed, and
+        # hashed as true-or-absent so that the day it shipped did not read as
+        # every row moving. The timeline has the time: the newest
+        # `ReviewRequestedEvent` naming you, and as a stamp it compares against
+        # the read mark directly. Not the withdrawal: being let off is the end
+        # of a claim on your attention and not a claim on it, and it used to
+        # wake the item on the theory that `r` was waiting to hear it - decided
+        # otherwise on 2026-09-12.
         #
-        # `last: 30` of the two types together, at no rate-limit cost - a page
-        # of the `review` lane is 4 with it and 4 without, measured at 10, 20
-        # and 50. What it truncates is a pull request with thirty request and
-        # withdrawal events after the last one naming you; julia#51908, the
+        # `last: 50` of six event types together, at no rate-limit cost - a
+        # page of the `review` lane is 4 with the connection and 4 without,
+        # measured at 10, 20 and 50. What it truncates is a pull request with
+        # fifty such events after the last one naming you; julia#51908, the
         # widest today, has ten. `nothing` for an issue, for a row the bulk
         # lanes returned, and for a pull request nobody ever asked you about.
-        evs = jget(jget(n, :timelineItems), :nodes)
-        rec["review_requested_at"] = evs === nothing ? nothing :
-            maximum((String(t) for t in (jget(e, :createdAt) for e in evs
-                     if jget(jget(e, :requestedReviewer), :login) == login)
-                     if t !== nothing); init = "") |> (s -> isempty(s) ? nothing : s)
+        rec["review_requested_at"] = event_at(evs, login, ("ReviewRequestedEvent",), :requestedReviewer)
         # **When anybody last reviewed it**, which is a review *arriving* and so
         # has a time of its own - where `review_decision` is the standing
         # verdict and `review_count` is how many there have been, neither of
@@ -162,17 +207,26 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # of the newest review is the same news dated by the event instead of by
         # the poll that noticed it.
         #
-        # What it does not see is a *dismissal*, which leaves `submittedAt`
-        # where it was. Dismissing a review that new commits already invalidated
-        # is the common case and the push moves `head_at` beside it; a bare
-        # dismissal on an unchanged head is the one that passes in silence.
+        # **Somebody else's review.** Yours is your own keystroke - and every
+        # inline reply you post is a review with state `COMMENTED`, so without
+        # this the item came back unread for what you had just said on it.
+        # `reviews(last: 20)` is deep enough that nobody else's needs carrying
+        # past yours, unlike a comment.
+        #
+        # A *dismissal* leaves `submittedAt` where it was, so it is folded in
+        # from the timeline: `ReviewDismissedEvent` by somebody else, which is
+        # them dismissing your review or somebody's on a pull request you are
+        # watching. Dismissing one yourself is not news, by the same rule.
         #
         # `nothing` for a row the bulk lanes returned, which fetch no reviews at
         # all - see `light`. A key arriving is not an event, and `moved_stamp`
         # is where that is written down.
-        rec["review_at"] = isempty(reviews) ? nothing :
-            maximum(String(t) for t in (jget(r, :submittedAt) for r in reviews)
-                    if t !== nothing; init = "") |> (s -> isempty(s) ? nothing : s)
+        theirs = (jget(r, :submittedAt) for r in reviews
+                  if jget(jget(r, :author), :login) != login)
+        dismissed = event_at(evs, login, ("ReviewDismissedEvent",), nothing)
+        rec["review_at"] = maximum(String(t) for t in Iterators.flatten((theirs, (dismissed,)))
+                                   if t !== nothing; init = "") |>
+                           (s -> isempty(s) ? nothing : s)
         rec["my_last_review_at"] = isempty(mine_reviews) ? nothing :
                                    maximum(r.submittedAt for r in mine_reviews)
         rec["my_last_review_state"] = isempty(mine_reviews) ? nothing :
@@ -223,11 +277,16 @@ end
 # alone - and with it the one list-valued key, which is why `fingerprint` no
 # longer has to sort anything before it hashes it.
 #
-# `review_requested_at` is in both, which nothing else fetched per-lane is. It
-# is not a property of the item that might interest you - it is somebody naming
-# you, and there is no level at which being asked to review something is noise.
-# `loose` exists to ignore a stranger's CI and a bot's comment, and a human
-# asking you for a review is the opposite of both.
+# `review_requested_at` and `assigned_at` are in both, which nothing else
+# fetched per-lane is. Neither is a property of the item that might interest
+# you - each is somebody naming you, and there is no level at which being asked
+# to review something, or handed it, is noise. `loose` exists to ignore a
+# stranger's CI and a bot's comment, and a human asking you for something is the
+# opposite of both. `state_at` is in both for the reason GitHub mails about it:
+# an item somebody else finished is finished, and there is nothing to wait for.
+# And `their_head` is in both since 2026-09-12: a push on something you are
+# watching loosely is not a thing to review, but it is the item being active,
+# which is what you are watching it to know.
 #
 # **Two fetched facts are deliberately not keys: `mergeable` and `unresolved`.**
 # Mergeable is computed lazily and answers `UNKNOWN` on the first read of every
@@ -236,17 +295,25 @@ end
 # are `CONFLICTING` because somebody else's base moved, which is not news
 # anybody asked for. Unresolved is a count of open review threads, and somebody
 # resolving one is not a thing to be told: what there was to resolve arrived as
-# a comment or a review, and moved `last_comment_at` or `review_count` on the
-# day it did. Both are still fetched - `needs-stacking` and `needs-edits` are
+# a comment or a review, and moved `their_comment_at` or `review_at` on the day
+# it did. Both are still fetched - `needs-stacking` and `needs-edits` are
 # bucketed on them and the metadata pane prints both - and neither is a reason
 # to put an item back in front of you.
 const TRACK_KEYS = Dict(
-    "normal" => ("their_head", "last_comment_at", "review_at", "review_requested_at",
-                 "ci_failed"),
-    "loose"  => ("human_comment_at", "review_at", "review_requested_at"),
+    "normal" => ("their_head", "their_comment_at", "review_at", "review_requested_at",
+                 "assigned_at", "state_at", "ci_failed"),
+    "loose"  => ("their_head", "human_comment_at", "review_at", "review_requested_at",
+                 "assigned_at", "state_at"),
 )
 
-"""What counts as 'this item moved', at the given tracking level.
+"""What counts as 'this item moved', at the given tracking level, as a hash.
+
+**Only the snooze reads this now.** Whether an item moved, and when, is
+`moved_stamp`'s answer, key by key; this is the hash an `on-change` snooze was
+armed against and is compared to, and it goes when the snooze's arming does -
+see "Read and snooze are one state" in TODO. Until then it has the bug the
+table below does not: `ci_failed` is hashed as a value, so a snooze wakes on
+the green as well as the red.
 
 The level is named by every caller and has no default: the one it used to have
 was `all`, which no longer exists, and "whatever `get` falls back to" is not a
@@ -260,27 +327,40 @@ end
 
 """Each key that can be dated, and the field that dates it.
 
-A comment and a review carry the moment they were made and date themselves. A
-push does not: `their_head` is a *sha*, which is the exact answer to whether the
+This is the wake table with `TRACK_KEYS`: that says which keys a level watches,
+and this says what each one *is*. A key in here is a **time** - a comment, a
+review, a request, an assignment, a close carry the moment they were made, and
+a push does not: `their_head` is a *sha*, which is the exact answer to whether the
 branch moved and no answer at all to when - so it is dated by `head_at`, the
-committer date of the commit it now points at, which is the closest thing GitHub
-offers and is checked against the high-water mark in `moved_stamp` because a
-force-push can carry an older one.
+committer date of the commit it now points at, which is the closest thing
+GitHub offers and is checked against the high-water mark in `moved_stamp`
+because a force-push can carry an older one.
 
-A request for review carries the moment it was made too, or withdrawn; the
-standing `reviewRequests` connection says only whether you are asked *now*, and
-the timeline says when that last changed, which is what the key is.
-
-The one thing not in here - `ci_failed` - has no clock anywhere and is dated by
-the refresh that first saw it differ.
+A key **not** in here is a **bool with no clock** - `ci_failed`, and nothing
+else - and what it means to move is different in kind: it moves when it
+*becomes true*, dated by the refresh that saw it, and never when it clears. A
+red that goes green is not news, because the green either arrived as the push
+that fixed it or is a rerun of the same commit that you will find out about
+when you next look; and a rerun that goes red again through pending would
+otherwise wake the item twice for one failure. That is why a bool is not
+hashed: a hash of the value differs on both edges, and only one of them is a
+thing to be told.
 """
-const TIMED_KEYS = Dict("last_comment_at" => "last_comment_at",
+const TIMED_KEYS = Dict("their_comment_at" => "their_comment_at",
                         "human_comment_at" => "human_comment_at",
                         "review_at" => "review_at",
                         "review_requested_at" => "review_requested_at",
+                        "assigned_at" => "assigned_at",
+                        "state_at" => "state_at",
                         "their_head" => "head_at")
 
-"""When the change this refresh just found actually happened.
+"""When the item last moved, given what it looked like last time: the mark it
+had if nothing at its level did, and the time of the change if something did.
+
+**This is the one arbiter of movement.** It used to run only when the level's
+hash differed, and the hash was computed by walking the same keys this walks;
+now the loop asks it about every row that has an old one, and "nothing moved"
+is an answer it gives rather than a case it never sees.
 
 `stamp(at)` - the refresh clock - is the honest answer for a state with no clock
 of its own, and the wrong one for a comment. The gap is not academic: `r` stamps
@@ -290,8 +370,8 @@ refresh that first saw it and the item came back unread for something you had
 already read.
 
 So a movement in a key `TIMED_KEYS` can date is dated by what dates it, and a
-movement in anything else by now. Mixed is now: a stamp older than a CI failure
-that happened beside it would say the item moved before it did.
+bool becoming true by now. Mixed is now: a stamp older than a CI failure that
+happened beside it would say the item moved before it did.
 
 **A key that was not there before is not an event.** A row the bulk lanes
 returned carries no reviews at all, so `review_at` appears the day an active
@@ -334,16 +414,20 @@ function moved_stamp(old, r, at::DateTime)
         was, now_ = jget(old, Symbol(k)), get(r, k, nothing)
         was == now_ && continue
         by = get(TIMED_KEYS, k, nothing)
-        by === nothing && return stamp(at)
+        if by === nothing
+            # A bool: the rising edge is the event, and the falling one is not.
+            (now_ === true && was !== true) && return stamp(at)
+            continue
+        end
         t = get(r, by, nothing)
         truthy(t) || return stamp(at)
         # The record catching up rather than something happening; see above.
         (was === nothing && !isempty(high) && String(t) <= high) || push!(ev, String(t))
     end
-    # Nothing moved at this level, or only keys that were arriving: the mark
-    # stays where it is. Reached in a test rather than in a run - the caller
-    # asks only when the fingerprint differs - and it is what "no news" means.
-    isempty(ev) && return isempty(high) ? stamp(at) : high
+    # Nothing moved at this level, or only keys that were arriving, or a bool
+    # that cleared: the mark stays where it is. An old row with no mark at all
+    # is a shape from before there was one, and gets what first sight gets.
+    isempty(ev) && return isempty(high) ? activity_at(r) : high
     m = maximum(ev)
     m <= high ? stamp(at) : m
 end
@@ -633,6 +717,30 @@ function their_head(r, old, login::AbstractString)
     sha = get(r, "head_sha", nothing)
     truthy(sha) || return nothing
     get(r, "head_by", nothing) == login ? jget(old, :their_head) : String(sha)
+end
+
+"""The newest comment by somebody else - and with `human`, by somebody who is
+neither you nor a bot - carried forward across the ones that are not; or
+`nothing` for an item nobody else has commented on.
+
+`their_head` for a comment, and the same reason: your own reply is your own
+keystroke, and without this the item came back unread every time you answered
+it from the web. `comments(last: 1)` sees one comment, so when that one is
+yours the value is carried rather than looked past - and if somebody commented
+and you replied between two refreshes, theirs is missed and you read it, which
+is the trade `their_head` makes for a push.
+
+Carried across a bot's too, for the `human` key: it used to go to `nothing`
+when a bot spoke after a human, which was a change like any other and woke a
+`loose` item for exactly the comment that level exists to ignore. Carried
+across no comment at all - every one deleted - for the same reason.
+"""
+function their_comment_at(r, old, login::AbstractString, key::AbstractString; human::Bool)
+    at, by = get(r, "last_comment_at", nothing), get(r, "last_comment_by", nothing)
+    carried = jget(old, Symbol(key))
+    carry = carried === nothing ? nothing : String(carried)
+    truthy(at) || return carry
+    (by == login || (human && endswith(something(by, ""), "[bot]"))) ? carry : String(at)
 end
 
 """What `mergeable` should say when GitHub has answered `UNKNOWN`.
@@ -1041,7 +1149,10 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             r["mergeable"] = carried_mergeable(get(r, "state", nothing),
                                                jget(jget(prev_items, Symbol(url)), :mergeable))
         end
-        r["their_head"] = their_head(r, jget(prev_items, Symbol(url)), login)
+        old = jget(prev_items, Symbol(url))
+        r["their_head"] = their_head(r, old, login)
+        r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
+        r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
         apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
@@ -1051,7 +1162,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # about is not one to be reminded of.
         r["second_look"] = r["snoozed"] ? "" :
                            second_look(r, at, second_days)
-        old = jget(prev_items, Symbol(url))
         # A snooze is "not now", and an item you have said that about should not
         # also be sitting in the unread lane asking to be read. So falling
         # asleep marks it read and waking marks it unread again; `snooze_edge`
@@ -1072,9 +1182,9 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # CI and can see things nobody asked about.
         #
         # The level decides what counts, which is what `track` always read like
-        # it did and until now only governed snoozes. The *old* row is
-        # re-fingerprinted at today's level rather than read out of its stored
-        # `fp`, so changing `track` is not itself movement.
+        # it did and until now only governed snoozes. The *old* row is compared
+        # key by key at today's level rather than through its stored `fp`, so
+        # changing `track` is not itself movement.
         #
         # **The same threshold a snooze wakes on**, which this said was a
         # different one. A snooze compares against the value armed when you said
@@ -1084,44 +1194,47 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # way back. Read and `on-change` are one rule reached two ways, which is
         # the whole of TODO's "Read and snooze are one state".
         #
-        # **What it is stamped with is `moved_stamp`**, which is the event's own
-        # time when the keys that moved have one and the refresh clock when they
-        # do not. It used to be the refresh clock either way, which dated every
-        # comment by the poll that noticed it. On first sight it is what GitHub
-        # says rather than now, or a rebuilt `fetched.json` would read as every
-        # item moving at once.
-        r["moved_at"] = old === nothing ? activity_at(r) :
-                        fingerprint(old, r["track"]) != r["fp"] ? moved_stamp(old, r, at) :
-                        String(nz(jget(old, :moved_at), activity_at(r)))
+        # **Whether it moved, and what it is stamped with, is `moved_stamp`**:
+        # the event's own time when the keys that moved have one, the refresh
+        # clock when a bool became true, and the mark it already had when
+        # nothing did. It used to be gated on the level's hash differing and
+        # stamped with the refresh clock either way, which dated every comment
+        # by the poll that noticed it and woke on a bool clearing as well as
+        # setting. On first sight it is what GitHub says rather than now, or a
+        # rebuilt `fetched.json` would read as every item moving at once.
+        r["moved_at"] = old === nothing ? activity_at(r) : moved_stamp(old, r, at)
         if old === nothing
             r["new"] = true
             push!(changes, (url, r, "new"))
         else
             r["new"] = false
-            if jget(old, :fp) != r["fp"]
+            # The change list is what moved, said for a person - so it is gated
+            # on the mark, not on the hash, and a green or a relabel that moved
+            # nothing is not in it.
+            if r["moved_at"] != String(nz(jget(old, :moved_at), ""))
                 d = String[]
                 # Said as what happened, because it is an event and not a value:
                 # "review_requested_at 14:02->16:40" is the same sentence
                 # written for a machine, and this is the line a person reads to
-                # find out why their dashboard changed. The time says that it
-                # happened and the standing bool says which way; a withdrawal
-                # and a re-request between two refreshes leave the bool where
-                # it was and move the time, and are said as the request they
-                # ended on.
-                rq0, rq = jget(old, :review_requested), get(r, "review_requested", nothing)
-                (rq0 == rq && jget(old, :review_requested_at) == get(r, "review_requested_at", nothing)) ||
-                    push!(d, rq === true ? "review requested" : "review request withdrawn")
+                # find out why their dashboard changed.
+                jget(old, :review_requested_at) == get(r, "review_requested_at", nothing) ||
+                    push!(d, "review requested")
+                jget(old, :assigned_at) == get(r, "assigned_at", nothing) ||
+                    push!(d, "assigned to you")
+                jget(old, :state_at) == get(r, "state_at", nothing) ||
+                    push!(d, get(r, "state", nothing) == "OPEN" ? "reopened" :
+                             lowercase(something(get(r, "state", nothing), "closed")))
                 # The events say what happened; the states say what they went
                 # from and to. `their_head` and `review_at` are printed as
                 # events even though they are a sha and a timestamp, because
                 # "new push 0a1b2c->3d4e5f" is not a sentence anybody reads.
                 for (f, lab) in (("their_head", "new push"),
-                                 ("last_comment_at", "new comment"),
+                                 ("their_comment_at", "new comment"),
                                  ("review_at", "new review"),
                                  ("ci", "CI"), ("review_decision", "review"),
                                  ("mergeable", "mergeable"), ("unresolved", "unresolved"))
                     if jget(old, Symbol(f)) != get(r, f, nothing)
-                        push!(d, f in ("their_head", "last_comment_at", "review_at") ? lab :
+                        push!(d, f in ("their_head", "their_comment_at", "review_at") ? lab :
                                  "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")
                     end
                 end

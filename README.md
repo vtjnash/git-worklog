@@ -97,14 +97,23 @@ anybody sets:
 
 | level | counts as movement | default for |
 |---|---|---|
-| `normal` | a push **somebody else** made, your own CI going red, a review, any comment | **your unfinished work** |
-| `loose` | a review or a **human** reply — bot comments, CI and pushes are ignored | everything else, and anything finished |
+| `normal` | a push, any comment, a review, your own CI going red | **your unfinished work** |
+| `loose` | a push, a **human** comment, a review — bot comments and CI are ignored | everything else, and anything finished |
 
-**Somebody asking you to review counts at both levels**, and it is the only
-thing that does. Everything else in the table is a state that happens to
-change; a review request is a person naming you, and there is no level at which
-that is noise — `loose` exists to ignore a stranger's CI and a bot's comment,
-and this is the opposite of both.
+**And at both levels, somebody naming you or finishing it**: a review request,
+an assignment, a close, a merge or a reopen. The first two are a person naming
+you, and there is no level at which that is noise — `loose` exists to ignore a
+stranger's CI and a bot's comment, and this is the opposite of both. The last
+three are the item being finished by somebody else, which GitHub itself mails
+about, and there is nothing to keep waiting for on a thing that is done.
+
+**Nothing you did yourself is movement.** Your own push, your own comment, your
+own review, closing or merging your own pull request: you know what you did,
+and the dashboard reporting it back to you would put the item in front of you
+for exactly the thing you just finished with. Every key in the table is the
+newest one *somebody else* made, carried forward across your own. And being let
+off — a review request withdrawn, an assignment removed — is not movement
+either: it is the end of a claim on your attention, not a claim on it.
 
 ```bash
 cli/bin/wl track julia#62452 loose
@@ -114,17 +123,18 @@ This is a real difference in behaviour rather than a label, because the
 fingerprint is hashed from the level's key set: your own pull request going red
 makes it unread, a stranger's does not, and a human reply reaches you either way.
 
-**Three of those keys say what they are rather than what they were.** A push is
-a **sha** and not a clock — a rebase rewrites the committer date, a force-push
-of an older commit walks it backwards, and two shas are equal or they are not.
-It is the head *somebody else* put there, so your own push carries the previous
-value forward: you know what you pushed. A review is the **time the newest one
-arrived**, not the standing verdict and not a count, because the verdict only
-ever moves because a review arrived and the arrival is the half with a clock on
-it. And CI is one **bool** — is your own pull request failing — rather than the
-whole state, so a run starting, a run finishing green on something that was
-never red, and the flap between pending and success are the machine talking to
-itself. A green that follows a fix arrives as the push that fixed it.
+**Every key says what it is rather than what it was.** A push is a **sha** and
+not a clock — a rebase rewrites the committer date, a force-push of an older
+commit walks it backwards, and two shas are equal or they are not. A review is
+the **time the newest one arrived**, not the standing verdict and not a count,
+because the verdict only ever moves because a review arrived and the arrival is
+the half with a clock on it; a request, an assignment and a close are the time
+of the timeline event that made them. And CI is one **bool** — is your own pull
+request failing — and moves on one **edge**: going red is the event, going
+green is not, because the green either arrived as the push that fixed it or is
+a rerun of the same commit, and a rerun that goes red again through pending
+would otherwise wake the item twice for one failure. It is the one key with no
+clock, and the one that is not hashed.
 
 It is also what makes a **re-request** arrive at all. A first request shows up
 as a new item and is unread for that reason; a second one, on something you have
@@ -132,8 +142,8 @@ already read and decided about, changes nothing else GitHub will tell you —
 `reviewDecision` stays where it was, the review count stays where it was, and
 the button posts no comment — so before the request was fetched it passed in
 silence. It is fetched as a **time**: the moment of the newest timeline event
-naming you, asked or let off, so it compares against the read mark like a
-comment does rather than being a bool dated by whichever refresh noticed it.
+asking you, so it compares against the read mark like a comment does rather
+than being a bool dated by whichever refresh noticed it.
 
 It also answers a thing GitHub cannot. `updated_at` does not move when a check
 run finishes - a pull request stamped 20:55:52 had its three suites complete at

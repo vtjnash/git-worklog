@@ -33,10 +33,16 @@ const PR_FIELDS = "\n" * """
       reviewThreads(first: 100) { nodes { isResolved isOutdated } }
       reviewRequests(first: 20) { nodes { requestedReviewer {
         __typename ... on User { login } ... on Team { slug } } } }
-      timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) {
+      timelineItems(last: 50, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_DISMISSED_EVENT, ASSIGNED_EVENT,
+                                          CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT]) {
         nodes {
-          ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } }
-          ... on ReviewRequestRemovedEvent { createdAt requestedReviewer { ... on User { login } } }
+          __typename
+          ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } } }
+          ... on ReviewDismissedEvent { createdAt actor { login } }
+          ... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } }
+          ... on ClosedEvent { createdAt actor { login } }
+          ... on MergedEvent { createdAt actor { login } }
+          ... on ReopenedEvent { createdAt actor { login } }
         } }
       comments(last: 1) { nodes { author { login } createdAt } }
       reviews(last: 20) { nodes { author { login } state submittedAt } }
@@ -49,6 +55,13 @@ const ISSUE_FIELDS = "\n" * """
       milestone { title dueOn }
       assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
+      timelineItems(last: 30, itemTypes: [ASSIGNED_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
+        nodes {
+          __typename
+          ... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } }
+          ... on ClosedEvent { createdAt actor { login } }
+          ... on ReopenedEvent { createdAt actor { login } }
+        } }
       comments(last: 1) { nodes { author { login } createdAt } }
 """
 

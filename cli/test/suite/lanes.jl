@@ -271,20 +271,28 @@ end
           "needs-review"
     @test W.resolve_track(Dict{String,Any}(), Dict("bucket" => "done")) == "loose"
     # Whose it is decides the rest, which is the whole of "closely on mine, not
-    # on anyone else's": your own pull request wakes on a failing CI and on a
-    # push somebody else made, theirs wakes on a review and a human reply and
-    # nothing else.
+    # on anyone else's": your own pull request wakes on a failing CI and on any
+    # comment, theirs wakes on a review, a human reply and a push and not on a
+    # bot or its CI.
     yours = Dict{String,Any}("bucket" => "needs-review", "mine" => true)
     theirs = Dict{String,Any}("bucket" => "needs-review", "mine" => false)
     @test W.resolve_track(Dict{String,Any}(), yours) == "normal"
     @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
-    for k in ("ci_failed", "their_head")
+    for k in ("ci_failed", "their_comment_at")
         @test k in W.TRACK_KEYS["normal"] && !(k in W.TRACK_KEYS["loose"])
     end
+    @test "human_comment_at" in W.TRACK_KEYS["loose"]
     # A review is in both, and it is a *time* rather than a verdict and a count:
     # the verdict only ever moves because a review arrived, and the arrival is
-    # the thing that has a clock.
-    @test all("review_at" in ks for ks in values(W.TRACK_KEYS))
+    # the thing that has a clock. So is a push, since 2026-09-12 - somebody
+    # else's, at either level - and so is somebody else finishing the item.
+    for k in ("review_at", "their_head", "state_at", "review_requested_at", "assigned_at")
+        @test all(k in ks for ks in values(W.TRACK_KEYS))
+    end
+    # Every key but the CI bool is a time, and the bool is not hashed - it is
+    # an edge, and `moved_stamp` is what says so.
+    @test all(k == "ci_failed" || haskey(W.TIMED_KEYS, k)
+              for ks in values(W.TRACK_KEYS) for k in ks)
     @test !any("review_decision" in ks || "review_count" in ks
                for ks in values(W.TRACK_KEYS))
     # And what you said by hand wins over both.

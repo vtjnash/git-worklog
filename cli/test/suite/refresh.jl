@@ -313,13 +313,13 @@ end
     again = rec(; review_requested = true, review_requested_at = "2026-09-05T09:00:00Z")
     @test W.fingerprint(again, "loose") != W.fingerprint(asked, "loose")
 
-    # Withdrawing it moves the item too. That is the same event read backwards -
-    # you are off the hook - and it is what `r` on it was waiting to hear. It is
-    # a `ReviewRequestRemovedEvent` naming you and carries a time of its own,
-    # so the stamp moves forward to it rather than the key going back to absent.
-    off = rec(; review_requested = nothing, review_requested_at = "2026-09-03T08:00:00Z")
-    @test W.fingerprint(off, "loose") != W.fingerprint(asked, "loose")
-    @test W.fingerprint(off, "loose") != W.fingerprint(quiet, "loose")
+    # Withdrawing it does not. This said the opposite once - that being off
+    # the hook was what `r` on it was waiting to hear - and was decided the
+    # other way on 2026-09-12: being let off is the end of a claim on your
+    # attention, not a claim on it. The standing bool clears and the time
+    # stays, and the time is the key.
+    off = rec(; review_requested = nothing, review_requested_at = "2026-09-02T14:02:00Z")
+    @test W.fingerprint(off, "loose") == W.fingerprint(asked, "loose")
 end
 
 @testset "a movement is dated by the thing that moved" begin
@@ -332,7 +332,7 @@ end
     row(; kw...) = merge(Dict{String,Any}("track" => "normal",
                                           "their_head" => "a1b2c3",
                                           "head_at" => "2026-09-12T08:00:00Z",
-                                          "last_comment_at" => "2026-09-12T09:00:00Z",
+                                          "their_comment_at" => "2026-09-12T09:00:00Z",
                                           "human_comment_at" => "2026-09-12T09:00:00Z",
                                           "review_at" => "2026-09-12T08:30:00Z",
                                           "moved_at" => "2026-09-12T09:00:00Z"),
@@ -340,9 +340,15 @@ end
     # The shape the snapshot is read back in: a row `jget` can be asked about.
     was(d = row()) = NamedTuple(Symbol(k) => v for (k, v) in d)
     old = was()
-    @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T09:55:00Z",
+    # And nothing moving is an answer it gives, not a case it never sees: it
+    # is the one arbiter now, asked about every row, and the mark stays put.
+    @test W.moved_stamp(old, row(), now_) == "2026-09-12T09:00:00Z"
+    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T09:55:00Z",
                                  human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
+    # Being handed the item has the shape of being asked to review it.
+    @test W.moved_stamp(old, row(; assigned_at = "2026-09-12T10:05:00Z"), now_) ==
+          "2026-09-12T10:05:00Z"
     # A review says when it was submitted, by the same rule.
     @test W.moved_stamp(old, row(; review_at = "2026-09-12T10:15:00Z"), now_) ==
           "2026-09-12T10:15:00Z"
@@ -358,14 +364,15 @@ end
     @test W.moved_stamp(old, row(; head_at = "2026-09-12T10:30:00Z"), now_) ==
           "2026-09-12T09:00:00Z"
 
-    # Being asked is dated by the asking, and being let off by the letting
-    # off: both are timeline events naming you, and both carry a time.
+    # Being asked is dated by the asking: a timeline event naming you, with a
+    # time of its own.
     @test W.moved_stamp(old, row(; review_requested = true,
                                  review_requested_at = "2026-09-12T10:20:00Z"), now_) ==
           "2026-09-12T10:20:00Z"
-    @test W.moved_stamp(old, row(; review_requested = nothing,
-                                 review_requested_at = "2026-09-12T10:20:00Z"), now_) ==
-          "2026-09-12T10:20:00Z"
+    # And so is somebody else finishing it, which is a thing GitHub mails about
+    # and a thing there is no point sleeping through.
+    @test W.moved_stamp(old, row(; state = "MERGED", state_at = "2026-09-12T10:40:00Z"), now_) ==
+          "2026-09-12T10:40:00Z"
     # The standing bool is not a key, so it flipping on its own - the timeline
     # truncated past the event that flipped it - is not a movement.
     @test W.moved_stamp(old, row(; review_requested = true), now_) == "2026-09-12T09:00:00Z"
@@ -376,8 +383,20 @@ end
     # Mixed is now: dating the pair by the comment would say the item moved
     # before the CI failure that moved it beside it did.
     @test W.moved_stamp(old, row(; ci_failed = true,
-                                 last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+                                 their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           W.stamp(now_)
+    # **And a bool moves on one edge.** It going red is the event; it going
+    # green is not - the green arrived as the push that fixed it, or is a
+    # rerun of the same commit - and a rerun that passes through pending would
+    # otherwise wake the item twice for one failure. A hash of the value
+    # differs on both edges, which is why a bool is not hashed any more.
+    red = was(row(; ci_failed = true))
+    @test W.moved_stamp(red, row(; ci_failed = nothing), now_) == "2026-09-12T09:00:00Z"
+    @test W.moved_stamp(red, row(; ci_failed = true), now_) == "2026-09-12T09:00:00Z"
+    # It clearing beside a comment is the comment's movement, dated by it.
+    @test W.moved_stamp(red, row(; ci_failed = nothing,
+                                 their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          "2026-09-12T09:55:00Z"
 
     # Never backwards. `head_at` is a committer date, so a force-push of an
     # older commit carries an older one - and there is something to show for
@@ -393,7 +412,7 @@ end
     # unread since an 11:00 CI failure would otherwise be marked read by a
     # deletion at 09:00, losing the change nobody looked at rather than the
     # comment nobody can.
-    @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T08:30:00Z",
+    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T08:30:00Z",
                                  human_comment_at = "2026-09-12T08:30:00Z"), now_) ==
           W.stamp(now_)
 
@@ -421,17 +440,74 @@ end
           "2026-09-12T09:30:00Z"
 
     # The level decides which keys are asked about, here as everywhere else.
-    # `loose` watches the human comment and the review and not the head, so a
-    # push is not a movement at all and a bot's comment after a human is not
-    # either.
+    # `loose` watches the human comment and not the CI; it does watch the head
+    # since 2026-09-12, because a push on something you are watching loosely
+    # is the item being active, which is what you are watching it to know.
     loose = was(row(; track = "loose"))
     @test W.moved_stamp(loose, row(; track = "loose", their_head = "ffff",
                                   head_at = "2026-09-12T10:30:00Z"), now_) ==
-          "2026-09-12T09:00:00Z"
+          "2026-09-12T10:30:00Z"
     @test W.moved_stamp(loose, row(; track = "loose",
                                   human_comment_at = "2026-09-12T09:55:00Z",
-                                  last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+                                  their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
+    @test W.moved_stamp(loose, row(; track = "loose", ci_failed = true), now_) ==
+          "2026-09-12T09:00:00Z"
+end
+
+@testset "your own keystrokes are not news" begin
+    # One rule for everything the timeline says: an event is news when
+    # somebody else was the actor, and - for the ones that name somebody -
+    # when the somebody named is you.
+    me = "vtjnash"
+    ev(kind, at, actor; who = nothing, field = :requestedReviewer) =
+        Dict{Symbol,Any}(:__typename => kind, :createdAt => at,
+                         :actor => Dict{Symbol,Any}(:login => actor),
+                         field => who === nothing ? nothing : Dict{Symbol,Any}(:login => who))
+    req = ("ReviewRequestedEvent",)
+    evs = [ev("ReviewRequestedEvent", "2026-09-01T10:00:00Z", "them"; who = me),
+           ev("ReviewRequestedEvent", "2026-09-01T10:00:01Z", "them"; who = "other"),
+           ev("ReviewRequestedEvent", "2026-09-01T10:00:02Z", me; who = me),
+           ev("ReviewRequestRemovedEvent", "2026-09-02T10:00:00Z", "them"; who = me),
+           ev("ReviewDismissedEvent", "2026-09-03T10:00:00Z", "them"),
+           ev("MergedEvent", "2026-09-04T10:00:00Z", me),
+           ev("ClosedEvent", "2026-09-04T10:00:00Z", me)]
+    # Their request of you counts; their request of somebody else does not, one
+    # you somehow made yourself is your own keystroke, and being let off is not
+    # asked about - a kind this is not asked for is not a kind it sees.
+    @test W.event_at(evs, me, req, :requestedReviewer) == "2026-09-01T10:00:00Z"
+    # A dismissal names nobody, so only the actor is asked about.
+    @test W.event_at(evs, me, ("ReviewDismissedEvent",), nothing) == "2026-09-03T10:00:00Z"
+    @test W.event_at(evs, me, ("AssignedEvent",), :assignee) === nothing
+    # You pressing merge on your own pull request is not somebody finishing it.
+    @test W.event_at(evs, me, ("ClosedEvent", "MergedEvent", "ReopenedEvent"), nothing) === nothing
+    @test W.event_at([ev("MergedEvent", "2026-09-05T10:00:00Z", "them")], me,
+                     ("ClosedEvent", "MergedEvent", "ReopenedEvent"), nothing) == "2026-09-05T10:00:00Z"
+    # A deleted account names nobody either - julia#62245 has one - and a row
+    # with no timeline at all is a bulk row.
+    @test W.event_at([ev("ReviewRequestedEvent", "2026-09-04T10:00:00Z", "them")], me,
+                     req, :requestedReviewer) === nothing
+    @test W.event_at(nothing, me, req, :requestedReviewer) === nothing
+
+    # A comment the same way, carried across your own because
+    # `comments(last: 1)` cannot see past it - and for the `loose` key, across
+    # a bot's, which used to take the key to nothing and wake the item for
+    # exactly the comment that level exists to ignore.
+    r(at, by) = Dict{String,Any}("last_comment_at" => at, "last_comment_by" => by)
+    old = (their_comment_at = "2026-09-01T00:00:00Z", human_comment_at = "2026-09-01T00:00:00Z")
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "them"), old, me, "their_comment_at"; human = false) ==
+          "2026-09-02T00:00:00Z"
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), old, me, "their_comment_at"; human = false) ==
+          "2026-09-01T00:00:00Z"
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "nanosoldier[bot]"), old, me, "their_comment_at"; human = false) ==
+          "2026-09-02T00:00:00Z"
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "nanosoldier[bot]"), old, me, "human_comment_at"; human = true) ==
+          "2026-09-01T00:00:00Z"
+    # Nothing to carry and nothing to see is nothing; every comment deleted
+    # keeps what there was rather than going backwards.
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), nothing, me, "their_comment_at"; human = false) === nothing
+    @test W.their_comment_at(r(nothing, nothing), old, me, "human_comment_at"; human = true) ==
+          "2026-09-01T00:00:00Z"
 end
 
 @testset "a push of your own is not news" begin
