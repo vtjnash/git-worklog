@@ -95,17 +95,32 @@ that would put forty items a week in front of you.
 it goes unread and whether a snooze on it wakes. Two levels, because two is what
 anybody sets:
 
-| level | counts as movement | default for |
-|---|---|---|
-| `normal` | a push, any comment, a review, your own CI going red | **your unfinished work** |
-| `loose` | a push, a **human** comment, a review — bot comments and CI are ignored | everything else, and anything finished |
+| level | default for |
+|---|---|
+| `normal` | **your unfinished work** |
+| `loose` | everything else, and anything finished |
 
-**And at both levels, somebody naming you or finishing it**: a review request,
-an assignment, a close, a merge or a reopen. The first two are a person naming
-you, and there is no level at which that is noise — `loose` exists to ignore a
-stranger's CI and a bot's comment, and this is the opposite of both. The last
-three are the item being finished by somebody else, which GitHub itself mails
-about, and there is nothing to keep waiting for on a thing that is done.
+And this is the **wake table** — every event that counts as movement, which
+level sees it, and what dates it:
+
+| event | key | `normal` | `loose` | dated by | not counted when |
+|---|---|---|---|---|---|
+| somebody pushed | `their_head` | ✓ | ✓ | `head_at` | you are the committer |
+| somebody commented | `their_comment_at` | ✓ | – | itself | you are the author |
+| a **human** commented | `human_comment_at` | – | ✓ | itself | you, or a bot, is the author |
+| somebody reviewed, or dismissed a review | `review_at` | ✓ | ✓ | itself | you did it |
+| somebody asked you to review | `review_requested_at` | ✓ | ✓ | itself | you did it |
+| somebody assigned you | `assigned_at` | ✓ | ✓ | itself | you did it |
+| somebody closed, merged or reopened it | `state_at` | ✓ | ✓ | itself | you did it |
+| your own CI went red | `ci_failed` | ✓ | – | the refresh that saw it | it is not yours, or it went *green* |
+
+So the two levels differ in exactly two rows: `loose` ignores a bot's comment
+and a stranger's CI, and nothing else. Everything that is a person naming you —
+a review request, an assignment — or finishing the item — a close, a merge — is
+in both, because there is no level at which that is noise, and because there is
+nothing to keep waiting for on a thing that is done. And a push is in both:
+not something to review on a loosely-watched item, but the item being active,
+which is what you are watching it to know.
 
 **Nothing you did yourself is movement.** Your own push, your own comment, your
 own review, closing or merging your own pull request: you know what you did,
@@ -115,13 +130,21 @@ newest one *somebody else* made, carried forward across your own. And being let
 off — a review request withdrawn, an assignment removed — is not movement
 either: it is the end of a claim on your attention, not a claim on it.
 
+**Not in the table, on purpose:** `mergeable` (computed lazily, `UNKNOWN` on
+first read, and `CONFLICTING` on 671 rows because somebody else's base moved),
+`unresolved` (a thread being resolved is not news; what there was to resolve
+arrived as a comment or a review), labels, milestones, title edits, a draft
+being marked ready (it arrives with the request that follows it), and a
+request of a **team** you are in, which the token cannot see.
+
 ```bash
 cli/bin/wl track julia#62452 loose
 ```
 
-This is a real difference in behaviour rather than a label, because the
-fingerprint is hashed from the level's key set: your own pull request going red
-makes it unread, a stranger's does not, and a human reply reaches you either way.
+This is a real difference in behaviour rather than a label, because the level
+is which rows of the table the refresh compares, key by key against the row it
+saw last time: your own pull request going red makes it unread, a stranger's
+does not, and a human reply reaches you either way.
 
 **Every key says what it is rather than what it was.** A push is a **sha** and
 not a clock — a rebase rewrites the committer date, a force-push of an older
