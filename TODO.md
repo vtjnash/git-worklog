@@ -2,8 +2,9 @@
 
 ## What is next
 
-Two things are open, and both are ideas to design rather than tasks to pick up.
-The state axis that stood at the head of this list is **built**, and so is
+Two things are open: one is an idea to design, and the other is a deletion that
+only needs the names deciding first. The state axis that stood at the head of
+this list is **built**, and so is
 "showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
 Outstanding work for what each settled and what each left open. The drag that
 stood second here was the last thing waiting on a real terminal, and it is
@@ -26,20 +27,22 @@ here is done; `git log` is the record of it and this file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Read and snooze are one state, and the fingerprint is two facts.** A
-   snooze is read with a wake condition attached - `forever` is read that the
-   filed box holds out of the list - and the code keeps the two halves in step
-   by hand, marking read on falling asleep and unread on waking. The two wake
-   rules turn out to be *the same rule*, since `WOKE` is sticky, so what is
-   there to design is bigger than a rename: an `on-change` snooze is "hidden
-   while read", which deletes `snooze_fp`, `snooze_at`, `WOKE` and the arming
-   half of `snooze_active`, and stops waking being a decision only a refresh may
-   make. Under it is the same question asked of the data: half the
-   fingerprint's keys carry their own time and half cannot, and hashing them
-   together dates a comment by the poll that noticed it. See "Read and snooze
-   are one state" under Outstanding work, which has the first step - one
-   expression in `moved_at` - and what `review_requested` would cost as a
-   timestamp.
+2. **Read and snooze are one state.** A snooze is read with a wake condition
+   attached - `forever` is read that the filed box holds out of the list - and
+   the code keeps the two halves in step by hand, marking read on falling asleep
+   and unread on waking. The two wake rules turn out to be *the same rule*,
+   since `WOKE` is sticky, so an `on-change` snooze adds nothing to the wake
+   rule and only the hiding: it is "hidden while read". What that deletes is
+   `snooze_fp`, `snooze_at`, `WOKE`, `load_snoozes`, `save_snoozes!`, `disarm`
+   and the arming half of `snooze_active` - six marks become four - and it stops
+   waking being a decision only a refresh may make, since "it is unread" needs
+   no write and no arbiter. What it needs first is the names: the states become
+   the conditions, and `sleep_of` stops reading an answer off the row.
+   The fingerprint half of the same question is **done** - `mergeable` and
+   `unresolved` are keys at no level, `all`/`fp_full`/`moved` are gone, and a
+   movement in a timestamped key is dated by the key rather than by the poll.
+   What is left of it is `review_requested_at`, which is a cost to measure. See
+   "Read and snooze are one state" under Outstanding work.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -1429,7 +1432,8 @@ eight, a repo with none of your work in it).
     itself when there is no dashboard, because a corpus nobody has fetched is
     not a failure. 17 assertions, 0.3s.
   * **The suite runs on a fresh clone**, which is the whole of it: `data/`
-    absent, 22 files, everything passes and the sweep reports itself skipped.
+    absent, all 23 files, everything passes and the sweep reports itself
+    skipped.
 
 ### Showing *what* changed, not just that something did — **built**
 
