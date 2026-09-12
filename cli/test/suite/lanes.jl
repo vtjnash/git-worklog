@@ -284,9 +284,9 @@ end
     # level, and the default answers instead of it.
     @test W.TRACK == ("normal", "loose")
     @test W.resolve_track(Dict{String,Any}("track" => "background"), theirs) == "loose"
-    # `all` is every key there is, which is what the change list is hashed at -
-    # not a level, and not settable.
-    @test !("all" in W.TRACK) && issubset(W.TRACK_KEYS["normal"], W.TRACK_KEYS["all"])
+    # Two, and there is no third: the `all` level was every key there is, hashed
+    # into an `fp_full` that set a `moved` field nothing ever read.
+    @test Set(keys(W.TRACK_KEYS)) == Set(W.TRACK)
     # And it is a value on the bucket axis, which is where finished work is read
     # now that nothing renders a page of sections.
     @test "done" in mkstate().buckets

@@ -156,9 +156,15 @@ end
 # something out of view is dismissing it, one item at a time, and a level that
 # means "never tell me anything" is a dismissal you cannot see and cannot undo.
 #
-# `all` is not a level and is not settable - `TRACK` is what `wl track` accepts.
-# It is every key there is, which is what `fp_full` is hashed at, so the
-# refresh's change list can report something the item's own level ignores.
+# **Two, and there is no third.** There was an `all` - every key there is, not
+# settable, hashed into `fp_full` so that "the refresh's change list could
+# report something the item's own level ignores". It reported nothing: the
+# change list is built from its own explicit field list and gated on the
+# *level* `fp`, `fp_full` was read by one line that set `r["moved"]`, and
+# `Item.moved` was read nowhere at all. Three things kept each other alive and
+# nothing kept any of them. `labels` went with it, being a key of that level
+# alone - and with it the one list-valued key, which is why `fingerprint` no
+# longer has to sort anything before it hashes it.
 #
 # `review_requested` is in all three, which nothing else fetched per-lane is.
 # It is not a property of the item that might interest you - it is somebody
@@ -182,16 +188,18 @@ const TRACK_KEYS = Dict(
                  "review_count", "last_comment_at", "review_requested"),
     "loose"  => ("review_decision", "review_count", "human_comment_at",
                  "review_requested"),
-    "all"    => ("head_at", "review_decision", "ci", "review_count",
-                 "last_comment_at", "labels", "review_requested"),
 )
 
-"What counts as 'this item moved', at the given tracking level."
-function fingerprint(rec, level::AbstractString = "all")
+"""What counts as 'this item moved', at the given tracking level.
+
+The level is named by every caller and has no default: the one it used to have
+was `all`, which no longer exists, and "whatever `get` falls back to" is not a
+thing to decide what wakes you. A key whose value is a list would have to be
+sorted here before it is hashed; none is, since `labels` left with `all`.
+"""
+function fingerprint(rec, level::AbstractString)
     ks = get(TRACK_KEYS, level, TRACK_KEYS["normal"])
-    key = Any[k == "labels" ? sort(get(rec, "labels", String[])) : get(rec, k, nothing)
-              for k in ks]
-    bytes2hex(SHA.sha256(json_dumps(key)))[1:16]
+    bytes2hex(SHA.sha256(json_dumps(Any[get(rec, k, nothing) for k in ks])))[1:16]
 end
 
 """The keys that know when they happened, which is what dates a movement.
@@ -906,7 +914,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         end
         apply_state!(r, st, cfg, at)
         r["fp"] = fingerprint(r, r["track"])
-        r["fp_full"] = fingerprint(r, "all")
         snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
         r["snoozed"], r["snooze_why"] = snoozed, sreason
         # After the bucket, which `in_pile` reads and the pile is not a to-do
@@ -924,7 +931,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
             e === :slept && push!(slept, url)
             e === :woke && push!(woke, woke_row(r, at))
         end
-        r["moved"] = old !== nothing && jget(old, :fp_full) != r["fp_full"]
         # **When this program last saw a change you asked to be told about** -
         # what the seen axis compares your read stamp against.
         #

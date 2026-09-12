@@ -38,7 +38,6 @@ Base.@kwdef struct Item
                            # true at the instant it was worked out and this
                            # object outlives that instant by hours.
     new::Bool = false
-    moved::Bool = false
     snoozed::Bool = false
     snooze_why::String = ""   # what the snooze is waiting for, as the refresh
                               # that decided it put it: "until it moves",
@@ -115,7 +114,7 @@ function item_of(r)
             moved_at = String(nz(jget(r, :moved_at), "")),
             created = String(nz(jget(r, :created), "")),
             updated = String(nz(jget(r, :updated), "")),
-            new = nz(jget(r, :new), false), moved = nz(jget(r, :moved), false),
+            new = nz(jget(r, :new), false),
             snoozed = nz(jget(r, :snoozed), false),
             snooze_why = String(nz(jget(r, :snooze_why), "")),
             is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",

@@ -287,9 +287,9 @@ end
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
     quiet = rec()
     asked = rec(; review_requested = true)
-    # Every level, because there is no level at which being named is noise -
+    # Both levels, because there is no level at which being named is noise -
     # `loose` ignores a stranger's CI and a bot's comment, and this is neither.
-    for lvl in ("normal", "loose", "all")
+    for lvl in ("normal", "loose")
         @test W.fingerprint(quiet, lvl) != W.fingerprint(asked, lvl)
     end
 
@@ -297,7 +297,8 @@ end
     # every row would differ from the missing key on every row already in
     # `fetched.json`, and the first refresh after this shipped would stamp the
     # whole dashboard as moved. Absent has to match absent.
-    @test W.fingerprint(quiet, "all") == W.fingerprint(rec(; review_requested = nothing), "all")
+    @test W.fingerprint(quiet, "normal") ==
+          W.fingerprint(rec(; review_requested = nothing), "normal")
 
     # And nothing else about the item had to change for that to be true, which
     # is the whole complaint: the two records differ in this key alone.

@@ -1340,14 +1340,18 @@ everything by the poll.
     `moved_at` re-fingerprints the *old row* at today's level rather than
     reading its stored `fp`, and there is not one armed snooze in `local.toml`
     to wake.
-  * **`all`, `fp_full` and `Item.moved` are dead and were not noticed.** The
-    `all` key set exists to hash `fp_full`, which exists to set `r["moved"]`,
-    which `Item` carries and **nothing reads** - checked across `src/` and
-    `src/browse/`. So the level that was kept so "the refresh's change list can
-    report something the item's own level ignores" reports nothing: the change
-    list is built from its own explicit field list, gated on the *level* `fp`.
-    Either wire `moved` to something or delete all three. The read-through list
-    calls this class "arguments that outlived the code needing them".
+  * **Done, 2026-09-12: `all`, `fp_full` and `Item.moved` are gone.** Three
+    things that kept each other alive and nothing that kept any of them: the
+    `all` key set existed to hash `fp_full`, which existed to set `r["moved"]`,
+    which `Item` carried and **nothing read** - checked across `src/` and
+    `src/browse/`. The level was kept so "the refresh's change list can report
+    something the item's own level ignores", and it reported nothing: that list
+    is built from its own explicit field list and gated on the *level* `fp`.
+    `labels` went with it, being a key of that level alone, and with it the only
+    list-valued key - so `fingerprint` sorts nothing before it hashes, and takes
+    the level as an argument rather than defaulting to a level that no longer
+    exists. The read-through list calls this class "arguments that outlived the
+    code needing them".
   * **What would keep a hash either way.** `ci` - `statusCheckRollup` has a
     state and no time, and the check runs under it have `completedAt` at 100
     nodes a row, which is the `FIREHOSE_QUERY` trade over again. `labels`, whose
