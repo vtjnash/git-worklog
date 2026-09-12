@@ -194,6 +194,51 @@ function fingerprint(rec, level::AbstractString = "all")
     bytes2hex(SHA.sha256(json_dumps(key)))[1:16]
 end
 
+"""The keys that know when they happened, which is what dates a movement.
+
+A push and a comment carry the moment they were made; `ci` and a verdict and a
+count do not, and can only be dated by the refresh that first saw them differ.
+Everything in `TRACK_KEYS` is on one side of this line or the other.
+"""
+const TIMED_KEYS = ("head_at", "last_comment_at", "human_comment_at")
+
+"""When the change this refresh just found actually happened.
+
+`stamp(at)` - the refresh clock - is the honest answer for a state with no clock
+of its own, and the wrong one for a comment. The gap is not academic: `r` stamps
+you read at the moment the *thread* was fetched, which is fresher than any
+refresh, so a comment posted at 09:55 and read at 10:00 was dated 11:00 by the
+refresh that first saw it and the item came back unread for something you had
+already read.
+
+So a movement in the timestamped keys is dated by the keys, and a movement in
+anything else by now. Mixed is now: a stamp older than a CI change that happened
+beside it would say the item moved before it did.
+
+**Never backwards, and that is what the last line is for.** `head_at` is a
+*committer* date, not a push time - a force-push of an older commit carries an
+older date - and a deleted comment moves `last_comment_at` back to the one
+before it. Either would date this movement earlier than the movement already
+recorded, which would quietly mark a moved item read. A time that cannot account
+for the change is not used to explain it.
+
+First sight has no old row and is not this: it is `activity_at`, what GitHub
+says, or a rebuilt `fetched.json` would read as every item moving at once.
+"""
+function moved_stamp(old, r, at::DateTime)
+    ev = String[]
+    for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
+        n = get(r, k, nothing)
+        jget(old, Symbol(k)) == n && continue
+        k in TIMED_KEYS || return stamp(at)
+        truthy(n) && push!(ev, String(n))
+    end
+    isempty(ev) && return stamp(at)
+    m = maximum(ev)
+    prev = jget(old, :moved_at)
+    (prev isa AbstractString && m <= prev) ? stamp(at) : m
+end
+
 """Explicit setting wins; otherwise **your unfinished work is tracked normally
 and everything else loosely**.
 
@@ -901,11 +946,16 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # itself where this would count it twice - except that `WOKE` is sticky:
         # the item woke on the way out and never re-armed to be fooled on the
         # way back. Read and `on-change` are one rule reached two ways, which is
-        # the whole of TODO's "Read and snooze are one state". What is still
-        # true here: on first sight this is what GitHub says rather than now, or
-        # a rebuilt `fetched.json` would read as every item moving at once.
+        # the whole of TODO's "Read and snooze are one state".
+        #
+        # **What it is stamped with is `moved_stamp`**, which is the event's own
+        # time when the keys that moved have one and the refresh clock when they
+        # do not. It used to be the refresh clock either way, which dated every
+        # comment by the poll that noticed it. On first sight it is what GitHub
+        # says rather than now, or a rebuilt `fetched.json` would read as every
+        # item moving at once.
         r["moved_at"] = old === nothing ? activity_at(r) :
-                        fingerprint(old, r["track"]) != r["fp"] ? stamp(at) :
+                        fingerprint(old, r["track"]) != r["fp"] ? moved_stamp(old, r, at) :
                         String(nz(jget(old, :moved_at), activity_at(r)))
         if old === nothing
             r["new"] = true

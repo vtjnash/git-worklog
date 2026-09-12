@@ -1296,7 +1296,12 @@ everything by the poll.
     stamps read at *thread fetch* time, which is fresher than any refresh
     (`keys.jl`), so a comment posted at 09:55 and read at 10:00 is stamped 11:00
     by the refresh that first sees it, and comes back unread. One expression, no
-    file format change, no snooze woken. **Not done.**
+    file format change, no snooze woken. **Done, 2026-09-12**: `moved_stamp`,
+    which also declines a time that cannot account for the change - `head_at` is
+    a committer date and a force-push of an older commit carries an older one,
+    and a deleted comment moves `last_comment_at` backwards. Either would date a
+    movement earlier than the movement already recorded, and quietly mark a
+    moved item read.
   * **`review_requested` should become `review_requested_at`.** It is a bool in
     all three key sets because being asked is an event with no timestamp in the
     selection - but the timestamp exists:

@@ -308,3 +308,64 @@ end
     # you are off the hook - and it is what `r` on it was waiting to hear.
     @test W.fingerprint(asked, "loose") != W.fingerprint(quiet, "loose")
 end
+
+@testset "a movement is dated by the thing that moved" begin
+    # The refresh clock is the honest answer for a state with no clock of its
+    # own and the wrong one for a comment: `r` stamps you read at the moment the
+    # thread was fetched, which is fresher than any refresh, so a comment posted
+    # at 09:55 and read at 10:00 was dated 11:00 by the refresh that first saw
+    # it, and the item came back unread for something you had already read.
+    now_ = W.ts("2026-09-12T11:00:00Z")
+    row(; kw...) = merge(Dict{String,Any}("track" => "normal",
+                                          "head_at" => "2026-09-12T08:00:00Z",
+                                          "last_comment_at" => "2026-09-12T09:00:00Z",
+                                          "human_comment_at" => "2026-09-12T09:00:00Z",
+                                          "review_decision" => "REVIEW_REQUIRED",
+                                          "ci" => "SUCCESS", "review_count" => 2,
+                                          "moved_at" => "2026-09-12T09:00:00Z"),
+                         Dict{String,Any}(String(k) => v for (k, v) in kw))
+    # The shape the snapshot is read back in: a row `jget` can be asked about.
+    was(d = row()) = NamedTuple(Symbol(k) => v for (k, v) in d)
+    old = was()
+    @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T09:55:00Z",
+                                 human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          "2026-09-12T09:55:00Z"
+    # A push says when it was pushed, by the same rule.
+    @test W.moved_stamp(old, row(; head_at = "2026-09-12T10:30:00Z"), now_) ==
+          "2026-09-12T10:30:00Z"
+
+    # CI has no clock of its own - GitHub does not move `updatedAt` for it
+    # either - so the refresh that saw it is the only date anybody has.
+    @test W.moved_stamp(old, row(; ci = "FAILURE"), now_) == W.stamp(now_)
+    @test W.moved_stamp(old, row(; review_decision = "APPROVED"), now_) == W.stamp(now_)
+    # Mixed is now: dating the pair by the comment would say the item moved
+    # before the CI change that moved it beside it did.
+    @test W.moved_stamp(old, row(; ci = "FAILURE",
+                                 last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          W.stamp(now_)
+
+    # Never backwards. `head_at` is a committer date and not a push time, so a
+    # force-push of an older commit carries an older one, and a deleted comment
+    # moves `last_comment_at` back to the one before it. Either would date this
+    # movement earlier than the movement already recorded and quietly mark a
+    # moved item read, so a time that cannot account for the change does not get
+    # to explain it.
+    @test W.moved_stamp(old, row(; head_at = "2026-09-12T07:00:00Z"), now_) == W.stamp(now_)
+    @test W.moved_stamp(old, row(; last_comment_at = "2026-09-12T08:30:00Z",
+                                 human_comment_at = "2026-09-12T08:30:00Z"), now_) ==
+          W.stamp(now_)
+    # A human comment that goes away - a bot posted after it - offers no new
+    # time at all, and is dated now for that reason rather than by the key.
+    @test W.moved_stamp(old, row(; human_comment_at = nothing), now_) == W.stamp(now_)
+
+    # The level decides which keys are asked about, here as everywhere else.
+    # `loose` watches the human comment and not the head, so the same two
+    # changes are dated the other way round from `normal`.
+    loose = was(row(; track = "loose"))
+    @test W.moved_stamp(loose, row(; track = "loose",
+                                  human_comment_at = "2026-09-12T09:55:00Z",
+                                  last_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          "2026-09-12T09:55:00Z"
+    @test W.moved_stamp(loose, row(; track = "loose", review_count = 3), now_) ==
+          W.stamp(now_)
+end
