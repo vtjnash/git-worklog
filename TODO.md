@@ -1114,8 +1114,10 @@ it only ever spoke when a snooze woke. So:
   * **two levels, not four.** `close` was `normal` plus `mergeable` and
     `labels`, a distinction nobody sets by hand; `background` was a dismissal
     you could not see or undo. What is left says itself: *your unfinished work
-    is tracked normally, everything else loosely* - 156 and 2003. `all` is the
-    key set `fp_full` hashes at, is not a level, and `wl track` will not take it.
+    is tracked normally, everything else loosely* - 156 and 2003. There was an
+    `all` beside them, not settable, hashed into `fp_full`; it and the `moved`
+    field it fed are gone (2026-09-12), and so are `mergeable` and `unresolved`
+    as keys - see "Read and snooze are one state" below.
 
 So `track` is one knob for "what counts as movement", governing the unread bit
 as well as the snooze wake, which is what it has always read like it did.
@@ -1354,11 +1356,12 @@ everything by the poll.
     code needing them".
   * **What would keep a hash either way.** `ci` - `statusCheckRollup` has a
     state and no time, and the check runs under it have `completedAt` at 100
-    nodes a row, which is the `FIREHOSE_QUERY` trade over again. `labels`, whose
-    times are on `LabeledEvent` in the timeline. `review_decision` and
-    `review_count`, which are derivable from `reviews(last: 20)` submission
-    times but only by reading them. So the hash shrinks to the facts that
-    genuinely have no clock; it does not disappear.
+    nodes a row, which is the `FIREHOSE_QUERY` trade over again. And
+    `review_decision` and `review_count`, which are derivable from
+    `reviews(last: 20)` submission times but only by reading them. That is the
+    whole of what is left: `labels` was a key of the `all` level alone and went
+    with it, and `mergeable` and `unresolved` are not keys any more either. So
+    the hash shrinks to three facts with no clock; it does not disappear.
 
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 
