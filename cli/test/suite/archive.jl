@@ -17,7 +17,7 @@
         # the difference the box makes - and it is also the whole of what the
         # third one holds, since the box adds the same rows either way.
         nfiled() = (W.refilter!(st);
-                    count(x -> W.sleep_of(x, W.Marks(st)) === :filed, st.items))
+                    count(x -> W.filed_of(x, W.Marks(st)), st.items))
         a0, all0 = n(awake), n(all_)
         @test n(filed) == a0 && n(only) == 0
         n(awake)
@@ -25,9 +25,10 @@
 
         W.handle!(st, Int('x'), ctrl)
         @test st.status == string("archived ", it.ref)     # and not clobbered
-        # Archiving is a snooze that never wakes, and one field is what says so.
-        @test W.get_field(it.url, "snooze") == "forever"
-        @test W.snooze_forever(W.get_field(it.url, "snooze"))
+        # Archiving is a mark of its own - when you filed it - and not a snooze:
+        # a snooze is a wake time, and has nothing to say about never.
+        @test W.get_field(it.url, "archived") !== nothing
+        @test W.get_field(it.url, "snooze") === nothing
         # Out of the base list, and into the one that is a record. Everything
         # is everything, so it is unchanged.
         @test n(awake) == a0 - 1
@@ -45,13 +46,13 @@
         # if it does, it is unread again and still filed - two axes, and no
         # precedence between them.
         @test W.read_at(it.url) !== nothing
-        @test W.sleep_of(it, W.Marks(st)) === :filed
+        @test W.filed_of(it, W.Marks(st))
         @test W.seen_of(it, W.Marks(st)) === :read
         # And undoing it puts the stamp back to whatever was there, which for
         # something never read is nothing at all - the same shape every other
         # undo of a mark has.
         W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "snooze") === nothing
+        @test W.get_field(it.url, "archived") === nothing
         @test W.read_at(it.url) === nothing
         # Back in, from the list it came out of: the filed list is empty now,
         # and `x` acts on the row under the cursor.
@@ -60,8 +61,7 @@
         W.handle!(st, Int('x'), ctrl)
         @test W.read_at(it.url) !== nothing
         n(filed)
-        @test [x.url for x in st.items if W.sleep_of(x, W.Marks(st)) === :filed] ==
-              [it.url]
+        @test [x.url for x in st.items if W.filed_of(x, W.Marks(st))] == [it.url]
 
         # A toggle, and undoable either way. The filed row is one of many in
         # this list rather than the whole of it, so the cursor is put on it -
@@ -69,7 +69,19 @@
         st.sel = findfirst(x -> x.url == it.url, st.items)
         W.handle!(st, Int('x'), ctrl)
         @test occursin("back out", st.status)
-        @test W.get_field(it.url, "snooze") === nothing
+        @test W.get_field(it.url, "archived") === nothing
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "archived") !== nothing
+        W.handle!(st, Int('x'), ctrl)
+
+        # A file from before the mark existed still carries what `x` used to
+        # write, and it reads as filed - and `x` on it takes it back out.
+        W.set_fields(it.url, ["snooze" => "forever"])
+        @test haskey(W.archived_map(), it.url)
+        n(filed); st.sel = findfirst(x -> x.url == it.url, st.items)
+        W.handle!(st, Int('x'), ctrl)
+        @test occursin("back out", st.status)
+        @test W.get_field(it.url, "snooze") === nothing && !haskey(W.archived_map(), it.url)
         W.handle!(st, Int('z'), ctrl)
         @test W.get_field(it.url, "snooze") == "forever"
         W.handle!(st, Int('x'), ctrl)

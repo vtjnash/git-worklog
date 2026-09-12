@@ -22,7 +22,7 @@ The split that makes it safe to let a model touch this:
 |---|---|---|
 | `config.toml` | you | edited by hand |
 | `themes/*.toml` | you | edited by hand; which one is read is a line in `config.toml`, and none being read is plain text |
-| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, drafted). Plus a `repo:` block per local checkout. Tracked |
+| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, filed, drafted). Plus a `repo:` block per local checkout. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw. Not tracked; ~4MB |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
@@ -41,40 +41,35 @@ approved and green → **ready to merge**; they pushed after your last review �
 what the next action is, and what is urgent are written into `local.toml`, by
 you or by a model reading the same files.
 
-## Snooze until it moves
+## Read, snooze, archive
 
-`snooze = "on-change"` fingerprints the PR (the head **somebody else** pushed,
-the last comment, the last review, whether you are being asked to review it, and
-whether your own CI is failing) and hides it until that fingerprint differs. For a PR waiting on a reviewer this is the right
-primitive — a timer is guessing, and Octobox only offers 1h/1d/1w/1mo. Once
-woken an item stays awake until you re-snooze, so a wake cannot scroll past you.
+Three marks, and one rule under all of them: **an item is unread when it has
+moved since you read it.** "Moved" is the wake table above. The other two marks
+are the read stamp with one thing added each.
 
-An `on-change` snooze on its own has no clock, and a pull request everybody has
-quietly given up on is exactly the shape whose fingerprint never differs — so it
-would hide forever, and that is the one worth being reminded of. Give it a
-deadline: `snooze = "on-change/30d"` wakes when it moves *or* after thirty days,
-whichever comes first, and `max_days` under `[snooze]` in `config.toml` is the
-default cap for the ones that carry none.
+**A snooze is a wake time.** `s` asks how long - `3d`, `2w`, `6mo`, a date -
+and writes the moment that ends, resolved, so `local.toml` says *when* and
+nothing has to remember when it was set. The item is read from that moment,
+and comes back at the wake time **or the moment it moves, whichever is first**:
+the snooze is a second reason to be unread beside the wake table, not a hold
+against it. There is no `on-change` any more, because "until it moves" is what
+`r` does; and no `forever`, because that is `x`. Waking is not a decision
+anybody makes: the browser compares the wake against the clock per frame, so a
+snooze that runs out at lunch is back before the next `wl refresh`, two windows
+on one dashboard cannot disagree about it, and nothing is armed or written.
 
-`snooze = "2026-09-15"` still works for real calendar constraints, and
-`snooze = "3d"` / `"2w"` / `"6mo"` count from when you set them.
+**An archive is a read mark that filters separately.** `x` stamps `archived`
+and `read` both. An archived item that moves is unread again like any other -
+filing is not an answer about whether a thing has changed - but it is held out
+of every list that does not name the `filed away` box. That one difference is
+the whole reason it is a mark of its own: it is what lets the backlog - read
+work and unread work together - leave out what you gave up on. `x` again takes
+it back out.
 
-**A snooze marks it read, and waking marks it unread again.** "Not now" and
-"unread" are the same answer twice, so an item you have put away stops sitting
-in the unread lane asking to be read - and when it wakes it comes back as news,
-by the same hand-delivery `wl import` uses, since the repo it is in may be one no
-lane polls. Both edges and only the edges: marking read every refresh would bury
-a comment that arrived while it slept, and marking unread every refresh would
-make a woken item impossible to file. Clearing a snooze by hand is not a wake -
-you did that on purpose, on an item in front of you.
-
-**Waking happens in `wl refresh` and nowhere else.** It is not a predicate a
-browser can evaluate: deciding an item has woken also arms and records it, so
-two windows on one dashboard would each decide and each write, and neither would
-know what the other had already woken. The browser shows the answer the last
-refresh wrote, and the metadata pane says which trigger the item is waiting for
-- `until it moves`, `for 2w, 9d left`, `until 2026-09-15` - so a snooze that has
-run its course comes back when you ask for a refresh, at a moment you chose.
+**Nothing here suppresses the wake table.** A snoozed item that somebody pushes
+to comes back today, not at the end of the week; an archived one that somebody
+merges is unread in the filed list. What you put away is what you put away,
+and what changed is what changed.
 
 ## Lanes
 
@@ -289,29 +284,31 @@ emphasis, which CommonMark forbids and GitHub does not do.
 and `c` the per-check breakdown — see "Showing what changed" above for the last
 of those and for the rule the thread opens on.
 
-It opens on **what moved, awake and open**. So an item leaves the opening list
-two ways - you read it, or you put it away with `s` or `x` - and comes back the
-same two ways, with "moved" meaning what `track` says it means for that item.
+It opens on **what moved, unfiled and open**. So an item leaves the opening
+list two ways - you read it, or you put it away with `s` or `x`, which reads it
+- and comes back when it moves, or when its snooze ends, with "moved" meaning
+what `track` says it means for that item.
 
-That list is one box on an axis that only **adds**. Five checkboxes -
-`unread, awake, open`, `read`, `snoozed`, `filed away`, `closed or merged` -
-and each brings its own kind of row *beside* the others rather than instead of
-them, so no box can take another's rows away. The number next to each is what
-checking it would bring, or what unchecking it would take away. All five is the
-corpus, and `'` has it by name ("everything"); `c` clears every filter, which
-lands on the first box alone rather than on the corpus.
+That list is one box on an axis that only **adds**. Four checkboxes -
+`unread, open`, `read`, `filed away`, `closed or merged` - and each brings its
+own kind of row *beside* the others rather than instead of them, so no box can
+take another's rows away. The number next to each is what checking it would
+bring, or what unchecking it would take away. All four is the corpus, and `'`
+has it by name ("everything"); `c` clears every filter, which lands on the
+first box alone rather than on the corpus. Snoozed work is not a box: a snoozed
+item is a read one with a wake time, so it is a **tag** over the read ones,
+and `'` has that by name too.
 
 The first box is checked when nothing has been asked - it is what the dashboard
 *is*, and `c`, a fresh filter and a view that names no `show` all leave it on -
 so the screen cannot be emptied by accident. Unchecking it is how you ask for
-one of the other four **alone**: the filed work on its own, rather than beside
-today's. Uncheck all five and you get no rows, which is what an empty set of
+one of the other three **alone**: the filed work on its own, rather than beside
+today's. Uncheck all four and you get no rows, which is what an empty set of
 things to show means.
 
-The `read` box is a question about awake work only: putting something away
-stamps it read, so `snoozed` and `filed away` bring what they name whether or
-not it has been read. A box that insisted on both would have been a control that
-did nothing.
+The `read` box is a question about unfiled work only: filing something stamps
+it read, so `filed away` brings what it names whether or not it has been read.
+A box that insisted on both would have been a control that did nothing.
 
 The list itself says what has been read: unread rows are bold and read ones
 plain, and the cursor is a background rather than a weight - the same mark the
@@ -498,7 +495,7 @@ once with a message naming every place it looked, rather than once per repo.
 ```bash
 cli/bin/refresh                                # ~20s, 12 of 5000 rate points
 cli/bin/wl note   julia#62452 "rebase after #62396"
-cli/bin/wl snooze libuv#5212 on-change
+cli/bin/wl snooze libuv#5212 2w
 cli/bin/wl clear  julia#62452
 cli/bin/wl                                     # the browser
 ```

@@ -77,9 +77,12 @@ Base.@kwdef mutable struct BState <: View
                                     # whole corpus, which `st.unread` is not:
                                     # that is the poll's answer about the repos
                                     # it watches. See `disposition`
-    archived::Dict{String,String} = Dict{String,String}()  # url -> the snooze
-                                    # value that filed it, which is the one
-                                    # that never wakes. Archiving is a snooze
+    archived::Dict{String,String} = Dict{String,String}()  # url -> when it was
+                                    # filed away: read, and held out of every
+                                    # view that does not ask for the filed
+    wakes::Dict{String,String} = Dict{String,String}()     # url -> when its
+                                    # snooze ends; `seen_of` reads it against
+                                    # the clock, so a wake needs no refresh
     drafts::Dict{String,String} = Dict{String,String}()    # url -> when a review
                                     # was last written to on it and not sent;
                                     # the one lane GitHub cannot be asked for
@@ -168,6 +171,7 @@ function BState(all::Vector{Item}, title, unread = Set{String}())
     m = load_marks()
     st = BState(; all = collect(all), title = String(title), unread = unread,
                   touched = field_marks(m, "touched"), archived = archived_map(),
+                  wakes = wake_map(),
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   factsat = mtime(fetchedfile()))
     rebuild_axes!(st)

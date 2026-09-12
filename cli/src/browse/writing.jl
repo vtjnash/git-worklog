@@ -678,33 +678,46 @@ end
 
 Done, rejected or merged work should be able to leave without being deleted:
 the note and everything else written about it stay in `local.toml`, and the
-`archived` lane is where it can still be found.
+`filed` box is where it can still be found.
 
-**It is a snooze, and always was.** "File this away" and "not now" are the same
-sentence with a different wake condition, so `x` writes `snooze = "forever"` -
-one field, one undo, one place to look, and `snooze_why` says which kind it is.
-Two fields meant a precedence rule between them at every reader, and an item
-could carry both.
+**It is a mark, and it is read.** Filing stamps `archived` and `read` both, so
+an archived item is a read one in every way but one: a read item that moves
+comes back into the base on its own, and a filed one that moves is unread but
+comes back only when the `filed` box is on. That one difference is what the
+mark is for - it is what lets the backlog leave out what you gave up on. It
+used to be `snooze = "forever"`, a snooze with no wake condition; a snooze is a
+wake *time* now and has nothing to say about never.
 
 It closes the loop for an adopted branch especially. A merged pull request
 leaves the active lanes on its own once GitHub says so; a local branch that came
 to nothing has no other way out.
 """
 function archive!(st::BState, it::Item, at::DateTime)
-    was = snooze_forever(get_field(it.url, "snooze"))
-    r = apply_snooze!(st, it, was ? nothing : "forever", at)
-    startswith(r, "bad ") && return r
-    # The undo `apply_snooze!` pushed is the right one; only its name is wrong,
-    # since what the reader pressed was `x`.
-    isempty(st.undos) ||
-        (st.undos[end] = Undo(string(was ? "unarchive " : "archive ", it.ref),
-                              st.undos[end].undo))
+    was = haskey(st.archived, it.url)
+    prev = get_field(it.url, "archived")
+    prevsnooze = get_field(it.url, "snooze")
+    prevtouch = touched_at(it.url)
+    prevread, wasunread = read_at(it.url), it.url in st.unread
+    if was
+        set_archived(it.url, nothing)
+        # The value `x` used to write, if this file still carries it.
+        snooze_forever(prevsnooze) && set_fields(it.url, ["snooze" => nothing])
+    else
+        set_archived(it.url, stamp(at))
+        set_touched(it.url, stamp(at))
+        set_read(it.url, stamp(at))
+        delete!(st.unread, it.url)
+    end
+    push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
+        set_archived(it.url, prev)
+        snooze_forever(prevsnooze) && set_fields(it.url, ["snooze" => prevsnooze])
+        set_touched(it.url, prevtouch)
+        set_read(it.url, prevread)
+        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
+    end))
+    refilter!(st)
     was ? string("back out: ", it.ref) : string("archived ", it.ref)
 end
-
-"Is this snooze value the one that never wakes - which is what archiving is?"
-snooze_forever(v) = v !== nothing &&
-    (p = parse_snooze(String(v)); p !== nothing && p.mode === :forever)
 
 """Is this item over, as far as GitHub is concerned?
 
@@ -734,20 +747,18 @@ mergedbyme(it::Item) = it.state == "MERGED" && !isempty(it.merged_by) &&
 
 """Ask how long for, then snooze.
 
-`s` used to set `on-change` and say nothing. That is the right default and was
-the wrong only choice: `parse_snooze` has always taken spans and dates, and
-`wl snooze` could reach them from the shell where the browser could not - so
-the one place snoozing is actually done was the one place it could not be
-said how long for.
+`s` used to set `on-change` and say nothing. "Until it moves" is what `r` does
+- a snooze is a wake *time* beside the wake table, not a hold against it - so
+the menu is the spans and a date, and the one thing to decide is how long.
+The item comes back at the time, or the moment it moves, whichever is first.
 
 The current value leads the note, because the common case for pressing this
 twice is wanting to know what it is already set to.
 """
 function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
-    cur = get_field(it.url, "snooze")
+    cur = get(st.wakes, it.url, nothing)
     opts = Tuple{String,Any}[
-        ("until it moves",                "on-change"),
-        ("until it moves, or 30 days",    "on-change/30d"),
+        ("1 day",                         "1d"),
         ("3 days",                        "3d"),
         ("1 week",                        "1w"),
         ("2 weeks",                       "2w"),
@@ -757,18 +768,18 @@ function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
     # Only offered when there is something to clear, and at the *end* rather
     # than the front, which is where it used to be. Numbering the rows is what
     # moved it: a row that comes and goes at the top shifts every key below it,
-    # so "3 days" would be `3` on an item with no snooze and `4` on one that has
+    # so "3 days" would be `2` on an item with no snooze and `3` on one that has
     # got one - which is the whole of what a number is for, gone. Last, the
-    # eight standing options keep their keys and clearing takes the one that
+    # seven standing options keep their keys and clearing takes the one that
     # only exists when there is something to clear.
     cur === nothing || push!(opts, ("off \u2014 wake it now", nothing))
     # Numbered, the same as the views and for the same reason: it is the same
     # list in the same order every time, so it is reached by memory rather than
     # by reading. The cost is real and worth naming - a digit picks instead of
-    # narrowing, so `3` is the third row and no longer types the `3` of "3 days"
+    # narrowing, so `2` is the second row and no longer types the `3` of "3 days"
     # or "3 months" - and it is the cost the views already pay.
     push_view!(ctrl, ChooseView(string("Snooze ", it.ref),
-        cur === nothing ? it.title : string("now: ", cur), opts,
+        cur === nothing ? it.title : string("wakes ", when_str(cur)), opts,
         v -> v === :ask ?
             push_view!(ctrl, PromptView(string("Snooze ", it.ref),
                 "a span like 3d, 2w, 6mo, 1y - or a date like 2026-09-15",
@@ -776,30 +787,36 @@ function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
             (st.status = apply_snooze!(st, it, v, at)); numbered = true))
 end
 
-"""Write one snooze value, with its undo. `nothing`, or an empty string, clears.
+"""Write one snooze, with its undo. `nothing`, or an empty string, clears.
 
-Rejected here rather than written: a value `parse_snooze` cannot read leaves the
-item *not* snoozed, and the reason goes into a field only the snoozed section
-prints - so a bad one used to look like it had worked and quietly do nothing.
+Written *resolved*: a span becomes the moment it ends, so the file says when
+and nothing has to remember when it was set. Rejected here rather than
+written: a value with no wake time in it is not a snooze - "until it moves" is
+`r`, and "forever" is `x` - and a bad one used to look like it had worked and
+quietly do nothing.
 """
 function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     val = (v === nothing || (v isa AbstractString && isempty(v))) ? nothing : String(v)
-    val === nothing || parse_snooze(val) !== nothing ||
-        return string("bad snooze value '", val,
-                      "' - use on-change, a span like 3d/2w/6mo/1y, or a date")
+    if val !== nothing
+        parse_snooze(val) !== nothing ||
+            return string("bad snooze value '", val,
+                          "' - use a span like 3d/2w/6mo/1y, or a date")
+        w = wake_of(val, stamp(at))
+        w === nothing && return string("'", val, "' has no wake time in it - ",
+                                       "r is \"until it moves\" and x is \"forever\"")
+        val = w
+    end
     prev = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
     prevread, wasunread = read_at(it.url), it.url in st.unread
-    disarm(it.url)
     set_fields(it.url, ["snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
-    # sleep marks it read - here as well as in the refresh, which is what does
-    # it for `wl snooze` and for a snooze typed into `local.toml`. The refresh
-    # would get to this one too, on its own edge; doing it now is what makes the
-    # row leave the unread lane in the session where the key was pressed.
+    # sleep marks it read - here, and in `wl snooze`, and by the refresh for a
+    # value typed into `local.toml` by hand. Doing it now is what makes the row
+    # leave the unread lane in the session where the key was pressed.
     #
     # Only on the way in. Clearing a snooze is not a claim about whether you
-    # have read the thing, and waking is the refresh's to announce.
+    # have read the thing; it takes the wake away and leaves the read stamp.
     if val !== nothing
         set_read(it.url, stamp(at))
         delete!(st.unread, it.url)
@@ -814,11 +831,11 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_read(it.url, prevread)
         wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
-    # The sleep axis is a filter over this field and the seen axis over the
-    # stamp just written, so the row has to be able to leave or arrive on the
-    # strength of either.
+    # The seen axis is over the stamp just written and the `snoozed` tag over
+    # the wake, so the row has to be able to leave or arrive on the strength of
+    # either.
     refilter!(st)
-    val === nothing ? "snooze cleared" : string("snoozed ", val)
+    val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end
 
 """Toggle one label, chosen from this item's own plus every label seen."""

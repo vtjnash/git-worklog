@@ -35,11 +35,11 @@
             st = W.BState(all_, "corpus", Set{String}())
             m = W.Marks(st)
             # The axes are total: every row has an answer on each of them, and
-            # no row is left out of the merged one when all five boxes are on.
+            # no row is left out of the merged one when all four boxes are on.
             @test all(W.seen_of(it, m) in (:unread, :read) for it in all_)
-            @test all(W.sleep_of(it, m) in (:awake, :snoozed, :filed) for it in all_)
+            @test all(W.filed_of(it, m) isa Bool for it in all_)
             @test all(W.over_of(it) in (:open, :done) for it in all_)
-            @test all(W.tags_of(it, m) ⊆ [:second, :touched, :drafts] for it in all_)
+            @test all(W.tags_of(it, m) ⊆ [:second, :touched, :drafts, :snoozed] for it in all_)
             st.filters = W.everything(); W.refilter!(st)
             @test length(st.items) == length(all_)
 

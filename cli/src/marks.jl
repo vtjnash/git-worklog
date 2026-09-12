@@ -1,16 +1,22 @@
 # What this program knows about an item that GitHub cannot answer.
 #
-# Six facts, in the item's own block of `local.toml`:
+# Five facts, in the item's own block of `local.toml`:
 #
-#     read · read_head · touched · snooze_fp · snooze_at · draft
+#     read · read_head · touched · archived · draft
 #
 #   * `read`      the timestamp you have seen this item up to
 #   * `read_head` the head commit it stood at when you saw it
 #   * `touched`   when you last *did* something to it
-#   * `snooze_fp` the fingerprint an "until it moves" snooze was armed against,
-#                 or the string `WOKE` once it has moved
-#   * `snooze_at` when that arming happened, so a cap can expire it
+#   * `archived`  when you filed it away - read, and held out of every view
+#                 that does not ask for the filed ones
 #   * `draft`     when an unsent review on it was last written to
+#
+# And beside them, yours rather than written for you, `snooze`: a wake *time*,
+# which `seen_of` reads as a second reason for the item to be unread beside
+# the wake table. There were two more here - `snooze_fp`, the hash an
+# "until it moves" snooze was armed against or `WOKE` once it had, and
+# `snooze_at`, when the arming happened - and they went on 2026-09-12: a
+# snooze that wakes on movement is a read mark, and a wake time needs no arming.
 #
 # These were four files - `read.json`, `touched.json`, `snooze.json` and
 # `drafts.json` - which is four read-modify-writes where there should be one,
@@ -77,14 +83,14 @@
 # exactly as `review:banana` does. So the only way to have a lane of them is to
 # write them down as they are made.
 
-"""The six marks, as `url -> field -> value`, in one pass over `local.toml`.
+"""The five marks, as `url -> field -> value`, in one pass over `local.toml`.
 
 They live in the item's own block, beside the note and the snooze that are your
 words about the same item: one place to look, one file to write, and no
 precedence to keep in step between a "what I decided" file and a "what I did"
 one.
 """
-const MARK_FIELDS = ("draft", "read", "read_head", "snooze_at", "snooze_fp", "touched")
+const MARK_FIELDS = ("archived", "draft", "read", "read_head", "touched")
 
 load_marks() = field_maps(MARK_FIELDS)
 
@@ -238,59 +244,44 @@ draft!(url::AbstractString, at::DateTime = utcnow()) = set_draft(url, stamp(at))
 "Forget the draft on this item - it has been sent, or thrown away."
 undraft!(url::AbstractString) = set_draft(url, nothing)
 
-# --- armed snoozes -----------------------------------------------------------
+# --- archive and the wake time ---------------------------------------------
 
-"""The armed fingerprints, in the shape a refresh works in: `url -> entry`.
+"""Every item filed away, as `url -> when`.
 
-An entry is `WOKE` or a `(fp, at)` record; see `snooze_entry`. Only `refresh`
-reads or writes these - arming and waking are its business alone, for the
-reasons on `snooze_active` - so they are lifted out of the file into that shape
-at the top of a run and synced back at the foot of one.
+The `archived` mark, plus any block still carrying the `snooze = "forever"`
+that `x` used to write - read as filed, so that a file from before the mark
+existed loses nothing. Filed is read that no view shows unless asked: see
+`show_ok`.
 """
-function load_snoozes()
-    out = Dict{String,Any}()
-    for (u, r) in load_marks()
-        fp = get(r, "snooze_fp", nothing)
-        fp === nothing && continue
-        out[u] = fp == "WOKE" ? "WOKE" : snooze_record(fp, get(r, "snooze_at", nothing))
+function archived_map()
+    out = Dict{String,String}()
+    for (u, r) in field_maps(("archived", "snooze"))
+        a = get(r, "archived", nothing)
+        if a !== nothing
+            out[u] = a
+        elseif snooze_forever(get(r, "snooze", nothing))
+            out[u] = "forever"
+        end
     end
     out
 end
 
-"""Put a refresh's whole snooze map back, dropping what is no longer in it.
+"""Every item with a wake time, as `url -> stamp`, resolved.
 
-A sync rather than a merge: `refresh` deletes the entry for an item that has
-left the dashboard, and the file has to lose it too. One pass and one write,
-however many armings moved.
+A span typed by hand is counted from the read stamp beside it, which is what
+`wl snooze` and `s` wrote it from too. Whether the wake has *passed* is not
+decided here: `seen_of` asks that of a clock, per frame, so that a snooze
+running out needs no refresh to be noticed.
 """
-function save_snoozes!(snz::Dict{String,Any})
-    want = Dict{String,Tuple{Union{Nothing,String},Union{Nothing,String}}}()
-    for (u, v) in snz
-        fp, at = snooze_entry(v)
-        want[String(u)] = (fp === nothing ? nothing : String(fp),
-                           at === nothing ? nothing : String(at))
+function wake_map()
+    out = Dict{String,String}()
+    for (u, r) in field_maps(("snooze", "read"))
+        w = wake_of(get(r, "snooze", nothing), get(r, "read", nothing))
+        w === nothing || (out[u] = w)
     end
-    ups = Pair{String,Any}[]
-    for (u, r) in load_marks()
-        fp, at = get(want, u, (nothing, nothing))
-        (get(r, "snooze_fp", nothing) == fp && get(r, "snooze_at", nothing) == at) && continue
-        push!(ups, u => ["snooze_fp" => fp, "snooze_at" => at])
-        delete!(want, u)
-    end
-    for (u, (fp, at)) in want
-        fp === nothing && at === nothing && continue
-        push!(ups, u => ["snooze_fp" => fp, "snooze_at" => at])
-    end
-    isempty(ups) || set_blocks!(ups)
-    nothing
+    out
 end
 
-"""Drop any armed fingerprint so a re-snooze re-arms from the current state.
-
-The one thing outside a refresh that may touch these, and it only ever forgets:
-what it is undoing is an arming, not a decision about whether the item is
-asleep, which is the `snooze` field's to make.
-"""
-disarm(url::AbstractString) =
-    (set_blocks!([String(url) => ["snooze_fp" => nothing, "snooze_at" => nothing]]);
-     nothing)
+"File one item away, or with `nothing` take it back out."
+set_archived(url::AbstractString, at::Union{Nothing,AbstractString}) =
+    set_mark!(url, "archived", at)

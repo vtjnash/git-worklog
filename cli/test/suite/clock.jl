@@ -85,8 +85,8 @@ end
         snooze!(v) = (W.handle!(st, Int('s'), ctrl); pop!(ctrl.stack).onpick(v))
         state = read(W.localfile(), String)
         try
-            snooze!("on-change")
-            @test st.status == "snoozed on-change"
+            snooze!("3d")
+            @test startswith(st.status, "snoozed until ")
             @test W.touched_at(it.url) !== nothing
             W.handle!(st, Int('z'), ctrl)
             @test occursin("undid", st.status)
@@ -94,7 +94,7 @@ end
 
             # And an earlier interaction is restored as itself, not erased.
             W.set_touched(it.url, "2026-01-02T03:04:05Z")
-            snooze!("on-change")
+            snooze!("3d")
             @test W.touched_at(it.url) != "2026-01-02T03:04:05Z"
             W.handle!(st, Int('z'), ctrl)
             @test W.touched_at(it.url) == "2026-01-02T03:04:05Z"
@@ -107,68 +107,77 @@ end
 end
 
 @testset "s asks how long for" begin
-    # `s` used to write on-change and say nothing, which is the right default
-    # and was the wrong only choice - `parse_snooze` has always taken spans and
-    # dates, and only `wl snooze` could reach them.
+    # `s` used to write on-change and say nothing. "Until it moves" is what `r`
+    # does - a snooze is a wake *time* beside the wake table, not a hold
+    # against it - so the menu is the spans and a date, and the one thing to
+    # decide is how long.
     # Everything, so the row stays under the cursor once it is snoozed: what
-    # the browser opens on is awake work, and snoozing something takes it out.
+    # the browser opens on is unread work, and snoozing something reads it.
     st = mkstate(); st.filters = W.everything(); W.refilter!(st)
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[st.sel]
     state = read(W.localfile(), String)
     keep = W.LOCAL[]
     W.LOCAL[] = fresh_local()
+    now = W.ts("2026-09-12T12:00:00Z")
     try
         W.handle!(st, Int('s'), ctrl)
         v = pop!(ctrl.stack)
         @test v isa W.ChooseView
         vals = [o[2] for o in v.options]
-        @test "on-change" in vals && "2w" in vals && :ask in vals
+        @test "3d" in vals && "2w" in vals && :ask in vals
+        @test !("on-change" in vals)
         # Nothing to clear yet, so "off" is not offered.
         @test !(nothing in vals)
         # The rows have keys of their own, the same as the views: it is the same
         # list in the same order every time, so it is reached by memory.
         @test v.numbered
         @test occursin("0-9 picks", W.astrip(W.render(v, 100, 30)))
-        # `3` is the third row and not the `3` of "3 days" - which is the trade
+        # `2` is the second row and not the `3` of "3 days" - which is the trade
         # numbering makes, and the reason the order below has to be fixed.
-        @test vals[1:3] == ["on-change", "on-change/30d", "3d"]
+        @test vals[1:3] == ["1d", "3d", "1w"]
         for (w, h) in ((80, 24), (165, 50))
             ls = split(W.render(v, w, h), "\n")
             @test length(ls) == h && all(W.awidth(l) == w for l in ls)
         end
 
-        # A span is written as given, and shows in the status.
-        @test W.apply_snooze!(st, it, "2w", W.utcnow()) == "snoozed 2w"
-        @test W.get_field(it.url, "snooze") == "2w"
-        # Now that there is one, clearing is offered and says what it is on.
+        # A span is written *resolved* - the moment it ends - so the file says
+        # when, and nothing has to remember when it was set.
+        @test W.apply_snooze!(st, it, "2w", now) == "snoozed until 2026-09-26 12:00"
+        @test W.get_field(it.url, "snooze") == "2026-09-26T12:00:00Z"
+        @test st.wakes[it.url] == "2026-09-26T12:00:00Z"
+        # Now that there is one, clearing is offered and says when it wakes.
         W.handle!(st, Int('s'), ctrl)
         v2 = pop!(ctrl.stack)
         vals2 = [o[2] for o in v2.options]
         @test nothing in vals2
-        @test occursin("now: 2w", v2.note)
-        # And it is offered *last*, so the eight standing rows keep the keys
+        @test occursin("wakes 2026-09-26 12:00", v2.note)
+        # And it is offered *last*, so the seven standing rows keep the keys
         # they had. A row appearing at the top would shift every one of them,
         # and a number that moves with the item's state is not a number worth
         # having learned.
         @test last(vals2) === nothing
-        @test vals2[1:3] == ["on-change", "on-change/30d", "3d"]
+        @test vals2[1:3] == ["1d", "3d", "1w"]
 
         # A digit picks straight off, which is the whole point of the change.
         picked = Ref{Any}(:none)
         v3 = W.ChooseView("Snooze", "", v2.options, x -> picked[] = x; numbered = true)
-        @test W.handle!(v3, Int('3'), ctrl) === :pop
+        @test W.handle!(v3, Int('2'), ctrl) === :pop
         @test picked[] == "3d"
 
         # A value parse_snooze cannot read is refused rather than written: it
-        # would leave the item not snoozed and look like it had worked.
-        @test occursin("bad snooze value", W.apply_snooze!(st, it, "3days", W.utcnow()))
-        @test W.get_field(it.url, "snooze") == "2w"
+        # would leave the item not snoozed and look like it had worked. And so
+        # is one with no wake time in it - `r` and `x` are what those are.
+        @test occursin("bad snooze value", W.apply_snooze!(st, it, "3days", now))
+        @test occursin("no wake time", W.apply_snooze!(st, it, "on-change", now))
+        @test occursin("no wake time", W.apply_snooze!(st, it, "forever", now))
+        @test W.get_field(it.url, "snooze") == "2026-09-26T12:00:00Z"
         # A date is fine, and so is clearing.
-        @test W.apply_snooze!(st, it, "2099-01-01", W.utcnow()) == "snoozed 2099-01-01"
-        @test W.apply_snooze!(st, it, nothing, W.utcnow()) == "snooze cleared"
+        @test W.apply_snooze!(st, it, "2099-01-01", now) == "snoozed until 2099-01-01 00:00"
+        @test W.apply_snooze!(st, it, nothing, now) == "snooze cleared"
         @test W.get_field(it.url, "snooze") === nothing
-        @test W.apply_snooze!(st, it, "", W.utcnow()) == "snooze cleared"
+        @test !haskey(st.wakes, it.url)
+        @test W.apply_snooze!(st, it, "", now) == "snooze cleared"
 
         # `a span or a date…` asks, and what is typed goes the same way.
         W.handle!(st, Int('s'), ctrl)
@@ -176,24 +185,40 @@ end
         p = pop!(ctrl.stack)
         @test p isa W.PromptView
         p.onsubmit("6mo")
-        @test W.get_field(it.url, "snooze") == "6mo"
-        @test st.status == "snoozed 6mo"
+        @test W.get_field(it.url, "snooze") !== nothing
+        @test startswith(st.status, "snoozed until ")
 
         # Falling asleep takes the item out of the unread lane: "not now" and
         # "unread" are the same answer twice, and the row leaves in the session
         # the key was pressed in rather than at the next refresh.
         push!(st.unread, it.url)
         was = W.read_at(it.url)
-        @test W.apply_snooze!(st, it, "3d", W.utcnow()) == "snoozed 3d"
+        @test startswith(W.apply_snooze!(st, it, "3d", now), "snoozed until ")
         @test !(it.url in st.unread)
         @test W.read_at(it.url) !== nothing
+        # It is read, and tagged: a snooze is not a place to be.
+        @test W.seen_of(it, W.Marks(st)) === :read
+        @test !W.filed_of(it, W.Marks(st))
+        @test :snoozed in W.tags_of(it, W.Marks(st))
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
         @test it.url in st.unread && W.read_at(it.url) == was
         # Clearing one says nothing about whether it has been read.
-        W.apply_snooze!(st, it, "3d", W.utcnow())
-        @test W.apply_snooze!(st, it, nothing, W.utcnow()) == "snooze cleared"
+        W.apply_snooze!(st, it, "3d", now)
+        @test W.apply_snooze!(st, it, nothing, now) == "snooze cleared"
         @test W.read_at(it.url) !== nothing && !(it.url in st.unread)
+
+        # **And the wake is the clock's to notice, not a refresh's.** A snooze
+        # set to run out an hour ago has run out: the item is unread, and no
+        # longer tagged, without anybody having written anything.
+        W.apply_snooze!(st, it, "3d", now)
+        W.set_read(it.url, "2026-09-12T12:00:00Z")
+        m = W.Marks(st.unread, st.read, st.touched, st.archived, st.drafts, st.wakes,
+                    "2026-09-15T13:00:00Z")
+        @test W.seen_of(it, m) === :unread
+        @test !(:snoozed in W.tags_of(it, m))
+        @test W.seen_of(it, W.Marks(st.unread, st.read, st.touched, st.archived, st.drafts,
+                                    st.wakes, "2026-09-15T11:00:00Z")) === :read
 
         # Every write is undoable, back to nothing at all.
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end

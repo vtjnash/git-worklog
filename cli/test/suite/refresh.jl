@@ -278,31 +278,36 @@ end
     # read, and until the request was fetched nothing about it changed:
     # `reviewDecision` stays where it was, `review_count` stays where it was,
     # and GitHub's re-request button posts no comment. So the item stayed read.
-    rec(; kw...) = merge(Dict{String,Any}("review_decision" => "REVIEW_REQUIRED",
+    now_ = W.ts("2026-09-12T11:00:00Z")
+    rec(; kw...) = merge(Dict{String,Any}("track" => "normal",
+                                         "review_decision" => "REVIEW_REQUIRED",
                                          "review_count" => 2, "ci" => "SUCCESS",
                                          "head_at" => "2026-09-01T00:00:00Z",
-                                         "last_comment_at" => "2026-09-01T00:00:00Z",
+                                         "their_comment_at" => "2026-09-01T00:00:00Z",
                                          "human_comment_at" => "2026-09-01T00:00:00Z",
+                                         "moved_at" => "2026-09-01T00:00:00Z",
                                          "unresolved" => 0),
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
+    was(d) = NamedTuple(Symbol(k) => v for (k, v) in d)
     quiet = rec()
     asked = rec(; review_requested = true, review_requested_at = "2026-09-02T14:02:00Z")
     # Both levels, because there is no level at which being named is noise -
     # `loose` ignores a stranger's CI and a bot's comment, and this is neither.
     for lvl in ("normal", "loose")
-        @test W.fingerprint(quiet, lvl) != W.fingerprint(asked, lvl)
+        q = rec(; track = lvl); a = merge(asked, Dict("track" => lvl))
+        @test W.moved_stamp(was(q), a, now_) == "2026-09-02T14:02:00Z"
     end
 
     # **The key is the time and not the bool.** Being asked is an event, and
     # the timeline says when; the standing `reviewRequests` connection says
     # only whether you are asked now, and says it to the change list, not to
-    # the fingerprint. So whether the bool is true, absent or - written by a
-    # hand that did not know better - false makes no difference to the hash.
-    @test W.fingerprint(asked, "normal") ==
-          W.fingerprint(rec(; review_requested = nothing,
-                            review_requested_at = "2026-09-02T14:02:00Z"), "normal") ==
-          W.fingerprint(rec(; review_requested = false,
-                            review_requested_at = "2026-09-02T14:02:00Z"), "normal")
+    # the wake table. So the bool flipping on its own - true, absent, or
+    # written by a hand that did not know better, false - is not a movement.
+    for b in (true, nothing, false)
+        @test W.moved_stamp(was(asked), rec(; review_requested = b,
+                                            review_requested_at = "2026-09-02T14:02:00Z"), now_) ==
+              "2026-09-01T00:00:00Z"
+    end
 
     # And nothing else about the item had to change for that to be true, which
     # is the whole complaint: the two records differ in the request alone.
@@ -311,7 +316,7 @@ end
 
     # A re-request is a newer time on the same standing bool, and moves.
     again = rec(; review_requested = true, review_requested_at = "2026-09-05T09:00:00Z")
-    @test W.fingerprint(again, "loose") != W.fingerprint(asked, "loose")
+    @test W.moved_stamp(was(asked), again, now_) == "2026-09-05T09:00:00Z"
 
     # Withdrawing it does not. This said the opposite once - that being off
     # the hook was what `r` on it was waiting to hear - and was decided the
@@ -319,7 +324,7 @@ end
     # attention, not a claim on it. The standing bool clears and the time
     # stays, and the time is the key.
     off = rec(; review_requested = nothing, review_requested_at = "2026-09-02T14:02:00Z")
-    @test W.fingerprint(off, "loose") == W.fingerprint(asked, "loose")
+    @test W.moved_stamp(was(asked), off, now_) == "2026-09-01T00:00:00Z"
 end
 
 @testset "a movement is dated by the thing that moved" begin

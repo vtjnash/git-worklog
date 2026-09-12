@@ -12,7 +12,7 @@ index of the rest:
                  that `config.toml` names as the one to read them from
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  the activity poll, over GitHub.jl's REST
-  * `refresh.jl` bucketing, snoozes, and the snapshot diff
+  * `refresh.jl` bucketing, the wake table, and the snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
   * `fetched.jl` one half of `data/`: everything GitHub can answer again
   * `state.jl`   the other half: the comment-preserving line editor for

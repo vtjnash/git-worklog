@@ -212,7 +212,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            "  ", THEME.dim, "c adds one \u00b7 A sends them",
                            THEME.reset))
     if haskey(st.archived, it.url)
-        kv("archived", string("filed away", "  ", THEME.dim,
+        a = st.archived[it.url]
+        kv("archived", string(a == "forever" ? "filed away" : when_str(a), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
     elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
         # Merged, and you have not looked at it since - or this is the first
@@ -237,11 +238,10 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     head("tracking")
     kv("bucket", it.bucket)
     kv("level", it.track)
-    # What it is waiting for, not that it is waiting: "yes" answered a question
-    # nobody was asking, since the row is in the snoozed lane either way. The
-    # sentence is the refresh's own (`snooze_active`), so the reason shown here
-    # is the one that decided it rather than a second opinion about it.
-    it.snoozed && kv("snoozed", isempty(it.snooze_why) ? "yes" : it.snooze_why)
+    # When it wakes, while it is asleep; and when it was filed, if it was. Both
+    # are marks read off `local.toml` rather than anything the refresh decided,
+    # which is why a snooze that ran out at lunch says nothing here by dinner.
+    asleep(it, Marks(st)) && kv("snoozed", string("until ", when_str(st.wakes[it.url])))
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
     kv("why", it.why)

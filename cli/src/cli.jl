@@ -19,9 +19,9 @@ Work dashboard.
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 loose           normal | loose - what counts as it moving
   wl dismiss julia#62452                  retire from the pile until it moves
-  wl snooze  julia#62452 on-change        or a date, "forever", or "off"
+  wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
   wl note    julia#62452 "rebase after #62396 lands"
-  wl archive julia#62452                  file it away: snooze = forever
+  wl archive julia#62452                  file it away; again to take it back out
   wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
   wl deadline julia#62452 2026-09-30
   wl bucket  julia#62452 needs-review
@@ -263,35 +263,42 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         return 0
     end
     if cmd == "archive"
-        # A snooze with no wake condition, which is the whole of what archiving
-        # ever was: `x` in the browser writes the same value. It takes no date -
-        # the one it used to take was a note to yourself about when you filed
-        # it, and the interaction clock records that already.
+        # A mark, the same one `x` writes, and a toggle the same way: filed
+        # goes back out. It takes no date - the mark carries when it was
+        # written, and that is the date.
         for u in urls
-            disarm(u)
-            set_fields(u, ["snooze" => "forever"], at)
-            # Filing something is the end of looking at it, the same courtesy a
-            # snooze pays. It goes unread again the moment it moves, which is
-            # what the attention axis is for and is not what this decides.
-            mark_read([u], at)
-            println("archived $u (snooze = forever)")
+            if get_field(u, "archived") !== nothing || snooze_forever(get_field(u, "snooze"))
+                set_archived(u, nothing)
+                snooze_forever(get_field(u, "snooze")) && set_fields(u, ["snooze" => nothing])
+                println("unarchived $u")
+            else
+                set_archived(u, stamp(at))
+                set_touched(u, stamp(at))
+                # Filing something is the end of looking at it, the same
+                # courtesy a snooze pays. It goes unread again the moment it
+                # moves, which is what the attention axis is for and is not
+                # what this decides; the mark is what holds it out of view.
+                mark_read([u], at)
+                println("archived $u")
+            end
         end
         return 0
     end
     if cmd == "dismiss"
-        # Retire an item from the pile: stop caring about churn, but do not go blind to
-        # it. Loose tracking plus an on-change snooze means it comes back only if
-        # something that actually matters happens to it.
+        # Retire an item from the pile: stop caring about churn, but do not go
+        # blind to it. Loose tracking, and read - which is all "until it moves"
+        # ever was - so it comes back only if something that actually matters
+        # happens to it.
         for u in urls
-            disarm(u)
-            set_fields(u, ["track" => "loose", "snooze" => "on-change"])
-            println("dismissed $u (returns only on a review, reply or close)")
+            set_fields(u, ["track" => "loose"])
+            mark_read([u], at)
+            println("dismissed $u (returns only on a review, reply, push or close)")
         end
         return 0
     end
     if cmd == "clear"
         for u in urls
-            disarm(u)
+            set_archived(u, nothing)
             println("$(set_fields(u, [k => nothing for k in FIELDS])) $u")
         end
         return 0
@@ -302,28 +309,32 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     value = join(args[3:end], " ")
     if cmd == "track"
         value in TRACK || die("track must be one of: " * join(TRACK, ", "))
-        # A level change redefines "moved"; re-arm from now.
-        foreach(disarm, urls)
     end
     if cmd == "snooze"
-        foreach(disarm, urls)
         value in ("off", "none", "") && (value = nothing)
-        # Reject it here rather than writing it. A value the refresh cannot parse
-        # leaves the item *not* snoozed, and the reason goes into a field only
-        # the snoozed section prints - so `wl snooze julia#1 3days` used to look
-        # like it worked and quietly do nothing at all.
-        value === nothing || parse_snooze(value) !== nothing ||
-            die("bad snooze value '$value'. Use forever, on-change, " *
-                "on-change/30d, a span like 3d/2w/6mo/1y, or a date like " *
-                "2026-09-15.")
+        # Reject it here rather than writing it: a value nothing can parse is
+        # not a snooze, and `wl snooze julia#1 3days` used to look like it
+        # worked and quietly do nothing at all. Written *resolved* - a span
+        # becomes the moment it ends - so the file says when, and nothing has
+        # to remember when it was set.
+        if value !== nothing
+            parse_snooze(value) !== nothing ||
+                die("bad snooze value '$value'. Use a span like 3d/2w/6mo/1y, " *
+                    "or a date like 2026-09-15.")
+            w = wake_of(value, stamp(at))
+            w === nothing && die("'$value' has no wake time in it: " *
+                                 "\"until it moves\" is what `wl read` does, and " *
+                                 "\"forever\" is `wl archive`.")
+            value = w
+        end
     elseif cmd == "blocked_on"
         value = String.(split(value, ","))
     end
     for u in urls
         println("$(set_fields(u, [cmd => value])) $cmd $u")
         # Putting something to sleep is the end of looking at it. It goes unread
-        # again the moment it moves - a snooze that wakes is news - which is why
-        # this is a stamp and not a claim about wanting to see it.
+        # again the moment it moves, or the moment the wake comes - which is
+        # why this is a stamp and not a claim about wanting to see it.
         cmd == "snooze" && value !== nothing && mark_read([u], at)
     end
     0

@@ -26,9 +26,10 @@
 "Overridable so a test can write somewhere other than the user's own file."
 const LOCAL = Ref("")
 localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
-# `archive` is not one of them and was: filing something away is a snooze with
-# no wake condition, so it is `snooze = "forever"` and there is one field for
-# "I do not want to see this", not two that have to be kept in precedence.
+# `archive` is not one of them: it is a mark - `archived`, when you filed it -
+# written by `x` and `wl archive` the way `read` is written by `r`, and it
+# lives with the marks. `snooze` is one of them, and is a wake time: `wl snooze`
+# writes it resolved, and one typed here as a span counts from the read stamp.
 # `imported` is, and was not: it is written by `wl import` and by the browser,
 # so leaving it out meant `wl clear` cleared the other seven and left the item
 # imported - tagged by nothing, and still fetched by url every run. It sits here
@@ -231,14 +232,6 @@ function get_field(url::AbstractString, key::AbstractString)
     nothing
 end
 
-"""Every item filed away, as `url -> the value that filed it`.
-
-Archiving is `snooze = "forever"`, so this is the snooze map with the values
-that never wake kept - not a field of its own. See `archive!`.
-"""
-archived_map() = Dict{String,String}(u => v for (u, v) in field_map("snooze")
-                                     if snooze_forever(v))
-
 """Hand back the next slice of the untriaged pile, quietest first.
 
 Pull, never push: nothing in the pile reaches the dashboard on its own. You ask
@@ -254,8 +247,7 @@ function next_batch(n::Int)
     items === nothing && die("nothing fetched yet - run `wl refresh` first")
     state = load_state()
     pool = String[String(u) for (u, r) in pairs(items)
-                  if in_pile(r) && !truthy(jget(r, :snoozed)) &&
-                     !truthy(get(state, String(u), nothing))]
+                  if in_pile(r) && !truthy(get(state, String(u), nothing))]
     if isempty(pool)
         println("the pile is fully triaged")
         return 0

@@ -274,8 +274,9 @@ end
 # *level* `fp`, `fp_full` was read by one line that set `r["moved"]`, and
 # `Item.moved` was read nowhere at all. Three things kept each other alive and
 # nothing kept any of them. `labels` went with it, being a key of that level
-# alone - and with it the one list-valued key, which is why `fingerprint` no
-# longer has to sort anything before it hashes it.
+# alone - and with it the one list-valued key. `fingerprint` itself, the hash
+# of a level's keys, went on 2026-09-12 when the snooze stopped reading it:
+# `moved_stamp` compares the keys and needs no digest of them.
 #
 # `review_requested_at` and `assigned_at` are in both, which nothing else
 # fetched per-lane is. Neither is a property of the item that might interest
@@ -305,25 +306,6 @@ const TRACK_KEYS = Dict(
     "loose"  => ("their_head", "human_comment_at", "review_at", "review_requested_at",
                  "assigned_at", "state_at"),
 )
-
-"""What counts as 'this item moved', at the given tracking level, as a hash.
-
-**Only the snooze reads this now.** Whether an item moved, and when, is
-`moved_stamp`'s answer, key by key; this is the hash an `on-change` snooze was
-armed against and is compared to, and it goes when the snooze's arming does -
-see "Read and snooze are one state" in TODO. Until then it has the bug the
-table below does not: `ci_failed` is hashed as a value, so a snooze wakes on
-the green as well as the red.
-
-The level is named by every caller and has no default: the one it used to have
-was `all`, which no longer exists, and "whatever `get` falls back to" is not a
-thing to decide what wakes you. A key whose value is a list would have to be
-sorted here before it is hashed; none is, since `labels` left with `all`.
-"""
-function fingerprint(rec, level::AbstractString)
-    ks = get(TRACK_KEYS, level, TRACK_KEYS["normal"])
-    bytes2hex(SHA.sha256(json_dumps(Any[get(rec, k, nothing) for k in ks])))[1:16]
-end
 
 """Each key that can be dated, and the field that dates it.
 
@@ -646,15 +628,21 @@ end
 """
     parse_snooze(sv) -> (mode, days, until) or nothing
 
-The five shapes a `snooze` value can take:
+The shapes a `snooze` value can take, and what each means now that a snooze is
+**a wake time and nothing else** - a second reason for an item to come back,
+beside the wake table, rather than a hold that the table has to get past:
 
-  * `forever` - hide it and never bring it back. **This is what archiving is.**
-    Filing something away and putting it to sleep are the same sentence with a
-    different wake condition, so they are one field: `x` writes this one.
-  * `on-change` (or `until-review`) - hide until the fingerprint differs
-  * `on-change/30d` - the same, but give up after that long
-  * `3d`, `2w`, `6mo` - hide for a while, counted from when it was set
-  * `2026-09-15` - hide until a date, ignoring movement entirely
+  * `3d`, `2w`, `6mo` - wake after that long. Counted from when it was set:
+    `wl snooze` and `s` write the resolved time, and a span typed by hand into
+    `local.toml` is counted from the read stamp beside it.
+  * `2026-09-15` - wake on that date; `2026-09-15T20:00:00Z` - at that moment.
+    The second is what the first two are written as.
+  * `on-change` (or `until-review`) - no wake time at all, which is exactly
+    what `r` does: read, and back the moment it moves. Accepted so that an old
+    value still parses, and `on-change/30d` is `30d`.
+  * `forever` (or `archive`, `never`) - the value `x` used to write. It is the
+    `archived` mark now, and this reads as that mark for a file that still
+    carries it.
 
 `nothing` for anything else, which is a value that was typed wrong.
 """
@@ -663,33 +651,44 @@ function parse_snooze(sv::AbstractString)
     (s == "forever" || s == "archive" || s == "never") &&
         return (mode = :forever, days = nothing, until = nothing)
     (s == "on-change" || s == "until-review") &&
-        return (mode = :onchange, days = nothing, until = nothing)
+        return (mode = :none, days = nothing, until = nothing)
     if startswith(s, "on-change/") || startswith(s, "until-review/")
         d = rel_days(last(split(s, '/')))
-        return d === nothing ? nothing : (mode = :onchange, days = d, until = nothing)
+        return d === nothing ? nothing : (mode = :days, days = d, until = nothing)
     end
     d = rel_days(s)
-    d === nothing || return (mode = :rel, days = d, until = nothing)
+    d === nothing || return (mode = :days, days = d, until = nothing)
+    t = ts(strip(String(sv)))
+    t === nothing || return (mode = :at, days = nothing, until = stamp(t))
     dt = tryparse(Date, strip(String(sv)))
-    dt === nothing ? nothing : (mode = :date, days = nothing, until = dt)
+    dt === nothing ? nothing : (mode = :at, days = nothing, until = stamp(DateTime(dt)))
 end
 
-"""An armed snooze, as `(fingerprint, armed_at)`.
-
-Tolerates both shapes on disk: the bare fingerprint it used to be, and the
-record carrying the time it was armed. An entry written before this existed has
-no time, and is treated as arming now rather than as infinitely old - waking
-every long-standing snooze at once on the first refresh after an upgrade is not
-an improvement.
 """
-function snooze_entry(v)
-    v === nothing && return (nothing, nothing)
-    v isa AbstractString && return (String(v), nothing)
-    fp, at = pget(v, "fp"), pget(v, "at")
-    (fp === nothing ? nothing : String(fp), at === nothing ? nothing : String(at))
+    wake_of(sv, from) -> stamp or nothing
+
+When a `snooze` value says to come back, as a stamp: a span counted from
+`from`, a date or a moment as itself, and `nothing` for a value with no wake
+time in it - `on-change`, `forever`, an empty one, or one typed wrong. `from`
+is `nothing` when there is nothing to count a span from, and then a span has no
+answer either.
+"""
+function wake_of(sv, from)
+    truthy(sv) || return nothing
+    p = parse_snooze(String(sv))
+    p === nothing && return nothing
+    p.mode === :at && return p.until
+    p.mode === :days || return nothing
+    f = from === nothing ? nothing : ts(String(from))
+    f === nothing ? nothing : stamp(f + Day(p.days))
 end
 
-snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
+"Is this snooze value the one `x` used to write, which is the `archived` mark now?"
+snooze_forever(v) = v !== nothing &&
+    (p = parse_snooze(String(v)); p !== nothing && p.mode === :forever)
+
+"Has this wake time passed, as of `at`? A wake that has not is a snooze still on."
+woken(wake, at::DateTime) = wake !== nothing && String(wake) <= stamp(at)
 
 """The head as of the last time somebody else moved it, or `nothing`.
 
@@ -785,107 +784,6 @@ same work.
 """
 in_pile(r) = pget(r, "bucket") in ("firehose", "mentioned")
 
-"""Which edge of a snooze this refresh crossed: `:slept`, `:woke`, or nothing.
-
-Only the edges. Marking read on every refresh an item is asleep would bury a
-comment that arrived while it slept; marking unread on every refresh after it
-wakes would make a woken item impossible to file. And `:woke` is the wake
-proper, which is why the reason is looked at: `snooze_active` answers "not
-snoozed" for a snooze that has been *cleared* too, and clearing one is something
-you did on purpose, a moment ago, on an item in front of you - it has no
-business coming back as news.
-"""
-snooze_edge(was::Bool, now::Bool, why) =
-    was == now ? nothing :
-    now ? :slept :
-    (why isa AbstractString && startswith(why, "woke")) ? :woke : nothing
-
-"""The inbox row for an item that has just woken, from its `facts.json` row.
-
-The shape a poll writes, because that is what `unread()` reads. Hand-delivered
-for the same reason `wl import` hand-delivers one: the item may be in a repo no
-lane polls, and then no poll will ever put it back in front of you.
-
-`comments` is 0 and not the real count - nothing here knows it, and nothing
-reads it but the row's own display.
-"""
-woke_row(r, at::DateTime) = OrderedDict{String,Any}(
-    "url" => r["url"], "repo" => r["repo"], "number" => r["number"],
-    "title" => r["title"],
-    "is_pr" => get(r, "type", "PullRequest") == "PullRequest",
-    "state" => lowercase(String(nz(get(r, "state", nothing), "open"))),
-    "author" => String(nz(get(r, "author", nothing), "")),
-    "updated" => String(nz(get(r, "updated", nothing), stamp(at))),
-    "comments" => 0,
-    "labels" => String[String(l) for l in get(r, "labels", ())],
-    "mine" => get(r, "mine", false) === true)
-
-"""Returns (is_snoozed, reason). Arms a snooze on first sight.
-
-`maxdays` is the fallback cap for an `on-change` that carries none of its own:
-without one it hides the item until the fingerprint differs, and a pull request
-that everybody has quietly given up on is exactly the shape whose fingerprint
-never differs. That is also the one worth being reminded about.
-
-**A refresh is the only thing that may call this, and that is deliberate.** It
-is not a predicate: it arms snoozes, writes `WOKE` and hands back a sentence, so
-whoever calls it decides that an item has woken *and records it*. A browser that
-asked it per frame would promote items on a clock nobody started - and two
-browsers on one dashboard would each decide, each write, and disagree about
-which of them had already woken what. So the browser reads `snoozed` and
-`snooze_why` off the item it loaded and shows the refresh's answer, however old
-it is: waking is something the user does by running `wl refresh`, at a moment
-they chose, once.
-"""
-function snooze_active(url, st, fp, snz, at::DateTime, maxdays = nothing)
-    s = get(st, "snooze", nothing)
-    truthy(s) || return (false, nothing)
-    sv = s isa AbstractString ? String(s) : string(s)
-    p = parse_snooze(sv)
-    p === nothing && return (false, "bad snooze value '$sv'")
-
-    # Nothing wakes it, so there is nothing to arm and nothing to check: the
-    # item moving is what makes it *unread*, which is a different question and
-    # not one this answers.
-    p.mode === :forever && return (true, "forever")
-    if p.mode === :date
-        p.until <= Date(at) && return (false, "woke: snooze expired")
-        return (true, "until $(p.until)")
-    end
-
-    armed_fp, armed_at = snooze_entry(get(snz, url, nothing))
-    if armed_fp === nothing
-        snz[url] = snooze_record(fp, stamp(at))      # arm now
-        return (true, p.mode === :rel ? "for $sv" : "until it moves")
-    end
-    if armed_fp == "WOKE"
-        # Stay awake once woken. Re-arming here would re-hide the item on the
-        # very next refresh, giving you a single window to notice it moved.
-        # `wl snooze <ref> on-change` re-arms deliberately.
-        return (false, "woke earlier; re-snooze to re-arm")
-    end
-    # An entry from before arming times were recorded: adopt one now.
-    if armed_at === nothing
-        armed_at = stamp(at)
-        snz[url] = snooze_record(armed_fp, armed_at)
-    end
-    age = something(days_since(armed_at, at), 0)
-
-    if p.mode === :rel
-        age >= p.days && return (false, "woke: $sv elapsed")
-        return (true, "for $sv, $(p.days - age)d left")
-    end
-    if armed_fp != fp
-        snz[url] = "WOKE"
-        return (false, "woke: it moved")
-    end
-    cap = p.days === nothing ? maxdays : p.days
-    if cap !== nothing && age >= cap
-        snz[url] = "WOKE"
-        return (false, "woke: asleep $(age)d with no movement")
-    end
-    (true, age > 0 ? "until it moves (asleep $(age)d)" : "until it moves")
-end
 
 """
     implausible(nodes, total, cached) -> reason or nothing
@@ -1079,10 +977,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     # items themselves - each go back through a fresh read at the moment they
     # are written, since between them they span minutes of network.
     prev_items = something(fetched("items"), (;))
-    # A default cap for on-change snoozes that carry none of their own.
-    snooze_cap = get(get(cfg, "snooze", Dict{String,Any}()), "max_days", nothing)
     second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
-    snz = load_snoozes()
 
     items = OrderedDict{String,Any}()
     spent = 0
@@ -1139,10 +1034,10 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         @printf(stderr, "  %-16s %4d new (%s)\n", lane, kept, how)
     end
 
-    # Bucket, then tracking level, then a fingerprint at that level, then snooze.
-    # Order matters: the level decides the fingerprint, which decides the wake.
+    # Bucket, then tracking level, then the wake table at that level. Order
+    # matters: the level decides which keys `moved_stamp` compares.
     changes = Any[]
-    slept, woke = String[], OrderedDict{String,Any}[]
+    slept = String[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
         if get(r, "mergeable", nothing) == "UNKNOWN"
@@ -1154,23 +1049,26 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
         r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
         apply_state!(r, st, cfg, at)
-        r["fp"] = fingerprint(r, r["track"])
-        snoozed, sreason = snooze_active(url, st, r["fp"], snz, at, snooze_cap)
-        r["snoozed"], r["snooze_why"] = snoozed, sreason
+        # **A snooze is a wake time, and an archive is a mark.** Neither is a
+        # decision this run makes: the browser reads both off `local.toml` and
+        # answers "is it unread" per frame - `seen_of` - with the wake as a
+        # second reason beside the wake table. What this run does with them is
+        # two things. It carries the resolved wake on the row for `wl next`
+        # and for the second look, since an item you have said "not now" about
+        # is not one to be reminded of; and it stamps read an item that has a
+        # snooze or an archive but no read stamp - a value typed into the file
+        # by hand, which is what `apply_snooze!` and `wl snooze` do on the way
+        # in and the only thing that used to need an arming. Without it the
+        # item would be unread and hidden by nothing, and "not now" would have
+        # said nothing at all.
+        read_ = get(st, "read", nothing)
+        r["wake"] = wake_of(get(st, "snooze", nothing), read_)
+        held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
+               truthy(get(st, "archived", nothing)) || snooze_forever(get(st, "snooze", nothing))
+        held && !truthy(read_) && push!(slept, url)
         # After the bucket, which `in_pile` reads and the pile is not a to-do
-        # list, and after the snooze, since an item you have said "not now"
-        # about is not one to be reminded of.
-        r["second_look"] = r["snoozed"] ? "" :
-                           second_look(r, at, second_days)
-        # A snooze is "not now", and an item you have said that about should not
-        # also be sitting in the unread lane asking to be read. So falling
-        # asleep marks it read and waking marks it unread again; `snooze_edge`
-        # is where the rule about which refreshes count is written down.
-        if old !== nothing
-            e = snooze_edge(jget(old, :snoozed) === true, snoozed, sreason)
-            e === :slept && push!(slept, url)
-            e === :woke && push!(woke, woke_row(r, at))
-        end
+        # list, and after the snooze, for the reason above.
+        r["second_look"] = held ? "" : second_look(r, at, second_days)
         # **When this program last saw a change you asked to be told about** -
         # what the seen axis compares your read stamp against.
         #
@@ -1182,17 +1080,16 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # CI and can see things nobody asked about.
         #
         # The level decides what counts, which is what `track` always read like
-        # it did and until now only governed snoozes. The *old* row is compared
-        # key by key at today's level rather than through its stored `fp`, so
-        # changing `track` is not itself movement.
+        # it did. The *old* row is compared key by key at today's level rather
+        # than through a stored hash, so changing `track` is not itself
+        # movement.
         #
-        # **The same threshold a snooze wakes on**, which this said was a
-        # different one. A snooze compares against the value armed when you said
-        # "not now", so it looks like it would ignore a change that undoes
-        # itself where this would count it twice - except that `WOKE` is sticky:
-        # the item woke on the way out and never re-armed to be fooled on the
-        # way back. Read and `on-change` are one rule reached two ways, which is
-        # the whole of TODO's "Read and snooze are one state".
+        # **And this is the only threshold there is.** A snooze used to compare
+        # a hash armed when you said "not now" and wake when it differed, which
+        # was this rule reached a second way and kept in step with it by hand -
+        # `WOKE`, `snooze_fp`, `snooze_at`, a `mark_read` on falling asleep and
+        # an `inbox_add!` on waking. A snooze is a wake *time* now, read beside
+        # this mark by `seen_of`, and there is nothing to keep in step.
         #
         # **Whether it moved, and what it is stamped with, is `moved_stamp`**:
         # the event's own time when the keys that moved have one, the refresh
@@ -1248,36 +1145,24 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         if !haskey(items, url)
             push!(changes, (url, old, "closed or merged"))
             push!(gone, (url, String(nz(jget(old, :ref), url))))
-            delete!(snz, url)
         end
     end
     reconcile_drafts!(gone)
 
-    # Once each, after the loop: both of these rewrite a file, and a refresh
-    # that puts twenty items to sleep should not rewrite `local.toml` twenty
-    # times. `overwrite = false` leaves a poll's own richer row alone, which is
-    # the same courtesy an import pays.
-    #
-    # After `unread()` has already answered, which costs nothing now that
-    # nothing in this run reads the answer again: the browser asks for itself
-    # when it opens, and that is where this is read.
-    isempty(slept) || @printf(stderr, "  %-16s %4d marked read on falling asleep\n",
+    # Once, after the loop: this rewrites a file, and a refresh that finds
+    # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
+    isempty(slept) || @printf(stderr, "  %-16s %4d marked read, having been put away by hand\n",
                               "snooze", mark_read(slept, at))
-    isempty(woke) || @printf(stderr, "  %-16s %4d marked unread on waking\n",
-                             "snooze", Events.inbox_add!(woke; overwrite = false))
-
-    # A bad value means "not snoozed", so the item is not in the snoozed section
-    # and its reason is printed nowhere. Say it here instead of losing it.
-    for (u, r) in items
-        w = get(r, "snooze_why", nothing)
-        w isa AbstractString && startswith(w, "bad snooze value") &&
-            @printf(stderr, "  %-16s %s  (%s)\n", "snooze", w, u)
+    # A value typed wrong is not a snooze, and nothing else says so.
+    for (u, st) in state
+        v = get(st, "snooze", nothing)
+        truthy(v) && parse_snooze(String(v)) === nothing &&
+            @printf(stderr, "  %-16s bad snooze value '%s'  (%s)\n", "snooze", v, u)
     end
 
     store = load_fetched()
     store["fetched_at"], store["points"], store["items"] = now_isoformat(at), spent, items
     save_fetched(store)
-    save_snoozes!(snz)
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
     # the slow, non-interactive one - and because everything it drops is older

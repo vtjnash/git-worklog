@@ -29,11 +29,12 @@
     end
     configs = [W.Filters(),                      # the base box alone
                W.DEFAULT_FILTERS(),              # which is what it opens on
-               W.everything(),                   # and all five boxes on
+               W.everything(),                   # and all four boxes on
                W.Filters(show = Set{Symbol}()),  # and none of them: no rows
                W.Filters(show = Set([:base, :read])),
                W.Filters(show = Set([:read])),   # the read ones instead
-               W.Filters(show = Set([:snoozed, :filed])),
+               W.Filters(show = Set([:read, :filed])),
+               W.Filters(show = Set([:read]), tags = Set([:snoozed])),
                W.Filters(show = Set([:done])),
                W.Filters(tags = Set([:second])),
                W.Filters(tags = Set([:second, :touched, :drafts])),
@@ -114,8 +115,9 @@ end
                          repo = "o/r", number = 1, title = "t",
                          updated = "2026-09-02T00:00:00Z", kw...)
     it = mk()
-    seen(at) = W.Marks(read = Dict(it.url => at))
-    filed = W.Marks(archived = Dict(it.url => "forever"))
+    now = "2026-09-10T12:00:00Z"
+    seen(at; kw...) = W.Marks(; read = Dict(it.url => at), now = now, kw...)
+    filed = W.Marks(archived = Dict(it.url => "2026-09-03T00:00:00Z"), now = now)
 
     # Seen: the stamp against `updated`. No stamp at all is unread - never
     # having looked and having looked before it moved are the same answer to
@@ -130,19 +132,36 @@ end
     @test W.seen_of(mk(updated = "")) === :unread
     @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :read
 
-    # **Nothing overrides it.** A snooze and a filing are answers to "do I want
-    # to see this"; they say nothing about whether it has changed, and this is
-    # the correction the whole model turns on.
-    @test W.seen_of(mk(snoozed = true)) === :unread
-    @test W.seen_of(mk(snoozed = true), filed) === :unread
-    @test W.seen_of(mk(snoozed = true), seen("2026-09-09T00:00:00Z")) === :read
+    # **A snooze is a second reason to be unread, beside the wake table.** It
+    # is a wake time: before it comes the item is read as it was stamped, and
+    # once it has come it is as if the item moved then. Asked of the clock per
+    # frame, so no refresh has to notice.
+    wake(w) = Dict(it.url => w)
+    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-20T00:00:00Z"))) === :read
+    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z"))) === :unread
+    # Read again after it woke, and it is read: the wake is a moment, not a bit.
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z"))) === :read
+    # And a wake that comes before the item last moved adds nothing.
+    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-01T00:00:00Z"))) === :read
+    # No read stamp is unread whatever the wake says.
+    @test W.seen_of(it, W.Marks(wake = wake("2026-09-20T00:00:00Z"), now = now)) === :unread
 
-    # Sleep: one decision, three readings, and filed is the snooze that never
-    # wakes - so it wins over the snooze bit that is set alongside it.
-    @test W.sleep_of(it) === :awake
-    @test W.sleep_of(mk(snoozed = true)) === :snoozed
-    @test W.sleep_of(mk(snoozed = true), filed) === :filed
-    @test W.sleep_of(it, filed) === :filed
+    # **Nothing overrides it.** Filing is an answer to "do I want to see this";
+    # it says nothing about whether it has changed, and this is the correction
+    # the whole model turns on: a filed item that moves is unread, and the
+    # `filed` box is what decides whether that is in front of you.
+    @test W.seen_of(it, filed) === :unread
+    @test W.seen_of(it, W.Marks(archived = Dict(it.url => "x"),
+                                read = Dict(it.url => "2026-09-09T00:00:00Z"))) === :read
+
+    # Filed: the mark, and nothing else. A snooze is not a place to be.
+    @test !W.filed_of(it)
+    @test W.filed_of(it, filed)
+    @test !W.filed_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-20T00:00:00Z")))
+    # Asleep is a wake still to come, and only that.
+    @test W.asleep(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-20T00:00:00Z")))
+    @test !W.asleep(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z")))
+    @test !W.asleep(it)
 
     # Over: GitHub's, and empty reads as open.
     @test W.over_of(it) === :open
@@ -156,23 +175,27 @@ end
     @test W.tags_of(mk(secondlook = "quiet 3 days")) == [:second]
     @test Set(W.tags_of(mk(secondlook = "q"),
                         W.Marks(touched = Dict(it.url => "2026-01-01"),
-                                drafts = Dict(it.url => "2026-01-01")))) ==
-          Set([:second, :touched, :drafts])
+                                drafts = Dict(it.url => "2026-01-01"),
+                                wake = wake("2026-09-20T00:00:00Z"), now = now))) ==
+          Set([:second, :touched, :drafts, :snoozed])
+    # A snooze that has run out is not a tag any more; it is the row being
+    # unread, which is the seen axis's to say.
+    @test W.tags_of(it, W.Marks(wake = wake("2026-09-08T00:00:00Z"), now = now)) == Symbol[]
 
     # The three readings still partition the corpus, which is what the merged
     # axis is built out of: one answer each, per row, however it is shown.
     st = mkstate()
     st.filters = W.everything(); W.refilter!(st)
     m = W.Marks(st)
-    for reading in (x -> W.seen_of(x, m), x -> W.sleep_of(x, m), W.over_of)
+    for reading in (x -> W.seen_of(x, m), x -> W.filed_of(x, m), W.over_of)
         @test sum(count(x -> reading(x) === v, st.items)
                   for v in Set(reading(x) for x in st.items)) == length(st.items)
     end
-    # And the five boxes cover the corpus between them: every row answers to at
-    # least one, so all five on is everything and taking any one off can only
-    # lose rows. Four of them can only ever lose rows the base did not have -
-    # and the fifth *is* the base, which is the one that can drop below the list
-    # the browser opens on, and drops to exactly the rest of the corpus.
+    # And the four boxes cover the corpus between them: every row answers to at
+    # least one, so all four on is everything and taking any one off can only
+    # lose rows. Three of them can only ever lose rows the base did not have -
+    # and the fourth *is* the base, which is the one that can drop below the
+    # list the browser opens on, and drops to exactly the rest of the corpus.
     base = length(W.apply_filters(W.Filters(), st.all, m))
     @test 0 < base < length(st.all)
     @test length(W.apply_filters(W.everything(), st.all, m)) == length(st.all)
@@ -195,9 +218,9 @@ end
     @test W.isdefault(st.filters)
     @test W.isdefault(W.DEFAULT_FILTERS())
     @test st.filters.show == W.SHOW_BASE
-    @test occursin("unread, awake, open", W.filter_summary(st.filters))
+    @test occursin("unread, open", W.filter_summary(st.filters))
     @test all(x -> W.seen_of(x, W.Marks(st)) === :unread &&
-                   W.sleep_of(x, W.Marks(st)) === :awake &&
+                   !W.filed_of(x, W.Marks(st)) &&
                    W.over_of(x) === :open, st.items)
 
     # Each box brings its own kind of row beside the base, and no box can take
@@ -213,11 +236,11 @@ end
     # row needed both - a closed item you have read is held out twice.
     st.filters = W.Filters(show = Set([:base, :read, :done])); W.refilter!(st)
     @test length(st.items) >= base + counts[:read] + counts[:done]
-    # All five is the corpus, and the corpus is the only thing that is.
+    # All four is the corpus, and the corpus is the only thing that is.
     st.filters = W.everything(); W.refilter!(st)
     @test length(st.items) == length(st.all)
 
-    # Taking the base off is how one of the other four is asked for *alone* -
+    # Taking the base off is how one of the other three is asked for *alone* -
     # the closed ones instead of today's work rather than beside it. It is the
     # one question the axis could not be asked while the base was a floor, and
     # it takes a deliberate press to ask: nothing clears to here.
@@ -230,10 +253,10 @@ end
         st.filters = W.Filters(show = Set([k])); W.refilter!(st)
         @test length(st.items) == counts[k]
         @test !any(x -> W.seen_of(x, W.Marks(st)) === :unread &&
-                        W.sleep_of(x, W.Marks(st)) === :awake &&
+                        !W.filed_of(x, W.Marks(st)) &&
                         W.over_of(x) === :open, st.items)
     end
-    # The one of the four this dashboard has rows for today, said in full.
+    # The one of the three this dashboard has rows for today, said in full.
     st.filters = W.Filters(show = Set([:done])); W.refilter!(st)
     @test 0 < length(st.items) < length(st.all)
     @test all(x -> W.over_of(x) === :done, st.items)
@@ -255,16 +278,16 @@ end
     st.lmode = :filters
     rows = W.filter_rows(st)
     @test [r[2] for r in rows if r[1] === :show] == [String(k) for (k, _) in W.SHOW]
-    # The base leads the axis as a row like the other four, checked, with the
+    # The base leads the axis as a row like the other three, checked, with the
     # number it is holding in beside it - which is what unchecking it would cost.
     brow = first(r for r in rows if r[1] === :show)
     @test brow[2] == "base"
     @test occursin("[x] ", brow[3]) && occursin(string(base), brow[3])
-    st.frow = findfirst(r -> r[1] === :show && r[2] == "snoozed", rows)
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "filed", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:base, :snoozed])
-    @test length(st.items) == base + counts[:snoozed]
-    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "snoozed"))
+    @test st.filters.show == Set([:base, :filed])
+    @test length(st.items) == base + counts[:filed]
+    @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "filed"))
     @test W.toggle_filter!(st)
     @test st.filters.show == W.SHOW_BASE && length(st.items) == base
     # Including the base itself, which is the one row here whose being checked
@@ -277,9 +300,9 @@ end
     # that instead - the base is true of almost every screen there is, so naming
     # it on each one is a phrase the reader stops seeing. Off, it is the most
     # important thing on the screen and is said first.
-    @test occursin("unread, awake, open", W.filter_summary(W.DEFAULT_FILTERS()))
-    @test occursin("also read+snoozed",
-                   W.filter_summary(W.Filters(show = Set([:base, :read, :snoozed]))))
+    @test occursin("unread, open", W.filter_summary(W.DEFAULT_FILTERS()))
+    @test occursin("also read+filed away",
+                   W.filter_summary(W.Filters(show = Set([:base, :read, :filed]))))
     @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
     @test occursin("nothing shown", W.filter_summary(W.Filters(show = Set{Symbol}())))
     # And it writes itself as a view, in the axis's own order. The base is left
@@ -626,10 +649,10 @@ end
     # listing it twice.
     cfg = Dict{String,Any}("views" => Dict{String,Any}(
         "mine, all of it" => Dict("author" => ["@me"]),
-        "waiting on me" => Dict("show" => ["snoozed"])))
+        "waiting on me" => Dict("show" => ["filed"])))
     vs = W.views(cfg)
     @test length(vs) == length(names) + 1
-    @test Dict(vs)["waiting on me"]["show"] == ["snoozed"]
+    @test Dict(vs)["waiting on me"]["show"] == ["filed"]
 
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.
@@ -684,8 +707,8 @@ end
     v = last(ctrl.stack)
     @test v isa W.ChooseView && v.title == "Views"
     @test any(o -> o[2] === :save, v.options)          # the way out of the list
-    v.onpick(Dict("show" => ["snoozed"], "kind" => "issue"))
-    @test st.filters.show == Set([:snoozed]) && st.filters.kind === :issue
+    v.onpick(Dict("show" => ["filed"], "kind" => "issue"))
+    @test st.filters.show == Set([:filed]) && st.filters.kind === :issue
     @test occursin("view:", st.status)
 
     # The first ten are on keys of their own: the same ten in the same order

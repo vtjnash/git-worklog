@@ -139,103 +139,76 @@ end
     @test W.get_field("https://example.invalid/nope", "track") === nothing
 end
 
-@testset "snooze" begin
+@testset "a snooze is a wake time" begin
     using Dates
     # One instant, handed in. Threading it is what lets a test say when "now"
     # is without reaching into the module to set a global first.
-    now = W.utcnow()
-    ago(d) = Dates.format(now - Day(d), "yyyy-mm-ddTHH:MM:SS") * "Z"
-    act(sv, snz, fp; cap = nothing) =
-        W.snooze_active("u", Dict("snooze" => sv), fp, snz, now, cap)
+    now = W.ts("2026-09-12T12:00:00Z")
 
-    @test W.parse_snooze("on-change").mode === :onchange
-    @test W.parse_snooze("on-change/30d") == (mode = :onchange, days = 30, until = nothing)
-    @test W.parse_snooze("2w").days == 14
+    # The shapes, and what each means now that a snooze is a wake time and
+    # nothing else: a span, a date, a moment - and two that have no wake time
+    # in them, which parse so that an old file still reads, and resolve to
+    # nothing.
+    @test W.parse_snooze("2w") == (mode = :days, days = 14, until = nothing)
     @test W.parse_snooze("6mo").days == 180
-    @test W.parse_snooze("2026-09-15").mode === :date
+    @test W.parse_snooze("2026-09-15") == (mode = :at, days = nothing, until = "2026-09-15T00:00:00Z")
+    @test W.parse_snooze("2026-09-15T20:00:00Z").until == "2026-09-15T20:00:00Z"
+    @test W.parse_snooze("on-change").mode === :none
+    @test W.parse_snooze("on-change/30d") == (mode = :days, days = 30, until = nothing)
+    @test W.parse_snooze("forever").mode === :forever
     @test W.parse_snooze("3days") === nothing
     @test W.parse_snooze("") === nothing
 
-    # on-change: arm, hold, wake on movement, then stay awake.
-    snz = Dict{String,Any}()
-    @test act("on-change", snz, "FP1") == (true, "until it moves")
-    @test W.snooze_entry(snz["u"])[1] == "FP1"
-    @test act("on-change", snz, "FP1")[1]
-    @test act("on-change", snz, "FP2") == (false, "woke: it moved")
-    @test act("on-change", snz, "FP2")[1] == false          # stays awake
+    # Resolved against the moment it is counted from - what `wl snooze` and
+    # `s` write, and what a span typed by hand is counted from the read stamp
+    # beside it as.
+    @test W.wake_of("2w", W.stamp(now)) == "2026-09-26T12:00:00Z"
+    @test W.wake_of("on-change/30d", W.stamp(now)) == "2026-10-12T12:00:00Z"
+    @test W.wake_of("2026-09-15", W.stamp(now)) == "2026-09-15T00:00:00Z"
+    @test W.wake_of("2026-09-15T20:00:00Z", nothing) == "2026-09-15T20:00:00Z"
+    # A span with nothing to count from has no answer, and neither do the two
+    # shapes that never had a wake in them.
+    @test W.wake_of("2w", nothing) === nothing
+    @test W.wake_of("on-change", W.stamp(now)) === nothing
+    @test W.wake_of("forever", W.stamp(now)) === nothing
+    @test W.wake_of("3days", W.stamp(now)) === nothing
+    @test W.wake_of(nothing, W.stamp(now)) === nothing
+    @test W.wake_of("", W.stamp(now)) === nothing
 
-    # A cap wakes one that never moves - the whole point.
-    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(45)))
-    @test act("on-change", snz, "FP1"; cap = 30)[1] == false
-    @test occursin("asleep 45d", act("on-change", Dict{String,Any}(
-        "u" => W.snooze_record("FP1", ago(45))), "FP1"; cap = 30)[2])
-    # ...and the item's own cap beats the config default, either way.
-    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(45)))
-    @test act("on-change/60d", snz, "FP1"; cap = 30)[1] == true
-    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(10)))
-    @test act("on-change", snz, "FP1"; cap = 30)[1] == true
+    # Whether it has come is a comparison against one instant - the run's, or
+    # the frame's - so a refresh cannot straddle midnight and wake half its
+    # snoozes against another day.
+    @test W.woken("2026-09-12T11:59:59Z", now)
+    @test W.woken("2026-09-12T12:00:00Z", now)
+    @test !W.woken("2026-09-12T12:00:01Z", now)
+    @test !W.woken(nothing, now)
 
-    # Relative: counted from when it was armed, and blind to movement.
-    snz = Dict{String,Any}()
-    @test act("2w", snz, "FP1") == (true, "for 2w")
-    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(5)))
-    @test act("2w", snz, "FP1") == (true, "for 2w, 9d left")
-    snz = Dict{String,Any}("u" => W.snooze_record("FP1", ago(20)))
-    @test act("2w", snz, "FP1") == (false, "woke: 2w elapsed")
-    @test act("2w", snz, "FPX")[1] == false
-
-    # The shape written before arming times existed is adopted, not woken: an
-    # upgrade must not wake every long-standing snooze at once.
-    snz = Dict{String,Any}("u" => "FP1")
-    @test act("on-change", snz, "FP1"; cap = 30)[1] == true
-    @test W.snooze_entry(snz["u"])[2] !== nothing
-    @test W.snooze_entry("WOKE") == ("WOKE", nothing)
-    @test W.snooze_entry(nothing) == (nothing, nothing)
-
-    @test act("2099-01-01", Dict{String,Any}(), "FP1")[1] == true
-    @test act("2020-01-01", Dict{String,Any}(), "FP1") == (false, "woke: snooze expired")
-    @test act("3days", Dict{String,Any}(), "FP1") == (false, "bad snooze value '3days'")
-    @test W.snooze_active("u", Dict{String,Any}(), "FP1", Dict{String,Any}(), now) ==
-          (false, nothing)
-    # An expiry is measured against the instant the run began, so a refresh
-    # cannot straddle midnight and wake half its snoozes against another day.
-    yesterday = Dates.format(Date(now) - Day(1), "yyyy-mm-dd")
-    @test act(yesterday, Dict{String,Any}(), "FP1")[1] == false
-    @test W.snooze_active("u", Dict("snooze" => yesterday), "FP1", Dict{String,Any}(),
-                          now - Day(2))[1] == true
+    # And `forever` is the archive, read as the mark for a file that still
+    # carries it.
+    @test W.snooze_forever("forever") && W.snooze_forever("archive") && W.snooze_forever("never")
+    @test !W.snooze_forever("2w") && !W.snooze_forever(nothing)
 end
 
-@testset "a snooze takes the item out of the unread lane" begin
-    # "Not now" and "unread" are the same answer twice, so falling asleep marks
-    # it read and waking marks it unread again. Both edges and only the edges:
-    # every refresh in between would either bury a comment that arrived while it
-    # slept, or make a woken item impossible to file.
-    @test W.snooze_edge(false, true, "until it moves") === :slept
-    @test W.snooze_edge(true, false, "woke: it moved") === :woke
-    @test W.snooze_edge(true, false, "woke: 2w elapsed") === :woke
-    @test W.snooze_edge(true, true, "for 2w, 9d left") === nothing
-    @test W.snooze_edge(false, false, nothing) === nothing
-    # A snooze cleared by hand is not a wake. You did it a moment ago, on an
-    # item in front of you, and it has no business coming back as news.
-    @test W.snooze_edge(true, false, nothing) === nothing
-
-    # The row a wake hands to the inbox is the shape a poll writes, because that
-    # is what `unread()` reads - hand-delivered, since the item may be in a repo
-    # no lane polls and then nothing would ever put it back in front of you.
-    r = Dict{String,Any}("url" => "https://github.com/o/r/pull/1", "repo" => "o/r",
-                         "number" => 1, "title" => "a pull request", "type" => "PullRequest",
-                         "state" => "OPEN", "author" => "someone",
-                         "updated" => "2026-09-01T12:00:00Z", "labels" => ["bug"],
-                         "mine" => false)
-    row = W.woke_row(r, W.utcnow())
-    @test row["is_pr"] && row["state"] == "open" && row["updated"] == "2026-09-01T12:00:00Z"
-    @test row["labels"] == ["bug"] && row["comments"] == 0 && row["mine"] == false
-    # An issue with nothing else filled in still answers every key the poll's
-    # own row has, because a missing one reads as a corrupt entry downstream.
-    bare = W.woke_row(Dict{String,Any}("url" => "u", "repo" => "o/r", "number" => 2,
-                                       "title" => "t", "type" => "Issue"), W.utcnow())
-    @test !bare["is_pr"] && bare["state"] == "open" && bare["author"] == ""
-    @test bare["labels"] == String[] && !isempty(bare["updated"])
+@testset "what the refresh does with a snooze, which is almost nothing" begin
+    # Nothing arms and nothing wakes: the browser reads the wake off
+    # `local.toml` per frame. What the refresh does is carry the resolved wake
+    # on the row - for `wl next`, and for the second look - and stamp read an
+    # item that was put away by hand and never read, since "not now" on an
+    # unread item would otherwise say nothing at all.
+    now = W.ts("2026-09-12T12:00:00Z")
+    st(; kw...) = Dict{String,Any}(String(k) => v for (k, v) in kw)
+    held(s) = (w = W.wake_of(get(s, "snooze", nothing), get(s, "read", nothing));
+               (w !== nothing && !W.woken(w, now)) || W.truthy(get(s, "archived", nothing)) ||
+               W.snooze_forever(get(s, "snooze", nothing)))
+    @test held(st(snooze = "2026-09-20T00:00:00Z"))
+    @test !held(st(snooze = "2026-09-10T00:00:00Z"))
+    @test held(st(snooze = "3d", read = "2026-09-11T00:00:00Z"))
+    @test !held(st(snooze = "3d", read = "2026-09-01T00:00:00Z"))
+    @test !held(st(snooze = "3d"))                    # nothing to count from
+    @test held(st(archived = "2026-09-01T00:00:00Z"))
+    @test held(st(snooze = "forever"))
+    @test !held(st(snooze = "on-change"))
+    @test !held(st())
 end
 
 @testset "the metadata pane" begin
@@ -278,34 +251,28 @@ end
     @test W.layout(80, 14).mh == 0
 end
 
-@testset "a snooze says what it is waiting for" begin
-    # "snoozed: yes" answered a question nobody was asking - the row is in the
-    # snoozed lane either way. What is wanted is the trigger, and the refresh
-    # already wrote one: `snooze_active`'s sentence, carried on the item as
-    # `snooze_why`.
+@testset "the pane says when a snooze wakes, and when a thing was filed" begin
+    # Both off the marks in `local.toml`, and neither off the item: a snooze
+    # that ran out at lunch says nothing here by dinner, without a refresh.
     st = mkstate()
-    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
-                              if occursin("snoozed", l)], " "))
-    base = (url = "https://example.invalid/pr/1", ref = "r#1", repo = "o/r",
-            number = 1, title = "a snoozed pull request")
-    @test says(W.Item(; base..., snoozed = true,
-                      snooze_why = "for 2w, 9d left")) == "snoozed   for 2w, 9d left"
-    @test says(W.Item(; base..., snoozed = true,
-                      snooze_why = "until it moves")) == "snoozed   until it moves"
-    # A snapshot written before the field existed still says the one thing it
-    # knows, rather than an empty row.
-    @test says(W.Item(; base..., snoozed = true)) == "snoozed   yes"
-    # And an item that is not snoozed says nothing, whatever it carries: the
-    # reason outlives the snooze in `facts.json` when one is cleared.
-    @test says(W.Item(; base..., snooze_why = "until it moves")) == ""
-
-    # The trigger comes off the item and not off a clock, which is the whole of
-    # how two browsers on one dashboard stay agreed: waking is a decision only
-    # `refresh` makes, by calling `snooze_active`, which arms and writes as it
-    # goes. A relative snooze that ran out an hour ago is still snoozed here,
-    # and stays that way until somebody runs `wl refresh`.
-    elapsed = W.Item(; base..., snoozed = true, snooze_why = "for 1d, 0d left")
-    @test W.sleep_of(elapsed) === :snoozed
-    @test !W.matches(W.Filters(), elapsed)
-    @test W.matches(W.Filters(show = Set([:snoozed])), elapsed)
+    it = st.items[st.sel]
+    says(key) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
+                               if occursin(key, l)], " "))
+    keep = W.LOCAL[]; W.LOCAL[] = fresh_local()
+    before = read(W.localfile(), String)
+    try
+        @test says("snoozed") == ""
+        W.apply_snooze!(st, it, "2099-01-01", W.utcnow())
+        @test says("snoozed") == "snoozed   until 2099-01-01 00:00"
+        W.apply_snooze!(st, it, "2020-01-01", W.utcnow())
+        @test says("snoozed") == ""                     # woke; not asleep
+        W.apply_snooze!(st, it, nothing, W.utcnow())
+        @test says("archived") == ""
+        W.archive!(st, it, W.ts("2026-09-12T12:00:00Z"))
+        @test occursin("2026-09-12 12:00", says("archived"))
+        @test occursin("takes it back out", says("archived"))
+    finally
+        write(W.localfile(), before)
+        W.LOCAL[] = keep
+    end
 end

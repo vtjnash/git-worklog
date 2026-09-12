@@ -91,12 +91,12 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # copies the TOML for whatever filter you are looking at, to paste in here; the
 # browser never writes this file.
 #
-# The axes: `show` (base, read, snoozed, filed, done), `tag` (second, touched,
-# drafts), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
+# The axes: `show` (base, read, filed, done), `tag` (second, touched, drafts,
+# snoozed), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the
-# unread, awake and open work this dashboard is for, and it is what a view that
+# unread, unfiled and open work this dashboard is for, and it is what a view that
 # names no `show` at all gets - so the firehose names nothing. A view that does
 # name `show` names the whole of it, `base` included: `show = ["base", "read"]`
 # is today's work with the read ones beside it, and `show = ["filed"]` is the

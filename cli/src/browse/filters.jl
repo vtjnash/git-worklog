@@ -13,25 +13,30 @@
 # list. What each one asks, and what the answers cost:
 #
 #   * **show** - the three dispositions, merged into one axis that only ever
-#     adds. Five boxes, and no box can take another one's rows away. Three
+#     adds. Four boxes, and no box can take another one's rows away. Three
 #     separate axes said the same thing and let you turn the dashboard off with
 #     them - `seen: read` alone hid everything that had moved, which is the one
 #     list nobody wants - and all but one of the built-in views had to spell
 #     `sleep = awake` to avoid it. What each value means:
-#       - **unread, awake, open** - the dashboard itself, and the box that is on
-#         when nothing has been asked, so the screen cannot be emptied by
-#         accident. Unchecking it is how one of the other four is asked for
-#         *alone*, and the only way there is.
-#       - **read** - the read stamp against `moved_at`, and **nothing overrides
-#         it**: an item that moves is unread again whether it is snoozed,
-#         filed, yours or a stranger's. A review request, a mention and a reply
-#         all land here, which is why none of them needs a lane.
-#       - **snoozed** and **filed away** - your decision, and the only thing
-#         here GitHub cannot see. One field, `x` and `s` write it.
+#       - **unread, open** - the dashboard itself, and the box that is on when
+#         nothing has been asked, so the screen cannot be emptied by accident.
+#         Unchecking it is how one of the other three is asked for *alone*,
+#         and the only way there is.
+#       - **read** - the read stamp against `moved_at` and against the snooze's
+#         wake time, and **nothing overrides it**: an item that moves is unread
+#         again whether it is snoozed, filed, yours or a stranger's. A review
+#         request, a mention and a reply all land here, which is why none of
+#         them needs a lane.
+#       - **filed away** - your decision, and the only thing here GitHub cannot
+#         see. A mark, `x` writes it. Read, and held out of every view that
+#         does not name this box - which is what lets the backlog leave it out.
 #       - **closed or merged** - GitHub's `OPEN` against `CLOSED`/`MERGED`.
-#   * **tag** - the three things worth asking that are not any of the above:
+#     There was a fifth, **snoozed**, and it was not a disposition: a snoozed
+#     item is a read one with a wake time, so it is a tag now.
+#   * **tag** - the four things worth asking that are not any of the above:
 #     work that has gone quiet (`second look`), work you have acted on
-#     (`touched`), and words you have written and not sent (`drafts`).
+#     (`touched`), words you have written and not sent (`drafts`), and work
+#     you put down for a while (`snoozed`).
 #   * **kind**, **category**, **repo**, **label**, **author** - unchanged.
 #
 # What is *not* here any more: `active`, `backlog` and `mine`. `mine` was the
@@ -41,33 +46,32 @@
 # dismiss it, one item at a time, recorded and undoable. That is the one thing
 # this program knows that GitHub does not.
 
-"""What to show: five boxes over the three dispositions, and one of them is the
+"""What to show: four boxes over the three dispositions, and one of them is the
 dashboard itself.
 
 One axis, and it only ever adds - checking a box brings a kind of row *in
 beside* whatever is already there, and no box takes another one's rows away.
-`base` is the unread, awake and open work this program is for, and it is the
+`base` is the unread, unfiled and open work this program is for, and it is the
 box that is on when nothing has been asked: `c`, a fresh `Filters` and a view
 that names no `show` all leave it checked, so the screen cannot be emptied by
-accident. Unchecking it is how the other four are asked for *alone* - the filed
+accident. Unchecking it is how the other three are asked for *alone* - the filed
 work on its own rather than beside today's, which is the one question this axis
 could not be asked while the base was a floor with no control at all. Unchecking
 every box is an empty list: an empty set of things to show is no things, which
 is the honest reading of an axis that adds rather than narrows.
 
-`filed` is beside `snoozed` rather than folded into it because filing is the
-decision you make when you never want to see a thing again, and "show me what I
-put down for now" is a different question from "show me what I gave up on".
-Either one brings what it names whether or not it has been read - see
-`show_ok`, which is where the one asymmetry in this axis is written down.
+`filed` brings what it names whether or not it has been read - see `show_ok`,
+which is where the one asymmetry in this axis is written down. "Show me what I
+put down for now" is a different question from "show me what I gave up on",
+and it is the `snoozed` tag over the `read` box rather than a box of its own:
+a snooze is a read mark with a wake time, and the wake is a reason to be
+unread again, not a place to be.
 
-The three readings the values come from are `seen_of`, `sleep_of` and `over_of`,
-which are still three questions with three answers each - what merged is the
-control over them, not the facts.
+The three readings the values come from are `seen_of`, `filed_of` and `over_of`
+- what merged is the control over them, not the facts.
 """
-const SHOW = [(:base, "unread, awake, open"), (:read, "read"),
-              (:snoozed, "snoozed"), (:filed, "filed away"),
-              (:done, "closed or merged")]
+const SHOW = [(:base, "unread, open"), (:read, "read"),
+              (:filed, "filed away"), (:done, "closed or merged")]
 
 """The one box that is on when nothing has been asked; see `isdefault` and `c`.
 
@@ -77,14 +81,18 @@ one item's `show` every item's.
 """
 const SHOW_BASE = Set([:base])
 
-"""The three questions that are not an axis of their own.
+"""The four questions that are not an axis of their own.
 
 Each is a mark or a derivation rather than a field: `second` is worked out every
-refresh from silence, `touched` and `drafts` are rows in `local.toml`. Unlike
-the axes above an item can carry all three at once, so these behave like labels
-- any of the ones you pick brings the row.
+refresh from silence, `touched`, `drafts` and `snoozed` are rows in
+`local.toml`. Unlike the axes above an item can carry all four at once, so
+these behave like labels - any of the ones you pick brings the row.
+
+`snoozed` is a wake time that has not come yet. One that has is not a tag any
+more, it is the item being unread - see `seen_of`.
 """
-const TAGS = [(:second, "second look"), (:touched, "touched"), (:drafts, "drafts")]
+const TAGS = [(:second, "second look"), (:touched, "touched"), (:drafts, "drafts"),
+              (:snoozed, "snoozed")]
 
 """How the list is ordered. Its own control, deliberately.
 
@@ -155,7 +163,7 @@ Base.@kwdef mutable struct Filters
                                            # well as logins
 end
 
-"""What the browser opens on: the notifications, awake and open.
+"""What the browser opens on: the notifications, unfiled and open.
 
 Unread is what moved since you looked at it, whoever moved it - a review
 request, a mention, a reply, a push - which is the one list that is about
@@ -217,8 +225,13 @@ Base.@kwdef struct Marks
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
     drafts::Dict{String,String} = EMPTY_TOUCHED
+    wake::Dict{String,String} = EMPTY_TOUCHED   # url -> when its snooze ends
+    now::String = stamp(utcnow())   # the instant the wakes are read against,
+                                    # one per `refilter!` so a list is not
+                                    # half-woken across its own rows
 end
-Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts)
+Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts, st.wakes,
+                  stamp(utcnow()))
 
 """Has this item changed since you last looked at it?
 
@@ -233,10 +246,20 @@ changed since you last did.
 check run finishes and does move when somebody relabels a pull request, so it
 misses the thing you asked to be told about and reports things you did not.
 `moved_at` is when the refresh last saw a change *at this item's tracking
-level* - so your own pull request turning green is unread and a stranger's is
+level* - so your own pull request turning red is unread and a stranger's is
 not, which is what `track` is for and what it did not used to reach. An item no
 refresh has bucketed - a row the activity poll alone knows about - has no
-fingerprint to compare, and there `updated` is the only answer anybody has.
+wake table to compare, and there `updated` is the only answer anybody has.
+
+**And a snooze is a second reason, beside the table.** A snooze is a wake
+time; once it has passed it is as if the item moved then, and it is unread
+until you read it again. Asked of the clock here, per frame, rather than
+decided by a refresh and carried on the item: waking needs no write and no
+arbiter, so two browsers on one dashboard cannot disagree about it, and a
+snooze that runs out at lunch is back before the next `wl refresh`. It used to
+be the refresh's alone to decide, because the old snooze *armed* against a
+hash and wrote `WOKE` when it differed - a decision that had to be recorded
+exactly once. A time needs nothing recorded.
 
 No stamp at all reads as unread, which is what "never been in front of you"
 means. It used to be a third value, `unseen`, on the theory that the firehose
@@ -255,21 +278,35 @@ function seen_of(it::Item, m::Marks = Marks())
     # refresh has caught up with - and a stamp on it is the only thing anybody
     # has said about whether it has been seen.
     moved = isempty(it.moved_at) ? it.updated : it.moved_at
+    wake = get(m.wake, it.url, nothing)
+    wake !== nothing && wake <= m.now && wake > moved && (moved = wake)
     at < moved ? :unread : :read
 end
 
-"""Do you want to see this?
+"""Have you filed this away?
 
-    sleep_of(it, marks) -> :awake | :snoozed | :filed
+    filed_of(it, marks) -> Bool
 
-One decision with three readings. `filed` is the snooze that never wakes, which
-is what `x` writes and what archiving has always been; `snoozed` is one with a
-wake condition the refresh is watching for. Whether it is asleep is the
-refresh's answer, carried on the item - see `snooze_active` - because deciding
-it here would be a second opinion about a thing that has already been decided.
+The `archived` mark. Filed is read - `x` stamps both - with one difference:
+a read item that moves comes back on its own, and a filed one that moves is
+unread too but comes back only when the `filed` box is on. That difference is
+the whole reason it is a mark of its own and not a read stamp: it is what
+lets the backlog - read work and unread work together - leave out the work you
+gave up on.
 """
-sleep_of(it::Item, m::Marks = Marks()) =
-    haskey(m.archived, it.url) ? :filed : it.snoozed ? :snoozed : :awake
+filed_of(it::Item, m::Marks = Marks()) = haskey(m.archived, it.url)
+
+"""Is its snooze still running?
+
+    asleep(it, marks) -> Bool
+
+A wake time that has not come. Once it has, the item is unread rather than
+asleep, and this is false.
+"""
+function asleep(it::Item, m::Marks = Marks())
+    wake = get(m.wake, it.url, nothing)
+    wake !== nothing && wake > m.now
+end
 
 "Is it finished? Empty reads as open, which is what a synthetic item is."
 over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :done : :open
@@ -284,25 +321,26 @@ function tags_of(it::Item, m::Marks = Marks())
     isempty(it.secondlook) || push!(out, :second)
     haskey(m.touched, it.url) && push!(out, :touched)
     haskey(m.drafts, it.url) && push!(out, :drafts)
+    asleep(it, m) && push!(out, :snoozed)
     out
 end
 
 """Is a row in, on the merged disposition axis?
 
-    show_ok(show, seen, sleep, over) -> Bool
+    show_ok(show, seen, filed, over) -> Bool
 
 A row is in where `show` names **every way in which it is not base work** - and
 a row that deviates in no way at all is base work, which is in where `:base` is
 named. So the three clauses below are one rule read three times: each says "this
 is how the row differs, and the box for it has to be on".
 
-**`read` is a question about awake work only**, which is the one thing here that
-is not symmetric and is the point of the whole axis. Putting something away
-stamps it read - a snooze and a filing both do, see `apply_snooze!` - so a
-`snoozed` box that also insisted on the read stamp would have shown nothing at
-all, and the reader would have had a control that did not work rather than a
-list. What you put away is what you put away, read or not; the read stamp is
-how the *pile* gets shorter.
+**`read` is a question about unfiled work only**, which is the one thing here
+that is not symmetric and is the point of the whole axis. Filing something
+stamps it read - see `archive!` - so a `filed` box that also insisted on the
+read stamp would have shown nothing at all, and the reader would have had a
+control that did not work rather than a list. What you filed is what you filed,
+read or not; the read stamp is how the *pile* gets shorter, and the filed mark
+is how the backlog gets shorter without the pile changing.
 
 Closed is asked of every row, since nothing about closing an item says whether
 it has been looked at. So a row can be held out twice - a closed pull request
@@ -310,7 +348,7 @@ you read last week needs both `read` and `done` - which is what makes the count
 beside a box a delta rather than a total: see `axis_counts`.
 
 The base clause is last and is the only one that is about the *absence* of a
-deviation: a read one, a snoozed one and a closed one each answer to their own
+deviation: a read one, a filed one and a closed one each answer to their own
 box whether or not the base is on, which is what makes "the filed ones alone" a
 question this axis can be asked. Unchecking every box shows nothing, and that is
 the honest reading of it rather than a case to special-case.
@@ -318,14 +356,14 @@ the honest reading of it rather than a case to special-case.
 Monotone in `show` by construction, and `axis_counts` relies on it: adding a
 value can only ever bring rows in.
 """
-show_ok(show::Set{Symbol}, sn::Symbol, sl::Symbol, ov::Symbol) =
-    (sl === :awake ? (sn === :unread || :read in show) : sl in show) &&
+show_ok(show::Set{Symbol}, sn::Symbol, fd::Bool, ov::Symbol) =
+    (fd ? :filed in show : (sn === :unread || :read in show)) &&
     (ov === :open || :done in show) &&
-    (:base in show || !(sl === :awake && sn === :unread && ov === :open))
+    (:base in show || !(!fd && sn === :unread && ov === :open))
 
 "The same, asked of an item."
 shown(f::Filters, it::Item, m::Marks = Marks()) =
-    show_ok(f.show, seen_of(it, m), sleep_of(it, m), over_of(it))
+    show_ok(f.show, seen_of(it, m), filed_of(it, m), over_of(it))
 
 """The timestamp a sorted list is ordered by, under one of two readings of when.
 
@@ -463,7 +501,7 @@ function axis_counts(st)
     with = Dict(k => union(f.show, [k]) for (k, _) in SHOW)
     without = Dict(k => setdiff(f.show, [k]) for (k, _) in SHOW)
     for it in st.all
-        sn, sl, ov, tg = seen_of(it, m), sleep_of(it, m), over_of(it), tags_of(it, m)
+        sn, sl, ov, tg = seen_of(it, m), filed_of(it, m), over_of(it), tags_of(it, m)
         # Every axis, answered once, in the order the pane draws them.
         ok = (show_ok(f.show, sn, sl, ov),
               isempty(f.tags) || any(in(f.tags), tg),
@@ -567,7 +605,7 @@ const VIEWS = [
     # reason the import row leads the item list: a control nobody can find is a
     # control nobody uses. It names no axis at all, because the list it goes to
     # is what is left when every axis is off.
-    ("notification firehose — unread, awake, open", Dict{String,Any}()),
+    ("notification firehose — unread, open", Dict{String,Any}()),
     # The two modes that are left. Which work is yours is the author axis; what
     # has moved is the base. One axis per question, and neither of them a lane.
     ("my work — mine", Dict("author" => [AUTHOR_ME])),
@@ -578,11 +616,12 @@ const VIEWS = [
     ("ready to merge", Dict("bucket" => ["needs-merge"])),
     ("red CI, mine",   Dict("author" => [AUTHOR_ME], "bucket" => ["needs-edits"])),
     ("unanswered",     Dict("bucket" => ["needs-reply"])),
+    ("snoozed — put down for a while", Dict("show" => ["read"], "tag" => ["snoozed"])),
     # The corpus, which no longer has a keystroke of its own: it is the base
-    # with the four things it leaves out added back to it, and it names all
-    # five because a view that names the axis names the whole of it.
-    ("everything — read, snoozed, filed and closed too",
-                       Dict("show" => ["base", "read", "snoozed", "filed", "done"])),
+    # with the three things it leaves out added back to it, and it names all
+    # four because a view that names the axis names the whole of it.
+    ("everything — read, filed and closed too",
+                       Dict("show" => ["base", "read", "filed", "done"])),
 ]
 
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
@@ -880,6 +919,7 @@ function refilter!(st; keeprow::Bool = true)
     st.drafts = field_marks(m, "draft")
     st.read = field_marks(m, "read")
     st.archived = archived_map()
+    st.wakes = wake_map()
     st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,
@@ -946,6 +986,6 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
-    isempty(parts) && push!(parts, "unread, awake, open")
+    isempty(parts) && push!(parts, "unread, open")
     join(parts, " · ")
 end

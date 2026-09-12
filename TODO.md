@@ -2,9 +2,10 @@
 
 ## What is next
 
-Two things are open: one is an idea to design, and the other is a deletion that
-only needs the names deciding first. The state axis that stood at the head of
-this list is **built**, and so is
+One thing is open, and it is an idea to design rather than a task to pick up.
+The deletion that stood beside it - read, snooze and archive as one rule - is
+**done**; see "Read, snooze and archive are one rule" under Outstanding work.
+The state axis that stood at the head of this list is **built**, and so is
 "showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
 Outstanding work for what each settled and what each left open. The drag that
 stood second here was the last thing waiting on a real terminal, and it is
@@ -27,24 +28,15 @@ here is done; `git log` is the record of it and this file is not.
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
 
-2. **Read and snooze are one state.** A snooze is read with a wake condition
-   attached - `forever` is read that the filed box holds out of the list - and
-   the code keeps the two halves in step by hand, marking read on falling asleep
-   and unread on waking. The two wake rules turn out to be *the same rule*,
-   since `WOKE` is sticky, so an `on-change` snooze adds nothing to the wake
-   rule and only the hiding: it is "hidden while read". What that deletes is
-   `snooze_fp`, `snooze_at`, `WOKE`, `load_snoozes`, `save_snoozes!`, `disarm`
-   and the arming half of `snooze_active` - six marks become four - and it stops
-   waking being a decision only a refresh may make, since "it is unread" needs
-   no write and no arbiter. What it needs first is the names: the states become
-   the conditions, and `sleep_of` stops reading an answer off the row.
-   The fingerprint half of the same question is **done** - `mergeable` and
-   `unresolved` are keys at no level, `all`/`fp_full`/`moved` are gone, and a
-   movement in a timestamped key is dated by the key rather than by the poll.
-   The wake table was then reviewed whole and is complete as of 2026-09-12 -
-   see "The wake table, reviewed" under Outstanding work - and `fingerprint`
-   is read by the snooze alone, which is the last thing keeping it.
-   See "Read and snooze are one state" under Outstanding work.
+2. **Done, 2026-09-12: read, snooze and archive are one rule.** A snooze is a
+   wake *time* and nothing else - a second reason for an item to be unread,
+   beside the wake table, that the browser reads against the clock per frame.
+   An archive is a mark that is read in every way but one: the `filed` box is
+   what brings it back, so the backlog can leave it out. `snooze_fp`,
+   `snooze_at`, `WOKE`, `load_snoozes`, `save_snoozes!`, `disarm`,
+   `snooze_active`, `snooze_edge`, `woke_row`, `fingerprint` and `sleep_of`
+   are gone, `on-change` is `r` and `forever` is `x`. See "Read, snooze and
+   archive are one rule" under Outstanding work.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -1477,9 +1469,62 @@ complete and the hash was doing harm.
     labels, milestones, title edits, which were out already; a *team* being
     asked, which the token cannot see.
 
-Left with the old shape until the snooze deletion: an `on-change` snooze still
-compares `fp`, so it wakes on a green and on your own comment. It is the last
-reader of the hash.
+What was left with the old shape - an `on-change` snooze comparing `fp`, and
+so waking on a green and on your own comment - went with the snooze deletion
+the same day, and `fingerprint` with it. See the next section.
+
+### Read, snooze and archive are one rule
+
+Done 2026-09-12, as the deletion the section above this one and "Read and
+snooze are one state" below had been circling: **a snooze is an additional
+wake event source, and an archive is read that filters separately.**
+
+**The rule.** An item is unread when it has moved since you read it. "Moved"
+is the wake table. A snooze is a wake *time*: once it has passed, the item is
+unread as if it had moved then. That is the whole of it - `seen_of` takes
+`max(moved_at, wake)` against the read stamp - and it is asked of the clock
+per frame, so waking needs no write, no arbiter and no refresh. The old
+objection - "two browsers would each decide and each write, and disagree" -
+was an objection to *arming*, and a time is not armed.
+
+**What that made deletable, and deleted.** `snooze_fp`, `snooze_at` and `WOKE`
+from the marks; `load_snoozes`, `save_snoozes!`, `disarm`, `snooze_active`,
+`snooze_edge` and `woke_row` from the refresh; `snoozed` and `snooze_why` from
+`Item`; `sleep_of` from the filters; the `[snooze] max_days` cap; the
+`mark_read` on falling asleep and the `inbox_add!` on waking; and
+`fingerprint`, which the snooze was the last reader of. What the refresh does
+with a snooze now is carry the resolved wake on the row for `wl next` and the
+second look, and stamp read an item put away by hand that was never read.
+
+**What the modes became.** `3d`/`2w`/`6mo`/a date are the wake, written
+*resolved* - `wl snooze` and `s` store the moment a span ends, so the file says
+when and nothing has to remember when it was set; a span typed by hand counts
+from the read stamp beside it. `on-change` is what `r` does and has no wake
+in it; it parses, so an old file reads, and resolves to nothing. `on-change/30d`
+is `30d`. `forever` is the archive, read as the mark for a file still carrying
+it. A timed snooze **no longer holds against movement**: a snoozed item that
+somebody pushes to comes back today, which is what "additional wake source"
+means and was the decision behind the whole change.
+
+**The archive.** `archived = "<stamp>"`, a mark like `read`, written by `x`
+and `wl archive`, toggled by either. It stamps read too. An archived item that
+moves is unread again - filing says nothing about whether a thing has changed -
+but `show_ok` holds it out of every list that does not name the `filed` box.
+That one asymmetry is the whole reason it is a mark of its own: the backlog is
+`base + read`, and it leaves the filed work out.
+
+**The axis.** `show` is four boxes - `unread, open` · `read` · `filed away` ·
+`closed or merged` - where it was five. `snoozed` was not a disposition: a
+snoozed item is a read one with a wake time, so it is a **tag** now, true while
+the wake is still to come and false once it has passed, and "snoozed - put
+down for a while" is a built-in view over `read` with that tag. `sleep_of` is
+`filed_of`, a bool.
+
+**Not decided here, and worth knowing:** `dismiss` is `track loose` plus
+`read`, which is all it ever was; the `second look` is withheld from an item
+whose wake is still to come, as before; and an expired wake stays in
+`local.toml` inert until the next `s` or `off` rewrites it - `seen_of` reads
+it as nothing once the read stamp passes it, so there is nothing to clean.
 
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 

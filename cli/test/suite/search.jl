@@ -29,22 +29,22 @@
     W.handle!(st, 13, ctrl)
     @test st.items[st.sel].ref == want.ref && occursin("jumped", st.status)
     # ...and it reaches an item the filter was hiding - a snoozed one here,
-    # since what the browser opens on is what moved, awake and open.
-    #
-    # The fixture carries a row that is asleep, which a real dashboard need not:
-    # being snoozed is the refresh's answer carried on the row - `sleep_of`
-    # reads `it.snoozed`, and only `filed` is a mark - so this cannot be written
-    # into `local.toml` the way the filed half below writes its own condition.
-    # It used to take the first snoozed row it could find in the live corpus,
-    # and errored rather than failed on the day the last snooze was cleared.
+    # since what the browser opens on is what is unread, and a snooze reads it.
+    # A snooze is a mark like the filing below, so it is written the same way.
     st = mkstate()
     hidden = fixture_item("somebody else's again, to be the one asleep")
-    @test hidden.snoozed && !any(i -> i.url == hidden.url, st.items)
-    W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
-    W.handle!(st, 13, ctrl)
-    @test st.items[st.sel].url == hidden.url
-    # A filed one is hidden by the same sleep axis, and the widen has to be
-    # measured against the marks the list itself was built with.
+    try
+        W.apply_snooze!(st, hidden, "3d", W.utcnow())
+        @test !any(i -> i.url == hidden.url, st.items)
+        W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
+        W.handle!(st, 13, ctrl)
+        @test st.items[st.sel].url == hidden.url
+    finally
+        W.set_fields(hidden.url, ["snooze" => nothing])
+        W.set_read(hidden.url, nothing)
+    end
+    # A filed one is hidden by the filed box, and the widen has to be measured
+    # against the marks the list itself was built with.
     st = mkstate()
     away = fixture_item("an issue")
     try
@@ -54,7 +54,8 @@
         W.handle!(st, 13, ctrl)
         @test st.items[st.sel].url == away.url
     finally
-        W.set_fields(away.url, ["snooze" => nothing])
+        W.set_archived(away.url, nothing)
+        W.set_read(away.url, nothing)
     end
 
     st = mkstate()
