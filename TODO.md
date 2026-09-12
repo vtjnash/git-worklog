@@ -2,7 +2,7 @@
 
 ## What is next
 
-One thing is open, and it is an idea to design rather than a task to pick up.
+Two things are open, and both are ideas to design rather than tasks to pick up.
 The state axis that stood at the head of this list is **built**, and so is
 "showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
 Outstanding work for what each settled and what each left open. The drag that
@@ -25,6 +25,21 @@ here is done; `git log` is the record of it and this file is not.
    one problem for the arithmetic of keeping four ranges in step; the honest
    version is rows that belong to a node without being its body, which is a
    change to what a `Row` is. Neither is worth starting without deciding which.
+
+2. **Read and snooze are one state, and the fingerprint is two facts.** A
+   snooze is read with a wake condition attached - `forever` is read that the
+   filed box holds out of the list - and the code keeps the two halves in step
+   by hand, marking read on falling asleep and unread on waking. The two wake
+   rules turn out to be *the same rule*, since `WOKE` is sticky, so what is
+   there to design is bigger than a rename: an `on-change` snooze is "hidden
+   while read", which deletes `snooze_fp`, `snooze_at`, `WOKE` and the arming
+   half of `snooze_active`, and stops waking being a decision only a refresh may
+   make. Under it is the same question asked of the data: half the
+   fingerprint's keys carry their own time and half cannot, and hashing them
+   together dates a comment by the poll that noticed it. See "Read and snooze
+   are one state" under Outstanding work, which has the first step - one
+   expression in `moved_at` - and what `review_requested` would cost as a
+   timestamp.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -1204,6 +1219,127 @@ that:
     one that names no axis at all - under the name that says what it is: every
     item that has moved and that you have not put down, which is the thing an
     email notification stream would have been.
+
+### Read and snooze are one state, and the fingerprint is two facts
+
+Raised 2026-09-12, out of one question: should the hash that read and snooze
+compare be split into the facts that carry their own time - a push, a comment -
+and the facts that do not - CI, a verdict, a count?
+
+**The two states are one mechanism written twice.** Read is "I have dealt with
+this as of T; bring it back when it moves". `on-change` is that same sentence
+measured from the state you armed against rather than from the last refresh;
+`3d` is it with a clock for the condition; `forever` is it with no condition at
+all - which is read, and differs from read only in that the filed box holds it
+out of the list. The seam shows in the code: falling asleep calls `mark_read`
+and waking calls `inbox_add!` (`refresh.jl:938`, and `snooze_edge` for which
+refreshes count), which is one state being kept in step with its own other half,
+and `show_ok` carries "read is asked of awake work only" as the one asymmetry in
+an axis that otherwise only adds.
+
+**So what is open is the names, not the behaviour.** Every item is *held* until
+something brings it back, and today's values are the conditions: anything at all
+(read), a change from where it stood when you said "not now" (`on-change`), a
+date or a duration, never (filed). "Unread" is then not a state but the answer
+to whether the hold has expired - which `seen_of` computes rather than stores
+already, and which is why it needs no field. What the five boxes and the two
+fields should be *called* under that reading is the part to design; nothing the
+program does has to change to rename them.
+
+**And they are the same threshold, not two.** This said at first that read
+compares against a clock that moves on every refresh while `on-change` compares
+against a value frozen when you said "not now", so a flap - red, green, red -
+would be two reasons to look under the first and none under the second. That is
+wrong, and `refresh.jl` said it too: `WOKE` is **sticky**, so the snooze wakes on
+the green and never re-arms to be fooled by the red. By transitivity the two
+rules meet at the same sentence - *differs from where it stood when I put it
+down* - and an `on-change` snooze turns out to add nothing whatever to the wake
+rule. What it adds is the **hiding**.
+
+**Which makes the machinery deletable, not just renameable.** If `on-change`
+means "hidden while read", then:
+
+  * `snooze_fp`, `snooze_at` and `WOKE` go, and the six marks are four. The
+    arming moment is the read stamp - falling asleep already writes one - and
+    the cap that wakes a snooze nobody ever answered is `days_since(read)` where
+    it is `days_since(snooze_at)` today. `load_snoozes`, `save_snoozes!`,
+    `disarm` and the arming half of `snooze_active` go with them.
+  * **Waking stops being a decision only a refresh may make.** `snooze_active`
+    arms, writes `WOKE` and hands back a sentence, which is why its docstring
+    forbids the browser to call it: two browsers on one dashboard would each
+    decide, each write, and disagree about which had woken what. "It is unread"
+    needs no write and no arbiter, so the browser can answer it per frame, and
+    the woken rows pushed through `inbox_add!` stop being a thing to push -
+    being unread is already what that push was for.
+  * **The one line to keep** is arming on first sight: a `snooze = "on-change"`
+    typed into `local.toml` by hand, on an item that has never been read, has
+    nothing to be held against and would be awake immediately. Stamping it read
+    when the refresh first sees it is what `snooze_active` really does.
+  * And the rename falls out of the deletion rather than being the work: the
+    states are the conditions, read is "until anything at all", filed is
+    "never", and there is one field where there were three.
+
+#### The fingerprint, which is the same question asked of the data
+
+**Half the key set carries its own time and half cannot.** `head_at`,
+`last_comment_at` and `human_comment_at` are events and know when they happened;
+`ci`, `review_decision`, `review_count` and `labels` are states that can only be
+dated by when this program noticed them. Hashing the two together dates
+everything by the poll.
+
+  * **First step, and it needs no new state anywhere.** `moved_at` is
+    `stamp(at)` whenever the fingerprint differs (`refresh.jl`). When the keys
+    that differ all carry times, it should be *their* time. The first-sight
+    branch one line above already does exactly this - `activity_at(r)`, the max
+    of `head_at` and `last_comment_at` - so the two branches disagree about what
+    `moved_at` means for the same key. Fixing it removes a false unread: `r`
+    stamps read at *thread fetch* time, which is fresher than any refresh
+    (`keys.jl`), so a comment posted at 09:55 and read at 10:00 is stamped 11:00
+    by the refresh that first sees it, and comes back unread. One expression, no
+    file format change, no snooze woken. **Not done.**
+  * **`review_requested` should become `review_requested_at`.** It is a bool in
+    all three key sets because being asked is an event with no timestamp in the
+    selection - but the timestamp exists:
+    `timelineItems(last: N, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT])`
+    carries `createdAt` and `requestedReviewer`. As a stamp it compares against
+    the read mark directly, needs no true-or-absent-never-false dance to avoid
+    unreading the dashboard on the day it ships, and says "asked at 14:02"
+    rather than "review requested". Unmeasured: what the connection costs per
+    page (the `review` lane is 3 without `reviewRequests` and 4 with it);
+    `last: N` truncates a pull request re-requested more than N times; a request
+    of a **team** stays invisible either way. The standing `reviewRequests`
+    connection is a separate question and probably stays - the bucket filter
+    asks "am I requested *now*", which an event cannot answer after a
+    withdrawal.
+  * **Done, 2026-09-12: `mergeable` and `unresolved` are keys at no level.**
+    Mergeable is computed lazily, answers `UNKNOWN` on the first read of every
+    pull request - `carried_mergeable` is the workaround - and 671 of 2167 rows
+    are `CONFLICTING` today because somebody else's base moved. A value that
+    unreliable has no business deciding that something moved. Unresolved is a
+    count of open threads, and somebody resolving one is not news: what there
+    was to resolve arrived as a comment or a review and moved
+    `last_comment_at` or `review_count` on the day it did. Both stay fetched -
+    `needs-stacking` and `needs-edits` bucket on them and the metadata pane
+    prints both. Only the `normal` removal is live: `mergeable` was in `all`
+    alone, and see below for what `all` is worth. Nothing to migrate, because
+    `moved_at` re-fingerprints the *old row* at today's level rather than
+    reading its stored `fp`, and there is not one armed snooze in `local.toml`
+    to wake.
+  * **`all`, `fp_full` and `Item.moved` are dead and were not noticed.** The
+    `all` key set exists to hash `fp_full`, which exists to set `r["moved"]`,
+    which `Item` carries and **nothing reads** - checked across `src/` and
+    `src/browse/`. So the level that was kept so "the refresh's change list can
+    report something the item's own level ignores" reports nothing: the change
+    list is built from its own explicit field list, gated on the *level* `fp`.
+    Either wire `moved` to something or delete all three. The read-through list
+    calls this class "arguments that outlived the code needing them".
+  * **What would keep a hash either way.** `ci` - `statusCheckRollup` has a
+    state and no time, and the check runs under it have `completedAt` at 100
+    nodes a row, which is the `FIREHOSE_QUERY` trade over again. `labels`, whose
+    times are on `LabeledEvent` in the timeline. `review_decision` and
+    `review_count`, which are derivable from `reviews(last: 20)` submission
+    times but only by reading them. So the hash shrinks to the facts that
+    genuinely have no clock; it does not disappear.
 
 ### Showing *what* changed, not just that something did — **built**
 

@@ -165,13 +165,25 @@ end
 # naming you, and there is no level at which being asked to review something is
 # noise. `loose` exists to ignore a stranger's CI and a bot's comment, and a
 # human asking you for a review is the opposite of both.
+#
+# **Two fetched facts are deliberately not keys: `mergeable` and `unresolved`.**
+# Mergeable is computed lazily and answers `UNKNOWN` on the first read of every
+# pull request - `carried_mergeable` exists to stop that flapping - so it is not
+# a value that can be trusted to have *changed*, and 671 of today's 2167 rows
+# are `CONFLICTING` because somebody else's base moved, which is not news
+# anybody asked for. Unresolved is a count of open review threads, and somebody
+# resolving one is not a thing to be told: what there was to resolve arrived as
+# a comment or a review, and moved `last_comment_at` or `review_count` on the
+# day it did. Both are still fetched - `needs-stacking` and `needs-edits` are
+# bucketed on them and the metadata pane prints both - and neither is a reason
+# to put an item back in front of you.
 const TRACK_KEYS = Dict(
-    "normal" => ("head_at", "review_decision", "ci", "unresolved",
+    "normal" => ("head_at", "review_decision", "ci",
                  "review_count", "last_comment_at", "review_requested"),
     "loose"  => ("review_decision", "review_count", "human_comment_at",
                  "review_requested"),
-    "all"    => ("head_at", "review_decision", "mergeable", "ci", "unresolved",
-                 "review_count", "last_comment_at", "labels", "review_requested"),
+    "all"    => ("head_at", "review_decision", "ci", "review_count",
+                 "last_comment_at", "labels", "review_requested"),
 )
 
 "What counts as 'this item moved', at the given tracking level."
@@ -445,9 +457,11 @@ snooze_record(fp, at) = Dict{String,Any}("fp" => fp, "at" => at)
 
 GitHub computes mergeability lazily: the first read of a pull request returns
 `UNKNOWN` and only schedules the real computation. Treating that as fact flaps
-the needs-stacking lane between refreshes and, worse, spuriously wakes
-on-change snoozes - so the last known value is carried forward until a real one
-arrives, and the read that got `UNKNOWN` has warmed it for the next refresh.
+the needs-stacking lane between refreshes - so the last known value is carried
+forward until a real one arrives, and the read that got `UNKNOWN` has warmed it
+for the next refresh. It used to wake on-change snoozes too, and that is the
+half of this that `TRACK_KEYS` settled instead: a value this unreliable has no
+business deciding that something moved, so it is not a key at any level.
 
 **Except once it is over.** A merged or closed pull request answers `UNKNOWN`
 for good: there is no merge to be possible any more, so this is not a fact that
@@ -881,11 +895,15 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         # re-fingerprinted at today's level rather than read out of its stored
         # `fp`, so changing `track` is not itself movement.
         #
-        # Unlike a snooze - which compares against the value armed when you said
-        # "not now", and so ignores a change that undoes itself - this is "since
-        # you last looked": red, green, red again is two stamps and two reasons
-        # to look. And on first sight it is what GitHub says rather than now,
-        # or a rebuilt `fetched.json` would read as every item moving at once.
+        # **The same threshold a snooze wakes on**, which this said was a
+        # different one. A snooze compares against the value armed when you said
+        # "not now", so it looks like it would ignore a change that undoes
+        # itself where this would count it twice - except that `WOKE` is sticky:
+        # the item woke on the way out and never re-armed to be fooled on the
+        # way back. Read and `on-change` are one rule reached two ways, which is
+        # the whole of TODO's "Read and snooze are one state". What is still
+        # true here: on first sight this is what GitHub says rather than now, or
+        # a rebuilt `fetched.json` would read as every item moving at once.
         r["moved_at"] = old === nothing ? activity_at(r) :
                         fingerprint(old, r["track"]) != r["fp"] ? stamp(at) :
                         String(nz(jget(old, :moved_at), activity_at(r)))
