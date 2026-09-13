@@ -146,16 +146,15 @@ end
     now = W.ts("2026-09-12T12:00:00Z")
 
     # The shapes, and what each means now that a snooze is a wake time and
-    # nothing else: a span, a date, a moment - and two that have no wake time
-    # in them, which parse so that an old file still reads, and resolve to
-    # nothing.
+    # nothing else: a span, a date, a moment. "Until it moves" and "forever"
+    # are not shapes - they are `r` and `x` - and do not parse.
     @test W.parse_snooze("2w") == (mode = :days, days = 14, until = nothing)
     @test W.parse_snooze("6mo").days == 180
     @test W.parse_snooze("2026-09-15") == (mode = :at, days = nothing, until = "2026-09-15T00:00:00Z")
     @test W.parse_snooze("2026-09-15T20:00:00Z").until == "2026-09-15T20:00:00Z"
-    @test W.parse_snooze("on-change").mode === :none
-    @test W.parse_snooze("on-change/30d") == (mode = :days, days = 30, until = nothing)
-    @test W.parse_snooze("forever").mode === :forever
+    @test W.parse_snooze("on-change") === nothing
+    @test W.parse_snooze("on-change/30d") === nothing
+    @test W.parse_snooze("forever") === nothing
     @test W.parse_snooze("3days") === nothing
     @test W.parse_snooze("") === nothing
 
@@ -163,11 +162,10 @@ end
     # `s` write, and what a span typed by hand is counted from the read stamp
     # beside it as.
     @test W.wake_of("2w", W.stamp(now)) == "2026-09-26T12:00:00Z"
-    @test W.wake_of("on-change/30d", W.stamp(now)) == "2026-10-12T12:00:00Z"
     @test W.wake_of("2026-09-15", W.stamp(now)) == "2026-09-15T00:00:00Z"
     @test W.wake_of("2026-09-15T20:00:00Z", nothing) == "2026-09-15T20:00:00Z"
-    # A span with nothing to count from has no answer, and neither do the two
-    # shapes that never had a wake in them.
+    # A span with nothing to count from has no answer, and neither does a
+    # value with no wake in it.
     @test W.wake_of("2w", nothing) === nothing
     @test W.wake_of("on-change", W.stamp(now)) === nothing
     @test W.wake_of("forever", W.stamp(now)) === nothing
@@ -182,11 +180,6 @@ end
     @test W.woken("2026-09-12T12:00:00Z", now)
     @test !W.woken("2026-09-12T12:00:01Z", now)
     @test !W.woken(nothing, now)
-
-    # And `forever` is the archive, read as the mark for a file that still
-    # carries it.
-    @test W.snooze_forever("forever") && W.snooze_forever("archive") && W.snooze_forever("never")
-    @test !W.snooze_forever("2w") && !W.snooze_forever(nothing)
 end
 
 @testset "what the refresh does with a snooze, which is almost nothing" begin
@@ -198,16 +191,14 @@ end
     now = W.ts("2026-09-12T12:00:00Z")
     st(; kw...) = Dict{String,Any}(String(k) => v for (k, v) in kw)
     held(s) = (w = W.wake_of(get(s, "snooze", nothing), get(s, "read", nothing));
-               (w !== nothing && !W.woken(w, now)) || W.truthy(get(s, "archived", nothing)) ||
-               W.snooze_forever(get(s, "snooze", nothing)))
+               (w !== nothing && !W.woken(w, now)) || W.truthy(get(s, "archived", nothing)))
     @test held(st(snooze = "2026-09-20T00:00:00Z"))
     @test !held(st(snooze = "2026-09-10T00:00:00Z"))
     @test held(st(snooze = "3d", read = "2026-09-11T00:00:00Z"))
     @test !held(st(snooze = "3d", read = "2026-09-01T00:00:00Z"))
     @test !held(st(snooze = "3d"))                    # nothing to count from
     @test held(st(archived = "2026-09-01T00:00:00Z"))
-    @test held(st(snooze = "forever"))
-    @test !held(st(snooze = "on-change"))
+    @test !held(st(snooze = "on-change"))             # not a snooze at all
     @test !held(st())
 end
 

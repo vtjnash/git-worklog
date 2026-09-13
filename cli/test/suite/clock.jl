@@ -166,11 +166,12 @@ end
         @test picked[] == "3d"
 
         # A value parse_snooze cannot read is refused rather than written: it
-        # would leave the item not snoozed and look like it had worked. And so
-        # is one with no wake time in it - `r` and `x` are what those are.
+        # would leave the item not snoozed and look like it had worked. "Until
+        # it moves" and "forever" are two of those - `r` and `x` are what they
+        # are, and a snooze is a time.
         @test occursin("bad snooze value", W.apply_snooze!(st, it, "3days", now))
-        @test occursin("no wake time", W.apply_snooze!(st, it, "on-change", now))
-        @test occursin("no wake time", W.apply_snooze!(st, it, "forever", now))
+        @test occursin("bad snooze value", W.apply_snooze!(st, it, "on-change", now))
+        @test occursin("bad snooze value", W.apply_snooze!(st, it, "forever", now))
         @test W.get_field(it.url, "snooze") == "2026-09-26T12:00:00Z"
         # A date is fine, and so is clearing.
         @test W.apply_snooze!(st, it, "2099-01-01", now) == "snoozed until 2099-01-01 00:00"

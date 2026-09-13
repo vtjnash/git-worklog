@@ -74,18 +74,6 @@
         @test W.get_field(it.url, "archived") !== nothing
         W.handle!(st, Int('x'), ctrl)
 
-        # A file from before the mark existed still carries what `x` used to
-        # write, and it reads as filed - and `x` on it takes it back out.
-        W.set_fields(it.url, ["snooze" => "forever"])
-        @test haskey(W.archived_map(), it.url)
-        n(filed); st.sel = findfirst(x -> x.url == it.url, st.items)
-        W.handle!(st, Int('x'), ctrl)
-        @test occursin("back out", st.status)
-        @test W.get_field(it.url, "snooze") === nothing && !haskey(W.archived_map(), it.url)
-        W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "snooze") == "forever"
-        W.handle!(st, Int('x'), ctrl)
-
         # Nothing written about it is lost - archiving is not deleting.
         W.set_fields(it.url, ["note" => "why this ended"])
         W.handle!(st, Int('x'), ctrl)

@@ -504,10 +504,10 @@ function second_look(r, at::DateTime, days::Int)
     # first, so an old row is already at the bottom and already out of the way -
     # the ceiling was solving a crowding problem that the order does not have.
     #
-    # `s` `1` is what takes one out now: an on-change snooze, which is a
-    # decision somebody made, is written down in `local.toml`, comes back by
-    # itself when the thing moves, and can be undone with `z`. None of those
-    # five things is true of a number in `config.toml`.
+    # `r` is what takes one out now: read, which is a decision somebody made,
+    # is written down in `local.toml`, comes back by itself when the thing
+    # moves, and can be undone with `z`. None of those five things is true of a
+    # number in `config.toml`.
     n < days && return ""
     day(n) = string(n, n == 1 ? " work day" : " work days")
     # An approval that is the last thing to have happened. Checked first: it is
@@ -628,34 +628,22 @@ end
 """
     parse_snooze(sv) -> (mode, days, until) or nothing
 
-The shapes a `snooze` value can take, and what each means now that a snooze is
-**a wake time and nothing else** - a second reason for an item to come back,
-beside the wake table, rather than a hold that the table has to get past:
+The shapes a `snooze` value can take. A snooze is **a wake time and nothing
+else** - a second reason for an item to come back, beside the wake table,
+rather than a hold that the table has to get past - so every shape is a time:
 
   * `3d`, `2w`, `6mo` - wake after that long. Counted from when it was set:
     `wl snooze` and `s` write the resolved time, and a span typed by hand into
     `local.toml` is counted from the read stamp beside it.
   * `2026-09-15` - wake on that date; `2026-09-15T20:00:00Z` - at that moment.
     The second is what the first two are written as.
-  * `on-change` (or `until-review`) - no wake time at all, which is exactly
-    what `r` does: read, and back the moment it moves. Accepted so that an old
-    value still parses, and `on-change/30d` is `30d`.
-  * `forever` (or `archive`, `never`) - the value `x` used to write. It is the
-    `archived` mark now, and this reads as that mark for a file that still
-    carries it.
 
-`nothing` for anything else, which is a value that was typed wrong.
+`nothing` for anything else, which is a value that was typed wrong. "Until it
+moves" is not a shape, because it is what `r` does; "forever" is not one,
+because it is what `x` does.
 """
 function parse_snooze(sv::AbstractString)
     s = strip(lowercase(String(sv)))
-    (s == "forever" || s == "archive" || s == "never") &&
-        return (mode = :forever, days = nothing, until = nothing)
-    (s == "on-change" || s == "until-review") &&
-        return (mode = :none, days = nothing, until = nothing)
-    if startswith(s, "on-change/") || startswith(s, "until-review/")
-        d = rel_days(last(split(s, '/')))
-        return d === nothing ? nothing : (mode = :days, days = d, until = nothing)
-    end
     d = rel_days(s)
     d === nothing || return (mode = :days, days = d, until = nothing)
     t = ts(strip(String(sv)))
@@ -669,23 +657,17 @@ end
 
 When a `snooze` value says to come back, as a stamp: a span counted from
 `from`, a date or a moment as itself, and `nothing` for a value with no wake
-time in it - `on-change`, `forever`, an empty one, or one typed wrong. `from`
-is `nothing` when there is nothing to count a span from, and then a span has no
-answer either.
+time in it - an empty one, or one typed wrong. `from` is `nothing` when there
+is nothing to count a span from, and then a span has no answer either.
 """
 function wake_of(sv, from)
     truthy(sv) || return nothing
     p = parse_snooze(String(sv))
     p === nothing && return nothing
     p.mode === :at && return p.until
-    p.mode === :days || return nothing
     f = from === nothing ? nothing : ts(String(from))
     f === nothing ? nothing : stamp(f + Day(p.days))
 end
-
-"Is this snooze value the one `x` used to write, which is the `archived` mark now?"
-snooze_forever(v) = v !== nothing &&
-    (p = parse_snooze(String(v)); p !== nothing && p.mode === :forever)
 
 "Has this wake time passed, as of `at`? A wake that has not is a snooze still on."
 woken(wake, at::DateTime) = wake !== nothing && String(wake) <= stamp(at)
@@ -748,8 +730,8 @@ GitHub computes mergeability lazily: the first read of a pull request returns
 `UNKNOWN` and only schedules the real computation. Treating that as fact flaps
 the needs-stacking lane between refreshes - so the last known value is carried
 forward until a real one arrives, and the read that got `UNKNOWN` has warmed it
-for the next refresh. It used to wake on-change snoozes too, and that is the
-half of this that `TRACK_KEYS` settled instead: a value this unreliable has no
+for the next refresh. It used to mark items moved too, and that is the half of
+this that `TRACK_KEYS` settled instead: a value this unreliable has no
 business deciding that something moved, so it is not a key at any level.
 
 **Except once it is over.** A merged or closed pull request answers `UNKNOWN`
@@ -1064,7 +1046,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
         read_ = get(st, "read", nothing)
         r["wake"] = wake_of(get(st, "snooze", nothing), read_)
         held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
-               truthy(get(st, "archived", nothing)) || snooze_forever(get(st, "snooze", nothing))
+               truthy(get(st, "archived", nothing))
         held && !truthy(read_) && push!(slept, url)
         # After the bucket, which `in_pile` reads and the pile is not a to-do
         # list, and after the snooze, for the reason above.

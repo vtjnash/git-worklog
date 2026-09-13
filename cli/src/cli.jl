@@ -267,9 +267,8 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # goes back out. It takes no date - the mark carries when it was
         # written, and that is the date.
         for u in urls
-            if get_field(u, "archived") !== nothing || snooze_forever(get_field(u, "snooze"))
+            if get_field(u, "archived") !== nothing
                 set_archived(u, nothing)
-                snooze_forever(get_field(u, "snooze")) && set_fields(u, ["snooze" => nothing])
                 println("unarchived $u")
             else
                 set_archived(u, stamp(at))
@@ -318,14 +317,11 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # becomes the moment it ends - so the file says when, and nothing has
         # to remember when it was set.
         if value !== nothing
-            parse_snooze(value) !== nothing ||
+            value = wake_of(value, stamp(at))
+            value === nothing &&
                 die("bad snooze value '$value'. Use a span like 3d/2w/6mo/1y, " *
-                    "or a date like 2026-09-15.")
-            w = wake_of(value, stamp(at))
-            w === nothing && die("'$value' has no wake time in it: " *
-                                 "\"until it moves\" is what `wl read` does, and " *
-                                 "\"forever\" is `wl archive`.")
-            value = w
+                    "or a date like 2026-09-15. \"Until it moves\" is `wl read`, " *
+                    "and \"forever\" is `wl archive`.")
         end
     elseif cmd == "blocked_on"
         value = String.(split(value, ","))

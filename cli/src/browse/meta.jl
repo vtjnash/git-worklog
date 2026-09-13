@@ -213,7 +213,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            THEME.reset))
     if haskey(st.archived, it.url)
         a = st.archived[it.url]
-        kv("archived", string(a == "forever" ? "filed away" : when_str(a), "  ", THEME.dim,
+        kv("archived", string(when_str(a), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
     elseif isdone(it) && !mergedbyme(it) && (it.url in st.unread || it.new)
         # Merged, and you have not looked at it since - or this is the first

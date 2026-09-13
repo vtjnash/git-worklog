@@ -684,9 +684,8 @@ the note and everything else written about it stay in `local.toml`, and the
 an archived item is a read one in every way but one: a read item that moves
 comes back into the base on its own, and a filed one that moves is unread but
 comes back only when the `filed` box is on. That one difference is what the
-mark is for - it is what lets the backlog leave out what you gave up on. It
-used to be `snooze = "forever"`, a snooze with no wake condition; a snooze is a
-wake *time* now and has nothing to say about never.
+mark is for - it is what lets the backlog leave out what you gave up on. A
+snooze is a wake *time* and has nothing to say about never.
 
 It closes the loop for an adopted branch especially. A merged pull request
 leaves the active lanes on its own once GitHub says so; a local branch that came
@@ -695,13 +694,10 @@ to nothing has no other way out.
 function archive!(st::BState, it::Item, at::DateTime)
     was = haskey(st.archived, it.url)
     prev = get_field(it.url, "archived")
-    prevsnooze = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
     prevread, wasunread = read_at(it.url), it.url in st.unread
     if was
         set_archived(it.url, nothing)
-        # The value `x` used to write, if this file still carries it.
-        snooze_forever(prevsnooze) && set_fields(it.url, ["snooze" => nothing])
     else
         set_archived(it.url, stamp(at))
         set_touched(it.url, stamp(at))
@@ -710,7 +706,6 @@ function archive!(st::BState, it::Item, at::DateTime)
     end
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
         set_archived(it.url, prev)
-        snooze_forever(prevsnooze) && set_fields(it.url, ["snooze" => prevsnooze])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
         wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
@@ -798,11 +793,9 @@ quietly do nothing.
 function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     val = (v === nothing || (v isa AbstractString && isempty(v))) ? nothing : String(v)
     if val !== nothing
-        parse_snooze(val) !== nothing ||
-            return string("bad snooze value '", val,
-                          "' - use a span like 3d/2w/6mo/1y, or a date")
         w = wake_of(val, stamp(at))
-        w === nothing && return string("'", val, "' has no wake time in it - ",
+        w === nothing && return string("bad snooze value '", val,
+                                       "' - use a span like 3d/2w/6mo/1y, or a date; ",
                                        "r is \"until it moves\" and x is \"forever\"")
         val = w
     end

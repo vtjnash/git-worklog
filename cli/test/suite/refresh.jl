@@ -138,7 +138,7 @@ end
                                    number = 2, title = "t")))
     # Filed work still carries the tag, and the sleep axis is what takes it out
     # of a list: two questions, two axes, no precedence between them.
-    @test :second in W.tags_of(quiet, W.Marks(archived = Dict("u" => "forever")))
+    @test :second in W.tags_of(quiet, W.Marks(archived = Dict("u" => "2026-09-01T00:00:00Z")))
     # And the reason is shown where the item's facts are.
     @test any(l -> occursin("quiet", l) && occursin("3 work days", l),
               W.astrip.(W.meta_lines(st, quiet, 60)))

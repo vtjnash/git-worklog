@@ -1499,10 +1499,10 @@ second look, and stamp read an item put away by hand that was never read.
 **What the modes became.** `3d`/`2w`/`6mo`/a date are the wake, written
 *resolved* - `wl snooze` and `s` store the moment a span ends, so the file says
 when and nothing has to remember when it was set; a span typed by hand counts
-from the read stamp beside it. `on-change` is what `r` does and has no wake
-in it; it parses, so an old file reads, and resolves to nothing. `on-change/30d`
-is `30d`. `forever` is the archive, read as the mark for a file still carrying
-it. A timed snooze **no longer holds against movement**: a snoozed item that
+from the read stamp beside it. `on-change` is what `r` does, `on-change/30d`
+is `30d`, and `forever` is `x`; none of the three parses any more, since there
+was no file carrying them to keep reading (the legacy paths lasted one commit,
+2026-09-13). A timed snooze **no longer holds against movement**: a snoozed item that
 somebody pushes to comes back today, which is what "additional wake source"
 means and was the decision behind the whole change.
 

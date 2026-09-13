@@ -248,23 +248,10 @@ undraft!(url::AbstractString) = set_draft(url, nothing)
 
 """Every item filed away, as `url -> when`.
 
-The `archived` mark, plus any block still carrying the `snooze = "forever"`
-that `x` used to write - read as filed, so that a file from before the mark
-existed loses nothing. Filed is read that no view shows unless asked: see
+The `archived` mark. Filed is read that no view shows unless asked: see
 `show_ok`.
 """
-function archived_map()
-    out = Dict{String,String}()
-    for (u, r) in field_maps(("archived", "snooze"))
-        a = get(r, "archived", nothing)
-        if a !== nothing
-            out[u] = a
-        elseif snooze_forever(get(r, "snooze", nothing))
-            out[u] = "forever"
-        end
-    end
-    out
-end
+archived_map() = field_map("archived")
 
 """Every item with a wake time, as `url -> stamp`, resolved.
 

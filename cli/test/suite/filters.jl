@@ -100,7 +100,7 @@ end
     # have put away is the strongest reason there is to be shown it again - the
     # two together mean the work was filed and the words were never sent. The
     # tag is its own axis, so nothing about sleep can take it away.
-    @test :drafts in W.tags_of(it, W.Marks(archived = Dict(it.url => "forever"),
+    @test :drafts in W.tags_of(it, W.Marks(archived = Dict(it.url => "2026-09-01T00:00:00Z"),
                                            drafts = Dict(it.url => "2026-01-01")))
     # Sent or thrown away, it leaves the lane.
     W.undraft!(it.url)
