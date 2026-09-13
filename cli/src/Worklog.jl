@@ -12,7 +12,8 @@ index of the rest:
                  that `config.toml` names as the one to read them from
   * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
   * `events.jl`  the activity poll, over GitHub.jl's REST
-  * `refresh.jl` bucketing, the wake table, and the snapshot diff
+  * `refresh.jl` the facts the tags are made of, the wake table, and the
+                 snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
   * `fetched.jl` one half of `data/`: everything GitHub can answer again
   * `state.jl`   the other half: the comment-preserving line editor for
@@ -144,7 +145,6 @@ precompile(normalize, (JSON3.Object{Base.CodeUnits{UInt8,String},
                        String, String))
 precompile(Events.unread, (Dict{String,Any}, String, DateTime))
 precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
-precompile(next_batch, (Int,))
 precompile(ui, (Vector{String}, DateTime))
 
 function __init__()

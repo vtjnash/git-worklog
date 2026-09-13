@@ -202,7 +202,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         elseif k in (Int(' '), 6, K_PGDN); st.frow = min(nf, st.frow + lpage)
         elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
         # The same four the item list has. The filter list is long enough to
-        # need them - it is every bucket, every repo and every label seen -
+        # need them - it is every lane, every repo and every label seen -
         # and `nf` is its bound the way `length(st.items)` is that list's.
         elseif k in (Int('b'), 2, K_PGUP); st.frow = max(1, st.frow - lpage)
         elseif k in (Int('g'), K_HOME); st.frow = 1

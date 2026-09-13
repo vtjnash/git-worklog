@@ -245,7 +245,7 @@ end
         it = first(x for x in st.all if W.islocal(x))
         # The tip's subject is its title, and it joins the branch list.
         @test it.ref == "main#mine" && it.title == "my work"
-        @test it.bucket == "local" && !it.is_pr && it.branch == "mine"
+        @test it.lane == "local" && !it.is_pr && it.branch == "mine"
         @test W.branch_index(st.all)[("o/main", "mine")].url == u
         # The row it came from now carries it, so `a` reads as a toggle.
         @test v.brows[findfirst(b -> b.name == "mine", v.brows)].item !== nothing

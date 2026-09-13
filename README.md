@@ -34,12 +34,19 @@ blocks it names, and leaves every other line byte-identical. Every snooze and
 note you set survives any refresh, and a confused model cannot erase your
 triage.
 
-Buckets are derived from facts by rules, not guessed: changes-requested or
-unresolved threads or red CI → **needs-edits**;
-approved and green → **ready to merge**; they pushed after your last review →
-**needs-review**. Judgement is not made here at all: what a red CI really means,
-what the next action is, and what is urgent are written into `local.toml`, by
-you or by a model reading the same files.
+What a row *wants* is derived from facts by rules, not guessed, and each
+rule is a fact of its own on the row - a sentence while it holds, empty when
+it does not, and none of them exclusive: changes-requested or unresolved
+threads or red CI → **needs edits**; approved and green → **ready to merge**;
+asked to review and not done, or they pushed after you did → **review owed**;
+mentioned recently and the last word is theirs → **reply owed**; the author
+acted and nobody answered → **second look**. They are the tag axis in the
+browser, and a view names whichever it means. There used to be a *bucket* - one
+word per row, first rule to answer wins - and the winning made it wrong: a
+closed row's word was `done`, so the question somebody had asked you on it was
+never seen. Judgement is not made here at all: what a red CI really means, what
+the next action is, and what is urgent are written into `local.toml`, by you or
+by a model reading the same files.
 
 ## Read, snooze, archive
 
@@ -78,11 +85,12 @@ issues assigned to you. Slow lanes in `[bulk.queries]`, fetched every 6h: every
 open PR in JuliaLang/julia, plus everything you were mentioned in or have
 commented on (~2500 items). Nothing from a slow lane surfaces on its own.
 
-The one exception is **needs-reply**: you were mentioned within `reply_days`
+The one exception is **reply owed**: you were mentioned within `reply_days`
 (30) and the last comment is not yours, so a question is probably owed an
-answer. Deliberately narrow — plain `commented:` never qualifies, because in the
-repos where you are effectively the maintainer you touch nearly every PR, and
-that would put forty items a week in front of you.
+answer - and it is owed whether or not the thread is still open. Deliberately
+narrow — plain `commented:` never qualifies, because in the repos where you are
+effectively the maintainer you touch nearly every PR, and that would put forty
+items a week in front of you.
 
 **And nothing ages out of being unread.** A row is an item because a lane
 returned it, and every fast lane is `is:open` — so the merge that takes a pull
@@ -263,34 +271,28 @@ than assumed: orphaned heads up to fourteen months old came back from `git fetch
 <remote> <sha>`. So "the commit is gone" is not a state this has to handle — a
 failure there means the repository or the network is not answering.
 
-## Working the pile
+## The pile, and the second look
 
-The pile is about two thousand items: every open PR in JuliaLang/julia (~690),
+The pile is about two thousand items: every open PR in JuliaLang/julia (~700),
 and everything you were mentioned in or commented on (~1300). It is in the
-corpus like everything else - the browser opens on what *moved*, so it is not in
-front of you until it does - and `wl next` is the other way at it: pull a batch
-when you want one and work through it by tagging.
+corpus like everything else and there is no queue over it any more - `wl next`
+handed out slices of it to tag, and the tags it handed out were the same marks
+`r`, `s` and `x` write in the browser, one row at a time, where the row can be
+read first. A view over the `lane` axis is the pile by name.
 
-```bash
-cli/bin/wl next 10                 # next untriaged items, quietest first
-cli/bin/wl dismiss julia#43202     # retire: loose + wake only on real movement
-cli/bin/wl track   julia#43257 loose
-cli/bin/wl note    julia#44005 "still relevant; rebase onto the new pass manager"
-```
-
-Anything you have tagged never comes back in `next`, so the queue drains
-monotonically and you can stop and resume at any point - the tag is the only
-record of having dealt with something, and there is no second one. `next` hands
-you your areas first (from `config.toml`'s `areas` list) so a thousand-PR pile
-still leads with the relevant end of it.
-
-## The stale pile
-
-Yours, quiet for 60 days, and unclaimed → the **stale** bucket. It is a true
-thing to say about a row and no longer decides whether you see it: nothing is
-evicted for being quiet, since a row leaving on a day nobody chose is the one
-thing a dashboard must not do. `second_look` is the live half of this - work
-that has gone quiet *on somebody*, derived every refresh and never stored.
+The **second look** is the one thing derived about silence, and it is on by
+default because asking for it would defeat it: the failure it catches is work
+that goes quiet without anybody deciding it should. A conditional snooze that
+arms itself. It fires when the author acted - opened it, or commented - and
+nobody has answered with a comment or a review since, for `second_look_days`
+*working* days. On your own pull request that is a reviewer who never came; on
+somebody else's it is a reply you owe. A push is not an action: the author
+working on their own branch says nothing about whether anybody is waiting.
+Never on the pile, since nobody there is waiting on you, and never on finished
+work. `stale` used to stand beside it - yours, quiet 60 days, unclaimed - and is
+gone: the second look already says "opened it, then quiet for 65 work days",
+and the list is newest first, so an old row is at the bottom rather than in the
+way.
 
 ## The browser
 
@@ -545,8 +547,7 @@ one entry point.
 
 `config.toml` defines the lanes. Currently: PRs you authored, PRs awaiting your
 review, issues assigned to you, plus **every** open PR in JuliaLang/julia as the
-background pile. The `areas` list is a ranking signal for `wl next`, not a
-filter — nothing is excluded.
+background pile. Nothing is excluded.
 
 The firehose is fetched on its own 6-hour cadence (`cli/bin/refresh --firehose`
 forces it), because it is ~1000 PRs and several minutes, while a normal refresh with

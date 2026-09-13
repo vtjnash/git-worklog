@@ -29,7 +29,7 @@ newnodes() = [Node("import an item by url",
                    "not mention you matches none of them, and a url is not a " *
                    "query, so this is the way in.\n\n" *
                    "It is followed from then until you archive it, with notes, " *
-                   "snoozes, the clock and the buckets all working on it as they " *
+                   "snoozes, the clock and the tags all working on it as they " *
                    "do on anything else. The one thing it cannot have is the " *
                    "events poller, which only watches the repos named in " *
                    "`config.toml` - so new activity on an imported item will " *
@@ -40,7 +40,7 @@ newnodes() = [Node("import an item by url",
 
 The one thing the lanes cannot reach: an issue in a repo nobody watches that
 does not mention you matches nothing by construction. From here it is an
-ordinary item - notes, snoozes, the clock, the buckets and archive are all keyed
+ordinary item - notes, snoozes, the clock, the tags and archive are all keyed
 by url and work on it the moment it exists.
 
 The one thing it cannot have is the events lane, which is why the prompt says so
@@ -171,7 +171,7 @@ end
 
 """Make every value this item carries selectable in the filter pane.
 
-Each axis is built once, from the items the browser opened with, so a bucket,
+Each axis is built once, from the items the browser opened with, so a lane,
 repo, label or author arriving mid-session - an import, an adoption, a label
 just put on - is a filter nobody can ask for until it is added here.
 
@@ -179,7 +179,7 @@ Your own login is left off the author axis, the same as when it is built: `@me`
 is that row.
 """
 function note_axes!(st::BState, it::Item)
-    it.bucket in st.buckets || push!(st.buckets, it.bucket)
+    it.lane in st.lanes || push!(st.lanes, it.lane)
     it.repo in st.repos || push!(st.repos, it.repo)
     for l in it.labels
         l in st.labels || push!(st.labels, l)

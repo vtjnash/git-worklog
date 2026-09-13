@@ -39,7 +39,7 @@
             @test all(W.seen_of(it, m) in (:unread, :read) for it in all_)
             @test all(W.filed_of(it, m) isa Bool for it in all_)
             @test all(W.over_of(it) in (:open, :done) for it in all_)
-            @test all(W.tags_of(it, m) ⊆ [:reply, :second, :touched, :drafts, :snoozed] for it in all_)
+            @test all(W.tags_of(it, m) ⊆ [k for (k, _) in W.TAGS] for it in all_)
             st.filters = W.everything(); W.refilter!(st)
             @test length(st.items) == length(all_)
 

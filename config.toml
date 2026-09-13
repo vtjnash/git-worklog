@@ -48,23 +48,13 @@ landed   = "is:pr author:vtjnash is:closed closed:>{since:21} archived:false"
 reviewed = "is:pr review-requested:vtjnash is:closed closed:>{since:14} archived:false"
 resolved = "is:issue assignee:vtjnash is:closed closed:>{since:14} archived:false"
 
-[firehose]
-repo = "JuliaLang/julia"
-# Not a filter - a ranking signal. `wl next` hands you these areas first.
-areas = [
-  "compiler:codegen", "compiler:llvm", "compiler:optimizer", "compiler:inference",
-  "compiler:effects", "compiler:lowering", "compiler:precompilation",
-  "GC", "GC: MMTK", "multithreading", "atomics", "invalidations",
-  "types and dispatch", "ffi", "embedding", "juliac", "trimming",
-  "latency", "caching",
-]
-
 [bulk]
 # Big, slow-moving queries. ~2000 items between them, so they run on their own
 # cadence rather than every refresh; force with `cli/bin/refresh --firehose`.
-# Nothing fetched here surfaces on its own - it all lands in the background pile
-# and is reached only through `wl next`. The one exception is a recent mention
-# whose last comment is not yours, which becomes a `needs-reply`.
+# Nothing fetched here is carried when it closes - it is the background pile,
+# and a closed row leaving it is not news. The one exception is a recent
+# mention whose last comment is not yours, which owes a reply and is in front
+# of you.
 refresh_hours = 6
 
 [bulk.queries]
@@ -78,23 +68,26 @@ commented_issue = "is:open is:issue commenter:vtjnash archived:false"
 # org read, and returns nothing with an App installation token; searching for
 # the literal text needs no such thing and finds the same mentions in comments
 # as well as bodies. The lane name starts with `mentioned` on purpose: that is
-# what the bucketing rule keys on, so a team mention whose last word is not
-# yours becomes a needs-reply exactly like a personal one. Add teams with OR.
+# what `reply_owed` keys on, so a team mention whose last word is not yours
+# owes a reply exactly like a personal one. Add teams with OR.
 # Two lanes and not one: a GraphQL search without `is:pr` or `is:issue` returns
 # zero, free text included, which is the same trap `assignee:` falls into.
 mentioned_team_pr    = "is:open is:pr in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 
-# Named filter sets for `'` in the browser. Nine are built in - notification
+# Named filter sets for `'` in the browser. Ten are built in - notification
 # firehose, my work, open items, waiting on me, waiting on them, ready to merge,
-# red CI mine, unanswered, everything - and a table here adds one, or replaces a
-# built-in of the same name. Every axis the view does not name is cleared when
+# needs edits mine, unanswered, snoozed, everything - and a table here adds one,
+# or replaces a built-in of the same name. Every axis the view does not name is cleared when
 # it is applied, so a name always means the same list. `'` then the last entry
 # copies the TOML for whatever filter you are looking at, to paste in here; the
 # browser never writes this file.
 #
-# The axes: `show` (base, read, filed, done), `tag` (reply, second, touched,
-# drafts, snoozed), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
+# The axes: `show` (base, read, filed, done), `tag` (reply, review, edits,
+# ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
+# `author`, `sort`. `lane` is which search claimed the row - the keys under
+# `[lanes]` and `[bulk.queries]`, plus `imported`, `carried`, `activity` for a
+# row only the poll saw, and `local` for an adopted branch.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the
@@ -113,10 +106,6 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # tag = ["second"]
 # repo = ["JuliaLang/julia"]
 # label = ["types and dispatch"]
-
-[backlog]
-# Default size of `wl next`, the pull-based backlog queue.
-batch = 10
 
 [events]
 # Every comment and state change in these repos is logged locally, so the

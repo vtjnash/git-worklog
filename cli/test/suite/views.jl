@@ -76,7 +76,7 @@ end
     # poll rather than from `facts.json` are carried across, since a refresh
     # that does not mention them is not evidence that they are gone.
     ghost = W.Item(url = "https://github.com/o/r/issues/1", repo = "o/r", number = 1,
-                   ref = "r#1", title = "unread and untracked", bucket = "activity")
+                   ref = "r#1", title = "unread and untracked", lane = "activity")
     push!(st.all, ghost)
     push!(st.unread, ghost.url)
     W.rebuild_axes!(st)

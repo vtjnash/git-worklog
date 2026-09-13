@@ -35,7 +35,7 @@ localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # imported - tagged by nothing, and still fetched by url every run. It sits here
 # beside `adopted` for the same reason that one does: the field is the record,
 # and the command that makes it is a convenience over the field.
-const FIELDS = ["adopted", "blocked_on", "bucket", "deadline", "imported",
+const FIELDS = ["adopted", "blocked_on", "deadline", "imported",
                 "note", "snooze", "track"]
 const ALIAS = Dict("blocked" => "blocked_on")
 # Two, and there were four: see `TRACK_KEYS` for what `close` and `background`
@@ -232,48 +232,3 @@ function get_field(url::AbstractString, key::AbstractString)
     nothing
 end
 
-"""Hand back the next slice of the untriaged pile, quietest first.
-
-Pull, never push: nothing in the pile reaches the dashboard on its own. You ask
-for work when you want it. Items you have already tagged in local.toml are
-considered triaged and never come back here - and tagging is the only thing that
-retires one. It used to keep a `queue.json` of what it had printed and sort that
-to the back, which is a fifth file of one fact per url to make asking twice in a
-row show two different slices; the tag is the record of having dealt with
-something, and there was never a second one worth keeping.
-"""
-function next_batch(n::Int)
-    items = fetched("items")
-    items === nothing && die("nothing fetched yet - run `wl refresh` first")
-    state = load_state()
-    pool = String[String(u) for (u, r) in pairs(items)
-                  if in_pile(r) && !truthy(get(state, String(u), nothing))]
-    if isempty(pool)
-        println("the pile is fully triaged")
-        return 0
-    end
-    function last_activity(u)
-        r = items[Symbol(u)]
-        c = [t for t in (jget(r, :head_at), jget(r, :last_comment_at)) if truthy(t)]
-        isempty(c) ? String(r.updated) : maximum(String(x) for x in c)
-    end
-    areas = Set{String}(get(TOML.parse(read(joinpath(ROOT, "config.toml"), String))["firehose"],
-                            "areas", String[]))
-    # Your areas first, so a thousand-PR pile still hands you the relevant end
-    # of it; then quietest first.
-    rank(u) = (!any(in(areas), jget(items[Symbol(u)], :labels, ())),
-               last_activity(u), u)
-    sort!(pool; by = rank)
-    batch = first(pool, n)
-    @printf("%d untriaged items in the pile (%d shown)\n\n", length(pool), length(batch))
-    for u in batch
-        r = items[Symbol(u)]
-        ref = "$(split(r.repo, '/')[end])#$(r.number)"
-        hit = sort(String[l for l in jget(r, :labels, ()) if l in areas])
-        @printf("%-22s %-8s %s\n", ref, r.bucket, first(String(r.title), 74))
-        isempty(hit) || @printf("%-22s %s\n", "", join(hit, ", "))
-        @printf("%-22s %s\n\n", "", u)
-    end
-    println("tag each:  wl dismiss <ref> | track <ref> loose | note <ref> \"...\" | snooze <ref> <date>")
-    0
-end

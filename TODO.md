@@ -368,18 +368,28 @@ standing footer warning is dismissed.
 ### The second look
 Derived every refresh, never stored, and the opposite of a snooze: it needs no
 asking for, because the failure it catches is work going quiet without anybody
-deciding it should. It fires on two shapes of silence - the author spoke or
-pushed and nobody answered, or somebody approved it and nothing happened after -
-measured in *working* days, past a floor (`second_look_days`, 2) and with no
-ceiling - there was one and it went, along with `stale`'s eviction, for the same
-reason. Only for work you are carrying: the background pile is full of other
-people's pull requests where the author spoke last.
+deciding it should - a conditional snooze that arms itself. Since 2026-09-13 it
+fires on one shape of silence, read two ways: **the author acted and nobody
+answered** - they opened it and there are no comments, or they commented and
+the comment is still the last - with no comment or review by anybody else
+since, measured in *working* days from the action, past a floor
+(`second_look_days`, 2) and with no ceiling - there was one and it went, along
+with `stale`'s eviction, for the same reason. Only for work you are carrying:
+the background pile is full of other people's pull requests where the author
+spoke last.
 
-It cuts across the buckets rather than being one - a pull request nobody
-answered is still waiting on a reviewer - so it is a filter state, not a
-bucket. A bot commenting after the author hides the
-author's comment from `comments(last: 1)`, so that case does not fire rather
-than firing on a stale reading.
+Two shapes it had are gone. **A push** is not an action: the author working on
+their own branch says nothing about whether anybody is waiting, and "pushed,
+then quiet" fired on every pull request whose author kept working on it.
+**Approved, then quiet** was the reviewer's action, not the author's, and it is
+the `ready` tag now - approved and green - which is the more specific thing to
+say about it.
+
+It was always a fact that cut across the buckets rather than being one - a pull
+request nobody answered is still waiting on a reviewer - and now every bucket
+is one of these: see "Buckets" under Outstanding work. A bot commenting after
+the author hides the author's comment from `comments(last: 1)`, so that case
+does not fire rather than firing on a stale reading.
 
 ### Testing without a terminal
 There is no TTY here, so the UI is tested by construction rather than by use:
@@ -955,6 +965,9 @@ the record of that.
 
 ### Buckets: one answer per row, and whether a view is not the better shape
 
+**Retired, 2026-09-13**, the same day, and `wl next` with it. What follows is
+the case as it was made; what was done with it is at the end.
+
 Raised 2026-09-13, from the closed mention. `derive_bucket` is a cascade -
 override, then `done`, then the lane rules, then yours, then theirs - and the
 first rule to answer names the row. That is what a bucket *is*: a category
@@ -1007,6 +1020,35 @@ None of that is large. What it costs is the one thing a bucket gives that a
 set of tags does not: a single word for a row, in the list and in `wl next`.
 Whether that word earns its exclusivity is the question; today it has cost
 one real gap and answered none that the facts could not.
+
+**What was done.** `derive_bucket` is gone and `apply_state!` derives four
+facts in its place, each a sentence or `""` on the row and a tag in the
+browser: `reply` (`reply_owed`), `review` (`review_owed`: asked, and not
+reviewed since their last push), `edits` (`edits_owed`: the verdict, the
+threads, the run, the label), `ready` (`ready_to_merge`: approved and green,
+not a draft). None reads the state except to be empty on finished work, and
+none reads another. `second_look` is the fifth, redefined - see "The second
+look" under Resuming work. What the bucket had that none of these is: `draft`
+(a field on `Item` already), `blocked` (a label, and the label axis), `issue`
+(`kind` and `@me`), `stale` and `needs-nudge` (quiet-N-days thresholds, both
+of which the second look now says in words), `waiting` (the absence of the
+rest), and `firehose` / `mentioned` / `imported` (the lane).
+
+The `bucket` axis is the **`lane` axis**: which search claimed the row, a fact,
+with `imported`, `carried`, `activity` (a row only the poll saw) and `local`
+(an adopted branch) beside the config's names. `in_pile` reads the lane and
+the `reply` fact; `resolve_track` reads `mine` and the state; the metadata
+pane prints the lane and each fact that holds; `bucket =` is no longer a
+field of `local.toml`. The views `ready to merge` and `needs edits, mine` name
+tags. `wl next` is deleted with its `[backlog]` and `[firehose].areas` config:
+the tags it handed out were the marks the browser writes one row at a time,
+where the row can be read first, and a view over the lane axis is the pile by
+name. `why` stays on `Item` for the adopted branches, which are the one thing
+that still has a sentence about how it got here.
+
+Exercised on a live refresh the same day: 2172 rows, 477 `edits`, 43 `review`,
+22 `reply`, 1 `ready`, 67 second looks - 40 of them "opened it, then quiet",
+which the old rule could not say.
 
 ### "Waiting for a reviewer" is built, and the gap is the order
 

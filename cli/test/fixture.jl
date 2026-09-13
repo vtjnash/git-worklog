@@ -84,20 +84,20 @@ const WANTED = [
 "The row `build` puts to sleep, named by the property it was taken for."
 const ASLEEP = "somebody else's again, to be the one asleep"
 
-"""Every bucket there is, one row each.
+"""Every lane there is, one row each.
 
-The category axis is built from the buckets the rows carry, and `filter_rows`
-is asserted to list every one that would select something - uncapped, which is
+The lane axis is built from the lanes the rows carry, and `filter_rows` is
+asserted to list every one that would select something - uncapped, which is
 the whole point of that testset and needs more than the eight the cap allowed.
 """
-bucket_rows(rows, taken) = begin
+lane_rows(rows, taken) = begin
     out = Pair{String,Any}[]
-    for b in sort(unique(String(W.nz(W.jget(r, :bucket), "")) for r in rows))
+    for b in sort(unique(String(W.nz(W.jget(r, :lane), "")) for r in rows))
         isempty(b) && continue
-        i = findfirst(r -> W.jget(r, :bucket) == b && !(W.jget(r, :number) in taken), rows)
+        i = findfirst(r -> W.jget(r, :lane) == b && !(W.jget(r, :number) in taken), rows)
         i === nothing && continue
         push!(taken, W.jget(rows[i], :number))
-        push!(out, string("the ", b, " bucket") => rows[i])
+        push!(out, string("the ", b, " lane") => rows[i])
     end
     out
 end
@@ -123,7 +123,7 @@ function build()
         i = findfirst(r -> !(W.jget(r, :number) in taken) && pred(r), rows)
         i === nothing ? push!(why, string(rpad("MISSING", 42), name)) : take!(name, rows[i])
     end
-    for (name, r) in bucket_rows(rows, taken)
+    for (name, r) in lane_rows(rows, taken)
         take!(name, r)
     end
     # **Numbers are unique across the fixture**, because `/` jumps by number and

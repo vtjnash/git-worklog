@@ -239,8 +239,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                         string(THEME.blocked, merge_note(ms), THEME.reset) :
                         merge_note(ms))
     end
+    # The derived facts, each in its own words, and only while it holds: the
+    # tag axis in the filter pane is these same four.
     isempty(it.reply) ||
         kv("reply", string(THEME.waiting, it.reply, THEME.reset))
+    isempty(it.review) ||
+        kv("review", string(THEME.waiting, it.review, THEME.reset))
+    isempty(it.edits) ||
+        kv("edits", string(THEME.waiting, it.edits, THEME.reset))
+    isempty(it.ready) ||
+        kv("ready", string(THEME.waiting, it.ready, THEME.reset))
     isempty(it.secondlook) ||
         kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
     b = batch_of(st, it)
@@ -274,7 +282,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     push!(out, "")
 
     head("tracking")
-    kv("bucket", it.bucket)
+    kv("lane", it.lane)
     kv("level", it.track)
     # When it wakes, while it is asleep; and when it was filed, if it was. Both
     # are marks read off `local.toml` rather than anything the refresh decided,

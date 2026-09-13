@@ -18,7 +18,12 @@ Base.@kwdef struct Item
     repo::String
     number::Int
     title::String
-    bucket::String = ""
+    lane::String = ""      # which search claimed it first - `mine`, `review`,
+                           # `assigned`, a closed lane, a bulk lane, `imported`,
+                           # `carried`; `activity` for a row only the poll saw
+                           # and `local` for an adopted branch. A fact about
+                           # how it got here, and the one axis that used to be
+                           # a derived word (`bucket`) instead
     track::String = "normal"
     note::String = ""
     ci::String = ""
@@ -29,7 +34,7 @@ Base.@kwdef struct Item
                            # and not a better-named one
     moved_at::String = ""  # when this program last saw a change at this item's
                            # tracking level - what the seen axis is measured
-                           # against. Empty on an item no refresh has bucketed,
+                           # against. Empty on an item no refresh has seen,
                            # where `updated` is the only answer anybody has
     act::String = ""       # when this last moved: the head commit, else the last
                            # comment, else `updated`. Stored as the timestamp
@@ -68,6 +73,11 @@ Base.@kwdef struct Item
     reply::String = ""     # why a reply is owed, empty when none is. The same
                            # shape, and a fact about the thread rather than
                            # about its state: a closed one can owe one too
+    edits::String = ""     # why it wants edits - changes requested, threads,
+                           # red CI, the label - empty when it does not
+    ready::String = ""     # approved and green, empty otherwise
+    review::String = ""    # why you owe a review: asked and not done, or they
+                           # pushed after you did. Empty on your own
     merged_by::String = "" # who merged it, empty unless it is merged. The one
                            # thing that tells a merge you have to be told about
                            # from one you did yourself.
@@ -100,7 +110,7 @@ function item_of(r)
         Item(
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
-            bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
+            lane = nz(jget(r, :lane), ""), track = nz(jget(r, :track), "normal"),
             note = nz(jget(r, :note), ""),
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             act = String(nz(act, "")),
@@ -122,6 +132,9 @@ function item_of(r)
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
             reply = nz(jget(r, :reply), ""),
+            edits = nz(jget(r, :edits), ""),
+            ready = nz(jget(r, :ready), ""),
+            review = nz(jget(r, :review), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
@@ -160,7 +173,7 @@ login() = isempty(LOGIN[]) ?
 # `git br` and `gh pr status` each show half of what is going on and neither can
 # hold a note about it. A local branch is not an item, and everything here is
 # keyed by url - so an adopted branch is given a synthetic one, and notes,
-# snoozes, the interaction clock, the buckets and the filters all begin working
+# snoozes, the interaction clock, the tags and the filters all begin working
 # on unlanded work without a line of code each.
 #
 # The key is `local:<repo>#<branch>` and *not* the worktree the plan first
@@ -200,7 +213,7 @@ function local_item(url::AbstractString, b = nothing)
          # branch name is the fallback, and it is what a bare ref would show.
          title = b === nothing ? branch :
                  isempty(b.subject) ? branch : b.subject,
-         bucket = nz(get_field(url, "bucket"), "local"),
+         lane = "local",
          track = nz(get_field(url, "track"), "normal"),
          note = nz(get_field(url, "note"), ""),
          deadline = nz(get_field(url, "deadline"), ""),
@@ -238,7 +251,7 @@ end
 # does not mention you cannot be followed at all. An import is the manual
 # answer: a url written into `local.toml`, and the item fetched by it from then
 # on. Being keyed by url is the whole of what it takes to compose with notes,
-# snoozes, the clock, the buckets and archive - the same as adoption above, and
+# snoozes, the clock, the tags and archive - the same as adoption above, and
 # archive is its exit too.
 
 "Urls that have been imported. Not the local ones - those are adoptions."
@@ -249,7 +262,7 @@ imported_urls() = sort!([u for u in keys(field_map("imported")) if !islocal(u)])
 The road is the one `facts.json` takes - `normalize`, then the `local.toml`
 fields, then the record `item_of` reads - because an imported item has to *be*
 an ordinary item rather than resemble one. Mapping a node straight to an `Item`
-here would be a second road, and the two would disagree first about the bucket.
+here would be a second road, and the two would disagree first about the facts.
 """
 function item_by_url(url::AbstractString, at::DateTime = utcnow())
     cfg = config()
@@ -281,7 +294,7 @@ The activity poll watches whole repos, so most of what it finds is in no lane
 and in no `fetched.json` - 628 rows of it today - and a row nobody can put the
 cursor on is a row nobody can read, snooze or file. This is everything the poll
 knows, which is less than a lane returns: no CI, no review state, no branch.
-`activity` is the bucket, which is what the poll is - not `unread`, which is
+`activity` is the lane, which is what the poll is - not `unread`, which is
 what the *seen* axis says about a row and would be the same word twice on two
 different axes in the same pane.
 
@@ -291,7 +304,7 @@ pair of them being apart is how the fields drifted the first time.
 poll_item(u) = Item(
     url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
     ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-    title = String(u["title"]), bucket = "activity",
+    title = String(u["title"]), lane = "activity",
     author = String(nz(get(u, "author", nothing), "")),
     updated = String(nz(get(u, "updated", nothing), "")),
     act = String(nz(get(u, "updated", nothing), "")),
@@ -419,7 +432,7 @@ function ui(args = String[], at::DateTime = utcnow())
         at = utcnow()
     end
     # Adopted branches are items too, and everything keyed by url works on them
-    # the moment they are: notes, snoozes, the clock, the buckets, the filters.
+    # the moment they are: notes, snoozes, the clock, the tags, the filters.
     items = vcat(loaditems(), local_items())
     # And anything imported since the last refresh, which is how an import is
     # tracked from the moment it is made rather than from the next one.

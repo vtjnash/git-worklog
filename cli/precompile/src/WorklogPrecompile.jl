@@ -109,16 +109,17 @@ with a branch and without, one of yours and one of somebody else's.
 function sample_items()
     [Worklog.Item(url = "https://github.com/o/r/pull/1", ref = "r#1", repo = "o/r",
                   number = 1, title = "a pull request with a reasonably long title",
-                  bucket = "needs-review", author = "vtjnash", is_pr = true,
+                  lane = "review", review = "review requested",
+                  author = "vtjnash", is_pr = true,
                   labels = ["bug", "domain:ci"], branch = "jn/topic",
                   state = "OPEN", ci = "SUCCESS",
                   act = "2026-09-01T12:00:00Z", milestone = "1.13"),
      Worklog.Item(url = "https://github.com/o/r/issues/2", ref = "r#2", repo = "o/r",
-                  number = 2, title = "an issue", bucket = "issue",
+                  number = 2, title = "an issue", lane = "assigned",
                   author = "someone", is_pr = false, state = "OPEN",
                   act = "2026-08-20T09:30:00Z", unresolved = 3),
      Worklog.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
-                  title = "an adopted branch", bucket = "needs-edits",
+                  title = "an adopted branch", lane = "local",
                   author = "vtjnash", is_pr = true, branch = "wip",
                   act = "2026-09-02T18:00:00Z", draft = true)]
 end
@@ -169,12 +170,12 @@ function sample_facts()
          "url": "https://github.com/o/r/pull/1", "repo": "o/r", "number": 1,
          "title": "a pull request with a reasonably long title",
          "type": "PullRequest", "author": "vtjnash", "state": "OPEN",
-         "bucket": "needs-review", "track": "normal",
+         "lane": "review", "track": "normal",
          "labels": ["bug", "domain:ci"], "blocked_on": [],
          "branch": "jn/topic", "ci": "SUCCESS", "mergeable": "MERGEABLE",
          "unresolved": 2, "review_decision": "REVIEW_REQUIRED",
          "milestone": "1.13", "milestone_due": "2026-10-01T00:00:00Z",
-         "note": "a note", "why": "review requested", "second_look": "",
+         "note": "a note", "review": "review requested", "second_look": "",
          "draft": false, "new": true, "moved": false, "snoozed": false,
          "updated": "2026-09-01T12:00:00Z", "head_at": "2026-09-01T11:00:00Z",
          "last_comment_at": "2026-09-01T09:00:00Z"
@@ -182,7 +183,7 @@ function sample_facts()
        "https://github.com/o/r/issues/2": {
          "url": "https://github.com/o/r/issues/2", "repo": "o/r", "number": 2,
          "title": "an issue", "type": "Issue", "author": "someone",
-         "bucket": "mentioned", "labels": [],
+         "lane": "mentioned_issue", "labels": [],
          "note": null, "deadline": null, "milestone": null,
          "updated": "2026-08-20T09:30:00Z"
        }

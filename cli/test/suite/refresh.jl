@@ -78,8 +78,8 @@ end
     @test W.workdays_since("2026-09-03T09:00:00Z", W.DateTime(2026, 9, 3, 17)) == 0
 
     at = W.DateTime(2026, 9, 3, 12)
-    base() = Dict{String,Any}("state" => "OPEN", "bucket" => "needs-review",
-                              "author" => "alice")
+    base() = Dict{String,Any}("state" => "OPEN", "lane" => "review",
+                              "author" => "alice", "created" => "2026-08-20T00:00:00Z")
     look(r) = W.second_look(r, at, 2)
 
     # The author spoke and nobody answered.
@@ -90,42 +90,52 @@ end
     # Somebody did answer, so nobody is waiting on anybody.
     r2 = copy(r); r2["last_comment_by"] = "bob"
     @test isempty(look(r2))
-    # A push with nothing said since is the same silence.
-    r3 = base(); r3["head_at"] = "2026-09-01T00:00:00Z"
-    @test occursin("alice pushed", look(r3))
-    # An approval that is the last thing to have happened outranks both: that is
-    # not waiting on review, it is waiting on a button.
-    r4 = copy(r); r4["approved_at"] = "2026-08-31T10:00:00Z"
-    @test occursin("approved", look(r4))
-    # An older approval does not, since something happened after it.
-    r5 = copy(r); r5["approved_at"] = "2026-08-01T10:00:00Z"
-    @test occursin("alice asked", look(r5))
+    # A review is an answer too - anybody's, whatever it said.
+    for k in ("review_at", "my_last_review_at")
+        r2 = copy(r); r2[k] = "2026-08-31T10:00:00Z"
+        @test isempty(look(r2))
+        # ...but only one that came after the author spoke.
+        r2[k] = "2026-08-01T10:00:00Z"
+        @test occursin("alice asked", look(r2))
+    end
+    # Opened, and nothing said at all: the other reading of the same silence,
+    # measured from the opening.
+    r3 = base()
+    @test occursin("alice opened it", look(r3)) && occursin("10 work days", look(r3))
+    # A push is not an action and it used to be: the author working on their
+    # own branch says nothing about whether anybody is waiting. It neither
+    # fires on its own nor moves the clock.
+    r4 = base(); r4["head_at"] = "2026-09-01T00:00:00Z"
+    @test look(r4) == look(r3)
+    r5 = copy(r); r5["head_at"] = "2026-09-02T00:00:00Z"
+    @test occursin("4 work days", look(r5))
 
     # A floor, and only a floor.
-    @test isempty(W.second_look(r3, W.DateTime(2026, 9, 2, 9), 2))   # not late yet
+    @test isempty(W.second_look(r, W.DateTime(2026, 8, 31, 9), 2))   # not late yet
     # There is no ceiling any more. A pull request quiet since last January is
     # still a pull request waiting on somebody, and it used to stop being
     # reported at 20 work days - leaving the lane on a day nobody chose, with
     # nothing recorded and nothing to undo. The lane is ordered newest first, so
     # it is at the bottom rather than in the way, and `s` `1` is what takes it
     # out: a decision, in `marks.json`, undone by `z`, back when it moves.
-    old = base(); old["head_at"] = "2025-01-02T00:00:00Z"
-    @test occursin("alice pushed", look(old))
+    old = base(); old["created"] = "2025-01-02T00:00:00Z"
+    @test occursin("alice opened it", look(old))
     @test occursin("work days", look(old))
     # And nothing fires on work that is over, or on the pile that is not a
     # to-do list.
     done_ = copy(r); done_["state"] = "MERGED"
     @test isempty(look(done_))
     # The pile is asked for by name rather than carried on the row, and it is
-    # the bucket that says so - `track = "background"` was the other half of it
+    # the lane that says so - `track = "background"` was the other half of it
     # and is gone, along with the level that could never wake.
-    for b in ("firehose", "mentioned")
-        pile = copy(r); pile["bucket"] = b
+    for l in ("firehose", "mentioned_pr", "commented_issue")
+        pile = copy(r); pile["lane"] = l
         @test isempty(look(pile)) && W.in_pile(pile)
     end
     @test !W.in_pile(r)
     # Nothing to measure at all is not silence.
-    @test isempty(look(base()))
+    nothing_ = base(); delete!(nothing_, "created")
+    @test isempty(look(nothing_))
 
     # It is a lane of its own in the filter pane, and it needs no enabling -
     # which is the whole difference from a snooze.
@@ -155,18 +165,17 @@ end
                          "updated" => "2026-09-10T10:00:00Z")
     why = W.reply_owed(r, cfg, at)
     @test occursin("mentioned you 2d ago", why) && occursin("theirs", why)
-    # On an open row the bucket says the same thing, in the same words.
-    @test W.derive_bucket(r, Dict{String,Any}(), cfg, at) == ("needs-reply", why)
-    # On a closed one the bucket says `done` - one answer per row, and over
-    # wins - and the fact is still the fact. That is the whole reason it is
-    # carried on the row rather than read off the bucket: the question on a
-    # closed thread was the one nothing here could see.
+    # On a closed one the fact is still the fact. That is the whole reason it
+    # is a fact and not a bucket: the question on a closed thread was the one
+    # nothing here could see, because "over" answered first.
     closed = copy(r); closed["state"] = "CLOSED"
     @test W.reply_owed(closed, cfg, at) == why
-    @test W.derive_bucket(closed, Dict{String,Any}(), cfg, at)[1] == "done"
     st_ = Dict{String,Any}()
     W.apply_state!(closed, st_, cfg, at)
-    @test closed["reply"] == why && closed["bucket"] == "done"
+    @test closed["reply"] == why && W.isover(closed)
+    # And a mention that owes a reply is in front of you, not in the pile: the
+    # one row a bulk lane returned that the carry keeps when it closes.
+    @test !W.in_pile(closed)
     # Your own last word answers it; a bot's or nobody's is nothing to answer.
     mine = copy(r); mine["last_comment_by"] = me
     @test isempty(W.reply_owed(mine, cfg, at))
@@ -180,7 +189,7 @@ end
     # spoke last is every thread on a repo you maintain.
     spoke = copy(r); spoke["lane"] = "commented_issue"
     @test isempty(W.reply_owed(spoke, cfg, at))
-    @test W.derive_bucket(spoke, Dict{String,Any}(), cfg, at)[1] == "mentioned"
+    @test W.in_pile(spoke)
 
     # A tag in the browser, whatever the state, and the reason where the
     # item's facts are - and the `unanswered` view is that tag over the
@@ -196,7 +205,7 @@ end
     @test v == Dict("tag" => ["reply"])
     W.apply_view!(st, v)
     @test st.filters.show == W.SHOW_DEFAULT && st.filters.tags == Set([:reply])
-    @test isempty(st.filters.buckets)
+    @test isempty(st.filters.lanes)
 end
 
 @testset "mergeability is asked of one pull request, when it is looked at" begin
@@ -400,8 +409,8 @@ end
     # And the pile is not in front of you: a closed row leaving it is not
     # carried, or a thousand pull requests nobody will read would be fetched
     # by url on every refresh for good.
-    @test W.in_pile(Dict{String,Any}("bucket" => "firehose"))
-    @test !W.in_pile(Dict{String,Any}("bucket" => "done"))
+    @test W.in_pile(Dict{String,Any}("lane" => "firehose"))
+    @test !W.in_pile(Dict{String,Any}("lane" => "mine"))
     # Exercised live on 2026-09-13 with julia#61767, merged by somebody else
     # in May and returned by no lane: carried, seen merged, `moved_at` dated
     # by the merge, kept as unread through two refreshes, and let go on the

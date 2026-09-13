@@ -1,8 +1,8 @@
 # Refresh the work dashboard from GitHub.
 #
 # Deterministic half of the dashboard: fetches live facts over GraphQL, derives
-# a bucket for every item from rules, expires snoozes and diffs against the
-# previous snapshot.
+# the few facts the browser's tags are made of, expires snoozes and diffs
+# against the previous snapshot.
 #
 # File ownership is strict, because it is what keeps your notes safe - the
 # table is in `Worklog.jl`, and this half of it is the load-bearing part:
@@ -14,7 +14,7 @@
 # is mechanical enough to delegate, what the real next action is, and priority
 # order.
 
-"Python truthiness, which several of the bucketing rules lean on: `unresolved`
+"Python truthiness, which several of the fact rules lean on: `unresolved`
 is meaningfully `0`, `None` and `[]` alike."
 truthy(v) = !(v === nothing || v === missing || v === false || v == "" ||
               (v isa Integer && v == 0) ||
@@ -276,7 +276,7 @@ end
 # of open review threads, and somebody resolving one is not a thing to be told:
 # what there was to resolve arrived as a comment or a review, and moved
 # `their_comment_at` or `review_at` on the day it did. It is still fetched -
-# `needs-edits` is bucketed on it and the metadata pane prints it - and it is
+# `edits` reads it and the metadata pane prints it - and it is
 # not a reason to put an item back in front of you. `mergeable` was the other,
 # and is not fetched at all any more: see `PR_FIELDS` for why, and
 # `Events.merge_state` for where it is asked instead.
@@ -412,8 +412,11 @@ Finished work is loose whoever it belongs to: nothing about it should wake you.
 """
 resolve_track(st, r) = let t = get(st, "track", nothing)
     t isa AbstractString && t in TRACK ? t :
-    (pget(r, "mine") === true && pget(r, "bucket") != "done") ? "normal" : "loose"
+    (pget(r, "mine") === true && !isover(r)) ? "normal" : "loose"
 end
+
+"Finished, whichever lane found it: `MERGED` or `CLOSED`."
+isover(r) = pget(r, "state") in ("MERGED", "CLOSED")
 
 """Whole working days between two instants, counting Monday to Friday.
 
@@ -445,21 +448,25 @@ workdays_since(::Nothing, ::DateTime) = 0
 Snooze answers "not now" and has to be asked for. This is the other half of
 that, and asking for it would defeat it: the whole failure it addresses is work
 that goes quiet without anybody deciding it should. So it is derived, on by
-default, and never stored.
+default, and never stored - a conditional snooze that arms itself, and whose
+condition is silence.
 
-It fires on the two shapes of silence that mean nobody is coming:
+**The author acted, and nobody has answered.** One shape, read two ways: they
+opened it and there are no comments at all, or they commented and the comment
+is still the last one. On your own pull request that is a reviewer who never
+came, or never came back; on somebody else's it is a reply you owe. The same
+rule reads both, which is why it is written about "the author" rather than
+about you.
 
-  * **The author spoke last.** They commented, or they pushed and nothing has
-    been said since - so the ball is in somebody else's court and it has not
-    moved. On your own pull request that is a reviewer who never came back; on
-    somebody else's it is a reply you never answered. The same rule reads both,
-    which is why it is written about "the author" rather than about you.
-  * **Somebody approved it and nothing happened after.** Approved and idle is
-    not waiting on review, it is waiting on a button.
-
-Measured in *working* days, from whichever of those happened last, and only for
-things you are actually carrying - the background pile is full of other people's
-pull requests where the author spoke last, and none of them is yours to nudge.
+A push is not an action here, and it used to be. The author pushing to their
+own branch says nothing about whether anybody is waiting - they may be
+answering a review, or tidying - and "pushed, then quiet" fired on every pull
+request whose author kept working on it. What counts is the author *saying*
+something, or the opening itself, and what answers it is a comment or a
+review by somebody else - measured in *working* days from the action, and
+only for things you are actually carrying, since the background pile is full
+of other people's pull requests that nobody has answered and none of them is
+yours to nudge.
 
 Labels do not count as an answer, which is the point of measuring against the
 comment rather than against `updated`. A bot's comment is not an answer either,
@@ -468,14 +475,26 @@ comment at all - `comments(last: 1)` is one comment - so that case quietly
 does not fire rather than firing on a stale reading.
 """
 function second_look(r, at::DateTime, days::Int)
-    get(r, "state", nothing) in ("MERGED", "CLOSED") && return ""
+    isover(r) && return ""
     in_pile(r) && return ""
-    hd, lc = ts(get(r, "head_at", nothing)), ts(get(r, "last_comment_at", nothing))
-    ap = ts(get(r, "approved_at", nothing))
-    events = [x for x in (hd, lc, ap) if x !== nothing]
-    isempty(events) && return ""
-    last_ = maximum(events)
-    n = workdays_since(stamp(last_), at)
+    author = String(nz(get(r, "author", nothing), ""))
+    opened = ts(get(r, "created", nothing))
+    lc = ts(get(r, "last_comment_at", nothing))
+    # The author's last word: the opening, or their comment if it is the last.
+    # Somebody else's last comment is an answer, and there is nothing to say.
+    acted = opened
+    if lc !== nothing
+        get(r, "last_comment_by", nothing) == author || return ""
+        acted = acted === nothing ? lc : max(acted, lc)
+    end
+    acted === nothing && return ""
+    # A review by anybody - theirs, or yours - after the author last spoke is
+    # an answer too, whatever its verdict.
+    for k in ("review_at", "my_last_review_at")
+        rv = ts(get(r, k, nothing))
+        rv !== nothing && rv > acted && return ""
+    end
+    n = workdays_since(stamp(acted), at)
     # A floor and not a window. There used to be a ceiling too - `n > cap` -
     # on the grounds that a pull request nobody has touched since last spring is
     # a different problem. It is, and dropping it out of the lane was the wrong
@@ -490,35 +509,35 @@ function second_look(r, at::DateTime, days::Int)
     # number in `config.toml`.
     n < days && return ""
     day(n) = string(n, n == 1 ? " work day" : " work days")
-    # An approval that is the last thing to have happened. Checked first: it is
-    # the more specific reading of the same silence, and the more actionable.
-    ap === nothing || ap < last_ || return string("approved, then quiet for ", day(n))
-    author = String(nz(get(r, "author", nothing), ""))
     who = isempty(author) || author == "?" ? "the author" : author
-    # The author had the last word: they commented and nobody answered, or they
-    # pushed and nobody has said anything since.
-    if lc !== nothing && lc == last_
-        get(r, "last_comment_by", nothing) == author || return ""
-        return string(who, " asked, then quiet for ", day(n))
-    end
-    hd !== nothing && hd == last_ || return ""
-    string(who, " pushed, then quiet for ", day(n))
+    lc === nothing ? string(who, " opened it, then quiet for ", day(n)) :
+                     string(who, " asked, then quiet for ", day(n))
 end
 
-# --- bucketing -------------------------------------------------------------
-# Every rule below is a fact GitHub already knows. Anything requiring judgement
-# is left to the model via a local.toml override.
+# --- the facts the tags are made of ----------------------------------------
+# Every rule below is a fact GitHub already knows, and each is its own key on
+# the row: a sentence when it holds and `""` when it does not, the shape
+# `second_look` has always had. They are **not exclusive**. There used to be a
+# `bucket` here - one word per row from a cascade of these same rules, first
+# to answer wins - and the cascade is what lost the question somebody put to
+# you on a thread that then closed: `done` answered first, and the mention
+# rule never ran. A fact beside another fact loses nothing; the browser's tag
+# axis is the facts, and a view names whichever it wants. Anything requiring
+# judgement is left to `local.toml`.
 
-"""Everything about an item that comes from `local.toml` rather than GitHub.
+"""Everything about an item that comes from `local.toml` rather than GitHub,
+and the derived facts that need the config to derive.
 
 Its own function because a refresh is no longer the only place an item is built:
-an import arrives in the middle of a session and has to be bucketed by the same
-rule as everything else. A second copy of this is a bucket that drifts, and the
-bucket is what decides where a row shows up at all.
+an import arrives in the middle of a session and has to carry the same facts as
+everything else. A second copy of this is a fact that drifts, and the facts are
+what decide which views a row is in.
 """
 function apply_state!(r, st, cfg, at::DateTime)
     r["reply"] = reply_owed(r, cfg, at)
-    r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
+    r["edits"] = edits_owed(r)
+    r["ready"] = ready_to_merge(r)
+    r["review"] = review_owed(r)
     r["track"] = resolve_track(st, r)
     r["note"] = get(st, "note", nothing)
     r["deadline"] = get(st, "deadline", nothing)
@@ -529,13 +548,9 @@ end
 """Why a reply is owed on this, or `""`.
 
 Somebody named you recently and the last word is theirs, so a question is
-probably waiting on an answer. A fact like `second_look` - derived every
-refresh, never stored, carried on the row as the reason in words - and unlike
-the bucket it is **not a place the row is in**, so nothing else about the row
-takes it away: a closed issue somebody asked you a question on owes the
-answer exactly as an open one does, and it is the `reply` tag in the browser
-either way. The bucket reads this too, for `needs-reply`, but only on an open
-row, since the bucket is one answer per row and "over" wins there.
+probably waiting on an answer. A fact about the thread and not about its state:
+a closed issue somebody asked you a question on owes the answer exactly as an
+open one does, and it is the `reply` tag in the browser either way.
 
 Only from the mention lanes. The `commented_*` lanes are threads you spoke on,
 and on the repos where you are effectively the maintainer that is every thread
@@ -550,68 +565,41 @@ function reply_owed(r, cfg, at::DateTime)
     "mentioned you $(age)d ago; last word is theirs"
 end
 
-function derive_bucket(r, st, cfg, at::DateTime)
-    truthy(get(st, "bucket", nothing)) && return (st["bucket"], "override")
-    # Over, whichever lane found it. This has to come before every rule below,
-    # which are all about what to do next: a merged pull request does not need
-    # review, a nudge, or a rebase.
-    s = get(r, "state", nothing)
-    if s in ("MERGED", "CLOSED")
-        d = activity_age(r, at)
-        return ("done", string(s == "MERGED" ? "merged" : "closed",
-                               d === nothing ? "" : " $(d)d ago"))
-    end
+"""Why this wants edits, or `""`: changes requested, unresolved threads, red CI,
+or the label that says so. About the pull request, whoever's it is - the view
+that means yours names the author axis beside it.
+"""
+function edits_owed(r)
+    isover(r) && return ""
     L = Set(get(r, "labels", String[]))
-    r["lane"] == "firehose" && return ("firehose", "discovery")
-    # Asked for by url, which is the whole reason it is here: no lane claimed it
-    # and no rule below should invent a reason for it. `done` still wins above -
-    # an import that merged is finished like anything else is.
-    r["lane"] == "imported" && return ("imported", "imported by url")
-    if startswith(r["lane"], "mentioned") || startswith(r["lane"], "commented")
-        # The only thing in this pile worth interrupting for: someone named you
-        # recently and the last word is theirs, so a question is probably owed an
-        # answer - `reply_owed`, which is the same fact whether or not the row
-        # is open, where this is not. Everything else - including your own old
-        # comments, and the repos where you are effectively the maintainer and
-        # touch every PR - stays in the background where you pull it on your
-        # own schedule.
-        why = reply_owed(r, cfg, at)
-        isempty(why) || return ("needs-reply", why)
-        return ("mentioned", "mention or comment history")
-    end
-    # Only after the lanes: an Issue reached via `assigned` is yours to act on,
-    # while the same Issue reached via a mention is background.
-    r["type"] == "Issue" && return ("issue", "assigned issue")
+    get(r, "review_decision", nothing) == "CHANGES_REQUESTED" && return "changes requested"
+    truthy(get(r, "unresolved", nothing)) && return "$(r["unresolved"]) unresolved thread(s)"
+    get(r, "ci", nothing) in ("FAILURE", "ERROR") && return "CI $(lowercase(r["ci"]))"
+    "status: waiting for PR author" in L && return "labelled waiting for author"
+    ""
+end
 
-    if r["mine"]
-        claimed = any(truthy(get(st, k, nothing)) for k in ("note", "deadline", "snooze"))
-        age = activity_age(r, at)
-        if !claimed && age !== nothing && age >= cfg["thresholds"]["stale_days"]
-            return ("stale", "quiet $(age)d, unclaimed")
-        end
-        "status: blocked by upstream" in L && return ("blocked", "labelled blocked by upstream")
-        get(r, "review_decision", nothing) == "CHANGES_REQUESTED" &&
-            return ("needs-edits", "changes requested")
-        truthy(get(r, "unresolved", nothing)) &&
-            return ("needs-edits", "$(r["unresolved"]) unresolved thread(s)")
-        get(r, "ci", nothing) in ("FAILURE", "ERROR") &&
-            return ("needs-edits", "CI $(lowercase(r["ci"]))")
-        "status: waiting for PR author" in L && return ("needs-edits", "labelled waiting for author")
-        truthy(get(r, "draft", nothing)) && return ("draft", "draft")
-        get(r, "review_decision", nothing) == "APPROVED" && get(r, "ci", nothing) == "SUCCESS" &&
-            return ("needs-merge", "approved and green")
-        age !== nothing && age >= cfg["thresholds"]["nudge_days"] &&
-            return ("needs-nudge", "quiet $age days")
-        return ("waiting", "waiting on reviewer")
-    end
+"Approved and green, and not a draft: waiting on a button, or `\"\"`."
+function ready_to_merge(r)
+    isover(r) && return ""
+    truthy(get(r, "draft", nothing)) && return ""
+    get(r, "review_decision", nothing) == "APPROVED" && get(r, "ci", nothing) == "SUCCESS" ||
+        return ""
+    "approved and green"
+end
 
-    # Someone else's PR that asked for you.
+"""Why a review is owed by you, or `""`: somebody asked, and either you have not
+reviewed it or they pushed after you did. Not on your own pull request, and
+not on one nobody asked you about.
+"""
+function review_owed(r)
+    isover(r) && return ""
+    pget(r, "mine") === true && return ""
+    truthy(get(r, "review_requested_at", nothing)) || return ""
     head, mine_rev = ts(get(r, "head_at", nothing)), ts(get(r, "my_last_review_at", nothing))
-    mine_rev !== nothing && head !== nothing && mine_rev > head &&
-        return ("reviewed", "you reviewed after their last push")
-    mine_rev !== nothing && head !== nothing && mine_rev <= head &&
-        return ("needs-review", "they pushed after your review")
-    ("needs-review", "review requested")
+    mine_rev === nothing && return "review requested"
+    head !== nothing && mine_rev <= head && return "they pushed after your review"
+    ""
 end
 
 """Days in a relative snooze - `3d`, `2w`, `6mo`, `1y` - or `nothing`.
@@ -741,17 +729,19 @@ end
 
 """Is this a row nobody put in front of you - the pile?
 
-The discovery sweep and the mention corpus, plus anything you pushed to the
-background by hand. Two things ask, and neither is a filter: `second_look`,
-because the pile is not a to-do list and silence in it is not a failure anybody
-owes an answer for, and `wl next`, whose whole job is to hand you a slice of it.
+The discovery sweep and the mention corpus: a row one of the bulk lanes
+claimed, unless somebody in it asked you something, which is the one thing in
+the pile that is in front of you. Two things ask, and neither is a filter:
+`second_look`, because the pile is not a to-do list and silence in it is not a
+failure anybody owes an answer for, and the carry, because a closed row
+leaving the pile is not news and a thousand of them would be fetched by url
+for good.
 
-**Computed, and it was stored** - as `backlog`, a field on every row and a bool
-on every `Item`, from when it was also a *lane*. Nothing filters on it any more:
-what takes something out of the pile is dismissing it, one item at a time, and
-the bucket already says which pile a row is in. So the two callers that mean
-"the pile" ask for it by name, and a row carries one less derived fact that
-could disagree with the bucket it was derived from.
+Read off the *lane*, which is the fact. It used to be read off the bucket,
+which was derived from the lane, and before that it was stored as `backlog`,
+a field on every row from when it was also a lane. Nothing filters on it:
+what takes something out of the pile is reading it, or filing it, one item at
+a time, recorded and undoable.
 
 `stale` is deliberately not here, and used to be. It is your *own* open work,
 and sweeping it out on a 60-day threshold hid 44 pull requests of which 36 were
@@ -759,7 +749,11 @@ waiting on a reviewer - which `second_look` could not say either, since it
 refuses the pile. Two thresholds, both silent, both unrecorded, both hiding the
 same work.
 """
-in_pile(r) = pget(r, "bucket") in ("firehose", "mentioned")
+function in_pile(r)
+    lane = String(nz(pget(r, "lane"), ""))
+    bulk = lane == "firehose" || startswith(lane, "mentioned") || startswith(lane, "commented")
+    bulk && isempty(String(nz(pget(r, "reply"), "")))
+end
 
 
 """
@@ -1002,9 +996,9 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     Events.unread(cfg, login, at)
     bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
     spent += c
-    # The first lane to claim an item names it, and `derive_bucket` reads that
-    # name - so a mention becomes a `needs-reply` and a row the firehose claimed
-    # first can never be one. A lane that names *you* therefore beats the one
+    # The first lane to claim an item names it, and `reply_owed` and `in_pile`
+    # read that name - so a mention can owe a reply and a row the firehose
+    # claimed first never can. A lane that names *you* therefore beats the one
     # that names a repo, and the discovery sweep goes last. It used to depend on
     # the order the cache file happened to be in, which was the order the lanes
     # had been added to `config.toml` over a year.
@@ -1034,7 +1028,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # read, or archived, it is let go at the foot of the loop. What was in
     # front of you is what was not in the pile: the pile is a thousand rows
     # nobody has read and never will, and a closed one leaving it is not news.
-    # A row kept this way keeps its lane, so the bucket rule still runs on it
+    # A row kept this way keeps its lane, so `reply_owed` still runs on it
     # and a mention that goes quiet past `reply_days` returns to the pile and
     # leaves on its own.
     carried = String[]
@@ -1062,8 +1056,8 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     end
     carried = Set(carried)
 
-    # Bucket, then tracking level, then the wake table at that level. Order
-    # matters: the level decides which keys `moved_stamp` compares.
+    # The facts, then the tracking level, then the wake table at that level.
+    # Order matters: the level decides which keys `moved_stamp` compares.
     changes = Any[]
     slept = String[]
     for (url, r) in items
@@ -1090,7 +1084,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
                truthy(get(st, "archived", nothing))
         held && !truthy(read_) && push!(slept, url)
-        # After the bucket, which `in_pile` reads and the pile is not a to-do
+        # After `reply`, which `in_pile` reads and the pile is not a to-do
         # list, and after the snooze, for the reason above.
         r["second_look"] = held ? "" : second_look(r, at, second_days)
         # **When this program last saw a change you asked to be told about** -

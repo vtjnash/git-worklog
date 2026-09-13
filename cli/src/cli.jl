@@ -7,24 +7,22 @@ Work dashboard.
   wl                                      the browser
   wl --refresh                            refresh first, then the browser
 
-  wl refresh [--firehose]                 re-fetch, re-bucket, re-render
+  wl refresh [--firehose]                 re-fetch, re-derive, re-render
   wl import  <url> [<url>...]             follow items no lane returns, unread
   wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl read    julia#62891                  mark a thread seen (or: read all)
   wl show    julia#62891                  state + the thread's recent comments
-  wl next    [n]                          pull the next untriaged items from the pile
   wl watching                             repos you watch, and which are tracked
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 loose           normal | loose - what counts as it moving
-  wl dismiss julia#62452                  retire from the pile until it moves
+  wl dismiss julia#62452                  loose, and read: back only when it moves
   wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
   wl note    julia#62452 "rebase after #62396 lands"
   wl archive julia#62452                  file it away; again to take it back out
   wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
   wl deadline julia#62452 2026-09-30
-  wl bucket  julia#62452 needs-review
   wl blocked julia#62452 JuliaLang/julia#62396
   wl clear   julia#62452
 
@@ -140,7 +138,6 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     cmd = args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
     cmd == "refresh" && return refresh(args[2:end])
-    cmd == "next" && return next_batch(length(args) > 1 ? parse(Int, args[2]) : 10)
     if cmd == "import"
         length(args) > 1 || die(USAGE)
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)

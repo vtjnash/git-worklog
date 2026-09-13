@@ -50,7 +50,7 @@
         # An adopted branch has no author at all and is still yours, which is a
         # thing the axis knows and the lane had to special-case.
         local_it = W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
-                          title = "t", is_pr = false, branch = "x", bucket = "local")
+                          title = "t", is_pr = false, branch = "x", lane = "local")
         W.add_item!(st, local_it)
         st.filters = W.everything(); st.filters.authors = copy(mine)
         W.refilter!(st)
@@ -248,34 +248,61 @@ end
     # config.toml as a literal date.
     @test W.expand_lane("{since:1}", at + Dates.Day(5)) == "2026-09-06"
 
-    # Over, whichever lane found it: none of the rules about what to do next
-    # apply to a merged pull request.
+    # Over, whichever lane found it: none of the facts about what to do next
+    # hold on a merged pull request, and it tracks loosely whoever's it is.
     cfg = W.config()
     base = Dict{String,Any}("lane" => "mine", "type" => "PullRequest", "mine" => true,
                             "labels" => String[], "head_at" => W.stamp(at - Dates.Day(2)),
-                            "updated" => W.stamp(at - Dates.Day(2)))
-    for (state, word) in (("MERGED", "merged"), ("CLOSED", "closed"))
+                            "updated" => W.stamp(at - Dates.Day(2)),
+                            "review_decision" => "APPROVED", "ci" => "SUCCESS")
+    for state in ("MERGED", "CLOSED")
         r = merge(base, Dict("state" => state))
-        b, why = W.derive_bucket(r, Dict{String,Any}(), cfg, at)
-        @test b == "done" && occursin(word, why) && occursin("2d ago", why)
+        W.apply_state!(r, Dict{String,Any}(), cfg, at)
+        @test W.isover(r) && isempty(r["ready"]) && isempty(r["edits"]) &&
+              r["track"] == "loose"
     end
-    # An open one is bucketed by the rules as before, and an unknown state is
-    # not treated as closed.
-    @test W.derive_bucket(merge(base, Dict("state" => "OPEN")), Dict{String,Any}(),
-                          cfg, at)[1] != "done"
-    @test W.derive_bucket(base, Dict{String,Any}(), cfg, at)[1] != "done"
-    # An explicit bucket still wins, and nothing about finished work should wake
-    # you, so it tracks loosely.
-    @test W.derive_bucket(merge(base, Dict("state" => "MERGED")),
-                          Dict{String,Any}("bucket" => "needs-review"), cfg, at)[1] ==
-          "needs-review"
-    @test W.resolve_track(Dict{String,Any}(), Dict("bucket" => "done")) == "loose"
+    # An open one carries them, and an unknown state is not a closed one.
+    for r in (merge(base, Dict("state" => "OPEN")), copy(base))
+        W.apply_state!(r, Dict{String,Any}(), cfg, at)
+        @test !W.isover(r) && r["ready"] == "approved and green" && r["track"] == "normal"
+    end
+    # The facts are not exclusive, which is the whole reason they are not a
+    # bucket: a pull request can want edits and owe you a review at once.
+    theirs = merge(base, Dict("state" => "OPEN", "mine" => false, "author" => "alice",
+                              "review_decision" => "CHANGES_REQUESTED", "ci" => "FAILURE",
+                              "review_requested_at" => W.stamp(at - Dates.Day(1))))
+    W.apply_state!(theirs, Dict{String,Any}(), cfg, at)
+    @test theirs["edits"] == "changes requested" && theirs["review"] == "review requested"
+    @test isempty(theirs["ready"])
+    # Reviewed after their last push: nothing owed. Pushed after your review:
+    # owed again.
+    theirs["my_last_review_at"] = W.stamp(at - Dates.Hour(1))
+    @test isempty(W.review_owed(theirs))
+    theirs["my_last_review_at"] = W.stamp(at - Dates.Day(3))
+    @test W.review_owed(theirs) == "they pushed after your review"
+    # Never on your own, and never unasked.
+    @test isempty(W.review_owed(merge(theirs, Dict("mine" => true))))
+    unasked = copy(theirs); delete!(unasked, "review_requested_at")
+    @test isempty(W.review_owed(unasked))
+    # Edits, in the order the reasons are checked: the verdict, the threads,
+    # the run, the label. A draft is never ready.
+    e = merge(base, Dict("state" => "OPEN"))
+    @test isempty(W.edits_owed(e))
+    e["labels"] = ["status: waiting for PR author"]
+    @test W.edits_owed(e) == "labelled waiting for author"
+    e["ci"] = "FAILURE";                       @test W.edits_owed(e) == "CI failure"
+    e["unresolved"] = 2;                       @test W.edits_owed(e) == "2 unresolved thread(s)"
+    e["review_decision"] = "CHANGES_REQUESTED"; @test W.edits_owed(e) == "changes requested"
+    @test isempty(W.ready_to_merge(merge(base, Dict("state" => "OPEN", "draft" => true))))
+    # Nothing about finished work should wake you, so it tracks loosely - and
+    # what you said by hand wins.
+    @test W.resolve_track(Dict{String,Any}(), Dict("state" => "MERGED", "mine" => true)) == "loose"
     # Whose it is decides the rest, which is the whole of "closely on mine, not
     # on anyone else's": your own pull request wakes on a failing CI and on any
     # comment, theirs wakes on a review, a human reply and a push and not on a
     # bot or its CI.
-    yours = Dict{String,Any}("bucket" => "needs-review", "mine" => true)
-    theirs = Dict{String,Any}("bucket" => "needs-review", "mine" => false)
+    yours = Dict{String,Any}("state" => "OPEN", "mine" => true)
+    theirs = Dict{String,Any}("state" => "OPEN", "mine" => false)
     @test W.resolve_track(Dict{String,Any}(), yours) == "normal"
     @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
     for k in ("ci_failed", "their_comment_at")
@@ -304,9 +331,9 @@ end
     # Two, and there is no third: the `all` level was every key there is, hashed
     # into an `fp_full` that set a `moved` field nothing ever read.
     @test Set(keys(W.TRACK_KEYS)) == Set(W.TRACK)
-    # And it is a value on the bucket axis, which is where finished work is read
-    # now that nothing renders a page of sections.
-    @test "done" in mkstate().buckets
+    # And finished work is the `done` box on the show axis, not a value on any
+    # other: the lane axis says how a row got here, never what state it is in.
+    @test !("done" in mkstate().lanes) && "landed" in mkstate().lanes
 
     # First sighting is news even where the event poller does not reach: the
     # unread lane only covers `[events].repos`, and a merge in any other repo

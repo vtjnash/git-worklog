@@ -61,17 +61,17 @@ end
     # trimmed - it is refused.
     @test u("https://github.com/o/r\"){x}/issues/1") === nothing
 
-    # Its own bucket, because no lane claimed it and no rule should invent a
-    # reason for it being here.
+    # Its own lane, because no search claimed it, and nothing invents a fact
+    # about it: not in the pile, owing nothing, tracked loosely since it is not
+    # yours.
     cfg = W.config()
     r = Dict{String,Any}("lane" => "imported", "type" => "Issue", "state" => "OPEN",
                          "labels" => String[], "mine" => false,
                          "updated" => "2026-09-01T00:00:00Z")
-    b, why = W.derive_bucket(r, Dict{String,Any}(), cfg, W.utcnow())
-    @test b == "imported" && occursin("url", why)
-    # Except that finishing still wins: an import that merged is done.
-    r["state"] = "MERGED"
-    @test first(W.derive_bucket(r, Dict{String,Any}(), cfg, W.utcnow())) == "done"
+    W.apply_state!(r, Dict{String,Any}(), cfg, W.utcnow())
+    @test !W.in_pile(r) && r["track"] == "loose"
+    @test all(isempty(r[k]) for k in ("reply", "edits", "ready", "review"))
+    @test r["lane"] == "imported"          # and the lane is the row's own axis
 
     before = read(W.localfile(), String)
     try

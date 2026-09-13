@@ -35,19 +35,27 @@
 #         news; a view that wants the open work alone names `show` without it.
 #     There was a fifth, **snoozed**, and it was not a disposition: a snoozed
 #     item is a read one with a wake time, so it is a tag now.
-#   * **tag** - the five things worth asking that are not any of the above:
-#     a question waiting on you (`reply owed`), work that has gone quiet
-#     (`second look`), work you have acted on (`touched`), words you have
-#     written and not sent (`drafts`), and work you put down for a while
-#     (`snoozed`).
-#   * **kind**, **category**, **repo**, **label**, **author** - unchanged.
+#   * **tag** - the things worth asking that are not any of the above, and
+#     several can be true of one row: a question waiting on you (`reply
+#     owed`), a review you were asked for (`review owed`), a pull request that
+#     wants edits (`needs edits`) or is waiting on a button (`ready`), work
+#     that has gone quiet (`second look`), work you have acted on (`touched`),
+#     words you have written and not sent (`drafts`), and work you put down
+#     for a while (`snoozed`).
+#   * **kind**, **lane**, **repo**, **label**, **author** - facts on the row.
+#     `lane` is which search claimed it, and it stands where `bucket` did.
 #
-# What is *not* here any more: `active`, `backlog` and `mine`. `mine` was the
-# author axis written twice. `active` and `backlog` were one fact wearing a
-# state's clothes - which lane fetched the row - and the answer to "how do I
-# stop seeing the pile" is now the same as the answer for everything else:
-# dismiss it, one item at a time, recorded and undoable. That is the one thing
-# this program knows that GitHub does not.
+# What is *not* here any more: `active`, `backlog`, `mine` and `bucket`. `mine`
+# was the author axis written twice. `active` and `backlog` were one fact
+# wearing a state's clothes - which lane fetched the row - and the answer to
+# "how do I stop seeing the pile" is now the same as the answer for everything
+# else: dismiss it, one item at a time, recorded and undoable. That is the one
+# thing this program knows that GitHub does not. `bucket` was one word per row
+# from a cascade of rules, first to answer wins, and the cascade is what lost
+# the question somebody put to you on a thread that then closed - `done`
+# answered first. Every rule in it was a fact the row carries, and a fact can
+# be a tag; tags compose and a bucket could not. The one thing it gave that
+# the tags do not is a single word for a row, and nothing was reading it.
 
 """What to show: four boxes over the three dispositions, and two of them are the
 dashboard itself.
@@ -102,25 +110,29 @@ one item's `show` every item's.
 """
 const SHOW_DEFAULT = Set([:base, :done])
 
-"""The five questions that are not an axis of their own.
+"""The questions that are not an axis of their own.
 
-Each is a mark or a derivation rather than a field: `reply` and `second` are
-worked out every refresh, from a mention and from silence, and `touched`,
-`drafts` and `snoozed` are rows in `local.toml`. Unlike the axes above an item
-can carry all five at once, so these behave like labels - any of the ones you
-pick brings the row.
+Each is a mark or a derivation rather than a field: `reply`, `review`, `edits`,
+`ready` and `second` are worked out every refresh - from a mention, a request,
+a verdict, and silence - and `touched`, `drafts` and `snoozed` are rows in
+`local.toml`. Unlike the axes above an item can carry several at once, so
+these behave like labels - any of the ones you pick brings the row.
 
-`reply` is the one that is not a bucket, on purpose. A bucket is one answer per
-row and a closed row's answer is `done`, so "somebody asked you something on
-this" was lost the moment the thread closed. A tag is a fact beside the others,
-and over the default `show` it is exactly the list the `unanswered` view is:
-unread, reply owed, open or closed.
+The first five were the bucket, and are tags on purpose. A bucket is one
+answer per row and a closed row's answer is `done`, so "somebody asked you
+something on this" was lost the moment the thread closed. A tag is a fact
+beside the others, and over the default `show` it is exactly the list the
+`unanswered` view is: unread, reply owed, open or closed. The others are the
+same shape: `review` is a request you have not answered, `edits` is a verdict
+or a red run on a pull request, `ready` is approved and green, and a view
+names whichever it means beside whichever author it means.
 
 `snoozed` is a wake time that has not come yet. One that has is not a tag any
 more, it is the item being unread - see `seen_of`.
 """
-const TAGS = [(:reply, "reply owed"), (:second, "second look"), (:touched, "touched"),
-              (:drafts, "drafts"), (:snoozed, "snoozed")]
+const TAGS = [(:reply, "reply owed"), (:review, "review owed"), (:edits, "needs edits"),
+              (:ready, "ready to merge"), (:second, "second look"),
+              (:touched, "touched"), (:drafts, "drafts"), (:snoozed, "snoozed")]
 
 """How the list is ordered. Its own control, deliberately.
 
@@ -183,7 +195,7 @@ Base.@kwdef mutable struct Filters
                                            # would be one set shared by every
                                            # filter. `SHOW`
     tags::Set{Symbol} = Set{Symbol}()      # empty means no restriction; `TAGS`
-    buckets::Set{String} = Set{String}()   # empty means every category
+    lanes::Set{String} = Set{String}()     # empty means every lane
     repos::Set{String} = Set{String}()     # empty means every repo
     labels::Set{String} = Set{String}()    # empty means every label
     kind::Symbol = :both                   # :both | :pr | :issue
@@ -230,7 +242,7 @@ other two `SHOW` boxes are the way back out to the corpus.
 """
 isdefault(f::Filters) =
     f.show == SHOW_DEFAULT && isempty(f.tags) &&
-    f.kind === :both && isempty(f.buckets) && isempty(f.repos) &&
+    f.kind === :both && isempty(f.lanes) && isempty(f.repos) &&
     isempty(f.labels) && isempty(f.authors)
 
 "One empty map, shared, for every caller that has no marks to hand."
@@ -277,7 +289,7 @@ misses the thing you asked to be told about and reports things you did not.
 `moved_at` is when the refresh last saw a change *at this item's tracking
 level* - so your own pull request turning red is unread and a stranger's is
 not, which is what `track` is for and what it did not used to reach. An item no
-refresh has bucketed - a row the activity poll alone knows about - has no
+refresh has seen - a row the activity poll alone knows about - has no
 wake table to compare, and there `updated` is the only answer anybody has.
 
 **And a snooze is a second reason, beside the table.** A snooze is a wake
@@ -340,7 +352,7 @@ end
 "Is it finished? Empty reads as open, which is what a synthetic item is."
 over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :done : :open
 
-"""The tags an item carries, of the five there are.
+"""The tags an item carries, of the eight there are.
 
 Unlike the axes, several can be true at once, so this answers with a set and the
 axis behaves like labels: any tag you pick brings the row.
@@ -348,6 +360,9 @@ axis behaves like labels: any tag you pick brings the row.
 function tags_of(it::Item, m::Marks = Marks())
     out = Symbol[]
     isempty(it.reply) || push!(out, :reply)
+    isempty(it.review) || push!(out, :review)
+    isempty(it.edits) || push!(out, :edits)
+    isempty(it.ready) || push!(out, :ready)
     isempty(it.secondlook) || push!(out, :second)
     haskey(m.touched, it.url) && push!(out, :touched)
     haskey(m.drafts, it.url) && push!(out, :drafts)
@@ -492,14 +507,14 @@ function matches(f::Filters, it::Item, m::Marks = Marks())
     isempty(f.tags) || any(in(f.tags), tags_of(it, m)) || return false
     kind_ok(f.kind, it) || return false
     author_ok(f.authors, it) || return false
-    isempty(f.buckets) || it.bucket in f.buckets || return false
+    isempty(f.lanes) || it.lane in f.lanes || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
     true
 end
 
 """
-    axis_counts(st) -> (; shows, tags, kinds, buckets, repos, labels, authors)
+    axis_counts(st) -> (; shows, tags, kinds, lanes, repos, labels, authors)
 
 How many items each filter value would select, in one pass over the items.
 
@@ -521,7 +536,7 @@ is what unchecking it would cost.
 function axis_counts(st)
     f, m = st.filters, Marks(st)
     shows = Dict{Symbol,Int}(); tagn = Dict{Symbol,Int}()
-    kinds = Dict{Symbol,Int}(); buckets = Dict{String,Int}()
+    kinds = Dict{Symbol,Int}(); lanes = Dict{String,Int}()
     repos = Dict{String,Int}(); labels = Dict{String,Int}()
     authors = Dict{String,Int}()
     bump!(d, k) = d[k] = get(d, k, 0) + 1
@@ -536,7 +551,7 @@ function axis_counts(st)
         ok = (show_ok(f.show, sn, sl, ov),
               isempty(f.tags) || any(in(f.tags), tg),
               kind_ok(f.kind, it), author_ok(f.authors, it),
-              isempty(f.buckets) || it.bucket in f.buckets,
+              isempty(f.lanes) || it.lane in f.lanes,
               isempty(f.repos) || it.repo in f.repos,
               isempty(f.labels) || any(in(f.labels), it.labels))
         # Each count is against the *other* axes only, so a value shows what
@@ -571,7 +586,7 @@ function axis_counts(st)
             author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
             author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
         end
-        others(5) && bump!(buckets, it.bucket)
+        others(5) && bump!(lanes, it.lane)
         others(6) && bump!(repos, it.repo)
         if others(7)
             for l in it.labels
@@ -579,7 +594,7 @@ function axis_counts(st)
             end
         end
     end
-    (; shows, tags = tagn, kinds, buckets, repos, labels, authors)
+    (; shows, tags = tagn, kinds, lanes, repos, labels, authors)
 end
 
 apply_filters(f, all, m::Marks = Marks()) = [it for it in all if matches(f, it, m)]
@@ -604,7 +619,7 @@ const AXIS_APPLIED_ONLY = (:repo, :label, :author)
 
 "The set an axis filters on, which is where a picked value lands."
 axis_set(f::Filters, axis::Symbol) =
-    axis === :bucket ? f.buckets : axis === :repo ? f.repos :
+    axis === :lane ? f.lanes : axis === :repo ? f.repos :
     axis === :label ? f.labels : f.authors
 
 "The same, for the two axes whose values are symbols rather than names."
@@ -622,7 +637,7 @@ A view is a whole filter set under a name. The pane composes state × kind × re
 × label × author, which is enough to ask almost anything and far too much to
 retype - so what was missing was never expressiveness, it was *recall*.
 
-The defaults are deliberately composites. A single bucket is already one `f`
+The defaults are deliberately composites. A single tag is already one `f`
 away and needs no name; what needs one is the pair of axes nobody assembles
 twice.
 
@@ -647,11 +662,11 @@ const VIEWS = [
     ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
-    ("ready to merge", Dict("bucket" => ["needs-merge"])),
-    ("red CI, mine",   Dict("author" => [AUTHOR_ME], "bucket" => ["needs-edits"])),
-    # A tag and not the `needs-reply` bucket, so a closed thread somebody asked
-    # you something on is in it: the default `show` has the closed news, and
-    # the tag does not care about state. See `TAGS`.
+    ("ready to merge", Dict("tag" => ["ready"])),
+    ("needs edits, mine", Dict("author" => [AUTHOR_ME], "tag" => ["edits"])),
+    # A tag, so a closed thread somebody asked you something on is in it: the
+    # default `show` has the closed news, and the tag does not care about
+    # state. See `TAGS`.
     ("unanswered — unread, reply owed", Dict("tag" => ["reply"])),
     ("snoozed — put down for a while", Dict("show" => ["read"], "tag" => ["snoozed"])),
     # The corpus, which no longer has a keystroke of its own: it is the base
@@ -662,7 +677,7 @@ const VIEWS = [
 ]
 
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
-const VIEW_KEYS = ("show", "tag", "kind", "bucket", "repo", "label", "author", "sort")
+const VIEW_KEYS = ("show", "tag", "kind", "lane", "repo", "label", "author", "sort")
 
 "Every view: the built-in ones, then whatever `config.toml` adds or replaces."
 function views(cfg = config())
@@ -716,7 +731,7 @@ function apply_view!(st, d)
             (bad = string(bad, " \u00b7 no axis '", key, "'"))
     end
     haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
-    for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
+    for (k, set) in (("lane", f.lanes), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
         haskey(d, k) || continue
         v = d[k]
@@ -758,7 +773,7 @@ function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
                                  ", "), "]"))
     end
     f.kind === :both || push!(lines, string("kind = ", repr(String(f.kind))))
-    for (k, set) in (("bucket", f.buckets), ("repo", f.repos),
+    for (k, set) in (("lane", f.lanes), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
         isempty(set) && continue
         push!(lines, string(k, " = [",
@@ -810,7 +825,7 @@ function filter_rows(st)
         push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
                                               rpad(name, 24), get(n.kinds, k, 0))))
     end
-    for (axis, label, values, tally) in ((:bucket, "category", st.buckets, n.buckets),
+    for (axis, label, values, tally) in ((:lane, "lane", st.lanes, n.lanes),
                                          (:repo, "repo", st.repos, n.repos),
                                          (:label, "label", st.labels, n.labels),
                                          (:author, "author", st.authors, n.authors))
@@ -841,7 +856,7 @@ function filter_rows(st)
         end
         # The rest of them, behind a picker you can type into. Offered even when
         # everything fits, so the row is in the same place every time.
-        axis === :bucket ||
+        axis === :lane ||
             push!(rows, (:pick, string(axis),
                          string("  \u002b ", length(values), " ", label,
                                 length(values) == 1 ? "" : "s", ", pick one\u2026")))
@@ -922,7 +937,7 @@ function toggle_filter!(st, ctrl = nothing)
     elseif axis === :pick
         ctrl === nothing && return false
         return pick_axis!(st, ctrl, Symbol(val))
-    elseif axis in (:bucket, :repo, :label, :author)
+    elseif axis in (:lane, :repo, :label, :author)
         set = axis_set(st.filters, axis)
         val in set ? delete!(set, val) : push!(set, val)
     else
@@ -1019,13 +1034,13 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     # saying, and stops being said the moment the selection changes it back.
     #
     # Not `sort`: that is the name of the function two lines down, and shadowing
-    # it turned `sort(collect(f.buckets))` into a call on a Symbol.
+    # it turned `sort(collect(f.lanes))` into a call on a Symbol.
     order === lane_sort(f) ||
         push!(parts, order === :latest ? "by when it moved" :
                      order === :touched ? "by when you acted" : "by url")
     isempty(f.authors) ||
         push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))
-    isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
+    isempty(f.lanes) || push!(parts, join(sort(collect(f.lanes)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
     isempty(parts) && push!(parts, "unread")

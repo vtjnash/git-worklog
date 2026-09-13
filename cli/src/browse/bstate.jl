@@ -63,7 +63,7 @@ Base.@kwdef mutable struct BState <: View
                                              # into a view and getting back out
                                              # is the move, and `z` is for
                                              # actions rather than for looking
-    buckets::Vector{String} = String[]
+    lanes::Vector{String} = String[]
     repos::Vector{String} = String[]
     labels::Vector{String} = String[]
     authors::Vector{String} = String[]   # the two predicates, then every login
@@ -164,7 +164,7 @@ function rebuild_axes!(st::BState)
         # all and are yours by definition.
         (isempty(it.author) || it.author == login()) || push!(as, it.author)
     end
-    st.buckets = sort(unique(it.bucket for it in st.all))
+    st.lanes = sort(unique(it.lane for it in st.all))
     st.repos = sort(unique(it.repo for it in st.all))
     st.labels = sort(collect(ls))
     # The two predicates lead, because they are the two anybody wants and

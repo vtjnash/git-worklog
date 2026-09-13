@@ -9,7 +9,7 @@
         p = deepcopy(f)
         axis === :tag    ? (p.tags = Set([v])) :
         axis === :kind   ? (p.kind = v) :
-        axis === :bucket ? (p.buckets = Set([v])) :
+        axis === :lane   ? (p.lanes = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
         axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
         # The same marks the counts are computed against, or the two sides are
@@ -38,9 +38,9 @@
                W.Filters(show = Set([:done])),
                W.Filters(tags = Set([:second])),
                W.Filters(tags = Set([:second, :touched, :drafts])),
-               W.Filters(buckets = Set(["needs-review"])),
+               W.Filters(lanes = Set(["review"])),
                W.Filters(repos = Set(["JuliaLang/julia"]), show = Set([:read])),
-               W.Filters(buckets = Set(["issue"]), repos = Set(["JuliaLang/julia"]),
+               W.Filters(lanes = Set(["assigned"]), repos = Set(["JuliaLang/julia"]),
                          labels = Set(["docs"])),
                W.Filters(kind = :issue),
                W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
@@ -60,7 +60,7 @@
         for (k, _) in W.KINDS
             @test get(n.kinds, k, 0) == brute(f, :kind, k)
         end
-        for v in st.buckets;  @test get(n.buckets, v, 0) == brute(f, :bucket, v); end
+        for v in st.lanes;    @test get(n.lanes, v, 0) == brute(f, :lane, v); end
         for v in first(st.repos, 12);  @test get(n.repos, v, 0) == brute(f, :repo, v); end
         for v in first(st.labels, 12); @test get(n.labels, v, 0) == brute(f, :label, v); end
         for v in first(st.authors, 12); @test get(n.authors, v, 0) == brute(f, :author, v); end
@@ -433,12 +433,12 @@ end
     @test [r[2] for r in r2 if r[1] === :repo] == [first(st.repos)]
     @test [r[2] for r in r2 if r[1] === :label] == [first(st.labels)]
     st.filters = W.Filters(); W.refilter!(st)
-    # Category is exempt: a dozen values, each a different kind of work, short
-    # enough to read whole. It still drops the ones that would select nothing.
-    nb = W.axis_counts(st).buckets
-    @test length(axis_rows(:bucket)) == count(b -> get(nb, b, 0) > 0, st.buckets)
-    @test length(axis_rows(:bucket)) > 8                     # and so, uncapped
-    @test isempty([r for r in rows if r[1] === :pick && r[2] == "bucket"])
+    # The lane is exempt: a dozen values, one per search, short enough to read
+    # whole. It still drops the ones that would select nothing.
+    nb = W.axis_counts(st).lanes
+    @test length(axis_rows(:lane)) == count(b -> get(nb, b, 0) > 0, st.lanes)
+    @test length(axis_rows(:lane)) > 5                       # and so, uncapped
+    @test isempty([r for r in rows if r[1] === :pick && r[2] == "lane"])
     # A row per long axis that opens the rest, and it says how many there are.
     picks = [r[2] for r in rows if r[1] === :pick]
     @test picks == ["repo", "label", "author"]
@@ -679,7 +679,7 @@ end
     st = mkstate()
     ctrl = W.Controller(); ctrl.running = true
 
-    # The defaults are composites on purpose: a single bucket is already one `f`
+    # The defaults are composites on purpose: a single tag is already one `f`
     # away and needs no name.
     names = [n for (n, _) in W.views(Dict{String,Any}())]
     @test "waiting on me" in names && "ready to merge" in names
@@ -701,8 +701,8 @@ end
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.
     st.filters.labels = Set(["docs"]); st.filters.kind = :issue
-    W.apply_view!(st, Dict("bucket" => ["needs-review"]))
-    @test st.filters.buckets == Set(["needs-review"])
+    W.apply_view!(st, Dict("lane" => ["review"]))
+    @test st.filters.lanes == Set(["review"])
     @test isempty(st.filters.labels) && st.filters.kind === :both
     # "Cleared" is what the axis says when it is asked nothing, which on `show`
     # is the base box and the closed one rather than the empty set: a view that
