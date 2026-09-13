@@ -158,21 +158,94 @@ here is done; `git log` is the record of it and this file is not.
    `edits`, `ready`, `review` or the second look. Those tags are what the
    open work is *sorted* by, and they need the bundle.
 
-   **The shape this suggests**, if it is ever picked up: notifications and
-   the repo poll are the clock - what moved, why, when - and GraphQL is asked
-   *by url*, not by search. `fetch_urls` already does that, 40 resources a
-   request with the same selections, for the imported and carried rows; the
-   set to ask for is the open work (`mine` + `review` + `assigned`, ~135
-   rows, found by three REST searches or carried from the last run) plus
-   whatever the clock says moved. Cost is roughly the search lanes' - the
-   selections are what the points count, not how the nodes were named. What
-   goes: the seven discovery lanes and their cache, `implausible`, the
-   `mentioned*` prefix that `reply_owed` and `in_pile` key on (a `reason` is
-   a better key), `OVERLAP_SEARCH`, and the bulk cadence. What has to be
-   answered first: whether the `in_pile` idea survives at all - a thread
-   you commented on that has not moved in a month is in no inbox, and
-   "background pile" was a standing list by construction - and what the
-   `firehose` lane's readers are, exactly, before it is dropped.
+   **Investigated further the same evening**, on the thought that the
+   notifications fill the corpus in over time, so GraphQL is only ever for
+   populating it and for the row under the cursor. Two measurements first:
+
+   - *Where the time goes.* From the sandbox, twice each: the `mine` search,
+     72 rows in two pages, 8.5s; the same 40 rows by url through
+     `fetch_urls`, 5.6s and 9.2s; five by url, 1.0s; the REST search for the
+     same query, 72 rows, 1.2s and 2.2s; one page of the repo poll, 0.3s.
+     So GraphQL is not slow per request, it is slow **per row** - 150-200ms
+     of server time for one node of `PR_FIELDS`, however the node is named
+     - and the refresh is slow because it asks for every row it knows about:
+     the six lanes and the carried rows are ~250 nodes a run, ~50s, and the
+     bulk sweep is ~1300 more every six hours. A refresh that asks for the
+     ten rows that moved is two seconds. That is the whole of "notifications
+     are faster": they cost one REST page and name the rows worth asking
+     about.
+   - *What notifies*, read off the timeline of thirty julia threads at the
+     thread's `updated_at`: the open, the close, the merge, a push (both
+     `committed` and `head_ref_force_pushed`), a review, a review comment, a
+     review request. What does not: a label (#63132 was labelled 01:32 and
+     notified 01:33 for its opening, then marked ready for review at 04:17
+     and the thread did not move), **a check finishing** (`updated_at` does
+     not move for it either - the wake table exists because of that), a
+     review thread being resolved. The gaps are all the author making a pull
+     request mergeable without saying anything, which is exactly what
+     `ready` and `edits` read.
+
+   **The design, in steps.** The corpus already persists (`fetched.json`
+   `items`, read back as `prev_items`) and already has the by-url path
+   (`fetch_urls`, for the imported and carried rows); what changes is that
+   the searches stop being the thing that populates it every run.
+
+   1. **Three clocks say what moved.** The notifications source and the
+      repo poll, which exist; and for the standing set - the open work, which
+      is not a list of things that moved - the three fast lanes asked as
+      **REST** searches (`search_issues`, one point, one page, ~1.5s each)
+      that yield urls and `updated_at` and nothing else. A pull request of
+      yours that nobody has touched is found by the first; a review request
+      or an assignment notifies anyway, so the other two are insurance.
+   2. **GraphQL by url, for the rows that need the bundle**, in one
+      `fetch_urls` call: rows new to the corpus; rows a clock says moved
+      (thread or poll `updated` past the row's); rows the searches put in
+      the open work that the corpus holds only as a light poll or thread
+      row; imported and carried, as today; and **the sweep** for what no
+      clock sees - open-work rows whose `ci` is unsettled or whose head moved
+      within a day - which is the CI-pending handful and bounds itself.
+      Typically ten to twenty rows, two to four seconds. Everything else
+      keeps the bundle it has, and `moved_stamp` compares old to new exactly
+      as now, so the wake table, the change list and `moved_at` are
+      untouched; a row not re-asked does not move.
+   3. **On selection, the bundle for that row**: `load_meta!` already fetches
+      the REST head, the reviews, the checks and the merge state for the
+      item under the cursor, and `imported_items` already runs
+      `fetch_urls` + `normalize` inside the browser; one more by-url fetch,
+      of the one row, under the cache policy - shown stale, re-read behind
+      after a second on screen - and `normalize` + `apply_state!` on the
+      answer, written back to `items` so the tags on that row are current
+      the moment it is looked at. This is what makes step 2's staleness
+      acceptable: a row is exact when it moved and when you look at it, and
+      approximate only while it is neither.
+   4. **The initial population** is the lanes as they are, run when the
+      corpus is empty or asked for (`--rebuild`), and never on a timer.
+      The six discovery lanes and the three closed lanes are deleted with
+      their cache, `implausible`, `OVERLAP_SEARCH`, `fetch_bulk` and the
+      `refresh_hours` cadence; `reply_owed` and `in_pile` key on the
+      thread's `reason` (`mention`, `team_mention`, `comment`) instead of
+      the `mentioned*` lane prefix, with `latest_comment_url` fetched once
+      for who had the last word. The `firehose` stays only if a reader of
+      the standing julia list turns up that the events poll does not serve;
+      the branch match has `/repos/o/r/pulls?head=`.
+   5. **The light rows are promoted, not replaced.** A poll or thread row
+      that enters the open work, or is selected, gets the bundle and keeps
+      its `lane`, `reason` and `why`; `sync!`'s merge is the model.
+
+   **Measured, from `fetched.json` alone**, for the number that decides
+   whether step 2 needs a cap: with the bulk cache 3.2 hours old, 179 inbox
+   rows are past their corpus row and 108 of them are `firehose`; over the
+   last six hours, 10 rows - 9 firehose, 1 mention. The sweep is smaller
+   than feared: `ci` is null on 46 of the 118 open pull requests in the open
+   work, which is *no CI*, not pending, so unsettled means `PENDING` or
+   `EXPECTED` and is 0 today, and no open-work head moved within the day.
+   Ten to twenty a refresh holds. One thing the measurement corrected: a
+   thread's `updated_at` is the *delivery* time, 2 to 46 seconds after the
+   subject's `updatedAt` (one at 122s), so 35 open-work rows read as moved
+   that were not. "A clock says moved" has to compare the clock against
+   **when the bundle was fetched** - the refresh's `at`, GitHub's own time,
+   stored on the row as `fetched_at` - and not against the row's `updated`,
+   which is a different clock for the same event.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
