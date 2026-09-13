@@ -316,25 +316,30 @@ emphasis, which CommonMark forbids and GitHub does not do.
 and `c` the per-check breakdown — see "Showing what changed" above for the last
 of those and for the rule the thread opens on.
 
-It opens on **what moved, unfiled and open**. So an item leaves the opening
-list two ways - you read it, or you put it away with `s` or `x`, which reads it
+It opens on **what moved and is unfiled**, open or closed. So an item leaves the
+opening list two ways - you read it, or you put it away with `s` or `x`, which reads it
 - and comes back when it moves, or when its snooze ends, with "moved" meaning
 what `track` says it means for that item.
 
-That list is one box on an axis that only **adds**. Four checkboxes -
+That list is two boxes on an axis that only **adds**. Four checkboxes -
 `unread, open`, `read`, `filed away`, `closed or merged` - and each brings its
 own kind of row *beside* the others rather than instead of them, so no box can
 take another's rows away. The number next to each is what checking it would
 bring, or what unchecking it would take away. All four is the corpus, and `'`
 has it by name ("everything"); `c` clears every filter, which lands on the
-first box alone rather than on the corpus. Snoozed work is not a box: a snoozed
+first box and the last rather than on the corpus. Snoozed work is not a box: a snoozed
 item is a read one with a wake time, so it is a **tag** over the read ones,
 and `'` has that by name too.
 
-The first box is checked when nothing has been asked - it is what the dashboard
-*is*, and `c`, a fresh filter and a view that names no `show` all leave it on -
-so the screen cannot be emptied by accident. Unchecking it is how you ask for
-one of the other three **alone**: the filed work on its own, rather than beside
+The first box and the last are checked when nothing has been asked - unread and
+unfiled, open or closed, is what the dashboard *is*, and `c`, a fresh filter and
+a view that names no `show` all leave them on - so the screen cannot be emptied
+by accident. A closed thing that moved is news: your pull request merged, a
+comment on an issue that was closed last year. It is unread like anything else
+and it is in the firehose; it is not in the backlog, which is `base + read` and
+names no `done`, because a closed thing is not work. Unchecking `done` puts the
+closed news away for the moment; unchecking `base` is how you ask for one of
+the other three **alone**: the filed work on its own, rather than beside
 today's. Uncheck all four and you get no rows, which is what an empty set of
 things to show means.
 

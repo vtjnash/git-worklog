@@ -7,10 +7,11 @@
     try
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true
-        # The four selections this testset moves between: the base, which is
-        # today's awake work; the base plus what has been filed; the filed work
-        # on its own, which is what taking the base off asks for; and everything.
-        awake, filed = W.Filters(), W.Filters(show = Set([:base, :filed]))
+        # The four selections this testset moves between: the default, which is
+        # today's awake work, open or closed; that plus what has been filed; the
+        # filed work on its own, which is what taking the base off asks for; and
+        # everything.
+        awake, filed = W.Filters(), W.Filters(show = Set([:base, :done, :filed]))
         only, all_ = W.Filters(show = Set([:filed])), W.everything()
         n(f) = (st.filters = deepcopy(f); W.refilter!(st); length(st.items))
         # Filed work is what the one in the middle adds, so the count of it is
@@ -21,6 +22,10 @@
         a0, all0 = n(awake), n(all_)
         @test n(filed) == a0 && n(only) == 0
         n(awake)
+        # An open one: the opening list has the closed news in it now, and a
+        # closed row that is filed is held out twice - it would need `done`
+        # beside `filed` - which is not the axis this testset is about.
+        st.sel = findfirst(x -> W.over_of(x) === :open, st.items)
         it = st.items[st.sel]
 
         W.handle!(st, Int('x'), ctrl)

@@ -18,10 +18,10 @@
 #     them - `seen: read` alone hid everything that had moved, which is the one
 #     list nobody wants - and all but one of the built-in views had to spell
 #     `sleep = awake` to avoid it. What each value means:
-#       - **unread, open** - the dashboard itself, and the box that is on when
-#         nothing has been asked, so the screen cannot be emptied by accident.
-#         Unchecking it is how one of the other three is asked for *alone*,
-#         and the only way there is.
+#       - **unread, open** - the open half of the dashboard, and a box that is
+#         on when nothing has been asked, so the screen cannot be emptied by
+#         accident. Unchecking it is how one of the other three is asked for
+#         *alone*, and the only way there is.
 #       - **read** - the read stamp against `moved_at` and against the snooze's
 #         wake time, and **nothing overrides it**: an item that moves is unread
 #         again whether it is snoozed, filed, yours or a stranger's. A review
@@ -31,6 +31,8 @@
 #         see. A mark, `x` writes it. Read, and held out of every view that
 #         does not name this box - which is what lets the backlog leave it out.
 #       - **closed or merged** - GitHub's `OPEN` against `CLOSED`/`MERGED`.
+#         On by default beside the base, since a closed thing that moved is
+#         news; a view that wants the open work alone names `show` without it.
 #     There was a fifth, **snoozed**, and it was not a disposition: a snoozed
 #     item is a read one with a wake time, so it is a tag now.
 #   * **tag** - the four things worth asking that are not any of the above:
@@ -46,19 +48,33 @@
 # dismiss it, one item at a time, recorded and undoable. That is the one thing
 # this program knows that GitHub does not.
 
-"""What to show: four boxes over the three dispositions, and one of them is the
+"""What to show: four boxes over the three dispositions, and two of them are the
 dashboard itself.
 
 One axis, and it only ever adds - checking a box brings a kind of row *in
 beside* whatever is already there, and no box takes another one's rows away.
-`base` is the unread, unfiled and open work this program is for, and it is the
-box that is on when nothing has been asked: `c`, a fresh `Filters` and a view
-that names no `show` all leave it checked, so the screen cannot be emptied by
-accident. Unchecking it is how the other three are asked for *alone* - the filed
-work on its own rather than beside today's, which is the one question this axis
-could not be asked while the base was a floor with no control at all. Unchecking
+`base` is the unread, unfiled and open work this program is for, and it is on
+when nothing has been asked: `c`, a fresh `Filters` and a view that names no
+`show` all leave it checked, so the screen cannot be emptied by accident.
+Unchecking it is how the other three are asked for *alone* - the filed work on
+its own rather than beside today's, which is the one question this axis could
+not be asked while the base was a floor with no control at all. Unchecking
 every box is an empty list: an empty set of things to show is no things, which
 is the honest reading of an axis that adds rather than narrows.
+
+**`done` is on by default too**, since 2026-09-13, and that is what makes the
+dashboard a notification list rather than a work list. A closed item that
+moved - your pull request merged, a closed issue somebody commented on, a
+mention on a thread that was settled years ago - is unread like anything
+else, and until then it was held out of the one list that is about *today*
+and shown only to whoever thought to check the box. What `done` adds beside
+the base is exactly those: closed *and* unread *and* unfiled, since a closed
+row you have read needs `read` as well, and one you filed needs `filed`. So
+the dashboard is `base + done` - unread and unfiled, open or closed - and a
+view that wants the open work alone, read ones included, names
+`show = ["base", "read"]` and gets no closed row at all: the backlog is open
+work, and a closed thing is news, not backlog. Unchecking `done` on the
+dashboard is how the closed news is put away for the moment.
 
 `filed` brings what it names whether or not it has been read - see `show_ok`,
 which is where the one asymmetry in this axis is written down. "Show me what I
@@ -73,13 +89,17 @@ The three readings the values come from are `seen_of`, `filed_of` and `over_of`
 const SHOW = [(:base, "unread, open"), (:read, "read"),
               (:filed, "filed away"), (:done, "closed or merged")]
 
-"""The one box that is on when nothing has been asked; see `isdefault` and `c`.
+"""The boxes that are on when nothing has been asked; see `isdefault` and `c`.
+
+The base and the closed ones - the dashboard is unread and unfiled work,
+whatever its state - and not the base alone, which is the *open* half of it
+and the floor the backlog stands on; see `SHOW`.
 
 Compared against, never pushed into - the `Filters` default below writes the set
 out again rather than naming this, because a shared mutable default would make
 one item's `show` every item's.
 """
-const SHOW_BASE = Set([:base])
+const SHOW_DEFAULT = Set([:base, :done])
 
 """The four questions that are not an axis of their own.
 
@@ -146,13 +166,14 @@ const AUTHOR_ME = "@me"
 const AUTHOR_OTHERS = "@anyone-else"
 
 Base.@kwdef mutable struct Filters
-    show::Set{Symbol} = Set([:base])       # which kinds of row to show, of the
-                                           # five there are; `:base` is the
-                                           # dashboard and is what an unasked
-                                           # question answers. Empty shows
-                                           # nothing. Written out rather than
-                                           # `SHOW_BASE`, which would be one
-                                           # set shared by every filter. `SHOW`
+    show::Set{Symbol} = Set([:base, :done]) # which kinds of row to show, of the
+                                           # four there are; base and done
+                                           # together are the dashboard and are
+                                           # what an unasked question answers.
+                                           # Empty shows nothing. Written out
+                                           # rather than `SHOW_DEFAULT`, which
+                                           # would be one set shared by every
+                                           # filter. `SHOW`
     tags::Set{Symbol} = Set{Symbol}()      # empty means no restriction; `TAGS`
     buckets::Set{String} = Set{String}()   # empty means every category
     repos::Set{String} = Set{String}()     # empty means every repo
@@ -163,18 +184,18 @@ Base.@kwdef mutable struct Filters
                                            # well as logins
 end
 
-"""What the browser opens on: the notifications, unfiled and open.
+"""What the browser opens on: the notifications, unfiled, open or closed.
 
 Unread is what moved since you looked at it, whoever moved it - a review
-request, a mention, a reply, a push - which is the one list that is about
-*today*. Awake because "I do not want to see this" is a decision you made and
-honouring it by default is the whole of what it means.
+request, a mention, a reply, a push, a merge - which is the one list that is
+about *today*. Awake because "I do not want to see this" is a decision you made
+and honouring it by default is the whole of what it means.
 
-A bare `Filters`, because `show` defaults to the base box alone: this list is
-what the program is, so it is what a filter says when it has been asked
-nothing. `c` clears the filters *to* it, the other four `SHOW` boxes are how
-the rest of the corpus comes back, and unchecking the base itself is how one of
-them is asked for alone.
+A bare `Filters`, because `show` defaults to the base box and the closed one:
+this list is what the program is, so it is what a filter says when it has been
+asked nothing. `c` clears the filters *to* it, the other two `SHOW` boxes are
+how the rest of the corpus comes back, and unchecking the base itself is how
+one of them is asked for alone.
 """
 DEFAULT_FILTERS() = Filters()
 
@@ -195,12 +216,12 @@ time all reach the same place, and the row that offers to clear it should say
 so in all four.
 
 `c` clears to where the browser opens rather than to the corpus: every axis
-empty, and `show` back to the base box alone, which is what an unasked question
-answers here. `\`` is the way back to what you had, and the other four `SHOW`
-boxes are the way back out to the corpus.
+empty, and `show` back to the base box and the closed one, which is what an
+unasked question answers here. `\`` is the way back to what you had, and the
+other two `SHOW` boxes are the way back out to the corpus.
 """
 isdefault(f::Filters) =
-    f.show == SHOW_BASE && isempty(f.tags) &&
+    f.show == SHOW_DEFAULT && isempty(f.tags) &&
     f.kind === :both && isempty(f.buckets) && isempty(f.repos) &&
     isempty(f.labels) && isempty(f.authors)
 
@@ -605,11 +626,15 @@ const VIEWS = [
     # reason the import row leads the item list: a control nobody can find is a
     # control nobody uses. It names no axis at all, because the list it goes to
     # is what is left when every axis is off.
-    ("notification firehose — unread, open", Dict{String,Any}()),
+    ("notification firehose — unread, open or closed", Dict{String,Any}()),
     # The two modes that are left. Which work is yours is the author axis; what
     # has moved is the base. One axis per question, and neither of them a lane.
     ("my work — mine", Dict("author" => [AUTHOR_ME])),
-    ("open items — the pile, read ones too", Dict("show" => ["base", "read"])),
+    # The backlog. It names `show` and leaves `done` out of it, which is the
+    # one place the two boxes the dashboard opens with come apart: a closed
+    # thing that moved is news and belongs in the firehose, and it is not
+    # work and does not belong here.
+    ("open items — the backlog, read ones too", Dict("show" => ["base", "read"])),
     ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
@@ -709,9 +734,9 @@ from memory an hour later.
 function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
     lines = [string("[views.", repr(String(name)), "]")]
     # Written unless it is what a view that names no `show` would get anyway -
-    # which is the base box alone, not the empty set: `show = []` is a real
-    # filter here, and one that has to survive being written down.
-    for (key, values, set, quiet) in (("show", SHOW, f.show, SHOW_BASE),
+    # which is the base box and the closed one, not the empty set: `show = []`
+    # is a real filter here, and one that has to survive being written down.
+    for (key, values, set, quiet) in (("show", SHOW, f.show, SHOW_DEFAULT),
                                       ("tag", TAGS, f.tags, Set{Symbol}()))
         set == quiet && continue
         # In the axis's own order rather than the set's, so the same filter
@@ -956,15 +981,20 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     # few lines down: it is true of almost every screen there is, so saying it
     # on each one is a phrase the reader stops seeing. What is worth saying is
     # what has been added to it - and where nothing else is applied either, the
-    # base is the whole answer and is said at the end.
+    # base is the whole answer and is said at the end. `done` is on by default
+    # beside it and is as unremarkable while it is; what is said about it is
+    # its *absence*, since a dashboard without its closed rows is a narrower
+    # list than the one the browser opens on, and "open only" is what it is.
     #
-    # Off, it is the most important thing on the screen and is said first: a
-    # list with the dashboard taken out of it looks like a list that has lost
-    # rows, and "only" is the word that stops it reading as a bug.
-    rest = [last(x) for x in SHOW if first(x) !== :base && first(x) in f.show]
+    # Off, the base is the most important thing on the screen and is said
+    # first: a list with the dashboard taken out of it looks like a list that
+    # has lost rows, and "only" is the word that stops it reading as a bug.
     if :base in f.show
+        rest = [last(x) for x in SHOW if !(first(x) in SHOW_DEFAULT) && first(x) in f.show]
         isempty(rest) || push!(parts, string("also ", join(rest, "+")))
+        :done in f.show || push!(parts, "open only")
     else
+        rest = [last(x) for x in SHOW if first(x) !== :base && first(x) in f.show]
         push!(parts, isempty(rest) ? "nothing shown" : string("only ", join(rest, "+")))
     end
     isempty(f.tags) ||
@@ -986,6 +1016,6 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     isempty(f.buckets) || push!(parts, join(sort(collect(f.buckets)), "+"))
     isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
-    isempty(parts) && push!(parts, "unread, open")
+    isempty(parts) && push!(parts, "unread")
     join(parts, " · ")
 end

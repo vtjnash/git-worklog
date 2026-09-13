@@ -98,11 +98,13 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the
-# unread, unfiled and open work this dashboard is for, and it is what a view that
-# names no `show` at all gets - so the firehose names nothing. A view that does
-# name `show` names the whole of it, `base` included: `show = ["base", "read"]`
-# is today's work with the read ones beside it, and `show = ["filed"]` is the
-# filed work on its own. An axis or a value that is not one of the above is
+# unread, unfiled and open work this dashboard is for, and `done` is the closed
+# rows; a view that names no `show` at all gets both - unread and unfiled,
+# open or closed, which is the notification list and is what the firehose is,
+# so it names nothing. A view that does name `show` names the whole of it,
+# `base` included: `show = ["base", "read"]` is the open work with the read
+# ones beside it and no closed row at all - the backlog - and `show = ["filed"]`
+# is the filed work on its own. An axis or a value that is not one of the above is
 # reported when the view is applied rather than ignored - `seen`, `sleep` and
 # `state` were three axes here until they merged, and a view still naming one
 # would otherwise go on being applied and mean something else.

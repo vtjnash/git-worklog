@@ -3,7 +3,9 @@
 ## What is next
 
 Two things are open: one is an idea to design rather than a task to pick up,
-and the other is a mapping to make before a lane is added. The deletion that
+and the other was a mapping to make before a lane is added - made 2026-09-13,
+and what it turned up is built; what is left of it waits on a token and on one
+bucket rule. The deletion that
 stood beside the first - read, snooze and archive as one rule - is **done**;
 see "Read, snooze and archive are one rule" under Outstanding work.
 The state axis that stood at the head of this list is **built**, and so is
@@ -51,12 +53,78 @@ here is done; `git log` is the record of it and this file is not.
    its `is:issue` twin found 19 rows for 8 points a refresh (12 on a busy
    month), and would close the gap - but it is one more query emulating what
    `/notifications` *is*. Before adding it, map the two against each other:
-   see "Notifications lane" under Infrastructure, reopened, for the table to
-   fill in. What is known already: the token here is a GitHub App user token
+   see "Notifications lane" under Infrastructure, reopened, for the table.
+   What is known already: the token here is a GitHub App user token
    and the notifications endpoints are not available to Apps at all - it
    takes a classic PAT with `notifications` scope, the same conversation as
    the writes - and a closed item is only ever visible under the `done` box,
    so "do I need to know" is partly answered by that box being off.
+
+   **Investigated 2026-09-13**, later the same day, and the gap is not where
+   the paragraph above puts it. Measured and read, with the table under
+   "Notifications lane" corrected to match:
+
+   - *The query is not the decision; the `done` box is.* `derive_bucket`
+     answers `done` for any `MERGED` or `CLOSED` row before it reads the
+     lane, and `show_ok` held a `done` row out unless that box was on. So the
+     stopgap lane, added as written, would have put every row it found where
+     the base view did not look - and so did the **events poll already**: it
+     asks `state=all`, a comment on a closed julia issue is written to the
+     inbox, `poll_item` carries `state = "CLOSED"`, and `over_of` files it
+     under `done`. The gap was not "outside the polled repos"; it was that
+     *no* closed activity was base work anywhere, polled or not - 513 closed
+     poll rows in `fetched.json` that day, never shown.
+     **Decided and done, 2026-09-13: `done` is on by default.** The dashboard
+     is `base + done` - unread and unfiled, open or closed - so a closed thing
+     that moved is in the firehose; the backlog view names
+     `show = ["base", "read"]` and gets no closed row, because a closed thing
+     is news and not work; `wl next` pools on `in_pile`, which a `done` row
+     never is. The axis itself is untouched - `show_ok` is the same three
+     clauses, still monotone - only what an unasked question answers changed,
+     and `SHOW_BASE` is `SHOW_DEFAULT` to say so. The first launch after it
+     brings the closed poll rows in at once, unread, the way `backfill_days`
+     does. What is still open is the bucket: a closed mention is visible now
+     and is `done`, not `needs-reply`, so the "unanswered" view does not list
+     it - a rule that runs before `done` is the remaining question.
+   - *How big it is.* Over 30 days, closed, outside every polled repo:
+     16 rows by `involves:` (9 PRs, 7 issues). By `mentions:`, over 7 days:
+     4 rows, two of them in JuliaLang/julia - so polled, and hidden by the
+     paragraph above - and the other two exactly the examples: SparseArrays.jl
+     #469 and nodejs/node#36790, both with the last word theirs. The honest
+     size of the mention gap is about two rows a week. `updated:>` is also
+     noisy for this: 6 of the week's 15 closed PRs had `updatedAt` moved by a
+     label or a milestone and no new comment, one of them a thesis template
+     merged in 2019.
+   - *What it costs.* 1 point a page with the fields the measurement asked
+     for; the program's `QUERY`, with its nested connections, is the 4 the
+     old note says. `remaining` was 4733 of 5000 at the time.
+   - *The token, re-checked.* Still `ghu_`, `/notifications` still 403. The
+     REST docs now say it outright - "These endpoints only support
+     authentication using a personal access token (classic)" - the App
+     user-token endpoint list has no Notifications heading at all, and the
+     fine-grained PAT permissions page has no notifications permission under
+     User permissions. So: classic, `notifications` scope. Which sharpens
+     "the same conversation as the writes": the writes were planned on a
+     *fine-grained* PAT, which cannot do this, so it is either two tokens or
+     one classic PAT with `public_repo` (or `repo`) beside `notifications`.
+   - *What a thread is*, from the docs, which answers most of "how a
+     `reason` maps onto the wake table" without a token: one row per subject,
+     with one `reason` - **the latest**, the docs say it "can evolve", `author`
+     becoming `mention` - one `updated_at`, one `latest_comment_url`, and no
+     history and no actor. So a reason maps onto the *item*, not onto an
+     event: `updated_at` is the moved clock, `latest_comment_url` is one more
+     fetch away from `their_comment_at` (the thread does not say who spoke),
+     and a `state_change` is not what the old table had it as - it is "*you*
+     changed the thread state", your own close or merge. Somebody merging
+     your pull request arrives as `author`; the closed-lane `state_at` was
+     emulating that, and nothing emulates `state_change` because there is
+     nothing there to be told. Four reasons the table did not have -
+     `approval_requested`, `invitation`, `member_feature_requested`,
+     `security_advisory_credit` - have no counterpart and want none.
+
+   Still unanswered, and only a token answers them: the poll's cost and
+   `X-Poll-Interval`, whether `all=true` with `since=` is a clean cursor,
+   and whether Discussions, releases and advisories are worth having.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -2620,27 +2688,35 @@ so they are not mistaken for bugs later:
   | `mention` | `mentioned_*` bulk lanes → needs-reply | 6-hourly | global, open only | **closed: none** |
   | `team_mention` | `mentioned_team_*` free-text search | 6-hourly | global, open only | `team:` unsettled; closed: none |
   | `comment` (on a thread you commented on) | `commented_*` bulk lanes → pile | 6-hourly | global, open only | surfaced only via mention, by design; closed: none |
-  | `state_change` | `state_at`, the closed lanes, the carry | every refresh | global | past the window and read: none |
-  | `subscribed` (repo watch) | `[events] repos` poll | every launch, 120s ttl | polled repos only, open and closed | unpolled repos: none |
+  | `state_change` (**your own** close or merge) | nothing, and nothing needed | - | - | none: it is what you did. Their close of your item is `author`, emulated by `state_at`, the closed lanes and the carry |
+  | `subscribed` (repo watch) | `[events] repos` poll | every launch, 120s ttl | polled repos only, open and closed; closed rows are `done`, on by default since 2026-09-13 | unpolled repos: none |
   | `manual` (thread subscription) | nothing | - | - | **none** |
   | `security_alert`, `ci_activity` | nothing / the checks | - | - | CI covered by `fetched.json` |
+  | `approval_requested`, `invitation`, `member_feature_requested`, `security_advisory_credit` | nothing | - | - | none wanted |
 
   What the table already says: the searches replicate the *open* half well
-  and the *closed* half only inside polled repos; `manual` - a thread you
-  subscribed to by hand on github.com - has no counterpart at all. What it
-  does not say yet and needs a token to find out: what `/notifications` costs
-  per poll (REST, its own 5000/hour, `X-Poll-Interval` sets the cadence),
-  whether `all=true` with `since=` is a clean cursor the way the poll's is,
-  how a `reason` maps onto the wake table's rows (a `state_change` is a
-  `state_at`; a `mention` is a `their_comment_at` with a name in it), and
-  whether Discussions, releases and advisories - which search cannot reach -
-  are worth having.
+  and the *closed* half only inside polled repos - and, since 2026-09-13,
+  show it: a closed row is `done` and `done` is on by default - see item 3
+  under "What is next" for why that came before any lane. `manual` - a thread you subscribed to by hand on
+  github.com - has no counterpart at all. A thread is one row per subject
+  with one `reason`, the latest, one `updated_at` and one
+  `latest_comment_url`, no actor and no history: so a reason maps onto the
+  item, `updated_at` onto the moved clock, and `their_comment_at` is one
+  fetch of `latest_comment_url` away. What still needs a token to find out:
+  what `/notifications` costs per poll (REST, its own 5000/hour,
+  `X-Poll-Interval` sets the cadence), whether `all=true` with `since=` is a
+  clean cursor the way the poll's is, and whether Discussions, releases and
+  advisories - which search cannot reach - are worth having.
 
   **The cheap stopgap, measured and not yet added**: two `is:closed
   involves:vtjnash updated:>{since:7}` lanes, one per kind, 4 points a page.
-  It closes the closed-item mention gap now, for 8 points, and is one more
-  query emulating what the API is. Add it if the PAT is far off; drop it the
-  day the API is polled.
+  It finds the closed-item mentions now, for 8 points, and is one more query
+  emulating what the API is. Every row it returns is `done`, which the
+  dashboard shows now; what it would not be is `needs-reply`. Add it if the
+  PAT is far off; drop it the day the API is polled.
+  `mentions:` in place of `involves:` is the narrower ask and is what the
+  gap actually is: two rows a week outside the polled repos, measured
+  2026-09-13.
 
   What was measured when the lane was dropped, and still holds:
 

@@ -27,8 +27,8 @@
         count(it -> W.matches(on, it, W.Marks(st)) &&
                     !W.matches(off, it, W.Marks(st)), st.all)
     end
-    configs = [W.Filters(),                      # the base box alone
-               W.DEFAULT_FILTERS(),              # which is what it opens on
+    configs = [W.Filters(show = Set([:base])),   # the base box alone
+               W.DEFAULT_FILTERS(),              # and with the closed ones: what it opens on
                W.everything(),                   # and all four boxes on
                W.Filters(show = Set{Symbol}()),  # and none of them: no rows
                W.Filters(show = Set([:base, :read])),
@@ -195,8 +195,9 @@ end
     # least one, so all four on is everything and taking any one off can only
     # lose rows. Three of them can only ever lose rows the base did not have -
     # and the fourth *is* the base, which is the one that can drop below the
-    # list the browser opens on, and drops to exactly the rest of the corpus.
-    base = length(W.apply_filters(W.Filters(), st.all, m))
+    # open half of the list the browser opens on, and drops to exactly the
+    # rest of the corpus.
+    base = length(W.apply_filters(W.Filters(show = Set([:base])), st.all, m))
     @test 0 < base < length(st.all)
     @test length(W.apply_filters(W.everything(), st.all, m)) == length(st.all)
     for (k, _) in W.SHOW
@@ -210,15 +211,28 @@ end
 @testset "one axis that only adds, and a base you have to mean to take off" begin
     st = mkstate()
     st.filters = W.Filters(); W.refilter!(st)
-    base = length(st.items)
-    # Bare is the base box alone, which is also what the browser opens on:
-    # unread, awake and open, with nothing narrowing it. `c` goes here too - the
-    # list this program is for is what a filter says when it has been asked
-    # nothing, rather than one of the things it can be asked for.
+    opens = length(st.items)
+    # Bare is the base box and the closed one, which is what the browser opens
+    # on: unread, awake and unfiled, open or closed, with nothing narrowing it.
+    # `c` goes here too - the list this program is for is what a filter says
+    # when it has been asked nothing, rather than one of the things it can be
+    # asked for.
     @test W.isdefault(st.filters)
     @test W.isdefault(W.DEFAULT_FILTERS())
-    @test st.filters.show == W.SHOW_BASE
-    @test occursin("unread, open", W.filter_summary(st.filters))
+    @test st.filters.show == W.SHOW_DEFAULT
+    @test occursin("unread", W.filter_summary(st.filters))
+    @test all(x -> W.seen_of(x, W.Marks(st)) === :unread &&
+                   !W.filed_of(x, W.Marks(st)), st.items)
+    # A closed thing that moved is news, and it opens with the rest: a merged
+    # pull request nobody has read is on the list the browser opens on.
+    @test any(x -> W.over_of(x) === :done, st.items)
+
+    # The base alone is the open half of that, and is what the other boxes
+    # are measured against.
+    st.filters = W.Filters(show = Set([:base])); W.refilter!(st)
+    base = length(st.items)
+    @test 0 < base < opens
+    @test occursin("open only", W.filter_summary(st.filters))
     @test all(x -> W.seen_of(x, W.Marks(st)) === :unread &&
                    !W.filed_of(x, W.Marks(st)) &&
                    W.over_of(x) === :open, st.items)
@@ -232,10 +246,20 @@ end
         counts[k] = length(st.items) - base
         @test length(st.items) >= base
     end
+    # And what the closed box adds is exactly the distance between the open
+    # half and what the browser opens on.
+    @test opens == base + counts[:done]
     # Two of them is at least the union of what each brings, and more where a
     # row needed both - a closed item you have read is held out twice.
     st.filters = W.Filters(show = Set([:base, :read, :done])); W.refilter!(st)
     @test length(st.items) >= base + counts[:read] + counts[:done]
+    # The backlog is the base with the read ones beside it and no `done`, and
+    # that is the one place the two boxes the browser opens with come apart: a
+    # closed thing that moved is in the firehose and is not in the backlog,
+    # because it is news and it is not work.
+    st.filters = W.Filters(show = Set([:base, :read])); W.refilter!(st)
+    @test length(st.items) == base + counts[:read]
+    @test all(x -> W.over_of(x) === :open, st.items)
     # All four is the corpus, and the corpus is the only thing that is.
     st.filters = W.everything(); W.refilter!(st)
     @test length(st.items) == length(st.all)
@@ -283,34 +307,54 @@ end
     brow = first(r for r in rows if r[1] === :show)
     @test brow[2] == "base"
     @test occursin("[x] ", brow[3]) && occursin(string(base), brow[3])
+    # And the closed box is checked too, holding in its share of the opening list.
+    drow = first(r for r in rows if r[1] === :show && r[2] == "done")
+    @test occursin("[x] ", drow[3]) && occursin(string(counts[:done]), drow[3])
     st.frow = findfirst(r -> r[1] === :show && r[2] == "filed", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:base, :filed])
-    @test length(st.items) == base + counts[:filed]
+    @test st.filters.show == Set([:base, :done, :filed])
+    @test length(st.items) >= opens + counts[:filed]
     @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "filed"))
     @test W.toggle_filter!(st)
-    @test st.filters.show == W.SHOW_BASE && length(st.items) == base
-    # Including the base itself, which is the one row here whose being checked
-    # is a default rather than a choice - and `c` is what puts it back.
+    @test st.filters.show == W.SHOW_DEFAULT && length(st.items) == opens
+    # Including the closed box: off, the list is the open half and says so.
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "done", W.filter_rows(st))
+    @test W.toggle_filter!(st)
+    @test st.filters.show == Set([:base]) && length(st.items) == base
+    @test !W.isdefault(st.filters)
+    @test occursin("open only", W.filter_summary(st.filters))
+    @test W.toggle_filter!(st)
+    @test W.isdefault(st.filters)
+    # Including the base itself, which is one of the two rows here whose being
+    # checked is a default rather than a choice - and `c` is what puts it back.
     st.frow = findfirst(r -> r[1] === :show && r[2] == "base", W.filter_rows(st))
     @test W.toggle_filter!(st)
-    @test isempty(st.filters.show) && isempty(st.items) && !W.isdefault(st.filters)
+    @test st.filters.show == Set([:done]) && length(st.items) == counts[:done]
+    @test !W.isdefault(st.filters)
 
     # What the browser opens on says itself, and what has been added to it says
     # that instead - the base is true of almost every screen there is, so naming
     # it on each one is a phrase the reader stops seeing. Off, it is the most
     # important thing on the screen and is said first.
-    @test occursin("unread, open", W.filter_summary(W.DEFAULT_FILTERS()))
+    @test occursin("unread", W.filter_summary(W.DEFAULT_FILTERS()))
     @test occursin("also read+filed away",
+                   W.filter_summary(W.Filters(show = Set([:base, :read, :filed, :done]))))
+    # `done` is on by default and is as quiet as the base while it is; what
+    # gets said is its absence, since the open half is the narrower list.
+    @test occursin("also read+filed away · open only",
                    W.filter_summary(W.Filters(show = Set([:base, :read, :filed]))))
+    @test !occursin("closed", W.filter_summary(W.Filters(show = Set([:base, :done]))))
     @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
     @test occursin("nothing shown", W.filter_summary(W.Filters(show = Set{Symbol}())))
-    # And it writes itself as a view, in the axis's own order. The base is left
-    # out of the TOML while it is on, because that is what a view naming no
-    # `show` gets anyway - and `show = []` is written, because an empty axis is
-    # a real filter here rather than an unasked question.
+    # And it writes itself as a view, in the axis's own order. The default is
+    # left out of the TOML while it is what is on, because that is what a view
+    # naming no `show` gets anyway - and `show = []` is written, because an
+    # empty axis is a real filter here rather than an unasked question. The
+    # base with `done` off is not the default and is written whole.
     @test occursin("show = [\"base\", \"read\", \"filed\"]",
                    W.view_toml(W.Filters(show = Set([:filed, :read, :base])), :latest, "x"))
+    @test occursin("show = [\"base\"]",
+                   W.view_toml(W.Filters(show = Set([:base])), :latest, "x"))
     @test occursin("show = [\"read\", \"filed\"]",
                    W.view_toml(W.Filters(show = Set([:filed, :read])), :latest, "x"))
     @test occursin("show = []", W.view_toml(W.Filters(show = Set{Symbol}()), :latest, "x"))
@@ -323,7 +367,7 @@ end
     @test occursin("also read", W.apply_view!(st, Dict("show" => ["base", "read"])))
     @test st.filters.show == Set([:base, :read])
     @test W.apply_view!(st, Dict("kind" => "pr")) isa String
-    @test st.filters.show == W.SHOW_BASE
+    @test st.filters.show == W.SHOW_DEFAULT
     @test occursin("no show", W.apply_view!(st, Dict("show" => "raed")))
     @test occursin("no show", W.apply_view!(st, Dict("show" => ["read", "asleep"])))
     # So is an axis that is not one either, which the three keys this one
@@ -498,7 +542,7 @@ end
     # `c` has always done this and nothing on screen said so.
     @test W.isdefault(W.Filters())
     # ...and it lands where the browser opens, which is the same place now: the
-    # unread, awake and open list is what is left when every filter is off.
+    # unread, awake and unfiled list is what is left when every filter is off.
     @test W.isdefault(W.DEFAULT_FILTERS())
     # The corpus is a filter now rather than the absence of one, so `c` does not
     # reach it and the four boxes are the way there.
@@ -661,9 +705,10 @@ end
     @test st.filters.buckets == Set(["needs-review"])
     @test isempty(st.filters.labels) && st.filters.kind === :both
     # "Cleared" is what the axis says when it is asked nothing, which on `show`
-    # is the base box rather than the empty set: a view that names no `show` is
-    # a view of today's work, and an empty one would be a view of nothing.
-    @test st.filters.show == W.SHOW_BASE
+    # is the base box and the closed one rather than the empty set: a view that
+    # names no `show` is a view of today's work, and an empty one would be a
+    # view of nothing.
+    @test st.filters.show == W.SHOW_DEFAULT
     # A single value is as good as a list of one, on every axis.
     W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "show" => "read"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
