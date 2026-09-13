@@ -166,12 +166,11 @@ rstripnl(s::AbstractString) = replace(s, r"\n+$" => "")
 
 Key order inside one TOML table, recovered from the file text.
 
-Julia's `TOML.parse` returns an unordered `Dict`, but the order of `[lanes]` and
-`[bulk.queries]` is load-bearing rather than cosmetic: within the bulk lanes the
-first one to claim a URL keeps it, so visiting `firehose` before `commented_pr`
-is the whole reason a JuliaLang/julia PR lands in the background firehose
-instead of the mention pile. Python's `tomllib` preserved file order for free;
-here it has to be read back out of the file.
+Julia's `TOML.parse` returns an unordered `Dict`, but the order of `[lanes]`
+is load-bearing rather than cosmetic: the first lane to claim a URL keeps it,
+so a pull request of yours that you were also asked to review is `mine` and
+not `review`. Python's `tomllib` preserved file order for free; here it has to
+be read back out of the file.
 
 Only the shapes `config.toml` actually uses are handled - one key per line, no
 inline tables spanning lines. Keys the scan misses are appended in sorted order

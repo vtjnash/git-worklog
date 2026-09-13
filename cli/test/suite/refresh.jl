@@ -217,6 +217,82 @@ end
     end
 end
 
+@testset "the corpus is asked by url when a clock says it moved" begin
+    # The open work is searched for whole; everything else is kept as it was
+    # until the notifications source or the repo poll says it moved, and then
+    # asked for by url. The clock is compared against when the bundle was
+    # fetched - both GitHub's time - and not against the row's own `updated`,
+    # which is a different clock for the same event: a thread's `updated_at`
+    # is delivery time, 2 to 46 seconds after the subject's.
+    # The old row is the file's, which is JSON3 and keyed by symbol - as it is
+    # in the refresh, where `old` is what `fetched.json` holds.
+    J(d) = W.JSON3.read(W.json_dumps(d))
+    old = J(Dict{String,Any}("url" => "u", "updated" => "2026-09-13T10:00:00Z",
+                             "fetched_at" => "2026-09-13T10:05:00Z", "lane" => "mine"))
+    e(at) = Dict{String,Any}("url" => "u", "updated" => at)
+    @test !W.stale_by(nothing, old)                                # no clock saw it
+    @test !W.stale_by(e("2026-09-13T10:00:20Z"), old)              # delivery lag
+    @test !W.stale_by(e("2026-09-13T10:05:00Z"), old)
+    @test W.stale_by(e("2026-09-13T10:05:01Z"), old)
+    # A row from before there was a stamp is stale once.
+    @test W.stale_by(e("2026-01-01T00:00:00Z"), J(Dict{String,Any}("url" => "u")))
+
+    # Which threads are brought in on first sight: the ones that name you. A
+    # watched repository's traffic, and the poll's own rows, stay light.
+    for reason in ("mention", "team_mention", "review_requested", "assign",
+                   "author", "comment", "state_change", "manual")
+        @test W.involved(reason)
+    end
+    @test !W.involved("subscribed") && !W.involved(nothing) && !W.involved("")
+    # The lanes retired on 2026-09-13, whose rows a file from before still
+    # carries and which nothing will ever return again.
+    @test W.retired_lane("firehose") && W.retired_lane("mentioned_team_pr") &&
+          W.retired_lane("commented_issue")
+    @test !W.retired_lane("mine") && !W.retired_lane("notifications") &&
+          !W.retired_lane("carried")
+    # What the thread contributes to the row built for it.
+    r = W.thread_facts!(Dict{String,Any}("url" => "u"),
+                        Dict{String,Any}("reason" => "mention", "why" => "you were mentioned"))
+    @test r["reason"] == "mention" && r["why"] == "you were mentioned"
+    @test W.thread_facts!(Dict{String,Any}("url" => "u"), nothing) == Dict{String,Any}("url" => "u")
+
+    # A kept row is derived against itself, and nothing about it moves: the
+    # mark stays, the carried keys stay, and only what depends on the clock -
+    # the second look - is re-read.
+    cfg = W.config()
+    at = W.DateTime(2026, 9, 13, 12)
+    row = Dict{String,Any}(
+        "url" => "https://github.com/a/b/pull/1", "type" => "PullRequest",
+        "lane" => "review", "state" => "OPEN", "mine" => false, "author" => "alice",
+        "created" => "2026-09-01T00:00:00Z", "updated" => "2026-09-10T10:00:00Z",
+        "labels" => String[], "head_sha" => "abc", "head_by" => "alice",
+        "head_at" => "2026-09-10T10:00:00Z", "last_comment_at" => nothing,
+        "last_comment_by" => nothing, "their_head" => "abc",
+        "their_comment_at" => nothing, "human_comment_at" => nothing,
+        "moved_at" => "2026-09-10T10:00:00Z", "fetched_at" => "2026-09-10T10:01:00Z",
+        "track" => "loose")
+    kept = W.kept_row(J(row))
+    @test kept == row
+    W.derive!(kept, J(row), Dict{String,Any}(), cfg, at)
+    @test kept["moved_at"] == "2026-09-10T10:00:00Z" && kept["new"] == false
+    @test kept["their_head"] == "abc" && kept["fetched_at"] == "2026-09-10T10:01:00Z"
+    @test isempty(W.change_of(J(row), kept))
+    @test kept["slept"] == false
+    # First sight: the mark is what GitHub says, and the row is new.
+    fresh = W.kept_row(row); delete!(fresh, "moved_at")
+    W.derive!(fresh, nothing, Dict{String,Any}(), cfg, at)
+    @test fresh["new"] == true && fresh["moved_at"] == "2026-09-10T10:00:00Z"
+    # And a push by somebody else since is a movement, said as one.
+    pushed = W.kept_row(J(row)); pushed["head_sha"] = "def"; pushed["head_at"] = "2026-09-12T09:00:00Z"
+    W.derive!(pushed, J(row), Dict{String,Any}(), cfg, at)
+    @test pushed["moved_at"] == "2026-09-12T09:00:00Z"
+    @test W.change_of(J(row), pushed) == "new push"
+    # A hand-typed snooze with no read stamp is reported for stamping, once
+    # for all of them, by the caller.
+    W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-20"), cfg, at)
+    @test kept["slept"] == true
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1
@@ -279,8 +355,10 @@ end
     @test isempty(look(done_))
     # The pile is asked for by name rather than carried on the row, and it is
     # the lane that says so - `track = "background"` was the other half of it
-    # and is gone, along with the level that could never wake.
-    for l in ("firehose", "mentioned_pr", "commented_issue")
+    # and is gone, along with the level that could never wake. The pile is
+    # what the clocks brought in; the retired lanes still count, so a file
+    # from before is let go of cleanly.
+    for l in ("notifications", "activity", "firehose", "mentioned_pr", "commented_issue")
         pile = copy(r); pile["lane"] = l
         @test isempty(look(pile)) && W.in_pile(pile)
     end
@@ -310,7 +388,10 @@ end
     cfg = W.config()
     at = W.DateTime(2026, 9, 13)
     me = cfg["login"]
-    r = Dict{String,Any}("lane" => "mentioned_issue", "type" => "Issue", "state" => "OPEN",
+    # Read off the notification `reason`, which is GitHub saying you were
+    # named - it was the lane while the mention searches existed.
+    r = Dict{String,Any}("lane" => "notifications", "reason" => "mention",
+                         "type" => "Issue", "state" => "OPEN",
                          "mine" => false, "labels" => String[],
                          "last_comment_at" => "2026-09-10T10:00:00Z",
                          "last_comment_by" => "alice",
@@ -325,9 +406,11 @@ end
     st_ = Dict{String,Any}()
     W.apply_state!(closed, st_, cfg, at)
     @test closed["reply"] == why && W.isover(closed)
-    # And a mention that owes a reply is in front of you, not in the pile: the
-    # one row a bulk lane returned that the carry keeps when it closes.
+    # And a mention that owes a reply is in front of you, not in the pile.
     @test !W.in_pile(closed)
+    # A team mention asks the same way; GitHub says which.
+    team = copy(r); team["reason"] = "team_mention"
+    @test W.reply_owed(team, cfg, at) == why
     # Your own last word answers it; a bot's or nobody's is nothing to answer.
     mine = copy(r); mine["last_comment_by"] = me
     @test isempty(W.reply_owed(mine, cfg, at))
@@ -338,10 +421,13 @@ end
     old["updated"] = old["last_comment_at"]
     @test isempty(W.reply_owed(old, cfg, at))
     # And only a mention asks: a thread you commented on where a stranger
-    # spoke last is every thread on a repo you maintain.
-    spoke = copy(r); spoke["lane"] = "commented_issue"
-    @test isempty(W.reply_owed(spoke, cfg, at))
-    @test W.in_pile(spoke)
+    # spoke last is every thread on a repo you maintain, and a watched
+    # repository's traffic is nobody asking anything.
+    for reason in ("comment", "subscribed", "author", nothing)
+        spoke = copy(r); spoke["reason"] = reason
+        @test isempty(W.reply_owed(spoke, cfg, at))
+        @test W.in_pile(spoke)
+    end
 
     # A tag in the browser, whatever the state, and the reason where the
     # item's facts are - and the `unanswered` view is that tag over the
@@ -367,7 +453,7 @@ end
     # the pane asks `merge_state` for the one pull request under the cursor -
     # the same call the merge prompt makes - and says it that prompt's way.
     @test !occursin("mergeable", W.PR_FIELDS)
-    @test !occursin("mergeable", W.FIREHOSE_QUERY)
+    @test !occursin("mergeable", W.QUERY)
     st = mkstate()
     base = (url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b",
             number = 1, title = "t", is_pr = true)

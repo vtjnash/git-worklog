@@ -463,7 +463,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # and nothing else in the program could ask for a refresh at all.
         # The stamp is what says which way this toggles, not the poll's set:
         # `st.unread` is what moved in the repos the poll watches, and this key
-        # works on anything on screen - a firehose row the poll never saw
+        # works on anything on screen - a carried row the poll never saw
         # included. The set is kept in step because the metadata pane reads it.
         was = seen_of(it, Marks(st)) === :unread
         seen = was

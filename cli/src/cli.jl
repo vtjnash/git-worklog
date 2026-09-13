@@ -7,7 +7,7 @@ Work dashboard.
   wl                                      the browser
   wl --refresh                            refresh first, then the browser
 
-  wl refresh [--firehose]                 re-fetch, re-derive, re-render
+  wl refresh                              re-fetch, re-derive, re-render
   wl import  <url> [<url>...]             follow items no lane returns, unread
   wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again

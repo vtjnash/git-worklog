@@ -6,8 +6,8 @@
 # working credentials. The REST half genuinely does use GitHub.jl - see
 # events.jl.
 
-"""A lane could not be fetched. Fatal for the active lanes, survivable for the
-bulk ones, which fall back to their previous cached contents."""
+"""A lane could not be fetched. Fatal for the lanes; a by-url fetch that fails
+keeps the rows it was refreshing as they were."""
 struct FetchError <: Exception
     msg::String
 end
@@ -75,49 +75,10 @@ const ISSUE_FIELDS = "\n" * """
       comments(last: 1) { nodes { author { login } createdAt } }
 """
 
-# The firehose is ~1000 PRs, so it drops the expensive nested connections
-# (review threads, review history, comments). Background items are never
-# bucketed on those fields, and shedding them buys 100 nodes/page at 2 points.
-# The three head/base scalars stay in both: they cost nothing, and between them
-# they are what lets a local branch be matched to its pull request (`headRefName`)
-# and what a range-diff is taken between and measured against (`headRefOid` and
-# `baseRefName`) - all without a request per row.
-#
-# Both inline fragments are required even though most of the bulk lanes are
-# `is:pr`: a search that returns an Issue against a selection spreading only
+# Both inline fragments are required even when a lane is `is:pr`: a search
+# that returns an Issue against a selection spreading only
 # `... on PullRequest` yields a bare `{__typename: "Issue"}` stub, with no
-# fields and no error, and the two `is:issue` lanes come back as husks.
-const FIREHOSE_QUERY = "\n" * """
-query(\$q: String!, \$cursor: String) {
-  rateLimit { cost remaining }
-  search(query: \$q, type: ISSUE, first: 100, after: \$cursor) {
-    issueCount
-    pageInfo { hasNextPage endCursor }
-    nodes { __typename ... on PullRequest {
-      url number title isDraft createdAt updatedAt state
-      headRefName headRefOid baseRefName
-      repository { nameWithOwner }
-      author { login }
-      reviewDecision
-      milestone { title dueOn }
-      assignees(first: 10) { nodes { login } }
-      labels(first: 20) { nodes { name } }
-      commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state }
-        author { user { login } } committer { user { login } } } } }
-      comments(last: 1) { nodes { author { login } createdAt } }
-    }
-    ... on Issue {
-      url number title createdAt updatedAt state
-      repository { nameWithOwner }
-      author { login }
-      milestone { title dueOn }
-      assignees(first: 10) { nodes { login } }
-      labels(first: 20) { nodes { name } }
-      comments(last: 1) { nodes { author { login } createdAt } }
-    } }
-  }
-}
-"""
+# fields and no error, and an `is:issue` lane comes back as husks.
 
 const QUERY = "\n" * """
 query(\$q: String!, \$cursor: String) {
@@ -269,9 +230,9 @@ for too much too fast. It is not the hourly quota - `rateLimit.remaining` was
 5000 of 5000 while this was being returned - and it clears in minutes rather
 than seconds, so retrying it on the 5xx schedule spends every attempt inside
 the window and reports failure anyway. That is exactly what a cold start did:
-every lane is a burst, and with the bulk cache deleted there is no previous copy
-behind any of them to fall back to, so five lanes came back empty and the
-dashboard was a third of its size. Three attempts at a minute, two and four -
+every lane is a burst, and on a cold start there is no previous copy behind
+any of them to fall back to, so five lanes came back empty and the dashboard
+was a third of its size. Three attempts at a minute, two and four -
 seven minutes of waiting at worst, and then it really has failed.
 
 Deliberately *not* the primary rate limit. That is the hourly quota, it is on

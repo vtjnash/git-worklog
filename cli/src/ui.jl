@@ -19,11 +19,11 @@ Base.@kwdef struct Item
     number::Int
     title::String
     lane::String = ""      # which search claimed it first - `mine`, `review`,
-                           # `assigned`, a closed lane, a bulk lane, `imported`,
-                           # `carried`; `activity` for a row only the poll saw
-                           # and `local` for an adopted branch. A fact about
-                           # how it got here, and the one axis that used to be
-                           # a derived word (`bucket`) instead
+                           # `assigned`, `imported`, `carried`; `notifications`
+                           # for a thread that named you, `activity` for a row
+                           # only the poll saw, `local` for an adopted branch.
+                           # A fact about how it got here, and the one axis
+                           # that used to be a derived word (`bucket`) instead
     track::String = "normal"
     note::String = ""
     ci::String = ""
@@ -339,7 +339,7 @@ function imported_items(have::Set{String}, at::DateTime = utcnow())
                 Any[]
              end
         r = normalize(n, "imported", cfg["login"])
-        apply_state!(r, get(state, String(r["url"]), Dict{String,Any}()), cfg, at)
+        derive!(r, nothing, get(state, String(r["url"]), Dict{String,Any}()), cfg, at)
         push!(out, item_of(JSON3.read(json_dumps(r))))
     end
     out

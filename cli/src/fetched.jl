@@ -1,6 +1,6 @@
 # Everything that came from GitHub, in one file.
 #
-#     fetched.json   {items, bulk, inbox}
+#     fetched.json   {items, inbox}
 #
 # The split this half of `data/` is on one side of: **re-fetchable, big, and
 # not tracked**. Every byte of it can be got again by running `wl refresh`, so
@@ -13,10 +13,13 @@
 # It was three files - `facts.json`, `bulk.json` and `inbox.json` - split by
 # which part of the fetch wrote them rather than by what they are. The parts:
 #
-#   * `items`  what the lanes returned, bucketed and stamped: the dashboard
-#   * `bulk`   the slow queries, on their own 6-hour cadence
+#   * `items`  what the lanes returned and what was fetched by url, stamped:
+#              the dashboard
 #   * `inbox`  the activity poll: a cursor per source, when each was last
 #              asked, and the rows it has seen
+#
+# `bulk` - the slow queries on their own six-hour cadence - was a third part
+# until 2026-09-13, when the lanes that wrote it were retired.
 #
 # **Every writer re-reads before it writes.** A refresh holds the whole thing
 # and writes it as it goes; the browser's poll touches `inbox` alone and must
@@ -55,12 +58,10 @@ end
 
 """Write it back, in the order it is already in.
 
-Not sorted, which the files it replaces were: `bulk` holds one entry per query
-*in the order `config.toml` names them*, and that order decides which lane
-claims an item that two of them return - a mention becomes a `needs-reply` and
-a comment never does. Sorting the keys quietly handed `commented_issue` 165 rows
-that belong to `mentioned_issue`. Nothing here is committed, so the sort was
-buying nothing in exchange.
+Not sorted, which the files it replaces were: `items` is in the order the
+lanes claimed them, and that order is what decides which lane a row that two
+of them return belongs to. Nothing here is committed, so a sort was buying
+nothing in exchange.
 """
 save_fetched(d::AbstractDict) = write_atomic(fetchedfile(), json_dumps(d))
 

@@ -32,48 +32,29 @@ second_look_days = 2
 # on its own when the thing finally moves.
 
 [lanes]
-# GitHub search syntax. Each lane is one paginated GraphQL search.
+# GitHub search syntax. Each lane is one paginated GraphQL search, and the
+# three of them are the open work: what you wrote, what you were asked to
+# review, what you were handed. Asked for whole on every refresh - `u` in the
+# browser - because they do two things at once that nothing else does as
+# cheaply: they find the standing set (a pull request of yours that nobody has
+# touched notifies nobody) and they bring back everything the tags are made of,
+# for every row in it - CI, the review threads, the draft flag - which change
+# without any clock saying so. ~135 rows, 16 points, fifteen seconds.
+#
+# Everything else the dashboard shows is *not* searched for. It arrives through
+# the clocks under `[events]` - the repositories polled there and, when the
+# token allows, your GitHub notifications - and a row is fetched by url the
+# first time a thread names you, and again only when a clock says it moved. A
+# finished pull request of yours stays as long as it is unread, and the mention
+# on a years-old closed issue arrives the same way as one on an open one.
+# Until 2026-09-13 there were nine more lanes here - three for what had recently
+# closed, six searching for mentions and comments, and a firehose of every open
+# julia pull request - two thousand rows fetched every six hours so the ones
+# that moved could be noticed. A row you want that nothing here returns is `i`:
+# an import, fetched by url from then on.
 mine     = "is:open is:pr author:vtjnash archived:false"
 review   = "is:open is:pr review-requested:vtjnash archived:false"
 assigned = "is:open is:issue assignee:vtjnash archived:false"
-# Recently finished, read ones included. Every lane above is `is:open`, so a
-# pull request that merges stops being returned; a row that was in front of
-# you and that no lane returns is fetched by url anyway and kept while it is
-# unread - nothing ages out of being unread - so the merge is seen and stays
-# seen without these. What these add is memory of what was *read*: a finished
-# thing stays in the `done` box for the window, where `x` files it away.
-# `{since:N}` is the date N days before the run, so they stay bounded -
-# unbounded they are every pull request you have ever had.
-landed   = "is:pr author:vtjnash is:closed closed:>{since:21} archived:false"
-reviewed = "is:pr review-requested:vtjnash is:closed closed:>{since:14} archived:false"
-resolved = "is:issue assignee:vtjnash is:closed closed:>{since:14} archived:false"
-
-[bulk]
-# Big, slow-moving queries. ~2000 items between them, so they run on their own
-# cadence rather than every refresh; force with `cli/bin/refresh --firehose`.
-# Nothing fetched here is carried when it closes - it is the background pile,
-# and a closed row leaving it is not news. The one exception is a recent
-# mention whose last comment is not yours, which owes a reply and is in front
-# of you.
-refresh_hours = 6
-
-[bulk.queries]
-firehose        = "repo:JuliaLang/julia is:open is:pr archived:false"
-mentioned_pr    = "is:open is:pr mentions:vtjnash archived:false"
-mentioned_issue = "is:open is:issue mentions:vtjnash archived:false"
-commented_pr    = "is:open is:pr commenter:vtjnash archived:false"
-commented_issue = "is:open is:issue commenter:vtjnash archived:false"
-# Team mentions, which `mentions:` does not cover - it matches the user, not a
-# team they are on. `team:ORG/TEAM` is a real qualifier but needs a token with
-# org read, and returns nothing with an App installation token; searching for
-# the literal text needs no such thing and finds the same mentions in comments
-# as well as bodies. The lane name starts with `mentioned` on purpose: that is
-# what `reply_owed` keys on, so a team mention whose last word is not yours
-# owes a reply exactly like a personal one. Add teams with OR.
-# Two lanes and not one: a GraphQL search without `is:pr` or `is:issue` returns
-# zero, free text included, which is the same trap `assignee:` falls into.
-mentioned_team_pr    = "is:open is:pr in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
-mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@JuliaLang/compiler\" OR \"@JuliaLang/triage\""
 
 # Named filter sets for `'` in the browser. Ten are built in - notification
 # firehose, my work, open items, waiting on me, waiting on them, ready to merge,
@@ -86,9 +67,9 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # The axes: `show` (base, read, filed, done), `tag` (reply, review, edits,
 # ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
 # `author`, `sort`. `lane` is which search claimed the row - the keys under
-# `[lanes]` and `[bulk.queries]`, plus `imported`, `carried`, `activity` for a
-# row only the poll saw, `notifications` for one GitHub notified you of, and
-# `local` for an adopted branch.
+# `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
+# saw, `notifications` for one GitHub notified you of, and `local` for an
+# adopted branch.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the

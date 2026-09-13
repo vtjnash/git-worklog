@@ -552,13 +552,16 @@ probably waiting on an answer. A fact about the thread and not about its state:
 a closed issue somebody asked you a question on owes the answer exactly as an
 open one does, and it is the `reply` tag in the browser either way.
 
-Only from the mention lanes. The `commented_*` lanes are threads you spoke on,
-and on the repos where you are effectively the maintainer that is every thread
-there is; a stranger having the last word on one of those is not a question
-put to you.
+Only a mention asks. A thread you commented on (`comment`) is, on the repos
+where you are effectively the maintainer, every thread there is, and a
+stranger having the last word on one of those is not a question put to you.
+Read off the notification `reason` the row carries - `mention`, or
+`team_mention` - which is GitHub saying you were named; it was read off the
+lane while the mention searches existed, and a team mention was a free-text
+search for the team's name.
 """
 function reply_owed(r, cfg, at::DateTime)
-    startswith(String(nz(get(r, "lane", nothing), "")), "mentioned") || return ""
+    get(r, "reason", nothing) in ("mention", "team_mention") || return ""
     age = activity_age(r, at)
     (age !== nothing && age <= cfg["thresholds"]["reply_days"]) || return ""
     get(r, "last_comment_by", nothing) in (nothing, cfg["login"]) && return ""
@@ -729,19 +732,24 @@ end
 
 """Is this a row nobody put in front of you - the pile?
 
-The discovery sweep and the mention corpus: a row one of the bulk lanes
-claimed, unless somebody in it asked you something, which is the one thing in
-the pile that is in front of you. Two things ask, and neither is a filter:
-`second_look`, because the pile is not a to-do list and silence in it is not a
-failure anybody owes an answer for, and the carry, because a closed row
-leaving the pile is not news and a thousand of them would be fetched by url
-for good.
+What the clocks brought in: a row the notifications source or the repo poll
+saw move and the refresh fetched by url for it, unless somebody in it asked
+you something, which is the one thing in the pile that is in front of you.
+One thing asks, and it is not a filter: `second_look`, because the pile is not
+a to-do list and silence in it is not a failure anybody owes an answer for.
 
 Read off the *lane*, which is the fact. It used to be read off the bucket,
 which was derived from the lane, and before that it was stored as `backlog`,
 a field on every row from when it was also a lane. Nothing filters on it:
 what takes something out of the pile is reading it, or filing it, one item at
 a time, recorded and undoable.
+
+Until 2026-09-13 the pile was the six bulk searches and the firehose - two
+thousand rows fetched every six hours so that the ones that moved could be
+noticed - and a standing list by construction. The clocks say which rows moved
+for one REST page, so the pile is now the rows that did; the old lane names
+are still recognised so that a `fetched.json` from before is let go of
+cleanly, see `RETIRED_LANES`.
 
 `stale` is deliberately not here, and used to be. It is your *own* open work,
 and sweeping it out on a 60-day threshold hid 44 pull requests of which 36 were
@@ -751,127 +759,22 @@ same work.
 """
 function in_pile(r)
     lane = String(nz(pget(r, "lane"), ""))
-    bulk = lane == "firehose" || startswith(lane, "mentioned") || startswith(lane, "commented")
-    bulk && isempty(String(nz(pget(r, "reply"), "")))
+    pile = lane in ("notifications", "activity") || retired_lane(lane)
+    pile && isempty(String(nz(pget(r, "reply"), "")))
 end
 
+"""The lanes that were deleted on 2026-09-13 - the firehose and the six
+mention and comment searches. A row in `fetched.json` still carrying one is
+from before, and is dropped without a change line rather than carried, since
+nothing will ever return it again."""
+retired_lane(lane::AbstractString) =
+    lane == "firehose" || startswith(lane, "mentioned") || startswith(lane, "commented")
 
-"""
-    implausible(nodes, total, cached) -> reason or nothing
-
-Reject a bulk result that contradicts itself or the previous snapshot, rather
-than letting it overwrite a good cache. `nothing` means the result is fine.
-"""
-function implausible(nodes, total, cached::Int)
-    n = length(nodes)
-    total isa Number || return nothing
-    n > 0 && total == 0 &&
-        return "issueCount 0 alongside $n nodes"
-    cached > 0 && n < cached ÷ 2 && total >= cached &&
-        return "got $n but issueCount says $total, cache had $cached"
-    cached > 0 && n == 0 && cached >= 20 &&
-        return "empty result replacing $cached cached"
-    nothing
-end
-
-"""Why a lane failed, without the query it failed on.
-
-`FetchError` names the query, which is right for a message read on its own and
-wrong for this row: the lane is already in the first column and the query is
-derivable from it, so all the prefix does is push the reason off the end. At 80
-characters it pushed *all* of it off - a cold start reported
-`commented_pr FAILED ... : unexpected ` and there was no way to tell from the
-output whether that was a rate limit, a 5xx or a bad query.
-"""
-why(msg::AbstractString) =
-    first(strip(replace(String(msg), r"^GraphQL failed for \"[^\"]*\": " => "")), 150)
-
-"""Run every [bulk.queries] entry, cached on a slow cadence.
-
-These are ~2000 items that move slowly and never surface on their own, so
-per-refresh freshness buys nothing and costs minutes of wall clock.
-
-GitHub's search API truncates at 1000 results and the Julia firehose is already
-at ~993, so any query approaching the cap is re-run partitioned by creation year
-and the slices unioned.
-"""
-function fetch_bulk(cfg, cfgtext, at::DateTime; force::Bool = false)
-    cached = fetched("bulk")
-    hours = get(cfg["bulk"], "refresh_hours", 6)
-    if cached !== nothing && !force
-        age_h = Dates.value(at - ts(cached.fetched_at)) / 3_600_000
-        if age_h < hours
-            return (OrderedDict{String,Any}(String(k) => v for (k, v) in cached.lanes), 0,
-                    @sprintf("cached %.1fh old", age_h))
-        end
-    end
-
-    # Start from whatever is cached so one flaky lane cannot discard the others.
-    # These fetches take minutes; losing a completed lane to a later 502 is the
-    # difference between a slow refresh and a wasted one.
-    prev = OrderedDict{String,Any}()
-    cached === nothing || for (k, v) in cached.lanes
-        prev[String(k)] = v
-    end
-    lanes = copy(prev)
-    # Persisted after every lane rather than at the end, so a run that dies
-    # halfway keeps what it has. It writes the whole store because that is what
-    # a part of it costs now - the alternative was a file per fetch, split by
-    # which query wrote it rather than by what any of it is.
-    keep() = put_fetched!("bulk", Dict{String,Any}("fetched_at" => now_isoformat(at),
-                                                   "lanes" => lanes))
-    spent = 0
-    failed = String[]
-    for (lane, q) in ordered(cfg["bulk"]["queries"], cfgtext, "bulk.queries")
-        local nodes
-        try
-            nodes, c, total = search(q; cap = 1000, query = FIREHOSE_QUERY)
-            spent += c
-            if total > 950
-                seen, merged = Set{String}(), Any[]
-                for y in 2011:Dates.year(at)
-                    part, pc, _ = search("$q created:$y-01-01..$y-12-31";
-                                         cap = 1000, query = FIREHOSE_QUERY)
-                    spent += pc
-                    for n in part
-                        if !(n.url in seen)
-                            push!(seen, String(n.url))
-                            push!(merged, n)
-                        end
-                    end
-                end
-                nodes = merged
-            end
-            cached = length(get(prev, lane, ()))
-            why = implausible(nodes, total, cached)
-            if why !== nothing
-                # A soft truncation is more dangerous than a hard failure: it
-                # arrives as a well-formed 200 and silently replaces good data.
-                # Seen live - the firehose returned issueCount 0 alongside 100
-                # nodes and hasNextPage false, which would have overwritten 957
-                # cached items with 100 and dropped the total from 2010 to 1444
-                # without an error anywhere.
-                push!(failed, lane)
-                @printf(stderr, "    %-16s SUSPECT (%s), keeping %d cached\n",
-                        lane, why, cached)
-                continue
-            end
-            lanes[lane] = nodes
-            @printf(stderr, "    %-16s %4d of %s\n", lane, length(nodes), total)
-        catch e
-            e isa FetchError || rethrow()
-            push!(failed, lane)
-            @printf(stderr, "    %-16s FAILED, keeping %d cached: %s\n",
-                    lane, length(get(prev, lane, ())), why(e.msg))
-            continue
-        end
-        keep()
-    end
-    keep()
-    how = "fetched $(sum(length(v) for v in values(lanes); init=0))"
-    isempty(failed) || (how *= ", $(length(failed)) lane(s) stale")
-    (lanes, spent, how)
-end
+"""Which notification `reason`s name *you* - as against `subscribed`, which is
+the repository being watched. A thread with one of these is brought into the
+corpus with its bundle the first time it is seen; a watched repository's
+traffic stays a light row in the inbox until it is looked at."""
+involved(reason) = !(reason in (nothing, "", "subscribed"))
 
 """Read the item blocks of `local.toml`.
 
@@ -938,6 +841,155 @@ function reconcile_drafts!(gone, ask = url -> Events.review_state(url; ttl = 0.0
     dropped
 end
 
+"""
+    derive!(r, old, st, cfg, at) -> r
+
+Everything a row is given beyond what GitHub said about it, in the order the
+refresh always did it: the carried keys (`their_head`, the two comment
+clocks), the facts and the tracking level (`apply_state!`), the wake, the
+second look, and the mark - `moved_at`, against the row it replaces. Its own
+function because a refresh is no longer the only place a row is built: the
+browser fetches the bundle for the row under the cursor and has to give it
+the same facts, or the tags on the row you are looking at would be the one
+place they could drift.
+
+`old` is the row this one replaces, or `nothing` on first sight - or the row
+itself, for one the refresh kept without asking GitHub again, in which case
+nothing moves and only what depends on `at` (the second look) and on
+`local.toml` is re-derived. Returns the row; `r["slept"]` says whether it
+has a snooze or an archive but no read stamp, which the refresh stamps once
+for all of them.
+"""
+function derive!(r, old, st, cfg, at::DateTime)
+    login = cfg["login"]
+    second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
+    r["their_head"] = their_head(r, old, login)
+    r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
+    r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
+    apply_state!(r, st, cfg, at)
+    # **A snooze is a wake time, and an archive is a mark.** Neither is a
+    # decision this run makes: the browser reads both off `local.toml` and
+    # answers "is it unread" per frame - `seen_of` - with the wake as a
+    # second reason beside the wake table. What this run does with them is
+    # two things. It carries the resolved wake on the row for the second
+    # look, since an item you have said "not now" about is not one to be
+    # reminded of; and it stamps read an item that has a snooze or an archive
+    # but no read stamp - a value typed into the file by hand, which is what
+    # `apply_snooze!` and `wl snooze` do on the way in and the only thing that
+    # used to need an arming. Without it the item would be unread and hidden
+    # by nothing, and "not now" would have said nothing at all.
+    read_ = get(st, "read", nothing)
+    r["wake"] = wake_of(get(st, "snooze", nothing), read_)
+    held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
+           truthy(get(st, "archived", nothing))
+    r["slept"] = held && !truthy(read_)
+    # After `reply`, which `in_pile` reads and the pile is not a to-do
+    # list, and after the snooze, for the reason above.
+    r["second_look"] = held ? "" : second_look(r, at, second_days)
+    # **When this program last saw a change you asked to be told about** -
+    # what the seen axis compares your read stamp against.
+    #
+    # Not `updated`, which is wrong in both directions: GitHub does not move
+    # it when a check run finishes (julia#62841 was stamped 20:55:52 and its
+    # three suites completed at 20:56:04, :07 and :19, and it has not moved
+    # since), and it does move it for a label edit on somebody else's pull
+    # request. So "has it changed" was answered by a clock that cannot see
+    # CI and can see things nobody asked about.
+    #
+    # The level decides what counts, which is what `track` always read like
+    # it did. The *old* row is compared key by key at today's level rather
+    # than through a stored hash, so changing `track` is not itself
+    # movement.
+    #
+    # **And this is the only threshold there is.** A snooze used to compare
+    # a hash armed when you said "not now" and wake when it differed, which
+    # was this rule reached a second way and kept in step with it by hand -
+    # `WOKE`, `snooze_fp`, `snooze_at`, a `mark_read` on falling asleep and
+    # an `inbox_add!` on waking. A snooze is a wake *time* now, read beside
+    # this mark by `seen_of`, and there is nothing to keep in step.
+    #
+    # **Whether it moved, and what it is stamped with, is `moved_stamp`**:
+    # the event's own time when the keys that moved have one, the refresh
+    # clock when a bool became true, and the mark it already had when
+    # nothing did. It used to be gated on the level's hash differing and
+    # stamped with the refresh clock either way, which dated every comment
+    # by the poll that noticed it and woke on a bool clearing as well as
+    # setting. On first sight it is what GitHub says rather than now, or a
+    # rebuilt `fetched.json` would read as every item moving at once.
+    r["moved_at"] = old === nothing ? activity_at(r) : moved_stamp(old, r, at)
+    r["new"] = old === nothing
+    r
+end
+
+"""What moved between `old` and `r`, said for a person, or `""`.
+
+Gated on the mark, not on the hash: a green or a relabel that moved nothing is
+not in it. Said as what happened, because it is an event and not a value:
+"review_requested_at 14:02->16:40" is the same sentence written for a machine,
+and this is the line a person reads to find out why their dashboard changed.
+"""
+function change_of(old, r)
+    r["moved_at"] == String(nz(jget(old, :moved_at), "")) && return ""
+    d = String[]
+    jget(old, :review_requested_at) == get(r, "review_requested_at", nothing) ||
+        push!(d, "review requested")
+    jget(old, :assigned_at) == get(r, "assigned_at", nothing) ||
+        push!(d, "assigned to you")
+    jget(old, :state_at) == get(r, "state_at", nothing) ||
+        push!(d, get(r, "state", nothing) == "OPEN" ? "reopened" :
+                 lowercase(something(get(r, "state", nothing), "closed")))
+    # The events say what happened; the states say what they went from and
+    # to. `their_head` and `review_at` are printed as events even though they
+    # are a sha and a timestamp, because "new push 0a1b2c->3d4e5f" is not a
+    # sentence anybody reads.
+    for (f, lab) in (("their_head", "new push"),
+                     ("their_comment_at", "new comment"),
+                     ("review_at", "new review"),
+                     ("ci", "CI"), ("review_decision", "review"),
+                     ("unresolved", "unresolved"))
+        if jget(old, Symbol(f)) != get(r, f, nothing)
+            push!(d, f in ("their_head", "their_comment_at", "review_at") ? lab :
+                     "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")
+        end
+    end
+    join(d, ", ")
+end
+
+"""A row kept from the last run without asking GitHub again, as this run's
+row: a copy, so that the derivation can compare it to itself and find nothing
+moved. `fetched_at` stays what it was, which is the whole point."""
+kept_row(old) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
+
+"""What a thread the notifications source saw contributes to the corpus row
+built for it: the reason, and the reason in words. Off the inbox row, which
+is the only place GitHub said it."""
+function thread_facts!(r, inbox_row)
+    inbox_row === nothing && return r
+    for k in ("reason", "why")
+        v = get(inbox_row, k, nothing)
+        truthy(v) && (r[k] = String(v))
+    end
+    r
+end
+
+"""
+    stale_by(inbox_row, old) -> bool
+
+Has a clock seen this row move since its bundle was fetched? The inbox row's
+`updated` is GitHub's time for the newest thing the poll or the notifications
+source saw; `fetched_at` is GitHub's time for when the bundle was asked. Both
+GitHub's, so they compare - where the row's own `updated` does not: a thread's
+`updated_at` is the *delivery* time, 2 to 46 seconds after the subject's
+`updatedAt` for the same event, and comparing the two read 35 unmoved rows as
+moved. A row from before there was a `fetched_at` is stale, once.
+"""
+function stale_by(inbox_row, old)
+    inbox_row === nothing && return false
+    f = jget(old, :fetched_at)
+    truthy(f) || return true
+    String(nz(get(inbox_row, "updated", nothing), "")) > String(f)
+end
+
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
@@ -945,19 +997,28 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
     # no clock of its own against the read mark, a read mark on a hand-typed
-    # snooze against the next comment, the closed lanes' `{since}` against
-    # `closedAt` - so the instant it is all measured from is GitHub's, off a
-    # `Date` header, and not the local clock plus a correction. One request,
+    # snooze against the next comment, a bundle's `fetched_at` against the
+    # inbox's clock - so the instant it is all measured from is GitHub's, off
+    # a `Date` header, and not the local clock plus a correction. One request,
     # free of the rate limit. A test hands in its own.
     at === nothing && (at = Events.server_now())
     state = load_state()
     # What the last run left, to diff this one against. Read once and held: the
-    # parts of the file this run writes - the poll's inbox, the bulk cache, the
-    # items themselves - each go back through a fresh read at the moment they
-    # are written, since between them they span minutes of network.
+    # parts of the file this run writes - the poll's inbox, the items
+    # themselves - each go back through a fresh read at the moment they are
+    # written, since between them they span a minute of network.
     prev_items = something(fetched("items"), (;))
-    second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
 
+    # **The open work is asked for whole, every run.** The three lanes are
+    # GraphQL searches because they do two things at once that nothing else
+    # does as cheaply: they *enumerate* the standing set - a pull request of
+    # yours that nobody has touched notifies nobody - and they return the
+    # bundle for every row in it, which is the set whose tags have to be
+    # right: `ready`, `edits` and `review` read CI, the review threads and
+    # the draft flag, and all three change without a word from any clock.
+    # ~135 rows, four pages, 16 points, 15 seconds; dozens of presses a day
+    # is a few hundred points. Measured 2026-09-13, and decided against a
+    # heuristic: moved-recently is not a hint for what moves next.
     items = OrderedDict{String,Any}()
     spent = 0
     for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
@@ -968,10 +1029,11 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
         @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
     end
+    lanes = Set(keys(items))
 
-    # Items no lane returns, tracked because they were asked for by url. They go
-    # in after the lanes and before the bulk pile, so a lane that does return one
-    # wins: an import is how an item is followed, not what it is.
+    # Items no lane returns, tracked because they were asked for by url. They
+    # go in after the lanes, so a lane that does return one wins: an import is
+    # how an item is followed, not what it is.
     imp = imported_urls()
     if !isempty(imp)
         kept = 0
@@ -990,171 +1052,98 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
     end
 
-    # For the poll it does, not for the answer: the events lane advances its
-    # cursors and writes what it saw into `fetched.json`, and every reader of
-    # that asks for itself. Nothing in this run looks at the list any more.
-    Events.unread(cfg, login, at)
-    bulk, c, how = fetch_bulk(cfg, cfgtext, at; force = "--firehose" in args)
-    spent += c
-    # The first lane to claim an item names it, and `reply_owed` and `in_pile`
-    # read that name - so a mention can owe a reply and a row the firehose
-    # claimed first never can. A lane that names *you* therefore beats the one
-    # that names a repo, and the discovery sweep goes last. It used to depend on
-    # the order the cache file happened to be in, which was the order the lanes
-    # had been added to `config.toml` over a year.
-    for (lane, nodes) in sort(collect(bulk); by = p -> first(p) == "firehose")
-        kept = 0
-        for n in nodes
-            u = String(n.url)
-            haskey(items, u) && continue      # already yours in an active lane
-            items[u] = normalize(n, lane, login)
-            kept += 1
-        end
-        @printf(stderr, "  %-16s %4d new (%s)\n", lane, kept, how)
-    end
-
-    # **Nothing ages out of being unread.** A row is an item because a lane
-    # returned it, and every active lane is `is:open`: the moment somebody
-    # merges your pull request it stops being returned, and until 2026-09-13
-    # that was the last anyone heard of it - dropped from the snapshot before
-    # the refresh could compare it to the old row, before `state_at` could
-    # date the merge, before `seen_of` could call it unread. The closed lanes
-    # caught it for a window, and past the window an unread merge left the
-    # dashboard silently, mark and all.
+    # **Everything else is asked by url, and only when a clock says it
+    # moved.** The clocks are the notifications source and the repo poll,
+    # which `Events.unread` runs and whose rows say, per url, GitHub's time
+    # for the newest thing either saw. Three kinds of row reach this:
     #
-    # So a row that was in front of you and that no lane returns is **fetched
-    # by url** - the same one request the imports make - and goes through the
-    # loop below like any other. If it moved, it is unread and stays; if it is
-    # read, or archived, it is let go at the foot of the loop. What was in
-    # front of you is what was not in the pile: the pile is a thousand rows
-    # nobody has read and never will, and a closed one leaving it is not news.
-    # A row kept this way keeps its lane, so `reply_owed` still runs on it
-    # and a mention that goes quiet past `reply_days` returns to the pile and
-    # leaves on its own.
-    carried = String[]
+    #   * a row the corpus has - once in a lane, or brought in below - that no
+    #     lane returned this run: **carried**, kept as it is until a clock
+    #     says it moved, then asked again. Until 2026-09-13 every carried row
+    #     was asked again every run.
+    #   * a thread that names you - `mention`, `review_requested`, `assign`,
+    #     `author`, `comment`, `team_mention`, `manual`, anything but the
+    #     repository being watched - that the corpus has not seen: **brought
+    #     in**, with its bundle, so it carries the same facts as everything
+    #     else and the `reply` tag can be read off it. This is what the six
+    #     mention and comment searches and the three closed lanes were for.
+    #   * a row of a watched repository's traffic, `subscribed` or the poll's
+    #     own: **not here**. It stays a light row in the inbox, shown by the
+    #     browser as such, until it is looked at - `promote!` - or a lane
+    #     returns it.
+    #
+    # A row from before the lanes were retired - the firehose, the mention
+    # and comment searches - is let go without a change line: nothing will
+    # ever return it, and there were two thousand of them.
+    inbox = Dict{String,Any}(String(e["url"]) => e for e in Events.unread(cfg, login, at))
+    ask = OrderedDict{String,String}()        # url => the lane its row gets
+    carried, retired = String[], 0
     for (k, old) in pairs(prev_items)
         url = String(k)
-        (haskey(items, url) || in_pile(old)) && continue
+        haskey(items, url) && continue
+        lane = String(nz(jget(old, :lane), "carried"))
+        if retired_lane(lane)
+            retired += 1
+            continue
+        end
         push!(carried, url)
+        if stale_by(get(inbox, url, nothing), old)
+            ask[url] = lane
+        else
+            items[url] = kept_row(old)
+        end
     end
-    if !isempty(carried)
-        kept = 0
+    brought = 0
+    for (url, e) in inbox
+        (haskey(items, url) || haskey(ask, url)) && continue
+        involved(get(e, "reason", nothing)) || continue
+        ask[url] = String(nz(get(e, "lane", nothing), "notifications"))
+        brought += 1
+    end
+    if !isempty(ask)
+        got = 0
         for n in try
-                    fetch_urls(carried)
+                    fetch_urls(collect(keys(ask)))
                  catch e
-                    @printf(stderr, "  %-9s failed: %s\n", "carried",
+                    @printf(stderr, "  %-9s failed: %s\n", "by url",
                             first(sprint(showerror, e), 120))
                     Any[]
                  end
             u = String(n.url)
-            old = jget(prev_items, Symbol(u))
-            items[u] = normalize(n, String(nz(jget(old, :lane), "carried")), login)
-            kept += 1
+            items[u] = thread_facts!(normalize(n, ask[u], login), get(inbox, u, nothing))
+            got += 1
         end
-        @printf(stderr, "  %-9s %3d items no lane returns, unread or moved (of %d)\n",
-                "carried", kept, length(carried))
+        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here (of %d asked)\n",
+                "by url", got, length(ask) - brought, brought, length(ask))
     end
+    @printf(stderr, "  %-9s %3d items no lane returns, unread or moved%s\n", "carried",
+            length(carried), retired == 0 ? "" : "; $retired from retired lanes let go")
     carried = Set(carried)
 
+    # Every row this run fetched is stamped with when, against which the
+    # clocks are read next run. A kept row keeps its stamp.
+    for (url, r) in items
+        truthy(get(r, "fetched_at", nothing)) && !haskey(ask, url) && !(url in lanes) &&
+            !(url in imp) && continue
+        r["fetched_at"] = stamp(at)
+    end
+
     # The facts, then the tracking level, then the wake table at that level.
-    # Order matters: the level decides which keys `moved_stamp` compares.
+    # Order matters: the level decides which keys `moved_stamp` compares. A
+    # kept row is derived against itself, so nothing about it moves and only
+    # the second look and `local.toml` are re-read.
     changes = Any[]
     slept = String[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
         old = jget(prev_items, Symbol(url))
-        r["their_head"] = their_head(r, old, login)
-        r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
-        r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
-        apply_state!(r, st, cfg, at)
-        # **A snooze is a wake time, and an archive is a mark.** Neither is a
-        # decision this run makes: the browser reads both off `local.toml` and
-        # answers "is it unread" per frame - `seen_of` - with the wake as a
-        # second reason beside the wake table. What this run does with them is
-        # two things. It carries the resolved wake on the row for `wl next`
-        # and for the second look, since an item you have said "not now" about
-        # is not one to be reminded of; and it stamps read an item that has a
-        # snooze or an archive but no read stamp - a value typed into the file
-        # by hand, which is what `apply_snooze!` and `wl snooze` do on the way
-        # in and the only thing that used to need an arming. Without it the
-        # item would be unread and hidden by nothing, and "not now" would have
-        # said nothing at all.
-        read_ = get(st, "read", nothing)
-        r["wake"] = wake_of(get(st, "snooze", nothing), read_)
-        held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
-               truthy(get(st, "archived", nothing))
-        held && !truthy(read_) && push!(slept, url)
-        # After `reply`, which `in_pile` reads and the pile is not a to-do
-        # list, and after the snooze, for the reason above.
-        r["second_look"] = held ? "" : second_look(r, at, second_days)
-        # **When this program last saw a change you asked to be told about** -
-        # what the seen axis compares your read stamp against.
-        #
-        # Not `updated`, which is wrong in both directions: GitHub does not move
-        # it when a check run finishes (julia#62841 was stamped 20:55:52 and its
-        # three suites completed at 20:56:04, :07 and :19, and it has not moved
-        # since), and it does move it for a label edit on somebody else's pull
-        # request. So "has it changed" was answered by a clock that cannot see
-        # CI and can see things nobody asked about.
-        #
-        # The level decides what counts, which is what `track` always read like
-        # it did. The *old* row is compared key by key at today's level rather
-        # than through a stored hash, so changing `track` is not itself
-        # movement.
-        #
-        # **And this is the only threshold there is.** A snooze used to compare
-        # a hash armed when you said "not now" and wake when it differed, which
-        # was this rule reached a second way and kept in step with it by hand -
-        # `WOKE`, `snooze_fp`, `snooze_at`, a `mark_read` on falling asleep and
-        # an `inbox_add!` on waking. A snooze is a wake *time* now, read beside
-        # this mark by `seen_of`, and there is nothing to keep in step.
-        #
-        # **Whether it moved, and what it is stamped with, is `moved_stamp`**:
-        # the event's own time when the keys that moved have one, the refresh
-        # clock when a bool became true, and the mark it already had when
-        # nothing did. It used to be gated on the level's hash differing and
-        # stamped with the refresh clock either way, which dated every comment
-        # by the poll that noticed it and woke on a bool clearing as well as
-        # setting. On first sight it is what GitHub says rather than now, or a
-        # rebuilt `fetched.json` would read as every item moving at once.
-        r["moved_at"] = old === nothing ? activity_at(r) : moved_stamp(old, r, at)
+        derive!(r, old, st, cfg, at)
+        pop!(r, "slept") && push!(slept, url)
         if old === nothing
-            r["new"] = true
             push!(changes, (url, r, "new"))
         else
-            r["new"] = false
-            # The change list is what moved, said for a person - so it is gated
-            # on the mark, not on the hash, and a green or a relabel that moved
-            # nothing is not in it.
-            if r["moved_at"] != String(nz(jget(old, :moved_at), ""))
-                d = String[]
-                # Said as what happened, because it is an event and not a value:
-                # "review_requested_at 14:02->16:40" is the same sentence
-                # written for a machine, and this is the line a person reads to
-                # find out why their dashboard changed.
-                jget(old, :review_requested_at) == get(r, "review_requested_at", nothing) ||
-                    push!(d, "review requested")
-                jget(old, :assigned_at) == get(r, "assigned_at", nothing) ||
-                    push!(d, "assigned to you")
-                jget(old, :state_at) == get(r, "state_at", nothing) ||
-                    push!(d, get(r, "state", nothing) == "OPEN" ? "reopened" :
-                             lowercase(something(get(r, "state", nothing), "closed")))
-                # The events say what happened; the states say what they went
-                # from and to. `their_head` and `review_at` are printed as
-                # events even though they are a sha and a timestamp, because
-                # "new push 0a1b2c->3d4e5f" is not a sentence anybody reads.
-                for (f, lab) in (("their_head", "new push"),
-                                 ("their_comment_at", "new comment"),
-                                 ("review_at", "new review"),
-                                 ("ci", "CI"), ("review_decision", "review"),
-                                 ("unresolved", "unresolved"))
-                    if jget(old, Symbol(f)) != get(r, f, nothing)
-                        push!(d, f in ("their_head", "their_comment_at", "review_at") ? lab :
-                                 "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")
-                    end
-                end
-                isempty(d) || push!(changes, (url, r, join(d, ", ")))
-            end
+            d = change_of(old, r)
+            isempty(d) || push!(changes, (url, r, d))
         end
     end
     # A carried row that is read - up to its latest movement, this run's
@@ -1168,6 +1157,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     for (k, old) in pairs(prev_items)
         url = String(k)
         if !haskey(items, url)
+            retired_lane(String(nz(jget(old, :lane), ""))) && continue
             push!(changes, (url, old, url in carried ? "read, and no lane returns it" :
                                                        "closed or merged"))
             push!(gone, (url, String(nz(jget(old, :ref), url))))
@@ -1188,6 +1178,10 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
 
     store = load_fetched()
     store["fetched_at"], store["points"], store["items"] = now_isoformat(at), spent, items
+    # The bulk cache is gone with the lanes that wrote it; a file that still
+    # has one loses it here rather than carrying two thousand rows nothing
+    # reads.
+    haskey(store, "bulk") && delete!(store, "bulk")
     save_fetched(store)
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
