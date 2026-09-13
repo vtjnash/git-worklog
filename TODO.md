@@ -2,9 +2,10 @@
 
 ## What is next
 
-Two things are open, and both are ideas to design rather than tasks to pick
-up: the inline comment box, and what GraphQL is still for now that
-`/notifications` is polled (item 4). The mapping that stood between them -
+One thing is open, and it is an idea to design rather than a task to pick up:
+the inline comment box. What GraphQL is still for, now that `/notifications`
+is polled, was asked and **built** the same night (item 4): the open work is
+searched for, everything else arrives by clock. The mapping that stood between -
 what the notifications API covers, against what the searches emulate - was
 made 2026-09-13, measured the same afternoon, and the lane it argued for is
 **built** and polled live; see item 3. The deletion that
@@ -91,13 +92,52 @@ here is done; `git log` is the record of it and this file is not.
    - **The stopgap lanes** are not wanted: the source reaches everything
      they would have, and `mentioned_closed_*` was never added.
 
-4. **What GraphQL is still for, now that `/notifications` is polled.** Asked
-   2026-09-13, the evening the source went live, because the poll is one
-   page every two minutes and says exactly what moved and why, where the
-   lanes are twelve searches emulating it with `updated:>` noise, a 15-minute
+4. **Built, 2026-09-13, the same night: GraphQL is for the open work and
+   for the row under the cursor; everything else arrives by clock.** Asked
+   that evening, when the source went live, because the poll is one page
+   every two minutes and says exactly what moved and why, where the lanes
+   were twelve searches emulating it with `updated:>` noise, a 15-minute
    consistency overlap, a 1000-row cap and a `team:` qualifier that does not
-   work. An idea to design rather than a task to pick up; the answer has two
-   halves, and only one of them is GraphQL's to keep.
+   work. The answer has two halves, and only one of them is GraphQL's to
+   keep; the analysis that found that is kept below, then what was built.
+
+   **What is built.** `refresh` is the three open-work lanes, then
+   `Events.unread` as the clock, then one `fetch_urls` for the rows a clock
+   says moved since their `fetched_at` and for the threads that name you
+   (`involved`: any reason but `subscribed`) that the corpus has not seen;
+   every other row it had is `kept_row` - derived against itself, so nothing
+   about it moves - and the rows of the nine retired lanes are let go
+   uncounted. `derive!` is the per-row derivation factored out of the loop,
+   and the browser runs it too: `fetch_bundle` asks for the one row under
+   the cursor on the quiet re-read the cache policy already arms - a second
+   on screen, bundle older than `CACHE_FRESH`, once per selection - and puts
+   the answer in `cache/` under `bundle:<url>` rather than into
+   `fetched.json`, where a read-modify-write would race the refresh both
+   ways; `loaditems` and the poll's extras take the cached row when it is
+   the newer, and a light row is promoted the same way and keeps its lane
+   and reason. `reply_owed` reads `reason`; `in_pile` is the clock lanes
+   plus the retired names. Gone: nine lanes, `[bulk]`, `fetch_bulk`,
+   `implausible`, `FIREHOSE_QUERY`, `--firehose`, the `bulk` part of the
+   file. Tests for the clock comparison, the kept row, the change line, the
+   bundle overlay and the gate.
+
+   **Run live from the sandbox, 2026-09-13 23:30Z**, on the corpus the
+   user's own refresh had written: the first run brought 145 rows in by url
+   - 12 moved, 134 threads new to the corpus, of 146 asked; one was the
+   private repository the App token cannot see - let 2027 rows of the
+   retired lanes go, and left **280 items**: 133 `notifications`, 72 `mine`,
+   46 `review`, 17 `assigned`, 12 carried from the old closed lanes. 38 of
+   them owe a reply; both example threads are there, closed, tagged, with
+   who had the last word. The steady state is 26 seconds wall and 4 of CPU:
+   16 points, three lanes, the poll, one url. `fetch_bundle` on a light
+   julia row: 0.8s, and the overlay shows it.
+
+   **Two things to know.** A url the token cannot fetch is asked again every
+   run - one line of noise, "1 threads new here", and nothing else. And a
+   dashboard from before this is 280 rows where it was 2174: the pile was a
+   standing list of everything you had ever commented on, and now it is
+   what moved in the last thirty days. A row you want that nothing returns
+   is `i`.
 
    **Discovery - which items exist and which moved - is the half
    notifications can take.** Seven of the twelve lanes exist only to find
@@ -305,14 +345,17 @@ Read this first if you are picking this up cold; "What is next" above is what to
 do once you have.
 
 ### What it is
-A personal GitHub work dashboard for `vtjnash`, in Julia. It buckets ~2100
-items - own PRs, review requests, assigned issues, recently merged or closed
-ones, personal and team mentions, comment history, and every open
-JuliaLang/julia PR as a background pile - tracks which threads are unread so
-per-event email notification can stay off, and browses them in a terminal UI of
-three panes: the item list, its metadata, and a detail pane that is the thread
-(`o`), the diff (`d`), what has been pushed since you last looked (`p`) or the
-checks (`c`).
+A personal GitHub work dashboard for `vtjnash`, in Julia. It searches for the
+open work - own PRs, review requests, assigned issues, ~135 rows - and brings
+in by url whatever GitHub's notifications and the polled repositories say
+moved: a mention on a closed issue, a merge, a thread you commented on, ~150
+rows more; the watched repositories' traffic sits beside them as light rows
+until looked at. It tracks which threads are unread so per-event email
+notification can stay off, and browses them in a terminal UI of three panes:
+the item list, its metadata, and a detail pane that is the thread (`o`), the
+diff (`d`), what has been pushed since you last looked (`p`) or the checks
+(`c`). Until 2026-09-13 it was ~2100 rows, most of them a background pile of
+searches refetched every six hours.
 
 Beyond GitHub it also knows about *local* work: a branch with no pull request
 can be adopted and becomes an item like any other, and finished work is archived
@@ -339,8 +382,7 @@ pushing has never been tried).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-./cli/bin/refresh              # fetch, bucket, diff the snapshot   (~30s)
-./cli/bin/refresh --firehose   # force the 6-hourly bulk lanes too  (~6min)
+./cli/bin/refresh              # fetch, derive, diff the snapshot   (~25s)
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view
 ./cli/bin/wl next 10           # pull untriaged items from the pile
@@ -438,7 +480,7 @@ linked against a newer glibc.
 |---|---|
 | `cli/src/gh.jl` | GraphQL search lanes, shelled through `gh api graphql` |
 | `cli/src/events.jl` | the incremental inbox and live thread fetch (submodule `Events`) |
-| `cli/src/refresh.jl` | normalize, bucket, fingerprint, snooze, bulk cache, the snapshot diff |
+| `cli/src/refresh.jl` | normalize, the facts, the wake table, the by-url fetch, the snapshot diff |
 | `cli/src/marks.jl` | what you have done to an item: seen, touched, snoozed, drafted — five keys in its `local.toml` block |
 | `cli/src/fetched.jl` | the other half of `data/`: `fetched.json`, everything GitHub can answer again |
 | `cli/src/state.jl` | the line-based `local.toml` editor - one block per item, repo or adopted branch - and the `next` queue |
@@ -1955,13 +1997,12 @@ request per row; a cached entry, current or stale, is never held.
 reader once the request became a time; the pane lists who is asked from the
 REST head `itemmeta` already fetches. `review_count` went the same way.
 
-**The windows are right.** The three closed lanes are bounded by
-`closed:>{since:N}` - 21 days for your own, 14 for the reviewed and resolved
-ones - which is longer than any gap between refreshes and about as long as a
-finished thing is worth seeing in `done`. The open lanes are unbounded because
-open work is open work. The activity poll is a cursor, not a window: `since=`
-is the start of the last poll, so nothing ages out unread. The bulk lanes are
-unbounded and cached six-hourly, which is what the pile is for.
+**The windows are right.** The open lanes are unbounded because open work is
+open work. The activity poll and the notifications source are a cursor, not a
+window: `since=` is the start of the last poll, so nothing ages out unread.
+(The three closed lanes were bounded by `closed:>{since:N}`, and the bulk
+lanes were unbounded and cached six-hourly; both went on 2026-09-13, the
+clocks doing what they did.)
 
 **Kept, and why.** `reviewThreads(first: 100)` for `unresolved`, which buckets
 `needs-edits` and the pane prints; `reviews(last: 20)` for `review_at`,
