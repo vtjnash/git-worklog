@@ -77,6 +77,38 @@ function auth()
     _AUTH[] = GitHub.authenticate(tok)
 end
 
+"Overridable for the same reason `TOKEN_FILE` is. Empty means `data/notifications.token`."
+const PAT_FILE = Ref("")
+const _PAT = Ref{Any}(nothing)
+patfile() = isempty(PAT_FILE[]) ? datapath("notifications.token") : PAT_FILE[]
+
+"""
+    pat() -> auth, or nothing
+
+The token the notifications source polls with, or `nothing` when there is none,
+in which case that source is skipped and every other one polls as before.
+
+A second lookup rather than a fourth rung on `token()`'s ladder, because the
+one token `token()` must never fall through to is exactly the one it finds
+first: the sandbox file holds a GitHub App user token, and `/notifications` is
+not offered to Apps at all - 403 "not accessible by integration", and the
+endpoint is missing from the App permissions list rather than denied by it. So
+this is a file of its own, `data/notifications.token`, one line, gitignored,
+holding a token that is *yours*: a classic PAT with the `notifications` scope,
+or the `gho_` token `gh auth login` keeps off the sandbox, whose `repo` scope
+carries the same access. Measured 2026-09-13 with the latter.
+"""
+function pat()
+    _PAT[] === nothing || return _PAT[]
+    f = patfile()
+    isfile(f) || return nothing
+    t = strip(read(f, String))
+    isempty(t) && return nothing
+    # `OAuth2` outright rather than `authenticate`, which asks `/user` to check
+    # the token: a bad one is reported by the poll, as `FAILED: 401`.
+    _PAT[] = GitHub.OAuth2(String(t))
+end
+
 """
     server_now() -> DateTime
 
@@ -92,10 +124,15 @@ function server_now()
     d
 end
 
-"One request, one page. Always returns a vector, as the Python `_get` did."
-function api_get(endpoint::AbstractString; params = Dict{String,Any}())
+"""One request, one page. Always returns a vector, as the Python `_get` did.
+
+`auth` is an argument so the one endpoint the sandbox token cannot reach can be
+asked with the one that can - see `pat` - rather than through a second copy of
+this.
+"""
+function api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth())
     v = try
-        GitHub.gh_get_json(GitHub.DEFAULT_API, endpoint; auth = auth(), params = params)
+        GitHub.gh_get_json(GitHub.DEFAULT_API, endpoint; auth = auth, params = params)
     catch e
         throw(ApiError(first(sprint(showerror, e), 200)))
     end
@@ -117,10 +154,10 @@ That is why this reaches for `gh_get_json` (a single request) instead of the
 library's own paginating helpers: correctness beats using the convenience API.
 """
 function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
-                   per_page::Int = 100, max_pages::Int = 60)
+                   per_page::Int = 100, max_pages::Int = 60, auth = auth())
     out, seen = Any[], Set{Any}()
     for page in 1:max_pages
-        rows = api_get(endpoint; params = merge(params, Dict{String,Any}(
+        rows = api_get(endpoint; auth = auth, params = merge(params, Dict{String,Any}(
             "per_page" => per_page, "page" => page)))
         for r in rows
             k = something(get(r, "id", nothing), get(r, "url", nothing), page)
@@ -138,7 +175,7 @@ function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
             # collected below.
             for _ in 1:2
                 sleep(1)
-                rows = api_get(endpoint; params = merge(params,
+                rows = api_get(endpoint; auth = auth, params = merge(params,
                     Dict{String,Any}("per_page" => per_page, "page" => 1)))
                 isempty(rows) || break
             end
