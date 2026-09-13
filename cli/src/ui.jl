@@ -438,8 +438,12 @@ function ui(args = String[], at::DateTime = utcnow())
     # tracked from the moment it is made rather than from the next one.
     append!(items, imported_items(Set(x.url for x in items), at))
     cfg = config()
-    DETAIL_TTL[] = 60.0 * get(get(cfg, "cache", Dict{String,Any}()),
-                              "detail_ttl_minutes", 10)
+    cc = get(cfg, "cache", Dict{String,Any}())
+    # `detail_ttl_minutes` is the older name for the same number, from when it
+    # covered the thread and the diff and nothing else.
+    CACHE_FRESH[] = 60.0 * get(cc, "fresh_minutes", get(cc, "detail_ttl_minutes", 2))
+    CACHE_KEEP[] = 86_400.0 * get(cc, "keep_days", 30)
+    MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
     unread = Events.unread(cfg, cfg["login"], at; verbose = false)
     idx = Dict(i.url => i for i in items)
     # Threads the poll saw that no lane returns still need a row to select.

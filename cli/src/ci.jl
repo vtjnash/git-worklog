@@ -9,11 +9,15 @@
 """Per-check state for an item's head commit.
 
 One GraphQL round trip, cached: the metadata pane asks for it every time the
-selection moves, and holding `j` down should not be a request per row.
+selection moves, and holding `j` down should not be a request per row. `keep`
+is how old an entry may be and still be handed back - the caller that passes
+one is showing it while a re-read runs behind, and asks `cache_age` which.
 """
-function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0)
-    key = string("checks:", repo, "#", number)
-    hit = cache_get(key, ttl)
+checks_key(repo::AbstractString, number::Integer) = string("checks:", repo, "#", number)
+
+function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep = ttl)
+    key = checks_key(repo, number)
+    hit = cache_get(key, ttl; keep_s = keep)
     hit === nothing || return hit[1]
     owner, name = split(String(repo), '/')
     q = """

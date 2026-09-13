@@ -53,6 +53,14 @@ Base.@kwdef mutable struct BState <: View
                                     # re-read: what is on screen stays there
     refreshkey::String = ""         # the loaded key a stale entry wants re-read,
     refreshat::Float64 = 0.0        # and the second it becomes due
+    metastale::Bool = false         # the metadata on screen came from an old
+                                    # entry and wants re-reading at the same
+                                    # second, quietly, under what is shown
+    selurl::String = ""             # the item the cursor has been on since
+    selat::Float64 = 0.0            # `selat`: what the two debounces measure
+    heldat::Float64 = 0.0           # the `selat` a wake has been armed for, so
+                                    # a held load arms one timer and not one
+                                    # per keystroke while it waits
     all::Vector{Item}               # unfiltered
     unread::Set{String} = Set{String}()
     filters::Filters = DEFAULT_FILTERS()   # what the browser opens on: what

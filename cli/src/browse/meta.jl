@@ -23,22 +23,74 @@ Fetch what the metadata pane needs for the selected item, off the key loop.
 Separate from `load_nodes!` because it does not change with the mode: switching
 between the thread, the diff and the checks re-reads the body three times, but
 the reviewers and the labels are the same each time.
+
+`fresh` is `R`: past every cache, and past the dwell too - a key pressed on the
+item is not the cursor passing over it.
 """
 function load_meta!(st::BState; fresh::Bool = false)
     (isempty(st.items) || st.sel == 0) && return
+    note_sel!(st)
     it = st.items[st.sel]
-    (st.metakey == it.url || (st.metapending !== nothing && st.metakey == it.url)) && return
-    st.metakey = it.url
+    st.metakey == it.url && return
+    # Cleared before the dwell rather than after it: what is here is the last
+    # item's, and it must not stand under this one's title for a quarter of a
+    # second. The pane says "loading…" meanwhile - `meta_waiting` reads the
+    # dwell as waiting, which it is.
+    st.metakey = ""
     st.meta = nothing
     st.checks = nothing
     st.merge = nothing
+    st.metapending = nothing
+    st.mergepending = nothing
+    st.metastale = false
+    !fresh && held!(st, meta_cached(it)) && return
+    st.metakey = it.url
+    start_meta!(st, it, fresh ? :fresh : :load)
+end
+
+"Does the pane want `mergeable` for `it`? Only while there is a merge to be had."
+merge_wanted(it::Item) = it.is_pr && (isempty(it.state) || it.state == "OPEN")
+
+"""Is everything the pane shows for `it` on disk - anything to put up without a
+request? Asked before a load is held for the dwell: a cached item is never held."""
+meta_cached(it::Item) =
+    cache_has(Events.meta_key(it.url)) &&
+    (!it.is_pr || cache_has(checks_key(it.repo, it.number))) &&
+    (!merge_wanted(it) ||
+     Events.merge_usable(cache_get(Events.merge_key(it.url), MERGE_FRESH[];
+                                   keep_s = CACHE_KEEP[]), MERGE_FRESH[]))
+
+"""Start the two metadata tasks for `it`, under one of three windows.
+
+`:load` is the cursor landing: an entry within `CACHE_KEEP` goes up at once,
+and `collect_meta!` marks it stale past `CACHE_FRESH` so that a re-read runs
+behind it. `mergeable` has its own window, `MERGE_FRESH` - a clean answer past
+it is not shown, and a conflict is shown like anything else; see `merge_state`.
+
+`:quiet` is that re-read: plain fresh-or-miss at the same windows, so that only
+what is actually old is asked for again. The metadata and the checks share a
+window; the merge keeps its own unless the conflict on screen is the thing
+that is old, in which case it is asked at the shorter one. This is the one
+place a conflict is ever re-asked before `MERGE_FRESH`.
+
+`:fresh` is `R`: past everything.
+"""
+function start_meta!(st::BState, it::Item, how::Symbol)
+    ttl, keep = how === :fresh ? (0.0, 0.0) :
+                how === :quiet ? (CACHE_FRESH[], CACHE_FRESH[]) :
+                                 (CACHE_FRESH[], CACHE_KEEP[])
+    mttl = how === :fresh ? 0.0 :
+           how === :quiet && st.merge !== nothing && st.merge.mergeable == "CONFLICTING" ?
+               CACHE_FRESH[] : MERGE_FRESH[]
+    mkeep = how === :load ? CACHE_KEEP[] : mttl
+    tag = how === :load ? "" : how === :quiet ? " quiet" : " fresh"
     # `R` reads past the checks' own window, so it cannot join the ordinary
     # read of the same item - that is the read it was pressed to go past.
-    st.metapending = fetching(string("meta ", it.url, fresh ? " fresh" : "")) do
+    st.metapending = fetching(string("meta ", it.url, tag)) do
         try
-            (meta = Events.itemmeta(it.url, it.is_pr),
+            (meta = Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep),
              checks = it.is_pr ?
-                 check_contexts(it.repo, it.number; ttl = fresh ? 0.0 : 120.0) : nothing,
+                 check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
              sessions = mux_list())
         catch e
             (meta = nothing, checks = nothing, sessions = String[],
@@ -57,40 +109,93 @@ function load_meta!(st::BState; fresh::Bool = false)
     # answer comes back well after the reviews and the checks do - it is the
     # computation the lanes were made to stop waiting for - and the thread,
     # the reviewers and the check tally are all on screen before it lands.
-    st.mergepending = it.is_pr && (isempty(it.state) || it.state == "OPEN") ?
-        fetching(string("merge ", it.url, fresh ? " fresh" : "")) do
+    st.mergepending = merge_wanted(it) ?
+        fetching(string("merge ", it.url, tag)) do
             try
-                Events.merge_state(it.url; ttl = fresh ? 0.0 : 120.0)
+                Events.merge_state(it.url; ttl = mttl, keep = mkeep)
             catch
                 nothing
             finally
                 st.wake === nothing || st.wake()
             end
         end : nothing
+    st
 end
+
+"""Re-read the metadata on screen, under it.
+
+What makes it a refresh is what it does not do: `st.meta`, `st.checks` and
+`st.merge` stay where they are until the answer lands, and a failed answer
+leaves them there. Only for the item the cursor is on, and only when nothing
+about it is already in the air.
+"""
+function refresh_meta!(st::BState)
+    (isempty(st.items) || st.sel == 0) && return false
+    it = st.items[clamp(st.sel, 1, length(st.items))]
+    st.metakey == it.url || return false
+    (st.metapending === nothing && st.mergepending === nothing) || return false
+    start_meta!(st, it, :quiet)
+    true
+end
+
+"""Is the pane waiting on `it` - a fetch in the air, or a load the dwell is
+holding? Either way the honest word is "loading…" rather than "—"."""
+meta_waiting(st::BState, it::Item) =
+    st.metakey == it.url ? st.metapending !== nothing : st.selurl == it.url
+merge_waiting(st::BState, it::Item) =
+    st.metakey == it.url ? st.mergepending !== nothing : st.selurl == it.url
 
 function collect_meta!(st::BState)
     # Each of the two lands on its own; the merge answer is the late one, and
     # a frame that has the reviews should not wait for it.
     got = false
     if st.mergepending !== nothing && istaskdone(st.mergepending)
-        st.merge = try
+        m = try
             fetch(st.mergepending)
         catch
             nothing
         end
+        # A re-read that failed leaves the answer it was re-reading; a load
+        # that failed had nothing there to leave.
+        m === nothing || (st.merge = m)
         st.mergepending = nothing
+        # A conflict is shown for as long as anything else, and re-asked at
+        # the same window as the rest - the one answer that is not re-asked
+        # here is a clean one, which `merge_state` drops on its own past
+        # `MERGE_FRESH`. Never off a failure: the entry that failed to re-read
+        # is still old, and would arm this again every second.
+        m !== nothing && m.mergeable == "CONFLICTING" &&
+            cache_age(Events.merge_key(st.metakey)) > CACHE_FRESH[] &&
+            (st.metastale = true)
         got = true
     end
-    st.metapending === nothing && return got
+    if st.metapending === nothing
+        got && arm_refresh!(st)
+        return got
+    end
     istaskdone(st.metapending) || return got
     r = try
         fetch(st.metapending)
     catch
-        (meta = nothing, checks = nothing)
+        (meta = nothing, checks = nothing, err = "load failed")
     end
-    st.meta = r.meta
-    st.checks = r.checks
+    if hasproperty(r, :err) && st.meta !== nothing
+        # A re-read nobody asked for must not take the pane away from someone
+        # reading it. What is there stays, and is not marked stale again: the
+        # entry that failed to re-read is still old, and would only fail again.
+    else
+        st.meta = r.meta
+        st.checks = r.checks
+        i = findfirst(x -> x.url == st.metakey, st.all)
+        it = i === nothing ? nothing : st.all[i]
+        # Old enough to want re-reading behind what just went up. Not off a
+        # failure, for the reason above; and either half is enough, since the
+        # re-read asks only for what is actually old.
+        !hasproperty(r, :err) && it !== nothing &&
+            (cache_age(Events.meta_key(it.url)) > CACHE_FRESH[] ||
+             (it.is_pr && cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[])) &&
+            (st.metastale = true)
+    end
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
     # A draft left on this pull request by an earlier session, which nothing
     # here would otherwise know about. This is also the only thing that ever
@@ -121,6 +226,7 @@ function collect_meta!(st::BState)
         end
     end
     st.metapending = nothing
+    arm_refresh!(st)
     true
 end
 
@@ -147,7 +253,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv(k, v) = isempty(string(v)) ? nothing :
                push!(out, string(THEME.dim, rpad(k, 10), THEME.reset,
                                  afit(string(v), max(4, w - 10))))
-    wait_ = st.metakey == it.url && st.metapending !== nothing
+    wait_ = meta_waiting(st, it)
 
     if it.is_pr
         dec = it.review_decision
@@ -233,7 +339,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # request is over.
     if it.is_pr && (isempty(it.state) || it.state == "OPEN")
         ms = st.metakey == it.url ? st.merge : nothing
-        mwait = st.metakey == it.url && st.mergepending !== nothing
+        mwait = merge_waiting(st, it)
         kv("mergeable", ms === nothing ? (mwait ? "loading…" : "") :
                         ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
                         string(THEME.blocked, merge_note(ms), THEME.reset) :

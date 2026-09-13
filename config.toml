@@ -152,10 +152,18 @@ backfill_days = 30
 activity_ttl_seconds = 120
 
 [cache]
-# On-disk cache for thread and diff reads, which the browser hits repeatedly as
-# you move over the same items. Short by design: these are things people are
-# actively replying to.
-detail_ttl_minutes = 10
+# On-disk cache for what the browser reads about one item - the thread, the
+# diff, the reviewers, the checks - which it hits repeatedly as you move over
+# the same items. An entry is shown for `keep_days` and is *current* for
+# `fresh_minutes`: past that it still goes up at once, and a re-read runs
+# behind it once the item has been on screen for a second. Short by design:
+# these are things people are actively replying to.
+fresh_minutes = 2
+keep_days = 30
+# `mergeable` has a window of its own. A clean answer past this is not shown at
+# all - master moved, a check finished - and the pane waits on the question
+# being asked again; a conflict stays as long as anything else does.
+merge_minutes = 10
 
 [agent]
 # What `T` runs in a pane. The default is `$SHELL -ic claude`, because an agent

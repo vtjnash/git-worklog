@@ -220,7 +220,7 @@ end
     # answer than a spinner. Past the second one it is not, and the fetch blocks.
     keepdir = W.CACHE_DIR[]
     W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
-    keepttl, keepkeep = W.DETAIL_TTL[], W.DETAIL_KEEP[]
+    keepttl, keepkeep = W.CACHE_FRESH[], W.CACHE_KEEP[]
     try
         W.cache_put("a", "v")
         @test W.cache_get("a", 60.0)[1] == "v"
@@ -230,7 +230,7 @@ end
         @test W.cache_get("a", -1.0; keep_s = -1.0) === nothing   # past both
 
         # The sweep only ever collects what nothing would have shown.
-        @test W.CACHE_SWEEP[] > W.DETAIL_KEEP[]
+        @test W.CACHE_SWEEP[] > W.CACHE_KEEP[]
         W.cache_put("b", "w")
         @test W.cache_clear(; older_than = 3600.0) == 0
         @test W.cache_clear(; older_than = 0.0) == 2
@@ -244,14 +244,14 @@ end
                     (body = Dict("user" => Dict("login" => "a"), "body" => "hello",
                                  "html_url" => it.url),
                      comments = []))
-        W.DETAIL_TTL[] = -1.0
+        W.CACHE_FRESH[] = -1.0
         ns = W.comment_nodes(it, W.utcnow())
         @test get(ns[1].meta, "stale", false) === true
         @test occursin("hello", ns[1].raw)
-        W.DETAIL_TTL[] = 600.0
+        W.CACHE_FRESH[] = 600.0
         @test get(W.comment_nodes(it, W.utcnow())[1].meta, "stale", false) === false
     finally
-        W.DETAIL_TTL[], W.DETAIL_KEEP[] = keepttl, keepkeep
+        W.CACHE_FRESH[], W.CACHE_KEEP[] = keepttl, keepkeep
         W.CACHE_DIR[] = keepdir
     end
 
@@ -399,4 +399,143 @@ end
                          "updated" => W.stamp(then - Dates.Day(9)))
     @test W.activity_age(r, then) == 3
     @test W.activity_age(r, then + Dates.Day(1)) == 4
+end
+
+@testset "an uncached item is not asked about until the cursor has stayed" begin
+    # Holding `j` down passes twenty entries the poll just found, and a request
+    # for each would spend the whole point of the cache on items nobody read.
+    # A quarter of a second of the item being on screen is the difference. A
+    # cached entry, current or stale, is never held: it costs no request.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    keepfresh = W.CACHE_FRESH[]
+    try
+        st = mkstate()
+        it = st.items[st.sel]
+        key = string(it.url, ":comments")
+        st.loaded = ""; st.nodes = W.Node[]
+        # Nothing cached: the pane empties and says so, the key is claimed, and
+        # no fetch is in the air.
+        W.load_nodes!(st)
+        @test st.selurl == it.url && st.selat > 0
+        @test st.pendkey == key && st.pending === nothing
+        @test occursin("loading", st.status)
+        @test W.holding(st, key)
+        # Again, a moment later, still inside the dwell: nothing changes.
+        W.load_nodes!(st)
+        @test st.pending === nothing
+        # And the metadata is held by the same dwell, saying "loading…" rather
+        # than "—" meanwhile.
+        W.load_meta!(st)
+        @test isempty(st.metakey) && st.metapending === nothing
+        @test W.meta_waiting(st, it)
+        pr = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
+                      title = it.title, is_pr = true, state = "OPEN")
+        said = W.astrip(join(W.meta_lines(st, pr, 60), "\n"))
+        @test occursin("loading", said) && !occursin("—", said)
+        # Past the dwell, both start. `sleep` rather than a clock passed in,
+        # because `load_nodes!` reads the clock itself: the debounce is measured
+        # against when the cursor landed, which is what `selat` records.
+        st.selat -= W.LOAD_AFTER[]
+        W.load_nodes!(st); W.load_meta!(st)
+        @test st.pending !== nothing && st.pendkey == key
+        @test st.metakey == it.url && st.metapending !== nothing
+        # A stale entry goes up at once - held is for what has nothing to show.
+        st2 = mkstate()
+        it2 = st2.items[st2.sel]
+        W.cache_put(W.thread_key(it2.url),
+                    (body = Dict("user" => Dict("login" => "a"), "body" => "hello",
+                                 "html_url" => it2.url), comments = []))
+        W.CACHE_FRESH[] = -1.0
+        st2.loaded = ""; st2.nodes = W.Node[]
+        @test W.mode_cached(:comments, it2)
+        W.load_nodes!(st2)
+        @test st2.pending !== nothing
+        # The wake is armed once per selection, not once per key while it waits.
+        st3 = mkstate()
+        woke = Ref(0); st3.wake = () -> (woke[] += 1)
+        st3.selurl = ""; st3.selat = 0.0
+        @test W.held!(st3, false, 100.0) == false          # selat is long ago
+        st3.selat = 100.0
+        @test W.held!(st3, false, 100.0) && st3.heldat == 100.0
+        @test W.held!(st3, false, 100.1) && st3.heldat == 100.0
+        @test !W.held!(st3, true, 100.0)                   # cached: never held
+        @test !W.held!(st3, false, 100.0 + W.LOAD_AFTER[])
+    finally
+        W.CACHE_FRESH[] = keepfresh
+        W.CACHE_DIR[] = keepdir
+    end
+end
+
+@testset "stale metadata is re-read under itself" begin
+    # The reviewers and the checks go up from an old entry the way the thread
+    # does, and are re-read behind after the same second on screen. What lands
+    # replaces them in place; what fails leaves them.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    keepfresh = W.CACHE_FRESH[]
+    try
+        st = mkstate()
+        it = st.items[st.sel]
+        st.selurl = it.url; st.selat = 0.0
+        st.metakey = it.url
+        W.cache_put(W.Events.meta_key(it.url), Dict("x" => 1))
+        meta = (pending = "", reviews = [], requested = String[], teams = String[],
+                assignees = String[])
+        fin(t) = (wait(t); t)
+        # Current: lands, and nothing is armed.
+        st.metapending = fin(@async (meta = meta, checks = nothing))
+        @test W.collect_meta!(st)
+        @test st.meta === meta && !st.metastale && isempty(st.refreshkey)
+        # Old: lands, and the re-read is armed for a second from now.
+        W.CACHE_FRESH[] = -1.0
+        st.metapending = fin(@async (meta = meta, checks = nothing))
+        @test W.collect_meta!(st)
+        @test st.metastale && st.refreshat > 0
+        # Not due yet; then due, and the re-read starts with the pane still up.
+        @test !W.due_refresh!(st, st.refreshat - 0.5)
+        @test st.metastale && st.metapending === nothing
+        @test !W.due_refresh!(st, st.refreshat)
+        @test !st.metastale && st.metapending !== nothing
+        @test st.meta === meta                                # still on screen
+        # A re-read that fails leaves what was there, and arms nothing: the
+        # entry that failed to re-read is still old and would only fail again.
+        st.metapending = fin(@async (meta = nothing, checks = nothing, err = "boom"))
+        @test W.collect_meta!(st)
+        @test st.meta === meta && !st.metastale
+        # The cursor moving off it drops the arming.
+        st.metastale = true; st.metakey = "elsewhere"
+        @test !W.due_refresh!(st, st.refreshat + 5)
+        @test !st.metastale
+
+        # The merge answer: a conflict past the window is old like the rest and
+        # is re-asked with it; a failed re-read of it leaves it up, and arms
+        # nothing.
+        st.metakey = it.url
+        W.cache_put(W.Events.merge_key(it.url), Dict("mergeable" => "CONFLICTING"))
+        ms = (; id = "x", oid = "o", state = "OPEN", draft = false,
+                mergeable = "CONFLICTING", status = "DIRTY", base = "master",
+                commits = 1, methods = String[],
+                text = Dict{String,Tuple{String,String}}())
+        st.mergepending = fin(@async ms)
+        @test W.collect_meta!(st)
+        @test st.merge === ms && st.metastale
+        st.metastale = false
+        st.mergepending = fin(@async nothing)
+        @test W.collect_meta!(st)
+        @test st.merge === ms && !st.metastale
+        # The checks pane is the same entry the tally reads, and goes up stale
+        # the same way - which is what arms its re-read, rather than the pane
+        # pausing on a two-minute TTL.
+        pr = W.Item(url = "https://github.com/o/r/pull/9", ref = "r#9", repo = "o/r",
+                    number = 9, title = "t", is_pr = true)
+        W.cache_put(W.checks_key("o/r", 9), (state = "SUCCESS", contexts = []))
+        ns = W.check_nodes(pr)
+        @test get(ns[1].meta, "stale", false) === true
+        W.CACHE_FRESH[] = 600.0
+        @test get(W.check_nodes(pr)[1].meta, "stale", false) === false
+    finally
+        W.CACHE_FRESH[] = keepfresh
+        W.CACHE_DIR[] = keepdir
+    end
 end

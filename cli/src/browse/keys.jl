@@ -36,7 +36,7 @@ Bitwise `|` and not `||`: each of these has to run whichever way the ones before
 it answered, and what comes back is whether the frame is now wrong.
 """
 onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
-                      reload_data!(st)
+                      reload_data!(st) | due_load!(st)
 
 """
     browse(items, title, unread)

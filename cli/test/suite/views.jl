@@ -288,7 +288,9 @@ end
     it = st.items[st.sel]
     # The metadata is asked for again by clearing the key that decides whether
     # it needs asking for, and this starts it rather than leaving it to the
-    # `load_meta!` at the end of the key loop.
+    # `load_meta!` at the end of the key loop. The cursor has been on the item
+    # a while - past the dwell that holds a load of an uncached item.
+    st.selurl = it.url; st.selat = 0.0
     W.load_meta!(st)
     @test st.metakey == it.url
     msg = W.refresh_item!(st)

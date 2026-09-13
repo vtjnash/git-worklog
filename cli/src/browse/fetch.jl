@@ -21,7 +21,7 @@ here, which is the only place that still sees them.
 which is what stopped package precompilation dead when the workload moved the
 selection: two `gh` processes and two pipes, with nothing holding a handle.
 
-Timers are deliberately *not* in here. `arm_refresh!` starts a task that sleeps
+Timers are deliberately *not* in here. `wake_after!` starts a task that sleeps
 and then wakes the frame, and a drain that waited on one would hang for as long
 as the debounce.
 """
@@ -107,9 +107,62 @@ function place!(st::BState, key::AbstractString)
     st
 end
 
+"""Note which item the cursor is on, and since when.
+
+Called by both loaders, so whichever runs first starts the clock and both
+measure the same dwell. The url and not the loaded key: switching the pane's
+mode on an item you have been reading is a deliberate ask, not a pass, and
+should not wait a quarter of a second for the diff.
+"""
+function note_sel!(st::BState, at::Float64 = time())
+    u = curl(st)
+    u == st.selurl && return st
+    st.selurl = u
+    st.selat = at
+    st
+end
+
+"""Wake the frame in `secs` seconds.
+
+A task that sleeps and then wakes, because the event loop blocks on its channel
+and has no tick of its own. It decides nothing: by the time it fires the
+selection may have moved, and what the wake does is whatever the loaders and
+`due_refresh!` find on screen then rather than what was there when it was
+armed. Not in `INFLIGHT`: a drain that waited on one would hang for as long as
+the delay.
+"""
+function wake_after!(st::BState, secs::Real)
+    w = st.wake
+    w === nothing && return false
+    @async begin
+        sleep(max(0.0, secs))
+        w()
+    end
+    true
+end
+
+"""Hold a fetch until the item has been on screen for `LOAD_AFTER`.
+
+`cached` says whether there is anything to show without asking; a cached copy
+is never held. Returns true when the load should not start yet, having armed
+the wake that will retry it - once per selection, not once per key: the second
+loader to ask in the same dwell finds the timer already running.
+"""
+function held!(st::BState, cached::Bool, at::Float64 = time())
+    cached && return false
+    left = LOAD_AFTER[] - (at - st.selat)
+    left <= 0 && return false
+    if st.heldat != st.selat
+        st.heldat = st.selat
+        wake_after!(st, left)
+    end
+    true
+end
+
 function load_nodes!(st::BState)
     # The import row has nothing to fetch and says so itself. Keyed like any
     # other load, so moving away and back does not rebuild it.
+    note_sel!(st)
     if st.sel == 0 || isempty(st.items)
         st.loaded == "new:" && return
         place!(st, "new:")      # before the nodes go: it reads them
@@ -125,14 +178,29 @@ function load_nodes!(st::BState)
     it = st.items[st.sel]
     mode = st.mode
     key = string(it.url, ":", mode)
-    if st.loaded == key || st.pendkey == key
+    if st.loaded == key || (st.pendkey == key && st.pending !== nothing)
         # Nothing to fetch. What is on screen is this key's already - or is the
         # empty pane its read left - so the cursor belongs to it and is claimed
         # rather than moved. Moving it here would throw away the place of
-        # anyone who arrived by any road but a fetch.
+        # anyone who arrived by any road but a fetch. A key claimed but held
+        # falls through, to ask `held!` again whether the dwell is over.
         st.nkey = key
         return
     end
+    # The pane empties and says "loading …" whether the fetch starts now or
+    # after the dwell: what is held is the request, not the frame. The old
+    # nodes belong to the item the cursor has left and are not left standing
+    # under a title that is somebody else's.
+    if st.pendkey != key
+        place!(st, key)        # while the nodes going away are still here to read
+        st.nodes = Node[]
+        clearsel!(st)          # it indexed rows that are about to be replaced
+        st.pending = nothing
+        st.pendkey = key
+        st.quiet = false
+        st.status = "loading " * it.ref * "…"
+    end
+    held!(st, mode_cached(mode, it)) && return
     # Taken here rather than inside the task: a moment before the fetch begins
     # is early by however long scheduling takes, and early is the safe end -
     # `fetched` decides what `r` can mark seen, and too early leaves a comment
@@ -145,13 +213,10 @@ function load_nodes!(st::BState)
             st.wake === nothing || st.wake()   # redraw as soon as this lands
         end
     end
-    st.pendkey = key
-    st.quiet = false
-    place!(st, key)        # while the nodes going away are still here to read
-    st.nodes = Node[]
-    clearsel!(st)          # it indexed rows that are about to be replaced
-    st.status = "loading " * it.ref * "…"
 end
+
+"Is a load of `key` waiting on the dwell - claimed, and not yet started?"
+holding(st::BState, key::AbstractString) = st.pendkey == key && st.pending === nothing
 
 """Where a thread opens when the reader has never been in it this session.
 
@@ -208,11 +273,11 @@ end
 """Re-read everything about the item on screen, cache and all.
 
 The one key that says "what is on the page is out of date". Everything else
-here decides for itself when to re-read - the thread has a ten-minute window,
-the checks two minutes, the metadata is re-read when the selection moves - and
-each of those is a guess about how fast that thing changes. `R` is for when the
-guess is wrong: you pushed a moment ago, or commented from the web, and what is
-wanted is the answer GitHub has now.
+here decides for itself when to re-read - two minutes for the thread, the
+checks and the reviewers, ten for a clean `mergeable` - and each of those is a
+guess about how fast that thing changes. `R` is for when the guess is wrong:
+you pushed a moment ago, or commented from the web, and what is wanted is the
+answer GitHub has now.
 
 Only this item. The dashboard is `wl refresh`, which takes minutes and re-reads
 two thousand items to answer a question about one.
@@ -233,41 +298,58 @@ function refresh_item!(st::BState)
     string("re-reading ", it.ref, "…")
 end
 
-"""Arm the debounce for an entry that went up stale.
+"""Arm the debounce for what went up stale - the nodes, the metadata, or both.
 
-The timer is a task that sleeps and then wakes the frame, because the event loop
-blocks on its channel and has no tick of its own. It decides nothing: by the time
-it fires the selection may have moved, and what gets re-read is whatever is on
-screen then rather than what was on screen when this was armed.
+It decides nothing: by the time the wake fires the selection may have moved,
+and what gets re-read is whatever is on screen then rather than what was on
+screen when this was armed. One due time for both panes, because they are
+stale for the same reason - the item has been sitting in the cache - and the
+second armed resets it for the first, which costs the first a moment and
+saves a timer.
 """
 function arm_refresh!(st::BState, at::Float64 = time())
-    (isempty(st.nodes) || get(st.nodes[1].meta, "stale", false) !== true) && return false
-    st.refreshkey = st.loaded
+    nodes = !isempty(st.nodes) && get(st.nodes[1].meta, "stale", false) === true
+    (nodes || st.metastale) || return false
+    nodes && (st.refreshkey = st.loaded)
     st.refreshat = at + REFRESH_AFTER[]
-    w = st.wake
-    w === nothing || @async begin
-        sleep(REFRESH_AFTER[])
-        w()
-    end
+    wake_after!(st, REFRESH_AFTER[])
     true
 end
 
-"""Re-read a stale entry whose debounce has run out, if it is still on screen.
+"""Re-read what is stale on screen once its debounce has run out.
 
 Returns false either way: nothing it does changes the frame. What lands from it
 does, in its own wake.
 """
 function due_refresh!(st::BState, at::Float64 = time())
-    isempty(st.refreshkey) && return false
-    if st.refreshkey != st.loaded || !isempty(st.pendkey)
-        st.refreshkey = ""                  # it belongs to something else now
-        return false
+    if !isempty(st.refreshkey)
+        if st.refreshkey != st.loaded || !isempty(st.pendkey)
+            st.refreshkey = ""              # it belongs to something else now
+        elseif at >= st.refreshat
+            st.refreshkey = ""
+            refresh_nodes!(st)
+        end
     end
-    at < st.refreshat && return false
-    st.refreshkey = ""
-    refresh_nodes!(st)
+    if st.metastale
+        if st.metakey != curl(st)
+            st.metastale = false            # the cursor has left it
+        elseif at >= st.refreshat
+            # Declined only while a merge answer is still in the air, and
+            # that landing is a wake that re-arms this for a second on.
+            st.metastale = !refresh_meta!(st)
+        end
+    end
     false
 end
+
+"""Start the loads a wake finds waiting - the ones the dwell held.
+
+The key loop runs both loaders after every key; the wake armed by `held!` is
+the one that arrives without a key, and this is that key's worth of them. Both
+are idempotent, so a wake from a landing fetch runs them for nothing. Returns
+false: starting a fetch changes no frame, the "loading …" is already up.
+"""
+due_load!(st::BState) = (load_nodes!(st); load_meta!(st); false)
 
 "Adopt a finished fetch. Returns true when the frame needs redrawing."
 function collect_pending!(st::BState)
@@ -324,9 +406,9 @@ end
 #
 # What the watch deliberately does not do is *write*. Two windows agreeing about
 # `data/` is a matter of reading it again, and every write in this program is
-# still downstream of a key press - `arm_refresh!` is the only timer, it is a
-# one-shot debounce armed by a load somebody asked for, and it writes nothing
-# but cache entries under their own names.
+# still downstream of a key press - `wake_after!` is the only timer, it is a
+# one-shot debounce armed by a load somebody asked for, and what it wakes
+# writes nothing but cache entries under their own names.
 #
 # That is what makes the read-modify-write in `set_mark!` safe without a lock.
 # It reads the whole file, changes one field of one row and writes it back, so

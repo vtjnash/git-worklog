@@ -316,6 +316,51 @@ end
     @test all(startswith(o[1], "[x] ") || startswith(o[1], "[ ] ") for o in W.shown(lv))
 end
 
+@testset "a conflict is shown for as long as anything else" begin
+    # `mergeable` is asked at its own window: a clean answer past it is not
+    # shown at all, because the ways it goes wrong are silent - master moved, a
+    # check finished. A conflict holds until somebody rebases, so an old one is
+    # handed back like any other cached fact.
+    hit(mergeable, age) = (Dict("mergeable" => mergeable), age)
+    @test W.Events.merge_usable(hit("MERGEABLE", 5.0), 10.0)
+    @test !W.Events.merge_usable(hit("MERGEABLE", 15.0), 10.0)
+    @test W.Events.merge_usable(hit("CONFLICTING", 15.0), 10.0)
+    @test !W.Events.merge_usable(nothing, 10.0)
+    # And through `merge_state` itself, off an entry written a while ago.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        u = "https://github.com/o/r/pull/3"
+        v = Dict{String,Any}("id" => "PR_x", "oid" => "abc", "state" => "OPEN",
+                             "draft" => false, "mergeable" => "CONFLICTING",
+                             "status" => "DIRTY", "base" => "master", "commits" => 1,
+                             "methods" => String[], "text" => Dict{String,Any}())
+        W.write_atomic(W._slot(W.Events.merge_key(u)),
+                       W.JSON3.write((at = time() - 900, key = "k", value = v)))
+        ms = W.Events.merge_state(u; ttl = 600.0, keep = 86_400.0)
+        @test ms !== nothing && ms.mergeable == "CONFLICTING"
+        # The same entry saying clean is past its window, and is not shown -
+        # `merge_state` would go to the network for it, so the read it makes
+        # is asked directly rather than the function.
+        v["mergeable"] = "MERGEABLE"
+        W.write_atomic(W._slot(W.Events.merge_key(u)),
+                       W.JSON3.write((at = time() - 900, key = "k", value = v)))
+        h = W.cache_get(W.Events.merge_key(u), 600.0; keep_s = 86_400.0)
+        @test h !== nothing && !W.Events.merge_usable(h, 600.0)
+        # The windows the pane loads under, as `meta_cached` reads them.
+        it = W.Item(url = u, ref = "r#3", repo = "o/r", number = 3, title = "t",
+                    is_pr = true, state = "OPEN")
+        @test !W.meta_cached(it)
+        W.cache_put(W.Events.meta_key(u), Dict("x" => 1))
+        W.cache_put(W.checks_key("o/r", 3), (state = "SUCCESS", contexts = []))
+        @test !W.meta_cached(it)                    # the clean answer is too old
+        W.cache_put(W.Events.merge_key(u), v)
+        @test W.meta_cached(it)
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+end
+
 @testset "merging, on the message GitHub would have written" begin
     # The state is put in the cache rather than fetched, which is the whole of
     # what makes this testable without a network: `merge_state` reads a hit back

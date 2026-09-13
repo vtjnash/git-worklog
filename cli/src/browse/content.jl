@@ -1,27 +1,27 @@
 
 # --- content loading -------------------------------------------------------
 
-"""How long a cached thread or diff is current, and how long it is worth
-showing at all.
+"""How long an item has to stay selected before anything is asked about it.
 
-Two numbers, because they answer different questions. Past `DETAIL_TTL` the
-entry is out of date and wants re-reading - but it is still what was on the page
-ten minutes ago, so it goes up at once and the fetch runs behind it: a browser
-that opens should not be a browser that waits. Past `DETAIL_KEEP` it is not
-worth showing at all and the fetch blocks, because a week-old thread on screen
-is worse than a pause in front of one.
+Two debounces, not delays, and they answer two questions. Holding `j` down
+passes twenty entries, and a request for each would spend the whole point of
+the cache on items nobody read. `LOAD_AFTER` is for an item with nothing cached
+at all - one the poll just found - and is short, because until it is fetched
+the pane is empty and a quarter of a second is the most an empty pane should
+cost the reader who did stop. `REFRESH_AFTER` is for a stale entry that went up
+from the cache: the reader has something to look at, and a second of it being
+on screen is the difference between reading it and going past it.
+
+A cached entry, current or stale, is never held: showing what is already on
+disk costs no request, and the feel of the browser is that moving is free.
 """
-const DETAIL_TTL = Ref(600.0)
-const DETAIL_KEEP = Ref(7 * 86_400.0)
-
-"""How long an item has to stay selected before a stale entry is re-read.
-
-A debounce and not a delay. Holding `j` down passes twenty stale entries, and a
-request for each would spend the whole point of the cache on items nobody read;
-a second of the item actually being on screen is the difference between reading
-it and going past it.
-"""
+const LOAD_AFTER = Ref(0.25)
 const REFRESH_AFTER = Ref(1.0)
+
+# The keys under which the detail pane's reads are cached, named once so that
+# the loader can ask `cache_age` about an entry without fetching it.
+thread_key(url::AbstractString) = string("thread:", url)
+diff_key(it::Item) = string("diff:", it.repo, "#", it.number)
 
 """
     split_details(md) -> Vector{Tuple{Symbol,String,String}}
@@ -264,8 +264,8 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     local body, cs, cms
     stale = false
     try
-        key = "thread:" * it.url
-        hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
+        key = thread_key(it.url)
+        hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
             body, cs, cms = Events.thread(it.url; limit = 30)
             cache_put(key, (body = body, comments = cs, commits = cms))
@@ -275,7 +275,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             # A thread kept for a week is worth showing without them rather
             # than dropped for want of a field that is new.
             cms = something(jget(hit[1], :commits), ())
-            stale = hit[2] > DETAIL_TTL[]
+            stale = hit[2] > CACHE_FRESH[]
         end
     catch e
         return [failednode("could not load thread", first(sprint(showerror, e), 200))]
@@ -379,12 +379,12 @@ function diff_nodes(it::Item; fresh::Bool = false)
                              "", :plain, true)]
     stale = false
     txt = try
-        key = string("diff:", it.repo, "#", it.number)
-        hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
+        key = diff_key(it)
+        hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
             cache_put(key, read(`gh pr diff $(it.number) --repo $(it.repo)`, String))
         else
-            stale = hit[2] > DETAIL_TTL[]
+            stale = hit[2] > CACHE_FRESH[]
             String(hit[1])
         end
     catch e
@@ -898,4 +898,12 @@ end
 mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
     mode === :comments ? comment_nodes(it, at; fresh = fresh) :
     mode === :diff     ? diff_nodes(it; fresh = fresh) :
-    mode === :pushed   ? pushed_nodes(it) : check_nodes(it)
+    mode === :pushed   ? pushed_nodes(it) : check_nodes(it; fresh = fresh)
+
+"""Is there a cached copy of what `mode` shows for `it` - anything at all to put
+up without a request? The pushed view reads a local checkout and has nothing to
+wait for."""
+mode_cached(mode::Symbol, it::Item) =
+    mode === :comments ? cache_has(thread_key(it.url)) :
+    mode === :diff     ? (!it.is_pr || cache_has(diff_key(it))) :
+    mode === :checks   ? (!it.is_pr || cache_has(checks_key(it.repo, it.number))) : true

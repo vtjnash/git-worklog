@@ -26,10 +26,14 @@ A rollup of FAILURE says nothing about which of sixty jobs broke, so each
 failing Buildkite build is expanded into its failed jobs, each of which can
 pull its own log.
 """
-function check_nodes(it::Item)
+function check_nodes(it::Item; fresh::Bool = false)
     it.is_pr || return [Node("no checks - this is an issue, not a pull request",
                              "", :plain, true)]
-    c = check_contexts(it.repo, it.number)
+    # The same window as the thread: an old tally goes up at once and is
+    # re-read behind, rather than the pane pausing on a two-minute TTL.
+    c = check_contexts(it.repo, it.number;
+                       ttl = fresh ? 0.0 : CACHE_FRESH[], keep = fresh ? 0.0 : CACHE_KEEP[])
+    stale = cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[]
     ns = Node[]
     seen_builds = Set{String}()
     for x in c.contexts
@@ -56,5 +60,7 @@ function check_nodes(it::Item)
             push!(ns, jn)
         end
     end
-    isempty(ns) ? [Node("no checks reported", "", :plain, true)] : ns
+    isempty(ns) && push!(ns, Node("no checks reported", "", :plain, true))
+    stale && (ns[1].meta["stale"] = true)
+    ns
 end

@@ -1819,13 +1819,28 @@ what schedules the computation - for every row on the page.
 firehose, not on the row. `carried_mergeable` and the `needs-stacking` rule
 went with it, and `Item.mergeable`. It is asked of one pull request when the
 cursor lands on it - `load_meta!` calls `Events.merge_state`, the call the
-merge prompt already made, 120s cache - and the pane says it the prompt's
+merge prompt already made - and the pane says it the prompt's
 way, `merge_note`, which reads `mergeStateStatus` and is finer than
 `mergeable`: behind, blocked, unstable, conflicts with master. **In a task of
 its own** (2026-09-13): it comes back well after the reviewers and the checks
 do, so it sits beside the pane's task rather than inside it, `collect_meta!`
 lands each on its own, and the thread, the reviewers and the check tally are
 all on screen before it arrives - "loading…" in its one row until then.
+
+**Its own cache window** (2026-09-13). Every other fact about an item - the
+thread, the diff, the reviewers, the checks - is one policy, `CACHE_FRESH` /
+`CACHE_KEEP`: shown from disk for thirty days, and re-read behind what is
+shown once it is two minutes old and the item has been on screen a second.
+`mergeable` is not: a clean answer that has gone wrong is silent - master
+moved, a check finished - so past `MERGE_FRESH` (ten minutes) it is not shown
+at all and the row says "loading…" while the question is asked again. A
+*conflict* is shown for as long as anything else and re-asked at the two
+minute window with the rest, because it holds until somebody rebases and
+being late to see it cleared costs nothing. `merge_usable` is the one place
+that reads the answer to decide the window. And the dwell: nothing is asked
+about an item with nothing cached until the cursor has been on it a quarter
+of a second (`LOAD_AFTER`), so holding `j` over the poll's new rows fires no
+request per row; a cached entry, current or stale, is never held.
 
 **And `reviewRequests` is not fetched either.** The bool it produced had no
 reader once the request became a time; the pane lists who is asked from the
@@ -2605,18 +2620,18 @@ beside this one now rather than a paragraph describing one.
   nothing and `Tab` cycles only the list and the detail, so nothing in it can be
   acted on where it is shown: `L` toggles a label from anywhere, but there is no
   way to assign a reviewer, or to open the check your eye is actually on.
-- **Only the thread and the diff are shown stale while they are re-read.**
-  `check_contexts` and the Buildkite logs still have one TTL each, so a check
-  pane past its two minutes is a pause rather than a stale frame with a fetch
-  behind it. That is defensible - a check that is two minutes out of date is
-  wrong in a way a comment thread is not - but it is a difference in behaviour
-  between two panes and nothing says so on screen. `p` is outside the question
-  rather than a third answer to it: two `git` calls against a local checkout,
-  with nothing cached and nothing to be stale.
+- **The Buildkite job lists and logs are the one read still on a plain TTL.**
+  The thread, the diff, the checks and the reviewers all go up from an old
+  entry and are re-read behind it (done 2026-09-13; `cache.jl` has the
+  policy). `bk_jobs` and `bk_log` still miss outright past their five and
+  fifteen minutes, so a failing job's expansion under the `C` pane can pause
+  where the tally above it did not. `p` is outside the question rather than a
+  third answer to it: two `git` calls against a local checkout, with nothing
+  cached and nothing to be stale.
 - **Per-check counts come from the same cache the `C` pane uses.** So the
-  rollup line is as stale as `check_contexts`' TTL (120s), and an item whose
-  checks have never been fetched shows the one-word rollup from `fetched.json`
-  until the lazy fetch lands.
+  rollup line is as old as that entry - two minutes before it is re-read
+  under the pane - and an item whose checks have never been fetched shows the
+  one-word rollup from `fetched.json` until the lazy fetch lands.
 - **A snooze cap is measured from when it was armed, not from when you set it.**
   `snooze_at` records the time the fingerprint was first taken, which is the
   next refresh after the value appears in `local.toml` — close enough for a
