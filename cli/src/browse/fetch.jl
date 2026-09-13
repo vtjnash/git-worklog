@@ -224,7 +224,7 @@ asking for, and started here rather than left to the caller so that the
 function refresh_item!(st::BState)
     (isempty(st.items) || st.sel == 0) && return "nothing selected to re-read"
     it = st.items[clamp(st.sel, 1, length(st.items))]
-    st.metakey = ""; st.metapending = nothing
+    st.metakey = ""; st.metapending = nothing; st.mergepending = nothing
     load_meta!(st; fresh = true)
     # Refuses while something is already in flight, and the message is the same
     # either way: a read of this item is on its way, and a second one behind it

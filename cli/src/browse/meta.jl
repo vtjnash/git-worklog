@@ -36,39 +36,61 @@ function load_meta!(st::BState; fresh::Bool = false)
     # read of the same item - that is the read it was pressed to go past.
     st.metapending = fetching(string("meta ", it.url, fresh ? " fresh" : "")) do
         try
-            # Listing sessions is a process, so it rides along with the fetch
-            # that is already off the key loop rather than happening per frame.
-            # Whether it can be merged is asked here and nowhere else: the
-            # lanes do not fetch `mergeable`, since asking is what makes GitHub
-            # compute it and a page that asked took four times as long. One
-            # pull request, on the one occasion the answer is wanted. Only
-            # while it is open - a merged one has no merge left to be possible.
             (meta = Events.itemmeta(it.url, it.is_pr),
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = fresh ? 0.0 : 120.0) : nothing,
-             merge = it.is_pr && (isempty(it.state) || it.state == "OPEN") ?
-                 Events.merge_state(it.url; ttl = fresh ? 0.0 : 120.0) : nothing,
              sessions = mux_list())
         catch e
-            (meta = nothing, checks = nothing, merge = nothing, sessions = String[],
+            (meta = nothing, checks = nothing, sessions = String[],
              err = first(sprint(showerror, e), 120))
         finally
             st.wake === nothing || st.wake()
         end
     end
+    # Whether it can be merged is asked here and nowhere else: the lanes do
+    # not fetch `mergeable`, since asking is what makes GitHub compute it and
+    # a page that asked took four times as long. One pull request, on the one
+    # occasion the answer is wanted, and only while it is open - a merged one
+    # has no merge left to be possible.
+    #
+    # **A task of its own**, beside the one above rather than inside it. The
+    # answer comes back well after the reviews and the checks do - it is the
+    # computation the lanes were made to stop waiting for - and the thread,
+    # the reviewers and the check tally are all on screen before it lands.
+    st.mergepending = it.is_pr && (isempty(it.state) || it.state == "OPEN") ?
+        fetching(string("merge ", it.url, fresh ? " fresh" : "")) do
+            try
+                Events.merge_state(it.url; ttl = fresh ? 0.0 : 120.0)
+            catch
+                nothing
+            finally
+                st.wake === nothing || st.wake()
+            end
+        end : nothing
 end
 
 function collect_meta!(st::BState)
-    st.metapending === nothing && return false
-    istaskdone(st.metapending) || return false
+    # Each of the two lands on its own; the merge answer is the late one, and
+    # a frame that has the reviews should not wait for it.
+    got = false
+    if st.mergepending !== nothing && istaskdone(st.mergepending)
+        st.merge = try
+            fetch(st.mergepending)
+        catch
+            nothing
+        end
+        st.mergepending = nothing
+        got = true
+    end
+    st.metapending === nothing && return got
+    istaskdone(st.metapending) || return got
     r = try
         fetch(st.metapending)
     catch
-        (meta = nothing, checks = nothing, merge = nothing)
+        (meta = nothing, checks = nothing)
     end
     st.meta = r.meta
     st.checks = r.checks
-    st.merge = hasproperty(r, :merge) ? r.merge : nothing
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
     # A draft left on this pull request by an earlier session, which nothing
     # here would otherwise know about. This is also the only thing that ever
@@ -206,10 +228,13 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # Fetched for this item when the cursor landed on it, and said the way the
     # merge prompt says it - `merge_note` reads `mergeStateStatus`, which is
     # finer than `mergeable`: behind, blocked, unstable. Loading until it has
-    # arrived, and nothing at all once the pull request is over.
+    # arrived - which is after the rest of this pane, since it is the slow
+    # answer and has a task of its own - and nothing at all once the pull
+    # request is over.
     if it.is_pr && (isempty(it.state) || it.state == "OPEN")
         ms = st.metakey == it.url ? st.merge : nothing
-        kv("mergeable", ms === nothing ? (wait_ ? "loading…" : "") :
+        mwait = st.metakey == it.url && st.mergepending !== nothing
+        kv("mergeable", ms === nothing ? (mwait ? "loading…" : "") :
                         ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
                         string(THEME.blocked, merge_note(ms), THEME.reset) :
                         merge_note(ms))

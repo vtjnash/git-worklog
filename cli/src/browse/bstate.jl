@@ -107,7 +107,10 @@ Base.@kwdef mutable struct BState <: View
     merge::Any = nothing   # Events.merge_state result, or nothing: asked for
                            # one open pull request at a time, here, because
                            # `mergeable` is what GitHub computes lazily and the
-                           # lanes do not ask for it - see `PR_FIELDS`
+                           # lanes do not ask for it - see `PR_FIELDS`. Its own
+                           # task, since it comes back well after the reviews
+                           # and the checks do and they should not wait for it
+    mergepending::Any = nothing
     metakey::String = ""
     # The pending review, if there is one, and which item it belongs to. Held
     # rather than asked for per frame, and kept after the cursor moves away -

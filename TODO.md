@@ -1546,7 +1546,11 @@ went with it, and `Item.mergeable`. It is asked of one pull request when the
 cursor lands on it - `load_meta!` calls `Events.merge_state`, the call the
 merge prompt already made, 120s cache - and the pane says it the prompt's
 way, `merge_note`, which reads `mergeStateStatus` and is finer than
-`mergeable`: behind, blocked, unstable, conflicts with master.
+`mergeable`: behind, blocked, unstable, conflicts with master. **In a task of
+its own** (2026-09-13): it comes back well after the reviewers and the checks
+do, so it sits beside the pane's task rather than inside it, `collect_meta!`
+lands each on its own, and the thread, the reviewers and the check tally are
+all on screen before it arrives - "loading…" in its one row until then.
 
 **And `reviewRequests` is not fetched either.** The bool it produced had no
 reader once the request became a time; the pane lists who is asked from the

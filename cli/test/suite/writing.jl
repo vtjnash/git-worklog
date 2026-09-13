@@ -147,6 +147,37 @@ end
     @test isempty(W.load_drafts())
 end
 
+@testset "the merge answer lands on its own, after the reviews" begin
+    # `mergeable` is what GitHub computes lazily, and it comes back well after
+    # the reviewers and the checks do - so it is a task beside the pane's
+    # rather than inside it, and a frame that has the reviews does not wait.
+    st = mkstate()
+    it = st.items[st.sel]
+    st.metakey = it.url
+    ms = (; id = "x", oid = "o", state = "OPEN", draft = false, mergeable = "MERGEABLE",
+            status = "BEHIND", base = "master", commits = 1, methods = String[],
+            text = Dict{String,Tuple{String,String}}())
+    slow = Channel{Bool}(1)
+    meta = (pending = "", reviews = [], requested = String[], teams = String[],
+            assignees = String[])
+    st.metapending = schedule(Task(() -> (meta = meta, checks = nothing)))
+    st.mergepending = schedule(Task(() -> (take!(slow); ms)))
+    wait(st.metapending)
+    # The reviews are in; the merge is still out, and says so.
+    @test W.collect_meta!(st)
+    @test st.meta !== nothing && st.merge === nothing && st.mergepending !== nothing
+    says() = W.astrip(join([l for l in W.meta_lines(st, W.Item(; url = it.url, ref = it.ref,
+                                repo = it.repo, number = it.number, title = it.title,
+                                is_pr = true, state = "OPEN"), 60)
+                            if occursin("mergeable", l)], " "))
+    @test occursin("loading", says())
+    @test !W.collect_meta!(st)                  # nothing new yet
+    put!(slow, true); wait(st.mergepending)
+    @test W.collect_meta!(st)
+    @test st.merge === ms && st.mergepending === nothing
+    @test says() == "mergeable behind master"
+end
+
 @testset "the one toolbar button worth having" begin
     # A suggestion is a review action - GitHub applies the block as a commit -
     # and it is unusable without the current text of the lines in front of you.
