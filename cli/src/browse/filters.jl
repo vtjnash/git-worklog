@@ -35,10 +35,11 @@
 #         news; a view that wants the open work alone names `show` without it.
 #     There was a fifth, **snoozed**, and it was not a disposition: a snoozed
 #     item is a read one with a wake time, so it is a tag now.
-#   * **tag** - the four things worth asking that are not any of the above:
-#     work that has gone quiet (`second look`), work you have acted on
-#     (`touched`), words you have written and not sent (`drafts`), and work
-#     you put down for a while (`snoozed`).
+#   * **tag** - the five things worth asking that are not any of the above:
+#     a question waiting on you (`reply owed`), work that has gone quiet
+#     (`second look`), work you have acted on (`touched`), words you have
+#     written and not sent (`drafts`), and work you put down for a while
+#     (`snoozed`).
 #   * **kind**, **category**, **repo**, **label**, **author** - unchanged.
 #
 # What is *not* here any more: `active`, `backlog` and `mine`. `mine` was the
@@ -101,18 +102,25 @@ one item's `show` every item's.
 """
 const SHOW_DEFAULT = Set([:base, :done])
 
-"""The four questions that are not an axis of their own.
+"""The five questions that are not an axis of their own.
 
-Each is a mark or a derivation rather than a field: `second` is worked out every
-refresh from silence, `touched`, `drafts` and `snoozed` are rows in
-`local.toml`. Unlike the axes above an item can carry all four at once, so
-these behave like labels - any of the ones you pick brings the row.
+Each is a mark or a derivation rather than a field: `reply` and `second` are
+worked out every refresh, from a mention and from silence, and `touched`,
+`drafts` and `snoozed` are rows in `local.toml`. Unlike the axes above an item
+can carry all five at once, so these behave like labels - any of the ones you
+pick brings the row.
+
+`reply` is the one that is not a bucket, on purpose. A bucket is one answer per
+row and a closed row's answer is `done`, so "somebody asked you something on
+this" was lost the moment the thread closed. A tag is a fact beside the others,
+and over the default `show` it is exactly the list the `unanswered` view is:
+unread, reply owed, open or closed.
 
 `snoozed` is a wake time that has not come yet. One that has is not a tag any
 more, it is the item being unread - see `seen_of`.
 """
-const TAGS = [(:second, "second look"), (:touched, "touched"), (:drafts, "drafts"),
-              (:snoozed, "snoozed")]
+const TAGS = [(:reply, "reply owed"), (:second, "second look"), (:touched, "touched"),
+              (:drafts, "drafts"), (:snoozed, "snoozed")]
 
 """How the list is ordered. Its own control, deliberately.
 
@@ -332,13 +340,14 @@ end
 "Is it finished? Empty reads as open, which is what a synthetic item is."
 over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :done : :open
 
-"""The tags an item carries, of the three there are.
+"""The tags an item carries, of the five there are.
 
 Unlike the axes, several can be true at once, so this answers with a set and the
 axis behaves like labels: any tag you pick brings the row.
 """
 function tags_of(it::Item, m::Marks = Marks())
     out = Symbol[]
+    isempty(it.reply) || push!(out, :reply)
     isempty(it.secondlook) || push!(out, :second)
     haskey(m.touched, it.url) && push!(out, :touched)
     haskey(m.drafts, it.url) && push!(out, :drafts)
@@ -640,7 +649,10 @@ const VIEWS = [
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
     ("ready to merge", Dict("bucket" => ["needs-merge"])),
     ("red CI, mine",   Dict("author" => [AUTHOR_ME], "bucket" => ["needs-edits"])),
-    ("unanswered",     Dict("bucket" => ["needs-reply"])),
+    # A tag and not the `needs-reply` bucket, so a closed thread somebody asked
+    # you something on is in it: the default `show` has the closed news, and
+    # the tag does not care about state. See `TAGS`.
+    ("unanswered — unread, reply owed", Dict("tag" => ["reply"])),
     ("snoozed — put down for a while", Dict("show" => ["read"], "tag" => ["snoozed"])),
     # The corpus, which no longer has a keystroke of its own: it is the base
     # with the three things it leaves out added back to it, and it names all

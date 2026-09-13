@@ -239,6 +239,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                         string(THEME.blocked, merge_note(ms), THEME.reset) :
                         merge_note(ms))
     end
+    isempty(it.reply) ||
+        kv("reply", string(THEME.waiting, it.reply, THEME.reset))
     isempty(it.secondlook) ||
         kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
     b = batch_of(st, it)

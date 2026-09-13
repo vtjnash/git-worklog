@@ -517,12 +517,37 @@ rule as everything else. A second copy of this is a bucket that drifts, and the
 bucket is what decides where a row shows up at all.
 """
 function apply_state!(r, st, cfg, at::DateTime)
+    r["reply"] = reply_owed(r, cfg, at)
     r["bucket"], r["why"] = derive_bucket(r, st, cfg, at)
     r["track"] = resolve_track(st, r)
     r["note"] = get(st, "note", nothing)
     r["deadline"] = get(st, "deadline", nothing)
     r["blocked_on"] = get(st, "blocked_on", String[])
     r
+end
+
+"""Why a reply is owed on this, or `""`.
+
+Somebody named you recently and the last word is theirs, so a question is
+probably waiting on an answer. A fact like `second_look` - derived every
+refresh, never stored, carried on the row as the reason in words - and unlike
+the bucket it is **not a place the row is in**, so nothing else about the row
+takes it away: a closed issue somebody asked you a question on owes the
+answer exactly as an open one does, and it is the `reply` tag in the browser
+either way. The bucket reads this too, for `needs-reply`, but only on an open
+row, since the bucket is one answer per row and "over" wins there.
+
+Only from the mention lanes. The `commented_*` lanes are threads you spoke on,
+and on the repos where you are effectively the maintainer that is every thread
+there is; a stranger having the last word on one of those is not a question
+put to you.
+"""
+function reply_owed(r, cfg, at::DateTime)
+    startswith(String(nz(get(r, "lane", nothing), "")), "mentioned") || return ""
+    age = activity_age(r, at)
+    (age !== nothing && age <= cfg["thresholds"]["reply_days"]) || return ""
+    get(r, "last_comment_by", nothing) in (nothing, cfg["login"]) && return ""
+    "mentioned you $(age)d ago; last word is theirs"
 end
 
 function derive_bucket(r, st, cfg, at::DateTime)
@@ -545,15 +570,13 @@ function derive_bucket(r, st, cfg, at::DateTime)
     if startswith(r["lane"], "mentioned") || startswith(r["lane"], "commented")
         # The only thing in this pile worth interrupting for: someone named you
         # recently and the last word is theirs, so a question is probably owed an
-        # answer. Everything else - including your own old comments, and the
-        # repos where you are effectively the maintainer and touch every PR -
-        # stays in the background where you pull it on your own schedule.
-        age = activity_age(r, at)
-        if startswith(r["lane"], "mentioned") && age !== nothing &&
-           age <= cfg["thresholds"]["reply_days"] &&
-           !(r["last_comment_by"] in (nothing, cfg["login"]))
-            return ("needs-reply", "mentioned you $(age)d ago; last word is theirs")
-        end
+        # answer - `reply_owed`, which is the same fact whether or not the row
+        # is open, where this is not. Everything else - including your own old
+        # comments, and the repos where you are effectively the maintainer and
+        # touch every PR - stays in the background where you pull it on your
+        # own schedule.
+        why = reply_owed(r, cfg, at)
+        isempty(why) || return ("needs-reply", why)
         return ("mentioned", "mention or comment history")
     end
     # Only after the lanes: an Issue reached via `assigned` is yours to act on,

@@ -65,6 +65,9 @@ Base.@kwdef struct Item
     secondlook::String = "" # why this wants looking at again, empty when it does
                             # not. Derived every refresh and never stored: it is
                             # a fact about silence, and silence keeps changing
+    reply::String = ""     # why a reply is owed, empty when none is. The same
+                           # shape, and a fact about the thread rather than
+                           # about its state: a closed one can owe one too
     merged_by::String = "" # who merged it, empty unless it is merged. The one
                            # thing that tells a merge you have to be told about
                            # from one you did yourself.
@@ -118,6 +121,7 @@ function item_of(r)
             base = nz(jget(r, :base), ""),
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
+            reply = nz(jget(r, :reply), ""),
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],

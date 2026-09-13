@@ -144,6 +144,61 @@ end
               W.astrip.(W.meta_lines(st, quiet, 60)))
 end
 
+@testset "a reply owed is a fact about the thread, not about its state" begin
+    cfg = W.config()
+    at = W.DateTime(2026, 9, 13)
+    me = cfg["login"]
+    r = Dict{String,Any}("lane" => "mentioned_issue", "type" => "Issue", "state" => "OPEN",
+                         "mine" => false, "labels" => String[],
+                         "last_comment_at" => "2026-09-10T10:00:00Z",
+                         "last_comment_by" => "alice",
+                         "updated" => "2026-09-10T10:00:00Z")
+    why = W.reply_owed(r, cfg, at)
+    @test occursin("mentioned you 2d ago", why) && occursin("theirs", why)
+    # On an open row the bucket says the same thing, in the same words.
+    @test W.derive_bucket(r, Dict{String,Any}(), cfg, at) == ("needs-reply", why)
+    # On a closed one the bucket says `done` - one answer per row, and over
+    # wins - and the fact is still the fact. That is the whole reason it is
+    # carried on the row rather than read off the bucket: the question on a
+    # closed thread was the one nothing here could see.
+    closed = copy(r); closed["state"] = "CLOSED"
+    @test W.reply_owed(closed, cfg, at) == why
+    @test W.derive_bucket(closed, Dict{String,Any}(), cfg, at)[1] == "done"
+    st_ = Dict{String,Any}()
+    W.apply_state!(closed, st_, cfg, at)
+    @test closed["reply"] == why && closed["bucket"] == "done"
+    # Your own last word answers it; a bot's or nobody's is nothing to answer.
+    mine = copy(r); mine["last_comment_by"] = me
+    @test isempty(W.reply_owed(mine, cfg, at))
+    nobody = copy(r); nobody["last_comment_by"] = nothing
+    @test isempty(W.reply_owed(nobody, cfg, at))
+    # Past `reply_days` it is history, not a question.
+    old = copy(r); old["last_comment_at"] = "2026-01-10T10:00:00Z"
+    old["updated"] = old["last_comment_at"]
+    @test isempty(W.reply_owed(old, cfg, at))
+    # And only a mention asks: a thread you commented on where a stranger
+    # spoke last is every thread on a repo you maintain.
+    spoke = copy(r); spoke["lane"] = "commented_issue"
+    @test isempty(W.reply_owed(spoke, cfg, at))
+    @test W.derive_bucket(spoke, Dict{String,Any}(), cfg, at)[1] == "mentioned"
+
+    # A tag in the browser, whatever the state, and the reason where the
+    # item's facts are - and the `unanswered` view is that tag over the
+    # default show, which has the closed news in it.
+    st = mkstate()
+    @test any(x -> x[1] === :reply, W.TAGS)
+    owed = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
+                  state = "CLOSED", reply = why)
+    @test :reply in W.tags_of(owed)
+    @test any(l -> occursin("reply", l) && occursin("2d ago", l),
+              W.astrip.(W.meta_lines(st, owed, 60)))
+    v = first(d for (n, d) in W.views() if startswith(n, "unanswered"))
+    @test v == Dict("tag" => ["reply"])
+    W.apply_view!(st, v)
+    @test st.filters.show == W.SHOW_DEFAULT && st.filters.tags == Set([:reply])
+    @test isempty(st.filters.buckets)
+end
+
 @testset "mergeability is asked of one pull request, when it is looked at" begin
     # `mergeable` is what GitHub computes lazily, and asking is what makes it
     # compute: a lane page that named it took 20-33s on four runs in twelve

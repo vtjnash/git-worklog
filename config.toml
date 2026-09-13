@@ -93,8 +93,8 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # copies the TOML for whatever filter you are looking at, to paste in here; the
 # browser never writes this file.
 #
-# The axes: `show` (base, read, filed, done), `tag` (second, touched, drafts,
-# snoozed), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
+# The axes: `show` (base, read, filed, done), `tag` (reply, second, touched,
+# drafts, snoozed), `kind`, `bucket`, `repo`, `label`, `author`, `sort`.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the

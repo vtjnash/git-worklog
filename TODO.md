@@ -83,9 +83,27 @@ here is done; `git log` is the record of it and this file is not.
      clauses, still monotone - only what an unasked question answers changed,
      and `SHOW_BASE` is `SHOW_DEFAULT` to say so. The first launch after it
      brings the closed poll rows in at once, unread, the way `backfill_days`
-     does. What is still open is the bucket: a closed mention is visible now
-     and is `done`, not `needs-reply`, so the "unanswered" view does not list
-     it - a rule that runs before `done` is the remaining question.
+     does. The bucket was the last piece: a closed mention was visible and
+     was `done`, not `needs-reply`, so the "unanswered" view did not list it.
+     **Answered the same day, and not with a rule that runs before `done`**:
+     the bucket is one answer per row and "over" is the right answer there.
+     "A reply is owed" is a fact beside it instead - `reply_owed`, the same
+     shape as `second_look`, carried on the row in words, the `reply` tag in
+     the browser - and it does not care what state the thread is in. The
+     `unanswered` view is that tag over the default `show`: unread, reply
+     owed, open or closed. The `needs-reply` bucket still reads the same
+     function, on open rows, so the two cannot drift.
+     Which is the shape of the larger thought this raised: **buckets may not
+     be needed at all, only views.** A bucket is exclusive - first rule wins -
+     and that exclusivity is exactly what lost the closed mention. Every rule
+     in `derive_bucket` is a predicate over facts the row already carries,
+     and a predicate can be a tag; a tag composes and a bucket cannot. What
+     the bucket does today that a view cannot yet: name the pile (`in_pile`,
+     which `wl next` and `second_look` read - the *lane* says the same thing),
+     default the tracking level (`resolve_track` - "mine and open" is the
+     whole of it), print `why` in the metadata pane, and take a `bucket =`
+     override from `local.toml`. Each is small. See "Buckets" under
+     Outstanding work.
    - *How big it is.* Over 30 days, closed, outside every polled repo:
      16 rows by `involves:` (9 PRs, 7 issues). By `mentions:`, over 7 days:
      4 rows, two of them in JuliaLang/julia - so polled, and hidden by the
@@ -934,6 +952,61 @@ must never offer to undo the capitals.
 Roughly in the order it is worth doing, and none of it is on the critical path
 of "What is next" at the top. Nothing already shipped is listed; `git log` is
 the record of that.
+
+### Buckets: one answer per row, and whether a view is not the better shape
+
+Raised 2026-09-13, from the closed mention. `derive_bucket` is a cascade -
+override, then `done`, then the lane rules, then yours, then theirs - and the
+first rule to answer names the row. That is what a bucket *is*: a category
+axis, one value per row, and the value is the answer to "what is the next
+action on this and whose is it". It is also what lost the question on the
+closed thread: `done` answered first, and the mention rule never ran.
+
+The fix was not to reorder the cascade. It was to notice that "a reply is
+owed" is a fact with no reason to be exclusive - so it is `reply_owed` on the
+row and the `reply` tag in the browser, the shape `second_look` already had,
+and the `unanswered` view is the tag over the default `show`. Which asks the
+same of every other rule. Each is a predicate over facts the row carries:
+
+| bucket | the fact it names | where the fact already is |
+|---|---|---|
+| `done` | closed or merged | `state`; `over_of`; the `done` box |
+| `needs-reply` | recent mention, last word theirs | `reply` - **a tag now** |
+| `needs-edits` | changes requested / unresolved / red CI / label | `review_decision`, `unresolved`, `ci`, `labels` - all on `Item` |
+| `needs-merge` | approved and green | `review_decision`, `ci` |
+| `draft` | draft | `draft` |
+| `needs-nudge` / `waiting` | mine, quiet N days / not | `age`, `mine` |
+| `stale` | mine, quiet 60d, unclaimed | `age`, `mine`, the marks |
+| `blocked` | the label | `labels` |
+| `needs-review` / `reviewed` | their push against your review | `head_at`, `my_last_review_at` - not on `Item` yet |
+| `issue` | assigned to you | `assignees`, `kind` |
+| `firehose` / `mentioned` / `imported` | which lane | `lane` - not on `Item` yet |
+
+Every row of that table could be a tag, or an axis value the row already
+has, and a view names tags where it names a bucket today. What would then
+still read the bucket, and what each would read instead:
+
+* **`in_pile`** - `wl next` and `second_look` - reads `firehose` or
+  `mentioned`. The *lane* says the same thing, minus the one exception the
+  bucket encodes: a `needs-reply` row is out of the pile. That is
+  `lane in bulk && isempty(reply)`.
+* **`resolve_track`** - the default level is `mine && bucket != "done"`,
+  which is `mine && open`.
+* **`why`** in the metadata pane - the bucket's one sentence. Tags carry
+  their own (`reply`, `secondlook`); the rest are facts the pane already
+  prints as facts.
+* **`bucket =` in `local.toml`** - the override. The one thing with no
+  obvious home: forcing a category is a judgement, and the file is where
+  judgement goes. It could stay as a forced tag, or go; nothing in
+  `local.toml` today uses it.
+* **The `bucket` axis** in the filter pane, `wl next`'s column, and the
+  three built-in views that name one: `ready to merge`, `red CI, mine` -
+  both predicates over `Item` fields - and `unanswered`, moved already.
+
+None of that is large. What it costs is the one thing a bucket gives that a
+set of tags does not: a single word for a row, in the list and in `wl next`.
+Whether that word earns its exclusivity is the question; today it has cost
+one real gap and answered none that the facts could not.
 
 ### "Waiting for a reviewer" is built, and the gap is the order
 
@@ -2712,8 +2785,9 @@ so they are not mistaken for bugs later:
   involves:vtjnash updated:>{since:7}` lanes, one per kind, 4 points a page.
   It finds the closed-item mentions now, for 8 points, and is one more query
   emulating what the API is. Every row it returns is `done`, which the
-  dashboard shows now; what it would not be is `needs-reply`. Add it if the
-  PAT is far off; drop it the day the API is polled.
+  dashboard shows now, and carries `reply` where one is owed, which the
+  `unanswered` view lists. Add it if the PAT is far off; drop it the day the
+  API is polled.
   `mentions:` in place of `involves:` is the narrower ask and is what the
   gap actually is: two rows a week outside the polled repos, measured
   2026-09-13.
