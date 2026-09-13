@@ -140,9 +140,11 @@ here is done; `git log` is the record of it and this file is not.
      `approval_requested`, `invitation`, `member_feature_requested`,
      `security_advisory_credit` - have no counterpart and want none.
 
-   Still unanswered, and only a token answers them: the poll's cost and
-   `X-Poll-Interval`, whether `all=true` with `since=` is a clean cursor,
-   and whether Discussions, releases and advisories are worth having.
+   **What to do next, exactly**, is written out as six steps under
+   "Notifications lane" in Infrastructure: the token and where it lives, the
+   measurements to take by hand before any code, the decision rule those
+   numbers feed, the source to add to `Events.unread` if the answer is yes,
+   its tests, and what to delete afterwards.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -2812,16 +2814,113 @@ so they are not mistaken for bugs later:
   What the table already says: the searches replicate the *open* half well
   and the *closed* half only inside polled repos - and, since 2026-09-13,
   show it: a closed row is `done` and `done` is on by default - see item 3
-  under "What is next" for why that came before any lane. `manual` - a thread you subscribed to by hand on
-  github.com - has no counterpart at all. A thread is one row per subject
-  with one `reason`, the latest, one `updated_at` and one
-  `latest_comment_url`, no actor and no history: so a reason maps onto the
-  item, `updated_at` onto the moved clock, and `their_comment_at` is one
-  fetch of `latest_comment_url` away. What still needs a token to find out:
-  what `/notifications` costs per poll (REST, its own 5000/hour,
-  `X-Poll-Interval` sets the cadence), whether `all=true` with `since=` is a
-  clean cursor the way the poll's is, and whether Discussions, releases and
-  advisories - which search cannot reach - are worth having.
+  under "What is next" for why that came before any lane. `manual` - a thread
+  you subscribed to by hand on github.com - has no counterpart at all. A
+  thread is one row per subject with one `reason`, the latest, one
+  `updated_at` and one `latest_comment_url`, no actor and no history: so a
+  reason maps onto the item, `updated_at` onto the moved clock, and
+  `their_comment_at` is one fetch of `latest_comment_url` away.
+
+  **What to do next, in order.** Nothing below the first step needs code,
+  nothing below the third is worth writing until the second has numbers, and
+  the whole of it is one afternoon once the token exists.
+
+  1. **The token.** github.com → Settings → Developer settings → Personal
+     access tokens → *Tokens (classic)* → Generate new. Scopes:
+     `notifications` (this lane), `public_repo` (the writes - `origin` is
+     public, so `repo` is not needed - and the review comments on public
+     repositories), and `read:org` (so `/user/teams` answers and the
+     `team:ORG/TEAM` question under "Team mentions" below is settled at the
+     same time). One classic token does all three; the fine-grained one the
+     writes were planned on cannot do the first, so it is this or two tokens.
+     **Where it lives:** `data/notifications.token`, one line, added to
+     `data/.gitignore` beside `fetched.json` - a file and not an environment
+     variable, because the sandbox's `token()` order is `TOKEN_FILE` →
+     `$GH_TOKEN` → `gh auth token` and the sandbox file is the App token,
+     which is exactly the token this must never fall back to. A second
+     lookup, `Events.pat()`, reads that file or answers `nothing`; the source
+     below is skipped with one line on stderr when it does, so a machine
+     without the file loses nothing it had.
+
+  2. **Measure by hand, with `curl -H "Authorization: Bearer $PAT"`, before
+     any code**, and write the numbers here:
+     - `GET /notifications?all=true&per_page=100` - how many threads, how
+       many pages, `X-Poll-Interval`, `X-RateLimit-Resource` and `-Limit`
+       (is it `core`'s 5000, or its own), `Last-Modified`.
+     - **The cursor.** `since=<updated_at of the newest thread>` - is that
+       thread excluded (strict) or included (inclusive)? And with
+       `all=true`, does a thread you have read on github.com still come back
+       for a `since=` before its `updated_at`? Both must come back for the
+       poll's own cursor to work the way the repo polls' does; if `all=true`
+       is what it takes, so be it, since GitHub's read state is not this
+       program's.
+     - `If-Modified-Since` → 304, and confirm `X-RateLimit-Used` does not
+       move on a 304, which the docs promise.
+     - **A week's distribution**: `reason` × `subject.type` × whether the
+       repository is in `[events].repos` (or under an `owner/*` glob). The
+       last column is the whole question: threads *outside* the polled repos
+       are what the lane would add, and threads inside are what it would
+       duplicate.
+     - **The two examples.** SparseArrays.jl#469 and nodejs/node#36790,
+       `reason: mention`, closed - are they in the list? That is the gap the
+       lane was reopened for, measured directly.
+     - `subject.latest_comment_url` - null on which reasons (a state change,
+       a release), and does it ever point at a review comment rather than
+       an issue comment.
+
+  3. **Decide, by one rule.** If the week has more than a handful of threads
+     outside the polled repos that no search lane returns - closed mentions,
+     `manual` subscriptions, Discussions - build step 4. If it has not, close
+     this item for good, delete the table above, and add the two
+     `is:closed mentions:vtjnash updated:>{since:7}` bulk lanes instead: 8
+     points a refresh, `mentioned_closed_pr` / `_issue`, named so
+     `reply_owed` keys on them, and every row they return is `done` and
+     shown, and tagged `reply` where one is owed.
+
+  4. **The source**, if yes. One more entry in `srcs` in `Events.unread`,
+     label `notifications`, *first* in the list so a repo poll's richer row
+     for the same url overwrites it in `items`:
+     - fetch: `since -> api_paged("/notifications"; params = all=true,
+       since=since)` under the PAT - which means `api_get` takes an `auth`
+       argument, defaulting to `auth()`, rather than a second copy of it.
+       `OVERLAP_REST`. The cursor is the newest `updated_at` seen, as for
+       every other source; `X-Poll-Interval` is honoured by
+       `activity_ttl_seconds` already being 120, checked once in step 2.
+     - `thread_row(t)`: the inbox row shape at `Events.unread`, from
+       `subject.url` (an API url: `/repos/o/r/issues/N` or `/pulls/N` →
+       the html url, `pull` singular), `repository.full_name`, the number
+       off the url, `subject.title`, `is_pr = subject.type == "PullRequest"`,
+       `updated = updated_at`, plus two keys the poll's rows do not carry:
+       `reason`, and `lane = "notifications"`. `state`, `author`, `labels`
+       and `comments` are not in a thread. Leave them empty at first - an
+       empty state reads as open, which is what a synthetic item is - and
+       let step 2's count say whether one `GET subject.url` per new thread is
+       affordable; at a few dozen a poll on a 5000/hour budget it is, and
+       it is what makes the row a `done` one when it should be.
+     - Skip, and count on stderr, every `subject.type` that is not `Issue`
+       or `PullRequest` - Discussion, Release, Commit, CheckSuite,
+       RepositoryVulnerabilityAlert - because nothing here can open one.
+       Discussions are the one of those worth a second thought, and only
+       after the rest works.
+     - **Never** `PATCH /notifications/threads/{id}` (mark read), and never
+       read `unread` or `last_read_at` off a thread: the cursor is ours, the
+       read stamp is ours, and adopting GitHub's would undo the property the
+       whole events lane exists for.
+     - `poll_item` reads `lane` off the inbox row (default `activity`), so
+       the lane axis can pick these out; the metadata pane prints `reason`.
+       `wl unread` gets them for free.
+
+  5. **Tests**, in `test/suite/refresh.jl` beside the inbox ones: a fixture
+     thread → `thread_row` (both url shapes, the number, `is_pr`); a
+     non-issue subject is skipped and counted; the source order, so the poll
+     row wins for a url both saw; the cursor advancing to `updated_at`; and
+     no token → the source is skipped and every other source still polls.
+
+  6. **Afterwards.** Drop the stopgap paragraph below; in the table above,
+     the `closed: none` cells become `notifications lane`, and `manual`
+     stops being `none`. Retry `team:JuliaLang/compiler` with the new
+     token, and if it answers, replace the two free-text
+     `mentioned_team_*` lanes with it.
 
   **The cheap stopgap, measured and not yet added**: two `is:closed
   involves:vtjnash updated:>{since:7}` lanes, one per kind, 4 points a page.
