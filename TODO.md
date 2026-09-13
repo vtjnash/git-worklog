@@ -190,24 +190,30 @@ here is done; `git log` is the record of it and this file is not.
    (`fetch_urls`, for the imported and carried rows); what changes is that
    the searches stop being the thing that populates it every run.
 
-   1. **Three clocks say what moved.** The notifications source and the
-      repo poll, which exist; and for the standing set - the open work, which
-      is not a list of things that moved - the three fast lanes asked as
-      **REST** searches (`search_issues`, one point, one page, ~1.5s each)
-      that yield urls and `updated_at` and nothing else. A pull request of
-      yours that nobody has touched is found by the first; a review request
-      or an assignment notifies anyway, so the other two are insurance.
-   2. **GraphQL by url, for the rows that need the bundle**, in one
-      `fetch_urls` call: rows new to the corpus; rows a clock says moved
-      (thread or poll `updated` past the row's); rows the searches put in
-      the open work that the corpus holds only as a light poll or thread
-      row; imported and carried, as today; and **the sweep** for what no
-      clock sees - open-work rows whose `ci` is unsettled or whose head moved
-      within a day - which is the CI-pending handful and bounds itself.
-      Typically ten to twenty rows, two to four seconds. Everything else
-      keeps the bundle it has, and `moved_stamp` compares old to new exactly
-      as now, so the wake table, the change list and `moved_at` are
-      untouched; a row not re-asked does not move.
+   1. **The open work is re-asked whole, every `u`, as it is now.** The three
+      fast lanes stay GraphQL searches - `mine`, `review`, `assigned`, ~135
+      rows, four pages, 16 points, ~15s - because they do two things at once
+      that nothing else does as cheaply: they *enumerate* the standing set
+      (a pull request of yours that nobody has touched notifies nobody) and
+      they return the bundle for every row in it. That is the set whose tags
+      have to be right - `ready`, `edits`, `review` - and CI, a resolved
+      thread and a draft toggle all change without a word from any clock,
+      on any of the 135. Decided 2026-09-13: **no sweep heuristic.**
+      "Moved recently" was the first draft of this step and it is not a
+      hint for what moves next; the bounded set is the open work itself,
+      and dozens of presses a day is a few hundred points. `u` polls the
+      notifications and the repos at the same time, which it already does.
+   2. **Everything outside the open work is asked by url, and only when a
+      clock says it moved.** The clocks are the notifications source and the
+      repo poll; the row is stale when either has an `updated` past the
+      row's `fetched_at` (the refresh's `at`, GitHub's own time, stored on
+      the row - not the row's `updated`, which is a different clock for the
+      same event, see below). One `fetch_urls` call for those plus the
+      imported rows, as today; ten rows on a quiet afternoon, two seconds.
+      The carried refetch becomes this: a row that was in front of you and
+      that no lane returns is re-asked when it moved, not every run. The
+      wake table, `moved_stamp` and the change list are untouched - a row
+      not re-asked does not move.
    3. **On selection, the bundle for that row**: `load_meta!` already fetches
       the REST head, the reviews, the checks and the merge state for the
       item under the cursor, and `imported_items` already runs
@@ -216,8 +222,9 @@ here is done; `git log` is the record of it and this file is not.
       after a second on screen - and `normalize` + `apply_state!` on the
       answer, written back to `items` so the tags on that row are current
       the moment it is looked at. This is what makes step 2's staleness
-      acceptable: a row is exact when it moved and when you look at it, and
-      approximate only while it is neither.
+      acceptable for the rows outside the open work: a row is exact when it
+      moved and when you look at it, and approximate only while it is
+      neither.
    4. **The initial population** is the lanes as they are, run when the
       corpus is empty or asked for (`--rebuild`), and never on a timer.
       The six discovery lanes and the three closed lanes are deleted with
@@ -232,14 +239,13 @@ here is done; `git log` is the record of it and this file is not.
       that enters the open work, or is selected, gets the bundle and keeps
       its `lane`, `reason` and `why`; `sync!`'s merge is the model.
 
-   **Measured, from `fetched.json` alone**, for the number that decides
-   whether step 2 needs a cap: with the bulk cache 3.2 hours old, 179 inbox
-   rows are past their corpus row and 108 of them are `firehose`; over the
-   last six hours, 10 rows - 9 firehose, 1 mention. The sweep is smaller
-   than feared: `ci` is null on 46 of the 118 open pull requests in the open
-   work, which is *no CI*, not pending, so unsettled means `PENDING` or
-   `EXPECTED` and is 0 today, and no open-work head moved within the day.
-   Ten to twenty a refresh holds. One thing the measurement corrected: a
+   **Measured, from `fetched.json` alone**, for how many rows step 2 asks
+   for: with the bulk cache 3.2 hours old, 179 inbox rows are past their
+   corpus row and 108 of them are `firehose`; over the last six hours, 10
+   rows - 9 firehose, 1 mention. (Also measured, for the sweep that step 2
+   no longer has: `ci` is null on 46 of the 118 open pull requests in the
+   open work, which is *no CI*, not pending - a rule keyed on it would have
+   asked for all of them.) One thing the measurement corrected: a
    thread's `updated_at` is the *delivery* time, 2 to 46 seconds after the
    subject's `updatedAt` (one at 122s), so 35 open-work rows read as moved
    that were not. "A clock says moved" has to compare the clock against
