@@ -208,7 +208,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     end
     if cmd == "thread"
         length(args) > 1 || die(USAGE)
-        body, cs, _, _ = Events.thread(resolve(args[2]);
+        body, cs = Events.thread(resolve(args[2]);
                                  limit = length(args) > 2 ? parse(Int, args[3]) : 12)
         print(json_dumps([
             "title" => body["title"],
@@ -245,7 +245,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         haskey(st, url) && println(json_dumps(st[url]; indent = 1, sortkeys = true))
         # Bodies are never stored; this is a live read of the thread, which is
         # the part the notification emails were carrying.
-        body, cs, _, _ = try
+        body, cs = try
             Events.thread(url)
         catch e
             die("could not fetch thread: " * sprint(showerror, e))

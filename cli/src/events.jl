@@ -92,18 +92,6 @@ function server_now()
     d
 end
 
-"""One request, one page, and when GitHub answered it. The `Date` header is
-the server's clock at the response, whole seconds; see `server_now`."""
-function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}())
-    r = try
-        GitHub.gh_get(GitHub.DEFAULT_API, endpoint; auth = auth(), params = params)
-    catch e
-        throw(ApiError(first(sprint(showerror, e), 200)))
-    end
-    v = GitHub.JSON.parse(GitHub.http_payload(r, String))
-    (v isa AbstractVector ? v : Any[v], Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing)))
-end
-
 "One request, one page. Always returns a vector, as the Python `_get` did."
 function api_get(endpoint::AbstractString; params = Dict{String,Any}())
     v = try
@@ -303,6 +291,10 @@ meantime is exactly the race that is worth not having.
 """
 save_inbox(d) = Worklog.put_fetched!("inbox", d)
 
+"""How far behind its cursor each kind of source is asked from; see `unread`."""
+const OVERLAP_REST = Second(60)
+const OVERLAP_SEARCH = Second(15 * 60)
+
 """Everything seen on the tracked repos and not yet marked read.
 
 An **incremental** sync, not a window. Each source keeps a cursor, and a poll
@@ -314,10 +306,9 @@ A source seen for the first time starts at *now*, so turning this on is inbox
 zero rather than a month of history to dismiss. `backfill_days` moves that start
 back if some is wanted.
 
-The cursor advances to the start of the poll and not to the newest row it saw. A
-change landing while the fetch is in flight is then read again next time, which
-duplicates - and duplicates are free, because the inbox is keyed by url - where
-the other rounding would skip it. A failed fetch advances nothing.
+The cursor advances to the newest row the source returned, which is GitHub's
+own time for it and needs no clock here: see the loop. A failed fetch advances
+nothing.
 
 The read stamp remains the authority on what leaves: an item is dropped from the
 inbox once it has been marked read up to its latest change.
@@ -339,11 +330,13 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     # comments.
     # The cost is fidelity - search truncates at 1000 - so a repo that has to be
     # seen exactly is still listed by name, and both may be listed at once.
-    srcs = Tuple{String,Any}[]
+    # Each source with the overlap it is asked with; see the loop below.
+    srcs = Tuple{String,Any,Second}[]
     for repo in explicit
         push!(srcs, (repo, since -> api_paged("/repos/$repo/issues";
             params = Dict{String,Any}("since" => since, "state" => "all",
-                                      "sort" => "updated", "direction" => "asc"))))
+                                      "sort" => "updated", "direction" => "asc")),
+                     OVERLAP_REST))
     end
     # Looked up inside the closure, so the listing a filter needs is paid only
     # by a source that actually polls.
@@ -360,7 +353,7 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
                 @printf(stderr, "    %-24s %d on forks skipped\n",
                         string(owner, "/*"), length(its) - length(kept))
             kept
-        end))
+        end, OVERLAP_SEARCH))
     end
 
     inbox = load_inbox()
@@ -368,25 +361,44 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120)))
     backfill = Day(get(cfge, "backfill_days", 0))
     got = 0
-    # **The cursor is GitHub's clock, not this machine's.** It is compared on
-    # the server against `updated_at`, so a local clock running ahead would
-    # have the next poll skip whatever landed in the gap - and Windows clocks
-    # have been minutes out. Read off a `Date` header once, before the first
-    # source that is due, and every cursor written this poll is that instant:
-    # the start of the poll, as GitHub would date it. `polled` is the other
-    # clock - when *this machine* last asked, against the ttl - and stays
-    # local, compared only with itself.
+    # **The cursor is the newest `updated_at` the source returned**, and no
+    # clock at all. It is compared on the server against `updated_at`, so it
+    # has to be GitHub's time - a local clock running ahead would have the
+    # next poll skip whatever landed in the gap, and Windows clocks have been
+    # minutes out - and the newest row seen *is* GitHub's time, exactly.
+    # Never backwards, so a source that answers nothing keeps the cursor it
+    # had.
+    #
+    # **And the ask is from behind the cursor**, by an overlap, because GitHub
+    # promises nothing about a response being a snapshot as of its newest
+    # row. Search is eventually consistent by its own account - an item
+    # updated at T can be missing from `updated:>` for minutes and then
+    # appear - and a REST list comes off a replica, which can be a beat
+    # behind, with `updated_at` set by whichever server took the write. So a
+    # cursor at the newest row seen would step past a change that was made
+    # before it and indexed after. Asking from `cursor - overlap` catches
+    # that, and what it costs is rows fetched twice, which are free: the
+    # inbox is keyed by url, and a row already read is dropped again on
+    # arrival. Minutes for search, a minute for REST, both far past the lag
+    # either has shown.
+    #
+    # The one instant that is not an event is the first sight of a source -
+    # inbox zero, so switching this on is not a month of history to dismiss -
+    # and that is GitHub's now off a `Date` header. `polled` is the other
+    # clock: when *this machine* last asked, against the ttl, local and
+    # compared only with itself.
     server = nothing
-    for (label, fetch) in srcs
-        # Inbox zero on first sight, so switching this on is not a month of
-        # history to dismiss.
+    for (label, fetch, overlap) in srcs
         last = get(polled, label, nothing)
         t = last === nothing ? nothing : ts(last)
         t === nothing || at - t >= ttl || continue
-        server === nothing && (server = server_now())
-        cur = get!(cursors, label, stamp(server - backfill))
+        if !haskey(cursors, label)
+            server === nothing && (server = server_now())
+            cursors[label] = stamp(server - backfill)
+        end
+        cur = cursors[label]
         rows = try
-            fetch(cur)
+            fetch(stamp(ts(cur) - overlap))
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
@@ -410,7 +422,8 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
                 "mine" => who == login)
             got += 1
         end
-        cursors[label] = stamp(server)
+        newest = maximum((String(r["updated_at"]) for r in rows); init = "")
+        cursors[label] = max(String(cur), newest)
         polled[label] = stamp(at)
     end
 
@@ -487,9 +500,7 @@ end
 
 """Fetch a thread live - the part email used to hand you.
 
-Returns `(body, comments, commits, read_at)` - the last being GitHub's clock
-at the first of the reads, which is what `r` marks the item seen up to. The
-commits are what the thread is read
+Returns `(body, comments, commits)`. The commits are what the thread is read
 *with*: "they replied, then pushed, then replied" is one sequence, and having
 them arrive on a second cadence from a second cache is how it came to be read as
 two. Callers that only want the conversation destructure the first two and are
@@ -506,12 +517,7 @@ function thread(url::AbstractString; limit::Int = 10)
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
     commits = @async try; pr_commits(url); catch; OrderedDict{String,Any}[]; end
-    # The first request's `Date` is when this thread was read, as GitHub dates
-    # it: `r` marks the item seen up to this, and it is the *earliest* moment
-    # any of the reads below could have been answered - so a comment landing
-    # while they were in flight stays unread. The tuple carries it home.
-    bodies, read_at = api_get_dated("/repos/$owner_repo/issues/$num")
-    body = bodies[1]
+    body = api_get("/repos/$owner_repo/issues/$num")[1]
     cs = api_paged("/repos/$owner_repo/issues/$num/comments")
     try
         append!(cs, api_paged("/repos/$owner_repo/pulls/$num/comments"))
@@ -520,8 +526,7 @@ function thread(url::AbstractString; limit::Int = 10)
     end
     sort!(cs; by = c -> c["created_at"])
     (body, cs[max(1, end - limit + 1):end],
-     try; fetch(commits); catch; OrderedDict{String,Any}[]; end,
-     read_at)
+     try; fetch(commits); catch; OrderedDict{String,Any}[]; end)
 end
 
 """The last commits on a pull request's branch: `oid`, `at`, `headline`, `by`.

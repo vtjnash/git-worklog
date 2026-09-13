@@ -467,17 +467,16 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # included. The set is kept in step because the metadata pane reads it.
         was = seen_of(it, Marks(st)) === :unread
         seen = was
-        # Read up to when the thread was *fetched*, not to now. A comment that
-        # arrived while you were reading - or while you were away from a pane
-        # loaded ten minutes ago - was never in front of you, and stamping now
-        # would mark it seen. Not the newest comment's own time either: an item
-        # whose `updated_at` moved for a label edit would then be permanently
-        # unread, because marking it read could never catch up to it. And the
-        # fetch is dated by GitHub - the `Date` header on the read, kept with
-        # the thread - so this machine's clock is not in it. Without a thread
-        # on screen it is the last movement on record, which is what `s` and
-        # `x` write too; see `read_up_to`.
-        fi = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
+        # Read up to what was *in front of you*, not up to now: the newest
+        # event the thread on screen shows, or the last movement on record if
+        # it shows more - an approval with no comment, a merge, a CI edge -
+        # whichever is later. A comment that arrived while you were reading,
+        # or while you were away from a pane loaded ten minutes ago, is in
+        # neither and stays unread. No clock is in it, this machine's or
+        # GitHub's: every one of those is a time GitHub wrote on an event.
+        # Without a thread on screen it is the movement alone, which is what
+        # `s` and `x` write too; see `read_up_to`.
+        fi = findfirst(n -> haskey(n.meta, "seen_up_to"), st.nodes)
         prev, prevhead = read_at(it.url), mark_at(it.url, "read_head")
         if seen
             # And the head it stood at, which is the other half of where you
@@ -487,10 +486,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # the lanes do not cover, on the key loop, to answer a question
             # about a pull request that may not even have moved. A row with no
             # sha records none and has no `p` view, which is what it had before.
-            set_read_mark(it.url,
-                          fi === nothing ? read_up_to(it.moved_at, it.updated, at) :
-                                           st.nodes[fi].meta["fetched"],
-                          it.head)
+            upto = read_up_to(it.moved_at, it.updated, at)
+            fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
+            set_read_mark(it.url, upto, it.head)
         else
             mark_unread([it.url])
         end

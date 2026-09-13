@@ -72,12 +72,18 @@
         @test W.read_at(it.url) == prev          # exactly what was there
         @test marks() == before          # byte for byte
 
-        # Read is stamped to when the thread was fetched, not to now. A comment
-        # that arrived while you were reading was never in front of you.
+        # Read is stamped to what the thread showed, or to the last movement
+        # on record, whichever is later - never to now. A comment that arrived
+        # while you were reading was in neither and stays unread.
         st.nodes = [W.Node("h", "b", :md, true)]
-        st.nodes[1].meta["fetched"] = "2020-01-02T03:04:05Z"
+        st.nodes[1].meta["seen_up_to"] = "2099-01-02T03:04:05Z"
         W.handle!(st, Int('r'), ctrl)
-        @test W.read_at(it.url) == "2020-01-02T03:04:05Z"
+        @test W.read_at(it.url) == "2099-01-02T03:04:05Z"
+        W.handle!(st, Int('z'), ctrl)
+        st.nodes[1].meta["seen_up_to"] = "2020-01-02T03:04:05Z"
+        W.handle!(st, Int('r'), ctrl)
+        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, W.utcnow())
+        @test W.read_at(it.url) > "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes = W.Node[]
 

@@ -263,23 +263,12 @@ end
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     local body, cs, cms
     stale = false
-    # When this thread was read from GitHub, **as GitHub dates it**: the `Date`
-    # header of the first request, which `Events.thread` hands back and the
-    # cache entry keeps. `r` marks the item seen up to this, so a comment that
-    # arrived while the reads were in flight stays unread - it was never on
-    # screen - and a thread served from the cache is stamped with the moment
-    # it was really fetched rather than with any arithmetic on this machine's
-    # clock, which may be minutes from GitHub's. `at` is the fallback for an
-    # entry from before the header was kept, and errs late by the age, which
-    # is why it is a fallback.
-    fetched = stamp(at)
     try
         key = "thread:" * it.url
         hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
         if hit === nothing
-            body, cs, cms, read_at = Events.thread(it.url; limit = 30)
-            read_at === nothing || (fetched = stamp(read_at))
-            cache_put(key, (body = body, comments = cs, commits = cms, fetched = fetched))
+            body, cs, cms = Events.thread(it.url; limit = 30)
+            cache_put(key, (body = body, comments = cs, commits = cms))
         else
             body, cs = hit[1].body, hit[1].comments
             # Absent on an entry written before the pushes were drawn in here.
@@ -287,8 +276,6 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             # than dropped for want of a field that is new.
             cms = something(jget(hit[1], :commits), ())
             stale = hit[2] > DETAIL_TTL[]
-            f = jget(hit[1], :fetched)
-            f === nothing || (fetched = String(f))
         end
     catch e
         return [failednode("could not load thread", first(sprint(showerror, e), 200))]
@@ -360,7 +347,20 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
         append!(ns, made)
     end
-    isempty(ns) || (ns[1].meta["fetched"] = fetched)
+    # **What this thread shows you up to**, which is what `r` marks the item
+    # seen up to: the newest event on screen - a comment, a review comment, a
+    # push, the body's own last edit - and no clock at all, this machine's or
+    # GitHub's. A comment that landed while the reads were in flight is either
+    # here, and seen, or not here, and newer than this - unread at the next
+    # refresh, as it should be. A cached thread stamps the same, since the
+    # newest thing in it is the newest thing in it. `r` takes the max of this
+    # and `moved_at`, for the movements a thread does not show: an approval
+    # with no comment, a merge, a CI edge.
+    seen = maximum(Iterators.flatten((
+               (String(nz(get(c, "created_at", nothing), "")) for c in cs),
+               (String(nz(get(c, "at", nothing), "")) for c in cms),
+               (String(nz(get(body, "updated_at", nothing), "")),))); init = "")
+    isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
     out

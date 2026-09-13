@@ -178,19 +178,24 @@ comment by the poll — and `r` stamps you read at the moment the *thread* was
 fetched, fresher than any refresh, so a comment read at 10:00 came back unread
 when the 11:00 refresh first saw it.
 
-**And by GitHub's clock, wherever a stamp will meet one GitHub wrote.** The
-refresh's `at` — which dates a CI edge, a read mark on a hand-typed snooze,
-the closed lanes' `{since}` — is the `Date` header of a free request, not this
-machine's clock. The poll's cursor, compared on the server against
-`updated_at`, is the server's time at the poll's start. The moment a thread
-was read, which `r` marks it seen up to, is the `Date` header of the read
-itself, kept with the cached thread. And `s` and `x` stamp read at the item's
-own `moved_at` — read up to the last movement on record, which is GitHub's
-time by construction and needs no clock at all. What stays on the machine's
-clock is only ever compared with itself: a snooze's wake against the frame
-that reads it, the interaction clock, the cache's ages. No offset is measured
-and none is applied — a Windows box with its clock minutes out gets every
-comparison right because none of them involves its clock.
+**And by GitHub's time, wherever a stamp will meet one GitHub wrote** — and
+by an *event's* time wherever there is one, which is nearly everywhere. `r`
+marks an item read up to the newest thing the thread showed you or the last
+movement on record, whichever is later: every one of those is a time GitHub
+wrote on an event, so no clock is in it at all. `s` and `x` stamp `moved_at`
+alone — read up to the last movement on record, which is read by definition.
+The poll's cursor is the newest `updated_at` a source returned, asked for
+again from a little behind it, because GitHub does not promise a response is
+a snapshot as of its newest row — search is eventually consistent by its own
+account, and a REST list can come off a replica a beat behind — and the
+overlap is free on an inbox keyed by url. The two places that need a *now*
+and have no event to stand in for it — the refresh's `at`, which dates a CI
+edge and the closed lanes' `{since}`, and a source's first sight — take the
+`Date` header of a free request. What stays on the machine's clock is only
+ever compared with itself: a snooze's wake against the frame that reads it,
+the interaction clock, the cache's ages. No offset is measured and none is
+applied — a Windows box with its clock minutes out gets every comparison
+right because none of them involves its clock.
 
 ## Showing what changed, not just that something did
 

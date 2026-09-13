@@ -342,34 +342,33 @@ end
     @test W.days_since(nothing, then) === nothing
     @test W.utcnow() > W.DateTime(2020)
 
-    # A thread is stamped with when its fetch *began*, as GitHub dates it -
-    # the `Date` header of the first read - and not with anything this
-    # machine's clock says. A comment that arrived while the reads were in
-    # flight was never on screen, so `r` must not be able to mark it seen; and
-    # a clock minutes out must not be able to move the mark either way.
+    # A thread says what it showed you up to: the newest event in it, which
+    # is a time GitHub wrote and not anything a clock here says - so `at` is
+    # not in it, cold or warm, and a comment that arrived while the reads
+    # were in flight is either on screen or newer than the stamp.
     st = mkstate()
     it = st.items[st.sel]
-    fetchedat(x, at) = let ns = W.comment_nodes(x, at)
-        i = findfirst(n -> haskey(n.meta, "fetched"), ns)
-        i === nothing ? nothing : ns[i].meta["fetched"]
+    seenat(x, at) = let ns = W.comment_nodes(x, at)
+        i = findfirst(n -> haskey(n.meta, "seen_up_to"), ns)
+        i === nothing ? nothing : ns[i].meta["seen_up_to"]
     end
     subject = nothing
     for x in first(st.items, 6)
         # Cold, so this is the path that actually talks to GitHub.
         rm(W._slot("thread:" * x.url); force = true)
-        fetchedat(x, then) === nothing || (subject = x; break)
+        seenat(x, then) === nothing || (subject = x; break)
     end
     if subject === nothing
-        @info "no thread could be fetched; skipping the fetched-at check"
+        @info "no thread could be fetched; skipping the seen-up-to check"
     else
         rm(W._slot("thread:" * subject.url); force = true)
-        # GitHub's now, whatever `at` was handed in: within a minute of this
-        # machine's, which is on NTP here, and nowhere near the year 2000.
-        cold = fetchedat(subject, then)
-        @test abs(W.ts(cold) - W.utcnow()) < W.Minute(1)
-        # Warm, it is the same moment - the one the thread was really read at,
-        # kept with it - and not that moment re-derived from a later `at`.
-        @test fetchedat(subject, W.DateTime(2030)) == cold
+        cold = seenat(subject, then)
+        @test cold != "2000-01-02T03:04:05Z"
+        @test W.ts(cold) !== nothing && W.ts(cold) <= W.utcnow() + W.Minute(1)
+        @test cold >= subject.created
+        # Warm, it is the same: the newest thing in the thread is the newest
+        # thing in the thread.
+        @test seenat(subject, W.DateTime(2030)) == cold
     end
 
     # And `r`'s fallback, for a thread carrying no fetch time at all: the

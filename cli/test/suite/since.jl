@@ -51,7 +51,7 @@ end
         st.loaded = string(it.url, ":", st.mode)
         st.metakey = it.url
         st.nodes = [W.Node("h", "b", :md, true)]
-        st.nodes[1].meta["fetched"] = "2026-09-05T00:00:00Z"
+        st.nodes[1].meta["seen_up_to"] = "2026-09-05T00:00:00Z"
 
         W.handle!(st, Int('r'), ctrl)
         @test W.read_at(it.url) == "2026-09-05T00:00:00Z"

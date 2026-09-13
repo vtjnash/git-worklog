@@ -1539,17 +1539,38 @@ a `Date` header, persisted in the cache. Deleted the same hour: a correction
 factor with all the ways of being wrong those have, applied to every stamp
 whether or not it meets GitHub's.
 
-**Done instead: read the time off the wire, where it is wanted.**
-`Events.server_now` is the `Date` of `/rate_limit`, and the refresh's `at` is
-that. The poll's cursors are `server_now` at the poll's start; `polled`, the
-ttl against this machine's last ask, stays local and is compared only with
-itself. `Events.thread` returns the `Date` of its first read, the cache entry
-keeps it as `fetched`, and `r` stamps that - no more `at - age` arithmetic
-on a warm entry. And `s`, `x`, `r` without a thread on screen, and
-`wl snooze`/`archive`/`dismiss`/`read` stamp `read_up_to`: the item's own
-`moved_at`, which is read by definition and GitHub's time by construction. A
-snooze's wake and the interaction clock stay local, because they never meet
-a GitHub time.
+**Tried second: the `Date` header, at each place a stamp is written.** The
+refresh's `at` off `/rate_limit`; the poll's cursors at the poll's start; the
+thread's first read kept in the cache as `fetched`. Better - no correction -
+but still a clock, where an *event* would do.
+
+**Done: an event's time wherever there is one.** `r` stamps
+`max(moved_at, newest visible event in the thread)` - comments, review
+comments, pushes, the body's last edit - every one a time GitHub wrote on an
+event; `moved_at` covers what a thread does not show (an approval with no
+comment, a merge, a CI edge), and the thread covers what is newer than the
+last refresh. No in-flight window to reason about: a comment landing mid-read
+is on screen and stamped, or absent and newer than the stamp. `s`, `x`, `r`
+without a thread, and `wl snooze`/`archive`/`dismiss`/`read` stamp
+`read_up_to`: `moved_at` alone. The poll's cursor is the newest `updated_at`
+a source returned, never backwards.
+
+**What GitHub does not promise, and what covers it.** None of this is a
+snapshot as of its newest row: search is eventually consistent by its own
+account, and a REST list can come off a replica a beat behind with
+`updated_at` set by whichever server took the write. So each source is asked
+from `cursor - overlap` - fifteen minutes for search, one for REST - and the
+rows fetched twice cost nothing on an inbox keyed by url. The read mark can
+take no overlap ("read up to T - ε" would leave the comment you just read
+unread); its exposure is two comments within milliseconds of each other, the
+later visible and the earlier not, read in that window - which the `Date`
+header shared and the local clock made worse.
+
+**What still needs a now**, and has no event to stand in for it: the
+refresh's `at` - a CI edge, ages, the closed lanes' `{since}` - and a source's
+first sight. Both are `Events.server_now`, the `Date` of `/rate_limit`.
+`polled`, the ttl against this machine's last ask, stays local and is compared
+only with itself; so do a snooze's wake and the interaction clock.
 
 ### What the lanes ask for, reviewed against what reads it
 
