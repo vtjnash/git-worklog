@@ -2,8 +2,9 @@
 
 ## What is next
 
-One thing is open, and it is an idea to design rather than a task to pick up.
-The mapping that stood beside it - what the notifications API covers, against
+Two things are open, and both are ideas to design rather than tasks to pick
+up: the inline comment box, and what GraphQL is still for now that
+`/notifications` is polled (item 4). The mapping that stood between them - what the notifications API covers, against
 what the searches emulate - was made 2026-09-13, measured the same afternoon,
 and the lane it argued for is **built**; see item 3 for what a live poll has
 still to confirm. The deletion that
@@ -89,6 +90,89 @@ here is done; `git log` is the record of it and this file is not.
      counted. Nothing here can open one.
    - **The stopgap lanes** are not wanted: the source reaches everything
      they would have, and `mentioned_closed_*` was never added.
+
+4. **What GraphQL is still for, now that `/notifications` is polled.** Asked
+   2026-09-13, the evening the source went live, because the poll is one
+   page every two minutes and says exactly what moved and why, where the
+   lanes are twelve searches emulating it with `updated:>` noise, a 15-minute
+   consistency overlap, a 1000-row cap and a `team:` qualifier that does not
+   work. An idea to design rather than a task to pick up; the answer has two
+   halves, and only one of them is GraphQL's to keep.
+
+   **Discovery - which items exist and which moved - is the half
+   notifications can take.** Seven of the twelve lanes exist only to find
+   items, and a `reason` finds them better:
+   - `mentioned_pr` / `_issue` → `mention`; `mentioned_team_*` (two free-text
+     searches, because `mentions:` matches the user and `team:` answers 0) →
+     `team_mention`, which arrived this week for `@llvm/issue-subscribers-
+     julialang`, a team the free text does not name; `commented_*` →
+     `comment`. Six queries, ~1330 rows, 6-hourly, and every one of them
+     `is:open` - which is the gap this lane was reopened for.
+   - `landed` / `reviewed` / `resolved` → `author`, `review_requested`,
+     `assign` on a closed thread: `all=true` returns read threads, the
+     30-day backfill is past their 14- and 21-day windows, and the `GET` of
+     the subject carries `merged_by`. Their one job was memory of what was
+     read, and a thread *is* that memory.
+   - `state_at`, the wake-table entry emulating "somebody merged it" →
+     `author`, whose `updated_at` is the time.
+   - `firehose` (696 open julia PRs, 14 points, 6-hourly) is *not* activity
+     - julia is polled by `[events]` and watched, so `subscribed` says the
+     same thing twice - and its standing list serves one reader, the
+     `headRefName` match for an adopted branch, which
+     `/repos/o/r/pulls?head=owner:branch` answers by name.
+   What it cannot take: **the standing set of open work** - the 72 open pull
+   requests of yours, the 46 you are asked on, the 17 issues assigned - is
+   not a list of things that moved. A thread exists for a subject from its
+   last notification (1923 back to June; a pull request of yours quiet since
+   spring has none), and opening your own pull request notifies you of
+   nothing. So `mine`, `review` and `assigned` stay searches - though REST
+   `/search/issues` answers those three queries too, 100 a page, one point,
+   with `draft`, labels, state, assignees and milestone on the row.
+
+   **The per-item facts are the half GraphQL keeps**, and this is the actual
+   answer to the question. One node of `PR_FIELDS` is what eight REST
+   requests would be, at 50 nodes for 4 points; and some of it REST cannot
+   give at any price:
+   - `reviewThreads { isResolved isOutdated }` - **no REST equivalent
+     exists.** The `unresolved` count is the `edits` tag's second clause and
+     the row's `💬` count.
+   - `reviewDecision` - REST has no such field; it is derivable from
+     `/pulls/N/reviews`, one request per pull request, by re-implementing
+     GitHub's rule. `edits` (changes requested) and `ready` (approved) read
+     it.
+   - `statusCheckRollup { state }` - REST is `/commits/{sha}/check-runs`
+     plus `/commits/{sha}/status`, two per head. `edits` (red CI), `ready`
+     (green) and the row's CI column read it.
+   - `commits(last: 1)` committer and date, `reviews(last: 20)`,
+     `timelineItems` for `review_requested_at` / `assigned_at` /
+     `state_at`, `comments(last: 1)` for `their_comment_at` - each a REST
+     list of its own, paginated, per item. The `review` tag ("asked, and
+     not reviewed since their last push"), the second look, and the wake
+     table read them.
+   - `headRefOid`, `baseRefName`, `headRefName` - in `GET /pulls/N` too,
+     for one item at a time; the range-diff and the branch match read them.
+   The REST `GET` a new thread gets today is the issue endpoint - state,
+   author, labels, comment count - and none of the above. It is enough for
+   a row to be `done`, shown and tagged `reply` (with one more fetch, of
+   `latest_comment_url`, for who had the last word); it is not enough for
+   `edits`, `ready`, `review` or the second look. Those tags are what the
+   open work is *sorted* by, and they need the bundle.
+
+   **The shape this suggests**, if it is ever picked up: notifications and
+   the repo poll are the clock - what moved, why, when - and GraphQL is asked
+   *by url*, not by search. `fetch_urls` already does that, 40 resources a
+   request with the same selections, for the imported and carried rows; the
+   set to ask for is the open work (`mine` + `review` + `assigned`, ~135
+   rows, found by three REST searches or carried from the last run) plus
+   whatever the clock says moved. Cost is roughly the search lanes' - the
+   selections are what the points count, not how the nodes were named. What
+   goes: the seven discovery lanes and their cache, `implausible`, the
+   `mentioned*` prefix that `reply_owed` and `in_pile` key on (a `reason` is
+   a better key), `OVERLAP_SEARCH`, and the bulk cadence. What has to be
+   answered first: whether the `in_pile` idea survives at all - a thread
+   you commented on that has not moved in a month is in no inbox, and
+   "background pile" was a standing list by construction - and what the
+   `firehose` lane's readers are, exactly, before it is dropped.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
