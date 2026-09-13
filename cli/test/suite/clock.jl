@@ -1,6 +1,43 @@
 # The interaction clock - what writes to it, what deliberately does not - and
 # the two things keyed by url that are not filters: snoozes and notes.
 
+@testset "a stamp that meets GitHub's is GitHub's" begin
+    # The machine's clock is right for what is only compared with itself - a
+    # snooze against the frame that reads it, the interaction clock. A stamp
+    # that will meet one GitHub wrote is taken off GitHub instead, read off
+    # the wire where it is wanted and not corrected from this clock by an
+    # offset: the `Date` header is whole seconds and that is all it takes.
+    @test W.http_date("Sat, 13 Sep 2026 10:01:02 GMT") == DateTime(2026, 9, 13, 10, 1, 2)
+    @test W.http_date("Mon, 1 Jan 2029 00:00:00 GMT") == DateTime(2029, 1, 1)
+    @test W.http_date("not a date") === nothing
+    @test W.http_date(nothing) === nothing
+
+    # Putting something away reads it up to the last movement on record, which
+    # is read by definition and GitHub's time by construction - so a clock
+    # minutes out can neither leave a just-snoozed item unread nor swallow the
+    # comment that lands next.
+    at = DateTime(2026, 9, 13, 12)
+    @test W.read_up_to("2026-09-12T09:00:00Z", "2026-09-12T10:00:00Z", at) == "2026-09-12T09:00:00Z"
+    @test W.read_up_to("", "2026-09-12T10:00:00Z", at) == "2026-09-12T10:00:00Z"
+    @test W.read_up_to(nothing, nothing, at) == "2026-09-13T12:00:00Z"
+    st = mkstate(); st.filters = W.everything(); W.refilter!(st)
+    it = st.items[st.sel]
+    keep = W.LOCAL[]; W.LOCAL[] = fresh_local()
+    try
+        # Whatever the machine's clock says - here, two years early - the
+        # item is read the moment it is snoozed, and unread again the moment
+        # anything on it moves.
+        W.apply_snooze!(st, it, "3d", DateTime(2024, 1, 1))
+        @test W.read_at(it.url) == it.moved_at
+        @test W.seen_of(it, W.Marks(st)) === :read
+        moved = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
+                         title = it.title, moved_at = "2099-01-01T00:00:00Z")
+        @test W.seen_of(moved, W.Marks(st)) === :unread
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "the interaction clock" begin
     # Redirected again inside the testset so it starts empty and nothing else in
     # the suite can have written to it first.

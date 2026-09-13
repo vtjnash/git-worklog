@@ -61,14 +61,38 @@ thing and exits, and the browser does not - it stays open for hours, running an
 operation per keystroke. It held a frozen `NOW[]` once, and the browser reading
 it recorded threads as fetched when `wl` was launched.
 
-The rule the signatures follow: **an entry point defaults `at` to `utcnow()`,
-and everything it calls takes `at` as a required argument.** A default further
-in would quietly reintroduce the second half of the problem - measuring against
+The rule the signatures follow: **an entry point defaults `at` to now, and
+everything it calls takes `at` as a required argument.** A default further in
+would quietly reintroduce the second half of the problem - measuring against
 the moment a function happened to be reached, so that a long operation stamps
 its result with a time *after* things it never saw. The start is the honest
 answer for both.
+
+**Whose now, is the other half.** This is the machine's clock, and it is right
+for what is only ever compared against itself: a snooze's wake against the
+frame that reads it, the interaction clock, a draft's age. A stamp that will
+meet one *GitHub* wrote - the refresh's `at`, which dates movements and read
+marks; the poll's cursor, compared on the server against `updated_at`; the
+moment a thread was read, which `r` marks it seen up to - is taken off GitHub
+instead, from the `Date` header of the response that produced it: see
+`Events.server_now` and `Events.thread`. Not corrected from this clock by a
+measured offset, which was tried and is a correction factor with all the ways
+of being wrong those have; read off the wire, once, where it is wanted. A
+Windows box with its clock minutes out then gets every comparison right.
 """
 utcnow() = Dates.now(Dates.UTC)
+
+"""An HTTP `Date` header as a `DateTime`, or `nothing`. RFC 1123, always GMT."""
+function http_date(s)
+    s === nothing && return nothing
+    m = match(r"^\w{3}, (\d{1,2}) (\w{3}) (\d{4}) (\d\d):(\d\d):(\d\d) GMT$", strip(String(s)))
+    m === nothing && return nothing
+    mon = findfirst(==(m[2]), ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+    mon === nothing && return nothing
+    DateTime(parse(Int, m[3]), mon, parse(Int, m[1]),
+             parse(Int, m[4]), parse(Int, m[5]), parse(Int, m[6]))
+end
 
 """`datetime.now(utc).isoformat()` for `at`. Julia's clock is millisecond
 resolution, so the microsecond field is padded rather than measured; only the

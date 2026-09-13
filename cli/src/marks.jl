@@ -195,6 +195,33 @@ actually opened it keeps it.
 """
 mark_read(urls, at::DateTime) = set_marks!(urls, "read", stamp(at))
 
+"""What to stamp an item read up to when it is being put away rather than
+looked at: its own `moved_at`, the last movement on record.
+
+That is read by definition - `seen_of` is the stamp against `moved_at` - and
+it is GitHub's time by construction, so a local clock minutes out cannot
+leave a just-snoozed item unread (behind) or swallow the next comment
+(ahead). Anything that has moved since the last refresh is newer than this
+and comes back unread, which is right: you put away what you knew about.
+`updated` for a row no refresh has stamped, and `at` for a synthetic one that
+has neither.
+"""
+read_up_to(moved_at, updated, at::DateTime) =
+    truthy(moved_at) ? String(moved_at) : truthy(updated) ? String(updated) : stamp(at)
+
+"""Mark each url read up to its own last movement - `read_up_to` over the
+fetched rows - and answer how many. The shell's `wl snooze`, `wl archive`
+and `wl read`, which have no thread on screen to have read up to."""
+function mark_read_moved(urls, at::DateTime)
+    items = something(fetched("items"), (;))
+    us = unique(String(u) for u in urls)
+    isempty(us) && return 0
+    set_blocks!([u => ["read" => read_up_to(jget(jget(items, Symbol(u)), :moved_at),
+                                            jget(jget(items, Symbol(u)), :updated), at)]
+                 for u in us])
+    length(us)
+end
+
 # --- the interaction clock ---------------------------------------------------
 
 "Every last-interaction timestamp: `url -> ISO8601`."

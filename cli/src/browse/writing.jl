@@ -701,7 +701,9 @@ function archive!(st::BState, it::Item, at::DateTime)
     else
         set_archived(it.url, stamp(at))
         set_touched(it.url, stamp(at))
-        set_read(it.url, stamp(at))
+        # Read up to the last movement on record, not up to now: that is read
+        # by definition and GitHub's time by construction. See `read_up_to`.
+        set_read(it.url, read_up_to(it.moved_at, it.updated, at))
         delete!(st.unread, it.url)
     end
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
@@ -811,7 +813,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # Only on the way in. Clearing a snooze is not a claim about whether you
     # have read the thing; it takes the wake away and leaves the read stamp.
     if val !== nothing
-        set_read(it.url, stamp(at))
+        set_read(it.url, read_up_to(it.moved_at, it.updated, at))
         delete!(st.unread, it.url)
     end
     # `set_fields` removes a key when handed nothing, so this is the undo

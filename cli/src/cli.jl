@@ -139,7 +139,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     cmd = args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
-    cmd == "refresh" && return refresh(args[2:end], at)
+    cmd == "refresh" && return refresh(args[2:end])
     cmd == "next" && return next_batch(length(args) > 1 ? parse(Int, args[2]) : 10)
     if cmd == "import"
         length(args) > 1 || die(USAGE)
@@ -208,7 +208,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     end
     if cmd == "thread"
         length(args) > 1 || die(USAGE)
-        body, cs = Events.thread(resolve(args[2]);
+        body, cs, _, _ = Events.thread(resolve(args[2]);
                                  limit = length(args) > 2 ? parse(Int, args[3]) : 12)
         print(json_dumps([
             "title" => body["title"],
@@ -225,10 +225,10 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         if arg == "all"
             cfg = config()
             urls = [e["url"] for e in Events.unread(cfg, cfg["login"], at; verbose = false)]
-            println("marked $(mark_read(urls, at)) threads read")
+            println("marked $(mark_read_moved(urls, at)) threads read")
         else
             for u in refs(arg)
-                mark_read([u], at)
+                mark_read_moved([u], at)
                 println("marked read $u")
             end
         end
@@ -245,7 +245,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         haskey(st, url) && println(json_dumps(st[url]; indent = 1, sortkeys = true))
         # Bodies are never stored; this is a live read of the thread, which is
         # the part the notification emails were carrying.
-        body, cs = try
+        body, cs, _, _ = try
             Events.thread(url)
         catch e
             die("could not fetch thread: " * sprint(showerror, e))
@@ -277,7 +277,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
                 # courtesy a snooze pays. It goes unread again the moment it
                 # moves, which is what the attention axis is for and is not
                 # what this decides; the mark is what holds it out of view.
-                mark_read([u], at)
+                mark_read_moved([u], at)
                 println("archived $u")
             end
         end
@@ -290,7 +290,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # happens to it.
         for u in urls
             set_fields(u, ["track" => "loose"])
-            mark_read([u], at)
+            mark_read_moved([u], at)
             println("dismissed $u (returns only on a review, reply, push or close)")
         end
         return 0
@@ -331,7 +331,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # Putting something to sleep is the end of looking at it. It goes unread
         # again the moment it moves, or the moment the wake comes - which is
         # why this is a stamp and not a claim about wanting to see it.
-        cmd == "snooze" && value !== nothing && mark_read([u], at)
+        cmd == "snooze" && value !== nothing && mark_read_moved([u], at)
     end
     0
 end

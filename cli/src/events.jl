@@ -77,6 +77,33 @@ function auth()
     _AUTH[] = GitHub.authenticate(tok)
 end
 
+"""
+    server_now() -> DateTime
+
+GitHub's now, off the `Date` header of a request that costs nothing. The
+header is whole seconds, and taken against nothing local: this is the instant
+as GitHub would write it, for the stamps that will be compared against ones
+GitHub wrote. See `utcnow` for which those are.
+"""
+function server_now()
+    r = GitHub.gh_get(GitHub.DEFAULT_API, "/rate_limit"; auth = auth())
+    d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
+    d === nothing && throw(ApiError("no Date header on /rate_limit"))
+    d
+end
+
+"""One request, one page, and when GitHub answered it. The `Date` header is
+the server's clock at the response, whole seconds; see `server_now`."""
+function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}())
+    r = try
+        GitHub.gh_get(GitHub.DEFAULT_API, endpoint; auth = auth(), params = params)
+    catch e
+        throw(ApiError(first(sprint(showerror, e), 200)))
+    end
+    v = GitHub.JSON.parse(GitHub.http_payload(r, String))
+    (v isa AbstractVector ? v : Any[v], Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing)))
+end
+
 "One request, one page. Always returns a vector, as the Python `_get` did."
 function api_get(endpoint::AbstractString; params = Dict{String,Any}())
     v = try
@@ -341,13 +368,23 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120)))
     backfill = Day(get(cfge, "backfill_days", 0))
     got = 0
+    # **The cursor is GitHub's clock, not this machine's.** It is compared on
+    # the server against `updated_at`, so a local clock running ahead would
+    # have the next poll skip whatever landed in the gap - and Windows clocks
+    # have been minutes out. Read off a `Date` header once, before the first
+    # source that is due, and every cursor written this poll is that instant:
+    # the start of the poll, as GitHub would date it. `polled` is the other
+    # clock - when *this machine* last asked, against the ttl - and stays
+    # local, compared only with itself.
+    server = nothing
     for (label, fetch) in srcs
         # Inbox zero on first sight, so switching this on is not a month of
         # history to dismiss.
-        cur = get!(cursors, label, stamp(at - backfill))
         last = get(polled, label, nothing)
         t = last === nothing ? nothing : ts(last)
         t === nothing || at - t >= ttl || continue
+        server === nothing && (server = server_now())
+        cur = get!(cursors, label, stamp(server - backfill))
         rows = try
             fetch(cur)
         catch e
@@ -373,7 +410,7 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
                 "mine" => who == login)
             got += 1
         end
-        cursors[label] = stamp(at)
+        cursors[label] = stamp(server)
         polled[label] = stamp(at)
     end
 
@@ -450,7 +487,9 @@ end
 
 """Fetch a thread live - the part email used to hand you.
 
-Returns `(body, comments, commits)`. The commits are what the thread is read
+Returns `(body, comments, commits, read_at)` - the last being GitHub's clock
+at the first of the reads, which is what `r` marks the item seen up to. The
+commits are what the thread is read
 *with*: "they replied, then pushed, then replied" is one sequence, and having
 them arrive on a second cadence from a second cache is how it came to be read as
 two. Callers that only want the conversation destructure the first two and are
@@ -467,7 +506,12 @@ function thread(url::AbstractString; limit::Int = 10)
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
     commits = @async try; pr_commits(url); catch; OrderedDict{String,Any}[]; end
-    body = api_get("/repos/$owner_repo/issues/$num")[1]
+    # The first request's `Date` is when this thread was read, as GitHub dates
+    # it: `r` marks the item seen up to this, and it is the *earliest* moment
+    # any of the reads below could have been answered - so a comment landing
+    # while they were in flight stays unread. The tuple carries it home.
+    bodies, read_at = api_get_dated("/repos/$owner_repo/issues/$num")
+    body = bodies[1]
     cs = api_paged("/repos/$owner_repo/issues/$num/comments")
     try
         append!(cs, api_paged("/repos/$owner_repo/pulls/$num/comments"))
@@ -476,7 +520,8 @@ function thread(url::AbstractString; limit::Int = 10)
     end
     sort!(cs; by = c -> c["created_at"])
     (body, cs[max(1, end - limit + 1):end],
-     try; fetch(commits); catch; OrderedDict{String,Any}[]; end)
+     try; fetch(commits); catch; OrderedDict{String,Any}[]; end,
+     read_at)
 end
 
 """The last commits on a pull request's branch: `oid`, `at`, `headline`, `by`.

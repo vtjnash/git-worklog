@@ -472,7 +472,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # loaded ten minutes ago - was never in front of you, and stamping now
         # would mark it seen. Not the newest comment's own time either: an item
         # whose `updated_at` moved for a label edit would then be permanently
-        # unread, because marking it read could never catch up to it.
+        # unread, because marking it read could never catch up to it. And the
+        # fetch is dated by GitHub - the `Date` header on the read, kept with
+        # the thread - so this machine's clock is not in it. Without a thread
+        # on screen it is the last movement on record, which is what `s` and
+        # `x` write too; see `read_up_to`.
         fi = findfirst(n -> haskey(n.meta, "fetched"), st.nodes)
         prev, prevhead = read_at(it.url), mark_at(it.url, "read_head")
         if seen
@@ -484,7 +488,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # about a pull request that may not even have moved. A row with no
             # sha records none and has no `p` view, which is what it had before.
             set_read_mark(it.url,
-                          fi === nothing ? stamp(at) : st.nodes[fi].meta["fetched"],
+                          fi === nothing ? read_up_to(it.moved_at, it.updated, at) :
+                                           st.nodes[fi].meta["fetched"],
                           it.head)
         else
             mark_unread([it.url])

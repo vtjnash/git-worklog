@@ -263,18 +263,23 @@ end
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     local body, cs, cms
     stale = false
-    # When the fetch *started*, which is the whole reason `at` is threaded here
-    # rather than read off a clock below. `r` marks the thread read up to this,
-    # so a comment that arrived while the request was in flight has to stay
-    # unread - stamping on the way out would mark it seen without it ever
-    # having been on screen.
+    # When this thread was read from GitHub, **as GitHub dates it**: the `Date`
+    # header of the first request, which `Events.thread` hands back and the
+    # cache entry keeps. `r` marks the item seen up to this, so a comment that
+    # arrived while the reads were in flight stays unread - it was never on
+    # screen - and a thread served from the cache is stamped with the moment
+    # it was really fetched rather than with any arithmetic on this machine's
+    # clock, which may be minutes from GitHub's. `at` is the fallback for an
+    # entry from before the header was kept, and errs late by the age, which
+    # is why it is a fallback.
     fetched = stamp(at)
     try
         key = "thread:" * it.url
         hit = fresh ? nothing : cache_get(key, DETAIL_TTL[]; keep_s = DETAIL_KEEP[])
         if hit === nothing
-            body, cs, cms = Events.thread(it.url; limit = 30)
-            cache_put(key, (body = body, comments = cs, commits = cms))
+            body, cs, cms, read_at = Events.thread(it.url; limit = 30)
+            read_at === nothing || (fetched = stamp(read_at))
+            cache_put(key, (body = body, comments = cs, commits = cms, fetched = fetched))
         else
             body, cs = hit[1].body, hit[1].comments
             # Absent on an entry written before the pushes were drawn in here.
@@ -282,12 +287,8 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             # than dropped for want of a field that is new.
             cms = something(jget(hit[1], :commits), ())
             stale = hit[2] > DETAIL_TTL[]
-            # When this thread was actually read from GitHub, not when it came
-            # out of the cache. Measured back from the start of *this*
-            # operation, so the answer errs early rather than late - the age
-            # was taken a moment after `at`, and reading up to too early a
-            # point leaves a comment unread, which is the safe direction.
-            fetched = stamp(at - Millisecond(round(Int, 1000 * hit[2])))
+            f = jget(hit[1], :fetched)
+            f === nothing || (fetched = String(f))
         end
     catch e
         return [failednode("could not load thread", first(sprint(showerror, e), 200))]

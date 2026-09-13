@@ -178,6 +178,20 @@ comment by the poll — and `r` stamps you read at the moment the *thread* was
 fetched, fresher than any refresh, so a comment read at 10:00 came back unread
 when the 11:00 refresh first saw it.
 
+**And by GitHub's clock, wherever a stamp will meet one GitHub wrote.** The
+refresh's `at` — which dates a CI edge, a read mark on a hand-typed snooze,
+the closed lanes' `{since}` — is the `Date` header of a free request, not this
+machine's clock. The poll's cursor, compared on the server against
+`updated_at`, is the server's time at the poll's start. The moment a thread
+was read, which `r` marks it seen up to, is the `Date` header of the read
+itself, kept with the cached thread. And `s` and `x` stamp read at the item's
+own `moved_at` — read up to the last movement on record, which is GitHub's
+time by construction and needs no clock at all. What stays on the machine's
+clock is only ever compared with itself: a snooze's wake against the frame
+that reads it, the interaction clock, the cache's ages. No offset is measured
+and none is applied — a Windows box with its clock minutes out gets every
+comparison right because none of them involves its clock.
+
 ## Showing what changed, not just that something did
 
 Knowing an item moved is half an answer. The other half is *what* moved, and

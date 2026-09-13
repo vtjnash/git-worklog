@@ -1526,6 +1526,31 @@ whose wake is still to come, as before; and an expired wake stays in
 `local.toml` inert until the next `s` or `off` rewrites it - `seen_of` reads
 it as nothing once the read stamp passes it, so there is nothing to clean.
 
+### Whose clock a stamp is on
+
+Done 2026-09-13. The poll's cursor was `stamp(at)` with `at` the machine's
+clock, compared on the server against `updated_at`: a clock running ahead
+would have the next poll skip whatever landed in the gap, and Windows clocks
+have been minutes out. Fixing the cursor alone would have left the read
+marks, which meet GitHub's `createdAt` the same way.
+
+**Tried first: an offset.** `utcnow` as local plus a correction measured off
+a `Date` header, persisted in the cache. Deleted the same hour: a correction
+factor with all the ways of being wrong those have, applied to every stamp
+whether or not it meets GitHub's.
+
+**Done instead: read the time off the wire, where it is wanted.**
+`Events.server_now` is the `Date` of `/rate_limit`, and the refresh's `at` is
+that. The poll's cursors are `server_now` at the poll's start; `polled`, the
+ttl against this machine's last ask, stays local and is compared only with
+itself. `Events.thread` returns the `Date` of its first read, the cache entry
+keeps it as `fetched`, and `r` stamps that - no more `at - age` arithmetic
+on a warm entry. And `s`, `x`, `r` without a thread on screen, and
+`wl snooze`/`archive`/`dismiss`/`read` stamp `read_up_to`: the item's own
+`moved_at`, which is read by definition and GitHub's time by construction. A
+snooze's wake and the interaction clock stay local, because they never meet
+a GitHub time.
+
 ### What the lanes ask for, reviewed against what reads it
 
 Done 2026-09-13, as one pass over `PR_FIELDS`, `ISSUE_FIELDS` and

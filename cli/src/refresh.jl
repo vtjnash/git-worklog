@@ -908,10 +908,18 @@ function reconcile_drafts!(gone, ask = url -> Events.review_state(url; ttl = 0.0
     dropped
 end
 
-function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
+function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
+    # **GitHub's now, not this machine's.** Everything this run stamps is
+    # compared, sooner or later, against a time GitHub wrote - a movement with
+    # no clock of its own against the read mark, a read mark on a hand-typed
+    # snooze against the next comment, the closed lanes' `{since}` against
+    # `closedAt` - so the instant it is all measured from is GitHub's, off a
+    # `Date` header, and not the local clock plus a correction. One request,
+    # free of the rate limit. A test hands in its own.
+    at === nothing && (at = Events.server_now())
     state = load_state()
     # What the last run left, to diff this one against. Read once and held: the
     # parts of the file this run writes - the poll's inbox, the bulk cache, the

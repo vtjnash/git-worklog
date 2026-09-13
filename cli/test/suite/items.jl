@@ -342,9 +342,11 @@ end
     @test W.days_since(nothing, then) === nothing
     @test W.utcnow() > W.DateTime(2020)
 
-    # A thread is stamped with when its fetch *began*, not when it returned.
-    # A comment that arrived while the request was in flight was never on
-    # screen, so `r` must not be able to mark it seen.
+    # A thread is stamped with when its fetch *began*, as GitHub dates it -
+    # the `Date` header of the first read - and not with anything this
+    # machine's clock says. A comment that arrived while the reads were in
+    # flight was never on screen, so `r` must not be able to mark it seen; and
+    # a clock minutes out must not be able to move the mark either way.
     st = mkstate()
     it = st.items[st.sel]
     fetchedat(x, at) = let ns = W.comment_nodes(x, at)
@@ -361,30 +363,31 @@ end
         @info "no thread could be fetched; skipping the fetched-at check"
     else
         rm(W._slot("thread:" * subject.url); force = true)
-        # Exactly what was handed in - not a clock read inside the fetch, and
-        # not the moment it came back.
-        @test fetchedat(subject, then) == "2000-01-02T03:04:05Z"
-        # Warm, it reports when the entry was really written, measured back
-        # from the same instant - so it errs early rather than claiming the
-        # thread is as fresh as this read of it.
-        warm = fetchedat(subject, then)
-        @test warm < "2000-01-02T03:04:05Z"
-        @test startswith(warm, "2000-01-02")
+        # GitHub's now, whatever `at` was handed in: within a minute of this
+        # machine's, which is on NTP here, and nowhere near the year 2000.
+        cold = fetchedat(subject, then)
+        @test abs(W.ts(cold) - W.utcnow()) < W.Minute(1)
+        # Warm, it is the same moment - the one the thread was really read at,
+        # kept with it - and not that moment re-derived from a later `at`.
+        @test fetchedat(subject, W.DateTime(2030)) == cold
     end
 
-    # And `r`'s fallback, for a thread carrying no fetch time at all.
+    # And `r`'s fallback, for a thread carrying no fetch time at all: the
+    # last movement on record, which is GitHub's time by construction.
     before = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     try
         st.nodes = W.Node[]
         push!(st.unread, it.url)
         ctrl = W.Controller()
         W.handle!(st, Int('r'), ctrl, then)
-        @test W.read_at(it.url) == "2000-01-02T03:04:05Z"
-        # Left to itself a keystroke is its own operation, starting now.
+        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
+        @test W.read_at(it.url) != "2000-01-02T03:04:05Z"
+        # Left to itself a keystroke is its own operation, and the mark is the
+        # same: it does not depend on the clock at all.
         W.handle!(st, Int('r'), ctrl)
         push!(st.unread, it.url)
         W.handle!(st, Int('r'), ctrl)
-        @test W.read_at(it.url) > "2020"
+        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
     finally
         isempty(before) ? rm(W.localfile(); force = true) :
                           write(W.localfile(), before)
