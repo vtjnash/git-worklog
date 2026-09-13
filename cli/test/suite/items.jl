@@ -479,6 +479,10 @@ end
         it = st.items[st.sel]
         st.selurl = it.url; st.selat = 0.0
         st.metakey = it.url
+        # The bundle behind the row was asked for this selection already, or
+        # the fixture row - which has none - would arm a re-read of its own
+        # and the quiet read below would reach for the network.
+        st.bundletried = it.url
         W.cache_put(W.Events.meta_key(it.url), Dict("x" => 1))
         meta = (pending = "", reviews = [], requested = String[], teams = String[],
                 assignees = String[])

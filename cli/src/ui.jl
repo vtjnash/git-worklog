@@ -85,6 +85,10 @@ Base.@kwdef struct Item
     deadline::String = ""
     blocked_on::Vector{String} = String[]
     why::String = ""
+    fetched::String = ""   # when the bundle behind this row was asked for -
+                           # GitHub's time, `fetched_at` on the row - and empty
+                           # for a light row the poll or a thread made, which
+                           # has no bundle at all. What `bundle_stale` reads.
 end
 
 nz(x, d = "") = x === nothing || x === missing ? d : x
@@ -138,7 +142,94 @@ function item_of(r)
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
-            why = nz(jget(r, :why), ""))
+            why = nz(jget(r, :why), ""),
+            fetched = String(nz(jget(r, :fetched_at), "")))
+end
+
+# --- the bundle for the row under the cursor ---------------------------------
+#
+# The refresh asks GitHub about the open work whole and about everything else
+# only when a clock says it moved - see `refresh` - so a row that is neither
+# has the bundle it was last fetched with, and its tags are as old as that. The
+# row you are *looking at* is the one place that is not good enough, and this
+# is where it is made exact: the same by-url fetch the refresh makes, the same
+# `derive!`, for the one row, once it has been on screen a second and its
+# bundle is older than `CACHE_FRESH`. A light row - one the poll or a thread
+# made, with no bundle at all - is promoted the same way, and keeps its lane
+# and its reason.
+#
+# **Kept in the cache, not written into `fetched.json`.** The refresh writes
+# `items` whole at the end of a minute of network, and a read-modify-write of
+# the same part from here would race it in both directions - the refresh's
+# rows lost under a stale copy, or this row lost under the refresh's. So the
+# row goes into `cache/` under `bundle:<url>`, and everything that reads
+# `items` - `loaditems`, the poll's extras - takes the cached row over the
+# file's when it is the newer of the two, by `fetched_at`. The refresh does not
+# read them: it compares its new row to the file's old one, and `moved_stamp`
+# dates a movement by the event and not by who noticed it first, so the two
+# agree on when things moved whichever saw them first.
+
+bundle_key(url::AbstractString) = string("bundle:", url)
+
+"The cached bundle for `url`, or `nothing`."
+function bundle_of(url::AbstractString)
+    hit = cache_get(bundle_key(url), CACHE_KEEP[])
+    hit === nothing ? nothing : hit[1]
+end
+
+"""The row to show for `url`: the cached bundle when it is newer than `r` -
+which may be `nothing`, for a url the file does not have - and `r` otherwise."""
+function bundled(url::AbstractString, r)
+    b = bundle_of(url)
+    b === nothing && return r
+    r === nothing && return b
+    String(nz(jget(b, :fetched_at), "")) > String(nz(jget(r, :fetched_at), "")) ? b : r
+end
+
+"Seconds since the bundle behind `it` was fetched; `Inf` for a row with none."
+function bundle_age(it::Item, at::DateTime = utcnow())
+    t = ts(it.fetched)
+    t === nothing ? Inf : max(0.0, Dates.value(at - t) / 1000)
+end
+
+"""
+    fetch_bundle(it) -> Item, or nothing
+
+Ask GitHub about this one row and derive it the way the refresh would. `nothing`
+when the url answers with nothing - deleted, or a repository you cannot see -
+and the row on screen stays as it was.
+
+`old` is the newest of the file's row and the cached bundle, so that what is
+carried - `their_head`, the comment clocks, the mark - is carried from the
+last thing this program knew rather than from the last refresh. The reason a
+thread gave is carried too, off the old row or the inbox, since GitHub does not
+repeat it on the item.
+"""
+function fetch_bundle(it::Item)
+    islocal(it) && return nothing
+    n = try
+        fetch_url(it.url)
+    catch e
+        e isa FetchError || rethrow()
+        return nothing
+    end
+    cfg = config()
+    at = Events.server_now()
+    file = fetched("items")
+    old = bundled(it.url, file === nothing ? nothing : jget(file, Symbol(it.url)))
+    r = normalize(n, it.lane, cfg["login"])
+    reason = nz(jget(old, :reason), nothing)
+    if reason === nothing
+        e = get(Events.load_inbox()["items"], it.url, nothing)
+        reason = e === nothing ? nothing : get(e, "reason", nothing)
+    end
+    truthy(reason) && (r["reason"] = String(reason);
+                       r["why"] = get(Events.THREAD_WHY, String(reason), String(reason)))
+    r["fetched_at"] = stamp(at)
+    derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
+    pop!(r, "slept", nothing)
+    cache_put(bundle_key(it.url), r)
+    item_of(JSON3.read(json_dumps(r)))
 end
 
 """Every item in the last snapshot, as `Item`s.
@@ -152,7 +243,7 @@ would put the identity of an item somewhere other than in the item.
 function loaditems()
     its = fetched("items")
     its === nothing && die("nothing fetched yet — run `wl refresh` first")
-    [item_of(r) for (_, r) in its]
+    [item_of(bundled(String(u), r)) for (u, r) in pairs(its)]
 end
 
 """The GitHub login from `config.toml`, read once.
@@ -449,8 +540,11 @@ function ui(args = String[], at::DateTime = utcnow())
     MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
     unread = Events.unread(cfg, cfg["login"], at; verbose = false)
     idx = Dict(i.url => i for i in items)
-    # Threads the poll saw that no lane returns still need a row to select.
-    extra = [poll_item(u) for u in unread if !haskey(idx, String(u["url"]))]
+    # Threads the poll saw that no lane returns still need a row to select - a
+    # light one, unless it was looked at and the bundle for it is cached.
+    extra = [let b = bundle_of(String(u["url"]))
+                 b === nothing ? poll_item(u) : item_of(b)
+             end for u in unread if !haskey(idx, String(u["url"]))]
     urls = Set{String}(String(u["url"]) for u in unread)
     # Straight into the browser: what the lane menu used to choose is now a tag.
     browse(vcat(items, extra), "worklog", urls)

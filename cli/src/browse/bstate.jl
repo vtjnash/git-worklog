@@ -119,6 +119,10 @@ Base.@kwdef mutable struct BState <: View
                            # task, since it comes back well after the reviews
                            # and the checks do and they should not wait for it
     mergepending::Any = nothing
+    bundlepending::Union{Nothing,Task} = nothing   # `fetch_bundle` for `metakey`
+    bundletried::String = ""    # the url the bundle was last asked for, so a
+                                # fetch that fails is not asked again every
+                                # second the row stays on screen
     metakey::String = ""
     # The pending review, if there is one, and which item it belongs to. Held
     # rather than asked for per frame, and kept after the cursor moves away -

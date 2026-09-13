@@ -293,6 +293,45 @@ end
     @test kept["slept"] == true
 end
 
+@testset "the row under the cursor is made exact from the cache, not the file" begin
+    # The refresh writes `items` whole at the end of a minute of network, so a
+    # row the browser fetched by url goes into `cache/` under `bundle:<url>`,
+    # and whoever reads `items` takes the cached row when it is the newer.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        u = "https://github.com/a/b/pull/9"
+        file = W.JSON3.read("""{"url":"$u","fetched_at":"2026-09-13T10:00:00Z","title":"old"}""")
+        @test W.bundle_of(u) === nothing
+        @test W.bundled(u, file) === file
+        @test W.bundled(u, nothing) === nothing
+        W.cache_put(W.bundle_key(u), Dict("url" => u, "fetched_at" => "2026-09-13T11:00:00Z",
+                                          "title" => "new"))
+        @test W.bundled(u, file)["title"] == "new"
+        @test W.bundled(u, nothing)["title"] == "new"       # a light row, promoted
+        # Older than the file: the file wins, and the cache is left alone.
+        W.cache_put(W.bundle_key(u), Dict("url" => u, "fetched_at" => "2026-09-13T09:00:00Z",
+                                          "title" => "stale"))
+        @test W.bundled(u, file) === file
+        # How old the bundle behind an item is, and `Inf` for a light row.
+        it = W.Item(url = u, ref = "b#9", repo = "a/b", number = 9, title = "t",
+                    fetched = "2026-09-13T10:00:00Z")
+        @test W.bundle_age(it, W.DateTime(2026, 9, 13, 10, 2)) == 120.0
+        @test W.bundle_age(W.Item(url = u, ref = "b#9", repo = "a/b", number = 9,
+                                  title = "t")) == Inf
+        # The bundle rides on the quiet re-read, once per selection, and never
+        # on the load that puts the row up: the gate, without the network.
+        st = mkstate()
+        it2 = st.items[st.sel]
+        @test isempty(it2.fetched) || W.bundle_age(it2) >= 0
+        st.bundletried = it2.url
+        st.metakey = it2.url
+        @test !W.refresh_meta!(st) || st.bundlepending === nothing
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

@@ -74,6 +74,17 @@ that is old, in which case it is asked at the shorter one. This is the one
 place a conflict is ever re-asked before `MERGE_FRESH`.
 
 `:fresh` is `R`: past everything.
+
+**The bundle rides on the re-read.** The row itself - the tags, the CI, the
+head, everything `derive!` makes - is as old as the refresh that last asked
+about it, and for a row outside the open work that is the last time a clock
+said it moved. So a `:quiet` or `:fresh` read that finds the bundle older than
+`CACHE_FRESH` (or missing: a light row the poll or a thread made) asks for it
+too - `fetch_bundle`, one GraphQL request, a second - and `collect_meta!` puts
+the answer in the list. Never on `:load`: the row is already on screen, and a
+request per keystroke while `j` is held is what the dwell exists to prevent.
+Once per selection, `bundletried`, so a fetch that fails does not fail again
+every second.
 """
 function start_meta!(st::BState, it::Item, how::Symbol)
     ttl, keep = how === :fresh ? (0.0, 0.0) :
@@ -119,6 +130,19 @@ function start_meta!(st::BState, it::Item, how::Symbol)
                 st.wake === nothing || st.wake()
             end
         end : nothing
+    if how === :fresh || (how === :quiet && st.bundletried != it.url &&
+                          bundle_age(it) > CACHE_FRESH[])
+        st.bundletried = it.url
+        st.bundlepending = fetching(string("bundle ", it.url, tag)) do
+            try
+                fetch_bundle(it)
+            catch
+                nothing
+            finally
+                st.wake === nothing || st.wake()
+            end
+        end
+    end
     st
 end
 
@@ -133,7 +157,8 @@ function refresh_meta!(st::BState)
     (isempty(st.items) || st.sel == 0) && return false
     it = st.items[clamp(st.sel, 1, length(st.items))]
     st.metakey == it.url || return false
-    (st.metapending === nothing && st.mergepending === nothing) || return false
+    (st.metapending === nothing && st.mergepending === nothing &&
+     st.bundlepending === nothing) || return false
     start_meta!(st, it, :quiet)
     true
 end
@@ -146,9 +171,21 @@ merge_waiting(st::BState, it::Item) =
     st.metakey == it.url ? st.mergepending !== nothing : st.selurl == it.url
 
 function collect_meta!(st::BState)
-    # Each of the two lands on its own; the merge answer is the late one, and
+    # Each of the three lands on its own; the merge answer is the late one, and
     # a frame that has the reviews should not wait for it.
     got = false
+    if st.bundlepending !== nothing && istaskdone(st.bundlepending)
+        b = try
+            fetch(st.bundlepending)
+        catch
+            nothing
+        end
+        st.bundlepending = nothing
+        # The row on screen, replaced by the exact one - tags, CI, head, the
+        # mark. `replace_item!` refilters, and keeps the cursor on the url.
+        b === nothing || replace_item!(st, b)
+        got = true
+    end
     if st.mergepending !== nothing && istaskdone(st.mergepending)
         m = try
             fetch(st.mergepending)
@@ -193,7 +230,8 @@ function collect_meta!(st::BState)
         # re-read asks only for what is actually old.
         !hasproperty(r, :err) && it !== nothing &&
             (cache_age(Events.meta_key(it.url)) > CACHE_FRESH[] ||
-             (it.is_pr && cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[])) &&
+             (it.is_pr && cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[]) ||
+             (st.bundletried != it.url && bundle_age(it) > CACHE_FRESH[])) &&
             (st.metastale = true)
     end
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
