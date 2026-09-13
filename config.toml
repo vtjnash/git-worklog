@@ -120,8 +120,10 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # to do for a handful of comments. The cost is fidelity, since search truncates
 # at 1000 results, so a repo that has to be seen exactly is still named here.
 # Beside these, and not configured here: `/notifications` itself is polled the
-# same way whenever `data/notifications.token` holds a token that can read it
-# (`gh auth token` off the sandbox; the sandbox's own App token cannot). That is
+# same way whenever the token is a person's and not a GitHub App's - `gh auth
+# token` off the sandbox; the sandbox's own token cannot read it, and there the
+# source is skipped and says so, unless `data/notifications.token` holds one
+# that can, which is not a file to keep where others can read it. That is
 # what reaches a closed thread outside every repo below, and a repo watched on
 # github.com and never listed here. Those rows say `notifications` on the lane
 # axis, and the reason GitHub gave under `why`. The list stays the statement of

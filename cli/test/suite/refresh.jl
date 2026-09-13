@@ -187,23 +187,33 @@ end
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end
 
-    # No token: the source is skipped and every other source still polls.
-    keepp, keepc = E.PAT_FILE[], E._PAT[]
+    # The token. `token()`'s is used when it is a person's - off the sandbox,
+    # `gh auth token` - and not when it is a GitHub App's, which cannot read
+    # the endpoint; then the file is read, and with neither the source is
+    # skipped and every other source still polls.
+    keepp, keepc, keept = E.PAT_FILE[], E._PAT[], E.TOKEN_FILE[]
     try
+        E.TOKEN_FILE[] = joinpath(d, "sandbox-token"); write(E.TOKEN_FILE[], "ghu_app\n")
         E.PAT_FILE[] = joinpath(d, "no-such-token"); E._PAT[] = nothing
         cfg = Dict{String,Any}("events" => Dict{String,Any}("repos" => ["o/r", "me/*"]))
         @test E.pat() === nothing
         labels = [s.label for s in E.sources(cfg, "me"; verbose = false)]
         @test labels == ["o/r", "me/* is:issue", "me/* is:pull-request"]
-        # With one, it is first in the list.
+        # With the file, it is first in the list.
         write(E.PAT_FILE[], "ghp_notreal\n")
+        @test E.pat()[2] == E.PAT_FILE[]
         labels = [s.label for s in E.sources(cfg, "me"; verbose = false)]
         @test labels[1] == "notifications" && length(labels) == 4
         # And nothing else configured is not nothing to poll.
         @test [s.label for s in E.sources(Dict{String,Any}(), "me"; verbose = false)] ==
               ["notifications"]
+        # A person's token from `token()` needs no file at all.
+        rm(E.PAT_FILE[]); E._PAT[] = nothing
+        write(E.TOKEN_FILE[], "gho_person\n")
+        @test E.pat()[2] == E.TOKEN_FILE[]
+        @test E.app_token("ghs_install") && !E.app_token("github_pat_x")
     finally
-        E.PAT_FILE[] = keepp; E._PAT[] = keepc
+        E.PAT_FILE[] = keepp; E._PAT[] = keepc; E.TOKEN_FILE[] = keept
     end
 end
 

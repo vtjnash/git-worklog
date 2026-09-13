@@ -82,31 +82,48 @@ const PAT_FILE = Ref("")
 const _PAT = Ref{Any}(nothing)
 patfile() = isempty(PAT_FILE[]) ? datapath("notifications.token") : PAT_FILE[]
 
+"""Is this a GitHub App token - a user-to-server `ghu_` or an installation
+`ghs_`? Those are the two `/notifications` refuses: 403 "not accessible by
+integration", and the endpoint is missing from the App permissions list rather
+than denied by it. `ghp_`, `gho_` and `github_pat_` are a person's."""
+app_token(t::AbstractString) = startswith(t, "ghu_") || startswith(t, "ghs_")
+
 """
-    pat() -> auth, or nothing
+    pat() -> (auth, source), or nothing
 
-The token the notifications source polls with, or `nothing` when there is none,
-in which case that source is skipped and every other one polls as before.
+The token the notifications source polls with, and where it came from, or
+`nothing` when there is none - in which case that source is skipped and every
+other one polls as before.
 
-A second lookup rather than a fourth rung on `token()`'s ladder, because the
-one token `token()` must never fall through to is exactly the one it finds
-first: the sandbox file holds a GitHub App user token, and `/notifications` is
-not offered to Apps at all - 403 "not accessible by integration", and the
-endpoint is missing from the App permissions list rather than denied by it. So
-this is a file of its own, `data/notifications.token`, one line, gitignored,
-holding a token that is *yours*: a classic PAT with the `notifications` scope,
-or the `gho_` token `gh auth login` keeps off the sandbox, whose `repo` scope
-carries the same access. Measured 2026-09-13 with the latter.
+`token()` first: off the sandbox, `gh auth token` is the `gho_` token `gh auth
+login` keeps, whose `repo` scope carries notifications access, and there is
+nothing to set up. What `token()` must not be followed into is the sandbox
+file, which holds a GitHub App user token that cannot read the endpoint - and
+that is told by the token, not by the rung: `app_token`. When it is one, or
+`token()` finds nothing, `data/notifications.token` is read instead - one
+line, gitignored, a token that is *yours*: a classic PAT with the
+`notifications` scope, or that same `gho_` token copied in. Not something to
+put on a machine where somebody else can read the file; a sandbox is exactly
+that, and there the source is simply skipped. Measured 2026-09-13 with the
+`gho_` token.
 """
 function pat()
     _PAT[] === nothing || return _PAT[]
-    f = patfile()
-    isfile(f) || return nothing
-    t = strip(read(f, String))
-    isempty(t) && return nothing
+    t, src = try
+        token()
+    catch e
+        e isa ApiError || rethrow()
+        ("", "")
+    end
+    if isempty(t) || app_token(t)
+        f = patfile()
+        isfile(f) || return nothing
+        t, src = String(strip(read(f, String))), f
+        isempty(t) && return nothing
+    end
     # `OAuth2` outright rather than `authenticate`, which asks `/user` to check
     # the token: a bad one is reported by the poll, as `FAILED: 401`.
-    _PAT[] = GitHub.OAuth2(String(t))
+    _PAT[] = (GitHub.OAuth2(t), src)
 end
 
 """
@@ -409,7 +426,7 @@ A `fetch` that fails leaves the thin row - the thread is still shown, only
 with less on it - and `fetch = nothing` asks for the thin row outright.
 """
 function thread_row(t, login; known = url -> false,
-                    fetch = path -> api_get(path; auth = pat()))
+                    fetch = path -> api_get(path; auth = pat()[1]))
     sub = thread_subject(t)
     sub === nothing && return nothing
     reason = String(get(t, "reason", ""))
@@ -471,6 +488,7 @@ function sources(cfg, login; verbose::Bool = true)
     srcs = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}[]
     p = pat()
     if p !== nothing
+        p = p[1]
         # `all=true`, because GitHub's read state is not this program's: a
         # thread read on github.com and then moved again is still news here.
         # `since` there is compared against when the thread last *notified*,
@@ -488,7 +506,8 @@ function sources(cfg, login; verbose::Bool = true)
                          known = url -> haskey(items, url),
                          fetch = path -> api_get(path; auth = p))))
     elseif verbose
-        @printf(stderr, "    %-24s skipped: no %s\n", "notifications", patfile())
+        @printf(stderr, "    %-24s skipped: the token is a GitHub App's, and there is no %s\n",
+                "notifications", patfile())
     end
     for repo in explicit
         push!(srcs, (label = repo,

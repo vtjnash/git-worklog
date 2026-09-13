@@ -58,7 +58,7 @@ here is done; `git log` is the record of it and this file is not.
    yours, 1 team mention on llvm. Two rows a week was the mention gap; the
    whole gap was three a day.
 
-   What is built: `Events.pat()` reads `data/notifications.token`;
+   What is built: `Events.pat()` finds a token that can read the endpoint;
    `Events.sources` puts `/notifications` first when it finds one and says
    so on stderr when it does not; `thread_row` makes the inbox row and fills
    it in with one `GET` of the subject when the url is new; `sync!` merges a
@@ -69,11 +69,14 @@ here is done; `git log` is the record of it and this file is not.
 
    What is left, and none of it is blocked:
    - **A live poll.** Everything above ran against the measured JSON and the
-     fake sources in the tests; the first `wl refresh` with the token file
-     in place is the test of the real thing. The token: `gh auth token >
-     data/notifications.token` off the sandbox - the `gho_` token there has
-     `repo`, which carries notifications access, so no classic PAT is
-     needed after all.
+     fake sources in the tests; the first `wl refresh` off the sandbox is
+     the test of the real thing. No file to put anywhere: `token()` there
+     is `gh auth token`, the `gho_` token, whose `repo` scope carries
+     notifications access, and `pat()` uses it because it is a person's and
+     not an App's. The first attempt at this, the same evening, skipped the
+     source off the sandbox too - `pat()` read only the file, and the file
+     is not something to put in a sandbox others can read, so the token
+     nobody could use was the only one it looked for.
    - **The writes.** Still unexercised, and the same token answers them:
      `repo` covers `issues: write` and `pull_requests: write` on every
      repository, public or not. `pat()` is the second lookup the writes
@@ -90,9 +93,9 @@ ever been sent, because the token here is read-only. It is the only part of the
 program where a failure loses work — the draft-review machinery exists precisely
 because five careful comments are easy to lose — and it needs a token with
 `issues: write` and `pull_requests: write` on the repositories being reviewed.
-Since 2026-09-13 there is one to hand: `data/notifications.token`, read by
-`Events.pat()`, is the `gho_` token with `repo` scope - the writes are a matter
-of routing them through it. See Infrastructure.
+Since 2026-09-13 there is one to hand off the sandbox: `Events.pat()` is the
+`gho_` token with `repo` scope wherever `gh auth token` answers with it - the
+writes are a matter of routing them through it. See Infrastructure.
 
 `merge_pr` is the one of them that is not like the others, and the only key in
 the program whose mistake lands in somebody else's repository: a comment, a
@@ -2742,11 +2745,14 @@ so they are not mistaken for bugs later:
   by integration", and the endpoints are not offered to Apps at all), and
   the answer was not the classic PAT the first note asked for: the `gho_`
   token `gh auth login` keeps off the sandbox has `repo`, and `repo` carries
-  notifications access. It lives in `data/notifications.token`, one line,
-  gitignored, read by `Events.pat()` - a file and not an environment
-  variable, because `token()`'s order is `TOKEN_FILE` → `$GH_TOKEN` →
-  `gh auth token` and the sandbox file is the App token, which is exactly
-  the token this must never fall back to.
+  notifications access. `Events.pat()` takes `token()`'s answer when it is a
+  person's token and refuses it when it is an App's (`ghu_`, `ghs_` -
+  `app_token`), which is the sandbox file, and only then reads
+  `data/notifications.token`, one line, gitignored - a file that is not for
+  a sandbox, where others can read it, so there the source is skipped and
+  said so. Told by the token and not by the rung: `token()`'s order is
+  `TOKEN_FILE` → `$GH_TOKEN` → `gh auth token`, and it is the first rung
+  that holds the App token off which this must never poll.
 
   **The mapping**, made before the lane was added, and now with the lane in
   its cells. For each `reason` the API gives a thread, which search or poll
