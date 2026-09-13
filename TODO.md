@@ -2,9 +2,10 @@
 
 ## What is next
 
-One thing is open, and it is an idea to design rather than a task to pick up.
-The deletion that stood beside it - read, snooze and archive as one rule - is
-**done**; see "Read, snooze and archive are one rule" under Outstanding work.
+Two things are open: one is an idea to design rather than a task to pick up,
+and the other is a mapping to make before a lane is added. The deletion that
+stood beside the first - read, snooze and archive as one rule - is **done**;
+see "Read, snooze and archive are one rule" under Outstanding work.
 The state axis that stood at the head of this list is **built**, and so is
 "showing what changed" - see "THE STATE AXIS" and "Showing *what* changed" under
 Outstanding work for what each settled and what each left open. The drag that
@@ -37,6 +38,25 @@ here is done; `git log` is the record of it and this file is not.
    `snooze_active`, `snooze_edge`, `woke_row`, `fingerprint` and `sleep_of`
    are gone, `on-change` is `r` and `forever` is `x`. See "Read, snooze and
    archive are one rule" under Outstanding work.
+
+3. **What the notifications API covers, against what the searches emulate.**
+   Raised 2026-09-13 from a gap the searches have: activity on a **closed**
+   item outside the polled repos reaches nothing. Every bulk lane is
+   `is:open`, the closed lanes key on `closedAt` (a comment does not move it),
+   and the poll is by repo - so an @-mention on a closed SparseArrays.jl
+   issue, or a years-old nodejs/node thread that stirs, is seen by no query
+   here. The open side is narrower on purpose: the fast lanes are
+   involvement-scoped and global, and only mentions surface from the bulk
+   ones. A week's `is:pr is:closed involves:vtjnash updated:>{since:7}` plus
+   its `is:issue` twin found 19 rows for 8 points a refresh (12 on a busy
+   month), and would close the gap - but it is one more query emulating what
+   `/notifications` *is*. Before adding it, map the two against each other:
+   see "Notifications lane" under Infrastructure, reopened, for the table to
+   fill in. What is known already: the token here is a GitHub App user token
+   and the notifications endpoints are not available to Apps at all - it
+   takes a classic PAT with `notifications` scope, the same conversation as
+   the writes - and a closed item is only ever visible under the `done` box,
+   so "do I need to know" is partly answered by that box being off.
 
 Blocked, and still the largest thing on the list: **every write is
 unexercised.** `post_comment`, `add_review_thread`, `submit_review`,
@@ -2563,8 +2583,9 @@ so they are not mistaken for bugs later:
 
 ## Infrastructure
 
-- **A PAT, for two separate things — and both are writes.** The notifications
-  one below is gone, so this is the only credential still outstanding. `origin` is now
+- **A PAT, for two separate things — and both are writes.** Plus, since
+  2026-09-13, a third that is a read: the notifications lane below, reopened,
+  which needs a *classic* PAT with `notifications` scope. `origin` is now
   `vtjnash/git-worklog` and is readable, but its `master` is 34 commits behind
   the local one as of 2026-09-11 - it is at `aaa2cec`, made on 2026-09-10.
   Pushing has never been attempted, and the sandbox's App token is read-only for
@@ -2572,20 +2593,60 @@ so they are not mistaken for bugs later:
   `Contents: read/write`. Writing a review needs a *different*
   pair of permissions on the repositories being reviewed - `issues: write` and
   `pull_requests: write` - which the same fine-grained PAT can carry but which
-  are not implied by the first. A *fine-grained* PAT carries both; nothing here
-  needs a classic one any more.
-- **Notifications lane. Dropped, not deferred.** Every reason for it has been
-  answered by ordinary search, and the token could not reach it anyway — the one
-  in this sandbox is a GitHub *App installation* token (`X-OAuth-Scopes` empty,
-  `/notifications` is 403 "not accessible by integration"), so it would have
-  needed a *classic* PAT with the `notifications` scope, the largest credential
-  anything here has asked for.
+  are not implied by the first. A *fine-grained* PAT carries both; the
+  notifications scope is the one thing that still wants a classic one.
+- **Notifications lane. Dropped 2026-09-10; reopened 2026-09-13.** The
+  dropping said every reason for it had been answered by ordinary search. One
+  had not: activity on a closed item outside the polled repos - see item 3
+  under "What is next". The token could not reach it then and cannot now (a
+  `ghu_` GitHub App user token; `/notifications` is 403 "not accessible by
+  integration", and the endpoints are not offered to Apps at all), so it
+  needs a *classic* PAT with the `notifications` scope - fine-grained PATs
+  carry no notifications permission, as of the last look. That is the same
+  PAT conversation as the writes, so the question is not whether to get one
+  but what to do with it once it is there.
 
-  What replaced it, measured rather than assumed:
+  **The mapping to make**, before either the lane or the emulation is added.
+  For each `reason` the API gives a thread - `mention`, `team_mention`,
+  `review_requested`, `assign`, `author`, `comment`, `state_change`,
+  `subscribed`, `manual`, `security_alert`, `ci_activity` - which search or
+  poll here replicates it today, on what cadence, and for which repos:
+
+  | notifications `reason` | emulated by | cadence | scope | gap |
+  |---|---|---|---|---|
+  | `review_requested` | `review` lane, `review_requested_at` | every refresh | global, open only | closed: none |
+  | `assign` | `assigned` lane, `assigned_at` | every refresh | global, open only | closed: none |
+  | `author` (activity on yours) | `mine` lane, wake table | every refresh | global, open only | closed: 21-day `landed` window, then carry while unread |
+  | `mention` | `mentioned_*` bulk lanes → needs-reply | 6-hourly | global, open only | **closed: none** |
+  | `team_mention` | `mentioned_team_*` free-text search | 6-hourly | global, open only | `team:` unsettled; closed: none |
+  | `comment` (on a thread you commented on) | `commented_*` bulk lanes → pile | 6-hourly | global, open only | surfaced only via mention, by design; closed: none |
+  | `state_change` | `state_at`, the closed lanes, the carry | every refresh | global | past the window and read: none |
+  | `subscribed` (repo watch) | `[events] repos` poll | every launch, 120s ttl | polled repos only, open and closed | unpolled repos: none |
+  | `manual` (thread subscription) | nothing | - | - | **none** |
+  | `security_alert`, `ci_activity` | nothing / the checks | - | - | CI covered by `fetched.json` |
+
+  What the table already says: the searches replicate the *open* half well
+  and the *closed* half only inside polled repos; `manual` - a thread you
+  subscribed to by hand on github.com - has no counterpart at all. What it
+  does not say yet and needs a token to find out: what `/notifications` costs
+  per poll (REST, its own 5000/hour, `X-Poll-Interval` sets the cadence),
+  whether `all=true` with `since=` is a clean cursor the way the poll's is,
+  how a `reason` maps onto the wake table's rows (a `state_change` is a
+  `state_at`; a `mention` is a `their_comment_at` with a name in it), and
+  whether Discussions, releases and advisories - which search cannot reach -
+  are worth having.
+
+  **The cheap stopgap, measured and not yet added**: two `is:closed
+  involves:vtjnash updated:>{since:7}` lanes, one per kind, 4 points a page.
+  It closes the closed-item mention gap now, for 8 points, and is one more
+  query emulating what the API is. Add it if the PAT is far off; drop it the
+  day the API is polled.
+
+  What was measured when the lane was dropped, and still holds:
 
   | wanted | answer today |
   |---|---|
-  | a merge seen between refreshes | the `is:closed` lanes |
+  | a merge seen between refreshes | `state_at`, and the carry while unread |
   | all activity on chosen repos | `since=` polling, one cheap page a poll |
   | whole owners without listing repos | `owner/*` → `user:<owner>` searches |
   | the repo list from GitHub | `/user/subscriptions` — works now, 51 repos |
