@@ -67,16 +67,20 @@ here is done; `git log` is the record of it and this file is not.
    carries `lane = "notifications"` and the reason in words as `why`, and
    `poll_item` reads both. Tests in `test/suite/refresh.jl`.
 
+   **The live poll, done 2026-09-13 18:22Z off the sandbox.** 713 threads
+   arrived on the first refresh - the 30-day `backfill_days`, less the 31
+   subjects that are not an issue or a pull request, skipped and counted -
+   across 9 sources for 28 GraphQL points, and every one of the 713 was
+   filled in by its subject fetch: 415 of them closed, which is the whole
+   reason for the fetch. Both examples are in the inbox, closed, `why: you
+   were mentioned`; so is the review request on the private
+   JuliaComputing repository the App token 404s on. The first attempt the
+   same evening skipped the source: `pat()` read only the file, and the
+   file is not something to put in a sandbox others can read, so the token
+   nobody could use was the only one it looked for - fixed by taking
+   `token()`'s answer whenever it is a person's and not an App's.
+
    What is left, and none of it is blocked:
-   - **A live poll.** Everything above ran against the measured JSON and the
-     fake sources in the tests; the first `wl refresh` off the sandbox is
-     the test of the real thing. No file to put anywhere: `token()` there
-     is `gh auth token`, the `gho_` token, whose `repo` scope carries
-     notifications access, and `pat()` uses it because it is a person's and
-     not an App's. The first attempt at this, the same evening, skipped the
-     source off the sandbox too - `pat()` read only the file, and the file
-     is not something to put in a sandbox others can read, so the token
-     nobody could use was the only one it looked for.
    - **The writes.** Still unexercised, and the same token answers them:
      `repo` covers `issues: write` and `pull_requests: write` on every
      repository, public or not. `pat()` is the second lookup the writes
@@ -2856,8 +2860,9 @@ so they are not mistaken for bugs later:
   token.
 
   **Not done, and not needed**: the stopgap `is:closed mentions:` lanes -
-  the source reaches everything they would have. **Not done, and open**:
-  the first live poll, and Discussions (see item 3 under "What is next").
+  the source reaches everything they would have. **Polled live** the same
+  evening: 713 threads in, every one filled in, 415 closed - see item 3
+  under "What is next". **Open**: Discussions.
 
   What was measured when the lane was dropped, and still holds:
 
