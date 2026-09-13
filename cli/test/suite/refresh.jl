@@ -65,6 +65,148 @@
     end
 end
 
+@testset "the notifications source, beside the repo polls" begin
+    # A thread is one row per subject with one reason, and `subject.url` is an
+    # API url in one of two shapes. Both land as the html url the inbox is
+    # keyed by, `pull` singular.
+    thread(url, type; reason = "mention", at = "2026-09-09T11:34:00Z") = Dict{String,Any}(
+        "id" => "1", "unread" => false, "reason" => reason, "updated_at" => at,
+        "last_read_at" => "2026-09-01T00:00:00Z",
+        "subject" => Dict{String,Any}("title" => "t", "url" => url,
+                                      "latest_comment_url" => nothing, "type" => type))
+    E = W.Events
+    r = E.thread_row(thread("https://api.github.com/repos/o/r/issues/469", "Issue"),
+                     "me"; fetch = nothing)
+    @test r["url"] == "https://github.com/o/r/issues/469"
+    @test r["repo"] == "o/r" && r["number"] == 469 && r["is_pr"] == false
+    @test r["lane"] == "notifications" && r["reason"] == "mention"
+    @test r["why"] == "you were mentioned"
+    @test r["updated"] == "2026-09-09T11:34:00Z"
+    @test !haskey(r, "state")            # a thread does not know
+    # `unread` and `last_read_at` are GitHub's read state, and never read.
+    @test !haskey(r, "unread") && !haskey(r, "last_read_at")
+    r = E.thread_row(thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest";
+                            reason = "review_requested"), "me"; fetch = nothing)
+    @test r["url"] == "https://github.com/o/r/pull/7" && r["is_pr"] == true
+    @test r["why"] == "your review was asked for"
+    # A reason this program has no words for is printed as itself.
+    @test E.thread_row(thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest";
+                              reason = "invitation"), "me"; fetch = nothing)["why"] == "invitation"
+    # Nothing here can open a release, a commit or a discussion.
+    for (u, k) in (("https://api.github.com/repos/o/r/releases/5", "Release"),
+                   ("https://api.github.com/repos/o/r/commits/abc", "Commit"),
+                   ("https://api.github.com/repos/o/r/discussions/3", "Discussion"),
+                   (nothing, "RepositoryVulnerabilityAlert"))
+        @test E.thread_row(thread(u, k), "me"; fetch = nothing) === nothing
+    end
+
+    # A url new to the inbox is filled in with one GET of its subject, at the
+    # issues endpoint for both kinds, and the thread's own keys win over it.
+    asked = String[]
+    issue = Dict{String,Any}(
+        "html_url" => "https://github.com/o/r/pull/7", "number" => 7, "title" => "T",
+        "repository_url" => "https://api.github.com/repos/o/r", "state" => "closed",
+        "user" => Dict{String,Any}("login" => "me"), "updated_at" => "2026-09-09T00:00:00Z",
+        "comments" => 3, "labels" => [Dict{String,Any}("name" => "bug")],
+        "pull_request" => Dict{String,Any}())
+    t = thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest")
+    r = E.thread_row(t, "me"; fetch = p -> (push!(asked, p); [issue]))
+    @test asked == ["/repos/o/r/issues/7"]
+    @test r["state"] == "closed" && r["author"] == "me" && r["mine"] == true
+    @test r["labels"] == ["bug"] && r["comments"] == 3
+    @test r["updated"] == "2026-09-09T11:34:00Z"        # the thread's, not the issue's
+    @test r["reason"] == "mention" && r["lane"] == "notifications"
+    # A url the inbox already has is not fetched.
+    empty!(asked)
+    r = E.thread_row(t, "me"; known = u -> u == "https://github.com/o/r/pull/7",
+                     fetch = p -> (push!(asked, p); [issue]))
+    @test isempty(asked) && !haskey(r, "state")
+    # And a fetch that fails leaves the thin row rather than losing the thread.
+    r = E.thread_row(t, "me"; fetch = p -> throw(E.ApiError("404")))
+    @test r["url"] == "https://github.com/o/r/pull/7" && !haskey(r, "state")
+
+    # The loop. The notifications source goes first and rows merge, so the poll
+    # of the same repo lands its state and author on top of the thread's reason.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml")
+    try
+        asks = Dict{String,String}()
+        srcs = [
+            (label = "notifications",
+             fetch = since -> (asks["notifications"] = since; [
+                 thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest"),
+                 thread("https://api.github.com/repos/o/r/issues/9", "Issue";
+                        reason = "subscribed", at = "2026-09-10T00:00:00Z"),
+                 thread("https://api.github.com/repos/o/r/releases/5", "Release";
+                        at = "2026-09-11T00:00:00Z")]),
+             overlap = E.OVERLAP_REST,
+             row = (t, items) -> E.thread_row(t, "me"; known = u -> haskey(items, u),
+                                              fetch = p -> [issue])),
+            (label = "o/r",
+             fetch = since -> (asks["o/r"] = since; [issue]),
+             overlap = E.OVERLAP_REST,
+             row = (r, _) -> E.issue_row(r, "me")),
+        ]
+        at = W.DateTime(2026, 9, 13, 12)
+        items, got = E.sync!(srcs, at; now = () -> W.DateTime(2026, 9, 8, 12),
+                             backfill = W.Day(1))
+        @test got == 3                                   # the release is skipped
+        # First sight: from GitHub's now less the backfill, less the overlap.
+        @test asks["notifications"] == "2026-09-07T11:59:00Z"
+        @test asks["o/r"] == "2026-09-07T11:59:00Z"
+        pr = items["https://github.com/o/r/pull/7"]
+        @test pr["state"] == "closed" && pr["author"] == "me"    # the poll's
+        @test pr["reason"] == "mention" && pr["lane"] == "notifications"  # the thread's
+        @test pr["updated"] == "2026-09-09T00:00:00Z"   # the last writer's clock
+        # The issue only the thread saw was filled in by the fetch it was owed.
+        is = items["https://github.com/o/r/issues/9"]
+        @test is["reason"] == "subscribed" && is["state"] == "closed"
+        # The cursor is the newest `updated_at` the source returned, the
+        # skipped release included: it is the source's clock, not the row's.
+        inbox = E.load_inbox()
+        @test inbox["cursors"]["notifications"] == "2026-09-11T00:00:00Z"
+        @test inbox["cursors"]["o/r"] == "2026-09-09T00:00:00Z"
+        # Within the ttl nothing is asked again.
+        empty!(asks)
+        E.sync!(srcs, at + W.Second(30))
+        @test isempty(asks)
+        # Past it, each is asked from behind its own cursor.
+        E.sync!(srcs, at + W.Minute(5))
+        @test asks["notifications"] == "2026-09-10T23:59:00Z"
+        @test asks["o/r"] == "2026-09-08T23:59:00Z"
+        # And a poll row arriving over an existing thread row keeps the reason.
+        @test E.load_inbox()["items"]["https://github.com/o/r/pull/7"]["reason"] == "mention"
+        # `poll_item` reads the lane and the reason off the row.
+        it = W.poll_item(E.load_inbox()["items"]["https://github.com/o/r/pull/7"])
+        @test it.lane == "notifications" && it.why == "you were mentioned"
+        @test it.state == "CLOSED"
+        @test W.poll_item(E.issue_row(issue, "me")).lane == "activity"
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+
+    # No token: the source is skipped and every other source still polls.
+    keepp, keepc = E.PAT_FILE[], E._PAT[]
+    try
+        E.PAT_FILE[] = joinpath(d, "no-such-token"); E._PAT[] = nothing
+        cfg = Dict{String,Any}("events" => Dict{String,Any}("repos" => ["o/r", "me/*"]))
+        @test E.pat() === nothing
+        labels = [s.label for s in E.sources(cfg, "me"; verbose = false)]
+        @test labels == ["o/r", "me/* is:issue", "me/* is:pull-request"]
+        # With one, it is first in the list.
+        write(E.PAT_FILE[], "ghp_notreal\n")
+        labels = [s.label for s in E.sources(cfg, "me"; verbose = false)]
+        @test labels[1] == "notifications" && length(labels) == 4
+        # And nothing else configured is not nothing to poll.
+        @test [s.label for s in E.sources(Dict{String,Any}(), "me"; verbose = false)] ==
+              ["notifications"]
+    finally
+        E.PAT_FILE[] = keepp; E._PAT[] = keepc
+    end
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

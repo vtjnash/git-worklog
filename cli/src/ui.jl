@@ -296,7 +296,9 @@ cursor on is a row nobody can read, snooze or file. This is everything the poll
 knows, which is less than a lane returns: no CI, no review state, no branch.
 `activity` is the lane, which is what the poll is - not `unread`, which is
 what the *seen* axis says about a row and would be the same word twice on two
-different axes in the same pane.
+different axes in the same pane - unless the row says otherwise: a thread the
+notifications source saw carries `lane = "notifications"`, and its `reason` in
+words as `why`, which is otherwise empty on a row no bucket rule has judged.
 
 Beside `inbox_row` because they are one conversion in two directions, and the
 pair of them being apart is how the fields drifted the first time.
@@ -304,7 +306,8 @@ pair of them being apart is how the fields drifted the first time.
 poll_item(u) = Item(
     url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
     ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-    title = String(u["title"]), lane = "activity",
+    title = String(u["title"]), lane = String(nz(get(u, "lane", nothing), "activity")),
+    why = String(nz(get(u, "why", nothing), "")),
     author = String(nz(get(u, "author", nothing), "")),
     updated = String(nz(get(u, "updated", nothing), "")),
     act = String(nz(get(u, "updated", nothing), "")),

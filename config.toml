@@ -87,7 +87,8 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
 # `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]` and `[bulk.queries]`, plus `imported`, `carried`, `activity` for a
-# row only the poll saw, and `local` for an adopted branch.
+# row only the poll saw, `notifications` for one GitHub notified you of, and
+# `local` for an adopted branch.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the
@@ -118,6 +119,13 @@ mentioned_team_issue = "is:open is:issue in:body,comments archived:false \"@Juli
 # hundred repos, and two hundred requests on every browser launch is not a thing
 # to do for a handful of comments. The cost is fidelity, since search truncates
 # at 1000 results, so a repo that has to be seen exactly is still named here.
+# Beside these, and not configured here: `/notifications` itself is polled the
+# same way whenever `data/notifications.token` holds a token that can read it
+# (`gh auth token` off the sandbox; the sandbox's own App token cannot). That is
+# what reaches a closed thread outside every repo below, and a repo watched on
+# github.com and never listed here. Those rows say `notifications` on the lane
+# axis, and the reason GitHub gave under `why`. The list stays the statement of
+# what is polled exactly.
 repos = [
   "JuliaLang/julia",
   "libuv/libuv",

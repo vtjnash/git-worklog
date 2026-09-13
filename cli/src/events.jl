@@ -328,9 +328,284 @@ meantime is exactly the race that is worth not having.
 """
 save_inbox(d) = Worklog.put_fetched!("inbox", d)
 
-"""How far behind its cursor each kind of source is asked from; see `unread`."""
+"""The inbox row for one issue or pull request, as the REST list endpoints
+return it - `/repos/o/r/issues?since=`, a search hit, or one `GET
+/repos/o/r/issues/N`. Off the item, not off the source: a glob covers many
+repos and only the item knows which one it came from.
+"""
+function issue_row(r, login)
+    url = String(r["html_url"])
+    who = get(something(get(r, "user", nothing), Dict{String,Any}()), "login", nothing)
+    OrderedDict{String,Any}(
+        "url" => url, "repo" => item_repo(r), "number" => r["number"],
+        "title" => r["title"],
+        "is_pr" => haskey(r, "pull_request"),
+        "state" => r["state"],
+        "author" => who,
+        "updated" => r["updated_at"],
+        "comments" => get(r, "comments", 0),
+        "labels" => [l["name"] for l in get(r, "labels", ())],
+        "mine" => who == login)
+end
+
+"""What a notification thread's `reason` says, in the words the metadata pane
+prints under `why`. The reason is the *latest* one GitHub has for the thread -
+it evolves, `author` becoming `mention` - and it maps onto the item, not onto
+an event: a thread is one row per subject, one reason, one `updated_at`, no
+actor and no history."""
+const THREAD_WHY = Dict{String,String}(
+    "mention" => "you were mentioned",
+    "team_mention" => "a team you are on was mentioned",
+    "review_requested" => "your review was asked for",
+    "assign" => "assigned to you",
+    "author" => "something of yours moved",
+    "comment" => "a thread you commented on moved",
+    "state_change" => "you changed its state",
+    "subscribed" => "you watch the repository",
+    "manual" => "you subscribed to the thread")
+
+"""
+    thread_subject(t) -> (path, url, repo, number, is_pr), or nothing
+
+Where a notification thread points. `subject.url` is an API url -
+`/repos/o/r/issues/N` or `/repos/o/r/pulls/N` - and `nothing` is every
+subject this program cannot open: a Discussion, a Release, a Commit, a
+CheckSuite, a RepositoryVulnerabilityAlert. `path` is the issue endpoint for
+both kinds, which is the shape `issue_row` reads and the one the repo polls
+already return.
+"""
+function thread_subject(t)
+    s = get(t, "subject", nothing)
+    s === nothing && return nothing
+    kind = String(get(s, "type", ""))
+    kind in ("Issue", "PullRequest") || return nothing
+    m = match(r"^https://api\.github\.com/repos/([^/]+/[^/]+)/(?:issues|pulls)/(\d+)$",
+              String(something(get(s, "url", nothing), "")))
+    m === nothing && return nothing
+    repo, n = String(m[1]), parse(Int, m[2])
+    is_pr = kind == "PullRequest"
+    (path = "/repos/$repo/issues/$n",
+     url = "https://github.com/$repo/$(is_pr ? "pull" : "issues")/$n",
+     repo = repo, number = n, is_pr = is_pr)
+end
+
+"""
+    thread_row(t, login; known, fetch) -> row, or nothing
+
+The inbox row for a notification thread. A thread carries less than a poll's
+row does - no state, no author, no labels, no comment count - so a thread
+whose url is *new* to the inbox is filled in with one `GET` of its subject,
+through `fetch`: that is what makes a closed thing that stirred a `done` row
+rather than one that reads as open, and at a few dozen new threads a day on a
+5000-an-hour budget it is nothing. A thread already in the inbox (`known`
+answers true for its url) gets no fetch: the row is merged over what is there,
+so the thread's clock and reason land and the richer keys stay.
+
+What the thread contributes is `updated`, `lane`, `reason` and `why`. `unread`
+and `last_read_at` are never read: the cursor is ours and the read stamp is
+ours, and adopting GitHub's would undo the property the whole lane exists for.
+
+A `fetch` that fails leaves the thin row - the thread is still shown, only
+with less on it - and `fetch = nothing` asks for the thin row outright.
+"""
+function thread_row(t, login; known = url -> false,
+                    fetch = path -> api_get(path; auth = pat()))
+    sub = thread_subject(t)
+    sub === nothing && return nothing
+    reason = String(get(t, "reason", ""))
+    row = OrderedDict{String,Any}(
+        "url" => sub.url, "repo" => sub.repo, "number" => sub.number,
+        "title" => String(get(t["subject"], "title", "")),
+        "is_pr" => sub.is_pr,
+        "updated" => String(t["updated_at"]),
+        "lane" => "notifications", "reason" => reason,
+        "why" => get(THREAD_WHY, reason, reason))
+    (known(sub.url) || fetch === nothing) && return row
+    issue = try
+        first(fetch(sub.path))
+    catch e
+        e isa ApiError || rethrow()
+        nothing
+    end
+    issue === nothing && return row
+    merge!(issue_row(issue, login), row)
+end
+
+"""How far behind its cursor each kind of source is asked from; see `sync!`."""
 const OVERLAP_REST = Second(60)
 const OVERLAP_SEARCH = Second(15 * 60)
+
+"""
+    sources(cfg, login; verbose) -> [(; label, fetch, overlap, row), ...]
+
+Every source the inbox is polled from, in the order they are asked. `fetch`
+takes a `since` stamp and returns raw rows; `row` takes one raw row and the
+inbox's `items`, which it may look in and must not write, and returns the entry
+to write or `nothing` to skip it.
+
+Three kinds. A repo named in `[events] repos` is one REST list with `since=`,
+exact. An `owner/*` entry is every repo that owner has, asked as one search
+per kind rather than as one poll per repo: `vtjnash/*` is two hundred repos,
+and two hundred requests a poll is not a thing to do for a handful of
+comments - the cost is fidelity, since search truncates at 1000, so a repo
+that has to be seen exactly is still listed by name, and both may be listed at
+once. And `/notifications`, which is what the other two emulate, and is only
+polled when `pat` finds a token for it: it is the one source that reaches a
+closed thread outside every polled repo - an @-mention on a years-old issue,
+a repository you watch on github.com and never listed here, a thread you
+subscribed to by hand. Measured 2026-09-13: of 32 issue-or-pull-request
+threads in one week outside the polled repos, 20 were returned by no search
+lane at all.
+
+It goes **first**, and a row is merged over what is there rather than written
+over it, so the repo poll's richer row for the same url - state, author,
+labels, comments - lands on top of the thread's `lane`, `reason` and `why`
+rather than in place of them; see `sync!`.
+"""
+function sources(cfg, login; verbose::Bool = true)
+    cfge = get(cfg, "events", Dict{String,Any}())
+    repos = get(cfge, "repos", String[])
+    explicit, owners, bad = event_sources(repos)
+    verbose && !isempty(bad) &&
+        @printf(stderr, "    ignoring %s: only `owner/*` is a pattern\n", join(bad, ", "))
+    srcs = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}[]
+    p = pat()
+    if p !== nothing
+        # `all=true`, because GitHub's read state is not this program's: a
+        # thread read on github.com and then moved again is still news here.
+        # `since` there is compared against when the thread last *notified*,
+        # not against `updated_at` - a label edit moves the latter and fires
+        # nothing - so a thread comes back exactly when there was something to
+        # be told, and always with `updated_at` past the ask, which is what
+        # the cursor needs. Newest first and capped at 50 a page, both
+        # unlike the repo polls: a page is one point, a poll is one page, and
+        # the walk past it is only ever taken on a cold start.
+        push!(srcs, (label = "notifications",
+                     fetch = since -> api_paged("/notifications"; auth = p, per_page = 50,
+                         params = Dict{String,Any}("all" => "true", "since" => since)),
+                     overlap = OVERLAP_REST,
+                     row = (t, items) -> thread_row(t, login;
+                         known = url -> haskey(items, url),
+                         fetch = path -> api_get(path; auth = p))))
+    elseif verbose
+        @printf(stderr, "    %-24s skipped: no %s\n", "notifications", patfile())
+    end
+    for repo in explicit
+        push!(srcs, (label = repo,
+                     fetch = since -> api_paged("/repos/$repo/issues";
+                         params = Dict{String,Any}("since" => since, "state" => "all",
+                                                   "sort" => "updated", "direction" => "asc")),
+                     overlap = OVERLAP_REST,
+                     row = (r, _) -> issue_row(r, login)))
+    end
+    # Looked up inside the closure, so the listing a filter needs is paid only
+    # by a source that actually polls.
+    keep = keep_forks(cfge)
+    for owner in owners, kind in ("is:issue", "is:pull-request")
+        push!(srcs, (label = string(owner, "/* ", kind),
+                     fetch = since -> begin
+            its, total = search_issues("user:$owner $kind updated:>$since")
+            total >= 1000 && @printf(stderr,
+                "    %-24s truncated at 1000 of %d - poll more often\n",
+                string(owner, "/*"), total)
+            keep && return its
+            kept = drop_forks(its, owner_forks(owner))
+            length(kept) == length(its) ||
+                @printf(stderr, "    %-24s %d on forks skipped\n",
+                        string(owner, "/*"), length(its) - length(kept))
+            kept
+        end,
+                     overlap = OVERLAP_SEARCH,
+                     row = (r, _) -> issue_row(r, login)))
+    end
+    srcs
+end
+
+"""
+    sync!(srcs, at; ttl, backfill, now) -> (items, new)
+
+Poll each source that is due and fold what it returned into the inbox; the
+unread items, and how many rows arrived. `now` is asked once, and only for a
+source seen for the first time.
+
+**The cursor is the newest `updated_at` the source returned**, and no clock at
+all. It is compared on the server against `updated_at`, so it has to be
+GitHub's time - a local clock running ahead would have the next poll skip
+whatever landed in the gap, and Windows clocks have been minutes out - and the
+newest row seen *is* GitHub's time, exactly. Never backwards, so a source that
+answers nothing keeps the cursor it had.
+
+**And the ask is from behind the cursor**, by an overlap, because GitHub
+promises nothing about a response being a snapshot as of its newest row.
+Search is eventually consistent by its own account - an item updated at T can
+be missing from `updated:>` for minutes and then appear - and a REST list
+comes off a replica, which can be a beat behind, with `updated_at` set by
+whichever server took the write. So a cursor at the newest row seen would step
+past a change that was made before it and indexed after. Asking from
+`cursor - overlap` catches that, and what it costs is rows fetched twice,
+which are free: the inbox is keyed by url, and a row already read is dropped
+again on arrival. Minutes for search, a minute for REST, both far past the lag
+either has shown.
+
+The one instant that is not an event is the first sight of a source - inbox
+zero, so switching this on is not a month of history to dismiss - and that is
+GitHub's now off a `Date` header. `polled` is the other clock: when *this
+machine* last asked, against the ttl, local and compared only with itself.
+
+A row is **merged** over the entry already at its url, not written in its
+place. Two sources can see one url - the notifications source and the poll of
+the repo it is in - and each knows something the other does not: the thread
+its `reason`, the poll the state and the author. Merging keeps both whichever
+came second; overwriting kept whichever came last.
+"""
+function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
+               now = server_now)
+    inbox = load_inbox()
+    cursors, polled, items = inbox["cursors"], inbox["polled"], inbox["items"]
+    got = 0
+    server = nothing
+    for (label, fetch, overlap, torow) in srcs
+        last = get(polled, label, nothing)
+        t = last === nothing ? nothing : ts(last)
+        t === nothing || at - t >= ttl || continue
+        if !haskey(cursors, label)
+            server === nothing && (server = now())
+            cursors[label] = stamp(server - backfill)
+        end
+        cur = cursors[label]
+        rows = try
+            fetch(stamp(ts(cur) - overlap))
+        catch e
+            e isa ApiError || rethrow()
+            @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
+            continue
+        end
+        skipped = 0
+        for r in rows
+            row = torow(r, items)
+            if row === nothing
+                skipped += 1
+                continue
+            end
+            url = String(row["url"])
+            old = get(items, url, nothing)
+            items[url] = old === nothing ? row : merge!(old, row)
+            got += 1
+        end
+        skipped == 0 || @printf(stderr, "    %-24s %d not an issue or pull request, skipped\n",
+                                label, skipped)
+        newest = maximum((String(r["updated_at"]) for r in rows); init = "")
+        cursors[label] = max(String(cur), newest)
+        polled[label] = stamp(at)
+    end
+
+    rd = load_read()
+    for (url, e) in collect(items)
+        String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
+    end
+    save_inbox(inbox)
+    (items, got)
+end
 
 """Everything seen on the tracked repos and not yet marked read.
 
@@ -343,133 +618,20 @@ A source seen for the first time starts at *now*, so turning this on is inbox
 zero rather than a month of history to dismiss. `backfill_days` moves that start
 back if some is wanted.
 
-The cursor advances to the newest row the source returned, which is GitHub's
-own time for it and needs no clock here: see the loop. A failed fetch advances
-nothing.
-
 The read stamp remains the authority on what leaves: an item is dropped from the
-inbox once it has been marked read up to its latest change.
+inbox once it has been marked read up to its latest change. The sources are
+`sources`, the loop is `sync!`.
 """
 function unread(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = get(cfg, "events", Dict{String,Any}())
-    repos = get(cfge, "repos", String[])
-    isempty(repos) && return OrderedDict{String,Any}[]
+    srcs = sources(cfg, login; verbose = verbose)
+    isempty(srcs) && return OrderedDict{String,Any}[]
     auth()          # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.
-    explicit, owners, bad = event_sources(repos)
-    isempty(bad) || @printf(stderr, "    ignoring %s: only `owner/*` is a pattern\n",
-                            join(bad, ", "))
-
-    # An `owner/*` entry is every repo that owner has. Asked as one search per
-    # kind rather than as one poll per repo: `vtjnash/*` is two hundred repos,
-    # and two hundred requests a poll is not a thing to do for a handful of
-    # comments.
-    # The cost is fidelity - search truncates at 1000 - so a repo that has to be
-    # seen exactly is still listed by name, and both may be listed at once.
-    # Each source with the overlap it is asked with; see the loop below.
-    srcs = Tuple{String,Any,Second}[]
-    for repo in explicit
-        push!(srcs, (repo, since -> api_paged("/repos/$repo/issues";
-            params = Dict{String,Any}("since" => since, "state" => "all",
-                                      "sort" => "updated", "direction" => "asc")),
-                     OVERLAP_REST))
-    end
-    # Looked up inside the closure, so the listing a filter needs is paid only
-    # by a source that actually polls.
-    keep = keep_forks(cfge)
-    for owner in owners, kind in ("is:issue", "is:pull-request")
-        push!(srcs, (string(owner, "/* ", kind), since -> begin
-            its, total = search_issues("user:$owner $kind updated:>$since")
-            total >= 1000 && @printf(stderr,
-                "    %-24s truncated at 1000 of %d - poll more often\n",
-                string(owner, "/*"), total)
-            keep && return its
-            kept = drop_forks(its, owner_forks(owner))
-            length(kept) == length(its) ||
-                @printf(stderr, "    %-24s %d on forks skipped\n",
-                        string(owner, "/*"), length(its) - length(kept))
-            kept
-        end, OVERLAP_SEARCH))
-    end
-
-    inbox = load_inbox()
-    cursors, polled, items = inbox["cursors"], inbox["polled"], inbox["items"]
-    ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120)))
-    backfill = Day(get(cfge, "backfill_days", 0))
-    got = 0
-    # **The cursor is the newest `updated_at` the source returned**, and no
-    # clock at all. It is compared on the server against `updated_at`, so it
-    # has to be GitHub's time - a local clock running ahead would have the
-    # next poll skip whatever landed in the gap, and Windows clocks have been
-    # minutes out - and the newest row seen *is* GitHub's time, exactly.
-    # Never backwards, so a source that answers nothing keeps the cursor it
-    # had.
-    #
-    # **And the ask is from behind the cursor**, by an overlap, because GitHub
-    # promises nothing about a response being a snapshot as of its newest
-    # row. Search is eventually consistent by its own account - an item
-    # updated at T can be missing from `updated:>` for minutes and then
-    # appear - and a REST list comes off a replica, which can be a beat
-    # behind, with `updated_at` set by whichever server took the write. So a
-    # cursor at the newest row seen would step past a change that was made
-    # before it and indexed after. Asking from `cursor - overlap` catches
-    # that, and what it costs is rows fetched twice, which are free: the
-    # inbox is keyed by url, and a row already read is dropped again on
-    # arrival. Minutes for search, a minute for REST, both far past the lag
-    # either has shown.
-    #
-    # The one instant that is not an event is the first sight of a source -
-    # inbox zero, so switching this on is not a month of history to dismiss -
-    # and that is GitHub's now off a `Date` header. `polled` is the other
-    # clock: when *this machine* last asked, against the ttl, local and
-    # compared only with itself.
-    server = nothing
-    for (label, fetch, overlap) in srcs
-        last = get(polled, label, nothing)
-        t = last === nothing ? nothing : ts(last)
-        t === nothing || at - t >= ttl || continue
-        if !haskey(cursors, label)
-            server === nothing && (server = server_now())
-            cursors[label] = stamp(server - backfill)
-        end
-        cur = cursors[label]
-        rows = try
-            fetch(stamp(ts(cur) - overlap))
-        catch e
-            e isa ApiError || rethrow()
-            @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
-            continue
-        end
-        for r in rows
-            url = String(r["html_url"])
-            who = get(something(get(r, "user", nothing), Dict{String,Any}()),
-                      "login", nothing)
-            # Off the item, not off the source: a glob covers many repos and
-            # only the item knows which one it came from.
-            items[url] = OrderedDict{String,Any}(
-                "url" => url, "repo" => item_repo(r), "number" => r["number"],
-                "title" => r["title"],
-                "is_pr" => haskey(r, "pull_request"),
-                "state" => r["state"],
-                "author" => who,
-                "updated" => r["updated_at"],
-                "comments" => get(r, "comments", 0),
-                "labels" => [l["name"] for l in get(r, "labels", ())],
-                "mine" => who == login)
-            got += 1
-        end
-        newest = maximum((String(r["updated_at"]) for r in rows); init = "")
-        cursors[label] = max(String(cur), newest)
-        polled[label] = stamp(at)
-    end
-
-    rd = load_read()
-    for (url, e) in collect(items)
-        String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
-    end
-    save_inbox(inbox)
-
+    items, got = sync!(srcs, at;
+        ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120))),
+        backfill = Day(get(cfge, "backfill_days", 0)))
     out = collect(OrderedDict{String,Any}, values(items))
     sort!(out; by = e -> e["updated"], rev = true)
     verbose && @printf(stderr, "  %-16s %4d unread (%d new across %d source(s))\n",
@@ -901,11 +1063,22 @@ measurements.
 Cached briefly, and the freshness that matters is not the cache's to keep: `oid`
 goes back to the mutation as `expectedHeadOid`, so a commit pushed while the
 message was being written is refused by GitHub rather than merged over.
+
+An entry older than `ttl` but younger than `keep` is handed back only when it
+says CONFLICTING. That answer holds until somebody rebases, and being late to
+see it cleared costs nothing; a clean answer that has gone wrong is the one
+nobody notices, so past `ttl` it is not shown and the question is asked again.
 """
-function merge_state(url::AbstractString; ttl = 30.0)
-    key = string("merge:", url)
-    hit = cache_get(key, ttl)
-    hit === nothing || return _merge_shape(hit[1])
+merge_key(url::AbstractString) = string("merge:", url)
+
+"Is a cache hit under `merge_key` one to show, at `ttl`? See `merge_state`."
+merge_usable(hit, ttl) =
+    hit !== nothing && (hit[2] <= ttl || String(hit[1]["mergeable"]) == "CONFLICTING")
+
+function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
+    key = merge_key(url)
+    hit = cache_get(key, ttl; keep_s = keep)
+    merge_usable(hit, ttl) && return _merge_shape(hit[1])
     d = gh_graphql(
         "query(\$u: URI!) { resource(url: \$u) { ... on PullRequest {\n" *
         "      id state isDraft mergeable mergeStateStatus\n" *
@@ -1051,9 +1224,11 @@ about the one on screen; this pays for the one.
 reviewer who approved after requesting changes appears twice and the earlier
 verdict is not the one that counts. COMMENTED never overrides a verdict.
 """
-function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0)
-    key = string("itemmeta:", url)
-    hit = cache_get(key, ttl)
+meta_key(url::AbstractString) = string("itemmeta:", url)
+
+function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
+    key = meta_key(url)
+    hit = cache_get(key, ttl; keep_s = keep)
     hit === nothing || return _meta_shape(hit[1])
     parts = split(url, '/')
     owner_repo = join(parts[4:5], '/')
