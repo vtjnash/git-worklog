@@ -13,6 +13,19 @@ struct FetchError <: Exception
 end
 Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
 
+# **`mergeable` is not asked for, anywhere.** GitHub computes it lazily, and
+# asking is what schedules the computation - measured on the `mine` lane, a page
+# that names it took 20-33s on four runs in twelve and 5-8s on the rest, and a
+# page that does not never left 5-8s in twenty-five. It is the one field in
+# these selections that is slow to *compute* rather than to fetch, and it is
+# refetched when the item is opened anyway: `merge_state` asks for one pull
+# request at a time, which is when the answer is wanted and the one time the
+# computation is worth waiting for. `statusCheckRollup` is computed too, and
+# was measured the same way: free.
+#
+# `reviewRequests` is not asked for either. The standing bool it produced had
+# no reader once the request became a time - see `review_requested_at` - and
+# the metadata pane lists who is asked from the REST head it already fetches.
 const PR_FIELDS = "\n" * """
       url number title isDraft createdAt updatedAt state
       headRefName headRefOid baseRefName
@@ -20,7 +33,6 @@ const PR_FIELDS = "\n" * """
       repository { nameWithOwner }
       author { login }
       reviewDecision
-      mergeable
       milestone { title dueOn }
       assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }
@@ -31,8 +43,6 @@ const PR_FIELDS = "\n" * """
         statusCheckRollup { state }
       } } }
       reviewThreads(first: 100) { nodes { isResolved isOutdated } }
-      reviewRequests(first: 20) { nodes { requestedReviewer {
-        __typename ... on User { login } ... on Team { slug } } } }
       timelineItems(last: 50, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_DISMISSED_EVENT, ASSIGNED_EVENT,
                                           CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT]) {
         nodes {
@@ -88,7 +98,7 @@ query(\$q: String!, \$cursor: String) {
       headRefName headRefOid baseRefName
       repository { nameWithOwner }
       author { login }
-      reviewDecision mergeable
+      reviewDecision
       milestone { title dueOn }
       assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }

@@ -35,7 +35,7 @@ note you set survives any refresh, and a confused model cannot erase your
 triage.
 
 Buckets are derived from facts by rules, not guessed: changes-requested or
-unresolved threads or red CI → **needs-edits**; `CONFLICTING` → **needs-stacking**;
+unresolved threads or red CI → **needs-edits**;
 approved and green → **ready to merge**; they pushed after your last review →
 **needs-review**. Judgement is not made here at all: what a red CI really means,
 what the next action is, and what is urgent are written into `local.toml`, by
@@ -125,8 +125,8 @@ newest one *somebody else* made, carried forward across your own. And being let
 off — a review request withdrawn, an assignment removed — is not movement
 either: it is the end of a claim on your attention, not a claim on it.
 
-**Not in the table, on purpose:** `mergeable` (computed lazily, `UNKNOWN` on
-first read, and `CONFLICTING` on 671 rows because somebody else's base moved),
+**Not in the table, on purpose:** `mergeable` (not even fetched by the lanes -
+see "What the lanes do not ask for" at the foot of this file),
 `unresolved` (a thread being resolved is not news; what there was to resolve
 arrived as a comment or a review), labels, milestones, title edits, a draft
 being marked ready (it arrives with the request that follows it), and a
@@ -315,7 +315,8 @@ plain, and the cursor is a background rather than a weight - the same mark the
 reading pane puts on the line you are on.
 
 Under the item list is a metadata pane: who has reviewed and who was asked,
-labels, the check tally, milestone, mergeable state, and the tracking level and
+labels, the check tally, milestone, whether it can be merged - asked of GitHub
+for this one item when the cursor lands on it - and the tracking level and
 note from `local.toml`. It sits there rather than beside the detail because ten
 item numbers at a time is plenty and the thing being read wants the height.
 Everything in it that `fetched.json` already knows is on screen immediately; the
@@ -539,11 +540,21 @@ GitHub's search API truncates at **1000 results** and this repo is at ~993 open
 PRs, so the fetch partitions by creation year and unions the slices once the
 total crosses 950. Long paginations also hit transient 502s, so pages retry.
 
-`mergeable` is computed **lazily** — the first read of a PR returns `UNKNOWN` and
-merely schedules the computation (94 of 145 on a cold run). Concluding from it
-flaps the needs-stacking lane, so the last known value is carried forward until
-a real one arrives. It is not a key at any tracking level for the same reason: a
-value that has to be carried forward to stop it flapping cannot also be trusted
-to have *changed*. Neither is the unresolved-thread count, which moves when
-somebody resolves a thread — what there was to resolve arrived as a comment or a
-review, and moved the fingerprint on the day it did.
+**What the lanes do not ask for.** `mergeable` is computed **lazily** — the
+first read of a PR returns `UNKNOWN` and merely schedules the computation — and
+asking is what schedules it: measured on the `mine` lane, a page that named
+`mergeable` took 20–33s on four runs in twelve and 5–8s on the rest, and a page
+that did not never left 5–8s in twenty-five. It is the one field in the
+selection that is slow to *compute* rather than to fetch, so no lane asks for
+it and no row carries it. It is asked of one pull request at a time, when the
+cursor lands on it, by the same `merge_state` call the merge prompt makes — the
+one occasion the answer is wanted, and the one time the computation is worth
+waiting for — and the pane says it that prompt's way (`clean`, `behind
+master`, `conflicts with master`), which is finer than `mergeable` alone.
+`statusCheckRollup` is computed too and was measured the same way: free.
+`reviewRequests` is not asked for either; the bool it produced lost its last
+reader when the request became a time, and the pane lists who is asked from
+the REST head it already fetches. Neither `mergeable` nor the unresolved-thread
+count is a key at any tracking level: a thread being resolved is not news —
+what there was to resolve arrived as a comment or a review, and moved the
+item on the day it did.

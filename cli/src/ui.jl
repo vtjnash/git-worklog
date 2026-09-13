@@ -23,7 +23,6 @@ Base.@kwdef struct Item
     note::String = ""
     ci::String = ""
     unresolved::Int = 0
-    mergeable::String = ""
     created::String = ""   # when GitHub says it was opened, and when it last
     updated::String = ""   # changed by anything at all - a label edit counts,
                            # which is what makes `act` below a different fact
@@ -101,7 +100,6 @@ function item_of(r)
             bucket = nz(jget(r, :bucket), ""), track = nz(jget(r, :track), "normal"),
             note = nz(jget(r, :note), ""),
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
-            mergeable = nz(jget(r, :mergeable), ""),
             act = String(nz(act, "")),
             moved_at = String(nz(jget(r, :moved_at), "")),
             created = String(nz(jget(r, :created), "")),

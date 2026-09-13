@@ -31,18 +31,26 @@ function load_meta!(st::BState; fresh::Bool = false)
     st.metakey = it.url
     st.meta = nothing
     st.checks = nothing
+    st.merge = nothing
     # `R` reads past the checks' own window, so it cannot join the ordinary
     # read of the same item - that is the read it was pressed to go past.
     st.metapending = fetching(string("meta ", it.url, fresh ? " fresh" : "")) do
         try
             # Listing sessions is a process, so it rides along with the fetch
             # that is already off the key loop rather than happening per frame.
+            # Whether it can be merged is asked here and nowhere else: the
+            # lanes do not fetch `mergeable`, since asking is what makes GitHub
+            # compute it and a page that asked took four times as long. One
+            # pull request, on the one occasion the answer is wanted. Only
+            # while it is open - a merged one has no merge left to be possible.
             (meta = Events.itemmeta(it.url, it.is_pr),
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = fresh ? 0.0 : 120.0) : nothing,
+             merge = it.is_pr && (isempty(it.state) || it.state == "OPEN") ?
+                 Events.merge_state(it.url; ttl = fresh ? 0.0 : 120.0) : nothing,
              sessions = mux_list())
         catch e
-            (meta = nothing, checks = nothing, sessions = String[],
+            (meta = nothing, checks = nothing, merge = nothing, sessions = String[],
              err = first(sprint(showerror, e), 120))
         finally
             st.wake === nothing || st.wake()
@@ -56,10 +64,11 @@ function collect_meta!(st::BState)
     r = try
         fetch(st.metapending)
     catch
-        (meta = nothing, checks = nothing)
+        (meta = nothing, checks = nothing, merge = nothing)
     end
     st.meta = r.meta
     st.checks = r.checks
+    st.merge = hasproperty(r, :merge) ? r.merge : nothing
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
     # A draft left on this pull request by an earlier session, which nothing
     # here would otherwise know about. This is also the only thing that ever
@@ -194,15 +203,17 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv("updated", when_str(it.updated))
     kv("milestone", string(it.milestone,
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
-    # Only while it is open. Once it is merged or closed there is no merge left
-    # to be possible, and a snapshot taken before the merge would otherwise go
-    # on saying "conflicting" about something that is over. The refresh drops
-    # the value at the same edge; this is the half that is right about a
-    # snapshot written before it did.
-    it.is_pr && (isempty(it.state) || it.state == "OPEN") &&
-        kv("mergeable", it.mergeable == "CONFLICTING" ?
-                        string(THEME.blocked, "conflicting", THEME.reset) :
-                        lowercase(it.mergeable))
+    # Fetched for this item when the cursor landed on it, and said the way the
+    # merge prompt says it - `merge_note` reads `mergeStateStatus`, which is
+    # finer than `mergeable`: behind, blocked, unstable. Loading until it has
+    # arrived, and nothing at all once the pull request is over.
+    if it.is_pr && (isempty(it.state) || it.state == "OPEN")
+        ms = st.metakey == it.url ? st.merge : nothing
+        kv("mergeable", ms === nothing ? (wait_ ? "loading…" : "") :
+                        ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
+                        string(THEME.blocked, merge_note(ms), THEME.reset) :
+                        merge_note(ms))
+    end
     isempty(it.secondlook) ||
         kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
     b = batch_of(st, it)

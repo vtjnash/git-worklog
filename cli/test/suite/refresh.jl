@@ -144,35 +144,36 @@ end
               W.astrip.(W.meta_lines(st, quiet, 60)))
 end
 
-@testset "mergeability is not carried past the merge" begin
-    # GitHub computes mergeability lazily and answers UNKNOWN until it has,
-    # which used to flap the needs-stacking lane and wake on-change snoozes -
-    # so the last known value is carried forward while the question still has
-    # an answer.
-    @test W.carried_mergeable("OPEN", "CONFLICTING") == "CONFLICTING"
-    @test W.carried_mergeable("OPEN", "MERGEABLE") == "MERGEABLE"
-    # A first sight has nothing to carry, and a second UNKNOWN is not an answer.
-    @test W.carried_mergeable("OPEN", nothing) === nothing
-    @test W.carried_mergeable("OPEN", "UNKNOWN") === nothing
-    # And once it is over the question has no answer: a merged pull request
-    # answers UNKNOWN for good, so carrying pinned "conflicting" onto something
-    # that had merged - julia#62396, merged and conflicting at the same time.
-    @test W.carried_mergeable("MERGED", "CONFLICTING") === nothing
-    @test W.carried_mergeable("CLOSED", "MERGEABLE") === nothing
-
-    # The pane is right about a snapshot written before the refresh caught up,
-    # which is the case the reader actually meets: the row is from this morning
-    # and the merge was this afternoon.
+@testset "mergeability is asked of one pull request, when it is looked at" begin
+    # `mergeable` is what GitHub computes lazily, and asking is what makes it
+    # compute: a lane page that named it took 20-33s on four runs in twelve
+    # and never left 5-8s without it. So no lane asks, no row carries it, and
+    # the pane asks `merge_state` for the one pull request under the cursor -
+    # the same call the merge prompt makes - and says it that prompt's way.
+    @test !occursin("mergeable", W.PR_FIELDS)
+    @test !occursin("mergeable", W.FIREHOSE_QUERY)
     st = mkstate()
     base = (url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b",
-            number = 1, title = "t", is_pr = true, mergeable = "CONFLICTING")
+            number = 1, title = "t", is_pr = true)
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
                               if occursin("mergeable", l)], " "))
-    @test occursin("conflicting", says(W.Item(; base..., state = "OPEN")))
+    ms(; kw...) = (; id = "x", oid = "o", state = "OPEN", draft = false,
+                     mergeable = "MERGEABLE", status = "CLEAN", base = "master",
+                     commits = 1, methods = String[], text = Dict{String,Tuple{String,String}}(),
+                     kw...)
+    # Nothing until it has been asked, and nothing once the pull request is
+    # over: a merged one has no merge left to be possible.
+    @test says(W.Item(; base..., state = "OPEN")) == ""
+    st.metakey = base.url; st.merge = ms()
+    @test says(W.Item(; base..., state = "OPEN")) == "mergeable clean"
+    st.merge = ms(; mergeable = "CONFLICTING", status = "DIRTY")
+    @test says(W.Item(; base..., state = "OPEN")) == "mergeable conflicts with master"
+    st.merge = ms(; status = "BEHIND")
+    @test says(W.Item(; base..., state = "OPEN")) == "mergeable behind master"
     @test says(W.Item(; base..., state = "MERGED")) == ""
     @test says(W.Item(; base..., state = "CLOSED")) == ""
-    # A snapshot old enough to carry no state at all still says what it knows.
-    @test occursin("conflicting", says(W.Item(; base...)))
+    # And what was fetched for one item is not said about another.
+    @test says(W.Item(; base..., url = "https://example.invalid/pr/2", state = "OPEN")) == ""
 end
 
 @testset "a settled thread is out of the way, not gone" begin
@@ -281,7 +282,7 @@ end
     now_ = W.ts("2026-09-12T11:00:00Z")
     rec(; kw...) = merge(Dict{String,Any}("track" => "normal",
                                          "review_decision" => "REVIEW_REQUIRED",
-                                         "review_count" => 2, "ci" => "SUCCESS",
+                                         "ci" => "SUCCESS",
                                          "head_at" => "2026-09-01T00:00:00Z",
                                          "their_comment_at" => "2026-09-01T00:00:00Z",
                                          "human_comment_at" => "2026-09-01T00:00:00Z",

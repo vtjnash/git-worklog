@@ -111,7 +111,7 @@ function sample_items()
                   number = 1, title = "a pull request with a reasonably long title",
                   bucket = "needs-review", author = "vtjnash", is_pr = true,
                   labels = ["bug", "domain:ci"], branch = "jn/topic",
-                  state = "OPEN", ci = "SUCCESS", mergeable = "MERGEABLE",
+                  state = "OPEN", ci = "SUCCESS",
                   act = "2026-09-01T12:00:00Z", milestone = "1.13"),
      Worklog.Item(url = "https://github.com/o/r/issues/2", ref = "r#2", repo = "o/r",
                   number = 2, title = "an issue", bucket = "issue",

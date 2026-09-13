@@ -1526,6 +1526,47 @@ whose wake is still to come, as before; and an expired wake stays in
 `local.toml` inert until the next `s` or `off` rewrites it - `seen_of` reads
 it as nothing once the read stamp passes it, so there is nothing to clean.
 
+### What the lanes ask for, reviewed against what reads it
+
+Done 2026-09-13, as one pass over `PR_FIELDS`, `ISSUE_FIELDS` and
+`FIREHOSE_QUERY` asking three things of every field: who reads it, is it slow
+to *compute* rather than to fetch, and is its window right.
+
+**Measured, not guessed.** Rate-limit cost was already flat at 4 a page, so
+the question was latency. Each connection was cut from `QUERY` in turn and the
+`mine` lane timed: `reviewThreads` (100 nodes a row), `reviews`, the timeline
+and `statusCheckRollup` are all within noise of 5-8s. `mergeable` is not: a
+page that named it took 20-33s on four runs in twelve, and a page that did
+not never left 5-8s in twenty-five. GitHub computes it lazily and asking is
+what schedules the computation - for every row on the page.
+
+**So `mergeable` is not fetched, anywhere.** Not in the lanes, not in the
+firehose, not on the row. `carried_mergeable` and the `needs-stacking` rule
+went with it, and `Item.mergeable`. It is asked of one pull request when the
+cursor lands on it - `load_meta!` calls `Events.merge_state`, the call the
+merge prompt already made, 120s cache - and the pane says it the prompt's
+way, `merge_note`, which reads `mergeStateStatus` and is finer than
+`mergeable`: behind, blocked, unstable, conflicts with master.
+
+**And `reviewRequests` is not fetched either.** The bool it produced had no
+reader once the request became a time; the pane lists who is asked from the
+REST head `itemmeta` already fetches. `review_count` went the same way.
+
+**The windows are right.** The three closed lanes are bounded by
+`closed:>{since:N}` - 21 days for your own, 14 for the reviewed and resolved
+ones - which is longer than any gap between refreshes and about as long as a
+finished thing is worth seeing in `done`. The open lanes are unbounded because
+open work is open work. The activity poll is a cursor, not a window: `since=`
+is the start of the last poll, so nothing ages out unread. The bulk lanes are
+unbounded and cached six-hourly, which is what the pile is for.
+
+**Kept, and why.** `reviewThreads(first: 100)` for `unresolved`, which buckets
+`needs-edits` and the pane prints; `reviews(last: 20)` for `review_at`,
+`approved_at` and your own last review; `reviewDecision` for the bucket and
+the pane; `statusCheckRollup` for `ci_failed`, measured free; the timeline
+for four keys at once. Each has a reader that is not the refresh talking to
+itself.
+
 ### The suite runs on a fixture now, and the real dashboard is one sweep
 
 Raised and built 2026-09-12, after `search.jl` errored on

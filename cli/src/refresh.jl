@@ -143,7 +143,6 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)
         rec["draft"] = n.isDraft
         rec["review_decision"] = jget(n, :reviewDecision)
-        rec["mergeable"] = jget(n, :mergeable)
         rec["head_at"] = jget(commit, :committedDate)
         # **Who put the head there**, which decides whether a push is news.
         # The committer and not the author: somebody rebasing your branch leaves
@@ -157,39 +156,23 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["ci"] = jget(roll, :state)
         rec["unresolved"] = light ? nothing :
                             count(t -> !t.isResolved && !t.isOutdated, threads)
-        rec["review_count"] = length(reviews)
-        # **Are you asked right now**, which is a state, and is not a key. It
-        # was, as true-or-absent-never-false, because being asked is somebody
-        # addressing you and until it was fetched a *re*-request - the only
-        # kind you can get on something you have already read - moved nothing
-        # at all: `reviewDecision` did not change, `review_count` did not
-        # change, and no comment is posted. The key is now the time below;
-        # this is what the change list reads to say which way it went.
+        # **When you were last asked.** Being asked is an event, and it used
+        # to be recorded as a bool without its time - so it had to be hashed,
+        # and hashed as true-or-absent so that the day it shipped did not read
+        # as every row moving. The timeline has the time: the newest
+        # `ReviewRequestedEvent` naming you, and as a stamp it compares against
+        # the read mark directly. Not the withdrawal: being let off is the end
+        # of a claim on your attention and not a claim on it, and it used to
+        # wake the item on the theory that `r` was waiting to hear it - decided
+        # otherwise on 2026-09-12.
         #
         # Only *you*. A request of somebody else is not news at either level -
         # on a stranger's pull request it is the churn `loose` exists to ignore,
         # and on your own it is not a thing to be told twice. A request of a
         # *team* you are in is invisible here and stays that way: `/user/teams`
         # is 403 for this token, so there is nothing to match the slug against.
-        #
-        # `requestedReviewer` is null for a reviewer that is neither a User nor
-        # a Team - a deleted account, or a type this selection does not spread.
-        # julia#62245 has one today, which is why the lookup goes through
-        # `jget` rather than a field access.
-        reqs = jget(jget(n, :reviewRequests), :nodes)
-        rec["review_requested"] =
-            (reqs !== nothing &&
-             any(rr -> jget(jget(rr, :requestedReviewer), :login) == login, reqs)) ?
-            true : nothing
-        # **When you were last asked.** Being asked is an event, and the bool
-        # above recorded one without its time - so it had to be hashed, and
-        # hashed as true-or-absent so that the day it shipped did not read as
-        # every row moving. The timeline has the time: the newest
-        # `ReviewRequestedEvent` naming you, and as a stamp it compares against
-        # the read mark directly. Not the withdrawal: being let off is the end
-        # of a claim on your attention and not a claim on it, and it used to
-        # wake the item on the theory that `r` was waiting to hear it - decided
-        # otherwise on 2026-09-12.
+        # And `requestedReviewer` is null for a deleted account - julia#62245
+        # has one - which `event_at` reads as naming nobody.
         #
         # `last: 50` of six event types together, at no rate-limit cost - a
         # page of the `review` lane is 4 with the connection and 4 without,
@@ -289,17 +272,14 @@ end
 # watching loosely is not a thing to review, but it is the item being active,
 # which is what you are watching it to know.
 #
-# **Two fetched facts are deliberately not keys: `mergeable` and `unresolved`.**
-# Mergeable is computed lazily and answers `UNKNOWN` on the first read of every
-# pull request - `carried_mergeable` exists to stop that flapping - so it is not
-# a value that can be trusted to have *changed*, and 671 of today's 2167 rows
-# are `CONFLICTING` because somebody else's base moved, which is not news
-# anybody asked for. Unresolved is a count of open review threads, and somebody
-# resolving one is not a thing to be told: what there was to resolve arrived as
-# a comment or a review, and moved `their_comment_at` or `review_at` on the day
-# it did. Both are still fetched - `needs-stacking` and `needs-edits` are
-# bucketed on them and the metadata pane prints both - and neither is a reason
-# to put an item back in front of you.
+# **One fetched fact is deliberately not a key: `unresolved`.** It is a count
+# of open review threads, and somebody resolving one is not a thing to be told:
+# what there was to resolve arrived as a comment or a review, and moved
+# `their_comment_at` or `review_at` on the day it did. It is still fetched -
+# `needs-edits` is bucketed on it and the metadata pane prints it - and it is
+# not a reason to put an item back in front of you. `mergeable` was the other,
+# and is not fetched at all any more: see `PR_FIELDS` for why, and
+# `Events.merge_state` for where it is asked instead.
 const TRACK_KEYS = Dict(
     "normal" => ("their_head", "their_comment_at", "review_at", "review_requested_at",
                  "assigned_at", "state_at", "ci_failed"),
@@ -587,7 +567,6 @@ function derive_bucket(r, st, cfg, at::DateTime)
             return ("stale", "quiet $(age)d, unclaimed")
         end
         "status: blocked by upstream" in L && return ("blocked", "labelled blocked by upstream")
-        get(r, "mergeable", nothing) == "CONFLICTING" && return ("needs-stacking", "merge conflict")
         get(r, "review_decision", nothing) == "CHANGES_REQUESTED" &&
             return ("needs-edits", "changes requested")
         truthy(get(r, "unresolved", nothing)) &&
@@ -723,26 +702,6 @@ function their_comment_at(r, old, login::AbstractString, key::AbstractString; hu
     truthy(at) || return carry
     (by == login || (human && endswith(something(by, ""), "[bot]"))) ? carry : String(at)
 end
-
-"""What `mergeable` should say when GitHub has answered `UNKNOWN`.
-
-GitHub computes mergeability lazily: the first read of a pull request returns
-`UNKNOWN` and only schedules the real computation. Treating that as fact flaps
-the needs-stacking lane between refreshes - so the last known value is carried
-forward until a real one arrives, and the read that got `UNKNOWN` has warmed it
-for the next refresh. It used to mark items moved too, and that is the half of
-this that `TRACK_KEYS` settled instead: a value this unreliable has no
-business deciding that something moved, so it is not a key at any level.
-
-**Except once it is over.** A merged or closed pull request answers `UNKNOWN`
-for good: there is no merge to be possible any more, so this is not a fact that
-has gone temporarily unknown, it is a question with no answer. Carrying the last
-value forward there pins whatever was true the day before the merge onto
-something that has merged - which is how julia#62396 came to be merged and
-"conflicting" at the same time.
-"""
-carried_mergeable(state, prev) =
-    (state in ("MERGED", "CLOSED") || prev == "UNKNOWN") ? nothing : prev
 
 """Is this a row nobody put in front of you - the pile?
 
@@ -1022,10 +981,6 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
     slept = String[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
-        if get(r, "mergeable", nothing) == "UNKNOWN"
-            r["mergeable"] = carried_mergeable(get(r, "state", nothing),
-                                               jget(jget(prev_items, Symbol(url)), :mergeable))
-        end
         old = jget(prev_items, Symbol(url))
         r["their_head"] = their_head(r, old, login)
         r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
@@ -1111,7 +1066,7 @@ function refresh(args::Vector{String} = String[], at::DateTime = utcnow())
                                  ("their_comment_at", "new comment"),
                                  ("review_at", "new review"),
                                  ("ci", "CI"), ("review_decision", "review"),
-                                 ("mergeable", "mergeable"), ("unresolved", "unresolved"))
+                                 ("unresolved", "unresolved"))
                     if jget(old, Symbol(f)) != get(r, f, nothing)
                         push!(d, f in ("their_head", "their_comment_at", "review_at") ? lab :
                                  "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")

@@ -293,7 +293,7 @@ end
     # an edge, and `moved_stamp` is what says so.
     @test all(k == "ci_failed" || haskey(W.TIMED_KEYS, k)
               for ks in values(W.TRACK_KEYS) for k in ks)
-    @test !any("review_decision" in ks || "review_count" in ks
+    @test !any("review_decision" in ks || "review_count" in ks || "mergeable" in ks
                for ks in values(W.TRACK_KEYS))
     # And what you said by hand wins over both.
     @test W.resolve_track(Dict{String,Any}("track" => "normal"), theirs) == "normal"

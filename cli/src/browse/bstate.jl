@@ -104,6 +104,10 @@ Base.@kwdef mutable struct BState <: View
                            # at rather than the one it would have had alone
     meta::Any = nothing    # Events.itemmeta result for `metakey`, or nothing
     checks::Any = nothing  # check_contexts result, or nothing
+    merge::Any = nothing   # Events.merge_state result, or nothing: asked for
+                           # one open pull request at a time, here, because
+                           # `mergeable` is what GitHub computes lazily and the
+                           # lanes do not ask for it - see `PR_FIELDS`
     metakey::String = ""
     # The pending review, if there is one, and which item it belongs to. Held
     # rather than asked for per frame, and kept after the cursor moves away -
