@@ -169,13 +169,18 @@ this file exists to avoid. A url that names nothing - deleted, or moved to a
 repository you cannot see - comes back null and is skipped rather than thrown,
 because one dead import must not cost the refresh the live ones.
 """
-function fetch_urls(urls)
+function fetch_urls(urls; per::Int = 40)
     us = String[]
     for u in urls
         c = item_url(u)
         c === nothing || push!(us, c)
     end
     isempty(us) && return Any[]
+    # A request per forty, not one for all: the carried rows can be many on
+    # the day something big closes, and a query naming two hundred resources
+    # with these selections is past what the endpoint will take in one body.
+    length(us) > per && return reduce(vcat, (fetch_urls(us[i:min(i + per - 1, end)]; per = per)
+                                             for i in 1:per:length(us)))
     parts = [string("  r", i, ": resource(url: ", json_dumps(u), ") {\n",
                     "    __typename\n    ... on PullRequest {", PR_FIELDS, "    }\n",
                     "    ... on Issue {", ISSUE_FIELDS, "    }\n  }\n")

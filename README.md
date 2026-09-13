@@ -84,6 +84,19 @@ answer. Deliberately narrow — plain `commented:` never qualifies, because in t
 repos where you are effectively the maintainer you touch nearly every PR, and
 that would put forty items a week in front of you.
 
+**And nothing ages out of being unread.** A row is an item because a lane
+returned it, and every fast lane is `is:open` — so the merge that takes a pull
+request out of the lanes would take it out of the snapshot too, before the
+refresh could see the merge, let alone tell you. A row that was in front of
+you and that no lane returns is fetched by url instead, goes through the same
+comparison, and is kept for as long as it is unread: a merge you never looked
+at stays a merge you never looked at, whether that is a day or a season. Read
+it or file it and it goes on the next refresh. The pile is the exception —
+a closed row leaving it is not news, and nobody was going to read it. The
+three closed lanes (`landed`, `reviewed`, `resolved`, bounded by `{since:N}`)
+are what is left of the old way: memory of what was finished *and read*, for
+the `done` box, for a couple of weeks.
+
 ## How closely you track an item
 
 `track` is what counts as this item having *moved* - which decides both whether

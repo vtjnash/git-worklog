@@ -328,6 +328,31 @@ end
     @test W.moved_stamp(was(asked), off, now_) == "2026-09-01T00:00:00Z"
 end
 
+@testset "nothing ages out of being unread" begin
+    # A row is an item because a lane returned it, and every active lane is
+    # `is:open` - so the merge that took it out of the lanes used to take it
+    # out of the snapshot, unread mark and all, once the closed lanes' window
+    # had passed. A row that was in front of you and that no lane returns is
+    # fetched by url and kept while it is unread; this is the keep.
+    r = Dict{String,Any}("moved_at" => "2026-09-12T20:53:03Z")
+    st(; kw...) = Dict{String,Any}(String(k) => v for (k, v) in kw)
+    @test W.still_unread(r, st())                                    # never read
+    @test W.still_unread(r, st(read = "2026-09-12T00:00:00Z"))       # read before it moved
+    @test !W.still_unread(r, st(read = "2026-09-12T20:53:03Z"))      # read up to the move
+    @test !W.still_unread(r, st(read = "2026-09-13T00:00:00Z"))
+    # Filed is dealt with, read or not.
+    @test !W.still_unread(r, st(archived = "2026-09-13T00:00:00Z"))
+    # And the pile is not in front of you: a closed row leaving it is not
+    # carried, or a thousand pull requests nobody will read would be fetched
+    # by url on every refresh for good.
+    @test W.in_pile(Dict{String,Any}("bucket" => "firehose"))
+    @test !W.in_pile(Dict{String,Any}("bucket" => "done"))
+    # Exercised live on 2026-09-13 with julia#61767, merged by somebody else
+    # in May and returned by no lane: carried, seen merged, `moved_at` dated
+    # by the merge, kept as unread through two refreshes, and let go on the
+    # one after `wl read`.
+end
+
 @testset "a movement is dated by the thing that moved" begin
     # The refresh clock is the honest answer for a state with no clock of its
     # own and the wrong one for a comment: `r` stamps you read at the moment the

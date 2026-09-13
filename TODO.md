@@ -1526,6 +1526,30 @@ whose wake is still to come, as before; and an expired wake stays in
 `local.toml` inert until the next `s` or `off` rewrites it - `seen_of` reads
 it as nothing once the read stamp passes it, so there is nothing to clean.
 
+### Nothing ages out of being unread
+
+Done 2026-09-13, from one question - "what are the closed lanes keeping a
+finished item visible *to*?" - whose answer was: to the row's own existence.
+Every fast lane is `is:open`; the refresh rebuilds `items` from the lanes; a
+row no lane returns was dropped before the old and new could be compared,
+before `state_at` could date the merge, before `seen_of` could call it
+unread. The closed lanes caught it for 21 or 14 days, and past that an unread
+merge left silently, mark and all.
+
+**Now:** a row that was in front of you - not in the pile - and that no lane
+returns is fetched by url (`fetch_urls`, the imports' request, chunked at
+forty) with its old lane, goes through the loop like any other row, and is
+kept while `still_unread` - the read stamp against `moved_at`, and not filed.
+Read it, or `x` it, and it goes on the next refresh, logged as "read, and no
+lane returns it". A mention that goes quiet past `reply_days` re-buckets to
+the pile and leaves on its own. Exercised live with julia#61767: merged by
+somebody else in May, returned by no lane, carried and dated by the merge,
+kept through two refreshes, gone on the one after `wl read`.
+
+The closed lanes stay, as memory of what was finished *and read* for the
+`done` box; `config.toml` says so now. Whether they earn their 12 points a
+refresh for that is a question for another day.
+
 ### Whose clock a stamp is on
 
 Done 2026-09-13. The poll's cursor was `stamp(at)` with `at` the machine's

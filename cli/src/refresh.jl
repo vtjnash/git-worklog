@@ -703,6 +703,19 @@ function their_comment_at(r, old, login::AbstractString, key::AbstractString; hu
     (by == login || (human && endswith(something(by, ""), "[bot]"))) ? carry : String(at)
 end
 
+"""Does a row no lane returns still have a claim on you: unread, and not filed?
+
+`seen_of`'s rule, asked by the refresh of a row it fetched by url: the read
+stamp against `moved_at`, no stamp being unread. Filed is read that the
+`filed` box holds - it has been dealt with, and a lane not returning it is not
+a reason to keep fetching it.
+"""
+function still_unread(r, st)
+    truthy(get(st, "archived", nothing)) && return false
+    read_ = get(st, "read", nothing)
+    !truthy(read_) || String(read_) < String(nz(get(r, "moved_at", nothing), ""))
+end
+
 """Is this a row nobody put in front of you - the pile?
 
 The discovery sweep and the mention corpus, plus anything you pushed to the
@@ -983,6 +996,49 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         @printf(stderr, "  %-16s %4d new (%s)\n", lane, kept, how)
     end
 
+    # **Nothing ages out of being unread.** A row is an item because a lane
+    # returned it, and every active lane is `is:open`: the moment somebody
+    # merges your pull request it stops being returned, and until 2026-09-13
+    # that was the last anyone heard of it - dropped from the snapshot before
+    # the refresh could compare it to the old row, before `state_at` could
+    # date the merge, before `seen_of` could call it unread. The closed lanes
+    # caught it for a window, and past the window an unread merge left the
+    # dashboard silently, mark and all.
+    #
+    # So a row that was in front of you and that no lane returns is **fetched
+    # by url** - the same one request the imports make - and goes through the
+    # loop below like any other. If it moved, it is unread and stays; if it is
+    # read, or archived, it is let go at the foot of the loop. What was in
+    # front of you is what was not in the pile: the pile is a thousand rows
+    # nobody has read and never will, and a closed one leaving it is not news.
+    # A row kept this way keeps its lane, so the bucket rule still runs on it
+    # and a mention that goes quiet past `reply_days` returns to the pile and
+    # leaves on its own.
+    carried = String[]
+    for (k, old) in pairs(prev_items)
+        url = String(k)
+        (haskey(items, url) || in_pile(old)) && continue
+        push!(carried, url)
+    end
+    if !isempty(carried)
+        kept = 0
+        for n in try
+                    fetch_urls(carried)
+                 catch e
+                    @printf(stderr, "  %-9s failed: %s\n", "carried",
+                            first(sprint(showerror, e), 120))
+                    Any[]
+                 end
+            u = String(n.url)
+            old = jget(prev_items, Symbol(u))
+            items[u] = normalize(n, String(nz(jget(old, :lane), "carried")), login)
+            kept += 1
+        end
+        @printf(stderr, "  %-9s %3d items no lane returns, unread or moved (of %d)\n",
+                "carried", kept, length(carried))
+    end
+    carried = Set(carried)
+
     # Bucket, then tracking level, then the wake table at that level. Order
     # matters: the level decides which keys `moved_stamp` compares.
     changes = Any[]
@@ -1084,11 +1140,19 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             end
         end
     end
+    # A carried row that is read - up to its latest movement, this run's
+    # included - or filed has nothing left to say, and goes. One that is
+    # unread stays, however long that takes.
+    for url in carried
+        haskey(items, url) || continue
+        still_unread(items[url], get(state, url, Dict{String,Any}())) || delete!(items, url)
+    end
     gone = Tuple{String,String}[]
     for (k, old) in pairs(prev_items)
         url = String(k)
         if !haskey(items, url)
-            push!(changes, (url, old, "closed or merged"))
+            push!(changes, (url, old, url in carried ? "read, and no lane returns it" :
+                                                       "closed or merged"))
             push!(gone, (url, String(nz(jget(old, :ref), url))))
         end
     end

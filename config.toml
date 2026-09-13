@@ -36,12 +36,14 @@ second_look_days = 2
 mine     = "is:open is:pr author:vtjnash archived:false"
 review   = "is:open is:pr review-requested:vtjnash archived:false"
 assigned = "is:open is:issue assignee:vtjnash archived:false"
-# Recently finished. Without these a pull request that merged between two
-# refreshes is never seen at all: every lane above is `is:open`, so it simply
-# stops being returned and the merge goes unnoticed. `{since:N}` is the date N
-# days before the run, so these stay bounded - unbounded they are every pull
-# request you have ever had. They land in the `done` bucket, where `x` files
-# them away.
+# Recently finished, read ones included. Every lane above is `is:open`, so a
+# pull request that merges stops being returned; a row that was in front of
+# you and that no lane returns is fetched by url anyway and kept while it is
+# unread - nothing ages out of being unread - so the merge is seen and stays
+# seen without these. What these add is memory of what was *read*: a finished
+# thing stays in the `done` box for the window, where `x` files it away.
+# `{since:N}` is the date N days before the run, so they stay bounded -
+# unbounded they are every pull request you have ever had.
 landed   = "is:pr author:vtjnash is:closed closed:>{since:21} archived:false"
 reviewed = "is:pr review-requested:vtjnash is:closed closed:>{since:14} archived:false"
 resolved = "is:issue assignee:vtjnash is:closed closed:>{since:14} archived:false"
