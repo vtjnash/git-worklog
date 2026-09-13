@@ -4,10 +4,10 @@
 
 Two things are open, and both are ideas to design rather than tasks to pick
 up: the inline comment box, and what GraphQL is still for now that
-`/notifications` is polled (item 4). The mapping that stood between them - what the notifications API covers, against
-what the searches emulate - was made 2026-09-13, measured the same afternoon,
-and the lane it argued for is **built**; see item 3 for what a live poll has
-still to confirm. The deletion that
+`/notifications` is polled (item 4). The mapping that stood between them -
+what the notifications API covers, against what the searches emulate - was
+made 2026-09-13, measured the same afternoon, and the lane it argued for is
+**built** and polled live; see item 3. The deletion that
 stood beside the first - read, snooze and archive as one rule - is **done**;
 see "Read, snooze and archive are one rule" under Outstanding work.
 The state axis that stood at the head of this list is **built**, and so is
