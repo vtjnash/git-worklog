@@ -1020,9 +1020,10 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
-    t0 = time()
     # When a row was fetched, as GitHub's time: `at` plus how long this
-    # machine has been running since it asked for `at`. Stamped per fetch
+    # machine has been running since it asked for `at` - `t0` taken after
+    # `at` came back, not before it was asked, or the stamp would run ahead
+    # of GitHub by that request's round trip. Stamped per fetch
     # and not once for the run, since the lanes take fifteen seconds and a
     # bundle the browser fetched in that window is *newer* than the lanes'
     # row for the same url, and would otherwise lose the overlay to it - and
@@ -1039,6 +1040,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # a `Date` header, and not the local clock plus a correction. One request,
     # free of the rate limit. A test hands in its own.
     at === nothing && (at = Events.server_now())
+    t0 = time()
     state = load_state()
     # What the last run left, to diff this one against. Read once and held: the
     # parts of the file this run writes - the poll's inbox, the items

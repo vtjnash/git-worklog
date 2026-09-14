@@ -172,7 +172,7 @@ function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), au
     catch e
         throw(ApiError(first(sprint(showerror, e), 200)))
     end
-    elapsed = time() - t0
+    elapsed = max(0.0, time() - t0)        # a clock stepped back mid-request
     v = GitHub.JSON.parse(GitHub.http_payload(r, String))
     d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
     started = d === nothing ? nothing :
@@ -255,10 +255,13 @@ that makes no progress - every row on it in the floor's own second - is
 drained by offset from that floor, page two on, until a row past the second
 appears, and the walk goes on from there. That drain is the one place an
 offset is still walked, and it has the offset's hole in miniature: a row of
-that second updated *while its second is being paged* shifts the rows after
-it up one. It takes a hundred rows touched in one second and one of them
-touched again within the second the drain takes, and what it loses is one
-movement on one row, which the next movement on it recovers.
+that second updated *while its second is being paged* leaves it - and is read
+again at the end, past the floor - but the rows after it shift up one, and
+the row that crosses the page boundary is not read. It takes a hundred rows
+touched in one second and one of them touched again within the second the
+drain takes; the row lost is the one that did *not* move, and it is seen
+again only if it moves again, or if its second is still inside the next
+poll's overlap.
 
 The spurious empty first page `api_paged` retries is retried here too.
 """
@@ -290,6 +293,17 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
     end
     floor_ = String(since)
     pages = 0
+    # A walk that runs out of pages has seen everything up to its floor and
+    # nothing past it - in ascending order the floor is the newest stamp read
+    # - so the bound it answers with is the floor and not the walk's start:
+    # a cursor at the start would step past every unread row beyond the cut,
+    # for good. Until 2026-09-14 the cursor was the newest row seen, which
+    # resumed a cut walk by construction; this keeps that for the cut case.
+    cut!() = begin
+        f = ts(floor_)
+        f === nothing || (started[] = started[] === nothing ? f : min(started[], f))
+        out
+    end
     while pages < max_pages
         rows = ask(floor_, 1)
         pages += 1
@@ -305,7 +319,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
             end
         end
         last_ = take!(rows)
-        length(rows) < per_page && break
+        length(rows) < per_page && return out
         if last_ <= floor_
             # The whole page is the floor's own second: page on from it by
             # offset until a row past that second appears.
@@ -317,11 +331,12 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
                 (length(rows) < per_page || last_ > floor_) && break
                 n += 1
             end
-            length(rows) < per_page && break
+            length(rows) < per_page && return out
+            last_ > floor_ || return cut!()
         end
         floor_ = last_
     end
-    out
+    cut!()
 end
 
 """One page of one issue search: the items and the total. Returns

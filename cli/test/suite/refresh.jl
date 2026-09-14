@@ -563,10 +563,24 @@ end
     # After that, keyset: each ask is `>=` the last row read, first page only.
     later = [q for q in asked if occursin("created:>=", q)]
     @test !isempty(later) && all(q -> occursin("created:>=2026-09-01T00:00:", q), later)
-    # And a lane without the sort walks by offset, as before.
+    # And a lane without the sort walks by offset, as before - as does one
+    # with a `created:` qualifier of its own, which GitHub would OR with the
+    # floor's, so the floor could never narrow it and the walk never end.
     empty!(asked)
     nodes, _, total = W.search("is:open is:issue x"; run = fake)
     @test length(nodes) == 130 && all(q -> q == "is:open is:issue x", asked)
+    empty!(asked)
+    q2 = "is:open is:issue x created:>2020-01-01 sort:created-asc"
+    nodes, _, _ = W.search(q2; run = fake)
+    @test length(nodes) == 130 && all(q -> q == q2, asked)
+    # A page of nothing usable ends the walk with what it has, on a budget.
+    empty!(asked)
+    nulls(args, body) = (0, W.json_dumps(Dict("data" => Dict(
+        "rateLimit" => Dict("cost" => 1),
+        "search" => Dict("issueCount" => 5, "nodes" => [nothing, nothing],
+                         "pageInfo" => Dict("hasNextPage" => true, "endCursor" => "2"))))), "")
+    nodes, _, _ = W.search("is:open is:issue x sort:created-asc"; run = nulls)
+    @test isempty(nodes) && length(asked) <= 3
 end
 
 @testset "a window is walked by stamp, and a row that moves mid-walk is read again, not skipped" begin
@@ -607,6 +621,21 @@ end
         (page(floor_, k), W.DateTime(2026, 9, 1, 0, 0, n[]))
     end
     @test st[] == W.DateTime(2026, 9, 1, 0, 0, 1)
+    # A walk that runs out of pages answers with its floor, not its start: the
+    # rows past the cut are unread, and a cursor at the start would step past
+    # them for good. Two pages here: the tie second, and the page after it.
+    st = Ref{Any}(W.DateTime(2026, 9, 2))
+    rows = W.Events.walk_updated("2026-09-01T00:00:00Z"; started = st, max_pages = 2) do floor_, k
+        (page(floor_, k), W.DateTime(2026, 9, 2))
+    end
+    @test length(rows) == 199                           # row 5 is at the end now
+    @test st[] == W.DateTime(2026, 9, 1, 0, 1, 40)     # the newest stamp read
+    # And one that ends on a short page keeps the start it was given.
+    st = Ref{Any}(nothing)
+    W.Events.walk_updated("2026-09-01T00:00:00Z"; started = st) do floor_, k
+        (page(floor_, k), W.DateTime(2026, 9, 2))
+    end
+    @test st[] == W.DateTime(2026, 9, 2)
 end
 
 @testset "work that has gone quiet on somebody" begin

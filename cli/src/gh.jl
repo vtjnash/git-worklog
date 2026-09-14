@@ -310,7 +310,12 @@ loop that can stall: the window is drained page by page until it has no
 next page, and the floor moves past it.
 
 A query without `sort:created-asc` walks by `after:` as before, with the
-caveat above.
+caveat above - and so does one that carries a `created:` qualifier of its
+own, because GitHub **ors** two qualifiers on one field: `q created:>=X`
+would then be `q`'s whole set again, the floor would never narrow it, and
+the walk would never end. Every loop below has a page budget besides, so a
+page of nothing - null nodes, or empty with a next page - ends the walk
+with what it has rather than asking again forever.
 """
 function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUERY,
                 run = gh_run)
@@ -318,9 +323,12 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
     seen = Set{String}()
     spent = 0
     total = 0
-    keyset = occursin("sort:created-asc", q)
+    keyset = occursin("sort:created-asc", q) && !occursin("created:", q)
+    budget = cap ÷ 50 + 8               # requests, all loops together
+    spent_pages = 0
     # One page of `ask` after `cursor`: the retry loop, the errors, the cost.
     function page(ask, cursor)
+        spent_pages += 1
         body = json_dumps(["query" => query,
                            "variables" => ["q" => ask, "cursor" => cursor]])
         local stdout_
@@ -366,7 +374,7 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         end
         last_
     end
-    done() = length(out) >= cap
+    done() = length(out) >= cap || spent_pages >= budget
     cut() = (out[1:min(cap, length(out))], spent, total)
 
     if !keyset
@@ -386,7 +394,8 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         last_ = take!(s)
         isempty(floor_) && (total = s.issueCount)
         (!s.pageInfo.hasNextPage || done()) && return cut()
-        if last_ == floor_ || isempty(last_)
+        isempty(last_) && return cut()       # nothing on it to cut by
+        if last_ == floor_
             # The whole page is the floor's own second: drain it by offset.
             cursor = nothing
             while true
