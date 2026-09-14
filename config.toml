@@ -54,9 +54,19 @@ second_look_days = 2
 # julia pull request - two thousand rows fetched every six hours so the ones
 # that moved could be noticed. A row you want that nothing here returns is `i`:
 # an import, fetched by url from then on.
-mine     = "is:open is:pr author:vtjnash archived:false"
-review   = "is:open is:pr review-requested:vtjnash archived:false"
-assigned = "is:open is:issue assignee:vtjnash archived:false"
+#
+# `sort:updated-asc` on each, for the same reason the REST walks in
+# `events.jl` are ascending: the pages are read one after another, and in
+# ascending order an item touched mid-walk moves toward the *end* - a page
+# boundary can only repeat it, never skip past it. The default order is best
+# match, which is roughly newest first and not even sorted, and an offset
+# cursor over a list that reshuffles under it is how rows go missing for a
+# run. (An item that *closes* mid-walk still leaves the `is:open` set from
+# ahead, and one row can slip a boundary; it is kept as it was in the corpus
+# and re-asked when a clock says, so the cost is one refresh of freshness.)
+mine     = "is:open is:pr author:vtjnash archived:false sort:updated-asc"
+review   = "is:open is:pr review-requested:vtjnash archived:false sort:updated-asc"
+assigned = "is:open is:issue assignee:vtjnash archived:false sort:updated-asc"
 
 # Named filter sets for `'` in the browser. Ten are built in - notification
 # firehose, my work, open items, waiting on me, waiting on them, ready to merge,
