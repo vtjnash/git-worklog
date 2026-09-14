@@ -512,6 +512,55 @@ end
     end
 end
 
+@testset "a lane is walked by creation time, and a second with a page in it is drained" begin
+    # A fake GitHub: 130 open issues, 50 of them created in one second, the
+    # rest one a second, answering the query the way search does - sorted by
+    # creation, `created:` qualifiers honoured, fifty a page by offset.
+    stamp_(i) = "2026-09-01T00:00:" * lpad(string(i), 2, '0') * "Z"
+    made = vcat([stamp_(0) for _ in 1:50], [stamp_(i) for i in 1:80])   # 130 rows
+    urls = ["https://github.com/o/r/issues/$i" for i in 1:130]
+    asked = String[]
+    function fake(args, body)
+        d = W.JSON3.read(body)
+        q = String(d.variables.q)
+        push!(asked, q)
+        cursor = d.variables.cursor
+        off = cursor === nothing ? 0 : parse(Int, String(cursor))
+        ge = match(r"created:>=(\S+)", q); gt = match(r"created:>(\S+)", q)
+        rg = match(r"created:(\S+)\.\.(\S+)", q)
+        keep = [i for i in 1:130 if
+                (ge === nothing || made[i] >= ge[1]) &&
+                (gt === nothing || ge !== nothing || made[i] > gt[1]) &&
+                (rg === nothing || (made[i] >= rg[1] && made[i] <= rg[2]))]
+        pg = keep[off+1:min(off+50, end)]
+        nodes = [Dict("__typename" => "Issue", "url" => urls[i], "createdAt" => made[i],
+                      "number" => i) for i in pg]
+        (0, W.json_dumps(Dict("data" => Dict(
+            "rateLimit" => Dict("cost" => 1),
+            "search" => Dict("issueCount" => length(keep), "nodes" => nodes,
+                             "pageInfo" => Dict("hasNextPage" => off + 50 < length(keep),
+                                                "endCursor" => string(off + 50)))))), "")
+    end
+    nodes, pts, total = W.search("is:open is:issue x sort:created-asc"; run = fake)
+    @test total == 130 && length(nodes) == 130
+    @test sort(String[n.url for n in nodes]) == sort(urls)      # every row, once
+    # Page one is the bare query; the whole first page was one second, which
+    # the `>=X` ask after it shows by answering the same page - once, never
+    # twice - so that second was drained by offset (`X..X`) and the walk went
+    # on from `>X`.
+    @test asked[1] == "is:open is:issue x sort:created-asc"
+    @test count(q -> endswith(q, "created:>=2026-09-01T00:00:00Z"), asked) == 1
+    @test count(q -> occursin("created:2026-09-01T00:00:00Z..2026-09-01T00:00:00Z", q), asked) == 1
+    @test count(q -> endswith(q, "created:>2026-09-01T00:00:00Z"), asked) == 1
+    # After that, keyset: each ask is `>=` the last row read, first page only.
+    later = [q for q in asked if occursin("created:>=", q)]
+    @test !isempty(later) && all(q -> occursin("created:>=2026-09-01T00:00:", q), later)
+    # And a lane without the sort walks by offset, as before.
+    empty!(asked)
+    nodes, _, total = W.search("is:open is:issue x"; run = fake)
+    @test length(nodes) == 130 && all(q -> q == "is:open is:issue x", asked)
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

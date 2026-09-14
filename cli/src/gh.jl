@@ -298,34 +298,37 @@ request is the *first* page of `q created:>=<created of the last row read>`,
 ordered `sort:created-asc`, and the boundary is a stamp this walk holds, not
 a place in a list the set can shift under. A close between two requests
 cannot move it; a reopen behind it is next run's, as it always was. The ask
-is `>=` so a tie on the second is never stepped past, the last row repeats
-and is dropped by url; a page that makes no progress at all - fifty rows in
-one second - steps with `>` once, which is the one way a row could still be
-missed and has not been seen.
+is `>=` so a tie on the second is never stepped past, and the repeat is
+dropped by url.
+
+**A whole page inside one second** - fifty pull requests a script opened at
+once - is the one place `>=` cannot advance: the next ask would return the
+same page. That second is a bounded set, so it is drained by offset within
+the exact-second window, `created:X..X`, where a close can at worst shift a
+row of that second, and the walk then continues from `created:>X`. Not a
+loop that can stall: the window is drained page by page until it has no
+next page, and the floor moves past it.
 
 A query without `sort:created-asc` walks by `after:` as before, with the
 caveat above.
 """
-function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUERY)
+function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUERY,
+                run = gh_run)
     out = Any[]
     seen = Set{String}()
-    cursor = nothing
-    keyset = occursin("sort:created-asc", q)
-    floor_, strict = "", false
     spent = 0
     total = 0
-    while true
-        ask = !keyset || isempty(floor_) ? q :
-              string(q, " created:", strict ? ">" : ">=", floor_)
+    keyset = occursin("sort:created-asc", q)
+    # One page of `ask` after `cursor`: the retry loop, the errors, the cost.
+    function page(ask, cursor)
         body = json_dumps(["query" => query,
                            "variables" => ["q" => ask, "cursor" => cursor]])
         local stdout_
-        # Long paginations (the firehose is ~10 sequential pages) reliably hit
-        # transient 5xx from the GraphQL endpoint, and a whole refresh is enough
-        # requests in a burst to be told so. Retry the page rather than losing
-        # the refresh.
+        # Long paginations reliably hit transient 5xx from the GraphQL
+        # endpoint, and a whole refresh is enough requests in a burst to be
+        # told so. Retry the page rather than losing the refresh.
         for attempt in 0:6
-            rc, o, e = gh_run(["api", "graphql", "--input", "-"], body)
+            rc, o, e = run(["api", "graphql", "--input", "-"], body)
             if rc == 0
                 stdout_ = o
                 break
@@ -334,21 +337,23 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
             wait_ = attempt == 6 ? nothing : retry_wait(err, attempt)
             wait_ === nothing &&
                 throw(FetchError("GraphQL failed for $(repr(q)): $err"))
-            # Said before the wait and not after it. On the 5xx schedule that is
-            # a nicety; on the other one the wait is minutes, and a refresh that
-            # goes silent for four of them looks wedged.
+            # Said before the wait and not after it. On the 5xx schedule that
+            # is a nicety; on the other one the wait is minutes, and a refresh
+            # that goes silent for four of them looks wedged.
             @printf(stderr, "    retry %d in %ds after: %s\n",
                     attempt + 1, round(Int, wait_), strip(err))
             sleep(wait_)
         end
         d = JSON3.read(stdout_)
-        if haskey(d, :errors)
+        haskey(d, :errors) &&
             throw(FetchError("GraphQL errors for $(repr(q)): " *
                              first(json_dumps(d.errors), 2000)))
-        end
         spent += d.data.rateLimit.cost
-        s = d.data.search
-        added, last_ = 0, ""
+        d.data.search
+    end
+    # Collect a page's rows; the newest `createdAt` on it, seen or not.
+    function take!(s)
+        last_ = ""
         for n in s.nodes
             # A stub with no `url` is the Issue-against-a-PR-only-fragment case
             # above; it carries nothing usable, so drop it rather than
@@ -358,21 +363,42 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
             String(n.url) in seen && continue
             push!(seen, String(n.url))
             push!(out, n)
-            added += 1
         end
-        (cursor === nothing && isempty(floor_)) && (total = s.issueCount)
-        if !s.pageInfo.hasNextPage || length(out) >= cap
-            return (out[1:min(cap, length(out))], spent, total)
-        end
-        if keyset
-            # No progress: every row on the page was the floor's own second.
-            # Step past it with `>` once; otherwise the floor is the newest
-            # row read and the next page is asked from there.
-            strict = added == 0 || last_ == floor_
-            floor_ = isempty(last_) ? floor_ : last_
-            strict && isempty(last_) && return (out, spent, total)
-        else
+        last_
+    end
+    done() = length(out) >= cap
+    cut() = (out[1:min(cap, length(out))], spent, total)
+
+    if !keyset
+        cursor = nothing
+        while true
+            s = page(q, cursor)
+            take!(s)
+            cursor === nothing && (total = s.issueCount)
+            (!s.pageInfo.hasNextPage || done()) && return cut()
             cursor = String(s.pageInfo.endCursor)
+        end
+    end
+    floor_, strict = "", false
+    while true
+        ask = isempty(floor_) ? q : string(q, " created:", strict ? ">" : ">=", floor_)
+        s = page(ask, nothing)
+        last_ = take!(s)
+        isempty(floor_) && (total = s.issueCount)
+        (!s.pageInfo.hasNextPage || done()) && return cut()
+        if last_ == floor_ || isempty(last_)
+            # The whole page is the floor's own second: drain it by offset.
+            cursor = nothing
+            while true
+                t = page(string(q, " created:", floor_, "..", floor_), cursor)
+                take!(t)
+                (!t.pageInfo.hasNextPage || done()) && break
+                cursor = String(t.pageInfo.endCursor)
+            end
+            done() && return cut()
+            strict = true
+        else
+            floor_, strict = last_, false
         end
     end
 end
