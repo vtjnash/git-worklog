@@ -983,33 +983,43 @@ function thread_facts!(r, inbox_row, old = nothing)
 end
 
 """
-    stale_by(inbox_row, old) -> bool
+    stale_by(inbox_row, old, read) -> bool
 
-Has a clock seen this row move since its bundle was fetched? The inbox row's
-`updated` is GitHub's time for the newest thing the poll or the notifications
-source saw; `fetched_at` is GitHub's time for when the bundle was asked. Both
-GitHub's, so they compare - where the row's own `updated` does not: a thread's
-`updated_at` is the *delivery* time, 2 to 46 seconds after the subject's
-`updatedAt` for the same event, and comparing the two read 35 unmoved rows as
-moved. A row from before there was a `fetched_at` is stale, once.
+Has anything seen this row move since its bundle was fetched? Two witnesses.
+The inbox row's `updated` is GitHub's time for the newest thing the poll or
+the notifications source saw; `fetched_at` is GitHub's time for when the
+bundle was asked. Both GitHub's, so they compare - where the row's own
+`updated` does not: a thread's `updated_at` is the *delivery* time, 2 to 46
+seconds after the subject's `updatedAt` for the same event, and comparing the
+two read 35 unmoved rows as moved. And the **read stamp**, `read`: `r` on a
+row in the list writes it up to the newest movement the list knew of, which
+for a light row is the inbox's clock - and the poll then drops the inbox row
+as read, so the clock's evidence would be gone with it and the corpus row
+kept with the comment it does not have until the next one. A read stamp past
+the bundle is that evidence, kept. A row from before there was a `fetched_at`
+is stale, once.
 """
-function stale_by(inbox_row, old)
-    inbox_row === nothing && return false
+function stale_by(inbox_row, old, read = nothing)
     f = jget(old, :fetched_at)
     truthy(f) || return true
-    String(nz(get(inbox_row, "updated", nothing), "")) > String(f)
+    inbox_row !== nothing &&
+        String(nz(get(inbox_row, "updated", nothing), "")) > String(f) && return true
+    truthy(read) && String(read) > String(f)
 end
 
-"""Is there a clock over this url at all? The repo poll covers the repositories
-named in `[events] repos` and the owners globbed there; the notifications
-source covers everything that names you, when it is running (`watched`).
-A carried row under neither - your pull request in a repository nobody polls,
-on a machine whose token cannot read notifications - has nothing to say when
-it moves, so while it is open and in front of you it is asked by url every
-run, the way every carried row was before the clocks; once it is over, or if
-it is the pile, nothing about it is waited for."""
-function covered(url::AbstractString, cfge, watched::Bool)
-    watched && return true
+"""Is there a clock over this url? The repo poll covers the repositories named
+in `[events] repos` and the owners globbed there, and it sees every change
+that moves `updated_at`. The notifications source is *not* a clock in that
+sense, and until 2026-09-14 counted as one: it fires for participation - a
+comment, a review, a request, a close - and not for a push, your own reply
+from github.com, an unassignment, a draft toggle or a label, each of which
+moves a row's facts and the wake table reads (`their_head` is a key at both
+levels). So a carried row outside the polled repositories has no clock over
+the kinds of change that matter most, and while it is open and in front of
+you - not over, not the pile - it is asked by url every run, the way every
+carried row was before the clocks. The set is the open carried rows, a
+handful, and forty of them are one request."""
+function covered(url::AbstractString, cfge)
     repo = join(split(String(url), '/')[4:5], '/')
     explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
     repo in explicit || first(split(repo, '/')) in owners
@@ -1134,7 +1144,6 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # and the prune letting it go. The rows of the nine retired lanes stay
     # too, as they were; `in_pile` knows their names.
     inbox = Dict{String,Any}(String(e["url"]) => e for e in unread(cfg, login, at))
-    watched = Events.notifications_live()
     # A lane row carries the thread's reason too, when there is one: a mention
     # on your own pull request is a mention, and the `reply` tag reads it.
     # Off the row it replaces when the inbox has no thread for it any more.
@@ -1149,8 +1158,9 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         old = prev(url)
         lane = String(nz(jget(old, :lane), "carried"))
         push!(carried, url)
-        if stale_by(get(inbox, url, nothing), old) ||
-           (!covered(url, cfge, watched) && !isover(old) && !in_pile(old))
+        if stale_by(get(inbox, url, nothing), old,
+                    get(get(state, url, Dict{String,Any}()), "read", nothing)) ||
+           (!covered(url, cfge) && !isover(old) && !in_pile(old))
             ask[url] = lane
         else
             items[url] = kept_row(old)
@@ -1163,6 +1173,30 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         ask[url] = String(nz(get(e, "lane", nothing), "notifications"))
         brought += 1
     end
+    # **A mark is proof it was in front of you.** A watched repository's
+    # thread stays a light row in the inbox until it is looked at - and the
+    # inbox drops a row once it is read, so a light row you opened, or
+    # pressed `r` or `s` or `x` on, would leave every box with nothing in
+    # the corpus to remember it by. Any url with a block in `local.toml`
+    # that the corpus does not have joins it: off the bundle the browser
+    # cached when you looked, kept as it is, or - marked without a look,
+    # `r` from the list - asked by url like a thread that names you.
+    promoted = 0
+    for url in keys(state)
+        startswith(url, "https://") || continue
+        (haskey(items, url) || haskey(ask, url)) && continue
+        b = bundle_of(url)
+        if b !== nothing
+            items[url] = kept_row(b)
+            push!(carried, url)
+            promoted += 1
+        elseif haskey(inbox, url)
+            ask[url] = String(nz(get(inbox[url], "lane", nothing), "activity"))
+            promoted += 1
+        end
+    end
+    promoted == 0 || @printf(stderr, "  %-9s %3d light rows marked or looked at, kept from here\n",
+                             "promoted", promoted)
     gone = Tuple{String,String}[]
     renamed = Dict{String,String}()           # new url => the one asked
     if !isempty(ask)

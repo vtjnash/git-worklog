@@ -612,17 +612,6 @@ the repository being watched. Shared with the refresh, whose `involved` is
 this: what is brought into the corpus with its bundle on first sight."""
 involved_reason(reason) = !(reason in (nothing, "", "subscribed"))
 
-"""Is the notifications source actually answering - not "is there a token",
-which a revoked `gho_` still is, but polled at least once and not failed
-since? What the refresh reads to decide whether a carried row outside the
-polled repositories has any clock over it at all; a token that answers 401
-every poll would otherwise leave every such row frozen, silently."""
-function notifications_live()
-    pat() === nothing && return false
-    inbox = load_inbox()
-    haskey(inbox["polled"], "notifications") && !haskey(inbox["failed"], "notifications")
-end
-
 """How far behind its cursor each kind of source is asked from; see `sync!`.
 
 Five minutes for REST since 2026-09-14, from one: the cursor became the
@@ -827,9 +816,9 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
-            # Written down, so a reader can tell a source that is answering
-            # from one that has a token and nothing else - see
-            # `notifications_live`. Cleared by the next answer.
+            # Written down, so a reader of the file can tell a source that is
+            # answering from one that has a token and nothing else. Cleared
+            # by the next answer.
             failed[label] = stamp(at)
             continue
         end

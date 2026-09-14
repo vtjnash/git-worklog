@@ -390,28 +390,15 @@ end
         Dict{String,Any}(String(k) => v for (k, v) in kw))
     keeppat = W.Events._PAT[]
     try
-        # The notifications source is running - a token, and a poll that
-        # answered - so every carried row is under a clock and only what a
-        # clock names is asked; see below for without.
         W.Events._PAT[] = ("a person's token", "test")
-        live = Dict{String,Any}("cursors" => Dict("notifications" => "2026-09-13T00:00:00Z"),
-                                "polled" => Dict("notifications" => "2026-09-13T11:00:00Z"),
-                                "failed" => Dict{String,String}(), "items" => Dict{String,Any}())
-        # The corpus from last time: 1 is open work; 2 is carried and quiet;
-        # 3 is carried and a clock says it moved; 4 is from a retired lane,
-        # kept as it was like anything else; 5 is carried, moved, and the
-        # fetch will not answer for it.
-        W.save_fetched(Dict{String,Any}("inbox" => live, "items" => Dict(
-            U(1) => row(1), U(2) => row(2; lane = "landed"), U(3) => row(3; lane = "landed"),
+        # The corpus from last time: 1 is open work; 2 is carried, quiet and
+        # over; 3 is carried and a clock says it moved; 4 is from a retired
+        # lane, kept as it was like anything else; 5 is carried, moved, and
+        # the fetch will not answer for it.
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1), U(2) => row(2; lane = "landed", state = "MERGED"),
+            U(3) => row(3; lane = "landed"),
             U(4) => row(4; lane = "commented_issue"), U(5) => row(5; lane = "reviewed"))))
-        @test W.Events.notifications_live()
-        # A token that stopped answering is not a clock: the last poll failed.
-        let d = W.load_fetched()
-            d["inbox"] = merge(live, Dict("failed" => Dict("notifications" => "2026-09-13T11:30:00Z")))
-            W.save_fetched(d)
-            @test !W.Events.notifications_live()
-            d["inbox"] = live; W.save_fetched(d)
-        end
         asked = String[]
         srch(q) = occursin("author:", q) ? ([node(U(1), 1)], 4, 1) : (Any[], 4, 0)
         function byurl(urls)
@@ -485,7 +472,7 @@ end
         try
             b = row(2; lane = "landed", fetched_at = "2026-09-13T17:00:00Z",
                     moved_at = "2026-09-13T16:30:00Z", type = "PullRequest",
-                    ci = "FAILURE", ci_failed = true)
+                    state = "MERGED", ci = "FAILURE", ci_failed = true)
             W.cache_put(W.bundle_key(U(2)), b)
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 18); search = srch,
                             fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
@@ -493,27 +480,48 @@ end
         finally
             W.CACHE_DIR[] = keepdir
         end
-        # Without the notifications source, a carried row in a repository the
-        # poll does not cover has no clock at all, so while it is open it is
-        # asked every run - the way every carried row was before the clocks -
-        # and once it is over it is left alone.
-        W.Events._PAT[] = nothing
-        keept = W.Events.TOKEN_FILE[]
+        # A carried row in a repository the poll does not cover has no clock
+        # over a push, your own reply, an unassignment or a label - the
+        # notifications source fires for participation only - so while it is
+        # open and in front of you it is asked every run, the way every
+        # carried row was before the clocks; over, or the pile, it is left.
+        @test !W.covered(U(2), Dict{String,Any}("repos" => ["x/y", "z/*"]))
+        @test W.covered(U(2), Dict{String,Any}("repos" => ["o/r"]))
+        @test W.covered(U(2), Dict{String,Any}("repos" => ["o/*"]))
+        asked = String[]
+        @test W.refresh(String[], W.DateTime(2026, 9, 13, 19); search = srch,
+                        fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
+        @test U(6) in asked && !(U(2) in asked) && !(U(4) in asked)
+        # A mark is proof a row was in front of you: a light row with a block
+        # in local.toml joins the corpus - off the bundle the browser cached
+        # when you looked, or asked by url when it was only marked from the
+        # list and the inbox still has it.
+        keepdir = W.CACHE_DIR[]
+        W.CACHE_DIR[] = joinpath(d, "cache2")
         try
-            W.Events.TOKEN_FILE[] = joinpath(d, "app-token"); write(W.Events.TOKEN_FILE[], "ghu_app\n")
-            @test !W.covered(U(2), Dict{String,Any}("repos" => ["x/y", "z/*"]), false)
-            @test W.covered(U(2), Dict{String,Any}("repos" => ["o/r"]), false)
-            @test W.covered(U(2), Dict{String,Any}("repos" => ["o/*"]), false)
-            @test W.covered(U(2), Dict{String,Any}(), true)
+            W.cache_put(W.bundle_key(U(8)), row(8; lane = "notifications",
+                        fetched_at = "2026-09-13T18:00:00Z"))
+            W.set_read(U(8), "2026-09-13T18:30:00Z")
+            W.set_read(U(9), "2026-09-13T18:30:00Z")
             asked = String[]
-            @test W.refresh(String[], W.DateTime(2026, 9, 13, 19); search = srch,
+            light9(cfg, login, at) = [Dict{String,Any}("url" => U(9), "lane" => "activity",
+                                                        "updated" => "2026-09-13T18:20:00Z")]
+            @test W.refresh(String[], W.DateTime(2026, 9, 13, 20); search = srch,
+                            fetch_url_map = byurl, unread = light9) == 0
+            its = W.fetched("items")
+            @test haskey(its, Symbol(U(8))) && its[Symbol(U(8))].lane == "notifications"
+            @test U(9) in asked
+            # And a read stamp past the bundle is a clock too: `r` from the
+            # list on a row whose inbox entry the poll then dropped. 2 is over
+            # and would not be asked for any other reason.
+            @test !(U(2) in asked)
+            W.set_read(U(2), "2026-09-13T23:00:00Z")
+            asked = String[]
+            @test W.refresh(String[], W.DateTime(2026, 9, 13, 21); search = srch,
                             fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
-            # Every open row in front of you is asked - nothing watches any
-            # of them - and what is not asked is anything over, or the pile:
-            # 4 is a retired lane's row and nobody is waiting on it.
-            @test U(2) in asked && U(6) in asked && !(U(4) in asked)
+            @test U(2) in asked
         finally
-            W.Events.TOKEN_FILE[] = keept
+            W.CACHE_DIR[] = keepdir
         end
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.Events._PAT[] = keeppat
