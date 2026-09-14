@@ -604,8 +604,17 @@ function notifications_live()
     haskey(inbox["polled"], "notifications") && !haskey(inbox["failed"], "notifications")
 end
 
-"""How far behind its cursor each kind of source is asked from; see `sync!`."""
-const OVERLAP_REST = Second(60)
+"""How far behind its cursor each kind of source is asked from; see `sync!`.
+
+Five minutes for REST since 2026-09-14, from one: the cursor became the
+walk's own start, so this is the *whole* of the margin against a write that
+was committed before the walk and visible on the replica after it - where
+the cursor at the newest row seen used to sit however far before the poll
+that row happened to be, minutes or hours, and the minute rode on top. What
+a wider window costs is rows read twice: nothing for a repo poll, and one
+subject fetch per thread inside it for the notifications source, which at a
+few dozen threads a day is one in ten polls."""
+const OVERLAP_REST = Second(5 * 60)
 const OVERLAP_SEARCH = Second(15 * 60)
 
 """
@@ -760,8 +769,10 @@ whichever server took the write. So a cursor at the start of the poll would
 step past a change that was made before it and indexed after. Asking from
 `cursor - overlap` catches that, and what it costs is rows fetched twice,
 which are free: the inbox is keyed by url, and a row already read is dropped
-again on arrival. Minutes for search, a minute for REST, both far past the lag
-either has shown.
+again on arrival. Fifteen minutes for search, five for REST - the second
+widened from one when the cursor became the walk's start, since the overlap
+is then the whole of the margin - and both past any lag either has shown,
+which is an observation and not a promise: GitHub documents no bound.
 
 The one instant that is not an event is the first sight of a source - inbox
 zero, so switching this on is not a month of history to dismiss - and that is

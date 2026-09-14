@@ -151,8 +151,8 @@ end
                              backfill = W.Day(1))
         @test got == 3                                   # the release is skipped
         # First sight: from GitHub's now less the backfill, less the overlap.
-        @test asks["notifications"] == "2026-09-07T11:59:00Z"
-        @test asks["o/r"] == "2026-09-07T11:59:00Z"
+        @test asks["notifications"] == "2026-09-07T11:55:00Z"
+        @test asks["o/r"] == "2026-09-07T11:55:00Z"
         pr = items["https://github.com/o/r/pull/7"]
         @test pr["state"] == "closed" && pr["author"] == "me"    # the poll's
         @test pr["reason"] == "mention" && pr["lane"] == "notifications"  # the thread's
@@ -176,8 +176,8 @@ end
         # moves to this poll's start. Never backwards: a poll whose start is
         # before the cursor leaves it.
         E.sync!(srcs, at + W.Minute(5); now = () -> W.DateTime(2026, 9, 13, 12, 5))
-        @test asks["notifications"] == "2026-09-08T11:59:00Z"
-        @test asks["o/r"] == "2026-09-08T11:59:00Z"
+        @test asks["notifications"] == "2026-09-08T11:55:00Z"
+        @test asks["o/r"] == "2026-09-08T11:55:00Z"
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
         E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1))
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
