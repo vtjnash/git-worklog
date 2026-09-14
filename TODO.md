@@ -166,7 +166,11 @@ here is done; `git log` is the record of it and this file is not.
    `notifications_live`: polled, and not failed since, written in the
    inbox); a redirect whose new name was already here overwrote it (now the
    old name only goes); `/notifications` pages newest-first, the order
-   `api_paged` warns about, so a walk past one page reads page one again;
+   `api_paged` warns about - and the warning is about a row leaving from
+   ahead of the cursor between pages, which nothing on an `all=true` list
+   does: an arrival shifts rows down and only repeats one, and a thread that
+   re-notifies mid-walk jumps to the top with a stamp past the cursor and is
+   the next poll's (a page-one re-read was added and taken out again);
    the backfill fetched 744 subjects serially before the browser opened
    (now only the threads that name you, on first sight); one GraphQL error
    with data beside it failed a whole by-url batch (now that slot alone);

@@ -527,11 +527,16 @@ function sources(cfg, login; verbose::Bool = true)
         # the cursor needs. Newest first and capped at 50 a page, both
         # unlike the repo polls: a page is one point, a poll is one page, and
         # the walk past it is only ever taken on a cold start or after a gap.
-        # Newest first is the order `api_paged` warns about: a thread that
-        # notifies mid-walk moves to page one and shifts one row off the
-        # page after it onto one already read. So a walk that took more than
-        # a page reads page one again at the end - the shifted rows are on
-        # it, by construction - and the ids absorb the duplicates.
+        # Newest first is the order `api_paged` warns about, and the warning
+        # is about a row leaving from ahead of the cursor between two pages,
+        # which shifts the rows behind it up one and drops the first row of
+        # the next page onto the page already read. Nothing leaves this list:
+        # `all=true` keeps a thread read on github.com, and a thread that
+        # arrives mid-walk shifts the rows behind it *down*, so a page
+        # boundary can only repeat a row, and the ids absorb that. The one
+        # row that does move is a thread that re-notifies mid-walk and jumps
+        # to the top - and its new `updated_at` is past the cursor this walk
+        # sets, so it is the next poll's, by the same rule as everything else.
         #
         # On the source's first sight - the backfill, hundreds of threads -
         # only a thread that names you fetches its subject; a watched
@@ -539,18 +544,8 @@ function sources(cfg, login; verbose::Bool = true)
         # and is filled in when it next moves or is looked at. Steady state
         # fetches every subject: a few dozen a day.
         push!(srcs, (label = "notifications",
-                     fetch = since -> begin
-            params = Dict{String,Any}("all" => "true", "since" => since)
-            rows = api_paged("/notifications"; auth = p, per_page = 50, params = params)
-            if length(rows) > 50
-                seen = Set(String(r["id"]) for r in rows)
-                for r in api_get("/notifications"; auth = p,
-                                 params = merge(params, Dict{String,Any}("per_page" => 50, "page" => 1)))
-                    String(r["id"]) in seen || push!(rows, r)
-                end
-            end
-            rows
-        end,
+                     fetch = since -> api_paged("/notifications"; auth = p, per_page = 50,
+                         params = Dict{String,Any}("all" => "true", "since" => since)),
                      overlap = OVERLAP_REST,
                      row = (t, first) -> thread_row(t, login;
                          fetch = first && !involved_reason(get(t, "reason", nothing)) ?
