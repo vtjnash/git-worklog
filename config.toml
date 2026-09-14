@@ -55,14 +55,15 @@ second_look_days = 2
 # that moved could be noticed. A row you want that nothing here returns is `i`:
 # an import, fetched by url from then on.
 #
-# `sort:created-asc` on each. The pages are read one after another, and the
-# default order is best match - roughly newest first and not even sorted - so
-# an offset cursor over a list that reshuffles under it is how a row goes
-# missing for a run. Creation time never changes: nothing moves in this order,
-# a new item opens at the *end*, and the only way a row leaves from ahead of
-# the cursor is closing - one row can slip a boundary then, and it is kept as
-# it was in the corpus and re-asked when a clock says, one refresh of
-# freshness. The windowed walks in `events.jl` are ascending by `updated`
+# `sort:created-asc` on each, and it is load-bearing: `search` reads a lane
+# sorted this way as a series of *first* pages, each asked from the creation
+# time of the last row read (`created:>=`), rather than by GraphQL's offset
+# cursor over a list that the set can shift under - a pull request of yours
+# closing mid-walk used to slip one row past a page boundary for a run, and a
+# reopen beside it hid even the count. Creation time never changes, so the
+# boundary holds whatever opens or closes between two pages. Without the
+# sort a lane walks by offset, with that caveat. The windowed walks in
+# `events.jl` are ascending by `updated`
 # instead, so that an item touched mid-walk moves to the end and is read
 # again with its new stamp in the same poll; their cursor is the poll's start
 # time, which is safe in any order, and the ascending order only saves the

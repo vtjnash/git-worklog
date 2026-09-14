@@ -286,15 +286,39 @@ const TRANSIENT = ("502", "503", "504", "timeout", "unexpected end of JSON input
     search(q; cap=1000, query=QUERY) -> (nodes, points, total)
 
 Paginate one search lane.
+
+**The pages are cut by creation time, not by offset.** GraphQL's `after:`
+cursor is an offset over the result set as it stands at each request, and an
+`is:open` set does not hold still for the fifteen seconds of a walk: a pull
+request of yours that closes leaves from ahead of the cursor, the rows behind
+it shift up, and the first row of the next page lands on the page already
+read - and a close with a reopen or a fresh open beside it leaves `issueCount`
+where it was, so no count can tell. Creation time never moves. So every
+request is the *first* page of `q created:>=<created of the last row read>`,
+ordered `sort:created-asc`, and the boundary is a stamp this walk holds, not
+a place in a list the set can shift under. A close between two requests
+cannot move it; a reopen behind it is next run's, as it always was. The ask
+is `>=` so a tie on the second is never stepped past, the last row repeats
+and is dropped by url; a page that makes no progress at all - fifty rows in
+one second - steps with `>` once, which is the one way a row could still be
+missed and has not been seen.
+
+A query without `sort:created-asc` walks by `after:` as before, with the
+caveat above.
 """
 function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUERY)
     out = Any[]
+    seen = Set{String}()
     cursor = nothing
+    keyset = occursin("sort:created-asc", q)
+    floor_, strict = "", false
     spent = 0
     total = 0
     while true
+        ask = !keyset || isempty(floor_) ? q :
+              string(q, " created:", strict ? ">" : ">=", floor_)
         body = json_dumps(["query" => query,
-                           "variables" => ["q" => q, "cursor" => cursor]])
+                           "variables" => ["q" => ask, "cursor" => cursor]])
         local stdout_
         # Long paginations (the firehose is ~10 sequential pages) reliably hit
         # transient 5xx from the GraphQL endpoint, and a whole refresh is enough
@@ -324,16 +348,31 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         end
         spent += d.data.rateLimit.cost
         s = d.data.search
+        added, last_ = 0, ""
         for n in s.nodes
             # A stub with no `url` is the Issue-against-a-PR-only-fragment case
             # above; it carries nothing usable, so drop it rather than
             # normalising a record with no fields.
-            n === nothing || jget(n, :url) === nothing || push!(out, n)
+            (n === nothing || jget(n, :url) === nothing) && continue
+            last_ = String(nz(jget(n, :createdAt), last_))
+            String(n.url) in seen && continue
+            push!(seen, String(n.url))
+            push!(out, n)
+            added += 1
         end
-        cursor === nothing && (total = s.issueCount)
+        (cursor === nothing && isempty(floor_)) && (total = s.issueCount)
         if !s.pageInfo.hasNextPage || length(out) >= cap
             return (out[1:min(cap, length(out))], spent, total)
         end
-        cursor = String(s.pageInfo.endCursor)
+        if keyset
+            # No progress: every row on the page was the floor's own second.
+            # Step past it with `>` once; otherwise the floor is the newest
+            # row read and the next page is asked from there.
+            strict = added == 0 || last_ == floor_
+            floor_ = isempty(last_) ? floor_ : last_
+            strict && isempty(last_) && return (out, spent, total)
+        else
+            cursor = String(s.pageInfo.endCursor)
+        end
     end
 end
