@@ -62,11 +62,12 @@ second_look_days = 2
 # a new item opens at the *end*, and the only way a row leaves from ahead of
 # the cursor is closing - one row can slip a boundary then, and it is kept as
 # it was in the corpus and re-asked when a clock says, one refresh of
-# freshness. Not `updated`, which the windowed walks in `events.jl` use and
-# must: there the cursor is the newest `updated_at` seen, and an item touched
-# mid-walk has to move to the end and be read again with its new stamp, or
-# the next poll starts past it. These lanes have no cursor - the whole set,
-# every run - so the order that never moves is the right one.
+# freshness. The windowed walks in `events.jl` are ascending by `updated`
+# instead, so that an item touched mid-walk moves to the end and is read
+# again with its new stamp in the same poll; their cursor is the poll's start
+# time, which is safe in any order, and the ascending order only saves the
+# re-read. These lanes have no cursor - the whole set, every run - so the
+# order that never moves is the right one.
 mine     = "is:open is:pr author:vtjnash archived:false sort:created-asc"
 review   = "is:open is:pr review-requested:vtjnash archived:false sort:created-asc"
 assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"

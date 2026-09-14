@@ -160,19 +160,27 @@ end
         # The issue only the thread saw was filled in by the fetch it was owed.
         is = items["https://github.com/o/r/issues/9"]
         @test is["reason"] == "subscribed" && is["state"] == "closed"
-        # The cursor is the newest `updated_at` the source returned, the
-        # skipped release included: it is the source's clock, not the row's.
+        # The cursor is GitHub's time when the poll began - not the newest
+        # row the source returned, which is only safe when the walk is
+        # ascending by `updated`; the poll's start is safe in any order, and
+        # the rows the walk read late are read twice, which is free.
         inbox = E.load_inbox()
-        @test inbox["cursors"]["notifications"] == "2026-09-11T00:00:00Z"
-        @test inbox["cursors"]["o/r"] == "2026-09-09T00:00:00Z"
-        # Within the ttl nothing is asked again.
+        @test inbox["cursors"]["notifications"] == "2026-09-08T12:00:00Z"
+        @test inbox["cursors"]["o/r"] == "2026-09-08T12:00:00Z"
+        # Within the ttl nothing is asked again - and `now` is not asked
+        # either, since no source is due.
         empty!(asks)
-        E.sync!(srcs, at + W.Second(30))
+        E.sync!(srcs, at + W.Second(30); now = () -> error("not due"))
         @test isempty(asks)
-        # Past it, each is asked from behind its own cursor.
-        E.sync!(srcs, at + W.Minute(5))
-        @test asks["notifications"] == "2026-09-10T23:59:00Z"
-        @test asks["o/r"] == "2026-09-08T23:59:00Z"
+        # Past it, each is asked from behind its own cursor, and the cursor
+        # moves to this poll's start. Never backwards: a poll whose start is
+        # before the cursor leaves it.
+        E.sync!(srcs, at + W.Minute(5); now = () -> W.DateTime(2026, 9, 13, 12, 5))
+        @test asks["notifications"] == "2026-09-08T11:59:00Z"
+        @test asks["o/r"] == "2026-09-08T11:59:00Z"
+        @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
+        E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1))
+        @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
         # And a poll row arriving over an existing thread row keeps the reason.
         @test E.load_inbox()["items"]["https://github.com/o/r/pull/7"]["reason"] == "mention"
         # `poll_item` reads the lane and the reason off the row.

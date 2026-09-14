@@ -589,23 +589,32 @@ end
     sync!(srcs, at; ttl, backfill, now) -> (items, new)
 
 Poll each source that is due and fold what it returned into the inbox; the
-unread items, and how many rows arrived. `now` is asked once, and only for a
-source seen for the first time.
+unread items, and how many rows arrived. `now` is asked once per poll that
+has a source due, and not at all when none is.
 
-**The cursor is the newest `updated_at` the source returned**, and no clock at
-all. It is compared on the server against `updated_at`, so it has to be
-GitHub's time - a local clock running ahead would have the next poll skip
-whatever landed in the gap, and Windows clocks have been minutes out - and the
-newest row seen *is* GitHub's time, exactly. Never backwards, so a source that
-answers nothing keeps the cursor it had.
+**The cursor is GitHub's time at the moment the poll began** - `now`, off a
+`Date` header - and not the newest row the source returned, which it was
+until 2026-09-14. It is compared on the server against `updated_at`, so it
+has to be GitHub's time and not this machine's: a local clock running ahead
+would have the next poll skip whatever landed in the gap, and Windows clocks
+have been minutes out. The start of the poll is the one instant that is
+safe **whatever order the pages come in**: `since=` makes each page the whole
+window as of that request, not the walk as a whole, so an item updated after
+its page was read is either read again later - only if the walk is ascending
+by `updated`, which moves it to the end - or not read again at all, and the
+newest row seen can then be past it. Everything updated after the poll began
+is, by definition, either unseen or seen with a stale stamp, and a cursor at
+that instant asks for all of it next time. What that costs is the walk's own
+late rows read twice, which are free: the inbox is keyed by url. Never
+backwards, so a source whose cursor is already past this poll keeps it.
 
 **And the ask is from behind the cursor**, by an overlap, because GitHub
 promises nothing about a response being a snapshot as of its newest row.
 Search is eventually consistent by its own account - an item updated at T can
 be missing from `updated:>` for minutes and then appear - and a REST list
 comes off a replica, which can be a beat behind, with `updated_at` set by
-whichever server took the write. So a cursor at the newest row seen would step
-past a change that was made before it and indexed after. Asking from
+whichever server took the write. So a cursor at the start of the poll would
+step past a change that was made before it and indexed after. Asking from
 `cursor - overlap` catches that, and what it costs is rows fetched twice,
 which are free: the inbox is keyed by url, and a row already read is dropped
 again on arrival. Minutes for search, a minute for REST, both far past the lag
@@ -629,15 +638,17 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     got = 0
     server = nothing
     failed = get!(inbox, "failed", Dict{String,String}())
+    due(label) = (last = get(polled, label, nothing);
+                  t = last === nothing ? nothing : ts(last);
+                  t === nothing || at - t >= ttl)
     for (label, fetch, overlap, torow) in srcs
-        last = get(polled, label, nothing)
-        t = last === nothing ? nothing : ts(last)
-        t === nothing || at - t >= ttl || continue
+        due(label) || continue
+        # Once, before any source is asked, so it is behind every request this
+        # poll makes: a cursor at the start of the poll is what makes the walk
+        # safe in any order, see above.
+        server === nothing && (server = now())
         first = !haskey(cursors, label)
-        if first
-            server === nothing && (server = now())
-            cursors[label] = stamp(server - backfill)
-        end
+        first && (cursors[label] = stamp(server - backfill))
         cur = cursors[label]
         rows = try
             fetch(stamp(ts(cur) - overlap))
@@ -665,8 +676,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         end
         skipped == 0 || @printf(stderr, "    %-24s %d not an issue or pull request, skipped\n",
                                 label, skipped)
-        newest = maximum((String(r["updated_at"]) for r in rows); init = "")
-        cursors[label] = max(String(cur), newest)
+        cursors[label] = max(String(cur), stamp(server))
         polled[label] = stamp(at)
     end
 
