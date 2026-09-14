@@ -203,8 +203,7 @@ end
                 # of `item_of` per item, and neither was in the image while the
                 # only items here were constructed in Julia.
                 write(Worklog.fetchedfile(), sample_facts())
-                st = Worklog.BState(vcat(Worklog.loaditems(), items), "worklog",
-                                    Set{String}([items[2].url]))
+                st = Worklog.BState(vcat(Worklog.loaditems(), items), "worklog")
                 # Both layouts: side by side above the split width, stacked below.
                 for (w, h) in ((170, 50), (150, 40), (100, 30), (80, 24))
                     Worklog.render(st, w, h)
