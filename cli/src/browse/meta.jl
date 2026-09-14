@@ -43,6 +43,7 @@ function load_meta!(st::BState; fresh::Bool = false)
     st.metapending = nothing
     st.mergepending = nothing
     st.metastale = false
+    st.bundletried = ""      # once per selection, and this is a new one
     !fresh && held!(st, meta_cached(it)) && return
     st.metakey = it.url
     start_meta!(st, it, fresh ? :fresh : :load)

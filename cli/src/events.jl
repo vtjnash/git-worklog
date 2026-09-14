@@ -422,6 +422,15 @@ What the thread contributes is `updated`, `lane`, `reason` and `why`. `unread`
 and `last_read_at` are never read: the cursor is ours and the read stamp is
 ours, and adopting GitHub's would undo the property the whole lane exists for.
 
+**`updated` is the subject's clock once the subject has been fetched**, and
+the thread's only until then. A thread's `updated_at` is when GitHub
+*delivered* it, 2 to 46 seconds after the event; the repo poll writes the
+subject's `updated_at`, the event itself. Two clocks for one event on one url
+is a row read between them coming back unread - the poll's row read at R, the
+thread landing at R + 20 with a later time - so the fetched row takes the
+subject's time, which is what the poll would have written. The source's cursor
+is untouched by this: it is read off the raw thread, in `sync!`.
+
 A `fetch` that fails leaves the thin row - the thread is still shown, only
 with less on it - and `fetch = nothing` asks for the thin row outright.
 """
@@ -445,7 +454,10 @@ function thread_row(t, login; known = url -> false,
         nothing
     end
     issue === nothing && return row
-    merge!(issue_row(issue, login), row)
+    full = merge!(issue_row(issue, login), row)
+    u = get(issue, "updated_at", nothing)
+    isempty(something(u, "")) || (full["updated"] = String(u))
+    full
 end
 
 """How far behind its cursor each kind of source is asked from; see `sync!`."""

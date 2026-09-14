@@ -114,7 +114,10 @@ end
     @test asked == ["/repos/o/r/issues/7"]
     @test r["state"] == "closed" && r["author"] == "me" && r["mine"] == true
     @test r["labels"] == ["bug"] && r["comments"] == 3
-    @test r["updated"] == "2026-09-09T11:34:00Z"        # the thread's, not the issue's
+    # The subject's clock, not the thread's: the thread's is delivery time,
+    # 2-46s after the event, and the poll writes the subject's for the same
+    # event on the same url.
+    @test r["updated"] == "2026-09-09T00:00:00Z"
     @test r["reason"] == "mention" && r["lane"] == "notifications"
     # A url the inbox already has is not fetched.
     empty!(asked)
@@ -255,6 +258,17 @@ end
                         Dict{String,Any}("reason" => "mention", "why" => "you were mentioned"))
     @test r["reason"] == "mention" && r["why"] == "you were mentioned"
     @test W.thread_facts!(Dict{String,Any}("url" => "u"), nothing) == Dict{String,Any}("url" => "u")
+    # And off the row being replaced when the inbox has no thread any more: a
+    # mention that was read and then moved in a way only the poll saw.
+    r = W.thread_facts!(Dict{String,Any}("url" => "u"), Dict{String,Any}("url" => "u"),
+                        J(Dict{String,Any}("reason" => "mention", "why" => "you were mentioned")))
+    @test r["reason"] == "mention" && r["why"] == "you were mentioned"
+    # First sight is the newest thing GitHub says happened, not only a push
+    # or a comment: the review request that brought the row is on it.
+    @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-01T00:00:00Z",
+        "last_comment_at" => "2026-09-02T00:00:00Z",
+        "review_requested_at" => "2026-09-03T00:00:00Z")) == "2026-09-03T00:00:00Z"
+    @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-01T00:00:00Z")) == "2026-09-01T00:00:00Z"
 
     # A kept row is derived against itself, and nothing about it moves: the
     # mark stays, the carried keys stay, and only what depends on the clock -
@@ -329,6 +343,120 @@ end
         @test !W.refresh_meta!(st) || st.bundlepending === nothing
     finally
         W.CACHE_DIR[] = keepdir
+    end
+end
+
+@testset "the refresh keeps, asks and lets go, by clock" begin
+    # The loop itself, driven through its three seams - the lane search, the
+    # by-url fetch, the clock - against a corpus in a disposable file.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    node(url, n; kw...) = W.JSON3.read(W.json_dumps(merge(Dict{String,Any}(
+        "__typename" => "Issue", "url" => url, "number" => n, "title" => "t$n",
+        "createdAt" => "2026-09-01T00:00:00Z", "updatedAt" => "2026-09-10T00:00:00Z",
+        "state" => "OPEN", "repository" => Dict("nameWithOwner" => "o/r"),
+        "author" => Dict("login" => "alice"), "milestone" => nothing,
+        "assignees" => Dict("nodes" => []), "labels" => Dict("nodes" => []),
+        "timelineItems" => Dict("nodes" => []), "comments" => Dict("nodes" => [])),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))))
+    U(n) = "https://github.com/o/r/issues/$n"
+    at = W.DateTime(2026, 9, 13, 12)
+    row(n; kw...) = merge(Dict{String,Any}(
+        "url" => U(n), "type" => "Issue", "lane" => "mine", "state" => "OPEN",
+        "mine" => true, "author" => "vtjnash", "title" => "t$n", "number" => n,
+        "repo" => "o/r", "labels" => String[], "created" => "2026-09-01T00:00:00Z",
+        "updated" => "2026-09-10T00:00:00Z", "moved_at" => "2026-09-10T00:00:00Z",
+        "fetched_at" => "2026-09-12T00:00:00Z", "track" => "normal", "ref" => "r#$n"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    try
+        # The corpus from last time: 1 is open work; 2 is carried and quiet;
+        # 3 is carried and a clock says it moved; 4 is from a retired lane; 5
+        # is carried, moved, and the fetch will not answer for it.
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1), U(2) => row(2; lane = "landed"), U(3) => row(3; lane = "landed"),
+            U(4) => row(4; lane = "commented_issue"), U(5) => row(5; lane = "reviewed"))))
+        asked = String[]
+        srch(q) = occursin("author:", q) ? ([node(U(1), 1)], 4, 1) : (Any[], 4, 0)
+        function byurl(urls)
+            append!(asked, urls)
+            out = Any[]
+            U(3) in urls && push!(out, node(U(3), 3; updatedAt = "2026-09-13T10:00:00Z",
+                comments = Dict("nodes" => [Dict("author" => Dict("login" => "bob"),
+                                                 "createdAt" => "2026-09-13T10:00:00Z")])))
+            # 6 is a thread that names you, new to the corpus; 7 a watched
+            # repository's traffic, which stays light and is never asked.
+            U(6) in urls && push!(out, node(U(6), 6; updatedAt = "2026-09-13T09:00:00Z",
+                comments = Dict("nodes" => [Dict("author" => Dict("login" => "bob"),
+                                                 "createdAt" => "2026-09-13T09:00:00Z")])))
+            out
+        end
+        clock(cfg, login, at) = [
+            Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T10:00:20Z"),
+            Dict{String,Any}("url" => U(5), "updated" => "2026-09-13T11:00:00Z"),
+            Dict{String,Any}("url" => U(2), "updated" => "2026-09-11T23:59:00Z"),  # before fetched_at
+            Dict{String,Any}("url" => U(6), "updated" => "2026-09-13T09:00:10Z",
+                             "lane" => "notifications", "reason" => "mention",
+                             "why" => "you were mentioned"),
+            Dict{String,Any}("url" => U(7), "updated" => "2026-09-13T09:00:10Z",
+                             "lane" => "notifications", "reason" => "subscribed")]
+        @test W.refresh(String[], at; search = srch, fetch_urls = byurl, unread = clock) == 0
+        @test sort(asked) == [U(3), U(5), U(6)]
+        its = W.fetched("items")
+        have = sort(String.(collect(keys(its))))
+        @test have == [U(1), U(2), U(3), U(5), U(6)]        # 4 let go, 7 never in
+        # The open work, fetched and stamped this run.
+        @test its[Symbol(U(1))].fetched_at >= "2026-09-13T12:00:00Z" && its[Symbol(U(1))].lane == "mine"
+        # Kept as it was: the stamp and the mark it had.
+        @test its[Symbol(U(2))].fetched_at == "2026-09-12T00:00:00Z"
+        @test its[Symbol(U(2))].moved_at == "2026-09-10T00:00:00Z" && its[Symbol(U(2))].new == false
+        # Asked, answered, moved: bob's comment dates it, the lane stays.
+        @test its[Symbol(U(3))].moved_at == "2026-09-13T10:00:00Z"
+        @test its[Symbol(U(3))].lane == "landed" && its[Symbol(U(3))].fetched_at >= "2026-09-13T12:00:00Z"
+        # Asked and not answered: kept as it was, not dropped.
+        @test its[Symbol(U(5))].fetched_at == "2026-09-12T00:00:00Z"
+        # Brought in with what the thread said, and the reply owed read off it.
+        @test its[Symbol(U(6))].reason == "mention" && its[Symbol(U(6))].lane == "notifications"
+        @test its[Symbol(U(6))].new == true && !isempty(its[Symbol(U(6))].reply)
+
+        # A url that answers under another name - the repository moved - is a
+        # row under the new name, not a crash.
+        asked = String[]
+        moved(urls) = [node("https://github.com/o/moved/issues/3", 3;
+                            repository = Dict("nameWithOwner" => "o/moved"),
+                            updatedAt = "2026-09-13T11:30:00Z")]
+        clock2(cfg, login, at) = [Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")]
+        @test W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
+                        fetch_urls = moved, unread = clock2) == 0
+        its = W.fetched("items")
+        @test haskey(its, Symbol("https://github.com/o/moved/issues/3"))
+        @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "carried"
+
+        # The whole fetch failing keeps every asked row as it was.
+        boom(urls) = throw(W.FetchError("secondary rate limit"))
+        clock3(cfg, login, at) = [Dict{String,Any}("url" => U(2), "updated" => "2026-09-13T15:00:00Z")]
+        @test W.refresh(String[], W.DateTime(2026, 9, 13, 16); search = srch,
+                        fetch_urls = boom, unread = clock3) == 0
+        @test haskey(W.fetched("items"), Symbol(U(2)))
+
+        # The refresh derives against the browser's bundle when that is the
+        # newer, so a bool that became true is dated once - by whoever saw it.
+        keepdir = W.CACHE_DIR[]
+        W.CACHE_DIR[] = joinpath(d, "cache")
+        try
+            b = row(2; lane = "landed", fetched_at = "2026-09-13T17:00:00Z",
+                    moved_at = "2026-09-13T16:30:00Z", type = "PullRequest",
+                    ci = "FAILURE", ci_failed = true)
+            W.cache_put(W.bundle_key(U(2)), b)
+            @test W.refresh(String[], W.DateTime(2026, 9, 13, 18); search = srch,
+                            fetch_urls = byurl, unread = (a...) -> Any[]) == 0
+            @test W.fetched("items")[Symbol(U(2))].moved_at == "2026-09-13T16:30:00Z"
+        finally
+            W.CACHE_DIR[] = keepdir
+        end
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end
 end
 

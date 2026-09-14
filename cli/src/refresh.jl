@@ -916,9 +916,27 @@ function derive!(r, old, st, cfg, at::DateTime)
     # by the poll that noticed it and woke on a bool clearing as well as
     # setting. On first sight it is what GitHub says rather than now, or a
     # rebuilt `fetched.json` would read as every item moving at once.
-    r["moved_at"] = old === nothing ? activity_at(r) : moved_stamp(old, r, at)
+    r["moved_at"] = old === nothing ? first_seen_at(r) : moved_stamp(old, r, at)
     r["new"] = old === nothing
     r
+end
+
+"""The mark a row gets on first sight: the newest thing GitHub says happened
+to it - a push or a comment (`activity_at`), or any of the dated keys of the
+wake table, whichever is latest. A row arrives here because something brought
+it - a review request, an assignment, somebody merging it - and that event is
+on the row as a time; dating the row by the last comment instead, as
+`activity_at` alone did, put the mark before the event, and before a read
+stamp from an earlier life, so a thread the inbox said was unread arrived
+read. Every one of these is GitHub's time, so a rebuilt `fetched.json` still
+does not read as everything moving at once."""
+function first_seen_at(r)
+    best = String(activity_at(r))
+    for k in values(TIMED_KEYS)
+        t = get(r, k, nothing)
+        truthy(t) && (best = max(best, String(t)))
+    end
+    best
 end
 
 """What moved between `old` and `r`, said for a person, or `""`.
@@ -962,11 +980,15 @@ kept_row(old) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
 
 """What a thread the notifications source saw contributes to the corpus row
 built for it: the reason, and the reason in words. Off the inbox row, which
-is the only place GitHub said it."""
-function thread_facts!(r, inbox_row)
-    inbox_row === nothing && return r
+is where GitHub said it - or off the row being replaced, when the inbox has
+no thread for this url any more: a mention that was read, and then moved in
+a way the repo poll saw and the notifications source did not re-deliver (a
+label, your own comment), is still a mention, and the `reply` tag still reads
+the reason."""
+function thread_facts!(r, inbox_row, old = nothing)
     for k in ("reason", "why")
-        v = get(inbox_row, k, nothing)
+        v = inbox_row === nothing ? nothing : get(inbox_row, k, nothing)
+        truthy(v) || (v = jget(old, Symbol(k)))
         truthy(v) && (r[k] = String(v))
     end
     r
@@ -990,10 +1012,18 @@ function stale_by(inbox_row, old)
     String(nz(get(inbox_row, "updated", nothing), "")) > String(f)
 end
 
-function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing)
+function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
+                 search = search, fetch_urls = fetch_urls, unread = Events.unread)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
+    t0 = time()
+    # When a row was fetched, as GitHub's time: `at` plus how long this
+    # machine has been running since it asked for `at`. Stamped per fetch
+    # and not once for the run, since the lanes take fifteen seconds and a
+    # bundle the browser fetched in that window is *newer* than the lanes'
+    # row for the same url, and would otherwise lose the overlay to it.
+    now_() = stamp(at + Millisecond(round(Int, 1000 * (time() - t0))))
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
     # no clock of its own against the read mark, a read mark on a hand-typed
@@ -1008,6 +1038,13 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # themselves - each go back through a fresh read at the moment they are
     # written, since between them they span a minute of network.
     prev_items = something(fetched("items"), (;))
+    # The row this run knows last about a url: the file's, or the bundle the
+    # browser fetched for the row under the cursor when that is the newer.
+    # Derived against *that*, so the two agree: a bool becoming true is dated
+    # by whoever saw it first (`moved_stamp`), and a refresh that compared
+    # against the file's older row would see the same edge again, date it
+    # again, and put back in front of you a thing you had read.
+    prev(url) = bundled(url, jget(prev_items, Symbol(url)))
 
     # **The open work is asked for whole, every run.** The three lanes are
     # GraphQL searches because they do two things at once that nothing else
@@ -1024,8 +1061,11 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
         nodes, c, _ = search(expand_lane(q, at))
         spent += c
+        f = now_()
         for n in nodes
-            items[String(n.url)] = normalize(n, lane, login)
+            r = normalize(n, lane, login)
+            r["fetched_at"] = f
+            items[String(n.url)] = r
         end
         @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
     end
@@ -1047,6 +1087,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             u = String(n.url)
             haskey(items, u) && continue
             items[u] = normalize(n, "imported", login)
+            items[u]["fetched_at"] = now_()
             kept += 1
         end
         @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
@@ -1075,12 +1116,13 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # A row from before the lanes were retired - the firehose, the mention
     # and comment searches - is let go without a change line: nothing will
     # ever return it, and there were two thousand of them.
-    inbox = Dict{String,Any}(String(e["url"]) => e for e in Events.unread(cfg, login, at))
+    inbox = Dict{String,Any}(String(e["url"]) => e for e in unread(cfg, login, at))
     ask = OrderedDict{String,String}()        # url => the lane its row gets
     carried, retired = String[], 0
-    for (k, old) in pairs(prev_items)
+    for k in keys(prev_items)
         url = String(k)
         haskey(items, url) && continue
+        old = prev(url)
         lane = String(nz(jget(old, :lane), "carried"))
         if retired_lane(lane)
             retired += 1
@@ -1102,30 +1144,50 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     end
     if !isempty(ask)
         got = 0
-        for n in try
-                    fetch_urls(collect(keys(ask)))
-                 catch e
-                    @printf(stderr, "  %-9s failed: %s\n", "by url",
-                            first(sprint(showerror, e), 120))
-                    Any[]
-                 end
+        nodes = try
+            fetch_urls(collect(keys(ask)))
+        catch e
+            @printf(stderr, "  %-9s failed: %s\n", "by url",
+                    first(sprint(showerror, e), 120))
+            Any[]
+        end
+        f = now_()
+        for n in nodes
+            # Under the url GitHub answers with, which is the one asked unless
+            # the repository or the issue has moved since - `resource` follows
+            # the redirect - in which case the row is new here under its new
+            # name and the old one goes below as a row nothing returns.
             u = String(n.url)
-            items[u] = thread_facts!(normalize(n, ask[u], login), get(inbox, u, nothing))
+            r = normalize(n, get(ask, u, "carried"), login)
+            r["fetched_at"] = f
+            items[u] = thread_facts!(r, get(inbox, u, nothing), prev(u))
             got += 1
         end
-        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here (of %d asked)\n",
-                "by url", got, length(ask) - brought, brought, length(ask))
+        # A url asked and not answered - the fetch failed whole, or the one
+        # url names nothing this token can see - keeps the row it had, as it
+        # was. Dropping it would be for good: no lane returns it, that is why
+        # it was asked, and a burst of forty is the shape the secondary rate
+        # limit trips on.
+        unanswered = 0
+        for url in keys(ask)
+            haskey(items, url) && continue
+            old = prev(url)
+            old === nothing && continue
+            items[url] = kept_row(old)
+            unanswered += 1
+        end
+        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here (of %d asked%s)\n",
+                "by url", got, length(ask) - brought, brought, length(ask),
+                unanswered == 0 ? "" : "; $unanswered unanswered, kept as they were")
     end
     @printf(stderr, "  %-9s %3d items no lane returns, unread or moved%s\n", "carried",
             length(carried), retired == 0 ? "" : "; $retired from retired lanes let go")
     carried = Set(carried)
 
-    # Every row this run fetched is stamped with when, against which the
-    # clocks are read next run. A kept row keeps its stamp.
+    # A kept row from before there was a stamp gets one now: no clock saw it
+    # this run, and from here the clocks are read against it.
     for (url, r) in items
-        truthy(get(r, "fetched_at", nothing)) && !haskey(ask, url) && !(url in lanes) &&
-            !(url in imp) && continue
-        r["fetched_at"] = stamp(at)
+        truthy(get(r, "fetched_at", nothing)) || (r["fetched_at"] = now_())
     end
 
     # The facts, then the tracking level, then the wake table at that level.
@@ -1136,7 +1198,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     slept = String[]
     for (url, r) in items
         st = get(state, url, Dict{String,Any}())
-        old = jget(prev_items, Symbol(url))
+        old = prev(url)
         derive!(r, old, st, cfg, at)
         pop!(r, "slept") && push!(slept, url)
         if old === nothing
