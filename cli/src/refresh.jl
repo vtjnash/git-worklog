@@ -760,8 +760,9 @@ retired_lane(lane::AbstractString) =
 """Which notification `reason`s name *you* - as against `subscribed`, which is
 the repository being watched. A thread with one of these is brought into the
 corpus with its bundle the first time it is seen; a watched repository's
-traffic stays a light row in the inbox until it is looked at."""
-involved(reason) = !(reason in (nothing, "", "subscribed"))
+traffic stays a light row in the inbox until it is looked at. The rule is the
+source's, `Events.involved_reason`, which reads it on the backfill too."""
+involved(reason) = Events.involved_reason(reason)
 
 """Read the item blocks of `local.toml`.
 
@@ -1024,7 +1025,11 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # machine has been running since it asked for `at`. Stamped per fetch
     # and not once for the run, since the lanes take fifteen seconds and a
     # bundle the browser fetched in that window is *newer* than the lanes'
-    # row for the same url, and would otherwise lose the overlay to it.
+    # row for the same url, and would otherwise lose the overlay to it - and
+    # taken **before** the request, not after: a stamp from after a fifteen
+    # second walk is later than a bundle fetched during it, and the older
+    # data would win. Earlier is the safe direction for every comparison
+    # this feeds - a row is at least as old as its stamp says.
     now_() = stamp(at + Millisecond(round(Int, 1000 * (time() - t0))))
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
@@ -1062,9 +1067,9 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     items = OrderedDict{String,Any}()
     spent = 0
     for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
+        f = now_()
         nodes, c, _ = search(expand_lane(q, at))
         spent += c
-        f = now_()
         for n in nodes
             r = normalize(n, lane, login)
             r["fetched_at"] = f
@@ -1079,6 +1084,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     imp = imported_urls()
     if !isempty(imp)
         kept = 0
+        f = now_()
         for n in try
                     Any[n for n in values(fetch_url_map(imp)) if n !== nothing]
                  catch e
@@ -1089,7 +1095,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             u = String(n.url)
             haskey(items, u) && continue
             items[u] = normalize(n, "imported", login)
-            items[u]["fetched_at"] = now_()
+            items[u]["fetched_at"] = f
             kept += 1
         end
         @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
@@ -1126,7 +1132,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # and the prune letting it go. The rows of the nine retired lanes stay
     # too, as they were; `in_pile` knows their names.
     inbox = Dict{String,Any}(String(e["url"]) => e for e in unread(cfg, login, at))
-    watched = Events.pat() !== nothing
+    watched = Events.notifications_live()
     # A lane row carries the thread's reason too, when there is one: a mention
     # on your own pull request is a mention, and the `reply` tag reads it.
     # Off the row it replaces when the inbox has no thread for it any more.
@@ -1159,6 +1165,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     renamed = Dict{String,String}()           # new url => the one asked
     if !isempty(ask)
         got, moved_ = 0, 0
+        f = now_()
         answers = try
             fetch_url_map(collect(keys(ask)))
         catch e
@@ -1166,7 +1173,6 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
                     first(sprint(showerror, e), 120))
             OrderedDict{String,Any}()
         end
-        f = now_()
         for (asked, n) in answers
             n === nothing && continue
             # Under the url GitHub answers with, which is the one asked unless
@@ -1174,19 +1180,24 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             # the redirect. Then the row lives under its new name from here,
             # with the old row as what it replaces, and the old name goes:
             # no clock will ever say it again. What `local.toml` holds under
-            # the old name - a note, a read stamp - stays under it.
+            # the old name - a note, a read stamp - stays under it. And when
+            # the new name is here already - a lane returned it, or it was
+            # asked for itself - that row is the row, and the old name only
+            # goes. A kept row under an old name that is never asked again
+            # stays, as it was: a duplicate with old facts, until it is.
             u = String(n.url)
-            r = normalize(n, ask[asked], login)
-            r["fetched_at"] = f
-            old = prev(asked)
-            items[u] = thread_facts!(r, get(inbox, u, get(inbox, asked, nothing)), old)
             if u != asked
                 moved_ += 1
-                renamed[u] = asked
+                old = prev(asked)
                 delete!(items, asked)
                 push!(gone, (asked, String(nz(jget(old, :ref), asked))))
                 @printf(stderr, "  %-9s %s is now %s\n", "by url", asked, u)
+                (haskey(items, u) || haskey(answers, u)) && continue
+                renamed[u] = asked
             end
+            r = normalize(n, ask[asked], login)
+            r["fetched_at"] = f
+            items[u] = thread_facts!(r, get(inbox, u, get(inbox, asked, nothing)), prev(asked))
             got += 1
         end
         # A url asked and not answered - the fetch failed whole, or the one

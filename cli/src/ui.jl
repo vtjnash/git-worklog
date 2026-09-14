@@ -207,6 +207,9 @@ repeat it on the item.
 """
 function fetch_bundle(it::Item)
     islocal(it) && return nothing
+    # The stamp is from before the request, for the same reason the refresh's
+    # is: a row is at least as old as its stamp says, never newer.
+    at = Events.server_now()
     n = try
         fetch_url(it.url)
     catch e
@@ -219,7 +222,6 @@ function fetch_bundle(it::Item)
     # items with one url.
     String(n.url) == it.url || return nothing
     cfg = config()
-    at = Events.server_now()
     file = fetched("items")
     old = bundled(it.url, file === nothing ? nothing : jget(file, Symbol(it.url)))
     r = normalize(n, it.lane, cfg["login"])
@@ -530,19 +532,20 @@ function ui(args = String[], at::DateTime = utcnow())
         refresh(String[])
         at = utcnow()
     end
+    cfg = config()
+    cc = get(cfg, "cache", Dict{String,Any}())
+    # `detail_ttl_minutes` is the older name for the same number, from when it
+    # covered the thread and the diff and nothing else. Before `loaditems`,
+    # which reads the bundle cache under `CACHE_KEEP`.
+    CACHE_FRESH[] = 60.0 * get(cc, "fresh_minutes", get(cc, "detail_ttl_minutes", 2))
+    CACHE_KEEP[] = 86_400.0 * get(cc, "keep_days", 30)
+    MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
     # Adopted branches are items too, and everything keyed by url works on them
     # the moment they are: notes, snoozes, the clock, the tags, the filters.
     items = vcat(loaditems(), local_items())
     # And anything imported since the last refresh, which is how an import is
     # tracked from the moment it is made rather than from the next one.
     append!(items, imported_items(Set(x.url for x in items), at))
-    cfg = config()
-    cc = get(cfg, "cache", Dict{String,Any}())
-    # `detail_ttl_minutes` is the older name for the same number, from when it
-    # covered the thread and the diff and nothing else.
-    CACHE_FRESH[] = 60.0 * get(cc, "fresh_minutes", get(cc, "detail_ttl_minutes", 2))
-    CACHE_KEEP[] = 86_400.0 * get(cc, "keep_days", 30)
-    MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
     append!(items, inbox_items(Set(x.url for x in items),
                                Events.unread(cfg, cfg["login"], at; verbose = false)))
     # Straight into the browser: what the lane menu used to choose is now a tag.

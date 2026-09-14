@@ -316,11 +316,12 @@ which is the whole test for which half of `data/` a thing belongs in.
 """
 function load_inbox()
     d = Dict("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
+             "failed" => Dict{String,String}(),
              "items" => Dict{String,Any}())
     raw = Worklog.fetched("inbox")
     raw === nothing && return d
     try
-        for k in ("cursors", "polled")
+        for k in ("cursors", "polled", "failed")
             for (kk, vv) in get(raw, Symbol(k), (;))
                 d[k][String(kk)] = String(vv)
             end
@@ -460,6 +461,22 @@ function thread_row(t, login; fetch = path -> api_get(path; auth = pat()[1]))
     full
 end
 
+"""Which notification `reason`s name *you* - as against `subscribed`, which is
+the repository being watched. Shared with the refresh, whose `involved` is
+this: what is brought into the corpus with its bundle on first sight."""
+involved_reason(reason) = !(reason in (nothing, "", "subscribed"))
+
+"""Is the notifications source actually answering - not "is there a token",
+which a revoked `gho_` still is, but polled at least once and not failed
+since? What the refresh reads to decide whether a carried row outside the
+polled repositories has any clock over it at all; a token that answers 401
+every poll would otherwise leave every such row frozen, silently."""
+function notifications_live()
+    pat() === nothing && return false
+    inbox = load_inbox()
+    haskey(inbox["polled"], "notifications") && !haskey(inbox["failed"], "notifications")
+end
+
 """How far behind its cursor each kind of source is asked from; see `sync!`."""
 const OVERLAP_REST = Second(60)
 const OVERLAP_SEARCH = Second(15 * 60)
@@ -468,8 +485,8 @@ const OVERLAP_SEARCH = Second(15 * 60)
     sources(cfg, login; verbose) -> [(; label, fetch, overlap, row), ...]
 
 Every source the inbox is polled from, in the order they are asked. `fetch`
-takes a `since` stamp and returns raw rows; `row` takes one raw row and the
-inbox's `items`, which it may look in and must not write, and returns the entry
+takes a `since` stamp and returns raw rows; `row` takes one raw row and
+whether this is the source's first sight (the backfill), and returns the entry
 to write or `nothing` to skip it.
 
 Three kinds. A repo named in `[events] repos` is one REST list with `since=`,
@@ -509,13 +526,35 @@ function sources(cfg, login; verbose::Bool = true)
         # be told, and always with `updated_at` past the ask, which is what
         # the cursor needs. Newest first and capped at 50 a page, both
         # unlike the repo polls: a page is one point, a poll is one page, and
-        # the walk past it is only ever taken on a cold start.
+        # the walk past it is only ever taken on a cold start or after a gap.
+        # Newest first is the order `api_paged` warns about: a thread that
+        # notifies mid-walk moves to page one and shifts one row off the
+        # page after it onto one already read. So a walk that took more than
+        # a page reads page one again at the end - the shifted rows are on
+        # it, by construction - and the ids absorb the duplicates.
+        #
+        # On the source's first sight - the backfill, hundreds of threads -
+        # only a thread that names you fetches its subject; a watched
+        # repository's traffic stays a thin row, as a poll's own would be,
+        # and is filled in when it next moves or is looked at. Steady state
+        # fetches every subject: a few dozen a day.
         push!(srcs, (label = "notifications",
-                     fetch = since -> api_paged("/notifications"; auth = p, per_page = 50,
-                         params = Dict{String,Any}("all" => "true", "since" => since)),
+                     fetch = since -> begin
+            params = Dict{String,Any}("all" => "true", "since" => since)
+            rows = api_paged("/notifications"; auth = p, per_page = 50, params = params)
+            if length(rows) > 50
+                seen = Set(String(r["id"]) for r in rows)
+                for r in api_get("/notifications"; auth = p,
+                                 params = merge(params, Dict{String,Any}("per_page" => 50, "page" => 1)))
+                    String(r["id"]) in seen || push!(rows, r)
+                end
+            end
+            rows
+        end,
                      overlap = OVERLAP_REST,
-                     row = (t, _) -> thread_row(t, login;
-                         fetch = path -> api_get(path; auth = p))))
+                     row = (t, first) -> thread_row(t, login;
+                         fetch = first && !involved_reason(get(t, "reason", nothing)) ?
+                                 nothing : path -> api_get(path; auth = p))))
     elseif verbose
         @printf(stderr, "    %-24s skipped: the token is a GitHub App's, and there is no %s\n",
                 "notifications", patfile())
@@ -594,11 +633,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     cursors, polled, items = inbox["cursors"], inbox["polled"], inbox["items"]
     got = 0
     server = nothing
+    failed = get!(inbox, "failed", Dict{String,String}())
     for (label, fetch, overlap, torow) in srcs
         last = get(polled, label, nothing)
         t = last === nothing ? nothing : ts(last)
         t === nothing || at - t >= ttl || continue
-        if !haskey(cursors, label)
+        first = !haskey(cursors, label)
+        if first
             server === nothing && (server = now())
             cursors[label] = stamp(server - backfill)
         end
@@ -608,11 +649,16 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
+            # Written down, so a reader can tell a source that is answering
+            # from one that has a token and nothing else - see
+            # `notifications_live`. Cleared by the next answer.
+            failed[label] = stamp(at)
             continue
         end
+        delete!(failed, label)
         skipped = 0
         for r in rows
-            row = torow(r, items)
+            row = torow(r, first)
             if row === nothing
                 skipped += 1
                 continue

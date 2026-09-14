@@ -158,6 +158,21 @@ here is done; `git log` is the record of it and this file is not.
    browser holds keeps the bundle; a light row's bundle older than the
    inbox's clock is not shown over it; `bundletried` clears per selection;
    lane rows carry the thread's reason too. Steady state after: 29s, 6 asked.
+   A third review, asked what had hidden behind those: `fetched_at` was
+   taken *after* the request, so a bundle fetched during a fifteen-second
+   lane walk lost to the walk's older rows (now before, in both places);
+   `watched` meant "a token exists" where a revoked one answers 401 forever
+   and froze every row outside the polled repositories (now
+   `notifications_live`: polled, and not failed since, written in the
+   inbox); a redirect whose new name was already here overwrote it (now the
+   old name only goes); `/notifications` pages newest-first, the order
+   `api_paged` warns about, so a walk past one page reads page one again;
+   the backfill fetched 744 subjects serially before the browser opened
+   (now only the threads that name you, on first sight); one GraphQL error
+   with data beside it failed a whole by-url batch (now that slot alone);
+   `loaditems` ran before `keep_days` was read. Known and left: a kept row
+   under an old url that is never asked again is a duplicate with old facts
+   until it is; the browser still marks `x`-filed rows read by hand.
 
    **Discovery - which items exist and which moved - is the half
    notifications can take.** Seven of the twelve lanes exist only to find

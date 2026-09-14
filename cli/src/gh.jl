@@ -162,10 +162,20 @@ function fetch_url_map(urls; per::Int = 40)
     rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " *
                                 first(isempty(e) ? o : e, 300)))
     d = JSON3.read(o)
-    haskey(d, :errors) &&
-        throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
+    # An error with data beside it is one slot GitHub would not answer - a
+    # resource behind SAML is the known case - and that slot is unanswered,
+    # not the batch failed: forty rows kept as they were for one url that
+    # cannot be seen would be forty rows frozen for as long as it stays in
+    # the ask. Errors with no data at all are the request failing.
+    data = jget(d, :data)
+    if haskey(d, :errors)
+        data === nothing &&
+            throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
+        @printf(stderr, "    by url: %d of %d not answered: %s\n", length(d.errors),
+                length(us), first(json_dumps(d.errors), 200))
+    end
     for (i, u) in enumerate(us)
-        n = jget(d.data, Symbol("r", i))
+        n = jget(data, Symbol("r", i))
         # Null for a url that resolves to nothing, and field-less for one that
         # resolves to something else - a discussion, a commit, a repository.
         (n === nothing || jget(n, :url) === nothing) && continue

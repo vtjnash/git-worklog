@@ -208,6 +208,14 @@ end
         rm(E.PAT_FILE[]); E._PAT[] = nothing
         write(E.TOKEN_FILE[], "gho_person\n")
         @test E.pat()[2] == E.TOKEN_FILE[]
+        # On the source's first sight - the backfill - a watched repository's
+        # thread stays thin rather than costing a fetch each; a thread that
+        # names you is filled in. (Only the thin path is exercised here: the
+        # other one is a request.)
+        src = first(E.sources(Dict{String,Any}(), "me"; verbose = false))
+        t = thread("https://api.github.com/repos/o/r/issues/5", "Issue"; reason = "subscribed")
+        @test !haskey(src.row(t, true), "state")
+        @test E.involved_reason("mention") && !E.involved_reason("subscribed")
         @test E.app_token("ghs_install") && !E.app_token("github_pat_x")
     finally
         E.PAT_FILE[] = keepp; E._PAT[] = keepc; E.TOKEN_FILE[] = keept
@@ -366,16 +374,28 @@ end
         Dict{String,Any}(String(k) => v for (k, v) in kw))
     keeppat = W.Events._PAT[]
     try
-        # The notifications source is running, so every carried row is under a
-        # clock and only what a clock names is asked; see below for without.
+        # The notifications source is running - a token, and a poll that
+        # answered - so every carried row is under a clock and only what a
+        # clock names is asked; see below for without.
         W.Events._PAT[] = ("a person's token", "test")
+        live = Dict{String,Any}("cursors" => Dict("notifications" => "2026-09-13T00:00:00Z"),
+                                "polled" => Dict("notifications" => "2026-09-13T11:00:00Z"),
+                                "failed" => Dict{String,String}(), "items" => Dict{String,Any}())
         # The corpus from last time: 1 is open work; 2 is carried and quiet;
         # 3 is carried and a clock says it moved; 4 is from a retired lane,
         # kept as it was like anything else; 5 is carried, moved, and the
         # fetch will not answer for it.
-        W.save_fetched(Dict{String,Any}("items" => Dict(
+        W.save_fetched(Dict{String,Any}("inbox" => live, "items" => Dict(
             U(1) => row(1), U(2) => row(2; lane = "landed"), U(3) => row(3; lane = "landed"),
             U(4) => row(4; lane = "commented_issue"), U(5) => row(5; lane = "reviewed"))))
+        @test W.Events.notifications_live()
+        # A token that stopped answering is not a clock: the last poll failed.
+        let d = W.load_fetched()
+            d["inbox"] = merge(live, Dict("failed" => Dict("notifications" => "2026-09-13T11:30:00Z")))
+            W.save_fetched(d)
+            @test !W.Events.notifications_live()
+            d["inbox"] = live; W.save_fetched(d)
+        end
         asked = String[]
         srch(q) = occursin("author:", q) ? ([node(U(1), 1)], 4, 1) : (Any[], 4, 0)
         function byurl(urls)
