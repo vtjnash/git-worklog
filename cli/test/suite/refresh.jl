@@ -561,6 +561,38 @@ end
     @test length(nodes) == 130 && all(q -> q == "is:open is:issue x", asked)
 end
 
+@testset "a window is walked by stamp, and a row that moves mid-walk is read again, not skipped" begin
+    # A fake list ascending by `updated_at`: 100 rows in one second, then one
+    # a second - and one row, read on page one, that is updated once the walk
+    # is past the tie and going by stamp, which moves it to the end and shifts
+    # everything behind it up. (Moved during the tie's own drain it would be
+    # the offset's hole in miniature, which the docstring owns up to.)
+    st_(i) = "2026-09-01T00:" * lpad(string(i ÷ 60), 2, '0') * ":" * lpad(string(i % 60), 2, '0') * "Z"
+    upd = Dict(i => (i <= 100 ? st_(0) : st_(i - 100)) for i in 1:230)
+    asks = Tuple{String,Int}[]
+    moved = Ref(false)
+    function page(floor_, n)
+        push!(asks, (floor_, n))
+        # The mover: row 5, read on page one, is touched during the walk.
+        if !moved[] && length(asks) == 3
+            upd[5] = st_(200); moved[] = true
+        end
+        keep = sort([i for i in 1:230 if upd[i] >= floor_]; by = i -> (upd[i], i))
+        [Dict{String,Any}("id" => i, "updated_at" => upd[i]) for i in keep[(n-1)*100+1:min(n*100, end)]]
+    end
+    rows = W.Events.walk_updated(page, "2026-09-01T00:00:00Z")
+    ids = sort([r["id"] for r in rows])
+    @test ids == collect(1:230)                     # every row, once, the mover included
+    # Page one from `since`; the second in it did not advance the floor, so
+    # page two was asked from the same floor by offset; then by stamp.
+    @test asks[1] == ("2026-09-01T00:00:00Z", 1)
+    @test asks[2] == ("2026-09-01T00:00:00Z", 2)
+    @test all(n == 1 for (_, n) in asks[3:end])
+    @test issorted([f for (f, _) in asks[3:end]])
+    # And the mover is what the last page held: read again past the floor.
+    @test any(r -> r["id"] == 5 && r["updated_at"] == st_(200), rows)
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

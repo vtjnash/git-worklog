@@ -203,28 +203,116 @@ function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
     out
 end
 
-"""One issue search, paged explicitly. Returns `(items, total_count)`.
+"""
+    walk_updated(page, since; per_page, max_pages) -> rows
+
+Walk a window ascending by `updated_at`, cut by stamp and not by offset.
+
+`page(floor, n)` is page `n` of the rows updated at or after `floor`, in
+ascending order, `per_page` long. The walk asks page one from `since`, and
+then page one again from the `updated_at` of the newest row it has, and so
+on: the boundary is a stamp the walk holds, and a row that moves cannot move
+it. What moves is exactly the case `api_paged`'s docstring covers only half
+of: an item updated mid-walk goes to the end - which is fine when it was
+behind the cursor, it is read there - but one *already read* on an earlier
+page goes to the end too, and the unread rows behind it shift up one, so the
+first row of the next page lands on a page already read. Its `updated_at` is
+old, from before the poll began, and the next poll's `since` is past it: a
+row lost for good. With the boundary a stamp, the mover is simply read again
+past it, and nothing else shifts.
+
+The ask is at-or-after, so a tie on the second is never stepped past; a row
+read twice keeps its *later* reading, which is the mover's new stamp. A page
+that makes no progress - every row on it in the floor's own second - is
+drained by offset from that floor, page two on, until a row past the second
+appears, and the walk goes on from there. That drain is the one place an
+offset is still walked, and it has the offset's hole in miniature: a row of
+that second updated *while its second is being paged* shifts the rows after
+it up one. It takes a hundred rows touched in one second and one of them
+touched again within the second the drain takes, and what it loses is one
+movement on one row, which the next movement on it recovers.
+
+The spurious empty first page `api_paged` retries is retried here too.
+"""
+function walk_updated(page, since::AbstractString; per_page::Int = 100, max_pages::Int = 60)
+    out, seen = Any[], Dict{Any,Int}()
+    take!(rows) = begin
+        last_ = ""
+        for r in rows
+            last_ = max(last_, String(get(r, "updated_at", "")))
+            k = something(get(r, "id", nothing), get(r, "url", nothing), length(out) + 1)
+            i = get(seen, k, nothing)
+            if i === nothing
+                push!(out, r)
+                seen[k] = length(out)
+            else
+                out[i] = r          # read again, later: the newer reading
+            end
+        end
+        last_
+    end
+    floor_ = String(since)
+    pages = 0
+    while pages < max_pages
+        rows = page(floor_, 1)
+        pages += 1
+        if isempty(rows) && isempty(out)
+            # An empty first page has been observed spuriously, and believed,
+            # it reports the whole window as having nothing in it: unread went
+            # 781 -> 170 with no error. A genuinely empty result is stable, so
+            # confirm it before believing it.
+            for _ in 1:2
+                sleep(1)
+                rows = page(floor_, 1)
+                isempty(rows) || break
+            end
+        end
+        last_ = take!(rows)
+        length(rows) < per_page && break
+        if last_ <= floor_
+            # The whole page is the floor's own second: page on from it by
+            # offset until a row past that second appears.
+            n = 2
+            while pages < max_pages
+                rows = page(floor_, n)
+                pages += 1
+                last_ = take!(rows)
+                (length(rows) < per_page || last_ > floor_) && break
+                n += 1
+            end
+            length(rows) < per_page && break
+        end
+        floor_ = last_
+    end
+    out
+end
+
+"""One page of one issue search: the items and the total. Returns
+`(items, total_count)`.
 
 Search is the only way to ask about a whole owner at once, and it needs
 `is:issue` or `is:pull-request` - a query with neither is a 422. It is capped at
 1000 results, which `total` is reported for so the caller can say when a window
-is too wide rather than silently seeing part of it.
-
-Ascending by update, for the same reason `api_paged` is: a concurrent edit moves
-an item toward the end, which can duplicate but never skip.
+is too wide rather than silently seeing part of it. Ascending by update, and
+walked by `walk_updated`, for the reason given there.
 """
-function search_issues(q::AbstractString; per_page::Int = 100, max_pages::Int = 10)
-    out, total = Any[], 0
-    for page in 1:max_pages
-        d = first(api_get("/search/issues"; params = Dict{String,Any}(
-            "q" => String(q), "per_page" => per_page, "page" => page,
-            "sort" => "updated", "order" => "asc")))
-        page == 1 && (total = get(d, "total_count", 0))
-        items = get(d, "items", Any[])
-        append!(out, items)
-        length(items) < per_page && break
+function search_page(q::AbstractString, page::Int; per_page::Int = 100)
+    d = first(api_get("/search/issues"; params = Dict{String,Any}(
+        "q" => String(q), "per_page" => per_page, "page" => page,
+        "sort" => "updated", "order" => "asc")))
+    (get(d, "items", Any[]), get(d, "total_count", 0))
+end
+
+"""Every item `q` matches updated after `since`, walked by stamp; and the
+total the first page reported."""
+function search_issues(q::AbstractString, since::AbstractString; per_page::Int = 100)
+    total = Ref(0)
+    rows = walk_updated(since; per_page = per_page, max_pages = 10) do floor_, n
+        items, t = search_page(string(q, " updated:>=", floor_), n; per_page = per_page)
+        n == 1 && floor_ == since && (total[] = t)
+        items
     end
-    (out, total)
+    (rows, total[])
 end
 
 """Split the configured entries into the two kinds of source.
@@ -556,9 +644,11 @@ function sources(cfg, login; verbose::Bool = true)
     end
     for repo in explicit
         push!(srcs, (label = repo,
-                     fetch = since -> api_paged("/repos/$repo/issues";
-                         params = Dict{String,Any}("since" => since, "state" => "all",
-                                                   "sort" => "updated", "direction" => "asc")),
+                     fetch = since -> walk_updated(since) do floor_, n
+                         api_get("/repos/$repo/issues"; params = Dict{String,Any}(
+                             "since" => floor_, "state" => "all", "sort" => "updated",
+                             "direction" => "asc", "per_page" => 100, "page" => n))
+                     end,
                      overlap = OVERLAP_REST,
                      row = (r, _) -> issue_row(r, login)))
     end
@@ -568,7 +658,7 @@ function sources(cfg, login; verbose::Bool = true)
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (label = string(owner, "/* ", kind),
                      fetch = since -> begin
-            its, total = search_issues("user:$owner $kind updated:>$since")
+            its, total = search_issues("user:$owner $kind", since)
             total >= 1000 && @printf(stderr,
                 "    %-24s truncated at 1000 of %d - poll more often\n",
                 string(owner, "/*"), total)
