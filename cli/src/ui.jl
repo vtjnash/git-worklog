@@ -213,6 +213,11 @@ function fetch_bundle(it::Item)
         e isa FetchError || rethrow()
         return nothing
     end
+    # Answered under another url - the repository or the issue has moved -
+    # is the refresh's to sort out, which puts the row under its new name;
+    # a bundle under the old name with the new url inside it would be two
+    # items with one url.
+    String(n.url) == it.url || return nothing
     cfg = config()
     at = Events.server_now()
     file = fetched("items")
@@ -541,9 +546,15 @@ function ui(args = String[], at::DateTime = utcnow())
     unread = Events.unread(cfg, cfg["login"], at; verbose = false)
     idx = Dict(i.url => i for i in items)
     # Threads the poll saw that no lane returns still need a row to select - a
-    # light one, unless it was looked at and the bundle for it is cached.
+    # light one, unless it was looked at and the bundle for it is cached and
+    # is not older than the inbox's clock for it. A watched repository's
+    # thread is never brought into the corpus, so nothing but the cursor ever
+    # re-fetches its bundle; a bundle from before the last comment would show
+    # the row read for as long as the bundle is kept.
     extra = [let b = bundle_of(String(u["url"]))
-                 b === nothing ? poll_item(u) : item_of(b)
+                 b === nothing ||
+                 String(nz(jget(b, :fetched_at), "")) < String(nz(get(u, "updated", nothing), "")) ?
+                     poll_item(u) : item_of(b)
              end for u in unread if !haskey(idx, String(u["url"]))]
     urls = Set{String}(String(u["url"]) for u in unread)
     # Straight into the browser: what the lane menu used to choose is now a tag.

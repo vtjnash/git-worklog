@@ -119,12 +119,7 @@ end
     # event on the same url.
     @test r["updated"] == "2026-09-09T00:00:00Z"
     @test r["reason"] == "mention" && r["lane"] == "notifications"
-    # A url the inbox already has is not fetched.
-    empty!(asked)
-    r = E.thread_row(t, "me"; known = u -> u == "https://github.com/o/r/pull/7",
-                     fetch = p -> (push!(asked, p); [issue]))
-    @test isempty(asked) && !haskey(r, "state")
-    # And a fetch that fails leaves the thin row rather than losing the thread.
+    # A fetch that fails leaves the thin row rather than losing the thread.
     r = E.thread_row(t, "me"; fetch = p -> throw(E.ApiError("404")))
     @test r["url"] == "https://github.com/o/r/pull/7" && !haskey(r, "state")
 
@@ -145,8 +140,7 @@ end
                  thread("https://api.github.com/repos/o/r/releases/5", "Release";
                         at = "2026-09-11T00:00:00Z")]),
              overlap = E.OVERLAP_REST,
-             row = (t, items) -> E.thread_row(t, "me"; known = u -> haskey(items, u),
-                                              fetch = p -> [issue])),
+             row = (t, _) -> E.thread_row(t, "me"; fetch = p -> [issue])),
             (label = "o/r",
              fetch = since -> (asks["o/r"] = since; [issue]),
              overlap = E.OVERLAP_REST,
@@ -162,7 +156,7 @@ end
         pr = items["https://github.com/o/r/pull/7"]
         @test pr["state"] == "closed" && pr["author"] == "me"    # the poll's
         @test pr["reason"] == "mention" && pr["lane"] == "notifications"  # the thread's
-        @test pr["updated"] == "2026-09-09T00:00:00Z"   # the last writer's clock
+        @test pr["updated"] == "2026-09-09T00:00:00Z"   # one clock, the subject's
         # The issue only the thread saw was filled in by the fetch it was owed.
         is = items["https://github.com/o/r/issues/9"]
         @test is["reason"] == "subscribed" && is["state"] == "closed"
@@ -370,10 +364,15 @@ end
         "updated" => "2026-09-10T00:00:00Z", "moved_at" => "2026-09-10T00:00:00Z",
         "fetched_at" => "2026-09-12T00:00:00Z", "track" => "normal", "ref" => "r#$n"),
         Dict{String,Any}(String(k) => v for (k, v) in kw))
+    keeppat = W.Events._PAT[]
     try
+        # The notifications source is running, so every carried row is under a
+        # clock and only what a clock names is asked; see below for without.
+        W.Events._PAT[] = ("a person's token", "test")
         # The corpus from last time: 1 is open work; 2 is carried and quiet;
-        # 3 is carried and a clock says it moved; 4 is from a retired lane; 5
-        # is carried, moved, and the fetch will not answer for it.
+        # 3 is carried and a clock says it moved; 4 is from a retired lane,
+        # kept as it was like anything else; 5 is carried, moved, and the
+        # fetch will not answer for it.
         W.save_fetched(Dict{String,Any}("items" => Dict(
             U(1) => row(1), U(2) => row(2; lane = "landed"), U(3) => row(3; lane = "landed"),
             U(4) => row(4; lane = "commented_issue"), U(5) => row(5; lane = "reviewed"))))
@@ -381,13 +380,13 @@ end
         srch(q) = occursin("author:", q) ? ([node(U(1), 1)], 4, 1) : (Any[], 4, 0)
         function byurl(urls)
             append!(asked, urls)
-            out = Any[]
-            U(3) in urls && push!(out, node(U(3), 3; updatedAt = "2026-09-13T10:00:00Z",
+            out = W.OrderedDict{String,Any}(u => nothing for u in urls)
+            U(3) in urls && (out[U(3)] = node(U(3), 3; updatedAt = "2026-09-13T10:00:00Z",
                 comments = Dict("nodes" => [Dict("author" => Dict("login" => "bob"),
                                                  "createdAt" => "2026-09-13T10:00:00Z")])))
             # 6 is a thread that names you, new to the corpus; 7 a watched
             # repository's traffic, which stays light and is never asked.
-            U(6) in urls && push!(out, node(U(6), 6; updatedAt = "2026-09-13T09:00:00Z",
+            U(6) in urls && (out[U(6)] = node(U(6), 6; updatedAt = "2026-09-13T09:00:00Z",
                 comments = Dict("nodes" => [Dict("author" => Dict("login" => "bob"),
                                                  "createdAt" => "2026-09-13T09:00:00Z")])))
             out
@@ -401,11 +400,12 @@ end
                              "why" => "you were mentioned"),
             Dict{String,Any}("url" => U(7), "updated" => "2026-09-13T09:00:10Z",
                              "lane" => "notifications", "reason" => "subscribed")]
-        @test W.refresh(String[], at; search = srch, fetch_urls = byurl, unread = clock) == 0
+        @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock) == 0
         @test sort(asked) == [U(3), U(5), U(6)]
         its = W.fetched("items")
         have = sort(String.(collect(keys(its))))
-        @test have == [U(1), U(2), U(3), U(5), U(6)]        # 4 let go, 7 never in
+        @test have == [U(1), U(2), U(3), U(4), U(5), U(6)]  # 7 never in: nobody asked
+        @test its[Symbol(U(4))].lane == "commented_issue" && W.in_pile(its[Symbol(U(4))])
         # The open work, fetched and stamped this run.
         @test its[Symbol(U(1))].fetched_at >= "2026-09-13T12:00:00Z" && its[Symbol(U(1))].lane == "mine"
         # Kept as it was: the stamp and the mark it had.
@@ -421,23 +421,25 @@ end
         @test its[Symbol(U(6))].new == true && !isempty(its[Symbol(U(6))].reply)
 
         # A url that answers under another name - the repository moved - is a
-        # row under the new name, not a crash.
+        # row under the new name, with the old row as what it replaces, and
+        # the old name goes: no clock will ever say it again.
         asked = String[]
-        moved(urls) = [node("https://github.com/o/moved/issues/3", 3;
+        moved(urls) = W.OrderedDict{String,Any}(U(3) => node("https://github.com/o/moved/issues/3", 3;
                             repository = Dict("nameWithOwner" => "o/moved"),
-                            updatedAt = "2026-09-13T11:30:00Z")]
+                            updatedAt = "2026-09-13T11:30:00Z"))
         clock2(cfg, login, at) = [Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
-                        fetch_urls = moved, unread = clock2) == 0
+                        fetch_url_map = moved, unread = clock2) == 0
         its = W.fetched("items")
-        @test haskey(its, Symbol("https://github.com/o/moved/issues/3"))
-        @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "carried"
+        @test haskey(its, Symbol("https://github.com/o/moved/issues/3")) && !haskey(its, Symbol(U(3)))
+        @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "landed"
+        @test its[Symbol("https://github.com/o/moved/issues/3")].new == false
 
         # The whole fetch failing keeps every asked row as it was.
         boom(urls) = throw(W.FetchError("secondary rate limit"))
         clock3(cfg, login, at) = [Dict{String,Any}("url" => U(2), "updated" => "2026-09-13T15:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 16); search = srch,
-                        fetch_urls = boom, unread = clock3) == 0
+                        fetch_url_map = boom, unread = clock3) == 0
         @test haskey(W.fetched("items"), Symbol(U(2)))
 
         # The refresh derives against the browser's bundle when that is the
@@ -450,13 +452,35 @@ end
                     ci = "FAILURE", ci_failed = true)
             W.cache_put(W.bundle_key(U(2)), b)
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 18); search = srch,
-                            fetch_urls = byurl, unread = (a...) -> Any[]) == 0
+                            fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
             @test W.fetched("items")[Symbol(U(2))].moved_at == "2026-09-13T16:30:00Z"
         finally
             W.CACHE_DIR[] = keepdir
         end
+        # Without the notifications source, a carried row in a repository the
+        # poll does not cover has no clock at all, so while it is open it is
+        # asked every run - the way every carried row was before the clocks -
+        # and once it is over it is left alone.
+        W.Events._PAT[] = nothing
+        keept = W.Events.TOKEN_FILE[]
+        try
+            W.Events.TOKEN_FILE[] = joinpath(d, "app-token"); write(W.Events.TOKEN_FILE[], "ghu_app\n")
+            @test !W.covered(U(2), Dict{String,Any}("repos" => ["x/y", "z/*"]), false)
+            @test W.covered(U(2), Dict{String,Any}("repos" => ["o/r"]), false)
+            @test W.covered(U(2), Dict{String,Any}("repos" => ["o/*"]), false)
+            @test W.covered(U(2), Dict{String,Any}(), true)
+            asked = String[]
+            @test W.refresh(String[], W.DateTime(2026, 9, 13, 19); search = srch,
+                            fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
+            # Every open row in front of you is asked - nothing watches any
+            # of them - and what is not asked is anything over, or the pile:
+            # 4 is a retired lane's row and nobody is waiting on it.
+            @test U(2) in asked && U(6) in asked && !(U(4) in asked)
+        finally
+            W.Events.TOKEN_FILE[] = keept
+        end
     finally
-        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.Events._PAT[] = keeppat
     end
 end
 
@@ -797,31 +821,24 @@ end
     @test W.moved_stamp(was(asked), off, now_) == "2026-09-01T00:00:00Z"
 end
 
-@testset "nothing ages out of being unread" begin
-    # A row is an item because a lane returned it, and every active lane is
+@testset "nothing ages out of being unread, and nothing leaves at all" begin
+    # A row is an item because a lane returned it, and every lane is
     # `is:open` - so the merge that took it out of the lanes used to take it
     # out of the snapshot, unread mark and all, once the closed lanes' window
     # had passed. A row that was in front of you and that no lane returns is
-    # fetched by url and kept while it is unread; this is the keep.
-    r = Dict{String,Any}("moved_at" => "2026-09-12T20:53:03Z")
-    st(; kw...) = Dict{String,Any}(String(k) => v for (k, v) in kw)
-    @test W.still_unread(r, st())                                    # never read
-    @test W.still_unread(r, st(read = "2026-09-12T00:00:00Z"))       # read before it moved
-    @test !W.still_unread(r, st(read = "2026-09-12T20:53:03Z"))      # read up to the move
-    @test !W.still_unread(r, st(read = "2026-09-13T00:00:00Z"))
-    # Filed is dealt with, read or not.
-    @test !W.still_unread(r, st(archived = "2026-09-13T00:00:00Z"))
-    # And the pile is not in front of you: a closed row leaving it is not
-    # carried, or a thousand pull requests nobody will read would be fetched
-    # by url on every refresh for good.
+    # carried: kept as it was until a clock says it moved, then asked by url.
+    # And since 2026-09-14 it is kept *for good*, read or not - the corpus is
+    # the index of everything that was ever in front of you, the `read` and
+    # `filed` boxes are what hold the read and the filed, and a snooze on a
+    # row that had left would be a wake with nothing to wake. It used to be
+    # let go once read, which was right while the closed lanes and the bulk
+    # searches re-returned whatever moved, and wrong the day they went.
     @test W.in_pile(Dict{String,Any}("lane" => "firehose"))
     @test !W.in_pile(Dict{String,Any}("lane" => "mine"))
     # Exercised live on 2026-09-13 with julia#61767, merged by somebody else
     # in May and returned by no lane: carried, seen merged, `moved_at` dated
-    # by the merge, kept as unread through two refreshes, and let go on the
-    # one after `wl read`.
+    # by the merge, kept as unread through two refreshes.
 end
-
 @testset "a movement is dated by the thing that moved" begin
     # The refresh clock is the honest answer for a state with no clock of its
     # own and the wrong one for a comment: `r` stamps you read at the moment the

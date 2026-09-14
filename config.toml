@@ -44,9 +44,11 @@ second_look_days = 2
 # Everything else the dashboard shows is *not* searched for. It arrives through
 # the clocks under `[events]` - the repositories polled there and, when the
 # token allows, your GitHub notifications - and a row is fetched by url the
-# first time a thread names you, and again only when a clock says it moved. A
-# finished pull request of yours stays as long as it is unread, and the mention
-# on a years-old closed issue arrives the same way as one on an open one.
+# first time a thread names you, and again only when a clock says it moved.
+# Nothing leaves: the dashboard is the index of everything that was ever in
+# front of you, read or unread - the `read` and `filed` boxes hold the read and
+# the filed - and a finished pull request of yours stays, as does the mention
+# on a years-old closed issue, which arrives the same way as one on an open one.
 # Until 2026-09-13 there were nine more lanes here - three for what had recently
 # closed, six searching for mentions and comments, and a firehose of every open
 # julia pull request - two thousand rows fetched every six hours so the ones

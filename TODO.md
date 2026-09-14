@@ -132,12 +132,32 @@ here is done; `git log` is the record of it and this file is not.
    16 points, three lanes, the poll, one url. `fetch_bundle` on a light
    julia row: 0.8s, and the overlay shows it.
 
-   **Two things to know.** A url the token cannot fetch is asked again every
-   run - one line of noise, "1 threads new here", and nothing else. And a
-   dashboard from before this is 280 rows where it was 2174: the pile was a
-   standing list of everything you had ever commented on, and now it is
-   what moved in the last thirty days. A row you want that nothing returns
-   is `i`.
+   **Reviewed twice, 2026-09-14, and the seam between the clocks and the
+   corpus was where the bugs were.** The first review found the by-url
+   path dropping every asked row when the fetch failed, a redirect aborting
+   the refresh, and three ways the browser's bundle and the refresh could
+   disagree on a mark; all taken. The second, asked about the corpus as the
+   index of everything ever entered, found the actual mistake: the refresh
+   still *pruned* a carried row once it was read, which was right while the
+   closed lanes and the bulk searches re-returned whatever moved and wrong
+   the day they went - the inbox and the corpus pruned on different clocks
+   and a row read in one and unread in the other oscillated between the
+   clock bringing it in and the prune letting it go (reproduced); `s` on a
+   carried row deleted it before the wake; a pruned row that came back had
+   lost its carried keys, so a bot's comment on a `loose` mention woke it.
+   **Nothing leaves now.** The corpus is what the user said it was: read
+   rows are the `read` box, filed the `filed` box, the retired lanes' rows
+   stay as they were (restored from the backup taken before the first run:
+   2267 items), and a row is re-asked only when a clock says. With it: a
+   carried row under no clock at all - a repository nobody polls, on the
+   sandbox whose token cannot read notifications - is asked every run while
+   it is open and in front of you (`covered`); every thread fetches its
+   subject so the inbox writes one clock, the subject's, for one event; a
+   redirect puts the row under its new name with the old as what it
+   replaces (`fetch_url_map`); a row fetched older than the bundle the
+   browser holds keeps the bundle; a light row's bundle older than the
+   inbox's clock is not shown over it; `bundletried` clears per selection;
+   lane rows carry the thread's reason too. Steady state after: 29s, 6 asked.
 
    **Discovery - which items exist and which moved - is the half
    notifications can take.** Seven of the twelve lanes exist only to find

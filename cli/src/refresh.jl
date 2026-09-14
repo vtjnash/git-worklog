@@ -717,19 +717,6 @@ function their_comment_at(r, old, login::AbstractString, key::AbstractString; hu
     (by == login || (human && endswith(something(by, ""), "[bot]"))) ? carry : String(at)
 end
 
-"""Does a row no lane returns still have a claim on you: unread, and not filed?
-
-`seen_of`'s rule, asked by the refresh of a row it fetched by url: the read
-stamp against `moved_at`, no stamp being unread. Filed is read that the
-`filed` box holds - it has been dealt with, and a lane not returning it is not
-a reason to keep fetching it.
-"""
-function still_unread(r, st)
-    truthy(get(st, "archived", nothing)) && return false
-    read_ = get(st, "read", nothing)
-    !truthy(read_) || String(read_) < String(nz(get(r, "moved_at", nothing), ""))
-end
-
 """Is this a row nobody put in front of you - the pile?
 
 What the clocks brought in: a row the notifications source or the repo poll
@@ -1012,8 +999,23 @@ function stale_by(inbox_row, old)
     String(nz(get(inbox_row, "updated", nothing), "")) > String(f)
 end
 
+"""Is there a clock over this url at all? The repo poll covers the repositories
+named in `[events] repos` and the owners globbed there; the notifications
+source covers everything that names you, when it is running (`watched`).
+A carried row under neither - your pull request in a repository nobody polls,
+on a machine whose token cannot read notifications - has nothing to say when
+it moves, so while it is open and in front of you it is asked by url every
+run, the way every carried row was before the clocks; once it is over, or if
+it is the pile, nothing about it is waited for."""
+function covered(url::AbstractString, cfge, watched::Bool)
+    watched && return true
+    repo = join(split(String(url), '/')[4:5], '/')
+    explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
+    repo in explicit || first(split(repo, '/')) in owners
+end
+
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
-                 search = search, fetch_urls = fetch_urls, unread = Events.unread)
+                 search = search, fetch_url_map = fetch_url_map, unread = Events.unread)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
@@ -1045,6 +1047,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # against the file's older row would see the same edge again, date it
     # again, and put back in front of you a thing you had read.
     prev(url) = bundled(url, jget(prev_items, Symbol(url)))
+    cfge = get(cfg, "events", Dict{String,Any}())
 
     # **The open work is asked for whole, every run.** The three lanes are
     # GraphQL searches because they do two things at once that nothing else
@@ -1069,7 +1072,6 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
         @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
     end
-    lanes = Set(keys(items))
 
     # Items no lane returns, tracked because they were asked for by url. They
     # go in after the lanes, so a lane that does return one wins: an import is
@@ -1078,7 +1080,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     if !isempty(imp)
         kept = 0
         for n in try
-                    fetch_urls(imp)
+                    Any[n for n in values(fetch_url_map(imp)) if n !== nothing]
                  catch e
                     @printf(stderr, "  %-9s failed: %s\n", "imported",
                             first(sprint(showerror, e), 120))
@@ -1110,26 +1112,37 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     #     mention and comment searches and the three closed lanes were for.
     #   * a row of a watched repository's traffic, `subscribed` or the poll's
     #     own: **not here**. It stays a light row in the inbox, shown by the
-    #     browser as such, until it is looked at - `promote!` - or a lane
+    #     browser as such, until it is looked at - `fetch_bundle` - or a lane
     #     returns it.
     #
-    # A row from before the lanes were retired - the firehose, the mention
-    # and comment searches - is let go without a change line: nothing will
-    # ever return it, and there were two thousand of them.
+    # **Nothing leaves.** The corpus is the index of everything that was ever
+    # in front of you, read or unread, and a row in it is kept for good: read
+    # rows are what the `read` box holds, filed ones the `filed` box, and a
+    # snooze on a row that then left would be a wake with nothing to wake.
+    # It used to prune a carried row once it was read - which was right while
+    # the closed lanes and the bulk searches re-returned anything that moved,
+    # and wrong the day they went: a read row that then moved came back with
+    # its carried keys gone, or oscillated between the clock bringing it in
+    # and the prune letting it go. The rows of the nine retired lanes stay
+    # too, as they were; `in_pile` knows their names.
     inbox = Dict{String,Any}(String(e["url"]) => e for e in unread(cfg, login, at))
+    watched = Events.pat() !== nothing
+    # A lane row carries the thread's reason too, when there is one: a mention
+    # on your own pull request is a mention, and the `reply` tag reads it.
+    # Off the row it replaces when the inbox has no thread for it any more.
+    for (url, r) in items
+        thread_facts!(r, get(inbox, url, nothing), prev(url))
+    end
     ask = OrderedDict{String,String}()        # url => the lane its row gets
-    carried, retired = String[], 0
+    carried = String[]
     for k in keys(prev_items)
         url = String(k)
         haskey(items, url) && continue
         old = prev(url)
         lane = String(nz(jget(old, :lane), "carried"))
-        if retired_lane(lane)
-            retired += 1
-            continue
-        end
         push!(carried, url)
-        if stale_by(get(inbox, url, nothing), old)
+        if stale_by(get(inbox, url, nothing), old) ||
+           (!covered(url, cfge, watched) && !isover(old) && !in_pile(old))
             ask[url] = lane
         else
             items[url] = kept_row(old)
@@ -1142,25 +1155,38 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         ask[url] = String(nz(get(e, "lane", nothing), "notifications"))
         brought += 1
     end
+    gone = Tuple{String,String}[]
+    renamed = Dict{String,String}()           # new url => the one asked
     if !isempty(ask)
-        got = 0
-        nodes = try
-            fetch_urls(collect(keys(ask)))
+        got, moved_ = 0, 0
+        answers = try
+            fetch_url_map(collect(keys(ask)))
         catch e
             @printf(stderr, "  %-9s failed: %s\n", "by url",
                     first(sprint(showerror, e), 120))
-            Any[]
+            OrderedDict{String,Any}()
         end
         f = now_()
-        for n in nodes
+        for (asked, n) in answers
+            n === nothing && continue
             # Under the url GitHub answers with, which is the one asked unless
             # the repository or the issue has moved since - `resource` follows
-            # the redirect - in which case the row is new here under its new
-            # name and the old one goes below as a row nothing returns.
+            # the redirect. Then the row lives under its new name from here,
+            # with the old row as what it replaces, and the old name goes:
+            # no clock will ever say it again. What `local.toml` holds under
+            # the old name - a note, a read stamp - stays under it.
             u = String(n.url)
-            r = normalize(n, get(ask, u, "carried"), login)
+            r = normalize(n, ask[asked], login)
             r["fetched_at"] = f
-            items[u] = thread_facts!(r, get(inbox, u, nothing), prev(u))
+            old = prev(asked)
+            items[u] = thread_facts!(r, get(inbox, u, get(inbox, asked, nothing)), old)
+            if u != asked
+                moved_ += 1
+                renamed[u] = asked
+                delete!(items, asked)
+                push!(gone, (asked, String(nz(jget(old, :ref), asked))))
+                @printf(stderr, "  %-9s %s is now %s\n", "by url", asked, u)
+            end
             got += 1
         end
         # A url asked and not answered - the fetch failed whole, or the one
@@ -1169,19 +1195,19 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         # it was asked, and a burst of forty is the shape the secondary rate
         # limit trips on.
         unanswered = 0
-        for url in keys(ask)
-            haskey(items, url) && continue
-            old = prev(url)
+        for asked in keys(ask)
+            (haskey(items, asked) || get(answers, asked, nothing) !== nothing) && continue
+            old = prev(asked)
             old === nothing && continue
-            items[url] = kept_row(old)
+            items[asked] = kept_row(old)
             unanswered += 1
         end
         @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here (of %d asked%s)\n",
                 "by url", got, length(ask) - brought, brought, length(ask),
                 unanswered == 0 ? "" : "; $unanswered unanswered, kept as they were")
     end
-    @printf(stderr, "  %-9s %3d items no lane returns, unread or moved%s\n", "carried",
-            length(carried), retired == 0 ? "" : "; $retired from retired lanes let go")
+    @printf(stderr, "  %-9s %3d items no lane returns, kept or re-asked\n", "carried",
+            length(carried))
     carried = Set(carried)
 
     # A kept row from before there was a stamp gets one now: no clock saw it
@@ -1193,12 +1219,21 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # The facts, then the tracking level, then the wake table at that level.
     # Order matters: the level decides which keys `moved_stamp` compares. A
     # kept row is derived against itself, so nothing about it moves and only
-    # the second look and `local.toml` are re-read.
+    # the second look and `local.toml` are re-read. **And a row this run
+    # fetched is derived against the newest thing known about it - which is
+    # the browser's bundle, when the cursor was on the row while the lanes
+    # were running and something landed between the two fetches. Then the
+    # bundle is the row: deriving the older fetch against the newer one would
+    # read the comment it lacks as a comment deleted, date that by the
+    # refresh clock, and put a thing you were reading back in front of you.
     changes = Any[]
     slept = String[]
-    for (url, r) in items
+    for (url, r) in collect(items)
         st = get(state, url, Dict{String,Any}())
-        old = prev(url)
+        old = prev(get(renamed, url, url))
+        if old !== nothing && String(nz(jget(old, :fetched_at), "")) > String(r["fetched_at"])
+            r = items[url] = kept_row(old)
+        end
         derive!(r, old, st, cfg, at)
         pop!(r, "slept") && push!(slept, url)
         if old === nothing
@@ -1206,23 +1241,6 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         else
             d = change_of(old, r)
             isempty(d) || push!(changes, (url, r, d))
-        end
-    end
-    # A carried row that is read - up to its latest movement, this run's
-    # included - or filed has nothing left to say, and goes. One that is
-    # unread stays, however long that takes.
-    for url in carried
-        haskey(items, url) || continue
-        still_unread(items[url], get(state, url, Dict{String,Any}())) || delete!(items, url)
-    end
-    gone = Tuple{String,String}[]
-    for (k, old) in pairs(prev_items)
-        url = String(k)
-        if !haskey(items, url)
-            retired_lane(String(nz(jget(old, :lane), ""))) && continue
-            push!(changes, (url, old, url in carried ? "read, and no lane returns it" :
-                                                       "closed or merged"))
-            push!(gone, (url, String(nz(jget(old, :ref), url))))
         end
     end
     reconcile_drafts!(gone)

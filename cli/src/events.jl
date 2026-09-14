@@ -407,16 +407,17 @@ function thread_subject(t)
 end
 
 """
-    thread_row(t, login; known, fetch) -> row, or nothing
+    thread_row(t, login; fetch) -> row, or nothing
 
 The inbox row for a notification thread. A thread carries less than a poll's
-row does - no state, no author, no labels, no comment count - so a thread
-whose url is *new* to the inbox is filled in with one `GET` of its subject,
-through `fetch`: that is what makes a closed thing that stirred a `done` row
-rather than one that reads as open, and at a few dozen new threads a day on a
-5000-an-hour budget it is nothing. A thread already in the inbox (`known`
-answers true for its url) gets no fetch: the row is merged over what is there,
-so the thread's clock and reason land and the richer keys stay.
+row does - no state, no author, no labels, no comment count - so it is filled
+in with one `GET` of its subject, through `fetch`: that is what makes a closed
+thing that stirred a `done` row rather than one that reads as open, and at a
+few dozen threads a day on a 5000-an-hour budget it is nothing. Every thread,
+not only one whose url is new to the inbox - it was the latter until
+2026-09-14, and a thread merged over a poll's row without the fetch carried
+its delivery time as `updated` over the poll's event time, the two clocks
+this docstring's last paragraph is about.
 
 What the thread contributes is `updated`, `lane`, `reason` and `why`. `unread`
 and `last_read_at` are never read: the cursor is ours and the read stamp is
@@ -434,8 +435,7 @@ is untouched by this: it is read off the raw thread, in `sync!`.
 A `fetch` that fails leaves the thin row - the thread is still shown, only
 with less on it - and `fetch = nothing` asks for the thin row outright.
 """
-function thread_row(t, login; known = url -> false,
-                    fetch = path -> api_get(path; auth = pat()[1]))
+function thread_row(t, login; fetch = path -> api_get(path; auth = pat()[1]))
     sub = thread_subject(t)
     sub === nothing && return nothing
     reason = String(get(t, "reason", ""))
@@ -446,7 +446,7 @@ function thread_row(t, login; known = url -> false,
         "updated" => String(t["updated_at"]),
         "lane" => "notifications", "reason" => reason,
         "why" => get(THREAD_WHY, reason, reason))
-    (known(sub.url) || fetch === nothing) && return row
+    fetch === nothing && return row
     issue = try
         first(fetch(sub.path))
     catch e
@@ -514,8 +514,7 @@ function sources(cfg, login; verbose::Bool = true)
                      fetch = since -> api_paged("/notifications"; auth = p, per_page = 50,
                          params = Dict{String,Any}("all" => "true", "since" => since)),
                      overlap = OVERLAP_REST,
-                     row = (t, items) -> thread_row(t, login;
-                         known = url -> haskey(items, url),
+                     row = (t, _) -> thread_row(t, login;
                          fetch = path -> api_get(path; auth = p))))
     elseif verbose
         @printf(stderr, "    %-24s skipped: the token is a GitHub App's, and there is no %s\n",

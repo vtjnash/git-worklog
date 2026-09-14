@@ -129,19 +129,30 @@ once anything has been imported, and a request per row is the thing the rest of
 this file exists to avoid. A url that names nothing - deleted, or moved to a
 repository you cannot see - comes back null and is skipped rather than thrown,
 because one dead import must not cost the refresh the live ones.
+
+`fetch_url_map` is the same request answered *by the url asked*: `nothing` for
+one that named nothing, and the node for the rest - which carries its own
+`url`, and that is not always the one asked. `resource` follows a redirect, so
+a repository that was renamed or an issue that was transferred answers under
+its new name, and only the map can say which asked url it was.
 """
-function fetch_urls(urls; per::Int = 40)
-    us = String[]
+function fetch_url_map(urls; per::Int = 40)
+    out = OrderedDict{String,Any}()
     for u in urls
         c = item_url(u)
-        c === nothing || push!(us, c)
+        c === nothing || (out[c] = nothing)
     end
-    isempty(us) && return Any[]
+    us = collect(keys(out))
+    isempty(us) && return out
     # A request per forty, not one for all: the carried rows can be many on
     # the day something big closes, and a query naming two hundred resources
     # with these selections is past what the endpoint will take in one body.
-    length(us) > per && return reduce(vcat, (fetch_urls(us[i:min(i + per - 1, end)]; per = per)
-                                             for i in 1:per:length(us)))
+    if length(us) > per
+        for i in 1:per:length(us)
+            merge!(out, fetch_url_map(us[i:min(i + per - 1, end)]; per = per))
+        end
+        return out
+    end
     parts = [string("  r", i, ": resource(url: ", json_dumps(u), ") {\n",
                     "    __typename\n    ... on PullRequest {", PR_FIELDS, "    }\n",
                     "    ... on Issue {", ISSUE_FIELDS, "    }\n  }\n")
@@ -153,16 +164,18 @@ function fetch_urls(urls; per::Int = 40)
     d = JSON3.read(o)
     haskey(d, :errors) &&
         throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
-    out = Any[]
-    for i in eachindex(us)
+    for (i, u) in enumerate(us)
         n = jget(d.data, Symbol("r", i))
         # Null for a url that resolves to nothing, and field-less for one that
         # resolves to something else - a discussion, a commit, a repository.
         (n === nothing || jget(n, :url) === nothing) && continue
-        push!(out, n)
+        out[u] = n
     end
     out
 end
+
+fetch_urls(urls; per::Int = 40) =
+    Any[n for n in values(fetch_url_map(urls; per = per)) if n !== nothing]
 
 "One item by url. Throws when there is nothing there to have."
 function fetch_url(url::AbstractString)
