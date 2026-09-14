@@ -1031,7 +1031,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # second walk is later than a bundle fetched during it, and the older
     # data would win. Earlier is the safe direction for every comparison
     # this feeds - a row is at least as old as its stamp says.
-    now_() = stamp(at + Millisecond(round(Int, 1000 * (time() - t0))))
+    now_() = stamp(at + Millisecond(round(Int, (time_ns() - t0) ÷ 1_000_000)))
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
     # no clock of its own against the read mark, a read mark on a hand-typed
@@ -1040,7 +1040,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # a `Date` header, and not the local clock plus a correction. One request,
     # free of the rate limit. A test hands in its own.
     at === nothing && (at = Events.server_now())
-    t0 = time()
+    t0 = time_ns()                       # monotonic: a duration, not a clock
     state = load_state()
     # What the last run left, to diff this one against. Read once and held: the
     # parts of the file this run writes - the poll's inbox, the items

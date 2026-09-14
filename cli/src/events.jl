@@ -158,21 +158,25 @@ api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth()) =
 
 The `Date` header is when the server generated the response - the request's
 end, not its start - so the start is bounded from below by that less the
-request's own wall time, which is a rate and not an offset and so needs no
-clock agreement, less one second for the header's truncation. It is what a
+request's own length, which is a duration off the monotonic clock and so
+needs no agreement between any two clocks, less one second for the header's
+truncation. It is what a
 windowed source's cursor is set from, see `sync!`: the instant before which
 everything the page shows was already true. It used to be a `/rate_limit`
 request made beforehand for its header alone, one per poll; this is the same
 bound off the page itself, tighter by the request's own length.
 """
 function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth())
-    t0 = time()
+    # The monotonic clock: a length of time, not a time of day, and the wall
+    # clock is not one - NTP steps it, a resumed VM lands wherever the host
+    # says - so measured on the clock that cannot run backwards.
+    t0 = time_ns()
     r = try
         GitHub.gh_get(GitHub.DEFAULT_API, endpoint; auth = auth, params = params)
     catch e
         throw(ApiError(first(sprint(showerror, e), 200)))
     end
-    elapsed = max(0.0, time() - t0)        # a clock stepped back mid-request
+    elapsed = (time_ns() - t0) / 1e9
     v = GitHub.JSON.parse(GitHub.http_payload(r, String))
     d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
     started = d === nothing ? nothing :
