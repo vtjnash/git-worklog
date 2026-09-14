@@ -55,18 +55,21 @@ second_look_days = 2
 # that moved could be noticed. A row you want that nothing here returns is `i`:
 # an import, fetched by url from then on.
 #
-# `sort:updated-asc` on each, for the same reason the REST walks in
-# `events.jl` are ascending: the pages are read one after another, and in
-# ascending order an item touched mid-walk moves toward the *end* - a page
-# boundary can only repeat it, never skip past it. The default order is best
-# match, which is roughly newest first and not even sorted, and an offset
-# cursor over a list that reshuffles under it is how rows go missing for a
-# run. (An item that *closes* mid-walk still leaves the `is:open` set from
-# ahead, and one row can slip a boundary; it is kept as it was in the corpus
-# and re-asked when a clock says, so the cost is one refresh of freshness.)
-mine     = "is:open is:pr author:vtjnash archived:false sort:updated-asc"
-review   = "is:open is:pr review-requested:vtjnash archived:false sort:updated-asc"
-assigned = "is:open is:issue assignee:vtjnash archived:false sort:updated-asc"
+# `sort:created-asc` on each. The pages are read one after another, and the
+# default order is best match - roughly newest first and not even sorted - so
+# an offset cursor over a list that reshuffles under it is how a row goes
+# missing for a run. Creation time never changes: nothing moves in this order,
+# a new item opens at the *end*, and the only way a row leaves from ahead of
+# the cursor is closing - one row can slip a boundary then, and it is kept as
+# it was in the corpus and re-asked when a clock says, one refresh of
+# freshness. Not `updated`, which the windowed walks in `events.jl` use and
+# must: there the cursor is the newest `updated_at` seen, and an item touched
+# mid-walk has to move to the end and be read again with its new stamp, or
+# the next poll starts past it. These lanes have no cursor - the whole set,
+# every run - so the order that never moves is the right one.
+mine     = "is:open is:pr author:vtjnash archived:false sort:created-asc"
+review   = "is:open is:pr review-requested:vtjnash archived:false sort:created-asc"
+assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
 
 # Named filter sets for `'` in the browser. Ten are built in - notification
 # firehose, my work, open items, waiting on me, waiting on them, ready to merge,
