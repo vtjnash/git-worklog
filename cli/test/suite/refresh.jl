@@ -423,7 +423,7 @@ end
                              "why" => "you were mentioned"),
             Dict{String,Any}("url" => U(7), "updated" => "2026-09-13T09:00:10Z",
                              "lane" => "notifications", "reason" => "subscribed")]
-        @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock) == 0
+        @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock, open_list = (a...; kw...) -> []) == 0
         @test sort(asked) == [U(3), U(5), U(6)]
         its = W.fetched("items")
         have = sort(String.(collect(keys(its))))
@@ -452,7 +452,7 @@ end
                             updatedAt = "2026-09-13T11:30:00Z"))
         clock2(cfg, login, at) = [Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
-                        fetch_url_map = moved, unread = clock2) == 0
+                        fetch_url_map = moved, unread = clock2, open_list = (a...; kw...) -> []) == 0
         its = W.fetched("items")
         @test haskey(its, Symbol("https://github.com/o/moved/issues/3")) && !haskey(its, Symbol(U(3)))
         @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "landed"
@@ -462,7 +462,7 @@ end
         boom(urls) = throw(W.FetchError("secondary rate limit"))
         clock3(cfg, login, at) = [Dict{String,Any}("url" => U(2), "updated" => "2026-09-13T15:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 16); search = srch,
-                        fetch_url_map = boom, unread = clock3) == 0
+                        fetch_url_map = boom, unread = clock3, open_list = (a...; kw...) -> []) == 0
         @test haskey(W.fetched("items"), Symbol(U(2)))
 
         # The refresh derives against the browser's bundle when that is the
@@ -475,7 +475,7 @@ end
                     state = "MERGED", ci = "FAILURE", ci_failed = true)
             W.cache_put(W.bundle_key(U(2)), b)
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 18); search = srch,
-                            fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
+                            fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
             @test W.fetched("items")[Symbol(U(2))].moved_at == "2026-09-13T16:30:00Z"
         finally
             W.CACHE_DIR[] = keepdir
@@ -490,7 +490,7 @@ end
         @test W.covered(U(2), Dict{String,Any}("repos" => ["o/*"]))
         asked = String[]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 19); search = srch,
-                        fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
+                        fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
         @test U(6) in asked && !(U(2) in asked) && !(U(4) in asked)
         # A mark is proof a row was in front of you: a light row with a block
         # in local.toml joins the corpus - off the bundle the browser cached
@@ -507,7 +507,7 @@ end
             light9(cfg, login, at) = [Dict{String,Any}("url" => U(9), "lane" => "activity",
                                                         "updated" => "2026-09-13T18:20:00Z")]
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 20); search = srch,
-                            fetch_url_map = byurl, unread = light9) == 0
+                            fetch_url_map = byurl, unread = light9, open_list = (a...; kw...) -> []) == 0
             its = W.fetched("items")
             @test haskey(its, Symbol(U(8))) && its[Symbol(U(8))].lane == "notifications"
             @test U(9) in asked
@@ -518,7 +518,7 @@ end
             W.set_read(U(2), "2026-09-13T23:00:00Z")
             asked = String[]
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 21); search = srch,
-                            fetch_url_map = byurl, unread = (a...) -> Any[]) == 0
+                            fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
             @test U(2) in asked
         finally
             W.CACHE_DIR[] = keepdir
@@ -644,6 +644,81 @@ end
         (page(floor_, k), W.DateTime(2026, 9, 2))
     end
     @test st[] == W.DateTime(2026, 9, 2)
+end
+
+@testset "the open list is the backlog, read by construction, unread when it moves" begin
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    try
+        # A REST issue and a REST pull request, as the open list hands them
+        # over, become corpus rows in the shape a lane's rows have.
+        rest(n; pr = false) = Dict{String,Any}(
+            "html_url" => "https://github.com/o/r/$(pr ? "pull" : "issues")/$n",
+            "repository_url" => "https://api.github.com/repos/o/r", "number" => n,
+            "title" => "t$n", "state" => "open", "user" => Dict("login" => "alice"),
+            "created_at" => "2026-08-01T00:00:00Z", "updated_at" => "2026-08-0$(n)T00:00:00Z",
+            "labels" => [Dict("name" => "bug")], "assignees" => [Dict("login" => "vtjnash")],
+            "milestone" => Dict("title" => "1.0", "due_on" => nothing), "comments" => 2,
+            (pr ? ("pull_request" => Dict(),) : ())...)
+        r = W.backlog_row(rest(1), "vtjnash")
+        @test r["type"] == "Issue" && r["lane"] == "backlog" && r["state"] == "OPEN"
+        @test r["mine"] == true && r["labels"] == ["bug"] && r["milestone"] == "1.0"
+        @test W.backlog_row(rest(2; pr = true), "me")["type"] == "PullRequest"
+        @test W.in_pile(r)
+        # Imported once, the rows are in the corpus, `new`, and read by
+        # construction: a stamp at their mark, under the file's own.
+        W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}()))
+        rows = [W.backlog_row(rest(1), "vtjnash"), W.backlog_row(rest(2; pr = true), "vtjnash")]
+        srch(q) = (Any[], 4, 0)
+        @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 12); search = srch,
+                        fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (@test only === nothing; rows)) == 0
+        its = W.fetched("items")
+        u1, u2 = rows[1]["url"], rows[2]["url"]
+        @test haskey(its, Symbol(u1)) && haskey(its, Symbol(u2))
+        @test its[Symbol(u1)].lane == "backlog" && its[Symbol(u1)].new == true
+        @test W.load_baseline()[u1] == its[Symbol(u1)].moved_at
+        @test W.read_at(u1) == its[Symbol(u1)].moved_at        # read, by construction
+        it = W.item_of(its[Symbol(u1)])
+        @test W.seen_of(it, W.Marks(read = W.load_read(), now = "2026-09-13T12:00:00Z")) === :read
+        # Moved past its stamp, it is unread like any other row; read for
+        # real, the file's stamp is on top; marked unread by hand, the
+        # baseline is gone and stays gone.
+        later = W.with(it; moved_at = "2026-09-13T00:00:00Z")
+        @test W.seen_of(later, W.Marks(read = W.load_read(), now = "2026-09-13T12:00:00Z")) === :unread
+        W.set_read(u1, "2026-09-14T00:00:00Z")
+        @test W.read_at(u1) == "2026-09-14T00:00:00Z"
+        @test W.mark_unread([u1]) == 1
+        @test W.read_at(u1) === nothing && !haskey(W.load_baseline(), u1)
+        @test haskey(W.load_baseline(), u2)
+        # A second import leaves rows the corpus has alone, and adds none.
+        @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 13); search = srch,
+                        fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        open_list = (cfge, login; only = nothing, spent = Ref(0)) -> rows) == 0
+        @test !haskey(W.load_baseline(), u1) && W.fetched("items")[Symbol(u1)].new == false
+        # Without the flag, only a source seen for the first time is asked for
+        # its list - which, with no cursor anywhere, is every one; with every
+        # cursor present, none.
+        seen = Ref{Any}(:unset)
+        W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
+                  fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                  open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
+        @test seen[] isa Vector && !isempty(seen[])
+        let f = W.load_fetched()
+            f["inbox"] = Dict("cursors" => Dict(l => "2026-09-13T00:00:00Z" for l in seen[]),
+                              "polled" => Dict(), "failed" => Dict(), "items" => Dict())
+            W.save_fetched(f)
+        end
+        seen[] = :unset
+        W.refresh(String[], W.DateTime(2026, 9, 13, 15); search = srch,
+                  fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                  open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
+        @test seen[] === :unset                          # not asked at all
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
 end
 
 @testset "work that has gone quiet on somebody" begin

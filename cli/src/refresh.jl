@@ -757,7 +757,7 @@ same work.
 """
 function in_pile(r)
     lane = String(nz(pget(r, "lane"), ""))
-    pile = lane in ("notifications", "activity") || retired_lane(lane)
+    pile = lane in ("notifications", "activity", "backlog") || retired_lane(lane)
     pile && isempty(String(nz(pget(r, "reply"), "")))
 end
 
@@ -1068,8 +1068,78 @@ function lane_query(name::AbstractString, q::AbstractString, login::AbstractStri
     m === nothing ? string(q, " sort:created-asc") : String(q)
 end
 
+"""A corpus row from one REST issue, for the open list: the keys `item_of`,
+`derive!` and the tags read, in the shape `normalize` gives a GraphQL node,
+with nothing the REST list does not carry - no head, no reviews, no
+timeline. Light, the way the firehose's rows were; filled in by url the
+first time a clock says it moved or the cursor lands on it."""
+function backlog_row(r, login::AbstractString)
+    who = String(nz(get(something(get(r, "user", nothing), Dict{String,Any}()), "login", nothing), "?"))
+    assignees = String[String(a["login"]) for a in get(r, "assignees", ())]
+    ms = get(r, "milestone", nothing)
+    OrderedDict{String,Any}(
+        "type" => haskey(r, "pull_request") ? "PullRequest" : "Issue",
+        "lane" => "backlog",
+        "url" => String(r["html_url"]), "number" => r["number"], "title" => r["title"],
+        "repo" => Events.item_repo(r), "author" => who,
+        "state" => uppercase(String(get(r, "state", "open"))),
+        "created" => get(r, "created_at", nothing), "updated" => r["updated_at"],
+        "labels" => String[String(l["name"]) for l in get(r, "labels", ())],
+        "milestone" => ms === nothing ? nothing : get(ms, "title", nothing),
+        "milestone_due" => ms === nothing ? nothing : get(ms, "due_on", nothing),
+        "assignees" => assignees, "mine" => who == login || login in assignees,
+        "last_comment_by" => nothing, "last_comment_at" => nothing,
+        "assigned_at" => nothing, "state_at" => nothing)
+end
+
+"""
+    open_list(cfge, login; only) -> rows
+
+**The whole open list of the polled repositories, for the backlog view.** The
+unread side starts at zero - `backfill_days`, and a clock brings in only what
+moves from then on - and this is the other half of that policy: the open
+issues and pull requests of every repository under `[events]` are in the
+corpus from the start, as `backlog` rows, read by construction (see
+`load_baseline`), so the backlog view is the standing list and the dashboard
+is not. Unread the moment one next moves, like any carried row; filled in by
+url then, or when the cursor lands on it.
+
+Named repositories are read off the REST list, a hundred a page, ascending by
+creation, which is light and fast - julia is 4,700 rows in 47 pages; owner
+globs go through the search lane walk, which is the only way to ask about an
+owner at once and comes back with the bundle. `only` names the sources to
+import; every source, when it is the `--backlog` run.
+"""
+function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
+    explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
+    rows = Any[]                     # `normalize` gives a Dict, `backlog_row` an ordered one
+    for repo in explicit
+        (only === nothing || repo in only) || continue
+        got = Events.api_paged("/repos/$repo/issues"; max_pages = 200,
+            params = Dict{String,Any}("state" => "open", "sort" => "created",
+                                      "direction" => "asc"))
+        for r in got
+            push!(rows, backlog_row(r, login))
+        end
+        @printf(stderr, "  %-9s %4d open in %s\n", "backlog", length(got), repo)
+    end
+    for owner in owners, kind in ("is:issue", "is:pr")
+        label = string(owner, "/* ", kind == "is:pr" ? "is:pull-request" : kind)
+        (only === nothing || label in only) || continue
+        nodes, c, total = search("user:$owner is:open $kind archived:false sort:created-asc")
+        spent[] += c
+        for n in nodes
+            push!(rows, normalize(n, "backlog", login))
+        end
+        @printf(stderr, "  %-9s %4d open under %s/* (%s, %d pts)\n", "backlog",
+                length(nodes), owner, kind, c)
+    end
+    rows
+end
+
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
-                 search = search, fetch_url_map = fetch_url_map, unread = Events.unread)
+                 search = search, fetch_url_map = fetch_url_map, unread = Events.unread,
+                 open_list = open_list)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
@@ -1155,6 +1225,34 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             kept += 1
         end
         @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
+    end
+
+    # **The open list of a polled repository is in the corpus from the start**
+    # - on `--backlog`, for every source; and on a source's first sight, so
+    # that naming a repository brings its standing list into the backlog
+    # view rather than a month of its traffic into the dashboard. Rows the
+    # corpus has already are left as they are.
+    first_sight = let c = Events.load_inbox()["cursors"]
+        explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
+        labels = vcat(explicit, [string(o, "/* ", k) for o in owners
+                                 for k in ("is:issue", "is:pull-request")])
+        [l for l in labels if !haskey(c, l)]
+    end
+    want = "--backlog" in args ? nothing : first_sight
+    backlog = String[]
+    if want === nothing || !isempty(want)
+        f = now_()
+        pts = Ref(0)
+        for r in open_list(cfge, login; only = want, spent = pts)
+            u = String(r["url"])
+            (haskey(items, u) || haskey(prev_items, Symbol(u))) && continue
+            r["fetched_at"] = f
+            items[u] = r
+            push!(backlog, u)
+        end
+        spent += pts[]
+        @printf(stderr, "  %-9s %4d rows new to the corpus, read by construction\n",
+                "backlog", length(backlog))
     end
 
     # **Everything else is asked by url, and only when a clock says it
@@ -1340,6 +1438,10 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
     end
     reconcile_drafts!(gone)
+    # Read by construction: the stamp each backlog row was given on arrival,
+    # under the file's own stamps - see `load_baseline`.
+    isempty(backlog) ||
+        add_baseline!(Dict{String,String}(u => String(items[u]["moved_at"]) for u in backlog))
 
     # Once, after the loop: this rewrites a file, and a refresh that finds
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.

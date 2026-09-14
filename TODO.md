@@ -132,6 +132,21 @@ here is done; `git log` is the record of it and this file is not.
    16 points, three lanes, the poll, one url. `fetch_bundle` on a light
    julia row: 0.8s, and the overlay shows it.
 
+   **The backlog is the open list, 2026-09-14.** Decided with the reviews
+   below: `backfill_days` is 0 as policy - the unread side starts at now -
+   and what a repository under `[events]` brings with it is its whole open
+   list, as `backlog` rows, read by construction: a `baseline` part in
+   `fetched.json` under the file's own read stamps (`load_baseline`,
+   merged by every reader of the seen bit, dropped for a url the moment
+   `r` says otherwise), so five thousand synthetic stamps are not blocks in
+   `local.toml`. Named repositories come off the REST list in 47 pages for
+   julia; owner globs through the search walk with the bundle. On a
+   source's first sight, and for every source on `wl refresh --backlog`.
+   Live: 5,393 open across the eight sources, 3,280 new to the corpus,
+   5,548 items, 6.3MB, a refresh still 26s and `loaditems` 0.3s past
+   compilation. The backlog view is the standing list; the dashboard is
+   only what moved.
+
    **Reviewed twice, 2026-09-14, and the seam between the clocks and the
    corpus was where the bugs were.** The first review found the by-url
    path dropping every asked row when the fetch failed, a redirect aborting

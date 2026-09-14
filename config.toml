@@ -159,17 +159,16 @@ include_forks = true
 # the cursor. Only ever used once per source; after that `inbox.json` says where
 # each one has been read up to.
 #
-# 30 because the inbox was rebuilt from nothing on 2026-09-10 and a month is
-# what makes that worth doing - inbox zero on a cold start is an empty dashboard
-# that fills up over the following week. It stays in effect for any source added
-# from here on, which is the same trade: a repo named for the first time arrives
-# with a month of its history rather than with nothing. One number for two
-# things, which a review pointed out: through the notifications source it is
-# how deep a rebuilt dashboard remembers, and for a repo newly named here it is
-# a month of that repo's traffic arriving unread at once. Kept as one on
-# purpose - the trade is the same trade - and worth splitting if the second
-# ever grates.
-backfill_days = 30
+# 0 since 2026-09-14, as policy: the unread side starts at now. It was 30
+# while the corpus was rebuilt from nothing, and a month of a repository's
+# traffic arriving unread at once is not what naming it should mean. What the
+# dashboard remembers is the corpus, which nothing leaves; and what a repository
+# named here brings with it is its **open list** - every open issue and pull
+# request, as `backlog` rows, read by construction and unread the moment one
+# next moves - on its first sight, and for every repository here on
+# `wl refresh --backlog`. The backlog view is that standing list; the dashboard
+# is only what moved.
+backfill_days = 0
 # The activity query runs on every browser launch and is several paginated
 # requests per repo, so a source is not re-polled until this long after the last
 # one. It used to be a cache keyed by the cursor as well, which is gone: the

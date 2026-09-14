@@ -7,7 +7,8 @@ Work dashboard.
   wl                                      the browser
   wl --refresh                            refresh first, then the browser
 
-  wl refresh                              re-fetch, re-derive, re-render
+  wl refresh [--backlog]                  re-fetch, re-derive, re-render; --backlog imports
+                                          the open lists of the polled repos, read
   wl import  <url> [<url>...]             follow items no lane returns, unread
   wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again

@@ -194,7 +194,7 @@ function BState(all::Vector{Item}, title)
     st = BState(; all = collect(all), title = String(title),
                   touched = field_marks(m, "touched"), archived = archived_map(),
                   wakes = wake_map(),
-                  drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
+                  drafts = field_marks(m, "draft"), read = read_marks(m),
                   factsat = mtime(fetchedfile()))
     rebuild_axes!(st)
     refilter!(st)

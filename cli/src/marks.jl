@@ -134,12 +134,56 @@ function set_marks!(urls, field::AbstractString, at::AbstractString)
 end
 
 # --- the seen bit ------------------------------------------------------------
+#
+# **Two layers, and the file's is on top.** A read stamp in `local.toml` is
+# something you did. Beneath it is the *baseline*: a stamp a row was given
+# when it arrived as background - the open list of a polled repository,
+# imported whole for the backlog view - read by construction, since it was
+# never in front of you, and unread the moment it next moves past that stamp.
+# Kept in `fetched.json` under `baseline` and not as five thousand blocks in
+# this file, which is a record of what you did and would parse on every
+# keystroke; and taken out again the moment you say otherwise - `r` on such a
+# row clears the baseline for it along with the stamp, and from then on it is
+# an ordinary row with nothing said about it. Every reader of the seen bit
+# reads the two merged, the file's winning.
 
-"Every seen-up-to timestamp: `url -> ISO8601`."
-load_read() = load_field("read")
+"The stamps rows were given on arrival as background: `url -> ISO8601`."
+function load_baseline()
+    b = fetched("baseline")
+    b === nothing ? Dict{String,String}() :
+        Dict{String,String}(String(k) => String(v) for (k, v) in pairs(b))
+end
+
+"Put `stamps` under the baseline, beside what is there."
+function add_baseline!(stamps::AbstractDict)
+    isempty(stamps) && return 0
+    b = load_baseline()
+    merge!(b, Dict{String,String}(String(k) => String(v) for (k, v) in stamps))
+    put_fetched!("baseline", b)
+    length(stamps)
+end
+
+"Take these urls out of the baseline: from here their seen bit is the file's alone."
+function drop_baseline!(urls)
+    b = load_baseline()
+    n = count(u -> haskey(b, String(u)), urls)
+    n == 0 && return 0
+    for u in urls
+        delete!(b, String(u))
+    end
+    put_fetched!("baseline", b)
+    n
+end
+
+"Every seen-up-to timestamp: `url -> ISO8601` - the baseline under the file's."
+load_read() = merge!(load_baseline(), load_field("read"))
 
 "The seen-up-to timestamp for one item, or `nothing` if it has never been read."
-read_at(url::AbstractString) = mark_at(url, "read")
+read_at(url::AbstractString) = something(mark_at(url, "read"),
+                                         get(load_baseline(), String(url), nothing), Some(nothing))
+
+"The read stamps for the browser: the file's over the baseline."
+read_marks(m::Dict{String,Dict{String,String}}) = merge!(load_baseline(), field_marks(m, "read"))
 
 """The head commit this item stood at when it was marked read, or `nothing`.
 
@@ -178,11 +222,12 @@ dropping the key restores it. Both halves go: a `read_head` outliving the stamp
 it was made with is a commit nothing is measured from any more.
 """
 function mark_unread(urls)
-    have = field_map("read")
+    have = load_read()
     us = unique(String(u) for u in urls)
     named = [u for u in us if haskey(have, u)]
     isempty(us) || set_blocks!([u => ["read" => nothing, "read_head" => nothing]
                                 for u in us])
+    drop_baseline!(us)
     length(named)
 end
 
