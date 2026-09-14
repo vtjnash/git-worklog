@@ -45,7 +45,7 @@
     if W.mux_bin() === nothing
         @info "no tmux; skipping the split render test"
     else
-        st = W.BState(W.loaditems(), "worklog", Set{String}())
+        st = W.BState(W.loaditems(), "worklog")
         ctrl = W.Controller(); ctrl.running = true
         st.wake = () -> W.wake!(ctrl); push!(ctrl.stack, st)
         n = "wl-test-split-1"; W.mux_kill(n)
@@ -130,7 +130,7 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     @test filesize(W.errlog()) == before
 
     # It is what the footer shows, ahead of the status.
-    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st = W.BState(W.loaditems(), "worklog")
     st.status = "something ordinary"
     @test occursin("delete it to clear", W.render(st, 120, 40))
 
@@ -143,7 +143,7 @@ end
     # This is the bug that killed a live session: `load_meta!` handed
     # `mux_sessions()` - names - to a field holding what `mux_list()` returns.
     # Every test set `st.sessions` by hand, so none of them ever saw it.
-    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st = W.BState(W.loaditems(), "worklog")
     st.sessions = W.mux_list()
     @test st.sessions isa Vector{NamedTuple}
     if W.mux_bin() !== nothing
@@ -271,7 +271,7 @@ end
         # Split: the child starts after whatever is drawn to its left. Only
         # when there *is* something drawn there - `beside` is what decides it.
         @test W.viewcursor(v1, 200, 24) == (2, 3 + 8)          # nothing beside
-        v1.beside = W.BState(W.loaditems(), "worklog", Set{String}())
+        v1.beside = W.BState(W.loaditems(), "worklog")
         @test W.viewcursor(v1, 200, 24) == (2, first(W.split_box(200)) + 3 + 8)
         v1.beside = nothing
 
@@ -287,7 +287,7 @@ end
         # Release keeps its own terminator.
         @test String(W.retarget_mouse(v2, sgr(0, 20, 5, 'm'), 100, 24)) == "\e[<0;18;4m"
         # Split at 200: the same screen column is much further into the child.
-        v2.beside = W.BState(W.loaditems(), "worklog", Set{String}())
+        v2.beside = W.BState(W.loaditems(), "worklog")
         lw = first(W.split_box(200))
         @test String(W.retarget_mouse(v2, sgr(0, lw + 20, 5, 'M'), 200, 24)) == "\e[<0;18;4M"
         v2.beside = nothing
@@ -334,7 +334,7 @@ end
     @test W.oneline("already one") == "already one"
     @test !occursin('\n', W.oneline(sprint(showerror, MethodError(sin, ("a", "b")))))
 
-    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st = W.BState(W.loaditems(), "worklog")
     for status in ("plain", sprint(showerror, MethodError(sin, ("a", "b"))),
                    "a\nb\nc\nd")
         st.status = status

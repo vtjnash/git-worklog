@@ -229,10 +229,8 @@ end
         # Falling asleep takes the item out of the unread lane: "not now" and
         # "unread" are the same answer twice, and the row leaves in the session
         # the key was pressed in rather than at the next refresh.
-        push!(st.unread, it.url)
         was = W.read_at(it.url)
         @test startswith(W.apply_snooze!(st, it, "3d", now), "snoozed until ")
-        @test !(it.url in st.unread)
         @test W.read_at(it.url) !== nothing
         # It is read, and tagged: a snooze is not a place to be.
         @test W.seen_of(it, W.Marks(st)) === :read
@@ -240,22 +238,22 @@ end
         @test :snoozed in W.tags_of(it, W.Marks(st))
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
-        @test it.url in st.unread && W.read_at(it.url) == was
+        @test W.read_at(it.url) == was
         # Clearing one says nothing about whether it has been read.
         W.apply_snooze!(st, it, "3d", now)
         @test W.apply_snooze!(st, it, nothing, now) == "snooze cleared"
-        @test W.read_at(it.url) !== nothing && !(it.url in st.unread)
+        @test W.read_at(it.url) !== nothing
 
         # **And the wake is the clock's to notice, not a refresh's.** A snooze
         # set to run out an hour ago has run out: the item is unread, and no
         # longer tagged, without anybody having written anything.
         W.apply_snooze!(st, it, "3d", now)
         W.set_read(it.url, "2026-09-12T12:00:00Z")
-        m = W.Marks(st.unread, st.read, st.touched, st.archived, st.drafts, st.wakes,
+        m = W.Marks(st.read, st.touched, st.archived, st.drafts, st.wakes,
                     "2026-09-15T13:00:00Z")
         @test W.seen_of(it, m) === :unread
         @test !(:snoozed in W.tags_of(it, m))
-        @test W.seen_of(it, W.Marks(st.unread, st.read, st.touched, st.archived, st.drafts,
+        @test W.seen_of(it, W.Marks(st.read, st.touched, st.archived, st.drafts,
                                     st.wakes, "2026-09-15T11:00:00Z")) === :read
 
         # Every write is undoable, back to nothing at all.

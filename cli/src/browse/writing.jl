@@ -695,7 +695,7 @@ function archive!(st::BState, it::Item, at::DateTime)
     was = haskey(st.archived, it.url)
     prev = get_field(it.url, "archived")
     prevtouch = touched_at(it.url)
-    prevread, wasunread = read_at(it.url), it.url in st.unread
+    prevread = read_at(it.url)
     if was
         set_archived(it.url, nothing)
     else
@@ -704,13 +704,11 @@ function archive!(st::BState, it::Item, at::DateTime)
         # Read up to the last movement on record, not up to now: that is read
         # by definition and GitHub's time by construction. See `read_up_to`.
         set_read(it.url, read_up_to(it.moved_at, it.updated, at))
-        delete!(st.unread, it.url)
     end
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
         set_archived(it.url, prev)
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
-        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
     refilter!(st)
     was ? string("back out: ", it.ref) : string("archived ", it.ref)
@@ -803,7 +801,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     end
     prev = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
-    prevread, wasunread = read_at(it.url), it.url in st.unread
+    prevread = read_at(it.url)
     set_fields(it.url, ["snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
     # sleep marks it read - here, and in `wl snooze`, and by the refresh for a
@@ -814,7 +812,6 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # have read the thing; it takes the wake away and leaves the read stamp.
     if val !== nothing
         set_read(it.url, read_up_to(it.moved_at, it.updated, at))
-        delete!(st.unread, it.url)
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
@@ -824,7 +821,6 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_fields(it.url, ["snooze" => prev])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
-        wasunread ? push!(st.unread, it.url) : delete!(st.unread, it.url)
     end))
     # The seen axis is over the stamp just written and the `snoozed` tag over
     # the wake, so the row has to be able to leave or arrive on the strength of

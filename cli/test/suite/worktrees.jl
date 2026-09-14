@@ -29,7 +29,7 @@ end
     # first two is that the answer is already on disk or already running, and
     # asking about something that is not in doubt is worse than guessing.
     items = W.loaditems()
-    shown = W.BState(items, "worklog", Set{String}())
+    shown = W.BState(items, "worklog")
     pr = fixture_item("yours, open, with a branch and labels")
     root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
     W.git(main, "init", "--quiet", "--initial-branch=master", ".")
@@ -157,7 +157,7 @@ end
     # request in the real facts.json - which is the join this view is for.
     # Taken from what the browser is actually showing, since `i` goes to the
     # row in that list and an item outside it is a different case, tested below.
-    shown = W.BState(items, "worklog", Set{String}())
+    shown = W.BState(items, "worklog")
     # The shortest branch among them, not the first: the narrow render below
     # asserts that the branch column is legible at 80 columns, and which item
     # happens to sort first is not this test's business - it changed under it
@@ -237,7 +237,7 @@ end
 
         # `i` leaves for the item, and reports rather than moving when the
         # list underneath is not showing it.
-        st = W.BState(items, "worklog", Set{String}())
+        st = W.BState(items, "worklog")
         v3 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
         v3.sel = findfirst(r -> r.name == "side", v3.rows)
         @test W.handle!(v3, Int('i'), ctrl) === :pop
@@ -248,7 +248,7 @@ end
         # Asking to go to an item is asking to *see* it, so a filter hiding it
         # is the thing in the way and not the answer. It used to refuse with
         # "filtered out", which is a refusal to do the one thing that was asked.
-        st2 = W.BState(items, "worklog", Set{String}())
+        st2 = W.BState(items, "worklog")
         st2.filters.repos = Set(["nothing/here"])
         st2.search = "zzzz-no-such-item"; st2.searchin = :list
         W.refilter!(st2)

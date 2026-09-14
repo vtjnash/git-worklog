@@ -32,7 +32,7 @@
             # indexes it by. `item_of` is total or this throws above.
             @test all(!isempty(it.url) && !isempty(it.ref) for it in all_)
 
-            st = W.BState(all_, "corpus", Set{String}())
+            st = W.BState(all_, "corpus")
             m = W.Marks(st)
             # The axes are total: every row has an answer on each of them, and
             # no row is left out of the merged one when all four boxes are on.

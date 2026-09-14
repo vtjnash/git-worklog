@@ -250,18 +250,16 @@ const EMPTY_TOUCHED = Dict{String,String}()
 
 """What is recorded about the items on screen, as one argument.
 
-Five maps that the filters ask of every row: the poll's `unread` set, and the
-four marks. They travelled as four and then five positional arguments with
-defaults, which is a list that grows every time the model learns something and
-is wrong the moment one caller passes them in the other order.
+The marks the filters ask of every row. They travelled as four and then five
+positional arguments with defaults, which is a list that grows every time the
+model learns something and is wrong the moment one caller passes them in the
+other order.
 
 References, not copies - `BState` owns the maps and re-reads them whenever
 something changes; this is a way of naming all of them at once, made per
 `refilter!` and thrown away with it.
 """
 Base.@kwdef struct Marks
-    unread::Set{String} = Set{String}()     # what the poll saw move, which is
-                                            # not the seen bit; see `seen_of`
     read::Dict{String,String} = EMPTY_TOUCHED
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
@@ -271,7 +269,7 @@ Base.@kwdef struct Marks
                                     # one per `refilter!` so a list is not
                                     # half-woken across its own rows
 end
-Marks(st) = Marks(st.unread, st.read, st.touched, st.archived, st.drafts, st.wakes,
+Marks(st) = Marks(st.read, st.touched, st.archived, st.drafts, st.wakes,
                   stamp(utcnow()))
 
 """Has this item changed since you last looked at it?

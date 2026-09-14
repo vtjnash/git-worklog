@@ -543,21 +543,32 @@ function ui(args = String[], at::DateTime = utcnow())
     CACHE_FRESH[] = 60.0 * get(cc, "fresh_minutes", get(cc, "detail_ttl_minutes", 2))
     CACHE_KEEP[] = 86_400.0 * get(cc, "keep_days", 30)
     MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
-    unread = Events.unread(cfg, cfg["login"], at; verbose = false)
-    idx = Dict(i.url => i for i in items)
-    # Threads the poll saw that no lane returns still need a row to select - a
-    # light one, unless it was looked at and the bundle for it is cached and
-    # is not older than the inbox's clock for it. A watched repository's
-    # thread is never brought into the corpus, so nothing but the cursor ever
-    # re-fetches its bundle; a bundle from before the last comment would show
-    # the row read for as long as the bundle is kept.
-    extra = [let b = bundle_of(String(u["url"]))
-                 b === nothing ||
-                 String(nz(jget(b, :fetched_at), "")) < String(nz(get(u, "updated", nothing), "")) ?
-                     poll_item(u) : item_of(b)
-             end for u in unread if !haskey(idx, String(u["url"]))]
-    urls = Set{String}(String(u["url"]) for u in unread)
+    append!(items, inbox_items(Set(x.url for x in items),
+                               Events.unread(cfg, cfg["login"], at; verbose = false)))
     # Straight into the browser: what the lane menu used to choose is now a tag.
-    browse(vcat(items, extra), "worklog", urls)
+    browse(items, "worklog")
     0
+end
+
+"""The rows the clocks know and the corpus does not, as items to select.
+
+A watched repository's traffic, and the poll's own rows: what the inbox holds
+that no lane and no by-url fetch has made a corpus row for. A light row for
+each - `poll_item` - unless it was looked at and the bundle for it is cached
+and is not older than the inbox's clock for it: nothing but the cursor ever
+re-fetches such a bundle, and one from before the last comment would show the
+row read for as long as the bundle is kept.
+
+`rows` is the inbox: at launch what `Events.unread` just polled, and on a
+reload under the browser what the file holds - a refresh landing is what
+reloads, and it polled on the way - so a reload rebuilds the same list launch
+did rather than keeping the old light rows by hand off a set the poll wrote
+once.
+"""
+function inbox_items(have::Set{String}, rows = values(Events.load_inbox()["items"]))
+    [let b = bundle_of(String(u["url"]))
+         b === nothing ||
+         String(nz(jget(b, :fetched_at), "")) < String(nz(get(u, "updated", nothing), "")) ?
+             poll_item(u) : item_of(b)
+     end for u in rows if !(String(u["url"]) in have)]
 end

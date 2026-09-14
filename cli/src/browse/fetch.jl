@@ -572,8 +572,17 @@ function reload_data!(st::BState)
             Item[]
         end
         if !isempty(fresh)
-            have = Set(x.url for x in fresh)
-            append!(fresh, (it for it in st.all if it.url in st.unread && !(it.url in have)))
+            # The rows the clocks know and the corpus does not, rebuilt the
+            # way launch builds them rather than kept by hand off a set the
+            # poll wrote once: a light row the refresh has since brought in
+            # is the corpus's now, and one the inbox has since dropped as read
+            # is nobody's.
+            append!(fresh, try
+                inbox_items(Set(x.url for x in fresh))
+            catch e
+                logerror!(e, catch_backtrace(), "inbox_items")
+                Item[]
+            end)
             st.all = fresh
             rebuild_axes!(st)
         end

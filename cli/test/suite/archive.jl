@@ -127,16 +127,16 @@
         # field existed must not offer to archive the whole dashboard.
         @test !W.isdone(W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t"))
 
-        st = W.BState(vcat(W.loaditems(), collect(values(its))), "worklog", Set{String}())
+        st = W.BState(vcat(W.loaditems(), collect(values(its))), "worklog")
         l = its["m#landed"]
         says() = W.astrip(join([x for x in W.meta_lines(st, l, 50) if occursin("state", x)], " "))
         # Merged and not yet looked at is news - a merge you did not do is
         # exactly the thing to be told about, so it stays in the unread lane.
-        push!(st.unread, l.url)
+        # Unread is `seen_of`: no read stamp, or one from before it moved.
         @test occursin("new since you last looked", says())
         @test !occursin("x archives", says())
         # Read, and it becomes something to file. Offered, never done silently.
-        delete!(st.unread, l.url)
+        W.set_read(l.url, "2026-12-31T00:00:00Z"); st.read = W.field_marks(W.load_marks(), "read")
         @test occursin("x archives it", says())
         @test W.get_field(l.url, "snooze") === nothing
 
@@ -154,8 +154,7 @@
         @test !W.mergedbyme(theirs) && !W.mergedbyme(old)
         @test !W.mergedbyme(W.Item(url = "u4", ref = "m#4", repo = "o/m", number = 4,
                                    title = "t", merged_by = W.login()))
-        st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog",
-                       Set(["u1", "u2", "u3"]))
+        st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog")
         line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50) if occursin("state", r)], " "))
         @test occursin("you merged it", line(mine)) && occursin("x archives it", line(mine))
         @test occursin("new since you last looked", line(theirs))
@@ -221,7 +220,7 @@ end
     try
         W.register_repo!("o/main", main)
         items = W.loaditems()
-        st = W.BState(items, "worklog", Set{String}())
+        st = W.BState(items, "worklog")
         ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
         n0 = length(st.all)
         W.handle!(st, Int('"'), ctrl)
@@ -337,7 +336,7 @@ end
     # one. Same key, same rows underneath, one `tab` apart.
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true
-    shown = W.BState(items, "worklog", Set{String}())
+    shown = W.BState(items, "worklog")
     pr = fixture_item("yours, open, with a branch and labels")
 
     root = mktempdir()
@@ -430,7 +429,7 @@ end
         @test v.mode === :worktrees && v.rows[v.sel].name == "made"
 
         # `i` works from either lens.
-        st = W.BState(items, "worklog", Set{String}())
+        st = W.BState(items, "worklog")
         v2 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
         W.handle!(v2, 9, ctrl)
         v2.bsel = findfirst(b -> b.name == pr.branch, v2.brows)

@@ -43,9 +43,9 @@ onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st
 
 Open the browser under a controller that owns stdin for the whole run.
 """
-function browse(items::Vector{Item}, title::AbstractString, unread = Set{String}())
+function browse(items::Vector{Item}, title::AbstractString)
     isempty(items) && (println("\n  nothing in ", title, "\n"); return 0)
-    st = BState(collect(items), String(title), unread)
+    st = BState(collect(items), String(title))
     ctrl = Controller()
     st.wake = () -> wake!(ctrl)
     watch_data!(st)
@@ -461,10 +461,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # puts it back. `u` used to be the unconditional half of this and is
         # now the whole refresh - two presses of a toggle reach either state,
         # and nothing else in the program could ask for a refresh at all.
-        # The stamp is what says which way this toggles, not the poll's set:
-        # `st.unread` is what moved in the repos the poll watches, and this key
-        # works on anything on screen - a carried row the poll never saw
-        # included. The set is kept in step because the metadata pane reads it.
+        # The stamp is what says which way this toggles - `seen_of`, the one
+        # answer to "is it unread" - and it works on anything on screen.
         was = seen_of(it, Marks(st)) === :unread
         seen = was
         # Read up to what was *in front of you*, not up to now: the newest
@@ -492,10 +490,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         else
             mark_unread([it.url])
         end
-        seen ? delete!(st.unread, it.url) : push!(st.unread, it.url)
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
             set_read_mark(it.url, prev, prevhead)
-            was ? push!(st.unread, it.url) : delete!(st.unread, it.url)
         end))
         # The list is what the axes say it is, so a row that has just stopped
         # answering one of them leaves - which for `r` in the base list is the

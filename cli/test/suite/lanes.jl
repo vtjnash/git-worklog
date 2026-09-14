@@ -344,8 +344,12 @@ end
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
                               if occursin("state", l)], " "))
     @test occursin("new since you last looked", says(done))
-    seen = W.Item(; (f => getfield(done, f) for f in fieldnames(W.Item))..., new = false)
+    # Not new, and read past its last movement: something to file. Unread is
+    # `seen_of` - no stamp, or a stamp from before it moved - and nothing else.
+    seen = W.Item(; (f => getfield(done, f) for f in fieldnames(W.Item))..., new = false,
+                  moved_at = "2026-09-01T00:00:00Z")
+    st.read = Dict(seen.url => "2026-09-02T00:00:00Z")
     @test occursin("x archives it", says(seen))
-    push!(st.unread, seen.url)
+    st.read = Dict(seen.url => "2026-08-31T00:00:00Z")
     @test occursin("new since you last looked", says(seen))
 end

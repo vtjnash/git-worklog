@@ -57,16 +57,15 @@
         @test W.seen_of(st.items[st.sel], W.Marks(st)) === :unread
         it = st.items[st.sel]
         prev = W.read_at(it.url)
-        # `r` toggles against the stamp, which is the axis - not against the
-        # poll's set, which only knows the repos it watches.
+        # `r` toggles against the stamp, which is the axis and the one answer
+        # to "is it unread" - there is no second set beside it any more.
         @test W.seen_of(it, W.Marks(st)) === :unread
         W.handle!(st, Int('r'), ctrl)
         @test st.status == "marked read"
         @test W.read_at(it.url) !== nothing
-        @test !(it.url in st.unread)
         @test W.seen_of(it, W.Marks(st)) === :read
         W.handle!(st, Int('r'), ctrl)                   # ...and back again
-        @test st.status == "marked unread" && it.url in st.unread
+        @test st.status == "marked unread" && W.seen_of(it, W.Marks(st)) === :unread
         @test W.read_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
         @test W.read_at(it.url) == prev          # exactly what was there

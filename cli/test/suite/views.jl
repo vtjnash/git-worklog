@@ -72,21 +72,26 @@ end
     W.undraft!(it.url)
 
     # A refresh landing is the one change that adds and removes rows, so it is
-    # the one that rebuilds the list - and the rows that came from the unread
-    # poll rather than from `facts.json` are carried across, since a refresh
-    # that does not mention them is not evidence that they are gone.
-    ghost = W.Item(url = "https://github.com/o/r/issues/1", repo = "o/r", number = 1,
-                   ref = "r#1", title = "unread and untracked", lane = "activity")
-    push!(st.all, ghost)
-    push!(st.unread, ghost.url)
-    W.rebuild_axes!(st)
-    st.factsat, st.reload = 0.0, true
-    @test W.reload_data!(st) === true
-    @test st.factsat != 0.0
-    @test any(x -> x.url == ghost.url, st.all)
-    @test any(x -> x.url == it.url, st.all)
-    @test "o/r" in st.repos                 # the axes are rebuilt with the list
-    delete!(st.unread, ghost.url)
+    # the one that rebuilds the list - and the rows the inbox holds that no
+    # corpus row covers are rebuilt from the file the way launch built them,
+    # rather than carried across by hand off a set the poll wrote once.
+    ghost = "https://github.com/o/r/issues/1"
+    W.Events.inbox_add!([Dict{String,Any}(
+        "url" => ghost, "repo" => "o/r", "number" => 1, "title" => "unread and untracked",
+        "is_pr" => false, "state" => "open", "author" => "a",
+        "updated" => "2026-09-03T00:00:00Z", "comments" => 0,
+        "labels" => String[], "mine" => false)])
+    try
+        st.factsat, st.reload = 0.0, true
+        @test W.reload_data!(st) === true
+        @test st.factsat != 0.0
+        g = findfirst(x -> x.url == ghost, st.all)
+        @test g !== nothing && st.all[g].lane == "activity"
+        @test any(x -> x.url == it.url, st.all)
+        @test "o/r" in st.repos                 # the axes are rebuilt with the list
+    finally
+        W.Events.inbox_drop!([ghost])
+    end
 end
 
 @testset "the watch is on the directory, and only wakes for what is read" begin
@@ -427,7 +432,7 @@ end
     # are two slots, distinguished by kind rather than by anything in the name.
     @test W.mux_name("julia", "master", "62841"; kind = :agent) == "wl-julia-master-62841-agent"
 
-    st = W.BState(W.loaditems(), "worklog", Set{String}())
+    st = W.BState(W.loaditems(), "worklog")
     ctrl = W.Controller(); ctrl.running = true
     it = st.items[1]
 

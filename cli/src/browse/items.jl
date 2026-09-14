@@ -97,7 +97,6 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
     # and the lane that answers "what have I not looked at" is the one it
     # belongs in. `inbox_add!` leaves a poll's own richer entry alone.
     Events.inbox_add!([inbox_row(it, at)]; overwrite = false)
-    push!(st.unread, u)
     was === nothing && add_item!(st, it)
     push!(st.undos, Undo(string("import ", it.ref), () -> begin
         set_fields(u, ["imported" => nothing])
@@ -105,7 +104,6 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
         # A row a poll wrote is not this import's to remove: the import found it
         # there and left it alone, and so does taking the import back.
         hadrow || Events.inbox_drop!([u])
-        delete!(st.unread, u)
         was === nothing && drop_item!(st, u)
     end))
     r = select_item!(st, it)

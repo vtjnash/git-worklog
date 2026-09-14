@@ -131,6 +131,9 @@ function render_frame(st::BState, w::Int, h::Int)
         lrows = Row[Row(0, true,
                         string(st.sel == 0 && st.focus === :list ? THEME.focus : THEME.dim,
                                afit(NEWROW, liw), THEME.reset), NEWROW, 0)]
+        # One reading of the marks for the whole frame, so a list is not
+        # half-woken across its own rows; the same answer `refilter!` sorted by.
+        marks = Marks(st)
         for i in 1:length(st.items)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
@@ -141,7 +144,7 @@ function render_frame(st::BState, w::Int, h::Int)
             # import row, which is the only row that is not an item - two
             # thousand dimmed rows were what made the unread ones invisible
             # among them.
-            styled = string(it_.url in st.unread ? THEME.bold : "", txt, THEME.reset)
+            styled = string(seen_of(it_, marks) === :unread ? THEME.bold : "", txt, THEME.reset)
             (isempty(st.search) || st.searchin !== :list) ||
                 (styled = hlspan(styled, findhits(astrip(styled), st.search),
                                  THEME.match_bg))

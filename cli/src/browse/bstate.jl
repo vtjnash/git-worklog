@@ -62,7 +62,6 @@ Base.@kwdef mutable struct BState <: View
                                     # a held load arms one timer and not one
                                     # per keystroke while it waits
     all::Vector{Item}               # unfiltered
-    unread::Set{String} = Set{String}()
     filters::Filters = DEFAULT_FILTERS()   # what the browser opens on: what
                                     # moved, awake and open. Bare, because that
                                     # is the one `show` box a filter has when it
@@ -81,10 +80,14 @@ Base.@kwdef mutable struct BState <: View
                                     # clock, read when something changes rather
                                     # than per frame
     read::Dict{String,String} = Dict{String,String}()      # url -> what it has
-                                    # been seen up to. The seen bit over the
-                                    # whole corpus, which `st.unread` is not:
-                                    # that is the poll's answer about the repos
-                                    # it watches. See `disposition`
+                                    # been seen up to: the seen bit over the
+                                    # whole corpus, read by `seen_of`, which is
+                                    # the one answer to "is it unread" - the
+                                    # list, the bold, the metadata line and
+                                    # `r` all ask it. There used to be a second
+                                    # answer beside it, the poll's own set of
+                                    # what moved, kept in step by hand at every
+                                    # key that wrote a stamp; gone 2026-09-14
     archived::Dict{String,String} = Dict{String,String}()  # url -> when it was
                                     # filed away: read, and held out of every
                                     # view that does not ask for the filed
@@ -186,9 +189,9 @@ function rebuild_axes!(st::BState)
     st
 end
 
-function BState(all::Vector{Item}, title, unread = Set{String}())
+function BState(all::Vector{Item}, title)
     m = load_marks()
-    st = BState(; all = collect(all), title = String(title), unread = unread,
+    st = BState(; all = collect(all), title = String(title),
                   touched = field_marks(m, "touched"), archived = archived_map(),
                   wakes = wake_map(),
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),

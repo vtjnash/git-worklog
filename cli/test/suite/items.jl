@@ -131,7 +131,7 @@ end
             msg = W.import_url!(st, here.url, at)
             @test occursin("already here", msg) && occursin(here.ref, msg)
             @test length(st.all) == n0                      # not twice
-            @test here.url in st.unread
+            @test W.read_at(here.url) === nothing           # unread again
             @test haskey(W.Events.load_inbox()["items"], here.url)
             @test W.get_field(here.url, "imported") == string(W.Date(at))
             # And the undo takes back all three writes an import makes: the
@@ -142,7 +142,7 @@ end
             # covers - and rust#1 sat in the lane for a week because of it.
             # Not a row in `st.all` it never added, which is the other sense.
             W.handle!(st, Int('z'), ctrl)
-            @test !(here.url in st.unread) && length(st.all) == n0
+            @test length(st.all) == n0
             @test W.get_field(here.url, "imported") === nothing
             @test !haskey(W.Events.load_inbox()["items"], here.url)
             @test W.read_at(here.url) == prevread
@@ -189,7 +189,7 @@ end
             @test it.repo == "rust-lang/rust" && it.number == 1 && !it.is_pr
             @test !isempty(it.title)
             @test st.items[st.sel].url == url          # and it goes to it
-            @test url in st.unread                     # and lands unread
+            @test W.seen_of(it, W.Marks(st)) === :unread   # and lands unread
             # A second import of the same thing is not a second row, and says
             # what it did do: put it back in front of you.
             n0 = length(st.all)
@@ -198,7 +198,7 @@ end
             # `z` takes back what each one did, and no more. The second import
             # added no row, so undoing it removes none.
             W.handle!(st, Int('z'), ctrl)
-            @test isempty(W.imported_urls()) && !(url in st.unread)
+            @test isempty(W.imported_urls())
             @test findfirst(x -> x.url == url, st.all) !== nothing
             # The first one did, so undoing that one does.
             W.handle!(st, Int('z'), ctrl)
@@ -376,16 +376,15 @@ end
     before = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     try
         st.nodes = W.Node[]
-        push!(st.unread, it.url)
+        W.set_read(it.url, nothing); st.read = W.field_marks(W.load_marks(), "read")
         ctrl = W.Controller()
         W.handle!(st, Int('r'), ctrl, then)
         @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
         @test W.read_at(it.url) != "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, and the mark is the
         # same: it does not depend on the clock at all.
-        W.handle!(st, Int('r'), ctrl)
-        push!(st.unread, it.url)
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('r'), ctrl)          # unread again
+        W.handle!(st, Int('r'), ctrl)          # and read
         @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
     finally
         isempty(before) ? rm(W.localfile(); force = true) :

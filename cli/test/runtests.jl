@@ -82,7 +82,7 @@ fresh_local() = (p = joinpath(mktempdir(), "local.toml"); write(p, ""); p)
 # network for a thread it did not ask for.
 items = W.loaditems()
 mkstate() = begin
-    st = W.BState(items, "worklog", Set{String}())
+    st = W.BState(items, "worklog")
     st.nodes = [W.Node("alice  2026-08-01   first", "A paragraph long enough that it has to be wrapped across several rows of the detail pane, which is exactly the case a copy must undo.\n\nsecond para", :md, true),
                 W.Node("bob  2026-08-02   second", "short", :md, true)]
     st.loaded = string(st.items[st.sel].url, ":", st.mode)   # suppress the fetch
