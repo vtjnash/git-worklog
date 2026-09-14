@@ -147,13 +147,37 @@ end
 asked with the one that can - see `pat` - rather than through a second copy of
 this.
 """
-function api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth())
-    v = try
-        GitHub.gh_get_json(GitHub.DEFAULT_API, endpoint; auth = auth, params = params)
+api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth()) =
+    api_get_dated(endpoint; params = params, auth = auth)[1]
+
+"""
+    api_get_dated(endpoint; params, auth) -> (rows, started)
+
+`api_get`, and a lower bound on GitHub's time when the request *began*:
+`started`, a `DateTime`, or `nothing` if the response carried no `Date`.
+
+The `Date` header is when the server generated the response - the request's
+end, not its start - so the start is bounded from below by that less the
+request's own wall time, which is a rate and not an offset and so needs no
+clock agreement, less one second for the header's truncation. It is what a
+windowed source's cursor is set from, see `sync!`: the instant before which
+everything the page shows was already true. It used to be a `/rate_limit`
+request made beforehand for its header alone, one per poll; this is the same
+bound off the page itself, tighter by the request's own length.
+"""
+function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth())
+    t0 = time()
+    r = try
+        GitHub.gh_get(GitHub.DEFAULT_API, endpoint; auth = auth, params = params)
     catch e
         throw(ApiError(first(sprint(showerror, e), 200)))
     end
-    v isa AbstractVector ? v : Any[v]
+    elapsed = time() - t0
+    v = GitHub.JSON.parse(GitHub.http_payload(r, String))
+    d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
+    started = d === nothing ? nothing :
+              d - Millisecond(round(Int, 1000 * elapsed)) - Second(1)
+    (v isa AbstractVector ? v : Any[v], started)
 end
 
 """Page explicitly rather than by following Link headers.
@@ -171,11 +195,15 @@ That is why this reaches for `gh_get_json` (a single request) instead of the
 library's own paginating helpers: correctness beats using the convenience API.
 """
 function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
-                   per_page::Int = 100, max_pages::Int = 60, auth = auth())
+                   per_page::Int = 100, max_pages::Int = 60, auth = auth(),
+                   started = Ref{Any}(nothing))
     out, seen = Any[], Set{Any}()
     for page in 1:max_pages
-        rows = api_get(endpoint; auth = auth, params = merge(params, Dict{String,Any}(
+        rows, st = api_get_dated(endpoint; auth = auth, params = merge(params, Dict{String,Any}(
             "per_page" => per_page, "page" => page)))
+        # The first request's bound is the walk's: everything any page shows
+        # was already true before it; see `api_get_dated`.
+        page == 1 && (started[] = st)
         for r in rows
             k = something(get(r, "id", nothing), get(r, "url", nothing), page)
             if !(k in seen)
@@ -234,8 +262,17 @@ movement on one row, which the next movement on it recovers.
 
 The spurious empty first page `api_paged` retries is retried here too.
 """
-function walk_updated(page, since::AbstractString; per_page::Int = 100, max_pages::Int = 60)
+function walk_updated(page, since::AbstractString; per_page::Int = 100, max_pages::Int = 60,
+                      started = Ref{Any}(nothing))
     out, seen = Any[], Dict{Any,Int}()
+    # `page` answers rows, or `(rows, started)`; the first request's bound is
+    # the walk's.
+    function ask(floor_, n)
+        a = page(floor_, n)
+        a isa Tuple || return a
+        started[] === nothing && (started[] = a[2])
+        a[1]
+    end
     take!(rows) = begin
         last_ = ""
         for r in rows
@@ -254,7 +291,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
     floor_ = String(since)
     pages = 0
     while pages < max_pages
-        rows = page(floor_, 1)
+        rows = ask(floor_, 1)
         pages += 1
         if isempty(rows) && isempty(out)
             # An empty first page has been observed spuriously, and believed,
@@ -263,7 +300,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
             # confirm it before believing it.
             for _ in 1:2
                 sleep(1)
-                rows = page(floor_, 1)
+                rows = ask(floor_, 1)
                 isempty(rows) || break
             end
         end
@@ -274,7 +311,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
             # offset until a row past that second appears.
             n = 2
             while pages < max_pages
-                rows = page(floor_, n)
+                rows = ask(floor_, n)
                 pages += 1
                 last_ = take!(rows)
                 (length(rows) < per_page || last_ > floor_) && break
@@ -297,20 +334,22 @@ is too wide rather than silently seeing part of it. Ascending by update, and
 walked by `walk_updated`, for the reason given there.
 """
 function search_page(q::AbstractString, page::Int; per_page::Int = 100)
-    d = first(api_get("/search/issues"; params = Dict{String,Any}(
+    ds, st = api_get_dated("/search/issues"; params = Dict{String,Any}(
         "q" => String(q), "per_page" => per_page, "page" => page,
-        "sort" => "updated", "order" => "asc")))
-    (get(d, "items", Any[]), get(d, "total_count", 0))
+        "sort" => "updated", "order" => "asc"))
+    d = first(ds)
+    (get(d, "items", Any[]), get(d, "total_count", 0), st)
 end
 
 """Every item `q` matches updated after `since`, walked by stamp; and the
 total the first page reported."""
-function search_issues(q::AbstractString, since::AbstractString; per_page::Int = 100)
+function search_issues(q::AbstractString, since::AbstractString; per_page::Int = 100,
+                       started = Ref{Any}(nothing))
     total = Ref(0)
-    rows = walk_updated(since; per_page = per_page, max_pages = 10) do floor_, n
-        items, t = search_page(string(q, " updated:>=", floor_), n; per_page = per_page)
+    rows = walk_updated(since; per_page = per_page, max_pages = 10, started = started) do floor_, n
+        items, t, st = search_page(string(q, " updated:>=", floor_), n; per_page = per_page)
         n == 1 && floor_ == since && (total[] = t)
-        items
+        (items, st)
     end
     (rows, total[])
 end
@@ -573,9 +612,11 @@ const OVERLAP_SEARCH = Second(15 * 60)
     sources(cfg, login; verbose) -> [(; label, fetch, overlap, row), ...]
 
 Every source the inbox is polled from, in the order they are asked. `fetch`
-takes a `since` stamp and returns raw rows; `row` takes one raw row and
-whether this is the source's first sight (the backfill), and returns the entry
-to write or `nothing` to skip it.
+takes a `since` stamp and returns `(rows, started)` - the raw rows and a lower
+bound on GitHub's time when the first request began, see `api_get_dated` -
+or bare rows, for which the bound is asked of the clock; `row` takes one raw
+row and whether this is the source's first sight (the backfill), and returns
+the entry to write or `nothing` to skip it.
 
 Three kinds. A repo named in `[events] repos` is one REST list with `since=`,
 exact. An `owner/*` entry is every repo that owner has, asked as one search
@@ -632,8 +673,12 @@ function sources(cfg, login; verbose::Bool = true)
         # and is filled in when it next moves or is looked at. Steady state
         # fetches every subject: a few dozen a day.
         push!(srcs, (label = "notifications",
-                     fetch = since -> api_paged("/notifications"; auth = p, per_page = 50,
-                         params = Dict{String,Any}("all" => "true", "since" => since)),
+                     fetch = since -> begin
+            st = Ref{Any}(nothing)
+            rows = api_paged("/notifications"; auth = p, per_page = 50, started = st,
+                             params = Dict{String,Any}("all" => "true", "since" => since))
+            (rows, st[])
+        end,
                      overlap = OVERLAP_REST,
                      row = (t, first) -> thread_row(t, login;
                          fetch = first && !involved_reason(get(t, "reason", nothing)) ?
@@ -644,11 +689,15 @@ function sources(cfg, login; verbose::Bool = true)
     end
     for repo in explicit
         push!(srcs, (label = repo,
-                     fetch = since -> walk_updated(since) do floor_, n
-                         api_get("/repos/$repo/issues"; params = Dict{String,Any}(
-                             "since" => floor_, "state" => "all", "sort" => "updated",
-                             "direction" => "asc", "per_page" => 100, "page" => n))
-                     end,
+                     fetch = since -> begin
+            st = Ref{Any}(nothing)
+            rows = walk_updated(since; started = st) do floor_, n
+                api_get_dated("/repos/$repo/issues"; params = Dict{String,Any}(
+                    "since" => floor_, "state" => "all", "sort" => "updated",
+                    "direction" => "asc", "per_page" => 100, "page" => n))
+            end
+            (rows, st[])
+        end,
                      overlap = OVERLAP_REST,
                      row = (r, _) -> issue_row(r, login)))
     end
@@ -658,16 +707,17 @@ function sources(cfg, login; verbose::Bool = true)
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (label = string(owner, "/* ", kind),
                      fetch = since -> begin
-            its, total = search_issues("user:$owner $kind", since)
+            st = Ref{Any}(nothing)
+            its, total = search_issues("user:$owner $kind", since; started = st)
             total >= 1000 && @printf(stderr,
                 "    %-24s truncated at 1000 of %d - poll more often\n",
                 string(owner, "/*"), total)
-            keep && return its
+            keep && return (its, st[])
             kept = drop_forks(its, owner_forks(owner))
             length(kept) == length(its) ||
                 @printf(stderr, "    %-24s %d on forks skipped\n",
                         string(owner, "/*"), length(its) - length(kept))
-            kept
+            (kept, st[])
         end,
                      overlap = OVERLAP_SEARCH,
                      row = (r, _) -> issue_row(r, login)))
@@ -679,24 +729,27 @@ end
     sync!(srcs, at; ttl, backfill, now) -> (items, new)
 
 Poll each source that is due and fold what it returned into the inbox; the
-unread items, and how many rows arrived. `now` is asked once per poll that
-has a source due, and not at all when none is.
+unread items, and how many rows arrived. `now` is asked only for a source
+seen for the first time, whose backfill has to start somewhere.
 
-**The cursor is GitHub's time at the moment the poll began** - `now`, off a
-`Date` header - and not the newest row the source returned, which it was
+**The cursor is GitHub's time just before the source's first request** -
+`started`, off that request's own `Date` header less its length, see
+`api_get_dated` - and not the newest row the source returned, which it was
 until 2026-09-14. It is compared on the server against `updated_at`, so it
 has to be GitHub's time and not this machine's: a local clock running ahead
 would have the next poll skip whatever landed in the gap, and Windows clocks
-have been minutes out. The start of the poll is the one instant that is
-safe **whatever order the pages come in**: `since=` makes each page the whole
+have been minutes out. The start of the walk is the one instant that is safe
+**whatever order the pages come in**: `since=` makes each page the whole
 window as of that request, not the walk as a whole, so an item updated after
 its page was read is either read again later - only if the walk is ascending
 by `updated`, which moves it to the end - or not read again at all, and the
-newest row seen can then be past it. Everything updated after the poll began
+newest row seen can then be past it. Everything updated after the walk began
 is, by definition, either unseen or seen with a stale stamp, and a cursor at
 that instant asks for all of it next time. What that costs is the walk's own
 late rows read twice, which are free: the inbox is keyed by url. Never
-backwards, so a source whose cursor is already past this poll keeps it.
+backwards, so a source whose cursor is already past this poll keeps it. A
+source that answers without a bound - a test's, or a response with no `Date`
+- gets the clock's now, asked then.
 
 **And the ask is from behind the cursor**, by an overlap, because GitHub
 promises nothing about a response being a snapshot as of its newest row.
@@ -733,14 +786,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
                   t === nothing || at - t >= ttl)
     for (label, fetch, overlap, torow) in srcs
         due(label) || continue
-        # Once, before any source is asked, so it is behind every request this
-        # poll makes: a cursor at the start of the poll is what makes the walk
-        # safe in any order, see above.
-        server === nothing && (server = now())
         first = !haskey(cursors, label)
-        first && (cursors[label] = stamp(server - backfill))
+        if first
+            server === nothing && (server = now())
+            cursors[label] = stamp(server - backfill)
+        end
         cur = cursors[label]
-        rows = try
+        answer = try
             fetch(stamp(ts(cur) - overlap))
         catch e
             e isa ApiError || rethrow()
@@ -752,6 +804,8 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             continue
         end
         delete!(failed, label)
+        rows, started = answer isa Tuple ? answer : (answer, nothing)
+        started === nothing && (started = now())
         skipped = 0
         for r in rows
             row = torow(r, first)
@@ -766,7 +820,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         end
         skipped == 0 || @printf(stderr, "    %-24s %d not an issue or pull request, skipped\n",
                                 label, skipped)
-        cursors[label] = max(String(cur), stamp(server))
+        cursors[label] = max(String(cur), stamp(started))
         polled[label] = stamp(at)
     end
 

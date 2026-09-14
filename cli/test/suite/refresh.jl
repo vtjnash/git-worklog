@@ -181,6 +181,14 @@ end
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
         E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1))
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
+        # A source that answers with its own bound - the first request's
+        # `Date` less its length - sets the cursor from that, and the clock is
+        # not asked at all.
+        dated = [(label = "o/r",
+                  fetch = since -> ([issue], W.DateTime(2026, 9, 13, 12, 20, 30)),
+                  overlap = E.OVERLAP_REST, row = (r, _) -> E.issue_row(r, "me"))]
+        E.sync!(dated, at + W.Minute(30); now = () -> error("the page said when"))
+        @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:20:30Z"
         # And a poll row arriving over an existing thread row keeps the reason.
         @test E.load_inbox()["items"]["https://github.com/o/r/pull/7"]["reason"] == "mention"
         # `poll_item` reads the lane and the reason off the row.
@@ -591,6 +599,14 @@ end
     @test issorted([f for (f, _) in asks[3:end]])
     # And the mover is what the last page held: read again past the floor.
     @test any(r -> r["id"] == 5 && r["updated_at"] == st_(200), rows)
+    # A page that answers with its bound: the walk's is the first request's.
+    st = Ref{Any}(nothing)
+    n = Ref(0)
+    W.Events.walk_updated("2026-09-01T00:00:00Z"; started = st) do floor_, k
+        n[] += 1
+        (page(floor_, k), W.DateTime(2026, 9, 1, 0, 0, n[]))
+    end
+    @test st[] == W.DateTime(2026, 9, 1, 0, 0, 1)
 end
 
 @testset "work that has gone quiet on somebody" begin
