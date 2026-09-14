@@ -49,13 +49,16 @@ a close or a merge, which is asked for by name below.
 `evs` is `nothing` for a row the bulk lanes returned, which fetch no timeline,
 and for an imported row before the refresh has caught up with it.
 """
-function event_at(evs, login::AbstractString, kinds, who::Union{Symbol,Nothing})
+function event_at(evs, login::AbstractString, kinds, who::Union{Symbol,Nothing};
+                  team::Bool = false)
     evs === nothing && return nothing
     best = ""
     for e in evs
         jget(e, :__typename) in kinds || continue
         jget(jget(e, :actor), :login) == login && continue
-        who === nothing || jget(jget(e, who), :login) == login || continue
+        named = who === nothing || jget(jget(e, who), :login) == login ||
+                (team && jget(jget(e, who), :slug) !== nothing)
+        named || continue
         t = jget(e, :createdAt)
         t === nothing || (best = max(best, String(t)))
     end
@@ -180,7 +183,15 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # fifty such events after the last one naming you; julia#51908, the
         # widest today, has ten. `nothing` for an issue, for a row the bulk
         # lanes returned, and for a pull request nobody ever asked you about.
-        rec["review_requested_at"] = event_at(evs, login, ("ReviewRequestedEvent",), :requestedReviewer)
+        # A request of a *team* you are in reaches the `review` lane too -
+        # `review-requested:` is direct or via team; `user-review-requested:`
+        # would be direct only - and it names you exactly as a direct one
+        # does. Which team is not asked: the lane is the proof you are in it,
+        # so on a `review` row any team request counts, and on any other row
+        # none does (your own pull request with a request of some team is
+        # not you being asked).
+        rec["review_requested_at"] = event_at(evs, login, ("ReviewRequestedEvent",),
+                                              :requestedReviewer; team = lane == "review")
         # **When anybody last reviewed it**, which is a review *arriving* and so
         # has a time of its own - where `review_decision` is the standing
         # verdict and `review_count` is how many there have been, neither of
@@ -1025,6 +1036,38 @@ function covered(url::AbstractString, cfge)
     repo in explicit || first(split(repo, '/')) in owners
 end
 
+"""
+    lane_query(name, q, login) -> q, as the walk will run it
+
+What a lane may say, checked once per refresh rather than assumed. `search`
+walks a lane by creation time when the query is sorted that way, and by
+offset when it is not - silently, and the offset walk is the one that slips
+a row when the set moves under it - so the sort is put on for a lane that
+names none, and a lane that names another is refused: two sorts in one query
+is nothing GitHub defines. A `created:` qualifier is refused too, since
+GitHub ors two qualifiers on one field and the floor could never narrow it
+(see `search`). And two things the machinery assumes without being able to
+check for itself are said on stderr rather than refused: every lane is taken
+to be the *open* work, which is what `covered`, `merged_by` and the wake
+table read a lane row as; and a lane is taken to name *you* - `in_pile`
+reads a lane row as in front of you, and a lane that names somebody else, or
+a whole repository, gets the second look on every row.
+"""
+function lane_query(name::AbstractString, q::AbstractString, login::AbstractString)
+    occursin(r"\bcreated:", q) &&
+        die("lane $name: a `created:` qualifier is not allowed - the lane is walked by " *
+            "creation time, and GitHub ors two qualifiers on one field")
+    m = match(r"\bsort:(\S+)", q)
+    m === nothing || m[1] == "created-asc" ||
+        die("lane $name: `sort:$(m[1])` - a lane is walked `sort:created-asc`, or not sorted")
+    occursin("is:open", q) ||
+        @printf(stderr, "  %-9s not `is:open`: every lane is read as the open work\n", name)
+    occursin(login, q) || occursin("@me", q) ||
+        @printf(stderr, "  %-9s names neither %s nor @me: its rows will be read as yours\n",
+                name, login)
+    m === nothing ? string(q, " sort:created-asc") : String(q)
+end
+
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
                  search = search, fetch_url_map = fetch_url_map, unread = Events.unread)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
@@ -1080,14 +1123,15 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     spent = 0
     for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
         f = now_()
-        nodes, c, _ = search(expand_lane(q, at))
+        nodes, c, total = search(expand_lane(lane_query(lane, q, login), at))
         spent += c
         for n in nodes
             r = normalize(n, lane, login)
             r["fetched_at"] = f
             items[String(n.url)] = r
         end
-        @printf(stderr, "  %-9s %3d items (%d pts)\n", lane, length(nodes), c)
+        @printf(stderr, "  %-9s %3d items (%d pts)%s\n", lane, length(nodes), c,
+                total > length(nodes) ? " - CUT at $(length(nodes)) of $total: the open work is not whole" : "")
     end
 
     # Items no lane returns, tracked because they were asked for by url. They
@@ -1181,7 +1225,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # that the corpus does not have joins it: off the bundle the browser
     # cached when you looked, kept as it is, or - marked without a look,
     # `r` from the list - asked by url like a thread that names you.
-    promoted = 0
+    promoted, marked = 0, 0
     for url in keys(state)
         startswith(url, "https://") || continue
         (haskey(items, url) || haskey(ask, url)) && continue
@@ -1192,15 +1236,16 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             promoted += 1
         elseif haskey(inbox, url)
             ask[url] = String(nz(get(inbox[url], "lane", nothing), "activity"))
-            promoted += 1
+            marked += 1
         end
     end
+    promoted += marked
     promoted == 0 || @printf(stderr, "  %-9s %3d light rows marked or looked at, kept from here\n",
                              "promoted", promoted)
     gone = Tuple{String,String}[]
     renamed = Dict{String,String}()           # new url => the one asked
     if !isempty(ask)
-        got, moved_ = 0, 0
+        got, moved_, landed = 0, 0, 0
         f = now_()
         answers = try
             fetch_url_map(collect(keys(ask)))
@@ -1234,6 +1279,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             r = normalize(n, ask[asked], login)
             r["fetched_at"] = f
             items[u] = thread_facts!(r, get(inbox, u, get(inbox, asked, nothing)), prev(asked))
+            prev(asked) === nothing && (landed += 1)
             got += 1
         end
         # A url asked and not answered - the fetch failed whole, or the one
@@ -1249,8 +1295,11 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             items[asked] = kept_row(old)
             unanswered += 1
         end
-        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here (of %d asked%s)\n",
-                "by url", got, length(ask) - brought, brought, length(ask),
+        # A thread the token cannot see is asked and not answered, and has no
+        # row to keep; it stays a light row, and is asked again while unread.
+        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here%s (of %d asked%s)\n",
+                "by url", got, length(ask) - brought - marked, landed,
+                landed == brought ? "" : " of $brought asked", length(ask),
                 unanswered == 0 ? "" : "; $unanswered unanswered, kept as they were")
     end
     @printf(stderr, "  %-9s %3d items no lane returns, kept or re-asked\n", "carried",

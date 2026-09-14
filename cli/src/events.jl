@@ -270,7 +270,7 @@ poll's overlap.
 The spurious empty first page `api_paged` retries is retried here too.
 """
 function walk_updated(page, since::AbstractString; per_page::Int = 100, max_pages::Int = 60,
-                      started = Ref{Any}(nothing))
+                      started = Ref{Any}(nothing), cut = Ref(false))
     out, seen = Any[], Dict{Any,Int}()
     # `page` answers rows, or `(rows, started)`; the first request's bound is
     # the walk's.
@@ -304,6 +304,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
     # for good. Until 2026-09-14 the cursor was the newest row seen, which
     # resumed a cut walk by construction; this keeps that for the cut case.
     cut!() = begin
+        cut[] = true
         f = ts(floor_)
         f === nothing || (started[] = started[] === nothing ? f : min(started[], f))
         out
@@ -363,9 +364,10 @@ end
 """Every item `q` matches updated after `since`, walked by stamp; and the
 total the first page reported."""
 function search_issues(q::AbstractString, since::AbstractString; per_page::Int = 100,
-                       started = Ref{Any}(nothing))
+                       started = Ref{Any}(nothing), cut = Ref(false))
     total = Ref(0)
-    rows = walk_updated(since; per_page = per_page, max_pages = 10, started = started) do floor_, n
+    rows = walk_updated(since; per_page = per_page, max_pages = 10, started = started,
+                        cut = cut) do floor_, n
         items, t, st = search_page(string(q, " updated:>=", floor_), n; per_page = per_page)
         n == 1 && floor_ == since && (total[] = t)
         (items, st)
@@ -692,8 +694,35 @@ function sources(cfg, login; verbose::Bool = true)
         push!(srcs, (label = "notifications",
                      fetch = since -> begin
             st = Ref{Any}(nothing)
+            params = Dict{String,Any}("all" => "true", "since" => since)
             rows = api_paged("/notifications"; auth = p, per_page = 50, started = st,
-                             params = Dict{String,Any}("all" => "true", "since" => since))
+                             params = params, max_pages = 60)
+            # Sixty pages is three thousand threads, which a backfill on a
+            # busy account can exceed - and newest first, a walk cut there
+            # would lose the *oldest* of the window, with no floor to resume
+            # from. So past sixty pages the walk goes on by `before=`, the
+            # oldest stamp seen plus a second so a tie is not stepped past,
+            # the repeats dropped by id: a boundary that is a stamp, which an
+            # arrival cannot shift.
+            if length(rows) >= 60 * 50
+                seen = Set(String(r["id"]) for r in rows)
+                oldest = minimum(String(r["updated_at"]) for r in rows)
+                strict = false
+                for _ in 1:400
+                    b = strict ? oldest : stamp(ts(oldest) + Second(1))
+                    more, _ = api_get_dated("/notifications"; auth = p,
+                        params = merge(params, Dict{String,Any}("per_page" => 50, "before" => b)))
+                    new = [r for r in more if !(String(r["id"]) in seen)]
+                    for r in new
+                        push!(seen, String(r["id"]))
+                        push!(rows, r)
+                    end
+                    length(more) < 50 && break
+                    o = minimum(String(r["updated_at"]) for r in more)
+                    strict = o >= oldest && isempty(new)    # a page inside one second
+                    oldest = min(oldest, o)
+                end
+            end
             (rows, st[])
         end,
                      overlap = OVERLAP_REST,
@@ -724,11 +753,13 @@ function sources(cfg, login; verbose::Bool = true)
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (label = string(owner, "/* ", kind),
                      fetch = since -> begin
-            st = Ref{Any}(nothing)
-            its, total = search_issues("user:$owner $kind", since; started = st)
-            total >= 1000 && @printf(stderr,
-                "    %-24s truncated at 1000 of %d - poll more often\n",
-                string(owner, "/*"), total)
+            st, cut = Ref{Any}(nothing), Ref(false)
+            its, total = search_issues("user:$owner $kind", since; started = st, cut = cut)
+            # Ten pages a poll. A walk cut short answers with its floor, so
+            # the rest is the next poll's rather than lost - which is what
+            # "truncated at 1000" used to mean, before the walk went by stamp.
+            cut[] && @printf(stderr, "    %-24s cut at %d of %d; the rest next poll\n",
+                             string(owner, "/*"), length(its), total)
             keep && return (its, st[])
             kept = drop_forks(its, owner_forks(owner))
             length(kept) == length(its) ||

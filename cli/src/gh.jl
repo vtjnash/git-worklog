@@ -47,7 +47,7 @@ const PR_FIELDS = "\n" * """
                                           CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT]) {
         nodes {
           __typename
-          ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } } }
+          ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { slug } } }
           ... on ReviewDismissedEvent { createdAt actor { login } }
           ... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } }
           ... on ClosedEvent { createdAt actor { login } }

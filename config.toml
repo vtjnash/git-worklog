@@ -115,8 +115,12 @@ assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
 # is every repo that owner has. A glob is asked as two searches - one for issues
 # and one for pull requests - rather than as a poll per repo: `vtjnash/*` is two
 # hundred repos, and two hundred requests on every browser launch is not a thing
-# to do for a handful of comments. The cost is fidelity, since search truncates
-# at 1000 results, so a repo that has to be seen exactly is still named here.
+# to do for a handful of comments. The cost is search's eventual consistency -
+# a change can take minutes to be searchable, and the sweep asks from fifteen
+# minutes behind its cursor for that - and the search rate limit, thirty a
+# minute; not the 1000-row cap, since a sweep cut short answers with where it
+# got to and the rest is the next poll's. A repo that has to be seen the
+# moment it moves is still named here.
 # Beside these, and not configured here: `/notifications` itself is polled the
 # same way whenever the token is a person's and not a GitHub App's - `gh auth
 # token` off the sandbox; the sandbox's own token cannot read it, and there the
@@ -126,6 +130,14 @@ assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
 # github.com and never listed here. Those rows say `notifications` on the lane
 # axis, and the reason GitHub gave under `why`. The list stays the statement of
 # what is polled exactly.
+#
+# What none of this reaches, said plainly: a Discussion, a Release, a commit
+# comment - the notifications source sees each arrive and skips it, since
+# nothing here can open one; a repository the `gh` token cannot see, which the
+# notifications token may - such a thread stays a light row and is asked again
+# while it is unread; and a push, a label, a draft toggle or an unassignment on
+# a row outside every repo here, which notify nobody - so an open row of yours
+# that no lane returns and no repo here covers is asked by url every refresh.
 repos = [
   "JuliaLang/julia",
   "libuv/libuv",
@@ -151,7 +163,12 @@ include_forks = true
 # what makes that worth doing - inbox zero on a cold start is an empty dashboard
 # that fills up over the following week. It stays in effect for any source added
 # from here on, which is the same trade: a repo named for the first time arrives
-# with a month of its history rather than with nothing.
+# with a month of its history rather than with nothing. One number for two
+# things, which a review pointed out: through the notifications source it is
+# how deep a rebuilt dashboard remembers, and for a repo newly named here it is
+# a month of that repo's traffic arriving unread at once. Kept as one on
+# purpose - the trade is the same trade - and worth splitting if the second
+# ever grates.
 backfill_days = 30
 # The activity query runs on every browser launch and is several paginated
 # requests per repo, so a source is not re-polled until this long after the last
