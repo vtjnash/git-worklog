@@ -1,654 +1,229 @@
 # worklog
 
-A dashboard for tracking ongoing work across every repo, sorted into lanes by
-what the work actually needs next.
+A terminal dashboard for the GitHub work you are carrying, across every
+repository. It keeps its own record of what you have read, put off and filed,
+so the per-event email notifications can stay off.
 
-Nothing off-the-shelf did this. [gh-dash] is stateless — every section is a live
-query, so there is no snooze, no note, no memory of what changed. [Octobox] has
-real snooze but triages *notifications* alone, and a notification is one row
-per thread with the latest reason and no facts about the item. GitHub Projects
-v2 can hold the state but cannot populate or classify a few thousand items.
-The missing piece in all of them is judgement: "needs edits" vs "needs an
-agent" is a fact about content that no query language expresses.
+Nothing off-the-shelf did this. [gh-dash] is stateless - every section is a
+live query, so there is no snooze, no note, no memory of what changed.
+[Octobox] has real snooze but triages notifications alone, one row per thread
+with the latest reason and no facts about the item. GitHub Projects can hold
+the state but cannot populate or classify a few thousand items. What all of
+them lack is a record of what *you* decided, and the facts a decision needs -
+"changes requested and CI red" is a fact about content that no query expresses.
 
 [gh-dash]: https://github.com/dlvhdr/gh-dash
 [Octobox]: https://github.com/octobox/octobox
 
-## Design
+## What it does
 
-The split that makes it safe to let a model touch this:
+- **Fetches the open work whole** - pull requests you authored, pull requests
+  awaiting your review, issues assigned to you - and everything else **only
+  when a clock says it moved**: the repositories you poll, and your GitHub
+  notifications. A question put to you on an issue closed years ago reaches
+  you the same way a comment on an open one does.
+- **Knows what moved.** An item is unread when somebody else did something to
+  it since you read it: pushed, commented, reviewed, asked you, assigned you,
+  closed or merged it, or your own CI went red. Nothing you did yourself counts.
+- **Knows what to do next**, as tags derived from facts, none of them
+  exclusive: `edits` (changes requested, unresolved threads or red CI),
+  `ready` (approved and green), `review` (asked, and they pushed since you
+  looked), `reply` (mentioned recently, last word theirs), `second` (the
+  author acted and nobody has answered for two working days).
+- **Shows *what* changed**: the thread opens on the first comment you have not
+  seen, and `p` is the diff or `range-diff` since the head you last read.
+- **Writes back**: comment, review (a draft held on GitHub until you send it),
+  label, merge.
+- **Hosts a shell or an agent** in a tmux pane beside the thread, per worktree.
+- **Nothing leaves.** Everything that was ever in front of you stays in the
+  corpus; `read` and `filed` are marks, not deletions.
 
-| file | owner | lifetime |
-|---|---|---|
-| `config.toml` | you | edited by hand |
-| `themes/*.toml` | you | edited by hand; which one is read is a line in `config.toml`, and none being read is plain text |
-| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, filed, drafted). Plus a `repo:` block per local checkout, and a `source:` block per repository polled: the day you named it, and how far the poll has read it. Tracked |
-| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the corpus, and the inbox the clocks write. Safe to delete - the next refresh rebuilds it, and the marks and cursors it needs are in `local.toml`. Not tracked; ~6MB |
-| `data/notifications.token` | you | optional, gitignored: a token that can read `/notifications`, for a machine whose own cannot. Not for a sandbox others can read |
+## Running it
 
-Everything but `config.toml` lives in `data/`, which is a git repository of its
-own. Two files and one line between them: what can be re-fetched from GitHub is
-gitignored, and what records something you did is tracked.
-
-The refresh never rewrites `local.toml` - it edits the keys it owns, in the
-blocks it names, and leaves every other line byte-identical. Every snooze and
-note you set survives any refresh, and a confused model cannot erase your
-triage.
-
-What a row *wants* is derived from facts by rules, not guessed, and each
-rule is a fact of its own on the row - a sentence while it holds, empty when
-it does not, and none of them exclusive: changes-requested or unresolved
-threads or red CI → **needs edits**; approved and green → **ready to merge**;
-asked to review and not done, or they pushed after you did → **review owed**;
-mentioned recently and the last word is theirs → **reply owed**; the author
-acted and nobody answered → **second look**. They are the tag axis in the
-browser, and a view names whichever it means. There used to be a *bucket* - one
-word per row, first rule to answer wins - and the winning made it wrong: a
-closed row's word was `done`, so the question somebody had asked you on it was
-never seen. Judgement is not made here at all: what a red CI really means, what
-the next action is, and what is urgent are written into `local.toml`, by you or
-by a model reading the same files.
-
-## Read, snooze, archive
-
-Three marks, and one rule under all of them: **an item is unread when it has
-moved since you read it.** "Moved" is the wake table above. The other two marks
-are the read stamp with one thing added each.
-
-**A snooze is a wake time.** `s` asks how long - `3d`, `2w`, `6mo`, a date -
-and writes the moment that ends, resolved, so `local.toml` says *when* and
-nothing has to remember when it was set. The item is read from that moment,
-and comes back at the wake time **or the moment it moves, whichever is first**:
-the snooze is a second reason to be unread beside the wake table, not a hold
-against it. There is no `on-change` any more, because "until it moves" is what
-`r` does; and no `forever`, because that is `x`. Waking is not a decision
-anybody makes: the browser compares the wake against the clock per frame, so a
-snooze that runs out at lunch is back before the next `wl refresh`, two windows
-on one dashboard cannot disagree about it, and nothing is armed or written.
-
-**An archive is a read mark that filters separately.** `x` stamps `archived`
-and `read` both. An archived item that moves is unread again like any other -
-filing is not an answer about whether a thing has changed - but it is held out
-of every list that does not name the `filed away` box. That one difference is
-the whole reason it is a mark of its own: it is what lets the backlog - read
-work and unread work together - leave out what you gave up on. `x` again takes
-it back out.
-
-**Nothing here suppresses the wake table.** A snoozed item that somebody pushes
-to comes back today, not at the end of the week; an archived one that somebody
-merges is unread in the filed list. What you put away is what you put away,
-and what changed is what changed.
-
-## Lanes, and the clocks
-
-Three lanes, fetched whole every refresh: PRs you authored, PRs awaiting your
-review, issues assigned to you - **the open work**, ~135 rows, the set whose
-tags have to be right, and whose CI, review threads and draft flags change
-without any clock saying so. Each is a GraphQL search walked by creation time
-(`created:>=` the last row read, first page every time, never an offset the
-set can shift under), and each is checked before it runs: the sort is put on,
-`created:` refused, `is:open` and your login expected.
-
-Everything else arrives by **clock**, and is fetched by url only when a clock
-says it moved. Two clocks: the repositories under `[events]`, polled with
-`since=` and walked by stamp; and `/notifications` itself, when the token is a
-person's - `gh auth token` off the sandbox, whose `repo` scope reads it; the
-sandbox's App token cannot, and says so. A thread that names you - a mention,
-a review request, an assignment, activity on something of yours, a thread you
-commented on - is brought into the corpus with its bundle the first time it is
-seen, whatever repository it is in and whether or not it is open; a watched
-repository's traffic stays a light row in the inbox until it is looked at.
-That is what reaches a question put to you on an issue closed years ago, which
-twelve `is:open` searches never could. And the two clocks watch each other:
-for a repository both polled and watched, a row the poll saw move in a way that
-notifies with no thread behind it after fifteen minutes is GitHub's
-notifications lagging - said on stderr, and the source asks a day behind its
-cursor until the thread arrives or `wl refresh --caught-up`. Until 2026-09-13 there were nine more
-lanes here - three for the recently closed, six searching for mentions and
-comments, and a firehose of every open julia PR, two thousand rows fetched
-every six hours so the ones that moved could be noticed.
-
-The one exception is **reply owed**: you were mentioned within `reply_days`
-(30) and the last comment is not yours, so a question is probably owed an
-answer - and it is owed whether or not the thread is still open. Deliberately
-narrow — plain `commented:` never qualifies, because in the repos where you are
-effectively the maintainer you touch nearly every PR, and that would put forty
-items a week in front of you.
-
-**And nothing leaves.** The corpus is the index of everything that was ever in
-front of you, read or unread: a row a lane returned once, a thread that named
-you, a light row you looked at or marked. Every lane is `is:open`, so the merge
-that takes a pull request out of the lanes does not take it out of the
-snapshot: the row is kept as it was until a clock says it moved, then asked
-again by url - the merge you never looked at stays a merge you never looked
-at, whether that is a day or a season, and the one you read is in the `read`
-box, and the one you filed in `filed`. A carried row in a repository no clock
-covers - your pull request somewhere nobody polls, on a machine whose token
-cannot read notifications - is asked every refresh while it is open, since a
-push or a label there notifies nobody.
-
-## How closely you track an item
-
-`track` is what counts as this item having *moved* - which decides both whether
-it goes unread and whether a snooze on it wakes. Two levels, because two is what
-anybody sets:
-
-| level | default for |
-|---|---|
-| `normal` | **your unfinished work** |
-| `loose` | everything else, and anything finished |
-
-And this is the **wake table** — every event that counts as movement, which
-level sees it, and what dates it:
-
-| event | key | `normal` | `loose` | dated by | not counted when |
-|---|---|---|---|---|---|
-| somebody pushed | `their_head` | ✓ | ✓ | `head_at` | you are the committer |
-| somebody commented | `their_comment_at` | ✓ | – | itself | you are the author |
-| a **human** commented | `human_comment_at` | – | ✓ | itself | you, or a bot, is the author |
-| somebody reviewed, or dismissed a review | `review_at` | ✓ | ✓ | itself | you did it |
-| somebody asked you to review | `review_requested_at` | ✓ | ✓ | itself | you did it |
-| somebody assigned you | `assigned_at` | ✓ | ✓ | itself | you did it |
-| somebody closed, merged or reopened it | `state_at` | ✓ | ✓ | itself | you did it |
-| your own CI went red | `ci_failed` | ✓ | – | the refresh that saw it | it is not yours, or it went *green* |
-
-So the two levels differ in exactly two rows: `loose` ignores a bot's comment
-and a stranger's CI, and nothing else. Everything that is a person naming you —
-a review request, an assignment — or finishing the item — a close, a merge — is
-in both, because there is no level at which that is noise, and because there is
-nothing to keep waiting for on a thing that is done. And a push is in both:
-not something to review on a loosely-watched item, but the item being active,
-which is what you are watching it to know.
-
-**Nothing you did yourself is movement.** Your own push, your own comment, your
-own review, closing or merging your own pull request: you know what you did,
-and the dashboard reporting it back to you would put the item in front of you
-for exactly the thing you just finished with. Every key in the table is the
-newest one *somebody else* made, carried forward across your own. And being let
-off — a review request withdrawn, an assignment removed — is not movement
-either: it is the end of a claim on your attention, not a claim on it.
-
-**Not in the table, on purpose:** `mergeable` (not even fetched by the lanes -
-see "What the lanes do not ask for" at the foot of this file),
-`unresolved` (a thread being resolved is not news; what there was to resolve
-arrived as a comment or a review), labels, milestones, title edits, a draft
-being marked ready (it arrives with the request that follows it), and a
-request of a **team** you are in, which the token cannot see.
+Needs Julia (developed on nightly; the packages declare 1.10), `gh` logged in,
+and `git`. tmux comes bundled (`tmux_jll`, 3.5.1) and is what `t` and `T` run;
+`WORKLOG_TMUX` names another binary. The sessions are on the ordinary socket,
+so your own `tmux ls` sees them. No tmux on Windows.
 
 ```bash
-cli/bin/wl track julia#62452 loose
+git clone --recurse-submodules https://github.com/vtjnash/git-worklog
+cd git-worklog
+cli/bin/wl refresh            # ~25s, 16 rate-limit points
+cli/bin/wl refresh --backlog  # once: the open lists of the polled repos, read
+cli/bin/wl                    # the browser
 ```
 
-This is a real difference in behaviour rather than a label, because the level
-is which rows of the table the refresh compares, key by key against the row it
-saw last time: your own pull request going red makes it unread, a stranger's
-does not, and a human reply reaches you either way.
-
-**Every key says what it is rather than what it was.** A push is a **sha** and
-not a clock — a rebase rewrites the committer date, a force-push of an older
-commit walks it backwards, and two shas are equal or they are not. A review is
-the **time the newest one arrived**, not the standing verdict and not a count,
-because the verdict only ever moves because a review arrived and the arrival is
-the half with a clock on it; a request, an assignment and a close are the time
-of the timeline event that made them. And CI is one **bool** — is your own pull
-request failing — and moves on one **edge**: going red is the event, going
-green is not, because the green either arrived as the push that fixed it or is
-a rerun of the same commit, and a rerun that goes red again through pending
-would otherwise wake the item twice for one failure. It is the one key with no
-clock, and the one that is not hashed.
-
-It is also what makes a **re-request** arrive at all. A first request shows up
-as a new item and is unread for that reason; a second one, on something you have
-already read and decided about, changes nothing else GitHub will tell you —
-`reviewDecision` stays where it was, the review count stays where it was, and
-the button posts no comment — so before the request was fetched it passed in
-silence. It is fetched as a **time**: the moment of the newest timeline event
-asking you, so it compares against the read mark like a comment does rather
-than being a bool dated by whichever refresh noticed it.
-
-It also answers a thing GitHub cannot. `updated_at` does not move when a check
-run finishes - a pull request stamped 20:55:52 had its three suites complete at
-20:56:04, :07 and :19 and the stamp never moved - and it *does* move when
-somebody relabels a pull request you have no interest in. So "has this changed
-since I looked" is measured against `moved_at`: when this program last saw a
-change at the item's own level.
-
-**Dated by the thing that moved**, where it can be. A push and a comment carry
-the moment they were made, so that is what a movement in them is stamped with;
-CI and a verdict carry no clock of their own and are stamped with the refresh
-that first saw them differ. It used to be the refresh either way, which dated a
-comment by the poll — and `r` stamps you read at the moment the *thread* was
-fetched, fresher than any refresh, so a comment read at 10:00 came back unread
-when the 11:00 refresh first saw it.
-
-**And by GitHub's time, wherever a stamp will meet one GitHub wrote** — and
-by an *event's* time wherever there is one, which is nearly everywhere. `r`
-marks an item read up to the newest thing the thread showed you or the last
-movement on record, whichever is later: every one of those is a time GitHub
-wrote on an event, so no clock is in it at all. `s` and `x` stamp `moved_at`
-alone — read up to the last movement on record, which is read by definition.
-The poll's cursor is the newest `updated_at` a source returned, asked for
-again from a little behind it, because GitHub does not promise a response is
-a snapshot as of its newest row — search is eventually consistent by its own
-account, and a REST list can come off a replica a beat behind — and the
-overlap is free on an inbox keyed by url. The two places that need a *now*
-and have no event to stand in for it — the refresh's `at`, which dates a CI
-edge and the closed lanes' `{since}`, and a source's first sight — take the
-`Date` header of a free request. What stays on the machine's clock is only
-ever compared with itself: a snooze's wake against the frame that reads it,
-the interaction clock, the cache's ages. No offset is measured and none is
-applied — a Windows box with its clock minutes out gets every comparison
-right because none of them involves its clock.
-
-## Showing what changed, not just that something did
-
-Knowing an item moved is half an answer. The other half is *what* moved, and
-without it, opening something you have already read means being handed the whole
-thread and the whole diff again with the new part somewhere in them.
-
-Three things answer it, and all three are read off the mark `r` leaves behind:
-
-**The thread is one activity list.** The comments and the pushes are one
-sequence — "they replied, then pushed, then replied" — and reading it as two is
-why you scroll back and forth. The commits are drawn in among the comments in
-the order they happened, with a run of them that nobody spoke between folded
-into one `↑ pushed 3 commits` entry.
-
-**A rule says where the new part starts.** `r` marks a thread read up to the
-moment it was *fetched*, so everything written before the stamp was on screen
-and everything written after it was not. An item that comes back unread opens on
-that rule with the new entries below it, rather than at the top of a forty-entry
-thread you have read thirty-nine of. That is also why nothing records *which*
-comment you had got to: the stamp already answers it, and a second answer is one
-that can disagree with the first.
-
-**`p` is what has been pushed since you last looked.** The stamp cannot answer
-this one — a rebase is invisible to a clock — so the read mark also records the
-head commit it was made at, and `p` diffs that against the head now:
-
-| what the branch did | what `p` shows |
-|---|---|
-| only added to it — the old head is still in its history, on the same base | the plain diff between the two heads, and how many commits arrived |
-| rebased, amended, force-pushed | `git range-diff`, one foldable node per commit, marked `unchanged` / `changed` / `gone` / `new` |
-
-**Both sides are measured from the branch it will be merged into**, which is the
-difference between a readable answer and an unreadable one. `git range-diff
-old...new` measures from where the two heads meet, so a two-commit pull request
-rebased over ten commits of master reports twelve commits — ten of them somebody
-else's, with the one real change last. Measured from the base, it reports two,
-and the ten are the number in the header: `rebased  onto 10 newer commits`. That
-is what `baseRefName` is fetched for, and the base ref is brought up to date
-before it is used, because a stale copy puts the commits it has not heard about
-back inside the answer.
-
-It needs a pinned checkout, because there is no GitHub endpoint that compares
-two heads of one pull request — `compare` is between refs and the head you saw
-is not one. It also needs to have been marked read once; on an item that never
-has been, the pane says which key makes one rather than showing an empty box.
-Only `r` writes that sha — a snooze, an archive and `wl read` stamp "not now"
-and know nothing about what you were looking at, so they leave it alone.
-
-A head that was force-pushed away is still fetchable, which was measured rather
-than assumed: orphaned heads up to fourteen months old came back from `git fetch
-<remote> <sha>`. So "the commit is gone" is not a state this has to handle — a
-failure there means the repository or the network is not answering.
-
-## The pile, the backlog, and the second look
-
-The pile is what the clocks brought in that named nobody - a watched
-repository's traffic, a thread you commented on - and the **backlog**: the
-whole open list of every repository under `[events]`, imported on the day you
-name it (and for all of them on `wl refresh --backlog`), ~5,400 rows today.
-Backlog rows are *read by construction* up to the day their repository was
-named - the `source:` block in `local.toml` says which day, one line per
-repository rather than a stamp per row - and unread the moment one next moves,
-like any other row. So the unread side starts at zero (`backfill_days = 0`)
-and the backlog view is the standing list. It is in the corpus like everything
-else and there is no queue over it - `wl next` handed out slices of it to tag,
-and the tags it handed out were the same marks `r`, `s` and `x` write in the
-browser, one row at a time, where the row can be read first. A view over the
-`lane` axis is the pile by name.
-
-The **second look** is the one thing derived about silence, and it is on by
-default because asking for it would defeat it: the failure it catches is work
-that goes quiet without anybody deciding it should. A conditional snooze that
-arms itself. It fires when the author acted - opened it, or commented - and
-nobody has answered with a comment or a review since, for `second_look_days`
-*working* days. On your own pull request that is a reviewer who never came; on
-somebody else's it is a reply you owe. A push is not an action: the author
-working on their own branch says nothing about whether anybody is waiting.
-Never on the pile, since nobody there is waiting on you, and never on finished
-work. `stale` used to stand beside it - yours, quiet 60 days, unclaimed - and is
-gone: the second look already says "opened it, then quiet for 65 work days",
-and the list is newest first, so an old row is at the bottom rather than in the
-way.
+`cli/bin/refresh` is `cli/bin/wl refresh`. The first `wl` after any change
+under `cli/src` rebuilds a precompile image (~22s); after that a launch is
+about a second. Nothing runs on a cadence of its own: `u` inside the browser,
+or `wl refresh`, is the only thing that fetches.
 
 ## The browser
 
-The same program with no arguments is an interactive browser over the same data:
+Three panes: the item list, its metadata, and the detail. The list opens on
+**what moved and is unfiled**, open or closed, newest first; unread rows are
+bold. Reading an item, or putting it away, takes it out of that list, and it
+comes back when it moves.
 
-```bash
-cli/bin/wl              # the item list, its metadata, and the detail pane
-cli/bin/wl --refresh    # re-fetch first
+Lowercase keys look at things or change this machine; **uppercase keys reach
+GitHub.**
+
+| key | |
+|---|---|
+| `j`/`k` `g`/`G` `space`/`b` | move; `tab` moves the keyboard between panes |
+| `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
+| `o` `d` `p` `c` | the thread · the diff · what was pushed since you last looked · the checks |
+| `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
+| `n`/`N` | next/previous node, or search match |
+| `/` | search; a bare number in the list jumps to that item past any filter |
+| `r` | read ↔ unread |
+| `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
+| `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
+| `v` | edit the note in `$EDITOR`; `e` opens the checkout in an editor |
+| `z` | undo the last local action |
+| `u` `R` | refresh everything in the background · reload this item |
+| `f` | the filter pane; `c` there clears it |
+| `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
+| `w` | cycle the order: last activity · your interaction clock · url |
+| `i` | import an item by url; lands unread |
+| `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
+| `t` `T` `"` | a shell · an agent on the item's worktree · the worktree list |
+| `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
+| `q` | quit (asks if a composer is open) |
+
+**Views** (`'`): 1 the firehose - unread, open or closed · 2 my work · 3 the
+backlog - open, read ones too · 4 waiting on me · 5 waiting on them · 6 ready
+to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
+your own in `config.toml`; the last entry under `'` copies the current filter
+as the TOML that would name it.
+
+**The filter pane** (`f`): `show` is four boxes that each *add* rows - `unread,
+open` · `read` · `filed away` · `closed or merged` - so the number by each is
+what checking it would bring in. The first and last are on when nothing has
+been asked. The other axes narrow: tag, kind, lane, repo, label, author.
+
+**Reviewing**: drag over a diff (or `⇧j`/`⇧k`), then `C` comments on that
+range; `^r` in the composer drops in a suggestion block. Comments accumulate in
+a draft review on GitHub; `A` sends it, and leaving the item asks whether to.
+Existing review threads hang off the hunk they point into, resolved ones
+folded, and the line each is on is marked `💬`.
+
+**Composers** open beside the diff or thread when the screen is 150 columns or
+wider, with `tab` between them. `^s` sends; `M`'s composer cycles the merge
+operation with `^x` and asks once before it sends; `⌥e` or `^o` opens
+`$EDITOR`.
+
+**A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
+or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
+ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`.
+
+**The mouse** selects rows (drag), moves the cursor (click), folds (click a
+marker), scrolls the pane under it. A click on a url copies it; a double click
+copies the word under the pointer, or the item's url in the list; the `⧉` at
+the right of every header copies that block.
+
+## Commands
+
+```
+wl                                      the browser
+wl --refresh                            refresh first, then the browser
+wl refresh [--backlog] [--caught-up]    re-fetch; --backlog imports the polled repos'
+                                        open lists, read; --caught-up stops waiting
+                                        on a late notification
+wl import  <url>...                     follow items no lane returns, unread
+wl show    julia#62891                  state and the thread, non-interactive
+wl unread  [julia#62891]                JSON of the unread list / mark one unread
+wl read    julia#62891                  mark read (or: read all)
+wl track   julia#62452 loose            normal | loose - what counts as it moving
+wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
+wl dismiss julia#62452                  loose, and read
+wl archive julia#62452                  file it away; again to take it back out
+wl note    julia#62452 "..."
+wl deadline julia#62452 2026-09-30
+wl blocked julia#62452 JuliaLang/julia#62396
+wl clear   julia#62452
+wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
+wl watching                             repos you watch, and which are polled
+wl repos [--prune]                      pinned checkouts
 ```
 
-`u` re-fetches from inside it - the whole dashboard, in the background, with the
-list rebuilt where it lands; `R` is the same thing for the one item under the
-cursor. `u` is Gmail's key for it, and it was free because `r` toggles read
-either way.
+Wherever a ref is taken, `-` reads them from stdin, one per line:
+`printf '%s\n' julia#1 julia#2 | wl snooze - 3d`.
 
-A fenced code block becomes a foldable block of its own rather than prose, so a
-pasted log folds away to one line and never gets drawn as a box wider than the
-pane. Inline code is a quiet grey span instead of yellow punctuation, and
-`snake_case` names keep their underscores — Julia's Markdown reads them as
-emphasis, which CommonMark forbids and GitHub does not do.
+## Tracking
 
-`d` is the diff, `o` the thread, `p` what has been pushed since you last looked,
-and `c` the per-check breakdown — see "Showing what changed" above for the last
-of those and for the rule the thread opens on.
+`track` decides what counts as an item *moving*, which is what makes it unread
+and what wakes a snooze. Two levels:
 
-It opens on **what moved and is unfiled**, open or closed. So an item leaves the
-opening list two ways - you read it, or you put it away with `s` or `x`, which reads it
-- and comes back when it moves, or when its snooze ends, with "moved" meaning
-what `track` says it means for that item.
+| level | default for | ignores |
+|---|---|---|
+| `normal` | your own unfinished work | nothing |
+| `loose` | everything else, and anything finished | a bot's comment; a stranger's CI |
 
-That list is two boxes on an axis that only **adds**. Four checkboxes -
-`unread, open`, `read`, `filed away`, `closed or merged` - and each brings its
-own kind of row *beside* the others rather than instead of them, so no box can
-take another's rows away. The number next to each is what checking it would
-bring, or what unchecking it would take away. All four is the corpus, and `'`
-has it by name ("everything"); `c` clears every filter, which lands on the
-first box and the last rather than on the corpus. Snoozed work is not a box: a snoozed
-item is a read one with a wake time, so it is a **tag** over the read ones,
-and `'` has that by name too.
+Both see a push, a human's comment, a review, a request, an assignment, a
+close or a merge - by somebody other than you. Not movement at any level: your
+own actions, a label, a milestone, a title edit, a thread being resolved, a
+review request being withdrawn.
 
-The first box and the last are checked when nothing has been asked - unread and
-unfiled, open or closed, is what the dashboard *is*, and `c`, a fresh filter and
-a view that names no `show` all leave them on - so the screen cannot be emptied
-by accident. A closed thing that moved is news: your pull request merged, a
-comment on an issue that was closed last year. It is unread like anything else
-and it is in the firehose; it is not in the backlog, which is `base + read` and
-names no `done`, because a closed thing is not work. Unchecking `done` puts the
-closed news away for the moment; unchecking `base` is how you ask for one of
-the other three **alone**: the filed work on its own, rather than beside
-today's. Uncheck all four and you get no rows, which is what an empty set of
-things to show means.
+## Configuration
 
-The `read` box is a question about unfiled work only: filing something stamps
-it read, so `filed away` brings what it names whether or not it has been read.
-A box that insisted on both would have been a control that did nothing.
+`config.toml`, beside the code, hand-edited and never written by the program:
 
-The list itself says what has been read: unread rows are bold and read ones
-plain, and the cursor is a background rather than a weight - the same mark the
-reading pane puts on the line you are on.
+- `login`, and `theme` - a file under `themes/`. Empty draws everything plain,
+  with no escape sequences at all.
+- `[lanes]` - the three searches for the open work. `sort:created-asc` on each
+  is load-bearing (see DESIGN.md).
+- `[events] repos` - repositories polled for every change, as `owner/name` or
+  `owner/*`. Their open lists become the backlog. `wl watching` prints the ones
+  you watch on GitHub but have not listed.
+- `[thresholds]` - `reply_days` (30), `second_look_days` (2, working days).
+- `[views]` - named filters for `'`.
+- `[cache]` - how long the browser trusts a cached thread, diff or merge state.
+- `[agent] command` - what `T` runs, when it is not your shell's `claude`.
 
-Under the item list is a metadata pane: who has reviewed and who was asked,
-labels, the check tally, milestone, whether it can be merged - asked of GitHub
-for this one item when the cursor lands on it - and the tracking level and
-note from `local.toml`. It sits there rather than beside the detail because ten
-item numbers at a time is plenty and the thing being read wants the height.
-Everything in it that `fetched.json` already knows is on screen immediately; the
-two that need a request — per-person review state and the per-check breakdown —
-are fetched for the selected item only. So is the row itself: a row outside the
-open work has the bundle it was last fetched with, and once it has been on
-screen a second and that is older than two minutes, the same by-url fetch the
-refresh makes runs for the one row, into the cache, and the list shows the
-exact tags - the one place "as old as the last clock" is not good enough.
+**Themes** name colours by role - `blocked`, `settled`, `diff_add`,
+`cursor_bg` - in words: `"bold white"`, `"black on yellow"`, `"on 236"`.
+`default-ansi.toml` uses the terminal's own sixteen colours;
+`github-light-256.toml` and `github-dark-256.toml` are GitHub's palette pinned
+to the 256-colour cube.
 
-The list opens newest first - by when anything last happened to an item, yours
-or GitHub's - which is the order every other inbox has. `w` cycles the other
-two: the interaction clock, and url order - owner, project, number, descending -
-which keeps the grouping the fetch is written in and reads from the newest of
-each repo. The number is sorted as a number, not as the digits it is written
-with, so `#6661` is below `#62836` rather than above it. An order you choose
-lasts until the selection changes, and the `[...]` summary names it only while
-it is not the one that selection opens in.
+## Files
 
-`/` searches. In the item list it narrows by title or ref, and a bare number is
-a jump — reaching past the filter that is hiding the item, since being unable to
-see it is exactly when you go looking for it by number. In the thread or the
-diff it marks every match and `n`/`N` step between them — matching the line as it
-was written rather than as the pane wrapped it, so a phrase broken across a line
-break is still found, and reaching into folded blocks, which `↵` then opens.
+| | owner | |
+|---|---|---|
+| `config.toml`, `themes/` | you | hand-edited |
+| `data/local.toml` | you and the program | one block per item: your note, snooze, deadline, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
+| `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
+| `data/cache/`, `data/errors.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning |
+| `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
 
-It owns the mouse rather than leaving selection to the terminal. That is not a
-flourish: the terminal only sees the lines *we* wrapped, so selecting a
-paragraph with it yields the wrapped fragments plus the pane borders. Dragging
-here selects rows, and `y` copies them as the lines they were written as - one
-line per paragraph, links whole, no colours in the paste. Clicking moves the
-cursor and clicking a fold marker toggles it; the wheel scrolls the pane under
-the pointer. A single click on a url copies it and a **double click** copies
-whatever else is under the pointer - the word, the path, the identifier without
-the backticks that made it code - while in the item list it copies that item's
-url. Every node header carries a **`⧉`** at its right-hand end: clicking it
-copies that block whole, the comment with its code and its tail, the hunk
-without the conversation hanging off it. `m` gives the mouse back to the terminal when you want it - and
-`shift-J`/`shift-K`, or the shifted arrows, extend a selection from the
-keyboard, which is what `m` off would otherwise take away along with the drag.
-
-`M` merges a pull request, on the message GitHub itself would have written -
-`viewerMergeHeadlineText` and `viewerMergeBodyText`, which already honour the
-repository's squash-title and squash-message settings. There is no picker in
-front of it: the composer opens on the operation and `^x` changes it, rewriting
-the message for the new one, because the operation and the message it decides
-belong on one screen. The line above the message says the whole of what is about
-to happen - the operation, how many commits land on which branch, and what
-`mergeStateStatus` says about whether it can be merged at all, so that "blocked"
-or "behind master" is read before the message is written rather than out of a
-refusal after it.
-
-The operation it opens on is squash where the repository allows it, then merge,
-then rebase. That is this program's preference and is named on screen as ours,
-because a repository has no default to have: `viewerDefaultMergeMethod` is the
-only field of its type in GitHub's schema and it reports what *you* last merged
-with there - the same allowed pair answers `SQUASH` on `JuliaLang/julia` and
-`MERGE` on `JuliaCI/julia-buildkite`. Rebasing has no commit message at all, so
-the composer empties and says why. `^s` asks once before it sends, which nothing
-else that writes here does: a comment, a verdict and a label can each be
-answered with another one, and a merge cannot.
-
-A composer is drawn **beside** what it is about rather than over it, wherever
-the screen is wide enough for two columns - the same split `t` and `T` put a
-hosted program in, and none of that machinery was ever about a child process.
-`c`, `A`'s body and `M` all open in the right-hand column with the diff or the
-thread still on the left, and `tab` moves the keyboard between them; `esc` and
-`q` come back to the message too, since `q` in the browser ends the program and
-quitting out from under a half-written comment is what this exists to prevent.
-Below 150 columns there is no room for two, and a composer takes the screen the
-way it used to. `v` was already doing this - it runs `$EDITOR` in a pane - which
-is where the idea came from.
-
-That is also why the merge composer cycles the operation with `^x` and not
-`tab`: `tab` moves the keyboard between two things on screen, here and in the
-item list and in the worktree lenses and after `^]`, and a composer drawn beside
-its diff needs it to go on meaning that.
-
-Coming back to an item lands on the line you were reading in it, per item and
-per mode - a comment thread and a diff of one pull request are two readings of
-it and two places to come back to. And when a row leaves the list under you -
-`r`, `x`, `s`, each of which takes the row out of the opening list - the cursor stays on the row it was on rather
-than jumping to the top, so an inbox is read by pressing `r`. Choosing a view, a
-filter or a query is asking for a different list, and those open at the top.
-
-Everything is one Julia module under `cli/src`, so the comment-preserving TOML
-writer and the GitHub quirks below live in one place rather than two: the
-browser calls the same functions the commands do, rather than shelling back
-out to itself. Startup is about a second: 1.0s to the list pane and 1.14s to a
-comment thread beside it, of which 0.96s is loading the module. `julia
---project=cli cli/test/latency.jl` measures it.
-
-The GraphQL search lanes shell out to `gh api graphql` because GitHub.jl exports
-neither GraphQL nor search; the REST side (`events.jl`) uses GitHub.jl directly,
-though not its paginating helpers - see the `--paginate` note below.
-
-## Colours
-
-`config.toml` names a file under `themes/`, and that file says what colour each
-role is drawn in:
-
-```toml
-theme = "default-ansi.toml"
-```
-
-A role is what a colour *means* to the program, not where it is on screen:
-`settled`, `blocked`, `waiting`, `accent`, `diff_add`, `cursor_bg`, and a dozen
-more. So one line moves every green in the dashboard - the approval, the passing
-check, the staged change and the attached session are one question asked in four
-places - and the code names no colour anywhere, which is what makes a second
-theme possible without re-reading it.
-
-A value is words, in any order: an attribute (`bold`, `dim`, `italic`,
-`underline`, `reverse`), one of the eight ANSI colours or `bright <name>`, or a
-256-colour index, with `on` in front of a colour to make it the background. So
-`"bold white"`, `"black on yellow"`, `"on 236"`, `"244"`.
-
-Three themes ship. `default-ansi.toml` is the sixteen ANSI colours wherever it
-can be, so it follows whatever scheme the terminal is set to rather than
-fighting it. `github-light-256.toml` and `github-dark-256.toml` do the opposite:
-every colour is a fixed index into the 256-colour cube, the nearest entry to the
-hex in GitHub's Primer palette, so they look the same in every terminal that has
-256 colours - at the price of assuming the ground they are drawn on, which is
-why there are two of them. They are not each other inverted: GitHub's dark
-palette moves the hues as well as the lightness, and the files follow it.
-
-Two more tables in the same file are the palettes that are not this program's.
-`[term]` is `Term.TERM_THEME[]` - the six markdown heading levels, the block
-quote, the footnote, the table, the admonitions, and, not being colours at all,
-the box *characters* every box here is drawn with (`box = "ROUNDED"`). `[code]`
-is `Term.CodeTheme`, which is where the colours of a highlighted code span
-actually live: Term 2.2 highlights with tree-sitter, and that palette is a
-dictionary keyed by capture name - `keyword`, `string`, `operator` - rather than
-part of its theme. Both are written in the language above and translated on the
-way in, so a theme is one file rather than three.
-
-The boxes follow as well, which is the part that is not in this repository at
-all: the dialogs, the composer and the pane a hosted program is drawn in come
-from [TermInput](TermInput.jl) and [TermIFrame](TermIFrame.jl), and each took
-its bold, its dim and its reset as escapes written into the source. They read
-`TermInput.CHROME` now - three weights a host sets once - so `bold` and `dim`
-here reach every border on the screen. The one escape those keep for themselves
-is the block marking where the cursor is in a composer: that is not emphasis,
-it is the only thing saying where typing will go.
-
-Nothing else turns colour on. An empty value, no `theme` line at all, or a name
-that is not there draws the whole program plain - not one escape printed, resets
-included, the borders reduced to bare line art, and a markdown body coming back
-as text - Term prints its own attribute resets whatever its palette says, and
-with no theme those are noise. So `theme = ""` is the way to ask for that. A file that *is* there and has a
-misspelt role or colour in it says so on stderr at startup and draws that one
-role as nothing; the rest of the theme still applies.
-
-## Saving
-
-Nothing commits automatically. `/root/.claude` is a host bind-mount, so the repo
-survives sandbox restarts on its own; commit when you have something worth
-keeping.
-
-Pushing needs a fine-grained PAT scoped to this repo with `Contents: read/write`
-- the sandbox's GitHub App token is read-only for contents everywhere, including
-repos you own.
+`data/` is a git repository of its own, so your record has a history without
+cluttering the code's. Nothing commits automatically. `WORKLOG_DATA` points it
+elsewhere.
 
 ## Authentication
 
-The GraphQL lanes shell out to `gh`, so they use whatever credential `gh` has.
-The REST polls go through GitHub.jl, which needs the token itself; `token()`
-looks in `/run/claudebox-github/token` (the sandbox host refreshes it, so it
-beats a possibly-stale environment), then `$GH_TOKEN` / `$GITHUB_TOKEN`, then
-`gh auth token`.
+The searches shell out to `gh` and use whatever it is logged in as. The REST
+side looks for a token in `/run/claudebox-github/token`, then `$GH_TOKEN` /
+`$GITHUB_TOKEN`, then `gh auth token`, and fails once, naming every place it
+looked.
 
-That last one is what makes this work off the sandbox: there `gh` keeps its
-credential in its own config or the system keyring and exports nothing, so
-`gh auth status` succeeds while `$GH_TOKEN` is empty. A missing token now fails
-once with a message naming every place it looked, rather than once per repo.
+`/notifications` needs a *person's* token (`gho_`, `ghp_`) - a GitHub App's
+(`ghu_`, `ghs_`) cannot read it. Off a sandbox, `gh auth token` is a `gho_`
+with `repo` scope, which is enough; on a machine whose token is an App's, put
+one in `data/notifications.token` or the source is skipped and says so.
+Writing - comments, reviews, labels, merges - needs `issues: write` and
+`pull_requests: write` on the repositories in question.
 
-`/notifications` is the one endpoint a GitHub App's token cannot read at all,
-and the sandbox's is one. `pat()` takes `token()`'s answer when it is a
-person's (`gho_`, `ghp_`) and refuses an App's (`ghu_`, `ghs_`); with neither
-it reads `data/notifications.token`, and with nothing there the source is
-skipped and says so. Off the sandbox, then, nothing is set up: `gh auth token`
-is a `gho_` with `repo`, which carries notifications access.
-
-## Use
+## Tests
 
 ```bash
-cli/bin/refresh                                # ~25s, 16 of 5000 rate points
-cli/bin/refresh --backlog                      # once: the open lists of the polled repos
-cli/bin/wl note   julia#62452 "rebase after #62396"
-cli/bin/wl snooze libuv#5212 2w
-cli/bin/wl clear  julia#62452
-cli/bin/wl                                     # the browser
+julia --project=cli cli/test/runtests.jl          # everything testable without a TTY
+julia --project=cli cli/test/latency.jl           # startup, measured; not part of the suite
+julia --project=TermInput.jl  TermInput.jl/test/runtests.jl
+julia --project=TermIFrame.jl TermIFrame.jl/test/runtests.jl
 ```
 
-`cli/bin/refresh` is `cli/bin/wl refresh`; every command is a subcommand of the
-one entry point.
-
-## Scope
-
-`config.toml` defines the lanes - PRs you authored, PRs awaiting your review,
-issues assigned to you - and the repositories the clocks cover. What arrives by
-clock is not configured: whatever names you, wherever it is.
-
-A refresh is ~25s and 16 rate-limit points: the three lanes, the polls, and one
-by-url request for whatever moved. Nothing runs on a cadence of its own.
-
-Some GitHub behaviours worth knowing, each of which cost real debugging:
-
-**Paging by offset is unsafe on a list that moves.** Following `Link:
-rel="next"`, `gh api --paginate`, `GitHub.issues`, GraphQL's `after:` - all of
-them walk a collection being reordered underneath them. On a `sort=updated`
-list an item touched mid-walk moves, and the rows behind it shift across a
-page boundary: one is read twice, or - when the mover was already read - one
-is never read, and its old stamp keeps the next poll from asking for it. On an
-`is:open` list a close does the same. So every walk here is cut by a **stamp
-the walk holds**, never by a place in the list: the lanes by `created:>=` the
-last row read, which never moves; the polls by `since=`/`updated:>=` the newest
-row read, ascending, so a mover is read again past the floor. A page inside
-one second is the one place an offset is still walked, within that second.
-The cursor a poll advances to is GitHub's time just before the walk's first
-request - the `Date` header less the request's length, which is a duration off
-the monotonic clock - and the next poll asks from five minutes behind it (REST)
-or fifteen (search), the margin for a write committed before the walk and
-visible on the replica after it. That margin is an observation, not a promise:
-GitHub documents no bound.
-
-`search(type: ISSUE)` silently returns **0** for `assignee:` unless the query
-also carries `is:issue` or `is:pr`. REST has no such quirk, so 16 assigned issues
-were invisible until the qualifier went in. Do not remove it from the `assigned`
-lane.
-
-A search returning Issues against a query fragment that only spreads
-`... on PullRequest` yields bare `{__typename: "Issue"}` stubs with **no fields
-and no error** — the query needs both fragments or an `is:issue` lane comes back
-as unusable husks.
-
-Two qualifiers on one field are **or**ed - `created:>=X` beside a lane's own
-`created:` is the whole set again - which is why a lane may not carry one.
-Search truncates at 1000 results per query, which a walk cut by stamp steps
-past; a walk cut short answers with where it got to. Long walks hit transient
-502s, so pages retry.
-
-The `Date` header is when the server *generated* the response, the request's
-end and not its start. `/notifications` pages newest first and caps at 50 a
-page whatever is asked; `since=` there is compared against when the thread
-last notified, not against `updated_at`, and a thread's `updated_at` is its
-delivery time, 2 to 46 seconds after the event - two clocks for one event,
-which is why a fetched thread carries the subject's.
-
-**What the lanes do not ask for.** `mergeable` is computed **lazily** — the
-first read of a PR returns `UNKNOWN` and merely schedules the computation — and
-asking is what schedules it: measured on the `mine` lane, a page that named
-`mergeable` took 20–33s on four runs in twelve and 5–8s on the rest, and a page
-that did not never left 5–8s in twenty-five. It is the one field in the
-selection that is slow to *compute* rather than to fetch, so no lane asks for
-it and no row carries it. It is asked of one pull request at a time, when the
-cursor lands on it, by the same `merge_state` call the merge prompt makes — the
-one occasion the answer is wanted, and the one time the computation is worth
-waiting for — and the pane says it that prompt's way (`clean`, `behind
-master`, `conflicts with master`), which is finer than `mergeable` alone.
-`statusCheckRollup` is computed too and was measured the same way: free.
-`reviewRequests` is not asked for either; the bool it produced lost its last
-reader when the request became a time, and the pane lists who is asked from
-the REST head it already fetches. Neither `mergeable` nor the unresolved-thread
-count is a key at any tracking level: a thread being resolved is not news —
-what there was to resolve arrived as a comment or a review, and moved the
-item on the day it did.
+The suite runs on a committed fixture and a fresh clone; it never reads or
+writes your `data/`. See DESIGN.md for how it is built, and TODO.md for what is
+open.
