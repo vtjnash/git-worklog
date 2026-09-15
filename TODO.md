@@ -167,6 +167,25 @@ here is done; `git log` is the record of it and this file is not.
    before the cursor and were never looked at - which a rebuild does not
    bring back, and which are the least of it.
 
+   **The poll is a witness for the notifications, 2026-09-15.** GitHub's
+   notifications have been seen to lag by an hour and, rarely, twelve, and
+   whether a late one is stamped at delivery or with the event's time is
+   not known - stamped at delivery it is past the cursor and harmless;
+   stamped at the event it is behind `cursor - overlap` and nothing would
+   ever ask for it. A normal poll cannot tell, the dangerous case leaving
+   no trace; but for a repository both polled and watched every notifying
+   event has two witnesses. So a polled row that moved in a way that
+   notifies - the comment count rose, the state changed, a new item by
+   somebody else - in a watched repository is *expected* to have a thread
+   behind it within `EXPECT_GRACE` (15 min; `expect!`), one unmet is
+   checked once for whose the last comment was and then declared the lag
+   on stderr, and the notifications source goes **wide** - a day behind
+   its cursor each poll, threads already held dropped before their subject
+   is fetched again - until the awaited thread arrives (reported, with
+   which time it was stamped: the answer to the question, the first time it
+   happens) or `wl refresh --caught-up`. Only where the source runs. The
+   thread's own stamp is `notified` on the inbox row, apart from `updated`.
+
    **Reviewed twice, 2026-09-14, and the seam between the clocks and the
    corpus was where the bugs were.** The first review found the by-url
    path dropping every asked row when the fetch failed, a redirect aborting

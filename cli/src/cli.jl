@@ -7,8 +7,9 @@ Work dashboard.
   wl                                      the browser
   wl --refresh                            refresh first, then the browser
 
-  wl refresh [--backlog]                  re-fetch, re-derive, re-render; --backlog imports
-                                          the open lists of the polled repos, read
+  wl refresh [--backlog] [--caught-up]    re-fetch, re-derive, re-render; --backlog imports
+                                          the open lists of the polled repos, read;
+                                          --caught-up stops waiting on late notifications
   wl import  <url> [<url>...]             follow items no lane returns, unread
   wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again
@@ -138,7 +139,13 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     cmd = args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
-    cmd == "refresh" && return refresh(args[2:end])
+    if cmd == "refresh"
+        # The word that the notifications are fine: stop waiting on the ones
+        # the poll expected, and ask narrowly again. See `Events.expect!`.
+        "--caught-up" in args &&
+            println(stderr, "  notifications: ", Events.caught_up!(), " awaited, dropped; the ask is narrow again")
+        return refresh(args[2:end])
+    end
     if cmd == "import"
         length(args) > 1 || die(USAGE)
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)

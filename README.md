@@ -99,7 +99,11 @@ commented on - is brought into the corpus with its bundle the first time it is
 seen, whatever repository it is in and whether or not it is open; a watched
 repository's traffic stays a light row in the inbox until it is looked at.
 That is what reaches a question put to you on an issue closed years ago, which
-twelve `is:open` searches never could. Until 2026-09-13 there were nine more
+twelve `is:open` searches never could. And the two clocks watch each other:
+for a repository both polled and watched, a row the poll saw move in a way that
+notifies with no thread behind it after fifteen minutes is GitHub's
+notifications lagging - said on stderr, and the source asks a day behind its
+cursor until the thread arrives or `wl refresh --caught-up`. Until 2026-09-13 there were nine more
 lanes here - three for the recently closed, six searching for mentions and
 comments, and a firehose of every open julia PR, two thousand rows fetched
 every six hours so the ones that moved could be noticed.

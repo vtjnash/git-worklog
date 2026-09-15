@@ -148,7 +148,7 @@ end
         ]
         at = W.DateTime(2026, 9, 13, 12)
         items, got = E.sync!(srcs, at; now = () -> W.DateTime(2026, 9, 8, 12),
-                             backfill = W.Day(1))
+                             backfill = W.Day(1), watched = () -> Set{String}())
         @test got == 3                                   # the release is skipped
         # First sight: from GitHub's now less the backfill, less the overlap.
         @test asks["notifications"] == "2026-09-07T11:55:00Z"
@@ -170,16 +170,16 @@ end
         # Within the ttl nothing is asked again - and `now` is not asked
         # either, since no source is due.
         empty!(asks)
-        E.sync!(srcs, at + W.Second(30); now = () -> error("not due"))
+        E.sync!(srcs, at + W.Second(30); now = () -> error("not due"), watched = () -> Set{String}())
         @test isempty(asks)
         # Past it, each is asked from behind its own cursor, and the cursor
         # moves to this poll's start. Never backwards: a poll whose start is
         # before the cursor leaves it.
-        E.sync!(srcs, at + W.Minute(5); now = () -> W.DateTime(2026, 9, 13, 12, 5))
+        E.sync!(srcs, at + W.Minute(5); now = () -> W.DateTime(2026, 9, 13, 12, 5), watched = () -> Set{String}())
         @test asks["notifications"] == "2026-09-08T11:55:00Z"
         @test asks["o/r"] == "2026-09-08T11:55:00Z"
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
-        E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1))
+        E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1), watched = () -> Set{String}())
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
         # The cursors are local.toml's: one `cursor` per `source:` block,
         # what the poll advanced, with the inbox's copy beside them - so a
@@ -190,7 +190,7 @@ end
         # copy: set behind, the poll re-asks from there.
         W.set_source_cursors!(Dict("o/r" => "2026-09-13T11:00:00Z"))
         empty!(asks)
-        E.sync!(srcs, at + W.Minute(15); now = () -> W.DateTime(2026, 9, 13, 12, 15))
+        E.sync!(srcs, at + W.Minute(15); now = () -> W.DateTime(2026, 9, 13, 12, 15), watched = () -> Set{String}())
         @test asks["o/r"] == "2026-09-13T10:55:00Z"
         # A source that answers with its own bound - the first request's
         # `Date` less its length - sets the cursor from that, and the clock is
@@ -198,7 +198,7 @@ end
         dated = [(label = "o/r",
                   fetch = since -> ([issue], W.DateTime(2026, 9, 13, 12, 20, 30)),
                   overlap = E.OVERLAP_REST, row = (r, _) -> E.issue_row(r, "me"))]
-        E.sync!(dated, at + W.Minute(30); now = () -> error("the page said when"))
+        E.sync!(dated, at + W.Minute(30); now = () -> error("the page said when"), watched = () -> Set{String}())
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:20:30Z"
         # And a poll row arriving over an existing thread row keeps the reason.
         @test E.load_inbox()["items"]["https://github.com/o/r/pull/7"]["reason"] == "mention"
@@ -740,6 +740,82 @@ end
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
         @test seen[] isa Vector && !isempty(seen[])
         @test Set(keys(W.source_since())) == Set(seen[])
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+end
+
+@testset "the poll is a witness for the notifications, and a late one widens the ask" begin
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    E = W.Events
+    try
+        issue(n, comments, state = "open"; by = "alice") = Dict{String,Any}(
+            "html_url" => "https://github.com/o/r/issues/$n", "number" => n, "title" => "t$n",
+            "repository_url" => "https://api.github.com/repos/o/r", "state" => state,
+            "user" => Dict{String,Any}("login" => by),
+            "updated_at" => "2026-09-13T12:0$(comments):00Z", "comments" => comments,
+            "labels" => Any[])
+        thread(n, at; reason = "subscribed") = Dict{String,Any}(
+            "id" => "$n", "unread" => true, "reason" => reason, "updated_at" => at,
+            "subject" => Dict{String,Any}("title" => "t", "type" => "Issue",
+                "url" => "https://api.github.com/repos/o/r/issues/$n", "latest_comment_url" => nothing))
+        U(n) = "https://github.com/o/r/issues/$n"
+        polls = Ref(Any[]); threads = Ref(Any[]); asks = String[]
+        srcs = [
+            (label = "notifications", fetch = (since, ctx) -> (push!(asks, since); (threads[], nothing)),
+             overlap = E.OVERLAP_REST, row = (t, _) -> E.thread_row(t, "me"; fetch = nothing)),
+            (label = "o/r", fetch = since -> polls[], overlap = E.OVERLAP_REST,
+             row = (r, _) -> E.issue_row(r, "me")),
+        ]
+        watched = () -> Set(["o/r"])
+        run(at; kw...) = E.sync!(srcs, at; now = () -> at, watched = watched, login = "me", kw...)
+        at = W.DateTime(2026, 9, 13, 12, 10)
+        # A new issue by somebody else in a watched, polled repo, and no
+        # thread yet: expected. One by you: not.
+        polls[] = [issue(1, 0), issue(2, 0; by = "me")]
+        run(at)
+        ex = E.load_inbox()["expect"]
+        @test haskey(ex, U(1)) && !haskey(ex, U(2))
+        @test ex[U(1)]["event"] == "2026-09-13T12:00:00Z"
+        # The thread arrives on the next poll, stamped 20s after: met, and
+        # nothing said, since nothing was late.
+        threads[] = [thread(1, "2026-09-13T12:00:20Z")]
+        run(at + W.Minute(3))
+        @test !haskey(E.load_inbox(), "expect") && !haskey(E.load_inbox(), "wide")
+        @test E.load_inbox()["items"][U(1)]["notified"] == "2026-09-13T12:00:20Z"
+        # A comment by somebody else (the count rose) with no thread behind
+        # it: expected; unmet past the grace, the lag is declared and the ask
+        # goes wide - a day behind the cursor.
+        threads[] = Any[]
+        polls[] = [issue(1, 1)]
+        run(at + W.Minute(6))
+        @test E.load_inbox()["expect"][U(1)]["event"] == "2026-09-13T12:01:00Z"
+        @test !haskey(E.load_inbox(), "wide")
+        asks_before = length(asks)
+        run(at + W.Minute(25))                 # > EXPECT_GRACE later; last comment unknown -> not yours
+        @test haskey(E.load_inbox(), "wide")
+        run(at + W.Minute(28))
+        @test length(asks) == asks_before + 2
+        @test W.ts(asks[end]) == W.DateTime(2026, 9, 12, 12, 35)   # a day behind the cursor
+        # It arrives, an hour late, stamped with the event's time: met, the
+        # lag reported, and the ask narrow again.
+        threads[] = [thread(1, "2026-09-13T12:01:00Z")]
+        run(at + W.Minute(70))
+        @test !haskey(E.load_inbox(), "wide") && !haskey(E.load_inbox(), "expect")
+        # And the user's word ends the waiting whatever is still awaited.
+        polls[] = [issue(3, 0)]; threads[] = Any[]
+        run(at + W.Minute(75))
+        run(at + W.Minute(95))
+        @test haskey(E.load_inbox(), "wide")
+        @test E.caught_up!() == 1
+        @test !haskey(E.load_inbox(), "wide") && !haskey(E.load_inbox(), "expect")
+        # A label edit - updated moved, nothing else - is not evidence.
+        polls[] = [merge(issue(3, 0), Dict("updated_at" => "2026-09-13T13:00:00Z"))]
+        run(at + W.Minute(100))
+        @test !haskey(E.load_inbox(), "expect")
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end

@@ -26,7 +26,7 @@ import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
-using ..Worklog: load_read, mark_unread
+using ..Worklog: load_read, mark_unread, nz
 import ..Worklog
 
 struct ApiError <: Exception
@@ -398,6 +398,23 @@ statement of what is tracked.
 """
 subscriptions() = sort!([String(r["full_name"]) for r in api_paged("/user/subscriptions")])
 
+"""The repositories watched on github.com, as a set, cached for a day: every
+notifying event on one of these should reach the notifications source, which
+is what makes a polled row that moved with no thread behind it a signal. An
+answer that fails is an empty set - no signal, rather than a wrong one."""
+function watched_repos()
+    hit = cache_get("watched", 86_400.0)
+    hit === nothing || return Set{String}(String(x) for x in hit[1])
+    out = try
+        subscriptions()
+    catch e
+        e isa ApiError || rethrow()
+        return Set{String}()
+    end
+    cache_put("watched", out)
+    Set{String}(out)
+end
+
 """Repos of `owner` that are forks of somebody else's project.
 
 Issue search has no fork qualifier, so telling them apart takes a listing of the
@@ -463,9 +480,9 @@ everything the poll has seen. All of it comes back from GitHub on the next
 which is the whole test for which half of `data/` a thing belongs in.
 """
 function load_inbox()
-    d = Dict("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
-             "failed" => Dict{String,String}(),
-             "items" => Dict{String,Any}())
+    d = Dict{String,Any}("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
+                         "failed" => Dict{String,String}(),
+                         "items" => Dict{String,Any}())
     raw = Worklog.fetched("inbox")
     raw === nothing && return d
     try
@@ -478,6 +495,14 @@ function load_inbox()
             d["items"][String(kk)] = OrderedDict{String,Any}(String(a) => b
                                                              for (a, b) in vv)
         end
+        # What the poll is waiting on from the notifications, and since when
+        # the ask has been wide; see `expect!`.
+        for (kk, vv) in get(raw, :expect, (;))
+            get!(d, "expect", Dict{String,Any}())[String(kk)] =
+                Dict{String,Any}(String(a) => b for (a, b) in vv)
+        end
+        w = get(raw, :wide, nothing)
+        w === nothing || (d["wide"] = String(w))
     catch
         # A damaged inbox is an empty one: the cursors reset to now, which loses
         # a poll's worth of history rather than every future poll.
@@ -593,6 +618,10 @@ function thread_row(t, login; fetch = path -> api_get(path; auth = pat()[1]))
         "title" => String(get(t["subject"], "title", "")),
         "is_pr" => sub.is_pr,
         "updated" => String(t["updated_at"]),
+        # The thread's own stamp, kept apart from `updated` - which becomes
+        # the subject's below - because it is the *delivery* time, and the
+        # poll's witness is measured against it; see `expect!`.
+        "notified" => String(t["updated_at"]),
         "lane" => "notifications", "reason" => reason,
         "why" => get(THREAD_WHY, reason, reason))
     fetch === nothing && return row
@@ -692,11 +721,23 @@ function sources(cfg, login; verbose::Bool = true)
         # and is filled in when it next moves or is looked at. Steady state
         # fetches every subject: a few dozen a day.
         push!(srcs, (label = "notifications",
-                     fetch = since -> begin
+                     fetch = (since, ctx) -> begin
             st = Ref{Any}(nothing)
+            # **Wide**, while a notification is known to be late - `sync!`
+            # asks a day behind the cursor rather than five minutes, in case
+            # the one that is late arrives stamped with the event's time
+            # rather than its own, the case a normal ask would never see -
+            # threads the inbox already has with that stamp are dropped
+            # here, before their subject would be fetched again.
+            wide = ctx.wide
             params = Dict{String,Any}("all" => "true", "since" => since)
             rows = api_paged("/notifications"; auth = p, per_page = 50, started = st,
                              params = params, max_pages = 60)
+            if wide
+                known(t) = (s = thread_subject(t); s !== nothing &&
+                    String(nz(get(get(ctx.items, s.url, Dict{String,Any}()), "notified", nothing), "")) >= String(t["updated_at"]))
+                rows = [t for t in rows if !known(t)]
+            end
             # Sixty pages is three thousand threads, which a backfill on a
             # busy account can exceed - and newest first, a walk cut there
             # would lose the *oldest* of the window, with no floor to resume
@@ -735,7 +776,7 @@ function sources(cfg, login; verbose::Bool = true)
     end
     for repo in explicit
         push!(srcs, (label = repo,
-                     fetch = since -> begin
+                     fetch = (since, _) -> begin
             st = Ref{Any}(nothing)
             rows = walk_updated(since; started = st) do floor_, n
                 api_get_dated("/repos/$repo/issues"; params = Dict{String,Any}(
@@ -752,7 +793,7 @@ function sources(cfg, login; verbose::Bool = true)
     keep = keep_forks(cfge)
     for owner in owners, kind in ("is:issue", "is:pull-request")
         push!(srcs, (label = string(owner, "/* ", kind),
-                     fetch = since -> begin
+                     fetch = (since, _) -> begin
             st, cut = Ref{Any}(nothing), Ref(false)
             its, total = search_issues("user:$owner $kind", since; started = st, cut = cut)
             # Ten pages a poll. A walk cut short answers with its floor, so
@@ -825,7 +866,7 @@ its `reason`, the poll the state and the author. Merging keeps both whichever
 came second; overwriting kept whichever came last.
 """
 function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
-               now = server_now)
+               now = server_now, watched = watched_repos, login = Worklog.login())
     inbox = load_inbox()
     polled, items = inbox["polled"], inbox["items"]
     # The cursors are `local.toml`'s - `source_cursors`, how far each source
@@ -839,6 +880,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     got = 0
     server = nothing
     failed = get!(inbox, "failed", Dict{String,String}())
+    watching = nothing                   # asked once, only if a poll runs
+    # The poll can witness for the notifications only where the source runs:
+    # on a machine whose token cannot read them there is nothing to expect,
+    # and an expectation left from elsewhere is dropped rather than declared
+    # late here.
+    witness = any(s.label == "notifications" for s in srcs)
+    witness || (delete!(inbox, "expect"); delete!(inbox, "wide"))
     due(label) = (last = get(polled, label, nothing);
                   t = last === nothing ? nothing : ts(last);
                   t === nothing || at - t >= ttl)
@@ -849,9 +897,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             server === nothing && (server = now())
             cursors[label] = stamp(server - backfill)
         end
+        watching === nothing && (watching = watched())
         cur = cursors[label]
         answer = try
-            fetch(stamp(ts(cur) - overlap))
+            wide = label == "notifications" && haskey(inbox, "wide")
+            ctx = (items = items, wide = wide)
+            s_ = stamp(ts(cur) - (wide ? Day(1) : overlap))
+            applicable(fetch, s_, ctx) ? fetch(s_, ctx) : fetch(s_)   # a test's takes one
         catch e
             e isa ApiError || rethrow()
             @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
@@ -873,6 +925,8 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             end
             url = String(row["url"])
             old = get(items, url, nothing)
+            witness && label != "notifications" &&
+                expect!(inbox, url, old, row, at, watching, login)
             items[url] = old === nothing ? row : merge!(old, row)
             got += 1
         end
@@ -882,6 +936,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         polled[label] = stamp(at)
     end
 
+    witness && settle_expectations!(inbox, items, at, login)
     rd = load_read()
     for (url, e) in collect(items)
         String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
@@ -890,6 +945,140 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     save_inbox(inbox)
     Worklog.set_source_cursors!(advanced)
     (items, got)
+end
+
+# --- the poll as a witness for the notifications ----------------------------
+#
+# GitHub's notifications have been seen to lag by an hour and, rarely, twelve.
+# Whether a late one is stamped with its delivery time or the event's is not
+# known, and it matters: stamped at delivery it is past the cursor and the
+# next poll returns it; stamped at the event it is behind `cursor - overlap`
+# and nothing here would ever ask for it. Nothing about a normal poll can
+# tell, since the dangerous case leaves no trace - but for a repository that
+# is both polled and watched on github.com, every notifying event has two
+# witnesses, and the poll's is not late. So: a polled row that moved in a
+# way that notifies - a comment by somebody else, a state change, a new item
+# by somebody else - in a watched repository is **expected** to have a thread
+# behind it within `EXPECT_GRACE`. One that has not is the lag, observed:
+# said on stderr, and the notifications source goes **wide** - a day behind
+# its cursor every poll - until the expected thread arrives or `wl refresh
+# --caught-up` says to stop waiting. And when it arrives, its stamp against
+# the event says which way GitHub stamps a late one, the first time it
+# happens.
+#
+# What does not count: a label or a push, which move `updated_at` and notify
+# nobody and which the issues list cannot tell from a comment - so the
+# evidence is the comment count rising, the state changing, or the row being
+# new - and your own comment, which notifies nobody either and which the list
+# cannot tell from anybody else's, so an expectation that is unmet after the
+# grace is checked once for whose the last comment was before it is called a
+# lag.
+
+"How long a notification may trail the poll's witness before it is late."
+const EXPECT_GRACE = Minute(15)
+
+"""Record that `url` moved in a way that should notify, unless a thread with a
+stamp at or past the movement is already here. `old` is the inbox row the
+poll's `row` replaces, or `nothing`."""
+function expect!(inbox, url, old, row, at::DateTime, watched::Set{String}, login::AbstractString)
+    String(nz(get(row, "repo", nothing), "")) in watched || return
+    ev = String(nz(get(row, "updated", nothing), ""))
+    isempty(ev) && return
+    evidence = old === nothing ? get(row, "author", nothing) != login :
+               (get(row, "comments", 0) > get(old, "comments", 0) ||
+                get(row, "state", nothing) != get(old, "state", nothing))
+    evidence || return
+    notified = old === nothing ? "" : String(nz(get(old, "notified", nothing), ""))
+    notified >= ev && return
+    exp = get!(inbox, "expect", Dict{String,Any}())
+    haskey(exp, url) && String(exp[url]["event"]) >= ev && return
+    exp[url] = Dict{String,Any}("event" => ev, "seen" => stamp(at))
+    nothing
+end
+
+"""Go over what is expected: satisfied by a thread that arrived, dropped when
+the last comment turns out to be yours, and otherwise - past the grace - the
+lag, said, with the wide ask switched on until it is met."""
+function settle_expectations!(inbox, items, at::DateTime, login::AbstractString)
+    exp = get(inbox, "expect", nothing)
+    (exp === nothing || isempty(exp)) && (haskey(inbox, "wide") || return; )
+    exp === nothing && (exp = Dict{String,Any}())
+    late = 0
+    for (url, e) in collect(exp)
+        ev, seen = String(e["event"]), ts(String(e["seen"]))
+        row = get(items, url, nothing)
+        notified = row === nothing ? "" : String(nz(get(row, "notified", nothing), ""))
+        if notified >= ev
+            # Arrived. How long after the event, and stamped with which time:
+            # a stamp within a minute of the event is the event's own, and
+            # the answer to the question at the head of this section.
+            n, v = ts(notified), ts(ev)
+            if n !== nothing && v !== nothing && haskey(inbox, "wide")
+                lag = Dates.value(at - v) ÷ 60_000
+                own = Dates.value(n - v) ÷ 60_000
+                @printf(stderr, "    %-24s %s: the notification arrived %d min after the event, stamped %s\n",
+                        "notifications", url, lag,
+                        own < 1 ? "with the EVENT's time - a late one is behind the cursor" :
+                                  "at delivery ($own min after)")
+            end
+            delete!(exp, url)
+            continue
+        end
+        seen === nothing && (delete!(exp, url); continue)
+        at - seen < EXPECT_GRACE && continue
+        # Unmet past the grace. Your own comment notifies nobody and the
+        # list could not tell; one look at the last comment settles it.
+        if !get(e, "checked", false)
+            e["checked"] = true
+            by = last_comment_by(url)
+            if by == login
+                delete!(exp, url)
+                continue
+            end
+        end
+        late += 1
+    end
+    if late > 0
+        if !haskey(inbox, "wide")
+            inbox["wide"] = stamp(at)
+            @printf(stderr, "    %-24s LAGGING: %d polled row(s) moved with no notification after %d min; asking a day behind the cursor until it arrives, or `wl refresh --caught-up`\n",
+                    "notifications", late, Dates.value(EXPECT_GRACE))
+        else
+            @printf(stderr, "    %-24s still lagging: %d awaited, wide since %s\n",
+                    "notifications", late, inbox["wide"])
+        end
+    elseif haskey(inbox, "wide") && isempty(exp)
+        delete!(inbox, "wide")
+        @printf(stderr, "    %-24s caught up: every awaited notification arrived; the ask is narrow again\n",
+                "notifications")
+    end
+    isempty(exp) ? delete!(inbox, "expect") : (inbox["expect"] = exp)
+    nothing
+end
+
+"Who wrote the newest comment on `url`, or `nothing`: one request, on demand."
+function last_comment_by(url::AbstractString)
+    parts = split(String(url), '/')
+    length(parts) >= 7 || return nothing
+    try
+        cs = api_get("/repos/$(parts[4])/$(parts[5])/issues/$(parts[7])/comments";
+                     params = Dict{String,Any}("per_page" => 1, "sort" => "created",
+                                               "direction" => "desc"))
+        isempty(cs) ? nothing : String(get(get(cs[1], "user", Dict{String,Any}()), "login", ""))
+    catch e
+        e isa ApiError || rethrow()
+        nothing
+    end
+end
+
+"""Stop waiting: `wl refresh --caught-up`. Every expectation dropped and the
+ask narrow again, on the user's word that the notifications are fine."""
+function caught_up!()
+    inbox = load_inbox()
+    n = length(get(inbox, "expect", Dict()))
+    delete!(inbox, "expect"); delete!(inbox, "wide")
+    save_inbox(inbox)
+    n
 end
 
 """Everything seen on the tracked repos and not yet marked read.
@@ -914,7 +1103,7 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
     auth()          # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.
-    items, got = sync!(srcs, at;
+    items, got = sync!(srcs, at; login = login,
         ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120))),
         backfill = Day(get(cfge, "backfill_days", 0)))
     out = collect(OrderedDict{String,Any}, values(items))
