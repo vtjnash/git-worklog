@@ -156,10 +156,16 @@ here is done; `git log` is the record of it and this file is not.
    key present and empty, which `get_field` already told from an absent
    one, and it is what `r` writes now, so a backlog row said unread stays
    unread and an undo puts back what was said (`mark_at`, raw) rather than
-   what the baseline would answer. What `fetched.json` still holds that
-   GitHub does not: the refresh-clock marks on a bool's rising edge, and the
-   inbox cursors - a lost file costs the events of the gap, and a
-   `backfill_days` set for one run recovers them.
+   what the baseline would answer. **The cursors are `local.toml`'s too**
+   (2026-09-15): a `cursor` beside the `since` in each `source:` block, what
+   the poll advanced, written in one go at the end of `sync!`, with the
+   inbox's copy beneath it for a file from before - so a lost
+   `fetched.json` no longer costs the events of the gap. What it still
+   holds that GitHub does not: the refresh-clock marks on a bool's rising
+   edge, `polled` and `failed` (about this machine, not the reading), and
+   the unread light rows of a watched repository's traffic that moved
+   before the cursor and were never looked at - which a rebuild does not
+   bring back, and which are the least of it.
 
    **Reviewed twice, 2026-09-14, and the seam between the clocks and the
    corpus was where the bugs were.** The first review found the by-url

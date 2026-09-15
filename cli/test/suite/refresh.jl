@@ -181,6 +181,17 @@ end
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
         E.sync!(srcs, at + W.Minute(10); now = () -> W.DateTime(2026, 9, 13, 12, 1))
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:05:00Z"
+        # The cursors are local.toml's: one `cursor` per `source:` block,
+        # what the poll advanced, with the inbox's copy beside them - so a
+        # lost fetched.json does not cost the events of the gap.
+        @test W.source_cursors()["o/r"] == "2026-09-13T12:05:00Z"
+        @test W.source_cursors()["notifications"] == "2026-09-13T12:05:00Z"
+        # And the file's is what the next poll asks from, over the inbox's
+        # copy: set behind, the poll re-asks from there.
+        W.set_source_cursors!(Dict("o/r" => "2026-09-13T11:00:00Z"))
+        empty!(asks)
+        E.sync!(srcs, at + W.Minute(15); now = () -> W.DateTime(2026, 9, 13, 12, 15))
+        @test asks["o/r"] == "2026-09-13T10:55:00Z"
         # A source that answers with its own bound - the first request's
         # `Date` less its length - sets the cursor from that, and the clock is
         # not asked at all.

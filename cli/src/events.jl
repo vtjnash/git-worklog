@@ -827,7 +827,15 @@ came second; overwriting kept whichever came last.
 function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
                now = server_now)
     inbox = load_inbox()
-    cursors, polled, items = inbox["cursors"], inbox["polled"], inbox["items"]
+    polled, items = inbox["polled"], inbox["items"]
+    # The cursors are `local.toml`'s - `source_cursors`, how far each source
+    # has been read, which is a fact about what was done and not one GitHub
+    # can answer - with the inbox's own copy under them for a file from
+    # before they moved there. What this poll advances is written back in
+    # one go at the end.
+    cursors = merge!(Dict{String,String}(String(k) => String(v) for (k, v) in inbox["cursors"]),
+                     Worklog.source_cursors())
+    advanced = Dict{String,String}()
     got = 0
     server = nothing
     failed = get!(inbox, "failed", Dict{String,String}())
@@ -870,7 +878,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         end
         skipped == 0 || @printf(stderr, "    %-24s %d not an issue or pull request, skipped\n",
                                 label, skipped)
-        cursors[label] = max(String(cur), stamp(started))
+        cursors[label] = advanced[label] = max(String(cur), stamp(started))
         polled[label] = stamp(at)
     end
 
@@ -878,7 +886,9 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     for (url, e) in collect(items)
         String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
     end
+    inbox["cursors"] = cursors           # the copy, for a reader of the file
     save_inbox(inbox)
+    Worklog.set_source_cursors!(advanced)
     (items, got)
 end
 

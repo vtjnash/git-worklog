@@ -166,6 +166,24 @@ function name_source!(label::AbstractString, at::AbstractString)
     true
 end
 
+"""How far each source has been read: `label -> ISO8601`, off the `cursor`
+key of the `source:` blocks. The other fact about a source that GitHub cannot
+answer - `since` is when you named it, this is where the poll has got to -
+and the one that, kept only in `fetched.json`, made that file cost the events
+of a gap when it was lost. Nine values that move every poll; a small file
+rewritten atomically, and the browser's own write as far as the watcher is
+concerned. `polled`, when *this machine* last asked, and `failed` stay in the
+cache: they are about the machine, not the reading."""
+source_cursors() = Dict{String,String}(String(k)[8:end] => v
+                                       for (k, v) in field_map("cursor") if startswith(k, "source:"))
+
+"Record how far these sources have been read, in one write."
+function set_source_cursors!(cursors::AbstractDict)
+    isempty(cursors) && return 0
+    set_blocks!([string("source:", l) => ["cursor" => String(c)] for (l, c) in cursors])
+    length(cursors)
+end
+
 """The baseline for a row of `repo`: the day the source that covers it was
 named, or `nothing` when none does. A repository named outright beats the
 glob over its owner, being the more deliberate of the two."""
