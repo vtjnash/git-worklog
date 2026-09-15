@@ -180,3 +180,9 @@ Panes:
       failure string says "no tmux on PATH", and `PATH` is never consulted.
 - [ ] `table_key_order` is untested against TOML shapes it does not parse
       (multi-line inline tables); it degrades to sorted order.
+- [ ] `wl adopted local:o/r#branch DATE`, as `USAGE` documents it, cannot
+      work: `resolve()` looks the ref up in `fetched.json`, and a local item
+      is never there. Adopting works from the browser's `"` list. Fix the
+      command or drop the line.
+- [ ] `cli/test/latency.jl` calls `BState(items, "worklog", Set{String}())`,
+      a three-argument form that no longer exists.

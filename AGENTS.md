@@ -15,8 +15,8 @@ each of them is exactly right:
    unfiled, open or closed. "Moved" means somebody else did something since
    you read it - the wake table - never something you did yourself, and never
    `updated_at`. That is why every key on a row is a time or a sha of an
-   event by somebody else, why `r`/`s`/`x` are all the read stamp with one
-   thing added, and why the stamps are GitHub's own event times.
+   event by somebody else, why `s` and `x` are the read stamp with one thing
+   added, and why the stamps are GitHub's own event times.
 2. **My work** (`'` `2`): the open work, whose tags - `edits`, `ready`,
    `review`, `second` - have to be right without a clock saying so. That is
    why the three lanes are fetched whole every refresh and everything else
@@ -40,6 +40,6 @@ row carries a single word for what it is.
 ## Working here
 
 Run from the code checkout, not `data/` (its own repository).
-`julia --project=cli cli/test/runtests.jl` is the suite; it never touches
-your `data/`. Commit as `worklog: summary` with a prose body, via
-`git commit -F`.
+`julia --project=cli cli/test/runtests.jl` is the suite; it never writes
+`local.toml` (it does clear `data/errors.log`). Commit as `worklog: summary`
+with a prose body, via `git commit -F`.

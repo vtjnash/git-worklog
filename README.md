@@ -26,9 +26,10 @@ them lack is a record of what *you* decided, and the facts a decision needs -
   it since you read it: pushed, commented, reviewed, asked you, assigned you,
   closed or merged it, or your own CI went red. Nothing you did yourself counts.
 - **Knows what to do next**, as tags derived from facts, none of them
-  exclusive: `edits` (changes requested, unresolved threads or red CI),
-  `ready` (approved and green), `review` (asked, and they pushed since you
-  looked), `reply` (mentioned recently, last word theirs), `second` (the
+  exclusive: `edits` (changes requested, unresolved threads, red CI, or the
+  `status: waiting for PR author` label),
+  `ready` (approved and green), `review` (asked, and not reviewed since their
+  last push), `reply` (mentioned recently, last word theirs), `second` (the
   author acted and nobody has answered for two working days).
 - **Shows *what* changed**: the thread opens on the first comment you have not
   seen, and `p` is the diff or `range-diff` since the head you last read.
@@ -40,8 +41,8 @@ them lack is a record of what *you* decided, and the facts a decision needs -
 
 ## Running it
 
-Needs Julia (developed on nightly; the packages declare 1.10), `gh` logged in,
-and `git`. tmux comes bundled (`tmux_jll`, 3.5.1) and is what `t` and `T` run;
+Needs Julia 1.11 or newer (developed on nightly), `gh` logged in, and
+`git`. tmux comes bundled (`tmux_jll`, 3.5.1) and is what `t` and `T` run;
 `WORKLOG_TMUX` names another binary. The sessions are on the ordinary socket,
 so your own `tmux ls` sees them. No tmux on Windows.
 
@@ -79,17 +80,17 @@ GitHub.**
 | `r` | read ↔ unread |
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
-| `v` | edit the note in `$EDITOR`; `e` opens the checkout in an editor |
+| `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) |
 | `z` | undo the last local action |
 | `u` `R` | refresh everything in the background · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
-| `w` | cycle the order: last activity · your interaction clock · url |
+| `w` | cycle the order: last activity · url · your interaction clock |
 | `i` | import an item by url; lands unread |
 | `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
 | `t` `T` `"` | a shell · an agent on the item's worktree · the worktree list |
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
-| `q` | quit (asks if a composer is open) |
+| `q` | quit; asks first, and about an unsent draft review if there is one |
 
 **Views** (`'`): 1 the firehose - unread, open or closed · 2 my work · 3 the
 backlog - open, read ones too · 4 waiting on me · 5 waiting on them · 6 ready
@@ -132,6 +133,7 @@ wl refresh [--backlog] [--caught-up]    re-fetch; --backlog imports the polled r
                                         on a late notification
 wl import  <url>...                     follow items no lane returns, unread
 wl show    julia#62891                  state and the thread, non-interactive
+wl thread  julia#62891 [n]              JSON of a thread's recent comments
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
 wl read    julia#62891                  mark read (or: read all)
 wl track   julia#62452 loose            normal | loose - what counts as it moving
@@ -142,7 +144,6 @@ wl note    julia#62452 "..."
 wl deadline julia#62452 2026-09-30
 wl blocked julia#62452 JuliaLang/julia#62396
 wl clear   julia#62452
-wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
 wl watching                             repos you watch, and which are polled
 wl repos [--prune]                      pinned checkouts
 ```
@@ -176,7 +177,8 @@ review request being withdrawn.
 - `[events] repos` - repositories polled for every change, as `owner/name` or
   `owner/*`. Their open lists become the backlog. `wl watching` prints the ones
   you watch on GitHub but have not listed.
-- `[thresholds]` - `reply_days` (30), `second_look_days` (2, working days).
+- `[thresholds]` - `reply_days` (required) and `second_look_days` (working
+  days, default 2).
 - `[views]` - named filters for `'`.
 - `[cache]` - how long the browser trusts a cached thread, diff or merge state.
 - `[agent] command` - what `T` runs, when it is not your shell's `claude`.
@@ -224,6 +226,7 @@ julia --project=TermInput.jl  TermInput.jl/test/runtests.jl
 julia --project=TermIFrame.jl TermIFrame.jl/test/runtests.jl
 ```
 
-The suite runs on a committed fixture and a fresh clone; it never reads or
-writes your `data/`. See DESIGN.md for how it is built, and TODO.md for what is
+The suite runs on a committed fixture and on a fresh clone. It never writes
+your `local.toml` or cache; it does delete `data/errors.log` and, when there
+is one, reads `data/fetched.json` for one sweep. See DESIGN.md for how it is built, and TODO.md for what is
 open.

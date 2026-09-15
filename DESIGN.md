@@ -66,8 +66,7 @@ activity on yours, a thread you commented on - is fetched by url with its
 bundle the first time it is seen, whatever repository, open or closed. A
 watched repository's other traffic stays a **light row** (state, author,
 comment count; no bundle) until it is looked at. That is what reaches a
-question on an issue closed years ago, which twelve `is:open` searches never
-could. What no clock covers - a push, a label or a draft toggle on an open row
+question on an issue closed years ago, which no `is:open` search could. What no clock covers - a push, a label or a draft toggle on an open row
 of yours in a repository nobody polls, on a machine whose token cannot read
 notifications - is asked by url every refresh while it is open (`covered`).
 
@@ -219,9 +218,11 @@ applied** - an offset was tried and deleted the same hour.
 
 ## Tags
 
-`apply_state!` derives each as a sentence or `""`, and the browser shows them
-as the tag axis. None reads another; none reads the state except to be empty
-on finished work:
+The refresh derives each as a sentence or `""` - `reply`, `edits`, `ready`
+and `review` in `apply_state!`, `second` in `derive!` - and the browser shows
+them as the tag axis. None reads the state except to be empty on finished
+work, and the one that reads another is `second`, which is withheld from the
+pile (`in_pile`: a clock lane with no `reply` owed):
 
 | tag | rule |
 |---|---|
@@ -324,7 +325,10 @@ Three things answer it, all read off the mark `r` leaves:
 | `cli/src/gh.jl` | the GraphQL lanes, shelled through `gh api graphql` (GitHub.jl has neither GraphQL nor search) |
 | `cli/src/events.jl` | `Events`: the clocks, the by-url fetch, the token lookup |
 | `cli/src/refresh.jl` | normalize, the wake table, the tags, the snapshot diff |
+| `cli/src/cli.jl` | the `wl <command>` surface and `USAGE` |
+| `cli/src/ui.jl` | `Item`, and the adopted branches synthesized from `local.toml` |
 | `cli/src/marks.jl`, `state.jl` | what you did to an item; the line-based `local.toml` editor |
+| `cli/src/util.jl`, `pyjson.jl` | `oneline`, `table_key_order`; JSON written the way the Python port did |
 | `cli/src/fetched.jl` | `fetched.json` |
 | `cli/src/controller.jl` | owns stdin; input decoding (`readevent`); the `View` protocol; dialogs |
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
@@ -408,7 +412,7 @@ Harness:
 
 ```julia
 items = Worklog.loaditems()
-st = Worklog.BState(items, "worklog", Set{String}())
+st = Worklog.BState(items, "worklog")
 ctrl = Worklog.Controller(); ctrl.running = true
 st.wake = () -> Worklog.wake!(ctrl)
 Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
@@ -485,7 +489,7 @@ Do not simplify any of these away.
 - `Markdown.parse` opens emphasis on an underscore inside a word, which
   CommonMark forbids; it takes two to pair, so `deliver_result and
   connect_to_peer` loses both. `escape_source` escapes them outside code.
-  Filed and fixed as JuliaLang/julia#63081.
+  Filed, with a fix, as JuliaLang/julia#63081 (open).
 
 ### tmux
 
