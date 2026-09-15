@@ -444,7 +444,7 @@ end
     # the adoption testset hid behind `archive.jl` for several sessions.
     if W.mux_bin() === nothing
         @info "no tmux; skipping the unregistered-repo guard test"
-        @test W.open_agent(it, ctrl) == "no tmux on PATH"
+        @test W.open_agent(it, ctrl) == W.no_mux()
     else
         @test W.open_agent(it, ctrl) === :needs_repo
     end

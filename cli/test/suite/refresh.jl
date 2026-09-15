@@ -65,6 +65,57 @@
     end
 end
 
+@testset "a local ref is its own answer, as a url is" begin
+    # `wl adopted local:o/r#branch DATE`, as `USAGE` has it. An adopted branch
+    # is never in `fetched.json` - it is an item because `local.toml` says
+    # `adopted` - so looking the ref up there refused exactly the one command
+    # that takes one.
+    @test W.resolve("local:o/r#topic") == "local:o/r#topic"
+    @test W.resolve("local:o/r#topic") == W.localurl("o/r", "topic")
+    # And the lookup still refuses a ref it cannot find, as before.
+    @test_throws W.CliError W.resolve("nowhere#1")
+end
+
+@testset "the lane order is the file's, and a shape the scan cannot read degrades to sorted" begin
+    # `[lanes]` is walked in file order because the first lane to claim a url
+    # keeps it. Julia's TOML parser hands back a `Dict`, so the order is read
+    # back out of the text - for the shapes `config.toml` actually uses.
+    text = """
+    [other]
+    zz = 1
+    [lanes]
+    # a comment, and a blank line
+    mine = "is:open author:@me"
+
+    review = "is:open review-requested:@me"
+    "quoted key" = "x"
+    [after]
+    aa = 1
+    """
+    @test W.table_key_order(text, "lanes") == ["mine", "review", "quoted key"]
+    @test W.table_key_order(text, "nowhere") == String[]
+    tbl = Dict("review" => 2, "mine" => 1, "quoted key" => 3)
+    @test first.(W.ordered(tbl, text, "lanes")) == ["mine", "review", "quoted key"]
+
+    # What it does not read: an inline table spanning lines. The parser accepts
+    # it (TOML 1.1); the scan takes the continuation line for a key of its own
+    # (`n`), which `ordered` drops because the parsed table has no such key, and
+    # the keys the scan never saw come back appended in sorted order - "wrong
+    # order", never "silently dropped". This is the documented degradation,
+    # pinned so a change to the scan says so here.
+    multi = """
+    [lanes]
+    second = { q = "b",
+               n = 2 }
+    first = "a"
+    """
+    @test W.table_key_order(multi, "lanes") == ["second", "n", "first"]
+    tbl = Dict("second" => 2, "first" => 1, "zeta" => 3, "alpha" => 0)
+    @test first.(W.ordered(tbl, multi, "lanes")) == ["second", "first", "alpha", "zeta"]
+    # A key the file has and the table does not is not invented.
+    @test first.(W.ordered(Dict("first" => 1), multi, "lanes")) == ["first"]
+end
+
 @testset "the notifications source, beside the repo polls" begin
     # A thread is one row per subject with one reason, and `subject.url` is an
     # API url in one of two shapes. Both land as the html url the inbox is

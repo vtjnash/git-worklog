@@ -12,17 +12,14 @@ login = "vtjnash"
 theme = "github-light-256.toml"
 
 [thresholds]
-# Your PR has been green and waiting on a reviewer this long -> needs-nudge.
-nudge_days = 7
-# No activity at all this long -> flagged stale in the view.
-stale_days = 60
 # A mention this recent, with the last word not yours, is a question owed a reply.
 reply_days = 30
 # Silence this long, in *working* days, wants a second look: the author spoke or
 # pushed and nobody answered, or somebody approved it and nothing happened after.
 # Unlike a snooze this needs no asking for - the failure it catches is work going
-# quiet without anyone deciding it should - and unlike `nudge_days` it is about
-# an answer being owed rather than about a pull request being old.
+# quiet without anyone deciding it should - and it is about an answer being
+# owed, not about a pull request being old: there is no "stale" threshold here,
+# because age alone is not a reason to be told about something.
 second_look_days = 2
 # There is no far end. `second_look_max_days` used to cap it at 20, so quiet
 # past that stopped being reported at all - which meant a row left the lane on a
@@ -156,8 +153,8 @@ repos = [
 include_forks = true
 # How far back a source starts the *first* time it is seen. 0 is inbox zero:
 # turning one on brings nothing with it, and everything after that is caught by
-# the cursor. Only ever used once per source; after that `inbox.json` says where
-# each one has been read up to.
+# the cursor. Only ever used once per source; after that the `source:` blocks in
+# `data/local.toml` say where each one has been read up to.
 #
 # 0 since 2026-09-14, as policy: the unread side starts at now. It was 30
 # while the corpus was rebuilt from nothing, and a month of a repository's

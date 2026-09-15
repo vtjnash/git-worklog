@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The work dashboard. No arguments opens the interactive navigator; anything
-# else is a command - `wl refresh`, `wl note <ref> "..."`, `wl next 10`, ...
+# else is a command - `wl refresh`, `wl note <ref> "..."`, `wl snooze <ref> ...`, ...
 #
 # SIGHUP is ignored here and not inside julia, because an *ignored* disposition
 # is the one thing that survives `exec` - a handler installed in this shell

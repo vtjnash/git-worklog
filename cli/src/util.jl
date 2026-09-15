@@ -174,7 +174,9 @@ be read back out of the file.
 
 Only the shapes `config.toml` actually uses are handled - one key per line, no
 inline tables spanning lines. Keys the scan misses are appended in sorted order
-so a malformed line degrades to "wrong order", never to "silently dropped".
+so a malformed line degrades to "wrong order", never to "silently dropped"; a
+continuation line it takes for a key is dropped by `ordered`, which only keeps
+what the parsed table has. Pinned in `suite/refresh.jl`.
 """
 function table_key_order(text::AbstractString, table::AbstractString)
     want = "[" * table * "]"

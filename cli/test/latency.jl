@@ -42,7 +42,7 @@ f(x) = x + 1
 
 Each is a prefix of the next, because that is the order a launch goes in: the
 command surface infers on the first `dispatch`, the list pane cannot draw before
-`facts.json` is read, and the thread is drawn after that. Timed as whole waits
+`fetched.json` is read, and the thread is drawn after that. Timed as whole waits
 rather than per call - the phases move a lot between runs (whichever compiles
 first pays for warming the compiler, and it is not always the same one), while
 what a person sits through does not.
@@ -58,12 +58,12 @@ const PROBES = Dict(
     # wait.
     "frame" => """
         items = Worklog.loaditems()
-        st = Worklog.BState(items, "worklog", Set{String}())
+        st = Worklog.BState(items, "worklog")
         Worklog.render(st, 170, 50)
         """,
     "thread" => """
         items = Worklog.loaditems()
-        st = Worklog.BState(items, "worklog", Set{String}())
+        st = Worklog.BState(items, "worklog")
         Worklog.render(st, 170, 50)
         st.nodes = [Worklog.Node("alice  2026-09-01T10:00   the first comment",
                                  BODY, :md, true),
@@ -124,7 +124,7 @@ end
 # the twenty seconds it took to build one as though a user had waited for it.
 # Two more things this warm-up settles, both of them worth a second or more of
 # the first measurement and neither of them anything to do with this program:
-# the page cache under `facts.json`, and the depot.
+# the page cache under `fetched.json`, and the depot.
 #
 # **What the depot has to do with it.** Julia 1.14 writes code compiled during a
 # run back into the caches of whichever packages own it, so the *second* launch
@@ -164,7 +164,7 @@ for probe in ORDER
             probe, w, p, p - w, l, k)
 end
 println("  help    `wl --help`, which infers the whole command surface")
-println("  frame   the list pane, over the real facts.json")
+println("  frame   the list pane, over the real fetched.json")
 println("  thread  the first comment thread drawn beside it")
 println()
 println("  An ordinary launch. The one straight after a change to cli/src costs")

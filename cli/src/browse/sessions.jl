@@ -183,7 +183,7 @@ there yet.
 function enter_session(target::AbstractString, branch::AbstractString,
                        ref::AbstractString, num::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd)
-    mux_bin() === nothing && return "no tmux on PATH"
+    mux_bin() === nothing && return no_mux()
     found = mux_find(target, kind)
     # Already looking at it. `^]t` and `^]T` reach here from inside a pane -
     # which is how a shell gets to the agent on the same item and back - and the
@@ -232,7 +232,7 @@ Asked once, not once per press: opening the session tags it with the item, and
 that tag is rule 2 next time.
 """
 function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing)
-    mux_bin() === nothing && return "no tmux on PATH"
+    mux_bin() === nothing && return no_mux()
     target, branch, ask = item_worktree(it)
     target === nothing && return :needs_repo
     ask && return ask_checkout(it, ctrl, kind, mkcmd, say)

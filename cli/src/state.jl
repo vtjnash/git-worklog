@@ -49,9 +49,15 @@ end
 Base.showerror(io::IO, e::CliError) = print(io, e.msg)
 die(msg) = throw(CliError(msg))
 
-"Accept a full URL, owner/repo#N, repo#N, or #N (Julia)."
+"""Accept a full URL, owner/repo#N, repo#N, or #N (Julia).
+
+A `local:o/r#branch` url is its own answer, as an `http` one is: an adopted
+branch is never in `fetched.json` - it is an item because `local.toml` says
+`adopted` - so `wl adopted local:o/r#branch DATE` is the one command whose ref
+must not be looked up there.
+"""
 function resolve(ref::AbstractString)
-    startswith(ref, "http") && return String(rstrip(ref, '/'))
+    (startswith(ref, "http") || startswith(ref, "local:")) && return String(rstrip(ref, '/'))
     items = fetched("items")
     items === nothing && die("nothing fetched yet - run `wl refresh` first")
     occursin('#', ref) || die("cannot parse ref '$ref'")
