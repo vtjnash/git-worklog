@@ -5,11 +5,11 @@ what the work actually needs next.
 
 Nothing off-the-shelf did this. [gh-dash] is stateless — every section is a live
 query, so there is no snooze, no note, no memory of what changed. [Octobox] has
-real snooze but triages *notifications*, and `GET /notifications` is 403 for the
-sandbox's GitHub App token. GitHub Projects v2 can hold the state but cannot
-populate or classify a couple of thousand items. The missing piece in all of them is judgement:
-"needs edits" vs "needs an agent" is a fact about content that no query language
-expresses.
+real snooze but triages *notifications* alone, and a notification is one row
+per thread with the latest reason and no facts about the item. GitHub Projects
+v2 can hold the state but cannot populate or classify a few thousand items.
+The missing piece in all of them is judgement: "needs edits" vs "needs an
+agent" is a fact about content that no query language expresses.
 
 [gh-dash]: https://github.com/dlvhdr/gh-dash
 [Octobox]: https://github.com/octobox/octobox
@@ -22,8 +22,9 @@ The split that makes it safe to let a model touch this:
 |---|---|---|
 | `config.toml` | you | edited by hand |
 | `themes/*.toml` | you | edited by hand; which one is read is a line in `config.toml`, and none being read is plain text |
-| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, filed, drafted). Plus a `repo:` block per local checkout. Tracked |
-| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the items, the slow-lane cache, the poll's cursors and what it saw. Not tracked; ~4MB |
+| `data/local.toml` | you + the model, via `wl` | **never machine-rewritten** — edited key by key, block by block. Per item: your note, snooze, deadline and tracking level, and what you have done to it (seen, and the head you saw it at, touched, filed, drafted). Plus a `repo:` block per local checkout, and a `source:` block per repository polled: the day you named it, and how far the poll has read it. Tracked |
+| `data/fetched.json` | `wl refresh` | everything GitHub can answer again: the corpus, and the inbox the clocks write. Safe to delete - the next refresh rebuilds it, and the marks and cursors it needs are in `local.toml`. Not tracked; ~6MB |
+| `data/notifications.token` | you | optional, gitignored: a token that can read `/notifications`, for a machine whose own cannot. Not for a sandbox others can read |
 
 Everything but `config.toml` lives in `data/`, which is a git repository of its
 own. Two files and one line between them: what can be re-fetched from GitHub is
@@ -78,12 +79,30 @@ to comes back today, not at the end of the week; an archived one that somebody
 merges is unread in the filed list. What you put away is what you put away,
 and what changed is what changed.
 
-## Lanes
+## Lanes, and the clocks
 
-Fast lanes, fetched every refresh: PRs you authored, PRs awaiting your review,
-issues assigned to you. Slow lanes in `[bulk.queries]`, fetched every 6h: every
-open PR in JuliaLang/julia, plus everything you were mentioned in or have
-commented on (~2500 items). Nothing from a slow lane surfaces on its own.
+Three lanes, fetched whole every refresh: PRs you authored, PRs awaiting your
+review, issues assigned to you - **the open work**, ~135 rows, the set whose
+tags have to be right, and whose CI, review threads and draft flags change
+without any clock saying so. Each is a GraphQL search walked by creation time
+(`created:>=` the last row read, first page every time, never an offset the
+set can shift under), and each is checked before it runs: the sort is put on,
+`created:` refused, `is:open` and your login expected.
+
+Everything else arrives by **clock**, and is fetched by url only when a clock
+says it moved. Two clocks: the repositories under `[events]`, polled with
+`since=` and walked by stamp; and `/notifications` itself, when the token is a
+person's - `gh auth token` off the sandbox, whose `repo` scope reads it; the
+sandbox's App token cannot, and says so. A thread that names you - a mention,
+a review request, an assignment, activity on something of yours, a thread you
+commented on - is brought into the corpus with its bundle the first time it is
+seen, whatever repository it is in and whether or not it is open; a watched
+repository's traffic stays a light row in the inbox until it is looked at.
+That is what reaches a question put to you on an issue closed years ago, which
+twelve `is:open` searches never could. Until 2026-09-13 there were nine more
+lanes here - three for the recently closed, six searching for mentions and
+comments, and a firehose of every open julia PR, two thousand rows fetched
+every six hours so the ones that moved could be noticed.
 
 The one exception is **reply owed**: you were mentioned within `reply_days`
 (30) and the last comment is not yours, so a question is probably owed an
@@ -92,18 +111,17 @@ narrow — plain `commented:` never qualifies, because in the repos where you ar
 effectively the maintainer you touch nearly every PR, and that would put forty
 items a week in front of you.
 
-**And nothing ages out of being unread.** A row is an item because a lane
-returned it, and every fast lane is `is:open` — so the merge that takes a pull
-request out of the lanes would take it out of the snapshot too, before the
-refresh could see the merge, let alone tell you. A row that was in front of
-you and that no lane returns is fetched by url instead, goes through the same
-comparison, and is kept for as long as it is unread: a merge you never looked
-at stays a merge you never looked at, whether that is a day or a season. Read
-it or file it and it goes on the next refresh. The pile is the exception —
-a closed row leaving it is not news, and nobody was going to read it. The
-three closed lanes (`landed`, `reviewed`, `resolved`, bounded by `{since:N}`)
-are what is left of the old way: memory of what was finished *and read*, for
-the `done` box, for a couple of weeks.
+**And nothing leaves.** The corpus is the index of everything that was ever in
+front of you, read or unread: a row a lane returned once, a thread that named
+you, a light row you looked at or marked. Every lane is `is:open`, so the merge
+that takes a pull request out of the lanes does not take it out of the
+snapshot: the row is kept as it was until a clock says it moved, then asked
+again by url - the merge you never looked at stays a merge you never looked
+at, whether that is a day or a season, and the one you read is in the `read`
+box, and the one you filed in `filed`. A carried row in a repository no clock
+covers - your pull request somewhere nobody polls, on a machine whose token
+cannot read notifications - is asked every refresh while it is open, since a
+push or a label there notifies nobody.
 
 ## How closely you track an item
 
@@ -271,14 +289,21 @@ than assumed: orphaned heads up to fourteen months old came back from `git fetch
 <remote> <sha>`. So "the commit is gone" is not a state this has to handle — a
 failure there means the repository or the network is not answering.
 
-## The pile, and the second look
+## The pile, the backlog, and the second look
 
-The pile is about two thousand items: every open PR in JuliaLang/julia (~700),
-and everything you were mentioned in or commented on (~1300). It is in the
-corpus like everything else and there is no queue over it any more - `wl next`
-handed out slices of it to tag, and the tags it handed out were the same marks
-`r`, `s` and `x` write in the browser, one row at a time, where the row can be
-read first. A view over the `lane` axis is the pile by name.
+The pile is what the clocks brought in that named nobody - a watched
+repository's traffic, a thread you commented on - and the **backlog**: the
+whole open list of every repository under `[events]`, imported on the day you
+name it (and for all of them on `wl refresh --backlog`), ~5,400 rows today.
+Backlog rows are *read by construction* up to the day their repository was
+named - the `source:` block in `local.toml` says which day, one line per
+repository rather than a stamp per row - and unread the moment one next moves,
+like any other row. So the unread side starts at zero (`backfill_days = 0`)
+and the backlog view is the standing list. It is in the corpus like everything
+else and there is no queue over it - `wl next` handed out slices of it to tag,
+and the tags it handed out were the same marks `r`, `s` and `x` write in the
+browser, one row at a time, where the row can be read first. A view over the
+`lane` axis is the pile by name.
 
 The **second look** is the one thing derived about silence, and it is on by
 default because asking for it would defeat it: the failure it catches is work
@@ -360,9 +385,11 @@ note from `local.toml`. It sits there rather than beside the detail because ten
 item numbers at a time is plenty and the thing being read wants the height.
 Everything in it that `fetched.json` already knows is on screen immediately; the
 two that need a request — per-person review state and the per-check breakdown —
-are fetched for the selected item only. The light GraphQL query the bulk lanes
-use carries no reviews, so widening it would pay for ~2000 items to answer a
-question about the one on screen.
+are fetched for the selected item only. So is the row itself: a row outside the
+open work has the bundle it was last fetched with, and once it has been on
+screen a second and that is older than two minutes, the same by-url fetch the
+refresh makes runs for the one row, into the cache, and the list shows the
+exact tags - the one place "as old as the last clock" is not good enough.
 
 The list opens newest first - by when anything last happened to an item, yours
 or GitHub's - which is the order every other inbox has. `w` cycles the other
@@ -520,7 +547,7 @@ repos you own.
 ## Authentication
 
 The GraphQL lanes shell out to `gh`, so they use whatever credential `gh` has.
-The REST lanes go through GitHub.jl, which needs the token itself; `token()`
+The REST polls go through GitHub.jl, which needs the token itself; `token()`
 looks in `/run/claudebox-github/token` (the sandbox host refreshes it, so it
 beats a possibly-stale environment), then `$GH_TOKEN` / `$GITHUB_TOKEN`, then
 `gh auth token`.
@@ -530,10 +557,18 @@ credential in its own config or the system keyring and exports nothing, so
 `gh auth status` succeeds while `$GH_TOKEN` is empty. A missing token now fails
 once with a message naming every place it looked, rather than once per repo.
 
+`/notifications` is the one endpoint a GitHub App's token cannot read at all,
+and the sandbox's is one. `pat()` takes `token()`'s answer when it is a
+person's (`gho_`, `ghp_`) and refuses an App's (`ghu_`, `ghs_`); with neither
+it reads `data/notifications.token`, and with nothing there the source is
+skipped and says so. Off the sandbox, then, nothing is set up: `gh auth token`
+is a `gho_` with `repo`, which carries notifications access.
+
 ## Use
 
 ```bash
-cli/bin/refresh                                # ~20s, 12 of 5000 rate points
+cli/bin/refresh                                # ~25s, 16 of 5000 rate points
+cli/bin/refresh --backlog                      # once: the open lists of the polled repos
 cli/bin/wl note   julia#62452 "rebase after #62396"
 cli/bin/wl snooze libuv#5212 2w
 cli/bin/wl clear  julia#62452
@@ -545,24 +580,32 @@ one entry point.
 
 ## Scope
 
-`config.toml` defines the lanes. Currently: PRs you authored, PRs awaiting your
-review, issues assigned to you, plus **every** open PR in JuliaLang/julia as the
-background pile. Nothing is excluded.
+`config.toml` defines the lanes - PRs you authored, PRs awaiting your review,
+issues assigned to you - and the repositories the clocks cover. What arrives by
+clock is not configured: whatever names you, wherever it is.
 
-The firehose is fetched on its own 6-hour cadence (`cli/bin/refresh --firehose`
-forces it), because it is ~1000 PRs and several minutes, while a normal refresh with
-it cached is ~20s and 12 rate-limit points.
+A refresh is ~25s and 16 rate-limit points: the three lanes, the polls, and one
+by-url request for whatever moved. Nothing runs on a cadence of its own.
 
-Two GitHub behaviours worth knowing, both of which cost real debugging:
+Some GitHub behaviours worth knowing, each of which cost real debugging:
 
-Following `Link: rel="next"` is **unsafe on a `sort=updated` list**, whether the
-follower is `gh api --paginate` or `GitHub.issues`. It walks a collection being
-reordered underneath it, so an item touched mid-walk jumps to page 1 and shifts
-a whole page past the cursor. The same query returned 168 items on one attempt
-and 612 on the next. `events.jl` therefore uses GitHub.jl's single-request
-`gh_get_json` and pages itself with `direction=asc` - where a concurrent update
-moves an item toward the end, which can duplicate but never skip - and dedupes
-by id.
+**Paging by offset is unsafe on a list that moves.** Following `Link:
+rel="next"`, `gh api --paginate`, `GitHub.issues`, GraphQL's `after:` - all of
+them walk a collection being reordered underneath them. On a `sort=updated`
+list an item touched mid-walk moves, and the rows behind it shift across a
+page boundary: one is read twice, or - when the mover was already read - one
+is never read, and its old stamp keeps the next poll from asking for it. On an
+`is:open` list a close does the same. So every walk here is cut by a **stamp
+the walk holds**, never by a place in the list: the lanes by `created:>=` the
+last row read, which never moves; the polls by `since=`/`updated:>=` the newest
+row read, ascending, so a mover is read again past the floor. A page inside
+one second is the one place an offset is still walked, within that second.
+The cursor a poll advances to is GitHub's time just before the walk's first
+request - the `Date` header less the request's length, which is a duration off
+the monotonic clock - and the next poll asks from five minutes behind it (REST)
+or fifteen (search), the margin for a write committed before the walk and
+visible on the replica after it. That margin is an observation, not a promise:
+GitHub documents no bound.
 
 `search(type: ISSUE)` silently returns **0** for `assignee:` unless the query
 also carries `is:issue` or `is:pr`. REST has no such quirk, so 16 assigned issues
@@ -571,12 +614,21 @@ lane.
 
 A search returning Issues against a query fragment that only spreads
 `... on PullRequest` yields bare `{__typename: "Issue"}` stubs with **no fields
-and no error** — the light query needs both fragments or the two `is:issue` bulk
-lanes come back as unusable husks.
+and no error** — the query needs both fragments or an `is:issue` lane comes back
+as unusable husks.
 
-GitHub's search API truncates at **1000 results** and this repo is at ~993 open
-PRs, so the fetch partitions by creation year and unions the slices once the
-total crosses 950. Long paginations also hit transient 502s, so pages retry.
+Two qualifiers on one field are **or**ed - `created:>=X` beside a lane's own
+`created:` is the whole set again - which is why a lane may not carry one.
+Search truncates at 1000 results per query, which a walk cut by stamp steps
+past; a walk cut short answers with where it got to. Long walks hit transient
+502s, so pages retry.
+
+The `Date` header is when the server *generated* the response, the request's
+end and not its start. `/notifications` pages newest first and caps at 50 a
+page whatever is asked; `since=` there is compared against when the thread
+last notified, not against `updated_at`, and a thread's `updated_at` is its
+delivery time, 2 to 46 seconds after the event - two clocks for one event,
+which is why a fetched thread carries the subject's.
 
 **What the lanes do not ask for.** `mergeable` is computed **lazily** — the
 first read of a PR returns `UNKNOWN` and merely schedules the computation — and

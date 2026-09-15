@@ -197,9 +197,10 @@ here is done; `git log` is the record of it and this file is not.
    taken *after* the request, so a bundle fetched during a fifteen-second
    lane walk lost to the walk's older rows (now before, in both places);
    `watched` meant "a token exists" where a revoked one answers 401 forever
-   and froze every row outside the polled repositories (now
-   `notifications_live`: polled, and not failed since, written in the
-   inbox); a redirect whose new name was already here overwrote it (now the
+   and froze every row outside the polled repositories (replaced by
+   `notifications_live` for a day, and then the gate went altogether - the
+   fourth review below - since the source fires for participation and not
+   for a push or a label); a redirect whose new name was already here overwrote it (now the
    old name only goes); `/notifications` pages newest-first, the order
    `api_paged` warns about - and the warning is about a row leaving from
    ahead of the cursor between pages, which nothing on an `all=true` list
@@ -457,9 +458,9 @@ pushing has never been tried).
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./cli/bin/refresh              # fetch, derive, diff the snapshot   (~25s)
+./cli/bin/refresh --backlog    # once: the open lists of the polled repos, read
 ./cli/bin/wl                   # the browser (needs a TTY)
 ./cli/bin/wl show julia#62841  # non-interactive thread view
-./cli/bin/wl next 10           # pull untriaged items from the pile
 ./cli/bin/wl watching          # repos you watch, and which are tracked
 ./cli/bin/wl import <url>...   # follow items, landed unread; `i` in the browser
                                # is the same thing, one at a time
@@ -1966,13 +1967,14 @@ before `state_at` could date the merge, before `seen_of` could call it
 unread. The closed lanes caught it for 21 or 14 days, and past that an unread
 merge left silently, mark and all.
 
-**Now:** a row that was in front of you - not in the pile - and that no lane
-returns is fetched by url (`fetch_urls`, the imports' request, chunked at
-forty) with its old lane, goes through the loop like any other row, and is
-kept while `still_unread` - the read stamp against `moved_at`, and not filed.
-Read it, or `x` it, and it goes on the next refresh, logged as "read, and no
-lane returns it". A mention that goes quiet past `reply_days` re-buckets to
-the pile and leaves on its own. Exercised live with julia#61767: merged by
+**Now:** a row that was in front of you and that no lane returns is kept as
+it was, and fetched by url (`fetch_url_map`, the imports' request, chunked at
+forty) with its old lane when a clock says it moved, and goes through the
+loop like any other row. Since 2026-09-14 it is kept for good, read or not -
+the `read` and `filed` boxes hold the read and the filed; it used to be let
+go once read, while `still_unread`, which was right while the closed lanes
+re-returned anything that moved and wrong the day they went. A mention that
+goes quiet past `reply_days` returns to the pile. Exercised live with julia#61767: merged by
 somebody else in May, returned by no lane, carried and dated by the merge,
 kept through two refreshes, gone on the one after `wl read`.
 
