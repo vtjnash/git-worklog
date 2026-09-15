@@ -91,7 +91,7 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
     # unread lane for good: no poll covers the repo, which is why it was
     # imported, so nothing would ever have cleared it.
     hadrow = Events.in_inbox(u)
-    prevread = read_at(u)
+    prevread = mark_at(u, "read")            # raw: an undo puts back what was said
     # Unread either way, and the same unread the poller writes. An import is
     # somebody - you a minute ago, or an agent - saying this wants looking at,
     # and the lane that answers "what have I not looked at" is the one it

@@ -135,17 +135,31 @@ here is done; `git log` is the record of it and this file is not.
    **The backlog is the open list, 2026-09-14.** Decided with the reviews
    below: `backfill_days` is 0 as policy - the unread side starts at now -
    and what a repository under `[events]` brings with it is its whole open
-   list, as `backlog` rows, read by construction: a `baseline` part in
-   `fetched.json` under the file's own read stamps (`load_baseline`,
-   merged by every reader of the seen bit, dropped for a url the moment
-   `r` says otherwise), so five thousand synthetic stamps are not blocks in
-   `local.toml`. Named repositories come off the REST list in 47 pages for
-   julia; owner globs through the search walk with the bundle. On a
-   source's first sight, and for every source on `wl refresh --backlog`.
-   Live: 5,393 open across the eight sources, 3,280 new to the corpus,
-   5,548 items, 6.3MB, a refresh still 26s and `loaditems` 0.3s past
-   compilation. The backlog view is the standing list; the dashboard is
-   only what moved.
+   list, as `backlog` rows, read by construction. Named repositories come
+   off the REST list in 47 pages for julia; owner globs through the search
+   walk with the bundle. On a source's first sight, and for every source on
+   `wl refresh --backlog`. Live: 5,393 open across the eight sources, 3,280
+   new to the corpus, 5,548 items, 6.3MB, a refresh still 26s and
+   `loaditems` 0.3s past compilation. The backlog view is the standing
+   list; the dashboard is only what moved.
+   **Read by construction is a fact about the source, not the row**, and
+   it lives in `local.toml`: for an evening it was a stamp per row in a
+   `baseline` part of `fetched.json`, which put a fact GitHub cannot answer
+   - which backlog rows had gone unread since they arrived - in the file
+   that is supposed to hold only what it can, so the file was no longer
+   safe to lose. Now it is the day you named the repository, one
+   `["source:o/r"] since = ...` block per source (`source_since`,
+   `baseline_of`), and a backlog row with nothing said about it is read up
+   to that day - which rebuilds exactly, since a row's mark is recomputed
+   from GitHub's own event times. First sight of a source is that block
+   missing, not an inbox cursor. And unread is sayable: `read = ""` is a
+   key present and empty, which `get_field` already told from an absent
+   one, and it is what `r` writes now, so a backlog row said unread stays
+   unread and an undo puts back what was said (`mark_at`, raw) rather than
+   what the baseline would answer. What `fetched.json` still holds that
+   GitHub does not: the refresh-clock marks on a bool's rising edge, and the
+   inbox cursors - a lost file costs the events of the gap, and a
+   `backfill_days` set for one run recovers them.
 
    **Reviewed twice, 2026-09-14, and the seam between the clocks and the
    corpus was where the bugs were.** The first review found the by-url

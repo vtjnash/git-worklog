@@ -1099,10 +1099,11 @@ end
 unread side starts at zero - `backfill_days`, and a clock brings in only what
 moves from then on - and this is the other half of that policy: the open
 issues and pull requests of every repository under `[events]` are in the
-corpus from the start, as `backlog` rows, read by construction (see
-`load_baseline`), so the backlog view is the standing list and the dashboard
-is not. Unread the moment one next moves, like any carried row; filled in by
-url then, or when the cursor lands on it.
+corpus from the start, as `backlog` rows, read by construction up to the day
+the source was named (`source_since`, `baseline_of`; the `source:` blocks in
+`local.toml`), so the backlog view is the standing list and the dashboard is
+not. Unread the moment one next moves, like any carried row; filled in by url
+then, or when the cursor lands on it.
 
 Named repositories are read off the REST list, a hundred a page, ascending by
 creation, which is light and fast - julia is 4,700 rows in 47 pages; owner
@@ -1124,8 +1125,7 @@ function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
         @printf(stderr, "  %-9s %4d open in %s\n", "backlog", length(got), repo)
     end
     for owner in owners, kind in ("is:issue", "is:pr")
-        label = string(owner, "/* ", kind == "is:pr" ? "is:pull-request" : kind)
-        (only === nothing || label in only) || continue
+        (only === nothing || string(owner, "/*") in only) || continue
         nodes, c, total = search("user:$owner is:open $kind archived:false sort:created-asc")
         spent[] += c
         for n in nodes
@@ -1230,18 +1230,22 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # **The open list of a polled repository is in the corpus from the start**
     # - on `--backlog`, for every source; and on a source's first sight, so
     # that naming a repository brings its standing list into the backlog
-    # view rather than a month of its traffic into the dashboard. Rows the
-    # corpus has already are left as they are.
-    first_sight = let c = Events.load_inbox()["cursors"]
-        explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
-        labels = vcat(explicit, [string(o, "/* ", k) for o in owners
-                                 for k in ("is:issue", "is:pull-request")])
-        [l for l in labels if !haskey(c, l)]
-    end
+    # view rather than a month of its traffic into the dashboard. First sight
+    # is the `source:` block missing from `local.toml`, where the day it was
+    # named is written and stays: the baseline every row of that source is
+    # read up to, and the one fact a rebuild of `fetched.json` needs and
+    # could not get from GitHub. Rows the corpus has already are left alone.
+    explicit_, owners_, _ = Events.event_sources(get(cfge, "repos", String[]))
+    sources = vcat(explicit_, [string(o, "/*") for o in owners_])
+    named = source_since()
+    first_sight = [l for l in sources if !haskey(named, l)]
     want = "--backlog" in args ? nothing : first_sight
     backlog = String[]
     if want === nothing || !isempty(want)
         f = now_()
+        for l in (want === nothing ? sources : want)
+            name_source!(l, f)
+        end
         pts = Ref(0)
         for r in open_list(cfge, login; only = want, spent = pts)
             u = String(r["url"])
@@ -1438,10 +1442,6 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
     end
     reconcile_drafts!(gone)
-    # Read by construction: the stamp each backlog row was given on arrival,
-    # under the file's own stamps - see `load_baseline`.
-    isempty(backlog) ||
-        add_baseline!(Dict{String,String}(u => String(items[u]["moved_at"]) for u in backlog))
 
     # Once, after the loop: this rewrites a file, and a refresh that finds
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
@@ -1460,6 +1460,9 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # has one loses it here rather than carrying two thousand rows nothing
     # reads.
     haskey(store, "bulk") && delete!(store, "bulk")
+    # And the per-row baseline that stood here for an evening: the day a
+    # source was named is in `local.toml` now, one block per source.
+    haskey(store, "baseline") && delete!(store, "baseline")
     save_fetched(store)
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already

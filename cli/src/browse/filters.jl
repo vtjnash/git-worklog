@@ -261,6 +261,9 @@ something changes; this is a way of naming all of them at once, made per
 """
 Base.@kwdef struct Marks
     read::Dict{String,String} = EMPTY_TOUCHED
+    sources::Dict{String,String} = EMPTY_TOUCHED   # source label -> the day it was
+                                                    # named: the baseline a backlog
+                                                    # row is read up to; see `seen_of`
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
     drafts::Dict{String,String} = EMPTY_TOUCHED
@@ -269,7 +272,7 @@ Base.@kwdef struct Marks
                                     # one per `refilter!` so a list is not
                                     # half-woken across its own rows
 end
-Marks(st) = Marks(st.read, st.touched, st.archived, st.drafts, st.wakes,
+Marks(st) = Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes,
                   stamp(utcnow()))
 
 """Has this item changed since you last looked at it?
@@ -312,6 +315,10 @@ the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
     at = get(m.read, it.url, nothing)
+    # Nothing said about a backlog row: it arrived as background, and is read
+    # up to the day its repository was named. An empty stamp is something
+    # said - unread - and is earlier than any movement below.
+    at === nothing && it.lane == "backlog" && (at = baseline_of(it.repo, m.sources))
     at === nothing && return :unread
     # An item with neither is a synthetic one - an adopted branch, an import no
     # refresh has caught up with - and a stamp on it is the only thing anybody
@@ -967,7 +974,8 @@ function refilter!(st; keeprow::Bool = true)
     m = load_marks()
     st.touched = field_marks(m, "touched")
     st.drafts = field_marks(m, "draft")
-    st.read = read_marks(m)
+    st.read = field_marks(m, "read")
+    st.sources = source_since()
     st.archived = archived_map()
     st.wakes = wake_map()
     st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),

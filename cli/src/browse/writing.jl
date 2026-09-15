@@ -695,7 +695,7 @@ function archive!(st::BState, it::Item, at::DateTime)
     was = haskey(st.archived, it.url)
     prev = get_field(it.url, "archived")
     prevtouch = touched_at(it.url)
-    prevread = read_at(it.url)
+    prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
     if was
         set_archived(it.url, nothing)
     else
@@ -801,7 +801,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     end
     prev = get_field(it.url, "snooze")
     prevtouch = touched_at(it.url)
-    prevread = read_at(it.url)
+    prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
     set_fields(it.url, ["snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
     # sleep marks it read - here, and in `wl snooze`, and by the refresh for a

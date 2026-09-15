@@ -249,11 +249,11 @@ end
         # longer tagged, without anybody having written anything.
         W.apply_snooze!(st, it, "3d", now)
         W.set_read(it.url, "2026-09-12T12:00:00Z")
-        m = W.Marks(st.read, st.touched, st.archived, st.drafts, st.wakes,
+        m = W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes,
                     "2026-09-15T13:00:00Z")
         @test W.seen_of(it, m) === :unread
         @test !(:snoozed in W.tags_of(it, m))
-        @test W.seen_of(it, W.Marks(st.read, st.touched, st.archived, st.drafts,
+        @test W.seen_of(it, W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts,
                                     st.wakes, "2026-09-15T11:00:00Z")) === :read
 
         # Every write is undoable, back to nothing at all.

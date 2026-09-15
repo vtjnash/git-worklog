@@ -668,10 +668,13 @@ end
         @test W.backlog_row(rest(2; pr = true), "me")["type"] == "PullRequest"
         @test W.in_pile(r)
         # Imported once, the rows are in the corpus, `new`, and read by
-        # construction: a stamp at their mark, under the file's own.
+        # construction: the day the source was named is on record in
+        # local.toml - one block per source, the one fact a rebuild could
+        # not get from GitHub - and a backlog row is read up to it.
         W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}()))
         rows = [W.backlog_row(rest(1), "vtjnash"), W.backlog_row(rest(2; pr = true), "vtjnash")]
         srch(q) = (Any[], 4, 0)
+        @test isempty(W.source_since())
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 12); search = srch,
                         fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
                         open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (@test only === nothing; rows)) == 0
@@ -679,43 +682,53 @@ end
         u1, u2 = rows[1]["url"], rows[2]["url"]
         @test haskey(its, Symbol(u1)) && haskey(its, Symbol(u2))
         @test its[Symbol(u1)].lane == "backlog" && its[Symbol(u1)].new == true
-        @test W.load_baseline()[u1] == its[Symbol(u1)].moved_at
-        @test W.read_at(u1) == its[Symbol(u1)].moved_at        # read, by construction
+        named = W.source_since()
+        @test !isempty(named) && all(v -> startswith(v, "2026-09-13T12:00"), values(named))
+        @test !haskey(W.load_fetched(), "baseline")          # nothing per row in fetched
+        # `o/r` is not a source in config.toml; give the rows one to be read
+        # up to, the way a named repository's rows have.
+        W.name_source!("o/r", "2026-09-10T00:00:00Z")
+        @test W.baseline_of("o/r", W.source_since()) == "2026-09-10T00:00:00Z"
+        @test W.baseline_of("o/other", Dict("o/*" => "x")) == "x"      # the glob answers
+        @test W.baseline_of("p/q", W.source_since()) === nothing
+        @test W.read_at(u1) === nothing                      # nothing said
         it = W.item_of(its[Symbol(u1)])
-        @test W.seen_of(it, W.Marks(read = W.load_read(), now = "2026-09-13T12:00:00Z")) === :read
-        # Moved past its stamp, it is unread like any other row; read for
-        # real, the file's stamp is on top; marked unread by hand, the
-        # baseline is gone and stays gone.
+        m() = W.Marks(read = W.load_read(), sources = W.source_since(), now = "2026-09-13T12:00:00Z")
+        @test W.seen_of(it, m()) === :read                   # read, by construction
+        # Moved past the day it was named, it is unread like any other row;
+        # read for real, the stamp is on top; said unread by hand, it stays
+        # unread whatever the baseline answers - and an undo puts back what
+        # was said, not what the baseline would have said.
         later = W.with(it; moved_at = "2026-09-13T00:00:00Z")
-        @test W.seen_of(later, W.Marks(read = W.load_read(), now = "2026-09-13T12:00:00Z")) === :unread
+        @test W.seen_of(later, m()) === :unread
         W.set_read(u1, "2026-09-14T00:00:00Z")
-        @test W.read_at(u1) == "2026-09-14T00:00:00Z"
+        @test W.read_at(u1) == "2026-09-14T00:00:00Z" && W.seen_of(later, m()) === :read
         @test W.mark_unread([u1]) == 1
-        @test W.read_at(u1) === nothing && !haskey(W.load_baseline(), u1)
-        @test haskey(W.load_baseline(), u2)
+        @test W.read_at(u1) === nothing && W.mark_at(u1, "read") == ""
+        @test W.seen_of(it, m()) === :unread                 # said, so the baseline does not answer
+        @test W.seen_of(W.with(it; lane = "mine"), W.Marks(read = W.load_read(), now = "x")) === :unread
+        # A row that is not backlog gets no baseline: never read is unread.
+        @test W.seen_of(W.item_of(its[Symbol(u2)]) |> x -> W.with(x; lane = "notifications"), m()) === :unread
         # A second import leaves rows the corpus has alone, and adds none.
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 13); search = srch,
                         fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
                         open_list = (cfge, login; only = nothing, spent = Ref(0)) -> rows) == 0
-        @test !haskey(W.load_baseline(), u1) && W.fetched("items")[Symbol(u1)].new == false
-        # Without the flag, only a source seen for the first time is asked for
-        # its list - which, with no cursor anywhere, is every one; with every
-        # cursor present, none.
+        @test W.fetched("items")[Symbol(u1)].new == false && W.mark_at(u1, "read") == ""
+        # Without the flag, only a source not yet named is asked for its
+        # list: every source has been, above, so none is - and a fresh file,
+        # every one. The record is local.toml, not fetched.json, so losing
+        # the latter does not bring the lists in again as if new.
         seen = Ref{Any}(:unset)
         W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
                   fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
-        @test seen[] isa Vector && !isempty(seen[])
-        let f = W.load_fetched()
-            f["inbox"] = Dict("cursors" => Dict(l => "2026-09-13T00:00:00Z" for l in seen[]),
-                              "polled" => Dict(), "failed" => Dict(), "items" => Dict())
-            W.save_fetched(f)
-        end
-        seen[] = :unset
+        @test seen[] === :unset                          # not asked at all
+        write(W.LOCAL[], "")
         W.refresh(String[], W.DateTime(2026, 9, 13, 15); search = srch,
                   fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
-        @test seen[] === :unset                          # not asked at all
+        @test seen[] isa Vector && !isempty(seen[])
+        @test Set(keys(W.source_since())) == Set(seen[])
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end

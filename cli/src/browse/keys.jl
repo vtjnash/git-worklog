@@ -475,7 +475,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # Without a thread on screen it is the movement alone, which is what
         # `s` and `x` write too; see `read_up_to`.
         fi = findfirst(n -> haskey(n.meta, "seen_up_to"), st.nodes)
-        prev, prevhead = read_at(it.url), mark_at(it.url, "read_head")
+        prev, prevhead = mark_at(it.url, "read"), mark_at(it.url, "read_head")   # raw
         if seen
             # And the head it stood at, which is the other half of where you
             # were: the stamp says a comment written after it is new, and the
