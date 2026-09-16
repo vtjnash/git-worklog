@@ -150,14 +150,19 @@ end
 # first time a corpus row carries it (`name_source!`, from the refresh). A
 # source with no block answers nothing, and such a row is unread.
 #
-# A fact about what you did, in the file that holds those, and one line per
-# source rather than one per row; and it rebuilds exactly, since a row's mark
-# is recomputed from GitHub's own event times, so a `fetched.json` lost and
-# re-imported comes out with the same rows unread. (For an evening it was a
-# stamp per row in `fetched.json`, which put a fact GitHub cannot answer in
-# the file that is supposed to hold only what it can.) Until 2026-09-16 the
-# floor answered for a backlog row only, and 1915 rows of the other lanes -
-# retired ones, and `mine` back to 2021 - were unread with nothing to read.
+# **`since` is how far a source is read by construction** - the day it was
+# named, to begin with, and a consolidation point after that: `wl read
+# --consolidate` raises every source's `since` together to the newest point
+# the read stamps allow and drops the stamps the floor then answers for
+# (`consolidate!`), so the file says one line per source where it said one
+# per row. Never lowered. A fact about what you did, in the file that holds
+# those; and it rebuilds exactly, since a row's mark is recomputed from
+# GitHub's own event times, so a `fetched.json` lost and re-imported comes
+# out with the same rows unread. (For an evening it was a stamp per row in
+# `fetched.json`, which put a fact GitHub cannot answer in the file that is
+# supposed to hold only what it can.) Until 2026-09-16 the floor answered
+# for a backlog row only, and 1915 rows of the other lanes - retired ones,
+# and `mine` back to 2021 - were unread with nothing to read.
 #
 # And **unread is sayable**: `read = ""` is a key present with nothing in it,
 # which `get_field` tells from an absent one, and it is what `r` writes to put

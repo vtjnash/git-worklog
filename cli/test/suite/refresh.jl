@@ -1105,6 +1105,116 @@ end
     end
 end
 
+@testset "wl read --consolidate raises the floors together and never lowers them" begin
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    U(n) = "https://github.com/o/r/issues/$n"
+    row(n; kw...) = merge(Dict{String,Any}(
+        "url" => U(n), "type" => "Issue", "lane" => "mine", "state" => "OPEN",
+        "mine" => true, "author" => "vtjnash", "title" => "t$n", "number" => n,
+        "repo" => "o/r", "labels" => String[], "created" => "2026-09-01T00:00:00Z",
+        "updated" => "2026-09-10T00:00:00Z", "moved_at" => "2026-09-10T00:00:00Z",
+        "fetched_at" => "2026-09-15T00:00:00Z", "track" => "normal", "ref" => "r#$n"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    light(n, updated) = W.OrderedDict{String,Any}("url" => U(n), "repo" => "o/r", "number" => n,
+        "title" => "t$n", "is_pr" => false, "state" => "open", "author" => "bob",
+        "updated" => updated, "comments" => 1, "labels" => String[], "mine" => false,
+        "lane" => "activity")
+    day(n) = "2026-09-$(lpad(n, 2, '0'))T00:00:00Z"
+    at = W.DateTime(2026, 9, 16, 12)
+    mk() = W.Marks(read = W.load_read(), sources = W.source_since(), wake = W.wake_map(),
+                   now = W.stamp(at))
+    answers() = Dict(it.url => W.seen_of(it, mk()) for it in W.corpus_items())
+    try
+        # Two sources named on different days; rows read by stamp at every
+        # movement from the 4th to the 14th; one stampless unread row moved
+        # on the 12th, which is the bound; one unread against its own stamp;
+        # one said unread; one snoozed; one light row read; one light row
+        # unread and stampless.
+        W.name_source!("mine", day(3))
+        W.name_source!("o/r", day(6))
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1; moved_at = day(4)), U(2) => row(2; moved_at = day(8)),
+            U(3) => row(3; moved_at = day(11)), U(4) => row(4; moved_at = day(14)),
+            U(5) => row(5; moved_at = day(12)),                 # stampless, unread: the bound
+            U(6) => row(6; moved_at = day(9)),                  # unread against its stamp
+            U(7) => row(7; moved_at = day(5)),                  # said unread
+            U(8) => row(8; moved_at = day(7)),                  # snoozed
+            U(9) => row(9; lane = "backlog", moved_at = day(5)))))  # stampless, read by the floor
+        inbox = W.Events.load_inbox()
+        inbox["items"][U(10)] = light(10, day(10))              # read
+        inbox["items"][U(11)] = light(11, day(13))              # stampless, unread
+        W.Events.save_inbox(inbox)
+        for (n, when) in ((1, day(4)), (2, day(8)), (3, day(11)), (4, day(14)), (10, day(10)))
+            W.set_read(U(n), when)
+        end
+        W.set_read_mark(U(2), day(8), "cafe")
+        W.set_read(U(6), day(8))
+        W.mark_unread([U(7)])
+        W.set_read(U(8), day(7)); W.set_fields(U(8), ["snooze" => day(30)])
+        before = answers()
+        @test before[U(5)] === :unread && before[U(9)] === :read && before[U(11)] === :unread
+        @test before[U(6)] === :unread && before[U(7)] === :unread && before[U(8)] === :read
+        # Dry run: says what it would do and writes nothing.
+        file = read(W.LOCAL[], String)
+        c = W.consolidate!(at; dry_run = true)
+        @test c.since == day(11)                       # the newest read movement under the 12th
+        @test c.raised == Dict("mine" => day(11), "o/r" => day(11))
+        @test Set(c.dropped) == Set([U(1), U(2), U(3), U(10)])
+        @test read(W.LOCAL[], String) == file
+        # For real: the floors rise together, the stamps the floor answers
+        # for go, and every row answers the same as before.
+        c = W.consolidate!(at)
+        @test W.source_since() == Dict("mine" => day(11), "o/r" => day(11))
+        @test answers() == before
+        @test W.mark_at(U(1), "read") === nothing && W.mark_at(U(3), "read") === nothing
+        @test W.mark_at(U(10), "read") === nothing
+        @test W.mark_at(U(2), "read") === nothing && W.read_head(U(2)) == "cafe"   # the head stays
+        @test W.read_at(U(4)) == day(14)               # past the floor: kept
+        @test W.read_at(U(6)) == day(8)                # unread against its stamp: kept
+        @test W.mark_at(U(7), "read") == ""            # a statement: kept
+        @test W.read_at(U(8)) == day(7)                # snoozed: kept
+        # Again: nothing to do, and nothing lowered.
+        c = W.consolidate!(at)
+        @test isempty(c.raised) && isempty(c.dropped)
+        @test W.source_since() == Dict("mine" => day(11), "o/r" => day(11))
+        # A light row pins the floor as a corpus row does: read the light
+        # row 11 and the bound moves to the 14th; drop 5's claim on it
+        # first, and the newest read movement under 13 is 11 still.
+        W.set_read(U(5), day(12))
+        c = W.consolidate!(at; dry_run = true)
+        @test c.since == day(12)
+        W.set_read(U(11), day(13))
+        c = W.consolidate!(at)
+        @test c.since == day(14) && W.source_since()["mine"] == day(14)
+        @test answers() == merge(before, Dict(U(5) => :read, U(11) => :read))
+        @test W.mark_at(U(4), "read") === nothing && W.mark_at(U(11), "read") === nothing
+        # The 2026-09-16 file: thousands of blocks each carrying one stamp
+        # fold to the source lines, and the rows that have to keep one.
+        write(W.LOCAL[], "")
+        W.name_source!("mine", day(14))
+        many = Dict{String,Any}(U(n) => row(n; moved_at = day(1 + n % 12)) for n in 100:2376)
+        many[U(5000)] = row(5000; moved_at = day(15))     # moved past the floor: said unread
+        many[U(5001)] = row(5001; moved_at = day(15))     # and read past it
+        W.save_fetched(Dict{String,Any}("items" => many))
+        W.set_marks!(collect(keys(many)), "read", "2026-09-16T15:41:54Z")
+        W.mark_unread([U(5000)])
+        @test count(l -> startswith(l, "read = "), readlines(W.LOCAL[])) == 2279
+        before = answers()
+        c = W.consolidate!(at)
+        @test c.since == day(15) && c.raised == Dict("mine" => day(15))
+        @test length(c.dropped) == 2278
+        @test answers() == before
+        ls = readlines(W.LOCAL[])
+        @test count(l -> startswith(l, "read = "), ls) == 1       # the one statement
+        @test count(l -> startswith(l, "[\""), ls) == 2          # the source, and that row
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+end
+
 @testset "the poll is a witness for the notifications, and a late one widens the ask" begin
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()

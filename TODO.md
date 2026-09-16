@@ -261,7 +261,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
             launch poll in `ui` and `inbox_items` on it; `Events.unread`
             renamed. Test: the 2026-09-16 scenario as a fixture - `read
             all` once, then zero.
-      - [ ] `wl read --consolidate [--dry-run]`. Tests: `seen_of` answers
+      - [x] `wl read --consolidate [--dry-run]`. Tests: `seen_of` answers
             the same for every row before and after; never lowers; a
             stampless unread row pins it; a light row pins it; a snoozed
             row keeps its stamp; `read_head` survives; the 2277-stamp

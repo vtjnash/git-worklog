@@ -570,12 +570,83 @@ and the second reaches GitHub, and an import that no refresh has caught up
 with is in the inbox as a light row, said unread, until one has.
 """
 function unread_items(at::DateTime, rows = values(Events.load_inbox()["items"]))
-    items = fetched("items") === nothing ? Item[] : loaditems()
-    append!(items, inbox_items(Set(x.url for x in items), rows))
+    items = corpus_items(rows)
     m = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
               now = stamp(at))
     sort!([it for it in items if seen_of(it, m) === :unread];
           by = it -> something(moved_of(it), ""), rev = true)
+end
+
+"The corpus and the light rows, as items: what the seen bit is asked over."
+function corpus_items(rows = values(Events.load_inbox()["items"]))
+    items = fetched("items") === nothing ? Item[] : loaditems()
+    append!(items, inbox_items(Set(x.url for x in items), rows))
+end
+
+"""
+    consolidate!(at; dry_run) -> (; since, raised, dropped)
+
+`wl read --consolidate`: raise every source's `since` to the newest point
+the read stamps allow, and drop the stamps the floor then answers for - so
+that `seen_of` answers the same for every row before and after, which is
+the test, and `local.toml` says one line per source where it said one per
+row. Over the corpus and the light rows:
+
+`since` is the newest `moved_of` among the *read* rows - stamp at or past
+the movement, and `seen_of` agreeing - that is below the oldest movement of
+any unread row with *no* stamp, light rows included: such a row is unread
+because it is past its floor, and raising the floor over it would read it.
+A row unread against its own stamp bounds nothing and keeps it; `read = ""`
+is a statement and does the same; a row with a `snooze` is skipped, since a
+hand-typed span counts from the stamp (`wake_of`); a row with no movement on
+record - a synthetic one - has nothing to say. Then every `source:` block
+gets `max(since, since′)` - **together, and never lowered**, so a row whose
+lane changes (a backlog issue that `assigned` claims) cannot flip by falling
+under a different floor, and a source named later keeps its later day - and
+`read` is dropped on every read row whose movement is at or under its
+source's new floor. `read` only: `read_head` stays, since the head you last
+saw is still the head you last saw and `p` reads it alone.
+
+Explicit and dry-run first; the refresh can call it once it has been
+watched. Answers what it did, or would do.
+"""
+function consolidate!(at::DateTime; dry_run::Bool = false,
+                      rows = values(Events.load_inbox()["items"]))
+    items = corpus_items(rows)
+    raw = field_maps(("read", "snooze"))
+    sources = source_since()
+    m = Marks(read = load_read(), sources = sources, wake = wake_map(), now = stamp(at))
+    oldest = nothing                    # of the stampless unread rows
+    reads = Tuple{String,Item}[]        # the movement of every read, stamped row
+    for it in items
+        moved = moved_of(it)
+        moved === nothing && continue
+        r = get(raw, it.url, nothing)
+        r !== nothing && haskey(r, "snooze") && continue
+        stampraw = r === nothing ? nothing : get(r, "read", nothing)
+        seen = seen_of(it, m)
+        if stampraw === nothing
+            seen === :unread && (oldest === nothing || moved < oldest) && (oldest = moved)
+        elseif !isempty(stampraw) && seen === :read
+            push!(reads, (moved, it))
+        end
+    end
+    below = [mv for (mv, _) in reads if oldest === nothing || mv < oldest]
+    since = isempty(below) ? nothing : maximum(below)
+    raised = Dict{String,String}(l => since for (l, s) in sources
+                                 if since !== nothing && since > s)
+    after = merge(sources, raised)
+    dropped = String[]
+    for (mv, it) in reads
+        f = floor_of(it, after)
+        f !== nothing && mv <= f && push!(dropped, it.url)
+    end
+    if !dry_run
+        isempty(raised) || set_blocks!([string("source:", l) => ["since" => s]
+                                        for (l, s) in raised])
+        isempty(dropped) || set_blocks!([u => ["read" => nothing] for u in dropped])
+    end
+    (; since, raised, dropped)
 end
 
 """One item as `wl unread` prints it: what an outside reader can act on -

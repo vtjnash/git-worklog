@@ -15,6 +15,7 @@ Work dashboard.
   wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl read    julia#62891                  mark a thread seen (or: read all)
+  wl read    --consolidate [--dry-run]    raise every source's floor, drop the stamps it answers for
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
@@ -230,6 +231,23 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
     end
     if cmd == "read"
         arg = length(args) > 1 ? args[2] : "all"
+        if arg == "--consolidate"
+            dry = "--dry-run" in args
+            c = consolidate!(at; dry_run = dry)
+            would = dry ? "would " : ""
+            if c.since === nothing || (isempty(c.raised) && isempty(c.dropped))
+                println("nothing to consolidate: every floor is where the stamps put it",
+                        c.since === nothing ? "" : " ($(c.since))")
+                return 0
+            end
+            for (l, s) in sort!(collect(c.raised))
+                println(would, "raise  source:", l, "  since = ", s)
+            end
+            println(would, "drop   ", length(c.dropped), " read stamp",
+                    length(c.dropped) == 1 ? "" : "s", " the floor answers for")
+            dry && println("(dry run; nothing written)")
+            return 0
+        end
         if arg == "all"
             # The same list `wl unread` prints, so a second `read all` finds
             # nothing by construction: every row it stamps is stamped at the
