@@ -542,3 +542,38 @@ end
         W.CACHE_DIR[] = keepdir
     end
 end
+
+@testset "the branch is on the pane, in the form git takes" begin
+    st = mkstate()
+    row(l) = something(findfirst(x -> startswith(x, "branch"), l), 0)
+    says(it) = (ls = W.astrip.(W.meta_lines(st, it, 60)); i = row(ls); i == 0 ? "" : ls[i])
+    pr = W.Item(url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b", number = 1,
+                title = "t", is_pr = true, branch = "jn/fix", base = "master")
+    # The lanes' half alone: the branch and where it is going.
+    @test says(pr) == "branch    jn/fix → master"
+    # With the metadata fetched, a head in a fork is named `owner/repo:branch`,
+    # which is what `gh pr checkout` and a `git fetch` would be told.
+    st.metakey = pr.url
+    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
+               assignees = String[], fork = "c/b")
+    @test says(pr) == "branch    c/b:jn/fix → master"
+    # A head in the same repository says nothing about where; a meta built
+    # before the field existed - a cache hit from then - is the same.
+    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
+               assignees = String[], fork = "")
+    @test says(pr) == "branch    jn/fix → master"
+    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
+               assignees = String[])
+    @test says(pr) == "branch    jn/fix → master"
+    # An adopted branch has one and no base; an issue has neither.
+    @test says(W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,
+                      title = "t", branch = "wip")) == "branch    wip"
+    @test says(W.Item(url = "https://example.invalid/issues/2", ref = "a#2", repo = "a/b",
+                      number = 2, title = "t")) == ""
+    # The fork comes off the REST head, and only when it is not this repository.
+    v = Dict{String,Any}("requested" => [], "teams" => [], "assignees" => [], "pending" => "",
+                         "reviews" => [], "fork" => "c/b")
+    @test W.Events._meta_shape(v).fork == "c/b"
+    delete!(v, "fork")
+    @test W.Events._meta_shape(v).fork == ""
+end

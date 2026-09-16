@@ -365,6 +365,15 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     kv("author", it.author)
     st.meta === nothing || isempty(st.meta.assignees) ||
         kv("assignee", join(st.meta.assignees, ", "))
+    # The branch, and where it is going, in the form `git` and `gh` take:
+    # `owner/repo:branch` when the head lives in a fork, which the lanes do
+    # not say and the metadata fetch does. An adopted branch has one and no
+    # base; an issue has neither.
+    if !isempty(it.branch)
+        fork = st.meta === nothing ? "" : String(get(st.meta, :fork, ""))
+        kv("branch", string(isempty(fork) ? "" : string(fork, ":"), it.branch,
+                            isempty(it.base) ? "" : string(" → ", it.base)))
+    end
     # How old it is and when it last changed at all. Both are on the item
     # already and neither was on screen, so the age of what you are reading had
     # to be guessed from the comment dates - and a pull request opened in 2022

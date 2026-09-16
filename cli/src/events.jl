@@ -1711,8 +1711,16 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     head = api_get("/repos/$owner_repo/$kind/$num")[1]
     assignees = String[String(a["login"]) for a in get(head, "assignees", ())]
     requested, teams, latest = String[], String[], OrderedDict{String,Any}()
-    pending = ""
+    pending, fork = "", ""
     if is_pr
+        # Where the head branch lives, when that is not here: the lanes carry
+        # the branch name and not its repository, and `owner:branch` is the
+        # half of the name that says which checkout it can be fetched from.
+        # `head.repo` is null once a fork is deleted, and then there is no
+        # name to say.
+        hr = get(get(head, "head", Dict{String,Any}()), "repo", nothing)
+        hr === nothing || (full = String(get(hr, "full_name", ""));
+                           full == owner_repo || (fork = full))
         for r in get(head, "requested_reviewers", ())
             push!(requested, String(r["login"]))
         end
@@ -1741,7 +1749,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     end
     v = OrderedDict{String,Any}(
         "requested" => requested, "teams" => teams, "assignees" => assignees,
-        "pending" => pending,
+        "pending" => pending, "fork" => fork,
         "reviews" => [OrderedDict{String,Any}("login" => k, "state" => v["state"],
                                               "at" => v["at"]) for (k, v) in latest])
     cache_put(key, v)
@@ -1753,6 +1761,7 @@ _meta_shape(v) = (requested = String[String(x) for x in v["requested"]],
                   teams = String[String(x) for x in v["teams"]],
                   assignees = String[String(x) for x in v["assignees"]],
                   pending = String(get(v, "pending", "")),
+                  fork = String(get(v, "fork", "")),
                   reviews = [(login = String(r["login"]), state = String(r["state"]),
                               at = String(r["at"])) for r in v["reviews"]])
 
