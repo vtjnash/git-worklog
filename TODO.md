@@ -165,6 +165,35 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       the status row points at: "refreshed · 2 lanes said something ·
       see wl log"). `wl show`/`wl refresh` keep stderr; the browser should
       never write to it.
+- [ ] **The refresh under `u`: keep what it said, then bring it in.**
+      Two steps, the first cheap and the second what the audit above
+      makes possible.
+      1. **Keep the log.** `run_refresh` writes the child's output to
+         `tempname()` and deletes it in its `finally`, so a refresh that
+         exits 1 leaves `errors.log` saying "ProcessExited(1)" and nothing
+         else - which is what the 2026-09-16 03:45 entry says, and by hand
+         the same refresh exited 0 with a `gh: HTTP 504` retried in the
+         middle, so the cause was a lane dying past its retry and is now
+         unknowable. Write it to `data/refresh.log` instead, whole,
+         overwritten per run (it is a record of the last refresh, not a
+         history - `fetched.json` is the history), and have the status
+         row say "refresh failed · see data/refresh.log" or, on success,
+         how many lines said something. `wl log` could print it.
+      2. **A Task, not a child.** `bin/refresh` is spawned because
+         `refresh` reports on `stderr` and `redirect_stderr` is
+         process-wide (`fetch.jl:484`). Once every `@printf(stderr` in
+         `refresh.jl`/`events.jl` takes an `io` - the audit - the reason
+         is gone, and what is left is the CPU: `wl` runs with no `-t`,
+         tasks are cooperative, and a refresh parses and rewrites the 6 MB
+         `fetched.json` and diffs 5,500 rows, which would hold the key
+         loop for as long as that takes. Measure that part first (the
+         `gh` waits already yield). If it is under a frame, `@async` and
+         adopt the result directly instead of through the file watcher;
+         if not, `-t auto` in `bin/wl` and `Threads.@spawn`, and then the
+         corpus written by one thread while another draws from it needs
+         the handoff `reload_data!` already is. Keep `wl refresh` and
+         `bin/refresh` as they are: the cron and the hand run want a
+         process.
 - [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
       What this program calls *read* is what GitHub's inbox calls **done**
       - a thread put away that comes back when it moves - and the sync
