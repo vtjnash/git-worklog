@@ -112,6 +112,19 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       parent's meta, and the arithmetic of four ranges in step. Honest version:
       rows that belong to a node without being its body, which changes what a
       `Row` is. Decide which before starting.
+- [ ] **Editing in the metadata pane.** It is a readout, and every field on
+      it that can change is changed from somewhere else or not from here: the
+      labels (`L`), the snooze (`s`), the note (`v`), `deadline`, `blocked`
+      and `why` (`wl set` only), the assignees and reviewers (nothing at all).
+      Wanted: `tab` reaches the pane as a third focus, `j`/`k` walk its
+      fields, `↵` edits the one under the cursor with the prompt each already
+      has - the label picker, the snooze menu, a line prompt for a
+      `local.toml` field - and a click on a field does the same. Decide
+      first: whether `tab` cycles three panes or the pane has a key of its
+      own; how a row knows its field - `meta_lines` returns strings, so the
+      `kv` rows would have to carry their key for `layout.jl` to hit-test and
+      `mouse.jl` to act on; and that assignee and reviewer are GitHub writes,
+      a mutation each, unexercised like the rest (see the first section).
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
@@ -200,9 +213,8 @@ Reviewing and writing:
       but it must be anchored against a commit the line existed in.
 - [ ] `C` on an issue comment writes a new comment rather than replying
       (matches GitHub; surprises).
-- [ ] The metadata pane is a readout: nothing in it can be clicked or acted
-      on where it is shown - no assigning a reviewer, no opening the check
-      under the eye.
+- [ ] The metadata pane is a readout; editing it is under "To design". Also
+      not there: opening the check under the eye.
 
 The corpus:
 - [ ] Discussions, releases, commit comments: the notifications source sees
@@ -234,6 +246,23 @@ Reading:
       (`bk_jobs` 5 min, `bk_log` 15), so a failing job's expansion can pause
       where the tally above did not; the per-check counts are as old as that
       entry.
+
+The build:
+- [ ] **`WARNING: Imported binding Worklog.nz was undeclared at import
+      time during import to Events`**, from precompiling on 1.14.0-DEV.3217
+      (2026-09-16; .3168 was silent). Cause found: `events.jl` says `using
+      ..Worklog: nz` and `nz` is defined in `ui.jl`, which `Worklog.jl`
+      includes *after* it. It works because the binding is resolved late;
+      1.14 now says so, and will presumably stop. Fix: move `nz` to
+      `util.jl`, beside the other one-liners, and look for the same shape
+      in the other three `using ..Worklog:` lines of `events.jl`.
+- [ ] `clock.jl`'s "s asks how long for" fails from 2026-09-15: its `now`
+      is `2026-09-12T12:00:00Z`, the `3d` snooze it applies wakes on the
+      15th, and the `Marks(st)` it then reads `seen_of` and `tags_of`
+      through is built on `utcnow()` (`filters.jl:275`) - so the snooze has
+      woken and the item reads unread and untagged. The test should build
+      its `Marks` on its own `now`; the browser's per-frame clock is right
+      where it is.
 
 Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
