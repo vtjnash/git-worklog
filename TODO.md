@@ -144,6 +144,27 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       and a rebase that stops is not one row. The worktree list (`"`) is
       the other candidate, since a checkout is a fact about a worktree
       and not about an item.
+- [ ] **Audit what is said on stderr and on the status line, and where
+      each should go instead.** Three channels today, none chosen per
+      message. **stderr**, ~30 `@printf`s in `events.jl` and `refresh.jl`
+      plus the theme and import complaints: fine under `wl refresh` in a
+      terminal, but under `u` the child's stderr goes to a temp file and
+      only its *last non-empty line* reaches the status row
+      (`run_refresh`, `fetch.jl`), so a `FAILED:` lane, a `LAGGING`
+      notice or a "not `is:open`" warning is gone unless it happened to
+      be last; and in the browser itself a stray `println(stderr)` draws
+      over the frame. **The status line**, 56 writers, one row, replaced
+      by the next key - it is right for "copied 3 lines" and wrong for
+      anything the reader has to act on later. **`errors.log`**, the one
+      durable place, read as the footer's standing warning - only for
+      exceptions. Sort every message by whether it is *transient* (the
+      status row), *standing until seen* (a row the frame keeps - the
+      notes area under the item, the import row's text, the diff's first
+      row for the control-characters warning above), or *a record*
+      (`errors.log`, or a `refresh.log` beside it that `u` keeps whole and
+      the status row points at: "refreshed · 2 lanes said something ·
+      see wl log"). `wl show`/`wl refresh` keep stderr; the browser should
+      never write to it.
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
