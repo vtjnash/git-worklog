@@ -125,6 +125,25 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       `kv` rows would have to carry their key for `layout.jl` to hit-test and
       `mouse.jl` to act on; and that assignee and reviewer are GitHub writes,
       a mutation each, unexercised like the rest (see the first section).
+- [ ] **Quick actions on the checkout.** Whether the browser should run
+      the git and `gh` commands that today mean `t` and typing: `gh pr
+      checkout N` (which is what a pull request from a fork needs - the
+      pane now names the fork, and `add_worktree!` is `git worktree add
+      <dest> <branch>`, which only works for a branch that is already here),
+      `git rebase <remote>/<base>` (`ensure_base!` already fetches the
+      base for `p`; `mergeable  behind master` on the pane is the row
+      that would want it), `git push --force-with-lease` after it, `gh pr
+      ready`/`--undo`, re-running a failed check. Decide: **where** - a
+      key opening a picker the way `'` does, the pane's rows once they can
+      be acted on (see the metadata pane above), or `t` opened with the
+      command typed and not sent, which is the one that leaves a conflict
+      in the shell where it has to be resolved anyway; **which case** - the
+      rule is lowercase looks or changes this machine and uppercase reaches
+      GitHub, and a rebase is the first, a push the second, a checkout of a
+      fork's branch both; **how it reports** - the status line is one row,
+      and a rebase that stops is not one row. The worktree list (`"`) is
+      the other candidate, since a checkout is a fact about a worktree
+      and not about an item.
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
