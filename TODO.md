@@ -215,6 +215,17 @@ Reviewing and writing:
       (matches GitHub; surprises).
 - [ ] The metadata pane is a readout; editing it is under "To design". Also
       not there: opening the check under the eye.
+- [ ] **The `tracking` block of the metadata pane - `lane`, `level`, `why` -
+      reads as three settings and is one.** `lane` is which search claimed
+      the row (a fact, the filter axis of the same name); `why` is the
+      reason GitHub gave for a notification (a fact, `THREAD_WHY`); `level`
+      is `track`, the one that is yours - `wl track <ref> normal|loose` -
+      and nothing on screen says so, or says what `normal` and `loose` mean
+      (README, "Tracking"). Rename or remove: at least say `track` and not
+      `level`, so the word on screen is the command's; drop `lane` and `why`
+      from under a heading that promises tracking, or move them up with
+      `author` and `state` where the facts are; and if `track` stays, its
+      row is the first thing the metadata-pane editing above should reach.
 
 The corpus:
 - [ ] Discussions, releases, commit comments: the notifications source sees
