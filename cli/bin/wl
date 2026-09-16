@@ -10,11 +10,30 @@
 # comment; the read side sees stdin end and unwinds through its own `finally`,
 # which is what hands raw mode and the alternate screen back.
 trap '' HUP
+here=$(dirname "$0")/..
+# The julia is the one the manifest was resolved with, not `juliaup default`.
+# juliaup can do this itself (`juliaup config manifestversiondetect true`),
+# but that is a per-machine setting with no per-launch switch, so the channel
+# it would pick is worked out here and passed as `+channel`, which is the one
+# thing juliaup takes over everything else: `X.Y.Z` is the channel `X.Y.Z`; a
+# prerelease `X.Y.Z-DEV` is `X.Y-nightly`, which tracks that branch and not
+# `nightly`, whose version moves. `JULIAUP_CHANNEL` set means the user already
+# chose, and a `+channel` would silently win over it.
+julia=(julia)
+if [[ -z ${JULIAUP_CHANNEL+x} ]] && command -v juliaup >/dev/null; then
+    version=$(sed -n 's/^julia_version = "\([^"]*\)"$/\1/p' "$here/precompile/Manifest.toml")
+    if [[ $version == *-* ]]; then
+        IFS=. read -r major minor _ <<<"$version"
+        julia+=("+$major.$minor-nightly")
+    elif [[ -n $version ]]; then
+        julia+=("+$version")
+    fi
+fi
 # `precompile/` and not `..`: it is `Worklog` with the browser's own work
 # already compiled into a package image, which is worth 1.2s on the launch that
 # draws a comment thread and 0.6s on the one that only draws the list
 # (`cli/test/latency.jl`, which is what those numbers come from). The suite runs
 # against the `Worklog` package directly, so nothing about that workload is in
 # its way.
-exec julia --startup-file=no --project="$(dirname "$0")/../precompile" \
+exec "${julia[@]}" --startup-file=no --project="$here/precompile" \
      -e 'using WorklogPrecompile; exit(Worklog.main(ARGS))' -- "$@"
