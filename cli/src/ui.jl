@@ -91,8 +91,6 @@ Base.@kwdef struct Item
                            # has no bundle at all. What `bundle_stale` reads.
 end
 
-nz(x, d = "") = x === nothing || x === missing ? d : x
-
 """How many days ago this item last moved, as of `at`.
 
 Computed on demand rather than stored. The browser holds its items for the

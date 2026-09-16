@@ -156,6 +156,10 @@ jget(o, k::Symbol) = get(o, k, nothing)
 jget(::Nothing, ::Symbol) = nothing
 jget(o, k::Symbol, d) = (v = jget(o, k); v === nothing ? d : v)
 
+# Here and not in `ui.jl`, where it was: `events.jl` imports it from `Worklog`
+# and is included first, which 1.14 names as "undeclared at import time".
+nz(x, d = "") = x === nothing || x === missing ? d : x
+
 # Python's `str.splitlines()` for the line endings a TOML file can carry.
 splitlines(s::AbstractString) = split(replace(s, "\r\n" => "\n"), '\n')[1:end-(endswith(s, "\n") ? 1 : 0)]
 

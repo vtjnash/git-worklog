@@ -232,10 +232,12 @@ end
         was = W.read_at(it.url)
         @test startswith(W.apply_snooze!(st, it, "3d", now), "snoozed until ")
         @test W.read_at(it.url) !== nothing
-        # It is read, and tagged: a snooze is not a place to be.
-        @test W.seen_of(it, W.Marks(st)) === :read
-        @test !W.filed_of(it, W.Marks(st))
-        @test :snoozed in W.tags_of(it, W.Marks(st))
+        # It is read, and tagged: a snooze is not a place to be. Read on the
+        # test's clock, not the wall's: the snooze was written against `now`
+        # and wakes three days after it, which the calendar reached.
+        @test W.seen_of(it, W.Marks(st, now)) === :read
+        @test !W.filed_of(it, W.Marks(st, now))
+        @test :snoozed in W.tags_of(it, W.Marks(st, now))
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
         @test W.read_at(it.url) == was

@@ -272,8 +272,8 @@ Base.@kwdef struct Marks
                                     # one per `refilter!` so a list is not
                                     # half-woken across its own rows
 end
-Marks(st) = Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes,
-                  stamp(utcnow()))
+Marks(st, at::DateTime = utcnow()) =
+    Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes, stamp(at))
 
 """Has this item changed since you last looked at it?
 

@@ -258,23 +258,6 @@ Reading:
       where the tally above did not; the per-check counts are as old as that
       entry.
 
-The build:
-- [ ] **`WARNING: Imported binding Worklog.nz was undeclared at import
-      time during import to Events`**, from precompiling on 1.14.0-DEV.3217
-      (2026-09-16; .3168 was silent). Cause found: `events.jl` says `using
-      ..Worklog: nz` and `nz` is defined in `ui.jl`, which `Worklog.jl`
-      includes *after* it. It works because the binding is resolved late;
-      1.14 now says so, and will presumably stop. Fix: move `nz` to
-      `util.jl`, beside the other one-liners, and look for the same shape
-      in the other three `using ..Worklog:` lines of `events.jl`.
-- [ ] `clock.jl`'s "s asks how long for" fails from 2026-09-15: its `now`
-      is `2026-09-12T12:00:00Z`, the `3d` snooze it applies wakes on the
-      15th, and the `Marks(st)` it then reads `seen_of` and `tags_of`
-      through is built on `utcnow()` (`filters.jl:275`) - so the snooze has
-      woken and the item reads unread and untagged. The test should build
-      its `Marks` on its own `now`; the browser's per-frame clock is right
-      where it is.
-
 Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they
