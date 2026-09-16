@@ -59,9 +59,12 @@ endpoint that marks a thread unread:
 
 - [ ] **Keep the handle.** `sync!` writes every thread it sees to
       `fetched.json` as `inbox.threads`: `url → (id, notified)`. The inbox
-      row is dropped once `updated <= read`, and the id with it, so this
-      table is pruned only past the retention floor (`[notifications]
-      retention_days`, 80) and on a 404. `thread_facts!` carries it onto the
+      row is dropped by the refresh once its corpus row is fetched past it
+      and read, and the id with it, so this table is pruned only past the
+      retention floor (`[notifications] retention_days`, 80) and on a 404.
+      (This table is also what removes the overlap hazard: a dropped row
+      re-read under the cursor's overlap starts a false expectation in
+      `expect!`, since `old === nothing`.) `thread_facts!` carries it onto the
       corpus row beside `reason`. Bootstrap is one ids-only `all=true` walk
       to the floor, adding no inbox rows: `backfill_days = 0` still holds.
 - [ ] **`Events.reconcile!(at; dry_run)`**, once per `wl refresh` after the
@@ -72,7 +75,7 @@ endpoint that marks a thread unread:
       | local (`seen_of`) | remote | do |
       |---|---|---|
       | read | not done | `DELETE /notifications/threads/{id}` |
-      | unread, no `snooze`, `read` not `""` | done | `set_read(url, moved_of(it))` |
+      | unread, no `snooze`, `read` not `""` | done | `set_read(url, moved_of(it))`, folded under the floor |
       | unread said (`read == ""`) | done | un-done, if an endpoint exists |
       | asleep | not done | `PATCH` read: listed on the phone, not bold, bold again when it moves - the nearest thing to Saved |
       | agree | | nothing |
