@@ -287,13 +287,19 @@ Reading:
       where a long diff pushes it off the screen** (seen once, 2026-09).
       It should be the first row of the diff - or in the node's header,
       which is on screen whenever the diff is - since it is a fact about
-      what follows and a reason to read it differently. Nothing in this
-      program prints it: `grep -ri "control char" cli/src` finds only the
-      pane tests. Find where it comes from first - `gh pr diff` (the
-      `d` text, `content.jl:385`), `git diff`/`range-diff` (the `p` text,
-      `repos.jl:364-373`), or a highlighter - and then whether it arrives
-      as a line of the text, which `diff_nodes` could lift to the top, or
-      as something written to stderr and stitched on after.
+      what follows and a reason to read it differently. It was a Term.jl
+      pull request of September 2026. Looked for and not found
+      (2026-09-16): nothing in this program prints it, `gh pr diff` of
+      FedeClaudi/Term.jl#302-#311 carries neither the phrase nor a raw
+      control byte, and neither do the cached copies of #304/#306/#310;
+      of the dependencies only JSON3 has the words, in an *exception* -
+      "encountered unescaped control character in json" - which would
+      reach the footer as the standing `errors.log` warning, not the
+      diff. Left to check: the `p` view, which is `git diff`/`range-diff`
+      on the local checkout (`repos.jl:364-373`) and was not reproduced
+      here; and `data/errors.log` on the machine it was seen on. Once
+      found: a line of the text, which `diff_nodes` lifts to the top, or
+      stderr, stitched on after.
 - [ ] Hunk context expands against the head, so context around a `-` line is
       the post-change file.
 - [ ] A fenced block is a node with its own header and fold state; a short
