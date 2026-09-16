@@ -534,3 +534,61 @@ end
     @test occursin(W.THEME.dim, first(l for l in lines if occursin("import an item",
                                                            W.astrip(l))))
 end
+
+@testset "? is the footer's other half" begin
+    # A dialog on the stack, from wherever the cursor is: the filter pane, the
+    # import row and an empty list are the places a key that needs telling is
+    # most wanted, and every other per-item key is behind the guard that
+    # swallows them there.
+    for setup in (identity, s -> (s.lmode = :filters; s), s -> (s.sel = 0; s),
+                  s -> (s.focus = :detail; s))
+        st = setup(mkstate())
+        ctrl = W.Controller()
+        @test W.handle!(st, Int('?'), ctrl) === :ok
+        @test last(ctrl.stack) isa W.HelpView
+        empty!(ctrl.stack)
+    end
+    ctrl = W.Controller()
+    v = W.HelpView()
+    # The box is a whole frame like every render, and every key in the
+    # README's table is in it - the table is the same list, kept by hand, and
+    # this is what notices one falling behind the other.
+    for (w, h) in ((80, 24), (120, 60), (200, 50), (60, 10))
+        f = W.render(v, w, h)
+        ls = split(f, "\n")
+        @test length(ls) == h
+        @test all(W.awidth(l) == w for l in ls)
+    end
+    said = join((e isa String ? e : string(e[1], " ", e[2]) for e in W.HELP), "\n")
+    table = false
+    for line in eachline(joinpath(W.ROOT, "README.md"))
+        table |= line == "| key | |"
+        table && isempty(line) && break
+        m = match(r"^\| (.*?) \| ", line)
+        (table && m !== nothing) || continue
+        for key in eachmatch(r"`([^`]+)`", m[1])
+            @test occursin(key[1], said)
+        end
+    end
+    @test table
+    # Tall enough to hold it all, any key closes it - `q` included, which here
+    # is the key most likely to be pressed by accident and must not end the
+    # program from inside a box about keys.
+    ENV["COLUMNS"], ENV["LINES"] = "120", "60"
+    for k in (Int('q'), Int('?'), 27, 13, Int('x'))
+        @test W.handle!(W.HelpView(), k, ctrl) === :pop
+    end
+    # On a short screen it scrolls, and the scroll keys are the browser's own.
+    ENV["COLUMNS"], ENV["LINES"] = "120", "20"
+    n = length(W.help_rows(W.dialogbox(120; width = 96).iw))
+    @test n > W.help_page(20)
+    @test W.handle!(v, Int('j'), ctrl) === :ok && v.top == 2
+    @test W.handle!(v, Int('G'), ctrl) === :ok && v.top == n - W.help_page(20) + 1
+    @test occursin(string(n, " of ", n), W.astrip(W.render(v, 120, 20)))
+    @test W.handle!(v, Int('g'), ctrl) === :ok && v.top == 1
+    @test W.handle!(v, Int(' '), ctrl) === :ok && v.top == 1 + W.help_page(20)
+    @test W.handle!(v, Int('k'), ctrl) === :ok && v.top == W.help_page(20)
+    @test W.onmouse!(v, W.MouseEvent(:wheelup, 0, 1, 1, 0), ctrl) === :ok && v.top == W.help_page(20) - 3
+    @test W.onmouse!(v, W.MouseEvent(:press, 0, 1, 1, 0), ctrl) === :pop
+    @test W.handle!(v, Int('x'), ctrl) === :pop
+end

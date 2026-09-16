@@ -185,11 +185,13 @@ function render_frame(st::BState, w::Int, h::Int)
     # always been and where the eye already goes for it.
     # Worst-first is the wrong order for a line that gets cut on a narrow
     # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
-    # runs at the end and what is worth reading is at the front.
+    # runs at the end and what is worth reading is at the front. `?` is at the
+    # very front, because it is the key that names the rest, and it took
+    # `g/G`'s place under the rule below: the help says it.
     # What is applied is on the title bar, and was here too. One copy: the axes
     # are sets now, so the summary is as long as the selection rather than one
     # word, and this row was already being cut at 200 columns with `M` on it.
-    keys1 = string("f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
+    keys1 = string("? help \u00b7 f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
                    "d diff \u00b7 o comments \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a
@@ -198,7 +200,7 @@ function render_frame(st::BState, w::Int, h::Int)
                    st.focus === :detail ? "\u21b5 fold \u00b7 " :
                    st.sel == 0 ? "\u21b5 import \u00b7 " : "\u21b5 read \u00b7 ",
                    "n/N node \u00b7 ",
-                   "g/G top/bottom \u00b7 j/k line \u00b7 space/b page \u00b7 ",
+                   "j/k line \u00b7 space/b page \u00b7 ",
                    "q quit \u00b7 tab pane")
     nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
     # `i import` is not in here, and is the only key that is not: its control is

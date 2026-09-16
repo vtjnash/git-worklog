@@ -636,8 +636,8 @@ end
 
     line = W.astrip(W.render(st, 200, 40))
     # Every key the list and the detail bind should be findable in the footer.
-    for k in ("f filters", "d diff", "o comments", "c checks", "l log", "y copy",
-              "/ search", "n/N node", "g/G top/bottom", "j/k line", "space/b page",
+    for k in ("? help", "f filters", "d diff", "o comments", "c checks", "l log", "y copy",
+              "/ search", "n/N node", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "M merge", "L labels",
               "r read/unread", "u update all", "R reload", "s snooze", "z undo",
               "v note", "e edit", "\u21e7j/k select",
@@ -649,6 +649,9 @@ end
     # copy of it in the footer costs the room a key with no such row needs -
     # which is what it cost when `R` arrived and the row was cut at 150 columns.
     @test !occursin("i import", line)
+    # And `g/G`, which gave its place to `?`: the help names it, and it is the
+    # key least worth a footer's column.
+    @test !occursin("g/G", line)
     @test occursin("import an item by url", W.astrip(W.render(st, 200, 40)))
     # The navigation runs at the end, so a narrow screen keeps what is worth
     # reading rather than cutting it first.

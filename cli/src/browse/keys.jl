@@ -195,6 +195,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         clearsel!(st)
         st.status = st.mouse ? "mouse on — drag to select, y to copy" :
                                "mouse off — the terminal's own selection is back"
+    elseif k == Int('?')
+        # Up here with `m` and for the same reason: the key that says what the
+        # keys do has to work from wherever you are standing, the filter pane
+        # and the import row included.
+        push_view!(ctrl, HelpView())
+        return :ok
     elseif st.focus === :list && st.lmode === :filters
         frows = filter_rows(st)
         nf = length(frows)

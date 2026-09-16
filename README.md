@@ -75,6 +75,7 @@ GitHub.**
 
 | key | |
 |---|---|
+| `?` | this table, on screen |
 | `j`/`k` `g`/`G` `space`/`b` | move; `tab` moves the keyboard between panes |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
 | `o` `d` `p` `c` | the thread · the diff · what was pushed since you last looked · the checks |

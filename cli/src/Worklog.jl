@@ -118,6 +118,7 @@ include("browse/frame.jl")        # the detail pane, and the whole frame
 include("browse/content.jl")      # threads and diffs become nodes
 include("browse/fetch.jl")        # what runs in the background, and who waits
 include("browse/keys.jl")         # `handle_key!`
+include("browse/help.jl")         # `?`
 include("browse/mouse.jl")        # `onmouse!`
 include("browse/search.jl")       # `/`
 include("browse/writing.jl")      # comments, reviews, labels, snoozes, archive
