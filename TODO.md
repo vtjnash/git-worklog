@@ -390,14 +390,6 @@ The corpus:
       would say, only for a real merge.
 
 Reading:
-- [ ] **A relative date beside every absolute one.** `2026-09-12 12:00` is
-      shown alone on the metadata pane (`created`, `updated`, `archived`,
-      `snoozed`, the review dates), in comment headers, and on the `p`
-      pane; the reader does the subtraction every time. Put `3d ago` /
-      `in 2d` beside each, dim, off the frame's `at` - never stored, since
-      an age is only true at the instant it is worked out (`age`,
-      `days_since` are the existing pieces). One function for the wording,
-      so the list's age column and the pane agree.
 - [ ] **A diff's "contains control characters" warning is at the bottom,
       where a long diff pushes it off the screen** (seen once, 2026-09).
       It should be the first row of the diff - or in the node's header,

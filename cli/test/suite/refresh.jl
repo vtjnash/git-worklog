@@ -448,8 +448,20 @@ end
         # The pane says what brought the row back: the wake, a movement
         # before it, or that the snooze was cleared by hand - and it says
         # there was a snooze whether or not the wake has arrived.
-        snoozeline(x) = (W.refilter!(st);
-                         W.astrip(join([l for l in W.meta_lines(st, x, 60) if occursin("snoozed", l)], " ")))
+        # The row and what wrapped under it, at the test's clock rather than
+        # the machine's: the wake is asleep or woken by `at`, and the pane
+        # says how far off it is.
+        snoozeline(x) = begin
+            W.refilter!(st)
+            ls = W.astrip.(W.meta_lines(st, x, 60, now))
+            i = findfirst(l -> startswith(l, "snoozed"), ls)
+            i === nothing && return ""
+            j = i
+            while j < length(ls) && startswith(ls[j + 1], " "^10)
+                j += 1
+            end
+            join(strip.(ls[i:j]), " ")
+        end
         @test occursin("woke 2026-09-05", snoozeline(it))              # woken, snooze still on file
         W.mark_read_moved([u], now)                                    # `wl read`: ends it, remembers it
         @test W.get_field(u, "snooze") === nothing && W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"

@@ -278,6 +278,13 @@ metadata pane skips an empty value rather than printing an empty row.
 when_str(s::AbstractString) =
     length(s) >= 16 && s[11] == 'T' ? string(s[1:10], " ", s[12:16]) : ""
 
+"""The same, with how long ago that was beside it, dim: `2026-09-08 01:36
+3d ago`. The reader was doing the subtraction on every date the pane shows.
+Off `at`, the frame's clock, and worked out per frame - never kept on the
+item, which is the same rule as `age`."""
+when_str(s::AbstractString, at::DateTime) = (w = when_str(s); isempty(w) ? "" :
+    string(w, "  ", THEME.dim, ago_str(s, at), THEME.reset))
+
 """Lines for the metadata pane: what is true of this item, rather than what is
 in it.
 
@@ -285,9 +292,13 @@ Everything cheap comes from the fetched row and is on screen immediately; the tw
 that need a request - who has actually reviewed, and the per-check breakdown -
 arrive when `load_meta!` lands and say so until then.
 """
-function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
+function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
+                    at::DateTime = utcnow())
     it === nothing && return String[]
     out = String[]
+    # One reading of the marks and one clock for the whole pane: every date on
+    # it is placed against `at`, and the snooze is asleep or woken by it.
+    marks = Marks(st, at)
     head(t) = push!(out, string(THEME.bold, t, THEME.reset))
     # A value longer than the pane wraps under itself, at the value column:
     # "asked, then quiet for 12 work days" and "blocked — a required review or
@@ -318,7 +329,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                 (col, mark) = rev_mark(r.state)
                 push!(out, string("  ", col, mark, THEME.reset, " ",
                                   afit(rpad(r.login, 16), max(4, w - 6)),
-                                  THEME.dim, first(r.at, 10), THEME.reset))
+                                  THEME.dim, first(r.at, 10), "  ", ago_str(r.at, at),
+                                  THEME.reset))
             end
             for who in vcat(m.requested, ["@" * t for t in m.teams])
                 push!(out, string("  ", THEME.waiting, "○", THEME.reset, " ",
@@ -379,13 +391,14 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # to be guessed from the comment dates - and a pull request opened in 2022
     # reads very differently from one opened on Tuesday. To the minute and no
     # further: seconds are noise, and the zone is UTC everywhere in this
-    # program, which is why it is not printed either.
+    # program, which is why it is not printed either. And how long ago that
+    # was, beside it, since the subtraction was being done by the reader.
     #
     # `updated` is GitHub's own, so a label edit moves it. That is a different
     # fact from `act` - the head commit or the last comment - and the lanes are
     # ordered by `act` precisely because this one moves for things nobody did.
-    kv("created", when_str(it.created))
-    kv("updated", when_str(it.updated))
+    kv("created", when_str(it.created, at))
+    kv("updated", when_str(it.updated, at))
     kv("milestone", string(it.milestone,
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
     # Fetched for this item when the cursor landed on it, and said the way the
@@ -422,9 +435,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
                            THEME.reset))
     if haskey(st.archived, it.url)
         a = st.archived[it.url]
-        kv("archived", string(when_str(a), "  ", THEME.dim,
+        kv("archived", string(when_str(a, at), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
-    elseif isdone(it) && !mergedbyme(it) && seen_of(it, Marks(st)) === :unread
+    elseif isdone(it) && !mergedbyme(it) && seen_of(it, marks) === :unread
         # Merged, and you have not looked at it since. That is news, not
         # filing: a merge you did not do is exactly the thing to be told
         # about. `seen_of` alone: `new` is "arrived this refresh", which the
@@ -456,17 +469,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     # hand (`last_snooze`, which outlives the snooze). Marks read off
     # `local.toml` rather than anything the refresh decided, so a snooze that
     # ran out at lunch says so here before the next refresh.
-    m = Marks(st)
-    if asleep(it, m)
-        kv("snoozed", string("until ", when_str(st.wakes[it.url]),
-                             seen_of(it, m) === :unread ?
+    if asleep(it, marks)
+        kv("snoozed", string("until ", when_str(st.wakes[it.url], at),
+                             seen_of(it, marks) === :unread ?
                                  string("  ", THEME.dim, "moved before the wake", THEME.reset) : ""))
     elseif haskey(st.snoozes, it.url) || haskey(st.wakes, it.url)
         # Off the snooze itself where one is still on file and woken - typed
         # by hand, and no refresh has written it down yet.
         ls = get(st.snoozes, it.url, get(st.wakes, it.url, ""))
-        kv("snoozed", ls <= m.now ? string("woke ", when_str(ls)) :
-                      string("until ", when_str(ls), "  ", THEME.dim, "cleared", THEME.reset))
+        kv("snoozed", ls <= marks.now ? string("woke ", when_str(ls, at)) :
+                      string("until ", when_str(ls, at), "  ", THEME.dim, "cleared", THEME.reset))
     end
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))

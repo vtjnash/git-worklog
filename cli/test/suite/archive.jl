@@ -42,8 +42,10 @@
         @test n(all_) == all0
         n(filed)
         @test nfiled() == 1
-        # Where the item's facts are, with the way back out.
-        lines = W.astrip(join(W.meta_lines(st, it, 50), "\n"))
+        # Where the item's facts are, with the way back out. Read across the
+        # wrap: the row carries the date, how long ago, and the hint, and at
+        # this width the hint is on the row under it.
+        lines = replace(W.astrip(join(W.meta_lines(st, it, 50), " ")), r"\s+" => " ")
         @test occursin("archived", lines) && occursin("takes it back out", lines)
 
         # Filing it is the end of looking at it, so it is stamped read the way

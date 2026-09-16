@@ -137,6 +137,29 @@ function days_since(s, at::DateTime)
     t === nothing ? nothing : fld(Dates.value(at - t), 86_400_000)
 end
 
+"""How far a timestamp is from `at`, in the fewest words: `3d ago`, `in 2h`,
+`just now`; `""` for anything `ts` cannot read.
+
+The one wording for every relative time on screen, so the metadata pane and
+the comment headers agree. Worked out at the point of use from the frame's
+`at` and never stored: an age is only true at the instant it is computed (see
+"Time" in DESIGN.md). Minutes under an hour, hours under a day, days under
+two years, then years - a pull request opened in 2022 wants `4y ago`, not
+`1500d ago`.
+"""
+function ago_str(s, at::DateTime)
+    t = ts(s)
+    t === nothing && return ""
+    d = fld(Dates.value(at - t), 1000)
+    a = abs(d)
+    a < 60 && return "just now"
+    n, unit = a < 3600 ? (a ÷ 60, "m") :
+              a < 86_400 ? (a ÷ 3600, "h") :
+              a < 730 * 86_400 ? (a ÷ 86_400, "d") :
+              (a ÷ (365 * 86_400), "y")
+    d < 0 ? string("in ", n, unit) : string(n, unit, " ago")
+end
+
 """Decode HTML entities.
 
 Numeric ones as well as named: Buildkite escapes path separators as `&#47;`, so

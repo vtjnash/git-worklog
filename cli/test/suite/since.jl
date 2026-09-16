@@ -127,6 +127,31 @@ end
         # Never read, so there is no rule: the whole thread is new and a rule
         # above the first line of it says nothing.
         @test !any(n -> get(n.meta, "newmark", false) === true, ns)
+        # Every entry carries the time of what it heads - a comment's, a run's
+        # last commit's - and the header itself only the date. How long ago is
+        # `rows`' to say, against the clock the frame is drawn at, and it is
+        # not on the node: an age kept there would be the age at the fetch.
+        at_of(pat) = ns[findfirst(n -> occursin(pat, W.astrip(n.header)), ns)].meta["at"]
+        @test at_of("bob  2026-09-03") == "2026-09-03T10:00:00Z"
+        @test at_of("pushed 2 commits") == "2026-09-02T09:30:00Z"
+        @test !any(n -> occursin("ago", W.astrip(n.header)), ns)
+        clock = W.ts("2026-09-06T10:00:00Z")
+        heads_at(at) = [W.astrip(r.text) for r in W.rows(ns, 100; at = at) if r.header]
+        drawn = heads_at(clock)
+        @test any(h -> occursin("bob  2026-09-03", h) && occursin(" 3d ago ", h), drawn)
+        @test any(h -> occursin("pushed 2 commits", h) && occursin(" 4d ago ", h), drawn)
+        @test any(h -> occursin("cat  2026-09-05", h) && occursin(" 1d ago ", h), drawn)
+        # A week on, the same nodes say a week more; and asked without a clock,
+        # as every caller that only counts rows does, nothing at all - and the
+        # same number of rows either way.
+        @test any(h -> occursin("bob  2026-09-03", h) && occursin(" 10d ago ", h),
+                  heads_at(clock + W.Day(7)))
+        @test !any(h -> occursin("ago", h), heads_at(nothing))
+        @test length(W.rows(ns, 100; at = clock)) == length(W.rows(ns, 100))
+        # Where the words fill the pane, the date stands alone - the header is
+        # not wrapped to make room for a decoration.
+        narrow = W.rows(ns, 24; at = clock)
+        @test length(narrow) == length(W.rows(ns, 24))
 
         # Read up to the second comment, and the rule lands above what came
         # after it - the push included, which is the point of one list.

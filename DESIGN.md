@@ -256,7 +256,11 @@ process start was wrong for a browser open all day; a live clock read on the
 way *out* claims a moment after things it never saw. A default further in is
 how the second failure gets back in. The same rule forbids storing a
 time-derived number: `Item` carries `act` and `age(it, at)` is computed when
-asked.
+asked; the `3d ago` beside every date on screen is `ago_str` against the
+frame's `at`, put on the metadata pane by `meta_lines` and on a header by
+`rows` as it draws it, from a timestamp the node carries (`meta["at"]`) and
+never from a string kept on the node - a thread is fetched once and read for
+hours.
 
 **Dated by the thing that moved.** A push and a comment carry the moment they
 were made, so that is the stamp; CI has no clock and is stamped with the

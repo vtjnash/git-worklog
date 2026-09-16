@@ -480,8 +480,16 @@ rows, and every row's node, header flag, part and `src`, are the same either way
 - so the callers that ask for rows in order to index them need not care which
 they got. It is off by default and on where the pane is actually drawn, since a
 mark is an offer to click and the mouse can be handed back to the terminal.
+
+`at` is the same kind of thing: given, a header whose node carries the time of
+what it heads (`meta["at"]` - a comment, a push, the body) gets how long ago
+that was, dim, after its words. Taken out of the rule like the mark, so the
+header wraps the same with it and without it and no row moves; and worked out
+here, per frame, because an age kept on the node would be the age at the moment
+the thread was fetched.
 """
-function rows(nodes::Vector{Node}, w::Int, marks::Bool = false)
+function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
+              at::Union{Nothing,DateTime} = nothing)
     out = Row[]
     hide = -1                 # while >= 0, skip anything deeper than this
     for (i, n) in enumerate(nodes)
@@ -526,11 +534,19 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false)
         # Room kept for the mark, and taken out of the rule rather than out of
         # the header: the words are the row.
         markw = marks ? awidth(COPYMARK) + 1 : 0
+        ago = at === nothing ? "" : ago_str(get(n.meta, "at", ""), at)
         for (k, hl) in enumerate(hls)
             txt = k == 1 ? hl : string("  ", hl)
             core = string(THEME.bold, isempty(u) ? txt : osc8(u, txt), THEME.reset)
             width = awidth(txt)
             if k == length(hls)
+                # How long ago, after the words and before the rule, where
+                # there is room for it: a header that fills the pane keeps its
+                # words and says the date alone.
+                if !isempty(ago) && iw - width - markw >= awidth(ago) + 1
+                    core = string(core, " ", THEME.dim, ago, THEME.reset)
+                    width += 1 + awidth(ago)
+                end
                 # A rule out to the edge of the pane on the last row of the
                 # header, so where one comment ends and the next begins is
                 # visible at a glance rather than found by reading. Only at the

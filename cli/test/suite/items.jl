@@ -19,6 +19,27 @@
     @test W.age(loaded[1], W.utcnow()) >= 0
 end
 
+@testset "one wording for a relative time, off the clock it is asked at" begin
+    # What goes beside every absolute date on screen. Never stored, for the
+    # reason above; the frame hands over its `at` and the answer is for it.
+    now = W.ts("2026-09-16T12:00:00Z")
+    @test W.ago_str("2026-09-16T11:59:30Z", now) == "just now"
+    @test W.ago_str("2026-09-16T11:15:00Z", now) == "45m ago"
+    @test W.ago_str("2026-09-16T03:00:00Z", now) == "9h ago"
+    @test W.ago_str("2026-09-13T12:00:00Z", now) == "3d ago"
+    @test W.ago_str("2026-09-13T13:00:00Z", now) == "2d ago"     # floors, like `age`
+    @test W.ago_str("2022-03-01T00:00:00Z", now) == "4y ago"
+    # A snooze's wake or a milestone is ahead of the clock.
+    @test W.ago_str("2026-09-18T12:00:00Z", now) == "in 2d"
+    @test W.ago_str("2026-09-16T14:30:00Z", now) == "in 2h"
+    @test W.ago_str("2026-09-16T12:00:20Z", now) == "just now"
+    # Nothing readable is nothing, not an error: a synthetic row has no dates.
+    @test W.ago_str("", now) == "" && W.ago_str("2026-09-16", now) == ""
+    # The same instant a week later is a different answer, which is the whole
+    # reason it is not kept on the item.
+    @test W.ago_str("2026-09-13T12:00:00Z", now + W.Day(7)) == "10d ago"
+end
+
 @testset "a label shows the moment it is set" begin
     # facts.json is the item's source and the browser cannot write it, so an
     # item that changes mid-session has to be rebuilt and put back.

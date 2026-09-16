@@ -13,7 +13,8 @@ It mutates `st`: `hdr` for the mouse, and the scroll offset it settles on. That
 is how it already worked as part of `render_frame`, and both callers want the
 same thing remembered.
 """
-function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focused::Bool)
+function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focused::Bool,
+                     at::DateTime = utcnow())
     riw = rw - 4
     # What the keys have to measure against, recorded for the same reason `hdr`
     # is: only the thing that draws it knows how wide it got. `render_frame`
@@ -37,7 +38,9 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     st.hdr = length(rrows)
     # With the copy marks: this is the one place the pane is actually drawn,
     # and the mark is an offer to click that only holds while we own the mouse.
-    nrows = rows(st.nodes, riw, st.mouse)
+    # And with the clock, for the same reason: how long ago a comment was made
+    # is drawn against `at` here and stored nowhere.
+    nrows = rows(st.nodes, riw, st.mouse; at = at)
     append!(rrows, nrows)
     st.nrow = clamp(st.nrow, 1, max(1, length(nrows)))
     sr = selrange(st)
@@ -102,13 +105,13 @@ The whole screen, and what `render(::BState, w, h)` is. Pure. Side by side when
 the terminal is wide enough, stacked otherwise, so a narrow window degrades
 rather than truncating the detail into uselessness.
 """
-function render_frame(st::BState, w::Int, h::Int)
+function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # Zero is the import row, which is why this is not the usual clamp to 1.
     st.sel = clamp(st.sel, 0, length(st.items))
     it = st.sel == 0 ? nothing : st.items[st.sel]
     # The pane sizes to its content, so it is rendered before the heights are
     # settled; only its width is known this early, and only its width is needed.
-    mlines = meta_lines(st, it, leftw(w) - 4)
+    mlines = meta_lines(st, it, leftw(w) - 4, at)
     st.nmeta = length(mlines)
     L = layout(w, h, st.nmeta)
     lw, rw, lh, rh, liw, riw = L.lw, L.rw, L.lh, L.rh, L.liw, L.riw
@@ -133,7 +136,7 @@ function render_frame(st::BState, w::Int, h::Int)
                                afit(NEWROW, liw), THEME.reset), NEWROW, 0)]
         # One reading of the marks for the whole frame, so a list is not
         # half-woken across its own rows; the same answer `refilter!` sorted by.
-        marks = Marks(st)
+        marks = Marks(st, at)
         for i in 1:length(st.items)
             it_ = st.items[i]
             on = i == st.sel && st.focus === :list
@@ -168,7 +171,7 @@ function render_frame(st::BState, w::Int, h::Int)
     L.mh > 0 && append!(left, bordered(first(mlines, L.mh - 2), lw, L.mh,
                                    it === nothing ? "meta" : string("meta  ", it.ref),
                                    false))
-    right = detail_pane(st, it, rw, rh, st.focus === :detail)
+    right = detail_pane(st, it, rw, rh, st.focus === :detail, at)
 
     # The footnote rows link themselves, in `nodelines`. What is left for
     # `linkify` is a url *written in the prose* - which happens when a comment

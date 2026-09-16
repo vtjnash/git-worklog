@@ -224,6 +224,15 @@ end
     @test W.when_str("") == "" && W.when_str("2026-09-08") == ""
     isempty(it.created) || @test occursin(W.when_str(it.created), plain)
     isempty(it.updated) || @test occursin(W.when_str(it.updated), plain)
+    # And how long ago, beside each, off the clock the pane is drawn at - so
+    # the reader is not doing the subtraction, and a pane drawn tomorrow says
+    # tomorrow's answer for the same row.
+    if !isempty(it.created)
+        at = W.ts(it.created) + W.Day(3) + W.Hour(1)
+        later = W.astrip(join(W.meta_lines(st, it, 44, at), "\n"))
+        @test occursin(string(W.when_str(it.created), "  3d ago"), later)
+        @test occursin("10d ago", W.astrip(join(W.meta_lines(st, it, 44, at + W.Day(7)), "\n")))
+    end
     # A row with no timestamps - an unread thread the poll found, an adopted
     # branch - prints neither, rather than an empty pair of rows.
     bare = W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
@@ -253,24 +262,28 @@ end
     # goes on saying there was one after it is cleared (`last_snooze`).
     st = mkstate()
     it = st.items[st.sel]
-    says(key) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
+    # Drawn at a fixed clock, so the distance beside each date is a known
+    # string: the wake and the filing are placed against `at` like every
+    # other date on the pane.
+    now = W.ts("2026-09-16T12:00:00Z")
+    says(key) = W.astrip(join([l for l in W.meta_lines(st, it, 60, now)
                                if occursin(key, l)], " "))
     keep = W.LOCAL[]; W.LOCAL[] = fresh_local()
     before = read(W.localfile(), String)
     try
         @test says("snoozed") == ""
-        W.apply_snooze!(st, it, "2099-01-01", W.utcnow())
-        @test says("snoozed") == "snoozed   until 2099-01-01 00:00"
-        W.apply_snooze!(st, it, "2020-01-01", W.utcnow())
-        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00"     # not asleep: woke
-        W.apply_snooze!(st, it, nothing, W.utcnow())
-        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00"     # remembered
-        W.apply_snooze!(st, it, "2099-01-01", W.utcnow())
-        W.apply_snooze!(st, it, nothing, W.utcnow())
-        @test says("snoozed") == "snoozed   until 2099-01-01 00:00  cleared"
+        W.apply_snooze!(st, it, "2099-01-01", now)
+        @test says("snoozed") == "snoozed   until 2099-01-01 00:00  in 72y"
+        W.apply_snooze!(st, it, "2020-01-01", now)
+        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00  6y ago"     # not asleep: woke
+        W.apply_snooze!(st, it, nothing, now)
+        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00  6y ago"     # remembered
+        W.apply_snooze!(st, it, "2099-01-01", now)
+        W.apply_snooze!(st, it, nothing, now)
+        @test says("snoozed") == "snoozed   until 2099-01-01 00:00  in 72y  cleared"
         @test says("archived") == ""
         W.archive!(st, it, W.ts("2026-09-12T12:00:00Z"))
-        @test occursin("2026-09-12 12:00", says("archived"))
+        @test occursin("2026-09-12 12:00  4d ago", says("archived"))
         @test occursin("takes it back out", says("archived"))
     finally
         write(W.localfile(), before)

@@ -216,6 +216,7 @@ function push_node(run, url::AbstractString)
     # the thread to point at.
     nd.meta["url"] = string(url, "/commits")
     nd.meta["push"] = n
+    nd.meta["at"] = String(run[end]["at"])
     nd
 end
 
@@ -286,6 +287,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     if !isempty(btxt)
         body_nodes!(ns, string(nz(who0, "?"), " opened this"), btxt,
                     String(nz(get(body, "html_url", nothing), it.url)), true)
+        ns[1].meta["at"] = String(nz(get(body, "created_at", nothing), ""))
     end
     # The activity list: comments and pushes in the order they happened, which
     # is one sequence and was being read as two. "They replied, then pushed,
@@ -342,6 +344,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         # and the peek would be repeating the row below it.
         made[1].meta["src"] = string(nz(who, "?"), "  ", when, astrip(loc))
         made[1].meta["byline"] = string(nz(who, "?"), "  ", when, loc)
+        # The time itself, for `rows` to say how long ago that was against
+        # the frame's clock; the header carries only the date.
+        made[1].meta["at"] = e.at
         # Only a review comment can be replied to in a thread; an issue comment
         # has no thread to reply into, so `c` there writes a new one.
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
@@ -589,6 +594,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         made[1].meta["src"] = src
         made[1].meta["byline"] = src
         made[1].meta["comment_id"] = get(c, "id", nothing)
+        made[1].meta["at"] = String(nz(get(c, "created_at", nothing), ""))
         append!(out, made)
         for r in get(replies, get(c, "id", nothing), ())
             emit!(out, r, depth + 1)
