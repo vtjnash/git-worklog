@@ -238,7 +238,7 @@ function fetch_bundle(it::Item)
                        r["why"] = get(Events.THREAD_WHY, String(reason), String(reason)))
     r["fetched_at"] = stamp(at)
     derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
-    pop!(r, "slept", nothing)
+    pop!(r, "slept", nothing); pop!(r, "woken", nothing)
     cache_put(bundle_key(it.url), r)
     item_of(JSON3.read(json_dumps(r)))
 end

@@ -858,7 +858,8 @@ itself, for one the refresh kept without asking GitHub again, in which case
 nothing moves and only what depends on `at` (the second look) and on
 `local.toml` is re-derived. Returns the row; `r["slept"]` says whether it
 has a snooze or an archive but no read stamp, which the refresh stamps once
-for all of them.
+for all of them, and `r["woken"]` whether its snooze has run out, which the
+refresh writes down as unread once for all of them.
 """
 function derive!(r, old, st, cfg, at::DateTime)
     login = cfg["login"]
@@ -883,6 +884,17 @@ function derive!(r, old, st, cfg, at::DateTime)
     held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
            truthy(get(st, "archived", nothing))
     r["slept"] = held && !truthy(read_)
+    # And the other end of a snooze: a wake that has passed is written down
+    # - `read = ""`, the snooze gone - so that **unread implies no snooze**.
+    # The browser shows the row unread from the moment the wake passes,
+    # `seen_of` reading the wake per frame; this is the file catching up,
+    # and what lets a read mark take afterwards: every mark stamps the last
+    # movement, which is under the wake, so a snooze left standing would
+    # keep the row unread whatever was pressed. Said unread rather than
+    # left to the stamp, since the stamp is the movement the snooze was
+    # made at and would read as read; `read_head` stays, because you are
+    # still where you were in it.
+    r["woken"] = r["wake"] !== nothing && woken(r["wake"], at)
     # After `reply`, which `in_pile` reads and the pile is not a to-do
     # list, and after the snooze, for the reason above.
     r["second_look"] = held ? "" : second_look(r, at, second_days)
@@ -1444,7 +1456,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # read the comment it lacks as a comment deleted, date that by the
     # refresh clock, and put a thing you were reading back in front of you.
     changes = Any[]
-    slept = String[]
+    slept, woke = String[], String[]
     for (url, r) in collect(items)
         st = get(state, url, Dict{String,Any}())
         old = prev(get(renamed, url, url))
@@ -1453,6 +1465,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
         derive!(r, old, st, cfg, at)
         pop!(r, "slept") && push!(slept, url)
+        pop!(r, "woken") && push!(woke, url)
         if old === nothing
             push!(changes, (url, r, "new"))
         else
@@ -1466,6 +1479,8 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
     isempty(slept) || @printf(stderr, "  %-16s %4d marked read, having been put away by hand\n",
                               "snooze", mark_read(slept, at))
+    isempty(woke) || @printf(stderr, "  %-16s %4d woke: unread, and the snooze is gone\n",
+                             "snooze", mark_woken(woke))
 
     # **The inbox is a clock, never an answer.** An inbox row for a url the
     # corpus has is there to say "ask again" (`stale_by`), and it has said it

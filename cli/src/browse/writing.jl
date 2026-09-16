@@ -696,6 +696,8 @@ function archive!(st::BState, it::Item, at::DateTime)
     prev = get_field(it.url, "archived")
     prevtouch = touched_at(it.url)
     prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
+    woke = !was && woken_by(it.url, st.wakes, at)
+    prevsnooze = woke ? get_field(it.url, "snooze") : nothing
     if was
         set_archived(it.url, nothing)
     else
@@ -703,10 +705,14 @@ function archive!(st::BState, it::Item, at::DateTime)
         set_touched(it.url, stamp(at))
         # Read up to the last movement on record, not up to now: that is read
         # by definition and GitHub's time by construction. See `moved_of`.
+        # A snooze that has run out goes with it, or the stamp - under the
+        # wake - would leave the filed row unread; see `woken_by`.
         set_read(it.url, something(moved_of(it), stamp(at)))
+        woke && set_fields(it.url, ["snooze" => nothing], at)
     end
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
         set_archived(it.url, prev)
+        woke && set_fields(it.url, ["snooze" => prevsnooze])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
     end))

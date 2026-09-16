@@ -284,6 +284,23 @@ function mark_unread(urls)
     length(named)
 end
 
+"""Write down that these items' snoozes have run out: said unread, the
+snooze gone, the head kept. The refresh's, once for all of them; see
+`derive!`. Answers how many."""
+function mark_woken(urls)
+    us = unique(String(u) for u in urls)
+    isempty(us) || set_blocks!([u => ["read" => "", "snooze" => nothing] for u in us])
+    length(us)
+end
+
+"""Has this item's snooze run out as of `at`, by the wake map? A mark made
+on such a row drops the snooze with the stamp it writes, or the stamp - the
+last movement, under the wake - would leave the row unread whatever was
+pressed. The refresh writes the same down for every woken row it sees
+(`mark_woken`); this is for the marks that fire before it has."""
+woken_by(url::AbstractString, wakes::AbstractDict, at::DateTime) =
+    (w = get(wakes, String(url), nothing); w !== nothing && String(w) <= stamp(at))
+
 """Record that these items have been seen up to `at`.
 
 The stamp only. This is `wl read` over the whole unread lane and the refresh
@@ -336,6 +353,7 @@ function mark_read_moved(urls, at::DateTime; fold::Bool = false)
     items = something(fetched("items"), (;))
     inbox = Events.load_inbox()["items"]
     sources = source_since()
+    wakes = wake_map()
     us = unique(String(u) for u in urls)
     isempty(us) && return 0
     function upto(u)
@@ -347,7 +365,9 @@ function mark_read_moved(urls, at::DateTime; fold::Bool = false)
         folded(m, floor_of(String(nz(rget(r, "lane"), "activity")),
                            String(nz(rget(r, "repo"), "")), sources))
     end
-    set_blocks!([u => ["read" => upto(u)] for u in us])
+    # A snooze that has run out goes with the stamp; see `woken_by`.
+    set_blocks!([u => woken_by(u, wakes, at) ? ["read" => upto(u), "snooze" => nothing] :
+                      ["read" => upto(u)] for u in us])
     length(us)
 end
 

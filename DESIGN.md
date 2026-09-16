@@ -127,6 +127,14 @@ the read stamp per frame: no write, no arbiter, no refresh, so two windows on
 one dashboard cannot disagree. There is no `on-change` (that is `r`) and no
 `forever` (that is `x`).
 
+**A woken snooze is over: unread implies no snooze.** Every mark stamps the
+last movement, which is under the wake, so a snooze left standing would keep
+the row unread whatever was pressed - `r` said "marked read" and the row
+stayed bold. So the refresh writes a woken row down (`read = ""`, the snooze
+dropped, `read_head` kept), and `r`, `x` and `wl read` on one the refresh has
+not reached drop the snooze with the stamp they write; `z` puts it back. A
+snooze still to come is left alone by all of them.
+
 **An archive is a read mark that filters separately.** `x` stamps `archived`
 and `read`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every

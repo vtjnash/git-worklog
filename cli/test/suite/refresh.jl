@@ -384,7 +384,82 @@ end
     # A hand-typed snooze with no read stamp is reported for stamping, once
     # for all of them, by the caller.
     W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-20"), cfg, at)
-    @test kept["slept"] == true
+    @test kept["slept"] == true && kept["woken"] == false
+    # And one whose wake has passed is reported for writing down as unread,
+    # the snooze gone, the same way.
+    W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-01", "read" => "2026-09-10T10:00:00Z"), cfg, at)
+    @test kept["slept"] == false && kept["woken"] == true
+end
+
+@testset "a woken snooze is over: unread implies no snooze" begin
+    # The browser shows a row unread from the moment its wake passes, per
+    # frame; but every mark stamps the last movement, which is under the
+    # wake, so a snooze left standing would keep the row unread whatever was
+    # pressed. So the refresh writes a woken row down - `read = ""`, the
+    # snooze gone, the head kept - and `r`, `x` and `wl read` on one the
+    # refresh has not reached drop the snooze with the stamp they write.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    try
+        u = "https://github.com/o/r/pull/7"
+        row = Dict{String,Any}("url" => u, "type" => "PullRequest", "lane" => "mine",
+            "state" => "OPEN", "mine" => true, "author" => "vtjnash", "title" => "t",
+            "number" => 7, "repo" => "o/r", "labels" => String[],
+            "created" => "2026-09-01T00:00:00Z", "updated" => "2026-09-01T00:00:00Z",
+            "moved_at" => "2026-09-01T00:00:00Z", "fetched_at" => "2026-09-02T00:00:00Z",
+            "track" => "normal", "ref" => "r#7")
+        W.save_fetched(Dict{String,Any}("items" => Dict(u => row)))
+        W.set_read_mark(u, "2026-09-01T00:00:00Z", "cafe")
+        W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"])
+        it = W.item_of(W.fetched("items")[Symbol(u)])
+        m(at) = W.Marks(read = W.load_read(), wake = W.wake_map(), now = W.stamp(at))
+        @test W.seen_of(it, m(W.DateTime(2026, 9, 4))) === :read
+        @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread     # woken
+        # The refresh writes it down.
+        srch(q) = (Any[], 4, 0)
+        @test W.refresh(String[], W.DateTime(2026, 9, 10); search = srch,
+                        fetch_url_map = x -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        open_list = (a...; kw...) -> []) == 0
+        @test W.mark_at(u, "read") == "" && W.get_field(u, "snooze") === nothing
+        @test W.read_head(u) == "cafe"                         # still where you were
+        @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread
+        # `r` on a woken row the refresh has not reached: read, the snooze
+        # gone; `z` puts it back, and the row is unread again for the wake.
+        W.set_read(u, "2026-09-01T00:00:00Z")
+        W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"])
+        st = W.BState([it], "t"); st.filters = W.everything(); W.refilter!(st)
+        st.sel = 1; st.loaded = string(u, ":", st.mode); st.metakey = u; st.nodes = W.Node[]
+        ctrl = W.Controller()
+        now = W.DateTime(2026, 9, 10)
+        W.handle!(st, Int('r'), ctrl, now)
+        @test st.status == "marked read" && W.get_field(u, "snooze") === nothing
+        @test W.seen_of(it, W.Marks(st, now)) === :read
+        W.handle!(st, Int('z'), ctrl, now)
+        @test W.get_field(u, "snooze") == "2026-09-05T00:00:00Z"
+        @test W.seen_of(it, W.Marks(st, now)) === :unread
+        # A snooze still to come is left alone by `r`: the row is read, the
+        # wake stands.
+        W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z"]); W.refilter!(st)
+        W.handle!(st, Int('r'), ctrl, now)                    # unread
+        W.handle!(st, Int('r'), ctrl, now)                    # read
+        @test W.get_field(u, "snooze") == "2026-09-20T00:00:00Z"
+        # `x` on a woken row files it read, and undo restores the snooze.
+        W.set_read(u, "2026-09-01T00:00:00Z")
+        W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"]); W.refilter!(st)
+        W.archive!(st, it, now)
+        @test W.get_field(u, "snooze") === nothing && W.seen_of(it, W.Marks(st, now)) === :read
+        W.handle!(st, Int('z'), ctrl, now)
+        @test W.get_field(u, "snooze") == "2026-09-05T00:00:00Z" && W.get_field(u, "archived") === nothing
+        # And `wl read`, which reads the wake map itself.
+        @test W.mark_read_moved([u], now) == 1
+        @test W.get_field(u, "snooze") === nothing && W.read_at(u) == it.moved_at
+        @test W.seen_of(it, m(now)) === :read
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
 end
 
 @testset "the row under the cursor is made exact from the cache, not the file" begin

@@ -482,6 +482,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # `s` and `x` write too; see `moved_of`.
         fi = findfirst(n -> haskey(n.meta, "seen_up_to"), st.nodes)
         prev, prevhead = mark_at(it.url, "read"), mark_at(it.url, "read_head")   # raw
+        # A snooze that has run out is over once the row is read: it goes
+        # with the stamp, or the stamp - the movement, under the wake -
+        # would leave the row unread. See `woken_by`.
+        woke = seen && woken_by(it.url, st.wakes, at)
+        prevsnooze = woke ? get_field(it.url, "snooze") : nothing
+        prevtouch = woke ? touched_at(it.url) : nothing
         if seen
             # And the head it stood at, which is the other half of where you
             # were: the stamp says a comment written after it is new, and the
@@ -497,11 +503,15 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # the floor answers. The head is recorded either way.
             set_read_mark(it.url, folded(upto, floor_of(it, st.sources)), it.head;
                           fold = true)
+            woke && set_fields(it.url, ["snooze" => nothing], at)
         else
             mark_unread([it.url])
         end
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
             set_read_mark(it.url, prev, prevhead)
+            # The clock goes back after the snooze: `set_fields` stamps it.
+            woke && (set_fields(it.url, ["snooze" => prevsnooze]);
+                     set_touched(it.url, prevtouch))
         end))
         # The list is what the axes say it is, so a row that has just stopped
         # answering one of them leaves - which for `r` in the base list is the
