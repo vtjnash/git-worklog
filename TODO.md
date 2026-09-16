@@ -435,8 +435,6 @@ Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they
       differ. Left alone.
-- [ ] The reading side forwards `f` (switches to the filter pane, invisibly)
-      and `q` (quits the program from inside a pane).
 - [ ] A pane once reported `session ended` with an empty frame (2026-09-02,
       scripted launch). The wake-channel theory was tested and is wrong (11
       of 64 slots). Not recurred.
