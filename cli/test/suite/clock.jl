@@ -15,11 +15,17 @@
     # Putting something away reads it up to the last movement on record, which
     # is read by definition and GitHub's time by construction - so a clock
     # minutes out can neither leave a just-snoozed item unread nor swallow the
-    # comment that lands next.
+    # comment that lands next. `moved_of` is that movement: `moved_at`, else
+    # `updated` on a light row, else nothing - and the same rule read off a
+    # corpus row, an inbox row and an `Item`.
     at = DateTime(2026, 9, 13, 12)
-    @test W.read_up_to("2026-09-12T09:00:00Z", "2026-09-12T10:00:00Z", at) == "2026-09-12T09:00:00Z"
-    @test W.read_up_to("", "2026-09-12T10:00:00Z", at) == "2026-09-12T10:00:00Z"
-    @test W.read_up_to(nothing, nothing, at) == "2026-09-13T12:00:00Z"
+    @test W.moved_of("2026-09-12T09:00:00Z", "2026-09-12T10:00:00Z") == "2026-09-12T09:00:00Z"
+    @test W.moved_of("", "2026-09-12T10:00:00Z") == "2026-09-12T10:00:00Z"
+    @test W.moved_of(nothing, nothing) === nothing && W.moved_of(nothing) === nothing
+    @test W.moved_of(Dict{String,Any}("updated" => "2026-09-12T10:00:00Z")) == "2026-09-12T10:00:00Z"
+    @test W.moved_of(W.JSON3.read("{\"moved_at\":\"2026-09-12T09:00:00Z\",\"updated\":\"2026-09-12T10:00:00Z\"}")) == "2026-09-12T09:00:00Z"
+    @test W.moved_of(W.Item(url = "u", ref = "r", repo = "o/r", number = 1, title = "t",
+                            updated = "2026-09-12T10:00:00Z")) == "2026-09-12T10:00:00Z"
     st = mkstate(); st.filters = W.everything(); W.refilter!(st)
     it = st.items[st.sel]
     keep = W.LOCAL[]; W.LOCAL[] = fresh_local()
@@ -35,6 +41,62 @@
         @test W.seen_of(moved, W.Marks(st)) === :unread
     finally
         W.LOCAL[] = keep
+    end
+end
+
+@testset "every mark stamps what seen_of compares" begin
+    # Three kinds of row, one rule. A corpus row has `moved_at`; a light row -
+    # one only the inbox holds - has `updated` and nothing else; a synthetic
+    # one has neither and gets `at`, the one place a clock is the answer.
+    # `wl read`, `wl snooze` and `wl archive` go through `mark_read_moved`,
+    # which has no thread on screen and reads the rows itself; `r`, `s` and
+    # `x` read the `Item`. Each stamp is read against `seen_of` afterwards,
+    # which is the whole test.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    try
+        at = DateTime(2026, 9, 16, 12)
+        cu = "https://github.com/o/r/pull/1"
+        lu = "https://github.com/o/r/issues/2"
+        su = "local:o/r#branch"
+        corpus = Dict{String,Any}("url" => cu, "repo" => "o/r", "number" => 1, "title" => "c",
+                                  "lane" => "mine", "state" => "OPEN",
+                                  "moved_at" => "2026-09-10T00:00:00Z",
+                                  "updated" => "2026-09-15T00:00:00Z")   # a label, after
+        light = W.OrderedDict{String,Any}("url" => lu, "repo" => "o/r", "number" => 2,
+                                          "title" => "l", "state" => "open",
+                                          "updated" => "2026-09-12T00:00:00Z")
+        W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}(cu => corpus),
+                                        "inbox" => Dict{String,Any}("items" => Dict{String,Any}(lu => light))))
+        @test W.mark_read_moved([cu, lu, su], at) == 3
+        @test W.read_at(cu) == "2026-09-10T00:00:00Z"      # `moved_at`, not `updated`
+        @test W.read_at(lu) == "2026-09-12T00:00:00Z"      # the light row's movement
+        @test W.read_at(su) == "2026-09-16T12:00:00Z"      # nothing to stamp but now
+        m = W.Marks(read = W.load_read(), now = W.stamp(at))
+        its = [W.item_of(W.fetched("items")[Symbol(cu)]), W.poll_item(light),
+               W.Item(url = su, ref = "r#branch", repo = "o/r", number = 0, title = "s")]
+        @test all(it -> W.seen_of(it, m) === :read, its)
+        # And the browser's keys write the same stamp off the `Item`.
+        write(W.LOCAL[], "")
+        ctrl = W.Controller()
+        for it in its
+            st = W.BState([it], "t")
+            st.filters = W.everything(); W.refilter!(st)
+            st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
+            st.nodes = W.Node[]
+            W.handle!(st, Int('r'), ctrl, at)
+            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
+            W.handle!(st, Int('r'), ctrl, at)                 # unread
+            W.apply_snooze!(st, it, "3d", at)
+            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
+            W.apply_snooze!(st, it, nothing, at); W.set_read(it.url, nothing)
+            W.archive!(st, it, at)
+            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
+        end
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end
 end
 

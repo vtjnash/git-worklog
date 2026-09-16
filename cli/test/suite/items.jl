@@ -379,13 +379,13 @@ end
         W.set_read(it.url, nothing); st.read = W.field_marks(W.load_marks(), "read")
         ctrl = W.Controller()
         W.handle!(st, Int('r'), ctrl, then)
-        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
+        @test W.read_at(it.url) == W.moved_of(it)
         @test W.read_at(it.url) != "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, and the mark is the
         # same: it does not depend on the clock at all.
         W.handle!(st, Int('r'), ctrl)          # unread again
         W.handle!(st, Int('r'), ctrl)          # and read
-        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, then)
+        @test W.read_at(it.url) == W.moved_of(it)
     finally
         isempty(before) ? rm(W.localfile(); force = true) :
                           write(W.localfile(), before)

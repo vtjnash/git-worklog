@@ -479,7 +479,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # neither and stays unread. No clock is in it, this machine's or
         # GitHub's: every one of those is a time GitHub wrote on an event.
         # Without a thread on screen it is the movement alone, which is what
-        # `s` and `x` write too; see `read_up_to`.
+        # `s` and `x` write too; see `moved_of`.
         fi = findfirst(n -> haskey(n.meta, "seen_up_to"), st.nodes)
         prev, prevhead = mark_at(it.url, "read"), mark_at(it.url, "read_head")   # raw
         if seen
@@ -490,7 +490,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # the lanes do not cover, on the key loop, to answer a question
             # about a pull request that may not even have moved. A row with no
             # sha records none and has no `p` view, which is what it had before.
-            upto = read_up_to(it.moved_at, it.updated, at)
+            upto = something(moved_of(it), stamp(at))
             fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
             set_read_mark(it.url, upto, it.head)
         else

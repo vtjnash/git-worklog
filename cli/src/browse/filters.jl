@@ -292,6 +292,8 @@ level* - so your own pull request turning red is unread and a stranger's is
 not, which is what `track` is for and what it did not used to reach. An item no
 refresh has seen - a row the activity poll alone knows about - has no
 wake table to compare, and there `updated` is the only answer anybody has.
+`moved_of` is that rule, and it is the rule every mark stamps by, so what is
+compared here is what `r`, `s`, `x` and `wl read` wrote.
 
 **And a snooze is a second reason, beside the table.** A snooze is a wake
 time; once it has passed it is as if the item moved then, and it is unread
@@ -320,10 +322,10 @@ function seen_of(it::Item, m::Marks = Marks())
     # said - unread - and is earlier than any movement below.
     at === nothing && it.lane == "backlog" && (at = baseline_of(it.repo, m.sources))
     at === nothing && return :unread
-    # An item with neither is a synthetic one - an adopted branch, an import no
-    # refresh has caught up with - and a stamp on it is the only thing anybody
-    # has said about whether it has been seen.
-    moved = isempty(it.moved_at) ? it.updated : it.moved_at
+    # An item with no movement on record is a synthetic one - an adopted
+    # branch, an import no refresh has caught up with - and a stamp on it is
+    # the only thing anybody has said about whether it has been seen.
+    moved = something(moved_of(it), "")
     wake = get(m.wake, it.url, nothing)
     wake !== nothing && wake <= m.now && wake > moved && (moved = wake)
     at < moved ? :unread : :read

@@ -72,7 +72,7 @@ endpoint that marks a thread unread:
       | local (`seen_of`) | remote | do |
       |---|---|---|
       | read | not done | `DELETE /notifications/threads/{id}` |
-      | unread, no `snooze`, `read` not `""` | done | `set_read(url, read_up_to(moved_at, updated, at))` |
+      | unread, no `snooze`, `read` not `""` | done | `set_read(url, moved_of(it))` |
       | unread said (`read == ""`) | done | un-done, if an endpoint exists |
       | asleep | not done | `PATCH` read: listed on the phone, not bold, bold again when it moves - the nearest thing to Saved |
       | agree | | nothing |
@@ -242,7 +242,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
         `meta.jl:427` that stands in for `seen_of` and should not.
 
       **Plan**, in order, each step leaving the suite green:
-      - [ ] `moved_of` in `marks.jl`; `seen_of`, `keys.jl:493`,
+      - [x] `moved_of` in `marks.jl`; `seen_of`, `keys.jl:493`,
             `writing.jl:706`/`:814`, `mark_read_moved` through it;
             `read_up_to` gone. Tests: the three call sites stamp what
             `seen_of` compares, on a corpus row, a light row and a

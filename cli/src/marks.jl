@@ -258,30 +258,47 @@ actually opened it keeps it.
 """
 mark_read(urls, at::DateTime) = set_marks!(urls, "read", stamp(at))
 
-"""What to stamp an item read up to when it is being put away rather than
-looked at: its own `moved_at`, the last movement on record.
+"""The last movement on record for a row, or `nothing`: `moved_at`, else
+`updated` for a light row that has no wake table - what the poll saw is the
+movement, and `poll_item` writes it so - else nothing at all, which is a
+synthetic row, an adopted branch or an import no refresh has caught up with.
 
-That is read by definition - `seen_of` is the stamp against `moved_at` - and
-it is GitHub's time by construction, so a local clock minutes out cannot
-leave a just-snoozed item unread (behind) or swallow the next comment
-(ahead). Anything that has moved since the last refresh is newer than this
-and comes back unread, which is right: you put away what you knew about.
-`updated` for a row no refresh has stamped, and `at` for a synthetic one that
-has neither.
+    moved_of(it::Item); moved_of(row)      # a corpus row, or an inbox row
+
+**The one thing a read stamp is ever compared against**, and so the one thing
+every mark writes. `seen_of` reads it; `r`, `s`, `x`, `wl read`, `wl snooze`
+and `wl archive` stamp it. Stamping the movement rather than a clock is read
+by definition, and it is GitHub's time by construction, so a local clock
+minutes out cannot leave a just-snoozed item unread (behind) or swallow the
+next comment (ahead); anything that moves after is newer than this and comes
+back unread, which is right: you put away what you knew about. There used to
+be three answers to "is it unread" - the poll pruning on `updated`, the marks
+stamping `moved_at`, the browser comparing against `moved_at` - and a row
+whose `updated` was past its `moved_at` (a push, a label, your own comment)
+could not be marked read by anything. Nothing compares a stamp against
+`updated` any more.
 """
-read_up_to(moved_at, updated, at::DateTime) =
-    truthy(moved_at) ? String(moved_at) : truthy(updated) ? String(updated) : stamp(at)
+moved_of(moved_at, updated) =
+    truthy(moved_at) ? String(moved_at) : truthy(updated) ? String(updated) : nothing
+moved_of(::Nothing) = nothing
+moved_of(r::AbstractDict{String}) = moved_of(get(r, "moved_at", nothing), get(r, "updated", nothing))
+moved_of(r) = moved_of(jget(r, :moved_at), jget(r, :updated))
 
-"""Mark each url read up to its own last movement - `read_up_to` over the
-fetched rows - and answer how many. The shell's `wl snooze`, `wl archive`
-and `wl read`, which have no thread on screen to have read up to."""
+"""Mark each url read up to its own last movement - `moved_of` over the row
+the corpus or the inbox has for it, `at` for a synthetic row that has neither
+- and answer how many. The shell's `wl snooze`, `wl archive` and `wl read`,
+which have no thread on screen to have read up to. The inbox as well as the
+corpus so that a light row gets the stamp `r` in the browser would give it,
+and the bundle over the file's row for the same reason `loaditems` takes it:
+it is the newer of the two."""
 function mark_read_moved(urls, at::DateTime)
     items = something(fetched("items"), (;))
+    inbox = Events.load_inbox()["items"]
     us = unique(String(u) for u in urls)
     isempty(us) && return 0
-    set_blocks!([u => ["read" => read_up_to(jget(jget(items, Symbol(u)), :moved_at),
-                                            jget(jget(items, Symbol(u)), :updated), at)]
-                 for u in us])
+    upto(u) = something(moved_of(bundled(u, jget(items, Symbol(u)))),
+                        moved_of(get(inbox, u, nothing)), stamp(at))
+    set_blocks!([u => ["read" => upto(u)] for u in us])
     length(us)
 end
 

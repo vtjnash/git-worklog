@@ -81,7 +81,7 @@
         W.handle!(st, Int('z'), ctrl)
         st.nodes[1].meta["seen_up_to"] = "2020-01-02T03:04:05Z"
         W.handle!(st, Int('r'), ctrl)
-        @test W.read_at(it.url) == W.read_up_to(it.moved_at, it.updated, W.utcnow())
+        @test W.read_at(it.url) == W.moved_of(it)
         @test W.read_at(it.url) > "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes = W.Node[]

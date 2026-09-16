@@ -91,6 +91,9 @@ Base.@kwdef struct Item
                            # has no bundle at all. What `bundle_stale` reads.
 end
 
+"The last movement on record, off the row; see `moved_of` in `marks.jl`."
+moved_of(it::Item) = moved_of(it.moved_at, it.updated)
+
 """How many days ago this item last moved, as of `at`.
 
 Computed on demand rather than stored. The browser holds its items for the
