@@ -324,6 +324,9 @@ through a TTY. Strike through rather than delete when one answers.
       Alt it sends (on a Mac, Option may compose instead).
 - [ ] `^s` in the composer: raw mode should clear IXON.
 - [ ] Raw mode restoration on abnormal exit.
+- [ ] The title: `wl` on the tab and the tmux pane while it runs, the old
+      title back on exit where the terminal keeps a title stack (`CSI 22 t`
+      / `CSI 23 t`), `wl` until the next prompt where it does not.
 - [ ] OSC 8 links and the OSC 52 copy end to end. The bundled client is
       3.5.1, but an older server already on the socket renders `capture-pane`
       (OSC 8 needs 3.4), and OSC 52 is opt-in in some terminals. Whether the
@@ -410,20 +413,23 @@ Reading:
       entry.
 
 The process:
-- [ ] **It is called `julia` everywhere but its own sessions.** htop and
-      `ps` show `julia`, tmux's automatic window name is `julia` (it reads
-      the process's comm name, `#{pane_current_command}`), and the
-      terminal title is `Julia` - juliaup's launcher sets it before exec
-      and nothing here sets it after (`run!`, `controller.jl`). Only the
-      `t`/`T` sessions carry the name, through `MUX_PREFIX[] = "wl"`. To
-      do: the title with OSC 2 at `run!`'s start and back to nothing at
-      its end (tmux takes that as the pane title; a terminal as its tab);
-      the comm name with `prctl(PR_SET_NAME, "wl")` on Linux in `main`,
-      which is what tmux's rename and htop's default column read, and
-      has no macOS equivalent; and `exec -a wl` in `bin/wl` for `ps`'s
-      full line, which only works if juliaup's launcher passes `argv[0]`
-      through - check. `wl` and not `worklog`: it is the command's name,
-      and the one already on the sessions.
+- [ ] **`ps`'s full line and tmux's window name still say `julia`.** The
+      title is `wl` now - OSC 2 at `run!`'s start, inside a title push/pop
+      so a terminal with the stack gets its own title back - and so is the
+      comm name, `prctl(PR_SET_NAME)` in `main` on Linux, which is what
+      htop's default column and `ps -o comm` show (2026-09-16). What is
+      left is argv[0]: juliaup's launcher execs the real binary under its
+      own path, so `exec -a wl` in `bin/wl` never reaches it (measured:
+      `ps -o args` shows `.../julia-nightly/bin/julia`), and tmux's
+      automatic window name reads argv[0] from `/proc/<pid>/cmdline`
+      (`osdep-linux.c`), not comm - so a `wl` run in your own tmux window
+      is still a window called `julia`. Fixing it means `bin/wl` exec'ing
+      the resolved binary itself with `-a wl`: a julia launch to ask
+      `Base.julia_cmd()` costs more than the name is worth, and
+      `~/.julia/juliaup/juliaup.json` is juliaup's to change. Or the
+      `automatic-rename-format` that reads `pane_title`, which is the
+      user's `.tmux.conf` and not this program's. Both unverified in a
+      real terminal: the title sequences, and whether the pop lands.
 
 Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading

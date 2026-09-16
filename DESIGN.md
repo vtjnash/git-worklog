@@ -650,6 +650,11 @@ Each of the following returns success and the wrong answer:
   and parses as no divergence in a translating locale.
 - `bin/wl` ignores SIGHUP in the shell, because an ignored disposition is the
   one thing that survives `exec`.
+- **juliaup's launcher does not pass argv[0] through**: it execs the real
+  binary under that binary's own path, so `exec -a wl` in `bin/wl` names
+  nothing, and tmux's automatic window name - argv[0] out of
+  `/proc/<pid>/cmdline` - stays `julia`. What the process can name from inside
+  is its comm (`prctl(PR_SET_NAME)`, `main`) and its terminal (OSC 2, `run!`).
 
 ### local.toml
 

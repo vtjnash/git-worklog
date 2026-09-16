@@ -378,7 +378,24 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
     0
 end
 
+"""Be called `wl` where the system asks the process its name.
+
+juliaup's launcher execs the real binary under its own path, so `exec -a wl` in
+`bin/wl` never reaches it and `ps`'s full line stays `.../bin/julia` (measured
+2026-09-16); what a process *can* rename from inside is its comm name -
+`/proc/<pid>/comm`, htop's default column, `ps -o comm` - which is
+`prctl(PR_SET_NAME)` on Linux and nothing anywhere else. The browser names the
+terminal itself, with the title, in `run!`.
+"""
+function name_process!(name::AbstractString = "wl")
+    Sys.islinux() || return false
+    n = String(name)
+    GC.@preserve n ccall(:prctl, Cint, (Cint, Ptr{UInt8}, Culong, Culong, Culong),
+                         15 #= PR_SET_NAME =#, pointer(n), 0, 0, 0) == 0
+end
+
 function main(args = String[])
+    name_process!()
     try
         return dispatch(collect(String, args), utcnow())
     catch e

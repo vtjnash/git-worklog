@@ -475,6 +475,13 @@ function run!(ctrl::Controller, root::View)
     push_view!(ctrl, root)
     ctrl.term = REPL.Terminals.TTYTerminal(get(ENV, "TERM", "xterm"), stdin, stdout, stderr)
     print("\e[?1049h\e[?25l")                       # alt screen, hide cursor
+    # The terminal's title, which juliaup's launcher had set to `Julia` and
+    # nothing here set after: a tab, or under tmux the pane's title. Pushed
+    # first and popped on the way out, so a terminal with a title stack
+    # (xterm, VTE, kitty, wezterm, iTerm2, foot) gets its own back; one
+    # without keeps `wl` until its shell's prompt writes the next one, which
+    # every common prompt does.
+    print("\e[22;2t\e]2;wl\e\\")
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     ctrl.running = true
@@ -565,7 +572,7 @@ function run!(ctrl::Controller, root::View)
         try
             ctrl.mouse && mouse!(ctrl, false)
             REPL.Terminals.raw!(ctrl.term, false)
-            print("\e[?25h\e[?1049l")
+            print("\e[?25h\e[?1049l\e[23;2t")
         catch
         end
     end

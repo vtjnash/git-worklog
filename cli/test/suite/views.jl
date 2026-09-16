@@ -522,3 +522,16 @@ end
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
 end
+
+@testset "the process is called wl where it can be" begin
+    # htop, `ps -o comm` and `/proc/<pid>/comm` read the comm name, which is
+    # the one thing a process can rename from inside; the full command line
+    # is juliaup's and stays. Nothing anywhere but Linux.
+    if Sys.islinux()
+        @test W.name_process!("wl-test")
+        @test strip(read("/proc/self/comm", String)) == "wl-test"
+        W.name_process!("julia")
+    else
+        @test !W.name_process!("wl-test")
+    end
+end
