@@ -24,6 +24,83 @@ sandbox, which covers `issues: write` and `pull_requests: write` everywhere.
 - [ ] pushing this repository: `origin` is `vtjnash/git-worklog`, never pushed
       to; needs a fine-grained PAT with `Contents: read/write`.
 
+## Blocked on GitHub - the notifications sync
+
+**Wanted**: the GitHub inbox and this program's read state kept in step,
+both ways at once - a thread marked done there is read here, a thread read
+here is done there - because either direction alone is no use. "Done" means
+read *and* done: a thread glanced at on the website is not one dealt with.
+Nice to have: `r` a second time un-dones it there. Not wanted: the reverse.
+
+**Why it is blocked.** Measured 2026-09-16 with the `gho_` token: a thread
+record has one bit, `unread`, and every action - `DELETE` (done), `PATCH`
+(read), both, done in the iOS app, opened on github.com - clears it and
+changes nothing else. `last_read_at` is never written per thread; it echoes
+the bulk `PUT /notifications` parameter. So the REST API cannot tell done
+from read, and done is not on the record at all. The site knows: it has
+three states, unread → read → done, "mark as unread" going back to the first
+and un-doing on the way; its forms are `POST /notifications/beta/archive` and
+`/unarchive`, and `is:done` is the only readable list of done there is.
+GitHub Mobile uses non-public GraphQL (`notificationThreads` with `isDone`
+and `isSaved`, `markNotificationAsDone`) gated to GitHub's own clients; the
+one time the flag leaked it was pulled within two weeks (community#24653,
+April 2026). Saved has no API of any kind (community#39606). Retention is
+three months and a day: `all=true` answered back to 2026-06-15T00:01:52Z,
+1970 threads in 40 pages; `all=false` is exactly the unread set, 327 in 7.
+
+**Not doing**: pulling on `unread: false`, which would mark read here
+everything ever clicked there; the website with a session cookie, which is
+the whole login in a file over HTML with no contract; the mobile GraphQL,
+which is not ours and was taken away once already. REST or nothing.
+
+**The plan, once the thread record carries `done`** - a field on the thread
+and in the listings, or a `done=true` filter; for the nice-to-have, any
+endpoint that marks a thread unread:
+
+- [ ] **Keep the handle.** `sync!` writes every thread it sees to
+      `fetched.json` as `inbox.threads`: `url → (id, notified)`. The inbox
+      row is dropped once `updated <= read`, and the id with it, so this
+      table is pruned only past the retention floor (`[notifications]
+      retention_days`, 80) and on a 404. `thread_facts!` carries it onto the
+      corpus row beside `reason`. Bootstrap is one ids-only `all=true` walk
+      to the floor, adding no inbox rows: `backfill_days = 0` still holds.
+- [ ] **`Events.reconcile!(at; dry_run)`**, once per `wl refresh` after the
+      corpus is written, over corpus rows ∩ `threads`. A url with no local
+      record is never touched and never asked for. `notified` under the
+      floor: skip. Otherwise:
+
+      | local (`seen_of`) | remote | do |
+      |---|---|---|
+      | read | not done | `DELETE /notifications/threads/{id}` |
+      | unread, no `snooze`, `read` not `""` | done | `set_read(url, read_up_to(moved_at, updated, at))` |
+      | unread said (`read == ""`) | done | un-done, if an endpoint exists |
+      | asleep | not done | `PATCH` read: listed on the phone, not bold, bold again when it moves - the nearest thing to Saved |
+      | agree | | nothing |
+
+      No ledger: the remote state says whether a write is needed. The two
+      exclusions on the pull are what one would have been for - a snooze
+      that has just woken is not put back to sleep by a stale remote read,
+      and an `r`-unread is a statement and wins. Reads applied here have no
+      `z`; `r` toggles them. This is the one place `unread` or `done` is read
+      off a thread; the cursor is untouched, and DESIGN item 8 under GitHub
+      is rewritten to say so.
+- [ ] **`wl sync [--dry-run]`**, dry-run forced until `[notifications]
+      sync = true`: the bootstrap finds hundreds of rows read here and unread
+      there, and that list is to be seen before it is sent. `wl refresh`
+      calls it when on, and skips it with a line where `pat()` has no token.
+      Later, the browser runs it in a subprocess after `r`/`s`/`x`, as `R`
+      runs a refresh.
+- [ ] **Tests**, with a fake fetch: floor and 404 skip; the two exclusions;
+      no corpus row untouched; bootstrap adds ids and no items; a truncated
+      listing turns the pull off and says so; asleep then woken and read
+      gets its `DELETE`.
+- [ ] **Docs**: DESIGN item 8 and a decisions entry for "not doing";
+      README for `wl sync` and the two keys.
+
+About 150 lines in `events.jl` and `refresh.jl`, none in the browser. Until
+then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
+| xargs -I{} gh api -X DELETE /notifications/threads/{}`, filtered as wanted.
+
 ## To design before starting
 
 - [ ] **A comment box drawn inline, between the diff lines it is about.** The
