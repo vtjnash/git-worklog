@@ -327,10 +327,13 @@ Reading:
       reach the footer as the standing `errors.log` warning, not the
       diff; and not tmux, git or gh either - the bundled tmux 3.5.1, git
       2.54 and gh 2.98 binaries carry no such phrase past Go's URL
-      errors. Left to check: the `p` view, which is `git diff`/`range-diff`
-      on the local checkout (`repos.jl:364-373`) and was not reproduced
-      here; and `data/errors.log` on the machine it was seen on. Once
-      found: a line of the text, which `diff_nodes` lifts to the top, or
+      errors. It was the `d` view, and the message offered a command-line
+      flag to restart with that would permit it - which is a program with
+      flags, and neither `wl` nor julia has one (`--help-hidden` checked),
+      nor tmux; and `d` is `gh pr diff` read to a string, no pager, so no
+      `less`. What is left is the terminal emulator itself, drawing the
+      frame - or the exact wording, when it can be checked. Then
+      `data/errors.log` on the machine it was seen on. Once found: a line of the text, which `diff_nodes` lifts to the top, or
       stderr, stitched on after.
 - [ ] Hunk context expands against the head, so context around a `-` line is
       the post-change file.
