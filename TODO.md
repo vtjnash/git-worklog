@@ -337,9 +337,6 @@ through a TTY. Strike through rather than delete when one answers.
 ## Known gaps
 
 Reviewing and writing:
-- [ ] `C` on a line of the `p` pane comments on the item, not the line:
-      GitHub's `LEFT` is the base, and the left side there is the head you
-      last saw. Restricting to the right side would work.
 - [ ] `C` refuses a comment on a deleted line - the old-side number is known,
       but it must be anchored against a commit the line existed in.
 - [ ] `C` on an issue comment writes a new comment rather than replying

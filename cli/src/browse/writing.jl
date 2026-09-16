@@ -95,7 +95,13 @@ function compose_target(st::BState, iw::Int)
     n = st.nodes[i]
     cid = get(n.meta, "comment_id", nothing)
     cid === nothing || return (:reply, cid)
-    if st.mode === :diff && haskey(n.meta, "file")
+    # A hunk of `d`, or of `p` when it is a plain diff: there the right side
+    # is the head now, which is what GitHub anchors a `RIGHT` comment on, so
+    # a line of it is as good a target as the same line under `d`. The left
+    # side of `p` is the head you last saw and not the base, which
+    # `compose_action` refuses; a range-diff has no hunks and lands on the
+    # item.
+    if st.mode in (:diff, :pushed) && haskey(n.meta, "file")
         (lo, hi) = hunk_rows(st, i, iw)
         a = hunk_line_at(st, i, iw, lo)
         b = hunk_line_at(st, i, iw, hi)
@@ -180,7 +186,9 @@ end
 function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     (kind, target) = compose_target(st, iw)
     if kind === :line && target.side == "LEFT"
-        st.status = "a comment on a deleted line has to go to the old side — not wired up"
+        st.status = st.mode === :pushed ?
+            "the left side of p is the head you last saw, not the base — comment on a right-side line" :
+            "a comment on a deleted line has to go to the old side — not wired up"
         return
     end
     suggest = ""

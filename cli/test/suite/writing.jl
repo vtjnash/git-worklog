@@ -257,6 +257,20 @@ end
     t3 = W.compose_target(st, iw)[2]
     @test (t3.start, t3.line) == (10, 11)
     st.sela = 0; st.selb = 0
+    # Under `p`, when it is a plain diff from the head you last saw: a
+    # right-side line is the head now, which is what GitHub anchors on, so it
+    # is the same target as under `d`; the left side is the old head and not
+    # the base, and `C` on it says so rather than commenting on the item.
+    st.nodes = [n]; st.mode = :pushed
+    st.nrow = 4
+    tp = W.compose_target(st, iw)
+    @test tp[1] === :line && (tp[2].line, tp[2].side) == (11, "RIGHT")
+    st.nrow = 3
+    @test W.compose_target(st, iw)[2].side == "LEFT"
+    ctrl = W.Controller(); W.push_view!(ctrl, st)
+    W.compose_action(st, ctrl, st.items[st.sel], iw)
+    @test length(ctrl.stack) == 1 && occursin("head you last saw", st.status)
+    st.mode = :diff
     # A review comment answers with its own thread instead.
     st.nodes = [W.Node("alice  2026-01-01", "a remark", :md, true)]
     st.nodes[1].meta["comment_id"] = 4242

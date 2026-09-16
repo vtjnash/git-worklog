@@ -113,7 +113,8 @@ what checking it would bring in. The first and last are on when nothing has
 been asked. The other axes narrow: tag, kind, lane, repo, label, author.
 
 **Reviewing**: drag over a diff (or `⇧j`/`⇧k`), then `C` comments on that
-range; `^r` in the composer drops in a suggestion block. Comments accumulate in
+range - under `d`, or under `p` on its right side, which is the head now;
+`^r` in the composer drops in a suggestion block. Comments accumulate in
 a draft review on GitHub; `A` sends it, and leaving the item asks whether to.
 Existing review threads hang off the hunk they point into, resolved ones
 folded, and the line each is on is marked `💬`.
