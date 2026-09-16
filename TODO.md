@@ -165,6 +165,36 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       the status row points at: "refreshed · 2 lanes said something ·
       see wl log"). `wl show`/`wl refresh` keep stderr; the browser should
       never write to it.
+- [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
+      What this program calls *read* is what GitHub's inbox calls **done**
+      - a thread put away that comes back when it moves - and the sync
+      entry above already equates them; "read" here is a stamp, and what
+      the user does with `r` is finish with the thing. Names first: `r`
+      says "marked read" and should say done; the `read` show box, the
+      `unread, open` box, "read ↔ unread" in the help; and *filed away*
+      (`x`) wants a word too, since it is also a thing that comes back
+      when it moves, and the difference - out of the backlog as well - is
+      not in either name. Then the keys, which are the same across the
+      two inboxes and mostly not this program's:
+
+      | does | GitHub | Gmail | here |
+      |---|---|---|---|
+      | done / archive | `e` | `e`, `y` | `r` (and `x` is filed) |
+      | done and next / previous | | `]` `[` | |
+      | mark read / unread | `⇧i` / `⇧u` | `⇧i` / `⇧u` | `r` toggles |
+      | snooze | | `b` | `s` |
+      | save / star | `s` | `s` | |
+      | unsubscribe | `⇧m` | | |
+      | undo | | `z` | `z` |
+      | search · help · move | `/` `?` `j`/`k` | `/` `?` `j`/`k` | `/` `?` `j`/`k` |
+
+      Every one of `e`, `y`, `[`, `]`, `s` is taken here - the editor, copy,
+      hunk context, snooze - and `⇧i`/`⇧u` would be two local keys in the
+      uppercase-reaches-GitHub case. Decide whether the hand that lives in
+      those inboxes is worth moving the editor and the context keys for,
+      which need homes first, or whether it is the names alone; and
+      whether "done and next" (`]`) is wanted at all, given `r` in the
+      base list already advances the cursor by removing the row.
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
