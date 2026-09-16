@@ -374,6 +374,13 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         push!(out, "")
     end
 
+    # How it got here, first: which search claimed the row - the filter axis
+    # of the same name - and, for a thread, the reason GitHub gave
+    # (`THREAD_WHY`). Facts, so they sit with the facts; they were under
+    # "tracking" beside `track`, where three rows read as three settings and
+    # one was.
+    kv("lane", it.lane)
+    kv("why", it.why)
     kv("author", it.author)
     st.meta === nothing || isempty(st.meta.assignees) ||
         kv("assignee", join(st.meta.assignees, ", "))
@@ -460,9 +467,15 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     it.draft && kv("state", "draft")
     push!(out, "")
 
-    head("tracking")
-    kv("lane", it.lane)
-    kv("level", it.track)
+    # What is written down about it, in `local.toml`: the block is the file's
+    # block for this item, and the heading is the file's name.
+    head("local")
+    # By the command's own word, with what the level means, since nothing on
+    # screen said, and the command's name, since there is no key for it.
+    kv("track", string(it.track, "  ", THEME.dim,
+                       it.track == "loose" ? "ignores bots and strangers' CI" :
+                                             "anything by somebody else moves it",
+                       " · wl track", THEME.reset))
     # When it wakes, while it is asleep - and, unread meanwhile, that it is
     # the movement and not the wake that brought it back; once the snooze
     # has gone, that there was one, and whether it woke or was cleared by
@@ -482,7 +495,6 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     end
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
-    kv("why", it.why)
     if !isempty(it.note)
         push!(out, string(THEME.dim, "note", THEME.reset))
         for l in awrap(it.note, max(8, w - 2))

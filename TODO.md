@@ -143,7 +143,9 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 - [ ] **Editing in the metadata pane.** It is a readout, and every field on
       it that can change is changed from somewhere else or not from here: the
       labels (`L`), the snooze (`s`), the note (`v`), `deadline`, `blocked`
-      and `why` (`wl set` only), the assignees and reviewers (nothing at all).
+      and `why` (`wl set` only), `track` (`wl track` only - its row on the
+      pane names the command, and is the first row this should reach), the
+      assignees and reviewers (nothing at all).
       Wanted: `tab` reaches the pane as a third focus, `j`/`k` walk its
       fields, `↵` edits the one under the cursor with the prompt each already
       has - the label picker, the snooze menu, a line prompt for a
@@ -359,17 +361,6 @@ Reviewing and writing:
       (matches GitHub; surprises).
 - [ ] The metadata pane is a readout; editing it is under "To design". Also
       not there: opening the check under the eye.
-- [ ] **The `tracking` block of the metadata pane - `lane`, `level`, `why` -
-      reads as three settings and is one.** `lane` is which search claimed
-      the row (a fact, the filter axis of the same name); `why` is the
-      reason GitHub gave for a notification (a fact, `THREAD_WHY`); `level`
-      is `track`, the one that is yours - `wl track <ref> normal|loose` -
-      and nothing on screen says so, or says what `normal` and `loose` mean
-      (README, "Tracking"). Rename or remove: at least say `track` and not
-      `level`, so the word on screen is the command's; drop `lane` and `why`
-      from under a heading that promises tracking, or move them up with
-      `author` and `state` where the facts are; and if `track` stays, its
-      row is the first thing the metadata-pane editing above should reach.
 
 The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl read

@@ -213,8 +213,17 @@ end
     lines = W.meta_lines(st, it, 44)
     plain = W.astrip(join(lines, "\n"))
     # Everything cheap comes from facts.json and is there before any fetch.
-    @test occursin("tracking", plain)
-    @test occursin(it.track, plain)
+    # The written-down block is headed by the file it is in, and the level is
+    # named by the command's word, with what it means and how to change it.
+    @test occursin("local", plain)
+    @test !occursin("tracking", plain) && !occursin("level", plain)
+    @test occursin(string("track     ", it.track), plain)
+    @test occursin("wl track", plain)
+    # Which search claimed it, and why GitHub said so, are facts and sit with
+    # the facts - above the written-down block, not inside it.
+    at_(w) = first(something(findfirst(w, plain), 0:0))
+    isempty(it.lane) || isempty(it.author) ||
+        @test at_("lane") < at_("author") < at_("local")
     isempty(it.labels) || @test occursin(first(it.labels), plain)
     isempty(it.author) || @test occursin(it.author, plain)
     # How old it is and when it last changed at all, to the minute: the age of
