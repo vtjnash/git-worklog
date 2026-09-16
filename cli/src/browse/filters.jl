@@ -39,7 +39,7 @@
 #     several can be true of one row: a question waiting on you (`reply
 #     owed`), a review you were asked for (`review owed`), a pull request that
 #     wants edits (`needs edits`) or is waiting on a button (`ready`), work
-#     that has gone quiet (`second look`), work you have acted on (`touched`),
+#     that has gone quiet (`waiting on an answer`), work you have acted on (`touched`),
 #     words you have written and not sent (`drafts`), and work you put down
 #     for a while (`snoozed`).
 #   * **kind**, **lane**, **repo**, **label**, **author** - facts on the row.
@@ -131,7 +131,11 @@ names whichever it means beside whichever author it means.
 more, it is the item being unread - see `seen_of`.
 """
 const TAGS = [(:reply, "reply owed"), (:review, "review owed"), (:edits, "needs edits"),
-              (:ready, "ready to merge"), (:second, "second look"),
+              # Named for what it is for and not for what it does: "second
+              # look" was the rule's own name, and "who is waiting on me" did
+              # not find it by reading. The two views that read it are
+              # "waiting on me" and "waiting on them", by author.
+              (:ready, "ready to merge"), (:second, "waiting on an answer"),
               (:touched, "touched"), (:drafts, "drafts"), (:snoozed, "snoozed")]
 
 """How the list is ordered. Its own control, deliberately.

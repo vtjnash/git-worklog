@@ -440,6 +440,3 @@ Panes:
 - [ ] A pane once reported `session ended` with an empty frame (2026-09-02,
       scripted launch). The wake-channel theory was tested and is wrong (11
       of 64 slots). Not recurred.
-- [ ] The second look is called "second look" in the filter pane, which is
-      what it does and not what it is for; "who is waiting on me" does not
-      find it by reading.

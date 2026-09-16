@@ -30,7 +30,9 @@ them lack is a record of what *you* decided, and the facts a decision needs -
   `status: waiting for PR author` label),
   `ready` (approved and green), `review` (asked, and not reviewed since their
   last push), `reply` (mentioned recently, last word theirs), `second` (the
-  author acted and nobody has answered for two working days).
+  author acted and nobody has answered for two working days - "waiting on an
+  answer" in the filter pane, and the `waiting on me` / `waiting on them`
+  views).
 - **Shows *what* changed**: the thread opens on the first comment you have not
   seen, and `p` is the diff or `range-diff` since the head you last read.
 - **Writes back**: comment, review (a draft held on GitHub until you send it),

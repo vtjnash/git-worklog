@@ -147,7 +147,7 @@
         st.lmode = :filters
         rows = W.filter_rows(st)
         txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
-        @test occursin("touched", txt) && occursin("second look", txt)
+        @test occursin("touched", txt) && occursin("waiting on an answer", txt)
         @test W.axis_counts(st).tags[:touched] == 3
 
         for (w, h) in ((80, 24), (200, 50))
