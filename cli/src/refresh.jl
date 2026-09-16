@@ -1244,7 +1244,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # that naming a repository brings its standing list into the backlog
     # view rather than a month of its traffic into the dashboard. First sight
     # is the `source:` block missing from `local.toml`, where the day it was
-    # named is written and stays: the baseline every row of that source is
+    # named is written and stays: the floor every row of that source is
     # read up to, and the one fact a rebuild of `fetched.json` needs and
     # could not get from GitHub. Rows the corpus has already are left alone.
     explicit_, owners_, _ = Events.event_sources(get(cfge, "repos", String[]))

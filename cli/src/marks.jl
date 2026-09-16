@@ -204,17 +204,12 @@ function set_source_cursors!(cursors::AbstractDict)
     length(cursors)
 end
 
-"""The baseline for a row of `repo`: the day the source that covers it was
-named, or `nothing` when none does. A repository named outright beats the
-glob over its owner, being the more deliberate of the two."""
-baseline_of(repo::AbstractString, sources::AbstractDict) =
-    get(sources, source_of("backlog", repo, sources), nothing)
-
 """The source a row came through, as the label of its `source:` block: the
 repository, else the glob over its owner, for a row the repository's own
-list or poll fetched (`backlog`, `activity`); `notifications` by itself; any
-other lane by its name. The label whether or not a block exists for it, so
-that what is named and what is read are the same question."""
+list or poll fetched (`backlog`, `activity`) - a repository named outright
+beats the glob, being the more deliberate of the two; `notifications` by
+itself; any other lane by its name. The label whether or not a block exists
+for it, so that what is named and what is read are the same question."""
 function source_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict)
     lane in ("backlog", "activity") || return String(lane)
     haskey(sources, String(repo)) && return String(repo)
@@ -281,7 +276,7 @@ function mark_unread(urls)
     have = field_map("read")
     us = unique(String(u) for u in urls)
     named = [u for u in us if truthy(get(have, u, nothing))]   # a stamp, not "" already
-    # Said, not unsaid: an empty stamp is unread whatever the baseline for the
+    # Said, not unsaid: an empty stamp is unread whatever the floor for the
     # row would have answered, where a dropped key would hand the question
     # back to it. See the head of this section.
     isempty(us) || set_blocks!([u => ["read" => "", "read_head" => nothing]

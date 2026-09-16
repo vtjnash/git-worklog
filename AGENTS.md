@@ -22,9 +22,15 @@ each of them is exactly right:
    why the three lanes are fetched whole every refresh and everything else
    only by url when a clock says it moved.
 3. **The backlog** (`'` `3`): the standing open list, read ones too. That is
-   why nothing ever leaves the corpus, why backlog rows are read by
-   construction, and why `filed` is a separate mark - it is the one thing the
-   backlog leaves out.
+   why nothing ever leaves the corpus, why a row with no stamp is read by
+   construction up to the day its source was named - in every lane, one
+   `since` per source, raised together by `wl read --consolidate` - and why
+   `filed` is a separate mark - it is the one thing the backlog leaves out.
+
+There is one seen bit: the read stamp against the item's last movement
+(`moved_of`), which is what every mark stamps and `seen_of` reads. The inbox
+is a clock, never an answer; `wl unread`, `wl read all` and the browser are
+one list, `unread_items`.
 
 A view names a filter, one axis per question; it is never a lane, and no
 row carries a single word for what it is.

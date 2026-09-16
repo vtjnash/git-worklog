@@ -92,8 +92,8 @@ Base.@kwdef mutable struct BState <: View
                                     # filed away: read, and held out of every
                                     # view that does not ask for the filed
     sources::Dict{String,String} = Dict{String,String}()   # source label -> the
-                                    # day it was named, the baseline a backlog
-                                    # row is read up to; see `seen_of`
+                                    # day it was named: the floor a row with no
+                                    # stamp is read up to; see `seen_of`
     wakes::Dict{String,String} = Dict{String,String}()     # url -> when its
                                     # snooze ends; `seen_of` reads it against
                                     # the clock, so a wake needs no refresh

@@ -262,8 +262,8 @@ something changes; this is a way of naming all of them at once, made per
 Base.@kwdef struct Marks
     read::Dict{String,String} = EMPTY_TOUCHED
     sources::Dict{String,String} = EMPTY_TOUCHED   # source label -> the day it was
-                                                    # named: the baseline a backlog
-                                                    # row is read up to; see `seen_of`
+                                                    # named: the floor a row with no
+                                                    # stamp is read up to; see `seen_of`
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
     drafts::Dict{String,String} = EMPTY_TOUCHED

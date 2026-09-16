@@ -825,9 +825,10 @@ end
         # `o/r` is not a source in config.toml; give the rows one to be read
         # up to, the way a named repository's rows have.
         W.name_source!("o/r", "2026-09-10T00:00:00Z")
-        @test W.baseline_of("o/r", W.source_since()) == "2026-09-10T00:00:00Z"
-        @test W.baseline_of("o/other", Dict("o/*" => "x")) == "x"      # the glob answers
-        @test W.baseline_of("p/q", W.source_since()) === nothing
+        @test W.floor_of("backlog", "o/r", W.source_since()) == "2026-09-10T00:00:00Z"
+        @test W.floor_of("backlog", "o/other", Dict("o/*" => "x")) == "x"      # the glob answers
+        @test W.floor_of("backlog", "o/r", Dict("o/*" => "x", "o/r" => "y")) == "y"  # named outright wins
+        @test W.floor_of("backlog", "p/q", W.source_since()) === nothing
         @test W.read_at(u1) === nothing                      # nothing said
         it = W.item_of(its[Symbol(u1)])
         m() = W.Marks(read = W.load_read(), sources = W.source_since(), now = "2026-09-13T12:00:00Z")

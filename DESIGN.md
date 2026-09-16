@@ -75,7 +75,8 @@ imported the day it is named (and for all of them on `--backlog`). Backlog
 rows are read by construction up to that day - the `source:` block in
 `local.toml` says which day, one line per repository rather than a stamp per
 row - and unread the moment one next moves. `backfill_days = 0` is policy:
-the unread side starts at now.
+the unread side starts at now. The same floor answers in every lane; see
+"Marks".
 
 **Light rows are promoted, not replaced.** When a poll or thread row enters
 the open work, or is selected, it gets the bundle and keeps its `lane`,
@@ -117,6 +118,52 @@ were each cut and timed: within noise. Rate-limit cost is flat at 4 a page.
 
 **An item is unread when it has moved since you read it.** "Moved" is the
 wake table below. The other two marks are the read stamp with one thing added.
+
+**One seen bit.** The read stamp is compared against one thing, the item's
+last movement - `moved_of`: `moved_at`, else `updated` for a light row that
+has no wake table, else nothing - and every mark stamps that same thing:
+`r` (taking the max with the thread's `seen_up_to`), `s`, `x`, `wl read`,
+`wl snooze`, `wl archive`. Nothing compares a read stamp against `updated`.
+There used to be three answers to "is it unread" - the poll pruning its
+inbox on `updated <= read`, the marks stamping `moved_at`, the browser
+comparing against `moved_at` - and on 2026-09-16 "mark everything read" took
+three passes and 2277 stamps because they disagreed: 366 rows whose
+`updated` had moved past `moved_at` (a push, a label, your own comment)
+could not be cleared by anything the marks wrote. `unread_items` is the one
+list, `seen_of` over the corpus and the light rows, and `wl unread`, `wl
+read all` and the browser's base list are on it.
+
+**The floor answers for a missing stamp, in every lane.** A row with no
+stamp is read up to the day its *source* was named - `floor_of`, off the
+`source:` block - and unread if the source has no block. The source is what
+fetched the row (`source_of`): the repository, then the glob over its owner,
+for a `backlog` or `activity` row; `notifications` by itself; any other lane
+by its name. Every source names itself on first sight: the repositories
+when their lists are imported, `notifications` where its cursor is first
+written, a lane the first time a corpus row carries it. Day zero reads zero.
+Until 2026-09-16 the floor answered for backlog rows only, and 1915 rows of
+the other lanes - retired ones, and `mine` back to 2021 - were unread with
+nothing to read. `read = ""` still beats the floor; and a plain read mark
+on a row the floor already answers for drops the key rather than stamping
+it (`folded`), keeping `read_head`. `s` and `x` keep stamping, since the
+refresh reads a snooze or an archive with no stamp as put away by hand.
+
+**`since` is a consolidation point, raised together and never lowered.**
+`wl read --consolidate [--dry-run]` raises every source's `since` to the
+newest movement among the read rows that is below the oldest movement of
+any stampless unread row - light rows included - and drops the stamps the
+new floor answers for, so `seen_of` answers the same for every row before
+and after. Together, so a row whose lane changes cannot flip by falling
+under a different floor; explicit, until it has been watched.
+
+**The inbox is a clock, never an answer.** An inbox row for a url the corpus
+has says "ask again" (`stale_by`), and has said it once the corpus row's
+`fetched_at` passes its `updated`. The refresh drops such a row once it is
+also read; unread it stays, keeping `expect!`'s history while there is
+anything to witness; unanswered it stays, to be asked again. A light row is
+never dropped by reading - a mark on it promotes it - and `sync!` prunes
+nothing. `new` is not a seen state: it is "arrived this refresh", read by
+the change line and nothing else.
 
 **A snooze is a wake time.** `s` writes the moment a span ends, resolved, so
 `local.toml` says *when* and nothing remembers when it was set. The item is
@@ -210,6 +257,30 @@ asked.
 were made, so that is the stamp; CI has no clock and is stamped with the
 refresh that first saw it differ. Dating a comment by the poll made a comment
 read at 10:00 come back unread when the 11:00 refresh first saw it.
+
+**Nothing stamps the observation clock.** Proposed 2026-09-16 and rejected:
+a mark advanced to *the observation*, with `wl read` stamping *now*. Two
+counterexamples, each of which loses or re-shows a comment:
+
+- `wl read` at now, `moved_stamp` unchanged: `read = 10:00`; a comment dated
+  09:30, delivered late and learned at 11:00, on a row whose mark was 08:00
+  is dated 09:30 (`m > high`), and `09:30 < 10:00` reads it - lost. Stamped
+  with `moved_at` (08:00), as it is, it is unread.
+- `moved_stamp` dating a movement `max(m, at)` so a late arrival is always
+  past any stamp: the bundle under the cursor is fresh for `fresh_minutes`,
+  so a comment landing after the bundle was fetched, read live in the thread
+  pane and marked `r` (`read = seen_up_to`, GitHub's time) is dated by the
+  next refresh's clock, past the stamp - back for something you read, on
+  every comment inside that window. That is the bug `moved_stamp`'s
+  docstring records, at two minutes instead of an hour.
+
+GitHub's timeline is the one clock both observers see; dating by it is what
+lets the browser and the refresh agree. What "later information wins" needs
+is already the high-water rule: a movement dated at or before the mark is
+stamped `at`. The residual - an event learned late whose time falls between
+`moved_at` and an `r` stamp that the thread's `seen_up_to` pushed past it -
+is a review made before your own last reply on the same thread, and is read
+by any reading of "read".
 
 **By GitHub's time wherever a stamp will meet one GitHub wrote**, and by an
 *event's* time wherever there is one. `r` stamps `max(moved_at, newest
@@ -456,7 +527,11 @@ Do not simplify any of these away.
    carries the subject's clock, and "moved" compares the clock against the
    row's `fetched_at`, taken *before* the request. `all=true` returns read
    threads. `latest_comment_url` is never a review comment. Nothing here reads
-   `unread` or `PATCH`es a thread: the cursor is ours.
+   `unread` or `PATCH`es a thread: the cursor is ours. An inbox row's life:
+   written by a source, merged over by the next, kept while it is unread or
+   unanswered, and dropped by the refresh once the corpus row has been
+   fetched past it and is read - never by the poll, never on `updated`
+   against a stamp.
 9. `mergeable`: see above. A merged or closed pull request answers `UNKNOWN`
    for good.
 10. `viewerDefaultMergeMethod` is viewer-scoped history, not a setting: the
@@ -594,7 +669,11 @@ Each of the following returns success and the wrong answer:
   browser writes one row at a time, where the row can be read first.
 - **Newest first**, no fourth sort, no ceiling on the second look.
 - **Read by construction is a fact about the source**, one line per
-  repository, not a stamp per row.
+  source, not a stamp per row - in every lane, and raised together by
+  `wl read --consolidate`, never per source and never lowered.
+- **Nothing stamps the observation clock.** Every mark stamps the movement,
+  GitHub's time; see "Time" for the two counterexamples, written down so
+  it is not tried again.
 - **The lanes stay GraphQL**; REST search could answer the three queries but
   not the bundle. GraphQL is slow per row (150-200ms a node), not per request.
 - **`p` uses a checkout**; there is no endpoint.
