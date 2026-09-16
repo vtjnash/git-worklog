@@ -1005,11 +1005,10 @@ bundle was asked. Both GitHub's, so they compare - where the row's own
 seconds after the subject's `updatedAt` for the same event, and comparing the
 two read 35 unmoved rows as moved. And the **read stamp**, `read`: `r` on a
 row in the list writes it up to the newest movement the list knew of, which
-for a light row is the inbox's clock - and the poll then drops the inbox row
-as read, so the clock's evidence would be gone with it and the corpus row
-kept with the comment it does not have until the next one. A read stamp past
-the bundle is that evidence, kept. A row from before there was a `fetched_at`
-is stale, once.
+for a light row is the inbox's clock, and with a thread on screen the newest
+event in it, fetched fresher than any bundle - so a read stamp past the
+bundle is evidence that something was seen the bundle does not have. A row
+from before there was a `fetched_at` is stale, once.
 """
 function stale_by(inbox_row, old, read = nothing)
     f = jget(old, :fetched_at)
@@ -1322,12 +1321,12 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     end
     # **A mark is proof it was in front of you.** A watched repository's
     # thread stays a light row in the inbox until it is looked at - and the
-    # inbox drops a row once it is read, so a light row you opened, or
-    # pressed `r` or `s` or `x` on, would leave every box with nothing in
-    # the corpus to remember it by. Any url with a block in `local.toml`
-    # that the corpus does not have joins it: off the bundle the browser
-    # cached when you looked, kept as it is, or - marked without a look,
-    # `r` from the list - asked by url like a thread that names you.
+    # inbox is a clock, not a place: a light row you opened, or pressed `r`
+    # or `s` or `x` on, has to be somewhere the boxes can find it once the
+    # clock has been read. Any url with a block in `local.toml` that the
+    # corpus does not have joins it: off the bundle the browser cached when
+    # you looked, kept as it is, or - marked without a look, `r` from the
+    # list - asked by url like a thread that names you.
     promoted, marked = 0, 0
     for url in keys(state)
         startswith(url, "https://") || continue
@@ -1467,6 +1466,35 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
     isempty(slept) || @printf(stderr, "  %-16s %4d marked read, having been put away by hand\n",
                               "snooze", mark_read(slept, at))
+
+    # **The inbox is a clock, never an answer.** An inbox row for a url the
+    # corpus has is there to say "ask again" (`stale_by`), and it has said it
+    # once the corpus row's `fetched_at` passes its `updated` - *consumed* -
+    # and the row is *read* (`seen_of`, against the marks as they stand after
+    # the snoozes above). Both, and it goes. Unread it stays, so `expect!`'s
+    # `notified` history is kept while there is anything to witness;
+    # unanswered it stays, to be asked again. A light row - no corpus row -
+    # is never dropped by reading: a mark on it promotes it, above, and the
+    # next run finds it consumed and read. Until 2026-09-16 `sync!` dropped
+    # a row on `updated <= read`, which nothing that stamps the wake table's
+    # movement could satisfy on a row whose `updated` had moved past it - a
+    # push, a label, your own comment: 366 of 5553 rows on the day.
+    inbox_ = Events.load_inbox()
+    marks = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
+                  now = stamp(at))
+    dropped = String[]
+    for (url, e) in inbox_["items"]
+        r = get(items, url, nothing)
+        r === nothing && continue
+        String(nz(get(e, "updated", nothing), "")) <= String(r["fetched_at"]) || continue
+        seen_of(item_of(JSON3.read(json_dumps(r))), marks) === :read || continue
+        push!(dropped, url)
+    end
+    for u in dropped
+        delete!(inbox_["items"], u)
+    end
+    isempty(dropped) || @printf(stderr, "  %-16s %4d rows asked about and read, dropped\n",
+                                "inbox", length(dropped))
     # A value typed wrong is not a snooze, and nothing else says so.
     for (u, st) in state
         v = get(st, "snooze", nothing)
@@ -1476,6 +1504,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
 
     store = load_fetched()
     store["fetched_at"], store["points"], store["items"] = now_isoformat(at), spent, items
+    isempty(dropped) || (store["inbox"] = inbox_)
     # The bulk cache is gone with the lanes that wrote it; a file that still
     # has one loses it here rather than carrying two thousand rows nothing
     # reads.

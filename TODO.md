@@ -253,7 +253,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
             lane; a lane with no block is unread; `read = ""` beats the
             floor; a fresh `local.toml` names every source on the first
             run and nothing on the second.
-      - [ ] The inbox prune moves from `sync!` to the refresh, consumed and
+      - [x] The inbox prune moves from `sync!` to the refresh, consumed and
             read. Tests: read + consumed dropped, unread kept, unanswered
             kept, light row kept then promoted then dropped; a row with
             `updated > moved_at` (the 366) is dropped after `wl read`.

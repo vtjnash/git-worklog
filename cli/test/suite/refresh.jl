@@ -885,6 +885,85 @@ end
     end
 end
 
+@testset "the inbox is a clock: a row leaves once it is asked about and read" begin
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    U(n) = "https://github.com/o/r/issues/$n"
+    row(n; kw...) = merge(Dict{String,Any}(
+        "url" => U(n), "type" => "Issue", "lane" => "mine", "state" => "OPEN",
+        "mine" => true, "author" => "vtjnash", "title" => "t$n", "number" => n,
+        "repo" => "o/r", "labels" => String[], "created" => "2026-09-01T00:00:00Z",
+        "updated" => "2026-09-10T00:00:00Z", "moved_at" => "2026-09-10T00:00:00Z",
+        "fetched_at" => "2026-09-12T00:00:00Z", "track" => "normal", "ref" => "r#$n"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    light(n, updated; kw...) = merge(W.OrderedDict{String,Any}(
+        "url" => U(n), "repo" => "o/r", "number" => n, "title" => "t$n", "is_pr" => false,
+        "state" => "open", "author" => "bob", "updated" => updated, "comments" => 1,
+        "labels" => String[], "mine" => false, "lane" => "activity"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    node(u, n; kw...) = W.JSON3.read(W.json_dumps(merge(Dict{String,Any}(
+        "__typename" => "Issue", "url" => u, "number" => n, "title" => "t$n", "state" => "OPEN",
+        "repository" => Dict("nameWithOwner" => "o/r"), "createdAt" => "2026-09-01T00:00:00Z",
+        "updatedAt" => "2026-09-10T00:00:00Z", "author" => Dict("login" => "bob"),
+        "milestone" => nothing, "assignees" => Dict("nodes" => []), "labels" => Dict("nodes" => []),
+        "timelineItems" => Dict("nodes" => []), "comments" => Dict("nodes" => [])),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))))
+    try
+        # 1 is read and consumed; 2 is consumed and unread; 3 has moved past
+        # its bundle, is asked, and is not answered; 4 is a light row; 5 is
+        # the 366: moved_at under a read stamp nothing could write while the
+        # inbox pruned on `updated`.
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1), U(2) => row(2), U(3) => row(3),
+            U(5) => row(5; updated = "2026-09-11T00:00:00Z", fetched_at = "2026-09-11T00:00:00Z"))))
+        inbox = W.Events.load_inbox()
+        inbox["items"][U(1)] = light(1, "2026-09-11T00:00:00Z")
+        inbox["items"][U(2)] = light(2, "2026-09-11T00:00:00Z")
+        inbox["items"][U(3)] = light(3, "2026-09-13T00:00:00Z")
+        inbox["items"][U(4)] = light(4, "2026-09-11T00:00:00Z")
+        inbox["items"][U(5)] = light(5, "2026-09-11T00:00:00Z")
+        W.Events.save_inbox(inbox)
+        # The lane named before any of them moved, so that no stamp means
+        # unread here rather than read by construction.
+        W.name_source!("mine", "2026-09-01T00:00:00Z")
+        W.set_read(U(1), "2026-09-10T00:00:00Z")
+        asked = String[]
+        byurl(urls) = (append!(asked, urls);
+                       W.OrderedDict{String,Any}(u => u == U(4) ? node(u, 4) : nothing for u in urls))
+        srch(q) = (Any[], 4, 0)
+        clock(a...) = collect(values(W.Events.load_inbox()["items"]))
+        run(at) = W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock,
+                            open_list = (a...; kw...) -> [])
+        @test run(W.DateTime(2026, 9, 13, 12)) == 0
+        left = Set(keys(W.Events.load_inbox()["items"]))
+        @test !(U(1) in left)                      # read and consumed: gone
+        @test U(2) in left                         # consumed, unread: kept
+        @test U(3) in left && U(3) in asked        # asked, unanswered: kept, asked again
+        @test U(4) in left && !(U(4) in asked)     # light: nobody asked, nothing to consume
+        @test U(5) in left                         # unread, as it stands
+        # `wl read` on the light row promotes it - asked by url, in the
+        # corpus from here - and once asked and read it leaves; and the 366
+        # leave the same way, which nothing could make them do before.
+        W.set_read(U(4), "2026-09-11T00:00:00Z")           # `r` from the list
+        @test W.dispatch(["read", U(5)], W.DateTime(2026, 9, 13, 13)) == 0
+        @test W.read_at(U(5)) == "2026-09-10T00:00:00Z"    # `moved_at`, under `updated`
+        asked = String[]
+        @test run(W.DateTime(2026, 9, 13, 14)) == 0
+        left = Set(keys(W.Events.load_inbox()["items"]))
+        @test U(4) in asked && haskey(W.fetched("items"), Symbol(U(4)))
+        @test !(U(4) in left) && !(U(5) in left)
+        @test U(2) in left && U(3) in left
+        # The clock is re-read on every run, so an unread row stays a row:
+        # a third run changes nothing.
+        @test run(W.DateTime(2026, 9, 13, 15)) == 0
+        @test Set(keys(W.Events.load_inbox()["items"])) == left
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+end
+
 @testset "the poll is a witness for the notifications, and a late one widens the ask" begin
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()

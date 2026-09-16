@@ -942,10 +942,12 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     end
 
     witness && settle_expectations!(inbox, items, at, login)
-    rd = load_read()
-    for (url, e) in collect(items)
-        String(get(e, "updated", "")) <= get(rd, url, "") && delete!(items, url)
-    end
+    # Nothing leaves here. A row is dropped by the refresh once the corpus
+    # has asked about it and it is read - see `refresh` - and not on
+    # `updated <= read`, which it was until 2026-09-16: the marks stamp the
+    # last movement at the row's tracking level, and a push, a label or your
+    # own comment moves `updated` past that, so a row could stay in here
+    # with nothing anybody could write to let it go.
     inbox["cursors"] = cursors           # the copy, for a reader of the file
     save_inbox(inbox)
     Worklog.set_source_cursors!(advanced)
@@ -1086,7 +1088,7 @@ function caught_up!()
     n
 end
 
-"""Everything seen on the tracked repos and not yet marked read.
+"""Poll the clocks, and answer with everything the inbox holds.
 
 An **incremental** sync, not a window. Each source keeps a cursor, and a poll
 asks only for what has changed since it - so a repo seeing dozens of events a
@@ -1097,9 +1099,13 @@ A source seen for the first time starts at *now*, so turning this on is inbox
 zero rather than a month of history to dismiss. `backfill_days` moves that start
 back if some is wanted.
 
-The read stamp remains the authority on what leaves: an item is dropped from the
-inbox once it has been marked read up to its latest change. The sources are
-`sources`, the loop is `sync!`.
+**The inbox is a clock, never an answer.** What it holds is every url a
+source has said moved, with GitHub's time for the newest thing it saw, until
+the refresh has asked about the url and the row is read; whether a row is
+*unread* is `seen_of`'s to say, over the corpus and these rows alike. This
+used to be named for the unread list and prune on the read stamp, which was
+one of three answers to the question. The sources are `sources`, the loop is
+`sync!`.
 """
 function unread(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = get(cfg, "events", Dict{String,Any}())
@@ -1113,7 +1119,7 @@ function unread(cfg, login, at::DateTime; verbose::Bool = true)
         backfill = Day(get(cfge, "backfill_days", 0)))
     out = collect(OrderedDict{String,Any}, values(items))
     sort!(out; by = e -> e["updated"], rev = true)
-    verbose && @printf(stderr, "  %-16s %4d unread (%d new across %d source(s))\n",
+    verbose && @printf(stderr, "  %-16s %4d in the inbox (%d new across %d source(s))\n",
                        "activity", length(out), got, length(srcs))
     out
 end
