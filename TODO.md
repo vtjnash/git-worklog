@@ -266,7 +266,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
             stampless unread row pins it; a light row pins it; a snoozed
             row keeps its stamp; `read_head` survives; the 2277-stamp
             file folds to a handful of lines.
-      - [ ] `meta.jl:427` drops `|| it.new`.
+      - [x] `meta.jl:427` drops `|| it.new`.
       - [ ] Docs: DESIGN "Marks" (the floor in every lane; the inbox as a
             clock), "Time" (nothing stamps the observation clock, with the
             two counterexamples), GitHub invariant 8 (the inbox row's life),

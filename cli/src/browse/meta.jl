@@ -424,11 +424,14 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
         a = st.archived[it.url]
         kv("archived", string(when_str(a), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
-    elseif isdone(it) && !mergedbyme(it) && (seen_of(it, Marks(st)) === :unread || it.new)
-        # Merged, and you have not looked at it since - or this is the first
-        # refresh that has seen it at all, which is the same thing for a repo
-        # the event poller does not cover. That is news, not filing: a merge you
-        # did not do is exactly the thing to be told about.
+    elseif isdone(it) && !mergedbyme(it) && seen_of(it, Marks(st)) === :unread
+        # Merged, and you have not looked at it since. That is news, not
+        # filing: a merge you did not do is exactly the thing to be told
+        # about. `seen_of` alone: `new` is "arrived this refresh", which the
+        # change line reads, and it stood in here for a row with no stamp -
+        # which is what `seen_of` already says of one, or, under its
+        # source's floor, is the row read by construction that the floor
+        # says it is.
         kv("state", string(lowercase(it.state), "  ", THEME.dim,
                            "new since you last looked", THEME.reset))
     elseif isdone(it)

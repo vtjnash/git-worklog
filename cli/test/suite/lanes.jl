@@ -335,21 +335,25 @@ end
     # other: the lane axis says how a row got here, never what state it is in.
     @test !("done" in mkstate().lanes) && "landed" in mkstate().lanes
 
-    # First sighting is news even where the event poller does not reach: the
-    # unread lane only covers `[events].repos`, and a merge in any other repo
-    # would otherwise be offered for filing before it had been seen.
+    # A merge not yet looked at is news, wherever it is: `seen_of` says so
+    # of a row with no stamp and no floor, and `new` - "arrived this
+    # refresh" - is not read here at all.
     st = mkstate()
     done = W.Item(url = "https://example.invalid/x/y/pull/1", ref = "y#1", repo = "x/y",
-                  number = 1, title = "t", state = "MERGED", new = true)
+                  number = 1, title = "t", state = "MERGED", lane = "nowhere")
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
                               if occursin("state", l)], " "))
     @test occursin("new since you last looked", says(done))
-    # Not new, and read past its last movement: something to file. Unread is
-    # `seen_of` - no stamp, or a stamp from before it moved - and nothing else.
-    seen = W.Item(; (f => getfield(done, f) for f in fieldnames(W.Item))..., new = false,
-                  moved_at = "2026-09-01T00:00:00Z")
+    @test occursin("new since you last looked", says(W.with(done; new = true)))
+    # Read past its last movement: something to file. Unread is `seen_of` -
+    # no stamp, or a stamp from before it moved - and nothing else: a row
+    # under its source's floor is read by construction, new or not.
+    seen = W.with(done; moved_at = "2026-09-01T00:00:00Z")
     st.read = Dict(seen.url => "2026-09-02T00:00:00Z")
     @test occursin("x archives it", says(seen))
     st.read = Dict(seen.url => "2026-08-31T00:00:00Z")
     @test occursin("new since you last looked", says(seen))
+    st.read = Dict{String,String}()
+    st.sources = Dict("nowhere" => "2026-09-02T00:00:00Z")
+    @test occursin("x archives it", says(W.with(seen; new = true)))
 end
