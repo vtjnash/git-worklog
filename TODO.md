@@ -262,6 +262,17 @@ The corpus:
       would say, only for a real merge.
 
 Reading:
+- [ ] **A diff's "contains control characters" warning is at the bottom,
+      where a long diff pushes it off the screen** (seen once, 2026-09).
+      It should be the first row of the diff - or in the node's header,
+      which is on screen whenever the diff is - since it is a fact about
+      what follows and a reason to read it differently. Nothing in this
+      program prints it: `grep -ri "control char" cli/src` finds only the
+      pane tests. Find where it comes from first - `gh pr diff` (the
+      `d` text, `content.jl:385`), `git diff`/`range-diff` (the `p` text,
+      `repos.jl:364-373`), or a highlighter - and then whether it arrives
+      as a line of the text, which `diff_nodes` could lift to the top, or
+      as something written to stderr and stitched on after.
 - [ ] Hunk context expands against the head, so context around a `-` line is
       the post-change file.
 - [ ] A fenced block is a node with its own header and fold state; a short
