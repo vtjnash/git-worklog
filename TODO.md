@@ -350,6 +350,22 @@ Reading:
       where the tally above did not; the per-check counts are as old as that
       entry.
 
+The process:
+- [ ] **It is called `julia` everywhere but its own sessions.** htop and
+      `ps` show `julia`, tmux's automatic window name is `julia` (it reads
+      the process's comm name, `#{pane_current_command}`), and the
+      terminal title is `Julia` - juliaup's launcher sets it before exec
+      and nothing here sets it after (`run!`, `controller.jl`). Only the
+      `t`/`T` sessions carry the name, through `MUX_PREFIX[] = "wl"`. To
+      do: the title with OSC 2 at `run!`'s start and back to nothing at
+      its end (tmux takes that as the pane title; a terminal as its tab);
+      the comm name with `prctl(PR_SET_NAME, "wl")` on Linux in `main`,
+      which is what tmux's rename and htop's default column read, and
+      has no macOS equivalent; and `exec -a wl` in `bin/wl` for `ps`'s
+      full line, which only works if juliaup's launcher passes `argv[0]`
+      through - check. `wl` and not `worklog`: it is the command's name,
+      and the one already on the sessions.
+
 Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they
