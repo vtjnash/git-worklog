@@ -509,8 +509,10 @@ function refresh_all!(st::BState)
         said = try
             run_refresh()
         catch e
+            # Logged, so the footer stands until it is read; and the row names
+            # the file with the whole of what the child said.
             logerror!(e, catch_backtrace(), "refresh")
-            "refresh failed \u2014 see the footer"
+            string("refresh failed \u00b7 see ", refreshlog_name(), " and the footer")
         end
         st.refreshsaid = said
         st.reload = true
@@ -519,28 +521,57 @@ function refresh_all!(st::BState)
     "refreshing \u2026"
 end
 
+"""Where the last refresh started from the browser wrote what it had to say.
+Overwritten per run: it is a record of the last refresh, not a history -
+`fetched.json` is the history."""
+const REFRESHLOG = Ref("")
+refreshlog() = isempty(REFRESHLOG[]) ? datapath("refresh.log") : REFRESHLOG[]
+"The log's name as a row says it: `data/refresh.log` from the checkout, the
+whole path when `WORKLOG_DATA` put it elsewhere."
+refreshlog_name() = (p = refreshlog(); startswith(p, ROOT) ? relpath(p, ROOT) : p)
+
+"""What in a refresh's output is worth going back for: a lane that failed, a
+notification lag, a lane that is not the open work, a snooze that would not
+parse. Matched by text because the child's stderr is the only channel it has
+until every message is given one of its own (TODO, "Audit what is said on
+stderr"); each pattern is a line `refresh.jl` or `events.jl` prints."""
+const REFRESH_WARNING = r"failed|FAILED|LAGGING|not `is:open`|names neither|bad snooze"
+
 """Run `bin/refresh` to completion and answer with the last line it printed.
 
 The last line is its own summary - items, changes, rate-limit points - which is
-exactly what a status row wants. Captured to a temp file rather than a pipe
-because nothing reads it while it runs, and a pipe nobody drains is a way to
-wedge a child that writes more than its buffer.
+exactly what a status row wants. Captured to a file rather than a pipe because
+nothing reads it while it runs, and a pipe nobody drains is a way to wedge a
+child that writes more than its buffer.
+
+**The file is `data/refresh.log` and it is kept.** It was a `tempname()`
+deleted in the `finally`, so a refresh that exited 1 left `errors.log` saying
+"ProcessExited(1)" and nothing else, and the lane that died past its retry was
+unknowable - by hand the same refresh exited 0 with a `gh: HTTP 504` retried in
+the middle. Now the whole of what the child said is there to be read, `wl log`
+prints it, and the status row points at it: on a failure the error carries the
+file's last lines, so the footer's standing warning says what happened; on
+success it says how many lines are worth going back for, when any are, since
+only the last line reaches the row and a `FAILED:` lane three lines up did not.
+
+`cmd` is an argument so the shape of a failure can be driven without a refresh:
+the default is the real one.
 """
-function run_refresh()
-    log = tempname()
-    try
-        open(log, "w") do io
-            run(pipeline(`$(joinpath(ROOT, "cli", "bin", "refresh"))`;
-                         stdin = devnull, stdout = io, stderr = io))
-        end
-        said = ""
-        for l in eachline(log)
-            isempty(strip(l)) || (said = strip(l))
-        end
-        isempty(said) ? "refreshed" : String(said)
-    finally
-        rm(log; force = true)
+function run_refresh(cmd::Cmd = `$(joinpath(ROOT, "cli", "bin", "refresh"))`)
+    log = refreshlog()
+    ok = open(log, "w") do io
+        success(pipeline(ignorestatus(cmd); stdin = devnull, stdout = io, stderr = io))
     end
+    lines = [strip(l) for l in eachline(log) if !isempty(strip(l))]
+    if !ok
+        error("refresh failed \u00b7 see ", refreshlog_name(),
+              isempty(lines) ? " (it said nothing)" :
+              string("; it ended:\n  ", join(last(lines, 5), "\n  ")))
+    end
+    said = isempty(lines) ? "refreshed" : String(last(lines))
+    n = count(l -> occursin(REFRESH_WARNING, l), lines)
+    n == 0 ? said : string(said, " \u00b7 ", n, n == 1 ? " warning" : " warnings",
+                           " in ", refreshlog_name())
 end
 
 """Take the records again, and the item list with them when a refresh landed.

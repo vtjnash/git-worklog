@@ -18,6 +18,7 @@ Work dashboard.
   wl read    --consolidate [--dry-run]    raise every source's floor, drop the stamps it answers for
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
+  wl log                                  what the last refresh run from the browser said
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 loose           normal | loose - what counts as it moving
   wl dismiss julia#62452                  loose, and read: back only when it moves
@@ -166,6 +167,14 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         cfg = config()
         rows = poll(cfg, cfg["login"], at; verbose = false)
         print(json_dumps([item_json(it) for it in unread_items(at, rows)]))
+        return 0
+    end
+    if cmd == "log"
+        # The whole of the last `u`, kept where the status row could only show
+        # its last line. Only the browser's: a refresh run from a terminal
+        # printed on it.
+        isfile(refreshlog()) || (println(stderr, "no refresh has been run from the browser yet"); return 1)
+        print(read(refreshlog(), String))
         return 0
     end
     if cmd == "watching"

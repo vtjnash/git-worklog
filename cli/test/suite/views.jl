@@ -334,6 +334,39 @@ end
         lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
     end
 
+    # What the child said is kept whole, and the row says what of it is worth
+    # going back for: the summary alone when nothing is, the count of warnings
+    # when something is - a `FAILED:` lane three lines up never reached the row
+    # when only the last line did. A child that exits 1 is an error carrying
+    # the file's last lines, so the footer says what happened and not
+    # "ProcessExited(1)"; the file is there either way.
+    keeplog = W.REFRESHLOG[]
+    W.REFRESHLOG[] = joinpath(mktempdir(), "refresh.log")
+    try
+        quiet = `sh -c 'echo "  mine        40 items"; echo; echo "  40 items, 2 changes, 8 rate-limit points"'`
+        @test W.run_refresh(quiet) == "40 items, 2 changes, 8 rate-limit points"
+        @test occursin("mine        40 items", read(W.REFRESHLOG[], String))
+        loud = `sh -c 'echo "    julia  FAILED: 504"; echo "  review    names neither x nor @me: its rows will be read as yours"; echo "  3 items, 0 changes, 4 rate-limit points"'`
+        @test W.run_refresh(loud) == "3 items, 0 changes, 4 rate-limit points · 2 warnings in $(W.REFRESHLOG[])"
+        @test W.run_refresh(`sh -c 'echo "    julia  FAILED: 504"; echo "  done"'`) ==
+              "done · 1 warning in $(W.REFRESHLOG[])"
+        # Named the way a row can say it: relative to the checkout when it is
+        # in it, which is where `data/` is.
+        @test W.refreshlog_name() == W.REFRESHLOG[]
+        @test W.run_refresh(`true`) == "refreshed"
+        dead = `sh -c 'echo "  mine  40 items"; echo "gh: HTTP 504"; exit 1'`
+        err = try; W.run_refresh(dead); nothing; catch e; sprint(showerror, e); end
+        @test err !== nothing
+        @test occursin("see $(W.REFRESHLOG[])", err) && occursin("gh: HTTP 504", err)
+        @test read(W.REFRESHLOG[], String) == "  mine  40 items\ngh: HTTP 504\n"
+        # Overwritten per run, not appended: it is the last refresh, not a history.
+        @test W.run_refresh(`echo again`) == "again"
+        @test read(W.REFRESHLOG[], String) == "again\n"
+    finally
+        W.REFRESHLOG[] = keeplog
+    end
+    @test W.refreshlog_name() == joinpath("data", "refresh.log") || !startswith(W.refreshlog(), W.ROOT)
+
     # And what it reported is what the reload says. A write from anywhere else
     # still says whose it was, which is the whole point of that line.
     st.refreshsaid = "2135 items, 3 changes, 4200 rate-limit points"

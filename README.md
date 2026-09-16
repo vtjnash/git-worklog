@@ -89,7 +89,7 @@ GitHub.**
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) |
 | `z` | undo the last local action |
-| `u` `R` | refresh everything in the background · reload this item |
+| `u` `R` | refresh everything in the background (its output is kept in `data/refresh.log`; the status row says when a line in it is worth reading) · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
 | `w` | cycle the order: last activity · url · your interaction clock |
@@ -142,6 +142,7 @@ wl import  <url>...                     follow items no lane returns, unread
 wl show    julia#62891                  state and the thread, non-interactive
 wl thread  julia#62891 [n]              JSON of a thread's recent comments
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
+wl log                                  what the last refresh run from the browser said
 wl read    julia#62891                  mark read (or: read all)
 wl read    --consolidate [--dry-run]    fold the read stamps into the sources' floors
 wl track   julia#62452 loose            normal | loose - what counts as it moving
@@ -219,7 +220,7 @@ to the 256-colour cube.
 | `config.toml`, `themes/` | you | hand-edited |
 | `data/local.toml` | you and the program | one block per item: your note, snooze, deadline, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
-| `data/cache/`, `data/errors.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning |
+| `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
 
 `data/` is a git repository of its own, so your record has a history without
