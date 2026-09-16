@@ -527,6 +527,5 @@ end
     @test W.merge_note(ms(status = "UNKNOWN")) == "mergeable"
     @test occursin("conflicts", W.merge_note(ms(status = "UNKNOWN",
                                                 mergeable = "CONFLICTING")))
-    @test occursin("still working", W.merge_note(ms(status = "UNKNOWN",
-                                                    mergeable = "UNKNOWN")))
+    @test W.merge_note(ms(status = "UNKNOWN", mergeable = "UNKNOWN")) == "computing"
 end

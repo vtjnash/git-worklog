@@ -317,7 +317,7 @@ function merge_note(ms)
     ms.status == "UNSTABLE" && return "checks are failing, none of them required"
     ms.mergeable == "CONFLICTING" && return string("conflicts with ", ms.base)
     ms.mergeable == "MERGEABLE" && return "mergeable"
-    "GitHub is still working out whether it can be merged"
+    "computing"                 # GitHub's, lazily, on being asked; ask again
 end
 
 """The message for one operation, as one buffer: headline, blank line, body.

@@ -289,9 +289,18 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     it === nothing && return String[]
     out = String[]
     head(t) = push!(out, string(THEME.bold, t, THEME.reset))
-    kv(k, v) = isempty(string(v)) ? nothing :
-               push!(out, string(THEME.dim, rpad(k, 10), THEME.reset,
-                                 afit(string(v), max(4, w - 10))))
+    # A value longer than the pane wraps under itself, at the value column:
+    # "asked, then quiet for 12 work days" and "blocked — a required review or
+    # check is missing" were being cut at the pane's edge, and a fact cut is a
+    # fact half-said. The pane grows by the row; `nmeta` is what the layout
+    # reads, so the split follows.
+    kv(k, v) = if !isempty(string(v))
+        ls = awrap(string(v), max(4, w - 10))
+        push!(out, string(THEME.dim, rpad(k, 10), THEME.reset, ls[1]))
+        for l in ls[2:end]
+            push!(out, string(" "^10, l))
+        end
+    end
     wait_ = meta_waiting(st, it)
 
     if it.is_pr

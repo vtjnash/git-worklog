@@ -893,7 +893,7 @@ end
     r = base(); r["last_comment_by"] = "alice"
     r["last_comment_at"] = "2026-08-28T17:00:00Z"
     r["head_at"] = "2026-08-20T00:00:00Z"
-    @test occursin("alice asked", look(r)) && occursin("4 work days", look(r))
+    @test occursin("asked, then quiet", look(r)) && occursin("4 work days", look(r))
     # Somebody did answer, so nobody is waiting on anybody.
     r2 = copy(r); r2["last_comment_by"] = "bob"
     @test isempty(look(r2))
@@ -903,12 +903,12 @@ end
         @test isempty(look(r2))
         # ...but only one that came after the author spoke.
         r2[k] = "2026-08-01T10:00:00Z"
-        @test occursin("alice asked", look(r2))
+        @test occursin("asked, then quiet", look(r2))
     end
     # Opened, and nothing said at all: the other reading of the same silence,
     # measured from the opening.
     r3 = base()
-    @test occursin("alice opened it", look(r3)) && occursin("10 work days", look(r3))
+    @test occursin("opened, then quiet", look(r3)) && occursin("10 work days", look(r3))
     # A push is not an action and it used to be: the author working on their
     # own branch says nothing about whether anybody is waiting. It neither
     # fires on its own nor moves the clock.
@@ -926,7 +926,7 @@ end
     # it is at the bottom rather than in the way, and `s` `1` is what takes it
     # out: a decision, in `marks.json`, undone by `z`, back when it moves.
     old = base(); old["created"] = "2025-01-02T00:00:00Z"
-    @test occursin("alice opened it", look(old))
+    @test occursin("opened, then quiet", look(old))
     @test occursin("work days", look(old))
     # And nothing fires on work that is over, or on the pile that is not a
     # to-do list.
@@ -951,7 +951,7 @@ end
     st = mkstate()
     @test any(x -> x[1] === :second, W.TAGS)
     quiet = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
-                   secondlook = "alice asked, then quiet for 3 work days")
+                   secondlook = "asked, then quiet for 3 work days")
     @test :second in W.tags_of(quiet)
     @test isempty(W.tags_of(W.Item(url = "u2", ref = "a#2", repo = "a/b",
                                    number = 2, title = "t")))
@@ -1055,6 +1055,15 @@ end
     @test says(W.Item(; base..., state = "CLOSED")) == ""
     # And what was fetched for one item is not said about another.
     @test says(W.Item(; base..., url = "https://example.invalid/pr/2", state = "OPEN")) == ""
+    # A value wider than the pane wraps under itself at the value column
+    # rather than being cut at the edge: "blocked — a required review or check
+    # is missing" is 46 columns, and the pane is often 40.
+    st.merge = ms(; status = "BLOCKED")
+    ls = W.astrip.(W.meta_lines(st, W.Item(; base..., state = "OPEN"), 40))
+    i = findfirst(l -> startswith(l, "mergeable"), ls)
+    @test i !== nothing && startswith(ls[i + 1], " "^10 * "or check")
+    @test all(W.awidth(l) <= 40 for l in ls)
+    @test occursin("check is missing", ls[i + 1])
 end
 
 @testset "a settled thread is out of the way, not gone" begin

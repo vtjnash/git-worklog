@@ -520,9 +520,10 @@ function second_look(r, at::DateTime, days::Int)
     # number in `config.toml`.
     n < days && return ""
     day(n) = string(n, n == 1 ? " work day" : " work days")
-    who = isempty(author) || author == "?" ? "the author" : author
-    lc === nothing ? string(who, " opened it, then quiet for ", day(n)) :
-                     string(who, " asked, then quiet for ", day(n))
+    # No subject: it is the author's silence by construction, and the author
+    # is the row above this one in the pane that shows it.
+    lc === nothing ? string("opened, then quiet for ", day(n)) :
+                     string("asked, then quiet for ", day(n))
 end
 
 # --- the facts the tags are made of ----------------------------------------
