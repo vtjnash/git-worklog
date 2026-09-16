@@ -381,6 +381,14 @@ resets are stripped too.
 Beside a hosted pane the detail is half the screen; `detail_pane` records the
 width and page it was drawn at, and every key that indexes rows reads that.
 
+**A resize is an event, not a tick.** SIGWINCH reaches the loop through
+libuv's `uv_signal_t` (`watch_winch!`) as a `ResizeEvent`, and the frame is
+drawn again at the new `displaysize`; a hosted pane resizes its child in
+`onresize!`. No cache has to be dropped, because every width-keyed one -
+`Node.cw`, `st.diw`, `st.dpage` - is checked against the frame that reads it.
+The alternative was a timer comparing `displaysize` five times a second for
+the life of the browser, and nothing here runs on a cadence of its own.
+
 **Coming back to an item lands where you were**, per item and per mode; a row
 leaving the list under you (`r`, `x`, `s`) leaves the cursor in place, so an
 inbox is read by pressing `r`. A new list - view, filter, query - opens at the

@@ -19,6 +19,7 @@ and each is explained where it is defined.
     handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit
     onmouse!(v, ev, ctrl) -> Symbol    the same, for a MouseEvent
     onwake!(v) -> Bool                 adopt background results; true to redraw
+    onresize!(v)                       the terminal changed shape; the frame is redrawn regardless
     wantsraw(v) -> Bool                take input undecoded, as bytes
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
     viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
@@ -28,6 +29,7 @@ and each is explained where it is defined.
 abstract type View end
 
 onwake!(::View) = false
+onresize!(::View) = nothing
 
 """Whether this view wants the bytes rather than the keys.
 
@@ -55,6 +57,17 @@ struct KeyEvent
     code::Int
 end
 struct WakeEvent end
+
+"""The terminal changed shape.
+
+Its own event and not a `WakeEvent`, so a view is told which it was: a wake
+means "something landed, adopt it", and a hosted pane on a wake resizes its
+child to whatever `displaysize` says *because* it cannot tell. Every cache
+keyed on a width - `Node.cw`, `st.diw`, `st.dpage` - is checked against the
+width of the frame that reads it, so nothing has to be dropped here; the frame
+is drawn again at the new size, which is the whole of what a resize needs.
+"""
+struct ResizeEvent end
 
 """Input has ended: the terminal went away and nothing more will ever arrive.
 
@@ -281,6 +294,71 @@ Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
 wake!(ctrl::Controller) = ctrl.running && isopen(ctrl.events) &&
                           put!(ctrl.events, WakeEvent())
 
+"""Hear the terminal change shape, and put a `ResizeEvent` on the loop.
+
+Nothing answered a resize before this: the frame was drawn at the `displaysize`
+read on the last key or wake and stayed that shape until the next one, so a
+narrowed terminal showed a torn frame and a widened one a frame in its corner
+until something was pressed - and a hosted pane's child was told its new box
+only then.
+
+SIGWINCH, through libuv's `uv_signal_t` - the loop it fires on is the one
+`take!(ctrl.events)` waits on, so this is the same plumbing as a key. Julia
+wraps no signal but its own, so the handle is libuv's directly: allocated at
+libuv's own size for it, started under the io lock the way `Timer` starts its
+handle, and unref'd so it never holds the loop open by itself. The signal
+callback runs on the loop and may not yield, so it does one thing that is safe
+there - `uv_async_send` on a `Base.AsyncCondition` - and a task waiting on the
+condition does the `put!`. A timer comparing `displaysize` every 200 ms was the
+other way, and one ioctl every fifth of a second for the life of the browser
+is a cadence of its own, which nothing else here runs on.
+
+Not on Windows, which has no signal for it: there `displaysize` at the next
+key is all there is, which is what it was everywhere.
+
+Returns the function that stops it, for `run!`'s `finally`.
+"""
+const SIGWINCH = 28
+const UV_SIGNAL = 16            # uv_handle_type, for `uv_handle_size`
+const WINCH_COND = Ref{Base.AsyncCondition}()
+winch_signalled(::Ptr{Cvoid}, ::Cint) =
+    (ccall(:uv_async_send, Cint, (Ptr{Cvoid},), WINCH_COND[].handle); nothing)
+winch_freed(h::Ptr{Cvoid}) = (Libc.free(h); nothing)
+function watch_winch!(ctrl::Controller)
+    Sys.iswindows() && return () -> nothing
+    cond = Base.AsyncCondition()
+    WINCH_COND[] = cond
+    h = Libc.malloc(ccall(:uv_handle_size, Csize_t, (Cint,), UV_SIGNAL))
+    Base.iolock_begin()
+    try
+        ccall(:uv_signal_init, Cint, (Ptr{Cvoid}, Ptr{Cvoid}), Base.eventloop(), h)
+        ccall(:uv_signal_start, Cint, (Ptr{Cvoid}, Ptr{Cvoid}, Cint), h,
+              @cfunction(winch_signalled, Cvoid, (Ptr{Cvoid}, Cint)), SIGWINCH)
+        ccall(:uv_unref, Cvoid, (Ptr{Cvoid},), h)
+    finally
+        Base.iolock_end()
+    end
+    @async while isopen(cond)
+        try
+            wait(cond)
+        catch
+            break                       # closed: the watch is over
+        end
+        ctrl.running && isopen(ctrl.events) && put!(ctrl.events, ResizeEvent())
+    end
+    () -> begin
+        Base.iolock_begin()
+        try
+            ccall(:uv_signal_stop, Cint, (Ptr{Cvoid},), h)
+            ccall(:uv_close, Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), h,
+                  @cfunction(winch_freed, Cvoid, (Ptr{Cvoid},)))
+        finally
+            Base.iolock_end()
+        end
+        close(cond)
+    end
+end
+
 """Turn mouse reporting on or off.
 
 Owning the mouse costs the terminal's own selection, so this is a toggle rather
@@ -485,6 +563,7 @@ function run!(ctrl::Controller, root::View)
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     ctrl.running = true
+    unwatch_winch = watch_winch!(ctrl)
     # The reader reads one event per token and then waits for the next, rather
     # than looping on `read`. That is what lets `suspend` hand stdin to a child:
     # between events this task is parked on `ready`, not on the tty.
@@ -546,6 +625,15 @@ function run!(ctrl::Controller, root::View)
                     logerror!(e, catch_backtrace(), "onwake!")
                     true                      # redraw, to show the warning
                 end
+            elseif ev isa ResizeEvent
+                # Redrawn whatever the view says: the screen is not the shape
+                # the last frame was.
+                try
+                    onresize!(v)
+                catch e
+                    logerror!(e, catch_backtrace(), "onresize!")
+                end
+                dirty = true
             else
                 armed = false
                 act = safe_dispatch!(v, ev, ctrl)
@@ -564,6 +652,10 @@ function run!(ctrl::Controller, root::View)
     finally
         ctrl.running = false
         isopen(ctrl.ready) && close(ctrl.ready)    # release the parked reader
+        try
+            unwatch_winch()
+        catch
+        end
         # Guarded, because the commonest way to get here is the terminal having
         # gone away - and then every one of these writes to a descriptor that is
         # closed. An exception thrown from a `finally` replaces whatever brought

@@ -105,6 +105,11 @@ function onwake!(v::PaneView)
     a || b
 end
 
+"""The screen changed shape: the child is told its new box now, not at the
+next wake or key. The reading side beside it keeps nothing keyed on a width
+that the next frame does not check."""
+onresize!(v::PaneView) = (pane_sync!(v); nothing)
+
 """Screen position of the child's top-left cell, 1-based `(col, row)`.
 
 The pane starts after whatever is drawn to its left, at the top of the screen;

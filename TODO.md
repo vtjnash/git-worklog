@@ -303,23 +303,14 @@ primitives under other names and `tmux_jll` covers three platforms.
 Written, compiled, state transitions driven through `handle!`; not exercised
 through a TTY. Strike through rather than delete when one answers.
 
-- [ ] **SIGWINCH.** Nothing answers a resize: the frame is drawn at the
-      `displaysize` read on the last key or wake (`run!`, `controller.jl:509`)
-      and stays that shape until the next one, so a narrowed terminal
-      shows a torn frame and a widened one a frame in its corner until
-      something is pressed - and a hosted pane's child is told its new box
-      only then (`iframe.jl:145`). Two ways to hear it: libuv's
-      `uv_signal_t` on SIGWINCH by `ccall`/`@cfunction` - Julia wraps no
-      signal but the loop it would fire on is the one `take!(ctrl.events)`
-      waits on, so the callback can `put!` a `ResizeEvent` beside
-      `WakeEvent`; or a `Timer` every 200 ms comparing `displaysize` and
-      putting the same event on a change - one ioctl, no signal plumbing,
-      and it works where a signal does not reach (a pane under tmux is
-      resized by tmux, which still sends the signal, but a pty that does
-      not is not unheard of). A `ResizeEvent` rather than a bare redraw so
-      a view can drop what it cached at the old width: `Node.cw`, `st.diw`
-      and `st.dpage` from the last frame, `rows(st.nodes, w)`. The
-      Windows half is `displaysize` alone; there is no signal.
+- [ ] **SIGWINCH**, end to end. `watch_winch!` hears it through libuv and
+      the loop redraws on the `ResizeEvent` (2026-09-16; the suite raises
+      the signal at itself and sees the event). Unseen: a real terminal
+      narrowed and widened with a thread, and with a hosted pane - whose
+      child is told its new box in `onresize!` - and a pty that does not
+      send the signal, where the frame stays the old shape until a key, as
+      it always did. The Windows half is `displaysize` at the next key
+      alone; there is no signal.
 - [ ] Arrow, page and Shift-Tab bytes from this terminal; which spelling of
       Alt it sends (on a Mac, Option may compose instead).
 - [ ] `^s` in the composer: raw mode should clear IXON.

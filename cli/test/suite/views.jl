@@ -535,3 +535,32 @@ end
         @test !W.name_process!("wl-test")
     end
 end
+
+@testset "a resize is an event on the loop" begin
+    # SIGWINCH through libuv, on the loop the key loop waits on: a `ResizeEvent`
+    # arrives on the controller's channel, and none does once the watch is
+    # stopped. Raised by hand, since there is no terminal here to narrow.
+    if !Sys.iswindows()
+        ctrl = W.Controller()
+        ctrl.running = true
+        stop = W.watch_winch!(ctrl)
+        try
+            ccall(:kill, Cint, (Cint, Cint), getpid(), W.SIGWINCH)
+            t = @async take!(ctrl.events)
+            @test timedwait(() -> istaskdone(t), 5.0) === :ok
+            @test fetch(t) isa W.ResizeEvent
+        finally
+            stop()
+        end
+        sleep(0.1)
+        ccall(:kill, Cint, (Cint, Cint), getpid(), W.SIGWINCH)
+        sleep(0.2)
+        @test !isready(ctrl.events)
+        # And a controller that is not running is not told: the event would sit
+        # on a channel nobody is going to read.
+        ctrl.running = false
+    end
+    # The default answer to a resize is nothing to do but redraw, which the
+    # loop does regardless.
+    @test W.onresize!(mkstate()) === nothing
+end
