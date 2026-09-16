@@ -421,7 +421,7 @@ end
         # The refresh writes it down.
         srch(q) = (Any[], 4, 0)
         @test W.refresh(String[], W.DateTime(2026, 9, 10); search = srch,
-                        fetch_url_map = x -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        fetch_url_map = x -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                         open_list = (a...; kw...) -> []) == 0
         @test W.mark_at(u, "read") == "" && W.get_field(u, "snooze") === nothing
         @test W.read_head(u) == "cafe"                         # still where you were
@@ -560,7 +560,7 @@ end
                              "why" => "you were mentioned"),
             Dict{String,Any}("url" => U(7), "updated" => "2026-09-13T09:00:10Z",
                              "lane" => "notifications", "reason" => "subscribed")]
-        @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock, open_list = (a...; kw...) -> []) == 0
+        @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, poll = clock, open_list = (a...; kw...) -> []) == 0
         @test sort(asked) == [U(3), U(5), U(6)]
         its = W.fetched("items")
         have = sort(String.(collect(keys(its))))
@@ -589,7 +589,7 @@ end
                             updatedAt = "2026-09-13T11:30:00Z"))
         clock2(cfg, login, at) = [Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
-                        fetch_url_map = moved, unread = clock2, open_list = (a...; kw...) -> []) == 0
+                        fetch_url_map = moved, poll = clock2, open_list = (a...; kw...) -> []) == 0
         its = W.fetched("items")
         @test haskey(its, Symbol("https://github.com/o/moved/issues/3")) && !haskey(its, Symbol(U(3)))
         @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "landed"
@@ -599,7 +599,7 @@ end
         boom(urls) = throw(W.FetchError("secondary rate limit"))
         clock3(cfg, login, at) = [Dict{String,Any}("url" => U(2), "updated" => "2026-09-13T15:00:00Z")]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 16); search = srch,
-                        fetch_url_map = boom, unread = clock3, open_list = (a...; kw...) -> []) == 0
+                        fetch_url_map = boom, poll = clock3, open_list = (a...; kw...) -> []) == 0
         @test haskey(W.fetched("items"), Symbol(U(2)))
 
         # The refresh derives against the browser's bundle when that is the
@@ -612,7 +612,7 @@ end
                     state = "MERGED", ci = "FAILURE", ci_failed = true)
             W.cache_put(W.bundle_key(U(2)), b)
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 18); search = srch,
-                            fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
+                            fetch_url_map = byurl, poll = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
             @test W.fetched("items")[Symbol(U(2))].moved_at == "2026-09-13T16:30:00Z"
         finally
             W.CACHE_DIR[] = keepdir
@@ -627,7 +627,7 @@ end
         @test W.covered(U(2), Dict{String,Any}("repos" => ["o/*"]))
         asked = String[]
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 19); search = srch,
-                        fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
+                        fetch_url_map = byurl, poll = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
         @test U(6) in asked && !(U(2) in asked) && !(U(4) in asked)
         # A mark is proof a row was in front of you: a light row with a block
         # in local.toml joins the corpus - off the bundle the browser cached
@@ -644,7 +644,7 @@ end
             light9(cfg, login, at) = [Dict{String,Any}("url" => U(9), "lane" => "activity",
                                                         "updated" => "2026-09-13T18:20:00Z")]
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 20); search = srch,
-                            fetch_url_map = byurl, unread = light9, open_list = (a...; kw...) -> []) == 0
+                            fetch_url_map = byurl, poll = light9, open_list = (a...; kw...) -> []) == 0
             its = W.fetched("items")
             @test haskey(its, Symbol(U(8))) && its[Symbol(U(8))].lane == "notifications"
             @test U(9) in asked
@@ -655,7 +655,7 @@ end
             W.set_read(U(2), "2026-09-13T23:00:00Z")
             asked = String[]
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 21); search = srch,
-                            fetch_url_map = byurl, unread = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
+                            fetch_url_map = byurl, poll = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
             @test U(2) in asked
         finally
             W.CACHE_DIR[] = keepdir
@@ -813,7 +813,7 @@ end
         srch(q) = (Any[], 4, 0)
         @test isempty(W.source_since())
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 12); search = srch,
-                        fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                         open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (@test only === nothing; rows)) == 0
         its = W.fetched("items")
         u1, u2 = rows[1]["url"], rows[2]["url"]
@@ -896,7 +896,7 @@ end
         W.mark_unread([u1])                                  # said unread, as above
         # A second import leaves rows the corpus has alone, and adds none.
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 13); search = srch,
-                        fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                        fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                         open_list = (cfge, login; only = nothing, spent = Ref(0)) -> rows) == 0
         @test W.fetched("items")[Symbol(u1)].new == false && W.mark_at(u1, "read") == ""
         # Without the flag, only a source not yet named is asked for its
@@ -905,12 +905,12 @@ end
         # the latter does not bring the lists in again as if new.
         seen = Ref{Any}(:unset)
         W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
-                  fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                  fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
         @test seen[] === :unset                          # not asked at all
         write(W.LOCAL[], "")
         W.refresh(String[], W.DateTime(2026, 9, 13, 15); search = srch,
-                  fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                  fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
         @test seen[] isa Vector && !isempty(seen[])
         @test Set(keys(W.source_since())) == Set(seen[])
@@ -932,7 +932,7 @@ end
         W.save_fetched(its)
         write(W.LOCAL[], "")
         run(at) = W.refresh(String[], at; search = srch,
-                            fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                            fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                             open_list = (cfge, login; only = nothing, spent = Ref(0)) -> [])
         run(W.DateTime(2026, 9, 13, 16))
         named = W.source_since()
@@ -1009,7 +1009,7 @@ end
                        W.OrderedDict{String,Any}(u => u == U(4) ? node(u, 4) : nothing for u in urls))
         srch(q) = (Any[], 4, 0)
         clock(a...) = collect(values(W.Events.load_inbox()["items"]))
-        run(at) = W.refresh(String[], at; search = srch, fetch_url_map = byurl, unread = clock,
+        run(at) = W.refresh(String[], at; search = srch, fetch_url_map = byurl, poll = clock,
                             open_list = (a...; kw...) -> [])
         @test run(W.DateTime(2026, 9, 13, 12)) == 0
         left = Set(keys(W.Events.load_inbox()["items"]))
@@ -1034,6 +1034,72 @@ end
         # a third run changes nothing.
         @test run(W.DateTime(2026, 9, 13, 15)) == 0
         @test Set(keys(W.Events.load_inbox()["items"])) == left
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+end
+
+@testset "wl unread and wl read all are seen_of over the corpus and the light rows" begin
+    # 2026-09-16, as a fixture: "mark everything read" took three passes and
+    # 2277 stamps because the unread list was the inbox listing, pruned on
+    # `updated <= read`, while the marks stamped `moved_at`. One list now,
+    # `unread_items`, and one `read all` over it finds nothing the second
+    # time by construction.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    U(n) = "https://github.com/o/r/issues/$n"
+    row(n; kw...) = merge(Dict{String,Any}(
+        "url" => U(n), "type" => "Issue", "lane" => "mine", "state" => "OPEN",
+        "mine" => true, "author" => "vtjnash", "title" => "t$n", "number" => n,
+        "repo" => "o/r", "labels" => String[], "created" => "2026-09-01T00:00:00Z",
+        "updated" => "2026-09-10T00:00:00Z", "moved_at" => "2026-09-10T00:00:00Z",
+        "fetched_at" => "2026-09-15T00:00:00Z", "track" => "normal", "ref" => "r#$n"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    try
+        at = W.DateTime(2026, 9, 16, 12)
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1; updated = "2026-09-15T00:00:00Z"),   # the 366: a label after
+            U(2) => row(2; lane = "firehose", moved_at = "2026-09-08T00:00:00Z"),  # the 1915: no floor
+            U(3) => row(3; lane = "backlog"),                    # under the floor: read
+            U(5) => row(5; moved_at = "2026-09-09T00:00:00Z"), U(6) => row(6))))
+        light = W.OrderedDict{String,Any}("url" => U(4), "repo" => "o/r", "number" => 4,
+            "title" => "t4", "is_pr" => false, "state" => "open", "author" => "bob",
+            "updated" => "2026-09-14T00:00:00Z", "comments" => 1, "labels" => String[],
+            "mine" => false, "lane" => "activity")
+        inbox = W.Events.load_inbox(); inbox["items"][U(4)] = light; W.Events.save_inbox(inbox)
+        W.name_source!("mine", "2026-09-01T00:00:00Z")
+        W.name_source!("o/r", "2026-09-12T00:00:00Z")
+        W.set_read(U(5), "2026-09-09T00:00:00Z")                          # woken below
+        W.set_fields(U(5), ["snooze" => "2026-09-11T00:00:00Z"])
+        W.set_read(U(6), "2026-09-10T00:00:00Z")                          # read
+        polled(a...; kw...) = collect(values(W.Events.load_inbox()["items"]))
+        @test [it.url for it in W.unread_items(at)] == [U(4), U(1), U(5), U(2)]  # newest movement first
+        # The JSON dump is that list.
+        said(args, when) = mktemp() do path, io
+            redirect_stdout(() -> W.dispatch(args, when; poll = polled), io)
+            flush(io)
+            read(path, String)
+        end
+        js = W.JSON3.read(said(["unread"], at))
+        @test [String(j.url) for j in js] == [U(4), U(1), U(5), U(2)]
+        @test js[1].lane == "activity" && js[2].moved_at == "2026-09-10T00:00:00Z"
+        @test js[2].updated == "2026-09-15T00:00:00Z" && js[2].state == "open"
+        # One pass reads everything; the stamps are the movements.
+        @test occursin("marked 4 threads read", said(["read"], at))
+        @test W.read_at(U(1)) == "2026-09-10T00:00:00Z"        # moved_at, under updated
+        @test W.read_at(U(2)) == "2026-09-08T00:00:00Z"
+        @test W.read_at(U(4)) == "2026-09-14T00:00:00Z"        # the light row's clock
+        @test W.read_at(U(5)) == "2026-09-09T00:00:00Z" && W.get_field(U(5), "snooze") === nothing
+        @test W.mark_at(U(3), "read") === nothing              # never touched: the floor answers
+        @test isempty(W.unread_items(at))
+        # And the second pass finds nothing, by construction.
+        @test occursin("marked 0 threads read", said(["read"], at + W.Minute(1)))
+        # With nothing fetched at all the list is what the inbox says, and
+        # not an error.
+        rm(W.FETCHED[])
+        @test isempty(W.unread_items(at, []))
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end

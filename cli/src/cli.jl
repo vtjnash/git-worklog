@@ -135,7 +135,7 @@ function import_urls(urls::Vector{String}, at::DateTime)
     0
 end
 
-function dispatch(args::Vector{String}, at::DateTime = utcnow())
+function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.poll)
     (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     cmd = args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
@@ -152,7 +152,9 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     end
     if cmd == "unread"
         # With a ref it is the inverse of `read`; bare it is the JSON dump,
-        # which is how anything outside this program asks what is unread.
+        # which is how anything outside this program asks what is unread:
+        # the clocks polled, then `seen_of` over the corpus and the light
+        # rows - the one answer, the browser's too.
         if length(args) > 1
             for u in refs(args[2])
                 println(mark_unread([u]) == 0 ? "was not marked read $u" :
@@ -161,7 +163,8 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
             return 0
         end
         cfg = config()
-        print(json_dumps(Events.unread(cfg, cfg["login"], at; verbose = false)))
+        rows = poll(cfg, cfg["login"], at; verbose = false)
+        print(json_dumps([item_json(it) for it in unread_items(at, rows)]))
         return 0
     end
     if cmd == "watching"
@@ -228,8 +231,12 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
     if cmd == "read"
         arg = length(args) > 1 ? args[2] : "all"
         if arg == "all"
+            # The same list `wl unread` prints, so a second `read all` finds
+            # nothing by construction: every row it stamps is stamped at the
+            # movement `seen_of` compares against.
             cfg = config()
-            urls = [e["url"] for e in Events.unread(cfg, cfg["login"], at; verbose = false)]
+            rows = poll(cfg, cfg["login"], at; verbose = false)
+            urls = [it.url for it in unread_items(at, rows)]
             println("marked $(mark_read_moved(urls, at; fold = true)) threads read")
         else
             for u in refs(arg)

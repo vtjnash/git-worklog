@@ -1107,7 +1107,7 @@ used to be named for the unread list and prune on the read stamp, which was
 one of three answers to the question. The sources are `sources`, the loop is
 `sync!`.
 """
-function unread(cfg, login, at::DateTime; verbose::Bool = true)
+function poll(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = get(cfg, "events", Dict{String,Any}())
     srcs = sources(cfg, login; verbose = verbose)
     isempty(srcs) && return OrderedDict{String,Any}[]

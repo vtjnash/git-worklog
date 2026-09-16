@@ -144,7 +144,7 @@ precompile(normalize, (JSON3.Object{Base.CodeUnits{UInt8,String},
                                     SubArray{UInt64,1,Vector{UInt64},
                                              Tuple{UnitRange{Int64}},true}},
                        String, String))
-precompile(Events.unread, (Dict{String,Any}, String, DateTime))
+precompile(Events.poll, (Dict{String,Any}, String, DateTime))
 precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(ui, (Vector{String}, DateTime))
 

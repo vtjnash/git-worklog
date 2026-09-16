@@ -1150,7 +1150,7 @@ function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
 end
 
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
-                 search = search, fetch_url_map = fetch_url_map, unread = Events.unread,
+                 search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
                  open_list = open_list)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
@@ -1273,7 +1273,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
 
     # **Everything else is asked by url, and only when a clock says it
     # moved.** The clocks are the notifications source and the repo poll,
-    # which `Events.unread` runs and whose rows say, per url, GitHub's time
+    # which `Events.poll` runs and whose rows say, per url, GitHub's time
     # for the newest thing either saw. Three kinds of row reach this:
     #
     #   * a row the corpus has - once in a lane, or brought in below - that no
@@ -1301,7 +1301,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # its carried keys gone, or oscillated between the clock bringing it in
     # and the prune letting it go. The rows of the nine retired lanes stay
     # too, as they were; `in_pile` knows their names.
-    inbox = Dict{String,Any}(String(e["url"]) => e for e in unread(cfg, login, at))
+    inbox = Dict{String,Any}(String(e["url"]) => e for e in poll(cfg, login, at))
     # A lane row carries the thread's reason too, when there is one: a mention
     # on your own pull request is a mention, and the `reply` tag reads it.
     # Off the row it replaces when the inbox has no thread for it any more.

@@ -551,11 +551,43 @@ function ui(args = String[], at::DateTime = utcnow())
     # tracked from the moment it is made rather than from the next one.
     append!(items, imported_items(Set(x.url for x in items), at))
     append!(items, inbox_items(Set(x.url for x in items),
-                               Events.unread(cfg, cfg["login"], at; verbose = false)))
+                               Events.poll(cfg, cfg["login"], at; verbose = false)))
     # Straight into the browser: what the lane menu used to choose is now a tag.
     browse(items, "worklog")
     0
 end
+
+"""Every unread row, as items, newest movement first: `seen_of` over the
+corpus and the light rows, which is the one answer to "what is unread" -
+`wl unread` prints it, `wl read all` marks it, and the browser's base list
+is the same rows through the same `seen_of`, with the adopted branches and
+the imports it fetched beside them. Not the inbox listing: the inbox is a
+clock (`Events.poll`), and a row it holds may be read. `rows` is the inbox,
+polled first by the callers that want it fresh.
+
+Neither `local_items` nor `imported_items`: the first walks the checkouts
+and the second reaches GitHub, and an import that no refresh has caught up
+with is in the inbox as a light row, said unread, until one has.
+"""
+function unread_items(at::DateTime, rows = values(Events.load_inbox()["items"]))
+    items = fetched("items") === nothing ? Item[] : loaditems()
+    append!(items, inbox_items(Set(x.url for x in items), rows))
+    m = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
+              now = stamp(at))
+    sort!([it for it in items if seen_of(it, m) === :unread];
+          by = it -> something(moved_of(it), ""), rev = true)
+end
+
+"""One item as `wl unread` prints it: what an outside reader can act on -
+the url and the ref, what it is, whose, where it stands, and when it last
+moved. The shape the inbox rows had, with `moved_at` beside `updated`."""
+item_json(it::Item) = OrderedDict{String,Any}(
+    "url" => it.url, "ref" => it.ref, "repo" => it.repo, "number" => it.number,
+    "title" => it.title, "is_pr" => it.is_pr,
+    "state" => lowercase(isempty(it.state) ? "open" : it.state),
+    "author" => it.author, "updated" => it.updated, "moved_at" => it.moved_at,
+    "labels" => it.labels, "mine" => it.author == login(),
+    "lane" => it.lane, "why" => it.why)
 
 """The rows the clocks know and the corpus does not, as items to select.
 
@@ -566,7 +598,7 @@ and is not older than the inbox's clock for it: nothing but the cursor ever
 re-fetches such a bundle, and one from before the last comment would show the
 row read for as long as the bundle is kept.
 
-`rows` is the inbox: at launch what `Events.unread` just polled, and on a
+`rows` is the inbox: at launch what `Events.poll` just polled, and on a
 reload under the browser what the file holds - a refresh landing is what
 reloads, and it polled on the way - so a reload rebuilds the same list launch
 did rather than keeping the old light rows by hand off a set the poll wrote

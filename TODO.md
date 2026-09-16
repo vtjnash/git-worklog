@@ -257,7 +257,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
             read. Tests: read + consumed dropped, unread kept, unanswered
             kept, light row kept then promoted then dropped; a row with
             `updated > moved_at` (the 366) is dropped after `wl read`.
-      - [ ] `unread_items(at)` in `Worklog`; `wl unread`, `wl read all`, the
+      - [x] `unread_items(at)` in `Worklog`; `wl unread`, `wl read all`, the
             launch poll in `ui` and `inbox_items` on it; `Events.unread`
             renamed. Test: the 2026-09-16 scenario as a fixture - `read
             all` once, then zero.
