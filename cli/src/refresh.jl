@@ -1101,7 +1101,7 @@ unread side starts at zero - `backfill_days`, and a clock brings in only what
 moves from then on - and this is the other half of that policy: the open
 issues and pull requests of every repository under `[events]` are in the
 corpus from the start, as `backlog` rows, read by construction up to the day
-the source was named (`source_since`, `baseline_of`; the `source:` blocks in
+the source was named (`source_since`, `floor_of`; the `source:` blocks in
 `local.toml`), so the backlog view is the standing list and the dashboard is
 not. Unread the moment one next moves, like any carried row; filled in by url
 then, or when the cursor lands on it.
@@ -1413,6 +1413,25 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # this run, and from here the clocks are read against it.
     for (url, r) in items
         truthy(get(r, "fetched_at", nothing)) || (r["fetched_at"] = now_())
+    end
+
+    # **Every source names itself on first sight**, and a lane is a source:
+    # a row with no read stamp is read up to the day its source was named
+    # (`floor_of`), so a lane first seen today - the three configured ones on
+    # the first run, the retired ones once, for their rows from before there
+    # was a floor - reads as zero unread rather than as every row it ever
+    # returned. The repositories were named above, where their lists came
+    # in, and `notifications` where its cursor started; what is left is
+    # every lane value a corpus row carries with no block yet.
+    let named = source_since(), f = now_()
+        lanes = unique(String(nz(get(r, "lane", nothing), "")) for (_, r) in items)
+        fresh = sort!([l for l in lanes if !isempty(l) && !(l in ("backlog", "activity")) &&
+                                            !haskey(named, l)])
+        for l in fresh
+            name_source!(l, f)
+        end
+        isempty(fresh) || @printf(stderr, "  %-9s %d source(s) named, read up to today: %s\n",
+                                  "sources", length(fresh), join(fresh, ", "))
     end
 
     # The facts, then the tracking level, then the wake table at that level.

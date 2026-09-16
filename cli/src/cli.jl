@@ -230,10 +230,10 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         if arg == "all"
             cfg = config()
             urls = [e["url"] for e in Events.unread(cfg, cfg["login"], at; verbose = false)]
-            println("marked $(mark_read_moved(urls, at)) threads read")
+            println("marked $(mark_read_moved(urls, at; fold = true)) threads read")
         else
             for u in refs(arg)
-                mark_read_moved([u], at)
+                mark_read_moved([u], at; fold = true)
                 println("marked read $u")
             end
         end
@@ -295,7 +295,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow())
         # happens to it.
         for u in urls
             set_fields(u, ["track" => "loose"])
-            mark_read_moved([u], at)
+            mark_read_moved([u], at; fold = true)
             println("dismissed $u (returns only on a review, reply, push or close)")
         end
         return 0

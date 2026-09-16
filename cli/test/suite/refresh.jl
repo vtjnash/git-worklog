@@ -769,8 +769,56 @@ end
         @test W.read_at(u1) === nothing && W.mark_at(u1, "read") == ""
         @test W.seen_of(it, m()) === :unread                 # said, so the baseline does not answer
         @test W.seen_of(W.with(it; lane = "mine"), W.Marks(read = W.load_read(), now = "x")) === :unread
-        # A row that is not backlog gets no baseline: never read is unread.
-        @test W.seen_of(W.item_of(its[Symbol(u2)]) |> x -> W.with(x; lane = "notifications"), m()) === :unread
+        # **The floor answers in every lane**, and a lane is a source: a row
+        # of a lane with no `source:` block is unread, and read up to the
+        # day the lane was named once it has one - however it got there.
+        it2 = W.item_of(its[Symbol(u2)])
+        for lane in ("notifications", "mine", "imported", "firehose", "carried")
+            @test W.source_of(lane, "o/r", W.source_since()) == lane
+            @test W.seen_of(W.with(it2; lane = lane), m()) === :unread
+        end
+        @test W.source_of("activity", "o/r", W.source_since()) == "o/r"
+        @test W.source_of("activity", "o/other", Dict("o/*" => "x")) == "o/*"
+        @test W.source_of("backlog", "p/q", W.source_since()) == "p/q"   # no block: unread
+        @test W.floor_of("backlog", "p/q", W.source_since()) === nothing
+        W.name_source!("notifications", "2026-09-10T00:00:00Z")
+        W.name_source!("mine", "2026-09-12T00:00:00Z")
+        @test W.seen_of(W.with(it2; lane = "notifications"), m()) === :read
+        @test W.seen_of(W.with(it2; lane = "mine"), m()) === :read
+        @test W.seen_of(W.with(it2; lane = "activity"), m()) === :read       # the repo's block
+        @test W.seen_of(W.with(it2; lane = "firehose"), m()) === :unread     # still no block
+        # Moved past the lane's day, unread; said unread, unread whatever the
+        # floor says - `read = ""` beats it in every lane, as in the backlog.
+        @test W.seen_of(W.with(it2; lane = "mine", moved_at = "2026-09-13T00:00:00Z"), m()) === :unread
+        @test W.seen_of(W.with(it2; lane = "notifications", moved_at = "2026-09-11T00:00:00Z"), m()) === :unread
+        W.mark_unread([u2])
+        @test W.seen_of(W.with(it2; lane = "mine"), m()) === :unread
+        # And a plain read mark on a row the floor already answers for folds
+        # the key away rather than stamping it: the block says nothing again,
+        # and `seen_of` answers the same. `wl read` and `r` alike; a snooze
+        # and an archive keep their stamp, since the refresh reads either
+        # with no stamp as put away by hand.
+        @test W.folded("2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z") === nothing
+        @test W.folded("2026-09-11T00:00:00Z", "2026-09-10T00:00:00Z") == "2026-09-11T00:00:00Z"
+        @test W.folded("2026-09-01T00:00:00Z", nothing) == "2026-09-01T00:00:00Z"
+        @test W.mark_read_moved([u2], W.DateTime(2026, 9, 13, 12); fold = true) == 1
+        @test W.mark_at(u2, "read") === nothing && W.seen_of(it2, m()) === :read
+        W.mark_read_moved([u2], W.DateTime(2026, 9, 13, 12))
+        @test W.mark_at(u2, "read") == it2.moved_at
+        W.mark_unread([u1])
+        ctrl = W.Controller()
+        st = W.BState([it], "t"); st.filters = W.everything(); W.refilter!(st)
+        st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
+        st.nodes = W.Node[]
+        W.handle!(st, Int('r'), ctrl, W.DateTime(2026, 9, 13, 12))
+        @test st.status == "marked read" && W.mark_at(u1, "read") === nothing
+        @test W.seen_of(it, W.Marks(st)) === :read
+        W.handle!(st, Int('z'), ctrl)
+        @test W.mark_at(u1, "read") == ""
+        W.apply_snooze!(st, it, "3d", W.DateTime(2026, 9, 13, 12))
+        @test W.mark_at(u1, "read") == it.moved_at
+        W.apply_snooze!(st, it, nothing, W.DateTime(2026, 9, 13, 12))
+        W.mark_unread([u1])                                  # said unread, as above
         # A second import leaves rows the corpus has alone, and adds none.
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 13); search = srch,
                         fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
@@ -791,6 +839,47 @@ end
                   open_list = (cfge, login; only = nothing, spent = Ref(0)) -> (seen[] = only; []))
         @test seen[] isa Vector && !isempty(seen[])
         @test Set(keys(W.source_since())) == Set(seen[])
+        # **Every lane names itself too**, the first time a corpus row carries
+        # it, and a fresh local.toml names every source on the first run and
+        # nothing on the second: the retired lanes once, for the rows they
+        # left, and never a repository's own lanes, which the repository
+        # answers for.
+        its = W.load_fetched()
+        its["items"] = Dict{String,Any}(String(k) => v for (k, v) in pairs(its["items"]))
+        for (u, lane) in (("https://github.com/o/r/pull/20", "mine"),
+                          ("https://github.com/o/r/issues/21", "firehose"),
+                          ("https://github.com/o/r/issues/22", "activity"))
+            its["items"][u] = Dict{String,Any}("url" => u, "repo" => "o/r", "number" => 20,
+                                               "title" => "t", "lane" => lane, "state" => "OPEN",
+                                               "updated" => "2026-09-01T00:00:00Z",
+                                               "fetched_at" => "2026-09-13T00:00:00Z")
+        end
+        W.save_fetched(its)
+        write(W.LOCAL[], "")
+        run(at) = W.refresh(String[], at; search = srch,
+                            fetch_url_map = u -> W.OrderedDict{String,Any}(), unread = (a...) -> Any[],
+                            open_list = (cfge, login; only = nothing, spent = Ref(0)) -> [])
+        run(W.DateTime(2026, 9, 13, 16))
+        named = W.source_since()
+        @test haskey(named, "mine") && haskey(named, "firehose") && haskey(named, "backlog") == false
+        @test !haskey(named, "activity") && !haskey(named, "o/r")   # the repository's: not a lane
+        @test all(v -> startswith(v, "2026-09-13T16:00"), (named["mine"], named["firehose"]))
+        before = read(W.LOCAL[], String)
+        run(W.DateTime(2026, 9, 13, 17))
+        @test read(W.LOCAL[], String) == before                    # nothing to name
+        # So the rows are read by construction, whatever their lane, and
+        # unread once they move past the day.
+        m2 = W.Marks(read = W.load_read(), sources = W.source_since(), now = "2026-09-13T18:00:00Z")
+        mine = W.item_of(W.fetched("items")[Symbol("https://github.com/o/r/pull/20")])
+        @test mine.lane == "mine" && W.seen_of(mine, m2) === :read
+        @test W.seen_of(W.with(mine; moved_at = "2026-09-13T17:00:00Z"), m2) === :unread
+        # And the notifications source names itself where its cursor starts.
+        E = W.Events
+        E.sync!([(label = "notifications", fetch = since -> Any[], overlap = E.OVERLAP_REST,
+                  row = (t, _) -> nothing)], W.DateTime(2026, 9, 13, 18);
+                now = () -> W.DateTime(2026, 9, 13, 18), watched = () -> Set{String}())
+        @test W.source_since()["notifications"] == "2026-09-13T18:00:00Z"
+        @test W.source_cursors()["notifications"] == "2026-09-13T18:00:00Z"
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end

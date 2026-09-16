@@ -247,7 +247,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
             `read_up_to` gone. Tests: the three call sites stamp what
             `seen_of` compares, on a corpus row, a light row and a
             synthetic one.
-      - [ ] `source_of` beside `baseline_of`; `seen_of` uses it for every
+      - [x] `source_of` beside `baseline_of`; `seen_of` uses it for every
             lane; `name_source!` for lanes, `notifications` and unnamed
             lane values in the refresh. Tests: no stamp + `since` in every
             lane; a lane with no block is unread; `read = ""` beats the

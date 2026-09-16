@@ -136,24 +136,39 @@ end
 # --- the seen bit ------------------------------------------------------------
 #
 # **Two layers, and the file's is on top.** A read stamp on an item's block is
-# something you did. Beneath it, for a row that arrived as background - the
-# open list of a repository named under `[events]`, imported whole for the
-# backlog view - is the *baseline*: the day you named that repository, one
-# block per source, `["source:JuliaLang/julia"] since = ...`. Such a row was
-# never in front of you, so it is read up to that day by construction, and
-# unread the moment it next moves past it. A fact about what you did, in the
-# file that holds those, and one line per repository rather than one per row;
-# and it rebuilds exactly, since a row's mark is recomputed from GitHub's own
-# event times, so a `fetched.json` lost and re-imported comes out with the same
-# rows unread. (For an evening it was a stamp per row in `fetched.json`, which
-# put a fact GitHub cannot answer in the file that is supposed to hold only
-# what it can.)
+# something you did. Beneath it is the *floor*: the day the row's source was
+# named, one block per source, `["source:JuliaLang/julia"] since = ...`. A
+# row with no stamp is read up to that day by construction and unread the
+# moment it next moves past it - **in every lane**: the open list of a
+# repository imported whole for the backlog view, and equally a pull request
+# of yours from 2021 that a lane returned on the first run and no clock ever
+# carried since. Day zero reads zero. A source is what fetched the row
+# (`source_of`): a repository, then the glob over its owner, for a `backlog`
+# or `activity` row; the lane's own name for everything else; and every one
+# names itself on first sight - the repositories when their lists are
+# imported, `notifications` where its cursor is first written, a lane the
+# first time a corpus row carries it (`name_source!`, from the refresh). A
+# source with no block answers nothing, and such a row is unread.
+#
+# A fact about what you did, in the file that holds those, and one line per
+# source rather than one per row; and it rebuilds exactly, since a row's mark
+# is recomputed from GitHub's own event times, so a `fetched.json` lost and
+# re-imported comes out with the same rows unread. (For an evening it was a
+# stamp per row in `fetched.json`, which put a fact GitHub cannot answer in
+# the file that is supposed to hold only what it can.) Until 2026-09-16 the
+# floor answered for a backlog row only, and 1915 rows of the other lanes -
+# retired ones, and `mine` back to 2021 - were unread with nothing to read.
 #
 # And **unread is sayable**: `read = ""` is a key present with nothing in it,
 # which `get_field` tells from an absent one, and it is what `r` writes to put
-# a row back - under the baseline as under a stamp, "" is earlier than any
-# movement. An absent key means nothing has been said, and the baseline
-# answers for a backlog row; an empty one means you said unread.
+# a row back - under the floor as under a stamp, "" is earlier than any
+# movement. An absent key means nothing has been said, and the floor answers;
+# an empty one means you said unread. The other way round folds: a plain read
+# mark on a row whose movement is at or under the floor drops the key rather
+# than stamping it (`folded`), since the floor already answers and the block
+# goes back to saying nothing. `s` and `x` keep stamping, because the refresh
+# reads a snooze or an archive with no stamp as put away by hand and stamps
+# it, and a hand-typed span counts from the stamp.
 
 "When each source was named: `label -> ISO8601`, off the `source:` blocks."
 source_since() = Dict{String,String}(String(k)[8:end] => v
@@ -187,11 +202,28 @@ end
 """The baseline for a row of `repo`: the day the source that covers it was
 named, or `nothing` when none does. A repository named outright beats the
 glob over its owner, being the more deliberate of the two."""
-function baseline_of(repo::AbstractString, sources::AbstractDict)
-    s = get(sources, String(repo), nothing)
-    s === nothing || return s
-    get(sources, string(first(split(String(repo), '/')), "/*"), nothing)
+baseline_of(repo::AbstractString, sources::AbstractDict) =
+    get(sources, source_of("backlog", repo, sources), nothing)
+
+"""The source a row came through, as the label of its `source:` block: the
+repository, else the glob over its owner, for a row the repository's own
+list or poll fetched (`backlog`, `activity`); `notifications` by itself; any
+other lane by its name. The label whether or not a block exists for it, so
+that what is named and what is read are the same question."""
+function source_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict)
+    lane in ("backlog", "activity") || return String(lane)
+    haskey(sources, String(repo)) && return String(repo)
+    g = string(first(split(String(repo), '/')), "/*")
+    haskey(sources, g) ? g : String(repo)
 end
+
+"The day the row's source was named, or `nothing`: what a row with no stamp is read up to."
+floor_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict) =
+    get(sources, source_of(lane, repo, sources), nothing)
+
+"""What a plain read mark writes: `upto`, or `nothing` - the key dropped - when
+the floor already answers for a movement that early."""
+folded(upto::AbstractString, floor) = (floor !== nothing && upto <= floor) ? nothing : upto
 
 "Every seen-up-to timestamp: `url -> ISO8601`."
 load_read() = load_field("read")
@@ -221,11 +253,14 @@ set_read(url::AbstractString, at::Union{Nothing,AbstractString}) =
 The pair is written in one pass because it is one fact - where you were - and
 the two halves disagreeing is the only way `p` can show a diff from somewhere
 you never stood. `head` may be empty for an item that has no head commit to
-have; the key is then dropped rather than written blank.
+have; the key is then dropped rather than written blank. With `fold`, a
+stamp of `nothing` is the floor answering rather than unread (`folded`), and
+the head is kept: you did look, and the head you saw is still the head you
+saw.
 """
 function set_read_mark(url::AbstractString, at::Union{Nothing,AbstractString},
-                       head::Union{Nothing,AbstractString} = nothing)
-    h = (at === nothing || head === nothing || isempty(head)) ? nothing : String(head)
+                       head::Union{Nothing,AbstractString} = nothing; fold::Bool = false)
+    h = ((at === nothing && !fold) || head === nothing || isempty(head)) ? nothing : String(head)
     set_blocks!([String(url) => ["read" => at === nothing ? nothing : String(at),
                                  "read_head" => h]])
     nothing
@@ -281,8 +316,12 @@ could not be marked read by anything. Nothing compares a stamp against
 moved_of(moved_at, updated) =
     truthy(moved_at) ? String(moved_at) : truthy(updated) ? String(updated) : nothing
 moved_of(::Nothing) = nothing
-moved_of(r::AbstractDict{String}) = moved_of(get(r, "moved_at", nothing), get(r, "updated", nothing))
-moved_of(r) = moved_of(jget(r, :moved_at), jget(r, :updated))
+moved_of(r) = moved_of(rget(r, "moved_at"), rget(r, "updated"))
+
+"""One key of a row, or `nothing`: an inbox row is keyed by `String`, a corpus
+row read back from `fetched.json` by `Symbol`, and the marks read both."""
+rget(r::AbstractDict{String}, k::AbstractString) = get(r, k, nothing)
+rget(r, k::AbstractString) = jget(r, Symbol(k))
 
 """Mark each url read up to its own last movement - `moved_of` over the row
 the corpus or the inbox has for it, `at` for a synthetic row that has neither
@@ -290,14 +329,24 @@ the corpus or the inbox has for it, `at` for a synthetic row that has neither
 which have no thread on screen to have read up to. The inbox as well as the
 corpus so that a light row gets the stamp `r` in the browser would give it,
 and the bundle over the file's row for the same reason `loaditems` takes it:
-it is the newer of the two."""
-function mark_read_moved(urls, at::DateTime)
+it is the newer of the two. With `fold`, a plain read mark: a row whose
+movement is under its source's floor has its key dropped rather than
+stamped, see `folded`; a snooze and an archive stamp regardless."""
+function mark_read_moved(urls, at::DateTime; fold::Bool = false)
     items = something(fetched("items"), (;))
     inbox = Events.load_inbox()["items"]
+    sources = source_since()
     us = unique(String(u) for u in urls)
     isempty(us) && return 0
-    upto(u) = something(moved_of(bundled(u, jget(items, Symbol(u)))),
-                        moved_of(get(inbox, u, nothing)), stamp(at))
+    function upto(u)
+        r = bundled(u, jget(items, Symbol(u)))
+        r === nothing && (r = get(inbox, u, nothing))
+        r === nothing && return stamp(at)
+        m = something(moved_of(r), stamp(at))
+        fold || return m
+        folded(m, floor_of(String(nz(rget(r, "lane"), "activity")),
+                           String(nz(rget(r, "repo"), "")), sources))
+    end
     set_blocks!([u => ["read" => upto(u)] for u in us])
     length(us)
 end

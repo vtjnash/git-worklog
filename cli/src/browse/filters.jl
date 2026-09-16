@@ -305,11 +305,13 @@ be the refresh's alone to decide, because the old snooze *armed* against a
 hash and wrote `WOKE` when it differed - a decision that had to be recorded
 exactly once. A time needs nothing recorded.
 
-No stamp at all reads as unread, which is what "never been in front of you"
-means. It used to be a third value, `unseen`, on the theory that the firehose
-browse wanted it: it does not. What takes something out of that pile is
-dismissing it, and what an item you have never opened has in common with one
-that moved this morning is exactly that you have not seen what it says now.
+No stamp at all reads against the floor - the day the row's source was named,
+`floor_of` - and as unread only where there is none, which is what "never been
+in front of you" means. It used to be a third value, `unseen`, on the theory
+that the firehose browse wanted it: it does not. What takes something out of
+that pile is dismissing it, and what an item you have never opened has in
+common with one that moved this morning is exactly that you have not seen what
+it says now.
 
 Computed rather than stored. On `Item` it would be derived state that goes stale
 the moment `r` is pressed - `Item` is immutable and rebuilt by the refresh - so
@@ -317,10 +319,11 @@ the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
     at = get(m.read, it.url, nothing)
-    # Nothing said about a backlog row: it arrived as background, and is read
-    # up to the day its repository was named. An empty stamp is something
-    # said - unread - and is earlier than any movement below.
-    at === nothing && it.lane == "backlog" && (at = baseline_of(it.repo, m.sources))
+    # Nothing said about it: it is read up to the day its source was named,
+    # whatever the lane - day zero reads zero - and unread if the source has
+    # no block. An empty stamp is something said - unread - and is earlier
+    # than any movement below.
+    at === nothing && (at = floor_of(it, m.sources))
     at === nothing && return :unread
     # An item with no movement on record is a synthetic one - an adopted
     # branch, an import no refresh has caught up with - and a stamp on it is

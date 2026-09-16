@@ -896,6 +896,11 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         if first
             server === nothing && (server = now())
             cursors[label] = stamp(server - backfill)
+            # The one source that is not a repository names itself here,
+            # where its cursor starts: a thread with no stamp is read up to
+            # this day by construction, and the backfill, if any, is unread.
+            # The repositories are named when their lists are imported.
+            label == "notifications" && Worklog.name_source!(label, cursors[label])
         end
         watching === nothing && (watching = watched())
         cur = cursors[label]

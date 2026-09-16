@@ -94,6 +94,9 @@ end
 "The last movement on record, off the row; see `moved_of` in `marks.jl`."
 moved_of(it::Item) = moved_of(it.moved_at, it.updated)
 
+"The day its source was named, or `nothing`; see `floor_of` in `marks.jl`."
+floor_of(it::Item, sources::AbstractDict) = floor_of(it.lane, it.repo, sources)
+
 """How many days ago this item last moved, as of `at`.
 
 Computed on demand rather than stored. The browser holds its items for the

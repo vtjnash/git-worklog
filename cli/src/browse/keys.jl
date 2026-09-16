@@ -492,7 +492,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # sha records none and has no `p` view, which is what it had before.
             upto = something(moved_of(it), stamp(at))
             fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
-            set_read_mark(it.url, upto, it.head)
+            # And folded: a row said unread by hand whose movement is still
+            # under its source's floor goes back to saying nothing, since
+            # the floor answers. The head is recorded either way.
+            set_read_mark(it.url, folded(upto, floor_of(it, st.sources)), it.head;
+                          fold = true)
         else
             mark_unread([it.url])
         end
