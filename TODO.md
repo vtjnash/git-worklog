@@ -325,7 +325,9 @@ Reading:
       of the dependencies only JSON3 has the words, in an *exception* -
       "encountered unescaped control character in json" - which would
       reach the footer as the standing `errors.log` warning, not the
-      diff. Left to check: the `p` view, which is `git diff`/`range-diff`
+      diff; and not tmux, git or gh either - the bundled tmux 3.5.1, git
+      2.54 and gh 2.98 binaries carry no such phrase past Go's URL
+      errors. Left to check: the `p` view, which is `git diff`/`range-diff`
       on the local checkout (`repos.jl:364-373`) and was not reproduced
       here; and `data/errors.log` on the machine it was seen on. Once
       found: a line of the text, which `diff_nodes` lifts to the top, or
