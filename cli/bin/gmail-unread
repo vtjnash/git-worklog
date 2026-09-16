@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""The GitHub threads with unread notification mail under a Gmail label, as
+urls `wl import -` takes.
+
+    gmail-unread GitHub | wl import -
+    gmail-unread GitHub/julia --all
+    gmail-unread GitHub --seen             # and mark the mails read afterwards
+
+Gmail speaks IMAP (imap.gmail.com:993); a label is a mailbox there, named as
+Gmail shows it, nested ones with `/`. The login
+needs an *app password* - https://myaccount.google.com/apppasswords, which the
+account settings no longer link to; the account password itself is refused,
+and the page needs 2-Step Verification on. It is looked for in
+`$GMAIL_APP_PASSWORD`, then `~/.netrc` (`machine imap.gmail.com login you@gmail.com
+password ...`); the login in `$GMAIL_USER`, `--user`, or that netrc line.
+
+Only headers are fetched, and the mailbox is opened read-only unless `--seen`,
+so listing leaves the unread state alone. GitHub puts the thread in every
+notification's `Message-ID` (`<owner/repo/pull/N/c123@github.com>`) and in
+`References`, so no body is needed; a mail that names no issue or pull request
+- a discussion, a release, a security advisory - is said on stderr and skipped.
+
+One line per thread, newest mail first: the url, then the mail count, the
+reason GitHub gave and the subject, which `wl import -` ignores past the first
+word.
+"""
+import argparse
+import email.parser
+import email.policy
+import imaplib
+import netrc
+import os
+import re
+import sys
+from collections import OrderedDict
+
+HOST = "imap.gmail.com"
+# Message-ID / References of a GitHub notification: the thread's path, then
+# `/c123`, `/review/123`, `/issue_event/123` for the event, then `@github.com`.
+THREAD = re.compile(r"<([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(pull|issues)/(\d+)(?:/[^>@]*)?@github\.com>")
+HEADERS = "MESSAGE-ID IN-REPLY-TO REFERENCES SUBJECT X-GITHUB-REASON DATE"
+
+
+def credentials(user):
+    pw = os.environ.get("GMAIL_APP_PASSWORD")
+    user = user or os.environ.get("GMAIL_USER")
+    if not (pw and user):
+        try:
+            auth = netrc.netrc().authenticators(HOST)
+        except (FileNotFoundError, netrc.NetrcParseError):
+            auth = None
+        if auth:
+            user = user or auth[0]
+            pw = pw or auth[2]
+    if not (user and pw):
+        sys.exit("gmail-unread: no credentials - set GMAIL_USER and GMAIL_APP_PASSWORD, "
+                 "or a `machine imap.gmail.com` line in ~/.netrc (an app password, "
+                 "not the account's)")
+    return user, pw
+
+
+def thread_url(msg):
+    """The thread a notification is about, from the headers, or None."""
+    for h in ("Message-ID", "In-Reply-To", "References"):
+        for m in THREAD.finditer(msg.get(h, "") or ""):
+            repo, kind, n = m.groups()
+            return "https://github.com/%s/%s/%s" % (repo, "pull" if kind == "pull" else "issues", n)
+    return None
+
+
+def fetch_headers(imap, ids):
+    """`{seq: message}` for the headers of every id, in chunks of one request."""
+    out = {}
+    parser = email.parser.BytesHeaderParser(policy=email.policy.default)
+    for i in range(0, len(ids), 200):
+        chunk = b",".join(ids[i:i + 200]).decode()
+        typ, data = imap.fetch(chunk, "(BODY.PEEK[HEADER.FIELDS (%s)])" % HEADERS)
+        if typ != "OK":
+            sys.exit("gmail-unread: fetch failed: %r" % (data,))
+        for part in data:
+            # Each message is a (b'N (BODY[...] {len}', b'headers...') tuple;
+            # the closing b')' arrives as a bare bytes item between them.
+            if not isinstance(part, tuple):
+                continue
+            seq = int(part[0].split()[0])
+            out[seq] = parser.parsebytes(part[1])
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 epilog="\n\n".join(__doc__.split("\n\n")[1:]))
+    ap.add_argument("label", help="the Gmail label (IMAP mailbox) to read")
+    ap.add_argument("--user", help="the Gmail login; default $GMAIL_USER or ~/.netrc")
+    ap.add_argument("--all", action="store_true", help="every mail under the label, not just unread")
+    ap.add_argument("--seen", action="store_true", help="mark the listed mails read afterwards")
+    args = ap.parse_args()
+
+    user, pw = credentials(args.user)
+    imap = imaplib.IMAP4_SSL(HOST)
+    try:
+        imap.login(user, pw)
+    except imaplib.IMAP4.error as e:
+        sys.exit("gmail-unread: login failed: %s" % e)
+    # Labels are mailboxes and nest with `/`; quoted because a label may have
+    # a space in it. Read-only unless the mails are to be marked, so that
+    # nothing here can set \Seen by accident.
+    typ, data = imap.select('"%s"' % args.label.replace('"', '\\"'), readonly=not args.seen)
+    if typ != "OK":
+        sys.exit("gmail-unread: no label %r: %s" % (args.label, data[0].decode(errors="replace")))
+    typ, data = imap.search(None, "ALL" if args.all else "UNSEEN")
+    if typ != "OK":
+        sys.exit("gmail-unread: search failed: %r" % (data,))
+    ids = data[0].split()
+    if not ids:
+        print("nothing unread under %s" % args.label, file=sys.stderr)
+        return 0
+
+    msgs = fetch_headers(imap, ids)
+    threads = OrderedDict()  # url -> [count, reason, subject], newest mail first
+    skipped = []
+    for seq in sorted(msgs, reverse=True):
+        msg = msgs[seq]
+        url = thread_url(msg)
+        subject = " ".join((msg.get("Subject", "") or "").split())
+        if url is None:
+            skipped.append(subject or msg.get("Message-ID", "?"))
+            continue
+        row = threads.setdefault(url, [0, msg.get("X-GitHub-Reason", "") or "", subject])
+        row[0] += 1
+    for url, (n, reason, subject) in threads.items():
+        print("%s  %d%s  %s" % (url, n, " " + reason if reason else "", subject))
+    print("%d threads from %d mails under %s" % (len(threads), len(msgs), args.label),
+          file=sys.stderr)
+    for s in skipped:
+        print("  not an issue or pull request: %s" % s, file=sys.stderr)
+
+    if args.seen:
+        imap.store(b",".join(ids).decode(), "+FLAGS", "\\Seen")
+        print("  marked %d mails read" % len(ids), file=sys.stderr)
+    imap.close()
+    imap.logout()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

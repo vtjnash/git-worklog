@@ -156,6 +156,12 @@ wl repos [--prune]                      pinned checkouts
 Wherever a ref is taken, `-` reads them from stdin, one per line:
 `printf '%s\n' julia#1 julia#2 | wl snooze - 3d`.
 
+`cli/bin/gmail-unread <label>` lists the threads with unread GitHub
+notification mail under a Gmail label as urls, one per line, so
+`gmail-unread GitHub | wl import -` imports what the mailbox says is still to
+be looked at; `--seen` then marks those mails read. It needs an app password,
+in `$GMAIL_APP_PASSWORD` or `~/.netrc`; `--help` has the details.
+
 ## Tracking
 
 `track` decides what counts as an item *moving*, which is what makes it unread
