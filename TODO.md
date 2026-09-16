@@ -103,6 +103,31 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 
 ## To design before starting
 
+- [ ] **The pane's shell should see this login's `code` and ssh agent, and
+      keep seeing the current ones.** `t`/`T` run in a tmux session under a
+      server `wl` starts once (`mux_cmd`, `new-session` with `standalone`,
+      which only *scrubs* `CLAUDE*`). The server keeps the environment it
+      was started with and hands a copy to every later session, so a pane
+      opened tonight carries the `SSH_AUTH_SOCK`, `SSH_CONNECTION`,
+      `VSCODE_IPC_HOOK_CLI` and `VSCODE_GIT_ASKPASS_*` of whichever ssh
+      login started the server - dead sockets once that login has gone, so
+      `code <file>` and `git push` in the pane fail where they work in the
+      terminal beside it. Investigate, in order: (1) what is actually in
+      the pane's environment today, from a real ssh session and after a
+      reconnect; (2) whether the values can be refreshed from the *current*
+      session - tmux's `update-environment` list is applied on attach, and
+      our client is control-mode over a socket, so check whether
+      `mux_sync!`'s attach counts, and otherwise `set-environment` per
+      session plus a `PROMPT_COMMAND`/`precmd` hook that re-reads
+      `show-environment` before each command, which is the usual trick;
+      (3) whether the answer is an intermediate that does not move - a
+      stable path such as `~/.ssh/agent.sock` re-pointed by every login
+      (the classic symlink), and a `code` shim that finds the newest
+      `VSCODE_IPC_HOOK_CLI` socket - so the values in the pane are constant
+      and only what they point at changes, with `wl` doing the re-pointing
+      on launch (a "special magic" per variable rather than a passthrough).
+      Decide which, and what a pane says when the login that owns the
+      forward has gone. Needs a real terminal and a real ssh session.
 - [ ] **A comment box drawn inline, between the diff lines it is about.** The
       rest of that idea is done - threads hang off their hunk, the line is
       marked `💬`, `n`/`N` walks them. A hunk is one node whose body is the
@@ -362,6 +387,14 @@ The corpus:
       would say, only for a real merge.
 
 Reading:
+- [ ] **A relative date beside every absolute one.** `2026-09-12 12:00` is
+      shown alone on the metadata pane (`created`, `updated`, `archived`,
+      `snoozed`, the review dates), in comment headers, and on the `p`
+      pane; the reader does the subtraction every time. Put `3d ago` /
+      `in 2d` beside each, dim, off the frame's `at` - never stored, since
+      an age is only true at the instant it is worked out (`age`,
+      `days_since` are the existing pieces). One function for the wording,
+      so the list's age column and the pane agree.
 - [ ] **A diff's "contains control characters" warning is at the bottom,
       where a long diff pushes it off the screen** (seen once, 2026-09).
       It should be the first row of the diff - or in the node's header,
