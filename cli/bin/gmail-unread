@@ -124,17 +124,19 @@ def main():
         msg = msgs[seq]
         url = thread_url(msg)
         subject = " ".join((msg.get("Subject", "") or "").split())
+        reason = msg.get("X-GitHub-Reason", "") or ""
         if url is None:
-            skipped.append(subject or msg.get("Message-ID", "?"))
+            skipped.append((reason, subject or msg.get("Message-ID", "?")))
             continue
-        row = threads.setdefault(url, [0, msg.get("X-GitHub-Reason", "") or "", subject])
+        row = threads.setdefault(url, [0, reason, subject])
         row[0] += 1
     for url, (n, reason, subject) in threads.items():
         print("%s  %d%s  %s" % (url, n, " " + reason if reason else "", subject))
     print("%d threads from %d mails under %s" % (len(threads), len(msgs), args.label),
           file=sys.stderr)
-    for s in skipped:
-        print("  not an issue or pull request: %s" % s, file=sys.stderr)
+    for reason, s in skipped:
+        print("  not an issue or pull request: %s%s" % (reason + "  " if reason else "", s),
+              file=sys.stderr)
 
     if args.seen:
         imap.store(b",".join(ids).decode(), "+FLAGS", "\\Seen")

@@ -103,6 +103,84 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 
 ## To design before starting
 
+- [ ] **One seen bit, in observation order, with day zero read.** On
+      2026-09-16 "mark everything read" took three passes and 2277 stamps
+      because the program has three answers to "is it unread", and they do
+      not agree:
+      1. `wl unread` keeps a row while its `updated` - GitHub's
+         `updated_at`, off the poll and the notification thread
+         (`events.jl:536`, `:620`) - is past the read stamp
+         (`events.jl:941`).
+      2. `wl read`, `wl snooze`, `wl archive` stamp `moved_at`
+         (`mark_read_moved`, `marks.jl:278`; `read_up_to`, `:272`), the last
+         event by somebody else off the wake table. A push, a label or your
+         own comment after that leaves `updated_at > moved_at`, so `wl read`
+         - "read all" included - can never clear such a row from
+         `wl unread`: 993 stamped, 366 stayed; refreshed and stamped again,
+         362 stayed (`julia#62879`: moved 08-31, updated 09-16).
+      3. The browser's `seen_of` (`filters.jl:316`) is the stamp against
+         `moved_at`, with the per-source `since` standing in for a missing
+         stamp on a **backlog-lane row only** (`:321`). Every other lane
+         with no stamp is unread: 1915 of 5553 items, mostly `mine` and
+         `review` rows from 2021-2025 that the events lane never carries,
+         so no `wl read` reached them and nothing on day zero said they
+         were read.
+      What was written to get to zero on both counts: `mark_read(urls, now)`
+      over the union, `read = "2026-09-16T15:41:54Z"` on 2277 blocks
+      (`data/local.toml`, on top of data commit `ce0cf87`). That is the
+      state the next agent will find; it is a workaround, not the design.
+
+      **The intent, as stated 2026-09-16, which the code should be made to
+      say in one place:**
+      - **Day zero reads zero.** The per-source `since` is the date the
+        source was first imported, and on that day the program reports no
+        unread notifications and no moved items - for every lane, not just
+        the backlog. `seen_of` and `events.jl:941` both take it as the
+        floor when a row has no stamp of its own.
+      - **`since` is a consolidation point, not a one-time fact.** A
+        periodic step (a `wl refresh` pass, or a `wl read --consolidate`)
+        may bump a source's `since` to the oldest unread entry it still
+        carries and drop the per-row `read` stamps that fall below it, so
+        the read list stays one line per source plus the exceptions rather
+        than growing by one line per item ever seen. This is the opposite
+        of what `marks.jl:141-148` currently says `since` means ("the day
+        you named that repository"); rewrite that comment when it changes.
+      - **The cursor stays what it is**: the newest notification the poll
+        has seen (`source_cursors`, `marks.jl:177`). It is about fetching,
+        never about reading.
+      - **Read is relative to the order things were observed, not the time
+        they report.** `moved_at` and `updated` were meant to move
+        together. `moved_at` already is observation-ordered:
+        `moved_stamp` (`refresh.jl:382`) diffs the tracked keys against
+        the row being replaced, takes GitHub's time for a timed key when
+        that is past the high-water mark and the refresh clock `at`
+        otherwise (a bool's rising edge, a force-push of an older commit),
+        and never goes backwards - which is the GitHub-time/local-time mix
+        the split was remembered as. So the odd one out is the events
+        lane's `updated`, a reported time that is neither movement nor an
+        observation. The rule wanted: whatever a refresh or poll learns
+        about an item advances one mark to *that observation*, so
+        information arriving later wins even when GitHub dates it earlier
+        (a late notification, DESIGN.md's twelve-hour lag), and a read
+        stamp means "seen everything observed up to here". Then a stamp
+        `wl read` writes at the observation clock clears every lane at
+        once, and `read_up_to` (`marks.jl:272`) with its three fallbacks
+        goes away.
+      **To inspect before designing:** whether `Events.unread` should
+      compare against the corpus row's `moved_at` instead of the thread's
+      `updated_at` (`events.jl:941`; the inbox row and the fetched row are
+      keyed by the same url), or whether a notification thread arriving
+      is itself an observation that should advance `moved_at` - and if so
+      how that squares with AGENTS.md's "never `updated_at`" and with
+      `moved_stamp` ignoring a push or a label at `loose`: a thread whose
+      reason is a push must still not wake you; what `seen_of`'s
+      snooze-wake clause (`filters.jl:327`) needs from that; and the
+      DESIGN.md "seen bit" and "Decisions not to re-litigate" entries,
+      which will need the `moved_at`-not-`updated` argument
+      (`filters.jl:287`) kept and the `since` one rewritten.
+      `cli/test/runtests.jl` has the `seen_of` cases to extend: no stamp +
+      `since` in every lane; a thread whose `updated_at` passes the row's
+      `moved_at`; a late notification dated before the stamp.
 - [ ] **A comment box drawn inline, between the diff lines it is about.** The
       rest of that idea is done - threads hang off their hunk, the line is
       marked `💬`, `n`/`N` walks them. A hunk is one node whose body is the
