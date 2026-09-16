@@ -357,7 +357,10 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         value = String.(split(value, ","))
     end
     for u in urls
-        println("$(set_fields(u, [cmd => value])) $cmd $u")
+        # A snooze is remembered beside itself, as `s` remembers it.
+        ups = cmd == "snooze" && value !== nothing ? [cmd => value, "last_snooze" => value] :
+              [cmd => value]
+        println("$(set_fields(u, ups)) $cmd $u")
         # Putting something to sleep is the end of looking at it. It goes unread
         # again the moment it moves, or the moment the wake comes - which is
         # why this is a stamp and not a claim about wanting to see it.

@@ -450,10 +450,24 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int)
     head("tracking")
     kv("lane", it.lane)
     kv("level", it.track)
-    # When it wakes, while it is asleep; and when it was filed, if it was. Both
-    # are marks read off `local.toml` rather than anything the refresh decided,
-    # which is why a snooze that ran out at lunch says nothing here by dinner.
-    asleep(it, Marks(st)) && kv("snoozed", string("until ", when_str(st.wakes[it.url])))
+    # When it wakes, while it is asleep - and, unread meanwhile, that it is
+    # the movement and not the wake that brought it back; once the snooze
+    # has gone, that there was one, and whether it woke or was cleared by
+    # hand (`last_snooze`, which outlives the snooze). Marks read off
+    # `local.toml` rather than anything the refresh decided, so a snooze that
+    # ran out at lunch says so here before the next refresh.
+    m = Marks(st)
+    if asleep(it, m)
+        kv("snoozed", string("until ", when_str(st.wakes[it.url]),
+                             seen_of(it, m) === :unread ?
+                                 string("  ", THEME.dim, "moved before the wake", THEME.reset) : ""))
+    elseif haskey(st.snoozes, it.url) || haskey(st.wakes, it.url)
+        # Off the snooze itself where one is still on file and woken - typed
+        # by hand, and no refresh has written it down yet.
+        ls = get(st.snoozes, it.url, get(st.wakes, it.url, ""))
+        kv("snoozed", ls <= m.now ? string("woke ", when_str(ls)) :
+                      string("until ", when_str(ls), "  ", THEME.dim, "cleared", THEME.reset))
+    end
     kv("deadline", it.deadline)
     isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
     kv("why", it.why)

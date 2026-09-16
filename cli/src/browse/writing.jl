@@ -698,6 +698,7 @@ function archive!(st::BState, it::Item, at::DateTime)
     prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
     woke = !was && woken_by(it.url, st.wakes, at)
     prevsnooze = woke ? get_field(it.url, "snooze") : nothing
+    prevlast = woke ? get_field(it.url, "last_snooze") : nothing
     if was
         set_archived(it.url, nothing)
     else
@@ -708,11 +709,11 @@ function archive!(st::BState, it::Item, at::DateTime)
         # A snooze that has run out goes with it, or the stamp - under the
         # wake - would leave the filed row unread; see `woken_by`.
         set_read(it.url, something(moved_of(it), stamp(at)))
-        woke && set_fields(it.url, ["snooze" => nothing], at)
+        woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
     end
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
         set_archived(it.url, prev)
-        woke && set_fields(it.url, ["snooze" => prevsnooze])
+        woke && set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
     end))
@@ -806,9 +807,13 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         val = w
     end
     prev = get_field(it.url, "snooze")
+    prevlast = get_field(it.url, "last_snooze")
     prevtouch = touched_at(it.url)
     prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
-    set_fields(it.url, ["snooze" => val], at)
+    # The wake is remembered beside the snooze, and outlives it: `last_snooze`
+    # is what the pane reads once the snooze has gone, to say there was one.
+    # Clearing a snooze by hand leaves it, for the same reason.
+    set_fields(it.url, val === nothing ? ["snooze" => val] : ["snooze" => val, "last_snooze" => val], at)
     # "Not now" and "unread" are the same answer twice, so putting an item to
     # sleep marks it read - here, and in `wl snooze`, and by the refresh for a
     # value typed into `local.toml` by hand. Doing it now is what makes the row
@@ -824,7 +829,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # it, not before: restoring the value writes through `set_fields`, which
     # stamps on the way past.
     push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
-        set_fields(it.url, ["snooze" => prev])
+        set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
     end))

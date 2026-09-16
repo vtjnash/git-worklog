@@ -303,10 +303,14 @@ end
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
         @test W.read_at(it.url) == was
-        # Clearing one says nothing about whether it has been read.
+        # Clearing one says nothing about whether it has been read - and
+        # leaves the wake it had on record, `last_snooze`, so the pane can
+        # still say there was one.
         W.apply_snooze!(st, it, "3d", now)
+        @test W.get_field(it.url, "last_snooze") == W.get_field(it.url, "snooze")
         @test W.apply_snooze!(st, it, nothing, now) == "snooze cleared"
         @test W.read_at(it.url) !== nothing
+        @test W.get_field(it.url, "last_snooze") == "2026-09-15T12:00:00Z"
 
         # **And the wake is the clock's to notice, not a refresh's.** A snooze
         # set to run out an hour ago has run out: the item is unread, and no

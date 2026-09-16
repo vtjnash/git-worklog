@@ -983,6 +983,7 @@ function refilter!(st; keeprow::Bool = true)
     st.sources = source_since()
     st.archived = archived_map()
     st.wakes = wake_map()
+    st.snoozes = field_marks(m, "last_snooze")
     st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),
                          st.sort, st.touched)
     # The text filter sits on top of the tag axes rather than inside `Filters`,

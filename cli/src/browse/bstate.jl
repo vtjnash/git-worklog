@@ -94,6 +94,9 @@ Base.@kwdef mutable struct BState <: View
     sources::Dict{String,String} = Dict{String,String}()   # source label -> the
                                     # day it was named: the floor a row with no
                                     # stamp is read up to; see `seen_of`
+    snoozes::Dict{String,String} = Dict{String,String}()   # url -> the wake of
+                                    # the last snooze put on it, kept after it;
+                                    # the pane says what brought the row back
     wakes::Dict{String,String} = Dict{String,String}()     # url -> when its
                                     # snooze ends; `seen_of` reads it against
                                     # the clock, so a wake needs no refresh
@@ -196,7 +199,7 @@ function BState(all::Vector{Item}, title)
     m = load_marks()
     st = BState(; all = collect(all), title = String(title),
                   touched = field_marks(m, "touched"), archived = archived_map(),
-                  wakes = wake_map(),
+                  wakes = wake_map(), snoozes = field_marks(m, "last_snooze"),
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   sources = source_since(),
                   factsat = mtime(fetchedfile()))

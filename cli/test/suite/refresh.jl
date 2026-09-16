@@ -426,6 +426,8 @@ end
         @test W.mark_at(u, "read") == "" && W.get_field(u, "snooze") === nothing
         @test W.read_head(u) == "cafe"                         # still where you were
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread
+        # And the wake is remembered, so the pane can say what woke it.
+        @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
         # `r` on a woken row the refresh has not reached: read, the snooze
         # gone; `z` puts it back, and the row is unread again for the wake.
         W.set_read(u, "2026-09-01T00:00:00Z")
@@ -434,12 +436,31 @@ end
         st.sel = 1; st.loaded = string(u, ":", st.mode); st.metakey = u; st.nodes = W.Node[]
         ctrl = W.Controller()
         now = W.DateTime(2026, 9, 10)
+        W.set_fields(u, ["last_snooze" => nothing])
         W.handle!(st, Int('r'), ctrl, now)
         @test st.status == "marked read" && W.get_field(u, "snooze") === nothing
+        @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
         @test W.seen_of(it, W.Marks(st, now)) === :read
         W.handle!(st, Int('z'), ctrl, now)
         @test W.get_field(u, "snooze") == "2026-09-05T00:00:00Z"
+        @test W.get_field(u, "last_snooze") === nothing
         @test W.seen_of(it, W.Marks(st, now)) === :unread
+        # The pane says what brought the row back: the wake, a movement
+        # before it, or that the snooze was cleared by hand - and it says
+        # there was a snooze whether or not the wake has arrived.
+        snoozeline(x) = (W.refilter!(st);
+                         W.astrip(join([l for l in W.meta_lines(st, x, 60) if occursin("snoozed", l)], " ")))
+        @test occursin("woke 2026-09-05", snoozeline(it))              # woken, snooze still on file
+        W.mark_read_moved([u], now)                                    # `wl read`: ends it, remembers it
+        @test W.get_field(u, "snooze") === nothing && W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
+        @test occursin("woke 2026-09-05", snoozeline(it))              # woken, snooze gone
+        W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z", "last_snooze" => "2026-09-20T00:00:00Z"])
+        @test occursin("until 2026-09-20", snoozeline(it)) && !occursin("moved", snoozeline(it))
+        moved = W.with(it; moved_at = "2026-09-08T00:00:00Z")
+        @test occursin("until 2026-09-20", snoozeline(moved)) && occursin("moved before the wake", snoozeline(moved))
+        W.set_fields(u, ["snooze" => nothing])
+        @test occursin("until 2026-09-20", snoozeline(it)) && occursin("cleared", snoozeline(it))
+        W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z", "last_snooze" => nothing]); W.refilter!(st)
         # A snooze still to come is left alone by `r`: the row is read, the
         # wake stands.
         W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z"]); W.refilter!(st)

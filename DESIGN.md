@@ -180,7 +180,12 @@ the row unread whatever was pressed - `r` said "marked read" and the row
 stayed bold. So the refresh writes a woken row down (`read = ""`, the snooze
 dropped, `read_head` kept), and `r`, `x` and `wl read` on one the refresh has
 not reached drop the snooze with the stamp they write; `z` puts it back. A
-snooze still to come is left alone by all of them.
+snooze still to come is left alone by all of them. What ends keeps a trace:
+`last_snooze` is the wake of the last snooze put on a row, written where a
+snooze is set or ended and outliving it, so the pane can say there was one
+and what brought the row back - `woke <when>`, `until <when> · moved before
+the wake`, or `until <when> · cleared`. The one thing that wakes an item
+that GitHub did not do and the row does not show already.
 
 **An archive is a read mark that filters separately.** `x` stamps `archived`
 and `read`. An archived item that moves is unread again - filing is not an

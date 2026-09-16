@@ -249,7 +249,8 @@ end
 
 @testset "the pane says when a snooze wakes, and when a thing was filed" begin
     # Both off the marks in `local.toml`, and neither off the item: a snooze
-    # that ran out at lunch says nothing here by dinner, without a refresh.
+    # that ran out at lunch says it woke by dinner, without a refresh - and
+    # goes on saying there was one after it is cleared (`last_snooze`).
     st = mkstate()
     it = st.items[st.sel]
     says(key) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
@@ -261,8 +262,12 @@ end
         W.apply_snooze!(st, it, "2099-01-01", W.utcnow())
         @test says("snoozed") == "snoozed   until 2099-01-01 00:00"
         W.apply_snooze!(st, it, "2020-01-01", W.utcnow())
-        @test says("snoozed") == ""                     # woke; not asleep
+        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00"     # not asleep: woke
         W.apply_snooze!(st, it, nothing, W.utcnow())
+        @test says("snoozed") == "snoozed   woke 2020-01-01 00:00"     # remembered
+        W.apply_snooze!(st, it, "2099-01-01", W.utcnow())
+        W.apply_snooze!(st, it, nothing, W.utcnow())
+        @test says("snoozed") == "snoozed   until 2099-01-01 00:00  cleared"
         @test says("archived") == ""
         W.archive!(st, it, W.ts("2026-09-12T12:00:00Z"))
         @test occursin("2026-09-12 12:00", says("archived"))

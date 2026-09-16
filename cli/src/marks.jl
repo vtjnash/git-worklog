@@ -1,15 +1,21 @@
 # What this program knows about an item that GitHub cannot answer.
 #
-# Five facts, in the item's own block of `local.toml`:
+# Six facts, in the item's own block of `local.toml`:
 #
-#     read · read_head · touched · archived · draft
+#     read · read_head · touched · archived · draft · last_snooze
 #
-#   * `read`      the timestamp you have seen this item up to
-#   * `read_head` the head commit it stood at when you saw it
-#   * `touched`   when you last *did* something to it
-#   * `archived`  when you filed it away - read, and held out of every view
-#                 that does not ask for the filed ones
-#   * `draft`     when an unsent review on it was last written to
+#   * `read`        the timestamp you have seen this item up to
+#   * `read_head`   the head commit it stood at when you saw it
+#   * `touched`     when you last *did* something to it
+#   * `archived`    when you filed it away - read, and held out of every view
+#                   that does not ask for the filed ones
+#   * `draft`       when an unsent review on it was last written to
+#   * `last_snooze` the wake time of the last snooze put on it, kept after
+#                   the snooze itself has gone - woken, or cleared by hand -
+#                   so the pane can say there was one, and whether the wake
+#                   or a movement before it is what brought the row back.
+#                   The one thing that wakes an item that GitHub did not
+#                   do and the row does not show already
 #
 # And beside them, yours rather than written for you, `snooze`: a wake *time*,
 # which `seen_of` reads as a second reason for the item to be unread beside
@@ -83,14 +89,14 @@
 # exactly as `review:banana` does. So the only way to have a lane of them is to
 # write them down as they are made.
 
-"""The five marks, as `url -> field -> value`, in one pass over `local.toml`.
+"""The six marks, as `url -> field -> value`, in one pass over `local.toml`.
 
 They live in the item's own block, beside the note and the snooze that are your
 words about the same item: one place to look, one file to write, and no
 precedence to keep in step between a "what I decided" file and a "what I did"
 one.
 """
-const MARK_FIELDS = ("archived", "draft", "read", "read_head", "touched")
+const MARK_FIELDS = ("archived", "draft", "last_snooze", "read", "read_head", "touched")
 
 load_marks() = field_maps(MARK_FIELDS)
 
@@ -285,13 +291,25 @@ function mark_unread(urls)
 end
 
 """Write down that these items' snoozes have run out: said unread, the
-snooze gone, the head kept. The refresh's, once for all of them; see
-`derive!`. Answers how many."""
-function mark_woken(urls)
-    us = unique(String(u) for u in urls)
-    isempty(us) || set_blocks!([u => ["read" => "", "snooze" => nothing] for u in us])
-    length(us)
+snooze gone, the head kept, and `last_snooze` the wake - `url => wake`
+pairs, so a snooze typed by hand is remembered the way `s` and `wl snooze`
+remember theirs. The refresh's, once for all of them; see `derive!`.
+Answers how many."""
+function mark_woken(woke)
+    ups = OrderedDict{String,Any}()
+    for (u, w) in woke
+        ups[String(u)] = ["read" => "", "snooze" => nothing, "last_snooze" => String(w)]
+    end
+    isempty(ups) || set_blocks!(collect(ups))
+    length(ups)
 end
+
+"""The keys a mark writes to end a snooze whose wake has passed: the snooze
+gone, and the wake kept as `last_snooze`; see `woken_by`."""
+end_snooze(wake) = ["snooze" => nothing, "last_snooze" => String(wake)]
+
+"The last wake time put on each item, kept after the snooze: `url -> stamp`."
+snoozes_map() = field_map("last_snooze")
 
 """Has this item's snooze run out as of `at`, by the wake map? A mark made
 on such a row drops the snooze with the stamp it writes, or the stamp - the
@@ -366,7 +384,7 @@ function mark_read_moved(urls, at::DateTime; fold::Bool = false)
                            String(nz(rget(r, "repo"), "")), sources))
     end
     # A snooze that has run out goes with the stamp; see `woken_by`.
-    set_blocks!([u => woken_by(u, wakes, at) ? ["read" => upto(u), "snooze" => nothing] :
+    set_blocks!([u => woken_by(u, wakes, at) ? vcat(["read" => upto(u)], end_snooze(wakes[u])) :
                       ["read" => upto(u)] for u in us])
     length(us)
 end

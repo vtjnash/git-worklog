@@ -1456,7 +1456,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # read the comment it lacks as a comment deleted, date that by the
     # refresh clock, and put a thing you were reading back in front of you.
     changes = Any[]
-    slept, woke = String[], String[]
+    slept, woke = String[], Pair{String,String}[]
     for (url, r) in collect(items)
         st = get(state, url, Dict{String,Any}())
         old = prev(get(renamed, url, url))
@@ -1465,7 +1465,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
         derive!(r, old, st, cfg, at)
         pop!(r, "slept") && push!(slept, url)
-        pop!(r, "woken") && push!(woke, url)
+        pop!(r, "woken") && push!(woke, url => String(r["wake"]))
         if old === nothing
             push!(changes, (url, r, "new"))
         else

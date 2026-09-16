@@ -487,6 +487,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # would leave the row unread. See `woken_by`.
         woke = seen && woken_by(it.url, st.wakes, at)
         prevsnooze = woke ? get_field(it.url, "snooze") : nothing
+        prevlast = woke ? get_field(it.url, "last_snooze") : nothing
         prevtouch = woke ? touched_at(it.url) : nothing
         if seen
             # And the head it stood at, which is the other half of where you
@@ -503,14 +504,14 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # the floor answers. The head is recorded either way.
             set_read_mark(it.url, folded(upto, floor_of(it, st.sources)), it.head;
                           fold = true)
-            woke && set_fields(it.url, ["snooze" => nothing], at)
+            woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
         else
             mark_unread([it.url])
         end
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
             set_read_mark(it.url, prev, prevhead)
             # The clock goes back after the snooze: `set_fields` stamps it.
-            woke && (set_fields(it.url, ["snooze" => prevsnooze]);
+            woke && (set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast]);
                      set_touched(it.url, prevtouch))
         end))
         # The list is what the axes say it is, so a row that has just stopped
