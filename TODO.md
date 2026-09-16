@@ -281,10 +281,16 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 
 Found and not filed:
 
-- [ ] **`Highlights` 0.6 imports `Pkg` at load time** - 0.35s on every launch
-      of everything that highlights anything - for one
-      `Pkg.Registry.reachable_registries()` on an error path
-      (`languages.jl:40`). File with the measurement.
+- [ ] **`Highlights` 0.6 imports `Pkg` at load time** for one
+      `Pkg.Registry.reachable_registries()` in `available_language_jlls`
+      (`languages.jl:40`), a discovery helper nothing calls on the way to
+      highlighting. Measured 2026-09-16, Highlights 0.6.2 under Term 2.2 on
+      julia nightly, this sandbox: `import Pkg` alone is 0.28-0.30s; `import
+      Term` is 0.91s cold and 0.56-0.67s with `Pkg` already loaded, so the
+      import is 0.25-0.35s of every launch of everything that highlights
+      anything. The fix upstream is `Base.require`-on-demand or an extension
+      on `Pkg`; nothing filed on JuliaDocs/Highlights.jl as of the
+      measurement (no open issues). File it.
 - [ ] **Term's code palette is not part of its theme.** `Term.CodeTheme` is a
       hard-coded `Dict` that `set_theme` never touches; the `Theme` fields that
       look like they do that (`string`, `number`, `operator`, `type`…) drive
