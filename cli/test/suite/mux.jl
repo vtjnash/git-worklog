@@ -156,6 +156,12 @@ end
         @test islink(link) && readlink(link) == a
         @test ("SSH_AUTH_SOCK" => link) in fw.env
         @test isempty(fw.gone)
+        # The links name where your keys are, and a symlink has no mode of its
+        # own: the directory is `0700`, and made so again on every call.
+        @test filemode(run) & 0o777 == 0o700
+        chmod(run, 0o755)
+        W.forwards!()
+        @test filemode(run) & 0o777 == 0o700
         # Nothing was ever forwarded for VS Code or `code`, so neither is
         # handed over: a pane on a machine without them keeps what it has.
         @test !any(p -> p.first in ("VSCODE_IPC_HOOK_CLI", "PATH"), fw.env)
@@ -208,6 +214,7 @@ end
         withenv("PATH" => bin, "VSCODE_IPC_HOOK_CLI" => ipc) do
             fw = W.forwards!()
             @test readlink(joinpath(run, "bin", "code")) == code
+            @test filemode(joinpath(run, "bin")) & 0o777 == 0o700
             @test readlink(joinpath(run, "vscode-ipc.sock")) == ipc
             @test ("PATH" => string(joinpath(run, "bin"), ":", bin)) in fw.env
             @test ("VSCODE_IPC_HOOK_CLI" => joinpath(run, "vscode-ipc.sock")) in fw.env
@@ -218,5 +225,18 @@ end
         withenv("PATH" => bin, "VSCODE_IPC_HOOK_CLI" => ipc) do
             @test W.forwards!().gone == ["ssh agent", "VS Code", "code"]
         end
+    end
+    # A directory of the right name that is a link to somewhere else is
+    # refused: nothing is handed over, and the error is logged.
+    was = W.RUN_DIR[]
+    try
+        W.RUN_DIR[] = joinpath(rt, "squat"); symlink(rt, W.RUN_DIR[])
+        withenv("SSH_AUTH_SOCK" => a) do
+            @test W.forwards!() == (env = [], gone = [])
+        end
+        @test occursin("not a directory", read(W.errlog(), String))
+    finally
+        W.RUN_DIR[] = was
+        rm(W.errlog(); force = true)
     end
 end

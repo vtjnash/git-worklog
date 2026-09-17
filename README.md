@@ -234,7 +234,7 @@ to the 256-colour cube.
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
-| `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Gone with the last login, like what they point at |
+| `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Yours alone (`0700`, set at every launch); gone with the last login, like what they point at |
 
 `data/` is a git repository of its own, so your record has a history without
 cluttering the code's. Nothing commits automatically. `WORKLOG_DATA` points it

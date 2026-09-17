@@ -36,13 +36,27 @@ const RUN_DIR = Ref("")
 function rundir()
     isempty(RUN_DIR[]) || return RUN_DIR[]
     rt = get(ENV, "XDG_RUNTIME_DIR", "")
-    d = isdir(rt) ? joinpath(rt, "wl") :
+    RUN_DIR[] = isdir(rt) ? joinpath(rt, "wl") :
         joinpath(tempdir(), string("wl-", ccall(:getuid, Cuint, ())))
-    if !isdir(d)
-        mkpath(d)
-        chmod(d, 0o700)
-    end
-    RUN_DIR[] = d
+end
+
+"""Make `d` ours alone, and say so - or throw, when it cannot be.
+
+A link is a path to a socket that holds your keys, and its readers are whoever
+can read the directory: a symlink's own mode is nothing on Linux, so `0700` on
+the directory is where "600" lives, and it is set every time rather than only
+when the directory is made, since anything could have made it. Under `/tmp` the
+name is guessable, and a directory of that name that is somebody else's - or a
+link to somewhere - is refused rather than written into, which is tmux's rule
+for its own socket directory.
+"""
+function private_dir(d::AbstractString)
+    ispath(d) || mkpath(d)
+    st = lstat(d)
+    (isdir(st) && !islink(st)) || error(string(d, " is not a directory"))
+    st.uid == ccall(:getuid, Cuint, ()) || error(string(d, " is not ours"))
+    chmod(d, 0o700)
+    d
 end
 
 """One thing a pane is to keep seeing.
@@ -115,7 +129,7 @@ end
 """Replace `link` with one to `target`, as one step: a `git push` in a pane at
 that moment finds the old agent or the new one, never nothing."""
 function relink(link::AbstractString, target::AbstractString)
-    mkpath(dirname(link))
+    private_dir(dirname(link))
     tmp = string(link, ".", getpid())
     rm(tmp; force = true)
     symlink(target, tmp)
@@ -145,7 +159,14 @@ and `code` is found before any of it.
 function forwards!()
     env = Pair{String,String}[]
     gone = String[]
-    dir = rundir()
+    # Nothing is handed over from a directory that is not ours alone: a pane
+    # would be told to find its keys where anyone could put a socket.
+    dir = try
+        private_dir(rundir())
+    catch e
+        logerror!(e, catch_backtrace(), "forwards")
+        return (env = env, gone = gone)
+    end
     for f in FORWARDS
         link = joinpath(dir, f.link)
         target = try
