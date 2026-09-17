@@ -805,8 +805,12 @@ the same answer `wl watching` gives for the repos you watch. A filter you got to
 by hand is the one worth keeping, and it is also the one you cannot reconstruct
 from memory an hour later.
 """
-function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
-    lines = [string("[views.", repr(String(name)), "]")]
+view_toml(f::Filters, order::Symbol, name::AbstractString = "a name") =
+    join(vcat([string("[views.", repr(String(name)), "]")], view_lines(f, order)), "\n")
+
+"The body of that: one `key = ...` line per axis that is applied."
+function view_lines(f::Filters, order::Symbol)
+    lines = String[]
     # Written unless it is what a view that names no `show` would get anyway -
     # which is the base box and the closed one, not the empty set: `show = []`
     # is a real filter here, and one that has to survive being written down.
@@ -827,7 +831,7 @@ function view_toml(f::Filters, order::Symbol, name::AbstractString = "a name")
                             join([repr(x) for x in sort(collect(set))], ", "), "]"))
     end
     order === :none || push!(lines, string("sort = ", repr(String(order))))
-    join(lines, "\n")
+    lines
 end
 
 """Rows for the filter pane: the way out, what to show, the tags, the kind
@@ -1099,4 +1103,60 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
     isempty(parts) && push!(parts, "unread")
     join(parts, " · ")
+end
+
+"""Where the browser was when it last closed - `data/view.toml`.
+
+The filter, its order, the item under the cursor and which of its views was
+up: enough to reopen in the same place, which is what a stray `q` used to
+cost and what a terminal that went away always did. Written whole on the way
+out, since it is one record and not a file anybody edits; read once at
+launch, and an item that is no longer in the list - read since, filed,
+filtered out - leaves the cursor at the top of the list it is not in.
+
+Not `local.toml`: that is judgement, written key by key and never rewritten.
+This is where you were, and it is nothing without the corpus beside it.
+"""
+const VIEWFILE = Ref("")
+viewfile() = isempty(VIEWFILE[]) ? datapath("view.toml") : VIEWFILE[]
+
+const VIEW_MODES = (:comments, :diff, :pushed, :checks)
+
+function save_view(st)
+    lines = vcat(["# Where the browser was when it last closed, read back at the next",
+                  "# launch. Written whole on the way out; `` ` `` is the way back to the",
+                  "# firehose from a view it restored.",
+                  "[view]"], view_lines(st.filters, st.sort), [""])
+    u = curl(st)
+    if !isempty(u)
+        push!(lines, "[at]", string("item = ", repr(u)),
+              string("mode = ", repr(String(st.mode))), "")
+    end
+    try
+        write_atomic(viewfile(), join(lines, "\n"))
+    catch
+        # Nothing on screen to say it to, and nothing lost but where you were.
+    end
+end
+
+"""Reopen where the last run closed, and say so on the status row. Answers
+whether anything was restored."""
+function restore_view!(st)
+    f = viewfile()
+    isfile(f) || return false
+    d = try
+        TOML.parsefile(f)
+    catch
+        return false
+    end
+    v = get(d, "view", nothing)
+    v isa AbstractDict || return false
+    said = apply_view!(st, v)
+    at = get(d, "at", Dict{String,Any}())
+    i = findfirst(x -> x.url == String(get(at, "item", "")), st.items)
+    i === nothing || (st.sel = i)
+    m = Symbol(String(get(at, "mode", "comments")))
+    m in VIEW_MODES && (st.mode = m)
+    st.status = string("where you were: ", said)
+    true
 end

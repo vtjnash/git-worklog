@@ -46,10 +46,16 @@ Open the browser under a controller that owns stdin for the whole run.
 function browse(items::Vector{Item}, title::AbstractString)
     isempty(items) && (println("\n  nothing in ", title, "\n"); return 0)
     st = BState(collect(items), String(title))
+    restore_view!(st)
     ctrl = Controller()
     st.wake = () -> wake!(ctrl)
     watch_data!(st)
-    run!(ctrl, st)
+    try
+        run!(ctrl, st)
+    finally
+        # However it ended - `q`, or the terminal going away under it.
+        save_view(st)
+    end
 end
 
 """The url the cursor is on, or `""` - which is also what the import row is."""

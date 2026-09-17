@@ -56,6 +56,7 @@ let d = mktempdir()
     cp(joinpath(@__DIR__, "fixture.json"), joinpath(d, "fetched.json"))
     W.FETCHED[] = joinpath(d, "fetched.json")
     W.LOCAL[] = joinpath(d, "local.toml")
+    W.VIEWFILE[] = joinpath(d, "view.toml")
     write(W.LOCAL[], "")
     W.CACHE_DIR[] = joinpath(d, "cache")
     # And the socket links, which would otherwise be re-pointed under

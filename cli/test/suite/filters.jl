@@ -378,6 +378,52 @@ end
     @test W.isdefault(st.filters)
 end
 
+@testset "the browser reopens where it closed" begin
+    # A stray `q` cost the session: the list you were in and where you were in
+    # it. `save_view` writes both on the way out and `restore_view!` reads them
+    # back at launch - the filter and its order, the item under the cursor and
+    # which of its views was up.
+    st = mkstate()
+    W.apply_view!(st, Dict("show" => ["base", "read"], "kind" => "pr",
+                           "repo" => ["JuliaLang/julia"], "sort" => "touched"))
+    @test length(st.items) >= 2
+    st.sel = 2; st.mode = :diff
+    W.save_view(st)
+    txt = read(W.viewfile(), String)
+    @test occursin("[view]", txt) && occursin("repo = [\"JuliaLang/julia\"]", txt)
+    @test occursin(string("item = ", repr(st.items[2].url)), txt)
+    @test occursin("mode = \"diff\"", txt)
+
+    fresh = mkstate()
+    @test W.isdefault(fresh.filters) && fresh.mode === :comments
+    @test W.restore_view!(fresh)
+    @test W.view_lines(fresh.filters, fresh.sort) == W.view_lines(st.filters, st.sort)
+    @test fresh.sort === :touched
+    @test fresh.items[fresh.sel].url == st.items[2].url
+    @test fresh.mode === :diff
+    @test startswith(fresh.status, "where you were: [")
+    # `` ` `` is the way back to the firehose from what it restored.
+    @test W.isdefault(fresh.prev)
+
+    # An item that is no longer in the list leaves the cursor at the top of
+    # the list it is not in; a mode that is not one stays as it was.
+    write(W.viewfile(), "[view]\nkind = \"pr\"\n\n[at]\nitem = \"gone\"\nmode = \"x\"\n")
+    again = mkstate()
+    @test W.restore_view!(again)
+    @test again.filters.kind === :pr && again.sel == 1 && again.mode === :comments
+    # No file, or a file that is not TOML, is the browser opening as it always did.
+    write(W.viewfile(), "[view\n")
+    none = mkstate()
+    @test !W.restore_view!(none) && W.isdefault(none.filters)
+    rm(W.viewfile())
+    @test !W.restore_view!(none)
+    # The cursor on the import row writes no `[at]` at all.
+    st.sel = 0
+    W.save_view(st)
+    @test !occursin("[at]", read(W.viewfile(), String))
+    rm(W.viewfile())
+end
+
 @testset "when a row leaves, the cursor stays where it was" begin
     # `r` in the base list takes the row it marks read out of it, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
