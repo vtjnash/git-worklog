@@ -631,6 +631,39 @@ would think to search for by name.
 """
 const AXIS_APPLIED_ONLY = (:repo, :label, :author)
 
+"""`[filters] pinned_repos` from `config.toml`: the repos listed on the pane
+whether or not they are applied, as written there - a name or `owner/*`."""
+pinned_filter_repos(cfg = config()) =
+    String[String(r) for r in get(get(cfg, "filters", Dict{String,Any}()),
+                                  "pinned_repos", String[])]
+
+"""The repo axis in the order the pane lists it: the pinned repos first, in the
+order they were written, then the rest alphabetically.
+
+A pinned entry is listed whether it is applied or not, and at zero - the point
+of pinning one is that it is in the same place every time, one `↵` away, and a
+row that comes and goes with the count is not. `owner/*` is every repo of that
+owner the corpus has, alphabetically, so the entry `[events] repos` already
+takes is the entry this takes.
+"""
+function repo_axis(st)
+    out = String[]
+    for p in st.pinned
+        if endswith(p, "/*")
+            for r in st.repos
+                startswith(r, p[1:end-1]) && !(r in out) && push!(out, r)
+            end
+        else
+            p in out || push!(out, p)
+        end
+    end
+    npin = length(out)
+    for r in st.repos
+        r in out || push!(out, r)
+    end
+    (out, npin)
+end
+
 "The set an axis filters on, which is where a picked value lands."
 axis_set(f::Filters, axis::Symbol) =
     axis === :lane ? f.lanes : axis === :repo ? f.repos :
@@ -839,14 +872,15 @@ function filter_rows(st)
         push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
                                               rpad(name, 24), get(n.kinds, k, 0))))
     end
+    repos, npinned = repo_axis(st)
     for (axis, label, values, tally) in ((:lane, "lane", st.lanes, n.lanes),
-                                         (:repo, "repo", st.repos, n.repos),
+                                         (:repo, "repo", repos, n.repos),
                                          (:label, "label", st.labels, n.labels),
                                          (:author, "author", st.authors, n.authors))
         push!(rows, (:head, "", ""))
         push!(rows, (:head, "", label))
         sel = axis_set(f, axis)
-        for v in values
+        for (j, v) in enumerate(values)
             cnt = get(tally, v, 0)
             on = v in sel
             # `me` and `anyone else` are the axis's two controls rather than two
@@ -854,7 +888,10 @@ function filter_rows(st)
             # select nothing: that it selects nothing is the answer. Narrow to a
             # repo you have written nothing in and the whole axis used to
             # vanish - no rows at all, not even the half of it that had items.
-            always = axis === :author && v in (AUTHOR_ME, AUTHOR_OTHERS)
+            # A pinned repo is the same kind of thing: a row that is there to
+            # be reached for, so it is there.
+            always = (axis === :author && v in (AUTHOR_ME, AUTHOR_OTHERS)) ||
+                     (axis === :repo && j <= npinned)
             # A label nothing here carries is noise - and there are hundreds of
             # them across this many repos. The zero-count skip is what keeps the
             # list to the ones worth seeing.
@@ -903,13 +940,14 @@ picked, so this is a wiring job rather than a picker. The counts come from
 the filter - the same number the listed rows show, and the one worth having
 while choosing.
 
-Values already applied are left out. They are on screen a few rows above, where
-`\u21b5` takes them off again.
+Values already applied are left out, and so are the pinned repos. They are on
+screen a few rows above, where `\u21b5` takes them off or puts them on.
 """
 function pick_axis!(st, ctrl, axis::Symbol)
     n = axis_counts(st)
     tally = axis === :repo ? n.repos : axis === :label ? n.labels : n.authors
-    values = axis === :repo ? st.repos : axis === :label ? st.labels : st.authors
+    values = axis === :repo ? (r = repo_axis(st); r[1][r[2]+1:end]) :
+             axis === :label ? st.labels : st.authors
     sel = axis_set(st.filters, axis)
     opts = Tuple{String,Any}[(string(rpad(axis_label(axis, v), 30), " ",
                                      get(tally, v, 0)), v)

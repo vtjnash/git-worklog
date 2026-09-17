@@ -72,6 +72,8 @@ Base.@kwdef mutable struct BState <: View
                                              # actions rather than for looking
     lanes::Vector{String} = String[]
     repos::Vector{String} = String[]
+    pinned::Vector{String} = String[]    # `[filters] pinned_repos`, as written:
+                                         # a repo, or `owner/*`
     labels::Vector{String} = String[]
     authors::Vector{String} = String[]   # the two predicates, then every login
                                          # that appears, alphabetically
@@ -202,7 +204,8 @@ function BState(all::Vector{Item}, title)
                   wakes = wake_map(), snoozes = field_marks(m, "last_snooze"),
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   sources = source_since(),
-                  factsat = mtime(fetchedfile()))
+                  factsat = mtime(fetchedfile()),
+                  pinned = pinned_filter_repos())
     rebuild_axes!(st)
     refilter!(st)
     st

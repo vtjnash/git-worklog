@@ -103,6 +103,13 @@ assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
 # repo = ["JuliaLang/julia"]
 # label = ["types and dispatch"]
 
+[filters]
+# Repos listed on the filter pane (`f`) whether or not they are applied, first
+# and in this order, at zero too - so each is in the same place every time,
+# one `↵` away. Every other repo is behind the picker row under them. A name,
+# or `owner/*` for every repo of that owner the dashboard has a row from.
+pinned_repos = ["JuliaLang/julia", "libuv/libuv", "vtjnash/*"]
+
 [events]
 # Every comment and state change in these repos is logged locally, so the
 # per-event email notifications can be turned off. Polled with `since=`, which

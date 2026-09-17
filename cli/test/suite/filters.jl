@@ -491,6 +491,33 @@ end
     st.frow = findfirst(r -> r[1] === :pick, W.filter_rows(st))
     @test !W.toggle_filter!(st)
 
+    # A pinned repo is listed whether or not it is applied, first and in the
+    # order written, so it is in the same place every time, one `↵` away;
+    # `owner/*` is every repo of that owner the corpus has. The picker leaves
+    # them out, as it leaves out what is applied: they are on screen already.
+    mine_ = sort([r for r in st.repos if startswith(r, "JuliaCI/")])
+    @test length(mine_) >= 2
+    st.pinned = ["libuv/libuv", "JuliaCI/*", "nobody/here"]
+    prow = [r[2] for r in W.filter_rows(st) if r[1] === :repo]
+    @test prow == vcat(["libuv/libuv"], mine_, ["nobody/here"])
+    @test all(occursin("[ ] ", r[3]) for r in W.filter_rows(st) if r[1] === :repo)
+    @test W.repo_axis(st) == (vcat(prow, [r for r in st.repos if !(r in prow)]), length(prow))
+    st.frow = findfirst(r -> r[1] === :pick && r[2] == "repo", W.filter_rows(st))
+    @test W.toggle_filter!(st, ctrl)
+    cv = last(ctrl.stack); pop!(ctrl.stack)
+    @test length(cv.options) == length(st.repos) - length(prow) + 1   # nobody/here
+    @test !any(o[2] == "libuv/libuv" for o in cv.options)
+    # `↵` on one applies it; a pinned repo is a value like any other.
+    st.frow = findfirst(r -> r[1] === :repo && r[2] == mine_[1], W.filter_rows(st))
+    @test W.toggle_filter!(st, ctrl)
+    @test st.filters.repos == Set([mine_[1]])
+    @test [r[2] for r in W.filter_rows(st) if r[1] === :repo] == prow   # still in place
+    st.filters = W.Filters(); W.refilter!(st); st.pinned = String[]
+    # Read off `[filters] pinned_repos`, and nothing pins itself.
+    @test W.pinned_filter_repos(Dict{String,Any}()) == String[]
+    @test W.pinned_filter_repos(Dict{String,Any}("filters" =>
+              Dict{String,Any}("pinned_repos" => ["a/b", "c/*"]))) == ["a/b", "c/*"]
+
     # Whose it is. `mine` answered half the question - your own pull requests -
     # and the other half is the commoner one: somebody else's, in front of you.
     me = W.Item(url = "u1", ref = "a#1", repo = "a/b", number = 1, title = "t",

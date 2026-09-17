@@ -116,6 +116,9 @@ as the TOML that would name it.
 open` · `read` · `filed away` · `closed or merged` - so the number by each is
 what checking it would bring in. The first and last are on when nothing has
 been asked. The other axes narrow: tag, kind, lane, repo, label, author.
+The repo, label and author axes list what is applied and put the rest
+behind a picker row; `[filters] pinned_repos` in `config.toml` names repos
+listed first regardless, a name or `owner/*`.
 
 **Reviewing**: drag over a diff (or `⇧j`/`⇧k`), then `C` comments on that
 range - under `d`, or under `p` on its right side, which is the head now;
