@@ -226,12 +226,13 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                    # the keys nobody needs told run at the end.
                    "\u21e7j/k select \u00b7 m mouse ",
                    st.mouse ? "on" : "off")
-    # A logged error outranks both: it is standing, and stays until the file
-    # naming it is deleted.
+    # A logged error, or a theme that did not load, outranks both: it is
+    # standing, and stays until the file naming it is deleted or the line is
+    # fixed.
     # `oneline` is not belt and braces: a status set from an exception carries
     # whatever newlines `showerror` put in it, and one of those in a one-row
     # field makes the frame taller than the screen.
-    msg = oneline(isempty(errnote()) ? st.status : errnote())
+    msg = oneline(isempty(standing_note()) ? st.status : standing_note())
     foot1 = string(THEME.dim, afit(keys1, w), THEME.reset)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,

@@ -171,7 +171,7 @@ function fetch_url_map(urls; per::Int = 40)
     if haskey(d, :errors)
         data === nothing &&
             throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
-        @printf(stderr, "    by url: %d of %d not answered: %s\n", length(d.errors),
+        @printf(warning(), "    by url: %d of %d not answered: %s\n", length(d.errors),
                 length(us), first(json_dumps(d.errors), 200))
     end
     for (i, u) in enumerate(us)
@@ -348,7 +348,7 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
             # Said before the wait and not after it. On the 5xx schedule that
             # is a nicety; on the other one the wait is minutes, and a refresh
             # that goes silent for four of them looks wedged.
-            @printf(stderr, "    retry %d in %ds after: %s\n",
+            @printf(report(), "    retry %d in %ds after: %s\n",
                     attempt + 1, round(Int, wait_), strip(err))
             sleep(wait_)
         end

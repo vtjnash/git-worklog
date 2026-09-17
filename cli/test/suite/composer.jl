@@ -93,3 +93,25 @@
     @test ran[]
     @test occursin("\e[?1049l", out) && occursin("\e[?1049h", out)
 end
+
+@testset "a send that fails keeps the words" begin
+    # The composer used to pop on `^s` whatever the answer, and a failed post
+    # left one line on the browser's status row - gone at the next key - and
+    # the comment gone with the composer. An `Unsent` now stays on the
+    # composer's own row with the text under it; anything else the callback
+    # answers - a status string, nothing - is a send, and pops as before.
+    ctrl = W.Controller()
+    answer = Ref{Any}(W.Unsent("HTTP 502 from GitHub"))
+    sent = String[]
+    ev = W.EditorView("Comment", "", b -> (push!(sent, b); answer[]); initial = "a remark")
+    W.push_view!(ctrl, ev)
+    @test W.handle!(ev, W.C_S, ctrl) === :ok
+    @test sent == ["a remark"]
+    @test W.text(ev) == "a remark"
+    @test occursin("HTTP 502", ev.status) && occursin("tries again", ev.status)
+    answer[] = "posted"
+    @test W.handle!(ev, W.C_S, ctrl) === :pop
+    @test length(sent) == 2
+    answer[] = nothing
+    @test W.handle!(ev, W.C_S, ctrl) === :pop
+end

@@ -229,6 +229,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         # A draft is not on the thread yet, so there is nothing to re-read for
         # it - and re-reading would cost the fetch and show the same page.
         isempty(r) && (touch!(it.url); kind === :line || reread!(st))
+        isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
     end; suggest = suggest))
 end
 
@@ -299,6 +300,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                 isempty(r) && (touch!(it.url); st.batch = nothing;
                                undraft!(it.url); st.drafts = load_drafts();
                                reread!(st))
+                isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
             end; allow_empty = ev == "APPROVE"))
     end))
 end

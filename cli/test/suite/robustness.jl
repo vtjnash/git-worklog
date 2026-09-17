@@ -137,6 +137,52 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     rm(W.errlog())
     @test W.errnote() == ""
     @test !occursin("delete it to clear", W.render(st, 120, 40))
+
+    # A theme that did not load as written stands in the same place, behind a
+    # logged error: it is a line to fix, not a thing that just happened, and
+    # `__init__` ran before there was a screen to say it on.
+    push!(W.THEME_NOTES, "no such colour 'blurple' for role blocked")
+    try
+        @test W.standing_note() == "theme: no such colour 'blurple' for role blocked"
+        @test occursin("blurple", W.render(st, 120, 40))
+        W.logerror!(ErrorException("x"), backtrace(), "test")
+        @test occursin("delete it to clear", W.standing_note())
+        rm(W.errlog())
+    finally
+        pop!(W.THEME_NOTES)
+    end
+    @test W.standing_note() == ""
+end
+
+@testset "what an operation says goes to its report, and its warnings are counted" begin
+    # The process's report is stderr until the browser says otherwise; an
+    # operation given a report of its own writes there instead, and every
+    # line through `warning()` is one the reader has to act on, counted so
+    # the summary can say so without anybody reading the text back.
+    @test W.report() === stderr
+    io = IOBuffer()
+    (_, r) = W.reporting(io) do
+        W.lane_query("a", "is:open author:@me", "ann")          # nothing to say
+        W.lane_query("b", "author:@me", "ann")                  # not the open work
+        W.lane_query("c", "is:open author:bob", "ann")          # not yours
+        @test W.report() === io
+        nothing
+    end
+    said = String(take!(io))
+    @test r.warnings == 2
+    @test occursin("b         not `is:open`", said) && occursin("c         names neither", said)
+    @test !occursin("a  ", said)
+    # Back to the process's once the operation is over.
+    @test W.report() === stderr
+    # The browser's is nothing at all: its frame is the only thing on the
+    # terminal, and what must be kept goes through `logerror!`.
+    keep = W.REPORT[]
+    W.REPORT[] = W.Report(devnull)
+    try
+        @test W.report() === devnull && W.warning() === devnull
+    finally
+        W.REPORT[] = keep
+    end
 end
 
 @testset "the metadata fetch result fits the field it lands in" begin

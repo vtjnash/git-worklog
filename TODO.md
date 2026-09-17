@@ -174,47 +174,22 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       and a rebase that stops is not one row. The worktree list (`"`) is
       the other candidate, since a checkout is a fact about a worktree
       and not about an item.
-- [ ] **Audit what is said on stderr and on the status line, and where
-      each should go instead.** Three channels today, none chosen per
-      message. **stderr**, ~30 `@printf`s in `events.jl` and `refresh.jl`
-      plus the theme and import complaints: fine under `wl refresh` in a
-      terminal, but under `u` the child's stderr goes to a temp file and
-      only its *last non-empty line* reaches the status row
-      (`run_refresh`, `fetch.jl`), so a `FAILED:` lane, a `LAGGING`
-      notice or a "not `is:open`" warning is gone unless it happened to
-      be last; and in the browser itself a stray `println(stderr)` draws
-      over the frame. **The status line**, 56 writers, one row, replaced
-      by the next key - it is right for "copied 3 lines" and wrong for
-      anything the reader has to act on later. **`errors.log`**, the one
-      durable place, read as the footer's standing warning - only for
-      exceptions. Sort every message by whether it is *transient* (the
-      status row), *standing until seen* (a row the frame keeps - the
-      notes area under the item, the import row's text, the diff's first
-      row for the control-characters warning above), or *a record*
-      (`errors.log`, or `refresh.log` beside it, which `u` now keeps whole
-      and the status row points at). `wl show`/`wl refresh` keep stderr;
-      the browser should never write to it.
-- [ ] **The refresh under `u`: a Task, not a child.** What the audit above
-      makes possible. (Its output is kept now: `run_refresh` writes the
-      child's whole output to `data/refresh.log`, overwritten per run, the
-      status row counts the lines worth going back for, a failure carries
-      the file's last lines into `errors.log`, and `wl log` prints it -
-      2026-09-16.) `bin/refresh` is spawned because `refresh` reports on
-      `stderr` and `redirect_stderr` is process-wide (`fetch.jl`). Once
-      every `@printf(stderr` in `refresh.jl`/`events.jl` takes an `io` -
-      the audit - the reason is gone, and what is left is the CPU: `wl`
-      runs with no `-t`, tasks are cooperative, and a refresh parses and
-      rewrites the 6 MB `fetched.json` and diffs 5,500 rows, which would
-      hold the key loop for as long as that takes. Measure that part first
-      (the `gh` waits already yield). If it is under a frame, `@async` and
-      adopt the result directly instead of through the file watcher; if
-      not, `-t auto` in `bin/wl` and `Threads.@spawn`, and then the corpus
-      written by one thread while another draws from it needs the handoff
-      `reload_data!` already is. Keep `wl refresh` and `bin/refresh` as
-      they are: the cron and the hand run want a process. The
-      `REFRESH_WARNING` regex in `fetch.jl` is the interim the audit
-      replaces: a message with a channel of its own does not need to be
-      recognised by its words.
+- [ ] **The refresh under `u`: a Task, not a child.** The reason it was a
+      child is gone: `refresh` reports through `reporting(io)` on its own
+      task-local report and nothing in it touches stderr (DESIGN, "What is
+      said, and where"), so an in-process refresh would write to a buffer
+      or to `refresh.log` and the browser's own fetches would go on
+      reporting nothing. What is left is the CPU: `wl` runs with no `-t`,
+      tasks are cooperative, and a refresh parses and rewrites the 6 MB
+      `fetched.json` and diffs 5,500 rows, which would hold the key loop
+      for as long as that takes. Measure that part first (the `gh` waits
+      already yield). If it is under a frame, `@async` and adopt the result
+      directly instead of through the file watcher; if not, `-t auto` in
+      `bin/wl` and `Threads.@spawn`, and then the corpus written by one
+      thread while another draws from it needs the handoff `reload_data!`
+      already is. Keep `wl refresh` and `bin/refresh` as they are: the cron
+      and the hand run want a process. The warnings count comes straight
+      off the report then, and `run_refresh`'s last-line reading goes.
 - [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
       What this program calls *read* is what GitHub's inbox calls **done**
       - a thread put away that comes back when it moves - and the sync

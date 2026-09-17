@@ -420,9 +420,14 @@ end
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread     # woken
         # The refresh writes it down.
         srch(q) = (Any[], 4, 0)
-        @test W.refresh(String[], W.DateTime(2026, 9, 10); search = srch,
+        # Into a buffer, and the summary is its last line: no warnings, so it
+        # says none - the count is the refresh's own, off its report.
+        said = IOBuffer()
+        @test W.refresh(String[], W.DateTime(2026, 9, 10); io = said, search = srch,
                         fetch_url_map = x -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                         open_list = (a...; kw...) -> []) == 0
+        summary = last(filter(!isempty, split(String(take!(said)), "\n")))
+        @test occursin(r"^  \d+ items, \d+ changes, \d+ rate-limit points$", summary)
         @test W.mark_at(u, "read") == "" && W.get_field(u, "snooze") === nothing
         @test W.read_head(u) == "cafe"                         # still where you were
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread

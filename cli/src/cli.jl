@@ -407,6 +407,10 @@ end
 
 function main(args = String[])
     name_process!(args)
+    # A command's channel is stderr; the browser's is its footer, and it says
+    # these there (`standing_note`).
+    (isempty(args) || args == ["--refresh"]) ||
+        foreach(p -> println(stderr, "worklog: ", p), THEME_NOTES)
     try
         return dispatch(collect(String, args), utcnow())
     catch e

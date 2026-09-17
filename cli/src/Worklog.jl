@@ -149,13 +149,15 @@ precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(ui, (Vector{String}, DateTime))
 
 function __init__()
-    # The colours, before anything can draw. Said on stderr rather than thrown:
-    # a misspelt colour must not stop the dashboard, and must not go unnoticed
-    # either - the role it names is drawn as nothing until the line is fixed.
+    # The colours, before anything can draw. Kept rather than thrown or
+    # printed: a misspelt colour must not stop the dashboard, and must not go
+    # unnoticed either - the role it names is drawn as nothing until the line
+    # is fixed - so a command says them on stderr (`main`) and the browser
+    # keeps them in the footer (`standing_note`), which nothing printed here
+    # would reach: this runs before the alternate screen, and a line under it
+    # is read on the way out, if at all.
     try
-        for p in load_theme!()
-            println(stderr, "worklog: ", p)
-        end
+        append!(THEME_NOTES, load_theme!())
     catch
         # A theme is decoration. Not being able to read one is not a reason for
         # the program to refuse to start, and `THEME` is already all empty.

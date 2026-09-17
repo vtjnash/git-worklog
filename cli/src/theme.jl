@@ -462,6 +462,11 @@ function themefile()
         isabspath(name) ? name : joinpath(ROOT, "themes", name)
 end
 
+"""What loading the theme had to say - a file that is not there, a colour that
+is not one - kept for whichever channel the process has: stderr for a command,
+the footer for the browser. Filled once, in `__init__`."""
+const THEME_NOTES = String[]
+
 """
     load_theme!([path]) -> Vector{String}
 

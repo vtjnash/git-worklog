@@ -831,12 +831,12 @@ function reconcile_drafts!(gone, ask = url -> Events.review_state(url; ttl = 0.0
             undraft!(url)
             dropped += 1
         else
-            @printf(stderr,
+            @printf(warning(),
                     "  %-16s %s left the dashboard with an unsent draft review\n",
                     "drafts", ref)
         end
     end
-    dropped > 0 && @printf(stderr, "  %-16s %d mark(s) dropped with their items\n",
+    dropped > 0 && @printf(report(), "  %-16s %d mark(s) dropped with their items\n",
                            "drafts", dropped)
     dropped
 end
@@ -1073,9 +1073,9 @@ function lane_query(name::AbstractString, q::AbstractString, login::AbstractStri
     m === nothing || m[1] == "created-asc" ||
         die("lane $name: `sort:$(m[1])` - a lane is walked `sort:created-asc`, or not sorted")
     occursin("is:open", q) ||
-        @printf(stderr, "  %-9s not `is:open`: every lane is read as the open work\n", name)
+        @printf(warning(), "  %-9s not `is:open`: every lane is read as the open work\n", name)
     occursin(login, q) || occursin("@me", q) ||
-        @printf(stderr, "  %-9s names neither %s nor @me: its rows will be read as yours\n",
+        @printf(warning(), "  %-9s names neither %s nor @me: its rows will be read as yours\n",
                 name, login)
     m === nothing ? string(q, " sort:created-asc") : String(q)
 end
@@ -1134,7 +1134,7 @@ function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
         for r in got
             push!(rows, backlog_row(r, login))
         end
-        @printf(stderr, "  %-9s %4d open in %s\n", "backlog", length(got), repo)
+        @printf(report(), "  %-9s %4d open in %s\n", "backlog", length(got), repo)
     end
     for owner in owners, kind in ("is:issue", "is:pr")
         (only === nothing || string(owner, "/*") in only) || continue
@@ -1143,15 +1143,27 @@ function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
         for n in nodes
             push!(rows, normalize(n, "backlog", login))
         end
-        @printf(stderr, "  %-9s %4d open under %s/* (%s, %d pts)\n", "backlog",
+        @printf(report(), "  %-9s %4d open under %s/* (%s, %d pts)\n", "backlog",
                 length(nodes), owner, kind, c)
     end
     rows
 end
 
+"""Re-fetch, re-derive, re-render. Returns the exit code.
+
+Everything it has to say goes to `io` - stderr under `wl refresh`, the file
+`run_refresh` keeps under `u`, a buffer in a test - through a report of its own
+(`reporting`), so the warnings among those lines are counted and the summary
+line says how many there were.
+"""
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
-                 search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
-                 open_list = open_list)
+                 io::IO = report(), kw...)
+    first(reporting(() -> refresh_(args, at; kw...), io))
+end
+
+function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
+                  search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
+                  open_list = open_list)
     cfgtext = read(joinpath(ROOT, "config.toml"), String)
     cfg = TOML.parse(cfgtext)
     login = cfg["login"]
@@ -1212,7 +1224,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             r["fetched_at"] = f
             items[String(n.url)] = r
         end
-        @printf(stderr, "  %-9s %3d items (%d pts)%s\n", lane, length(nodes), c,
+        @printf(report(), "  %-9s %3d items (%d pts)%s\n", lane, length(nodes), c,
                 total > length(nodes) ? " - CUT at $(length(nodes)) of $total: the open work is not whole" : "")
     end
 
@@ -1226,7 +1238,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         for n in try
                     Any[n for n in values(fetch_url_map(imp)) if n !== nothing]
                  catch e
-                    @printf(stderr, "  %-9s failed: %s\n", "imported",
+                    @printf(warning(), "  %-9s failed: %s\n", "imported",
                             first(sprint(showerror, e), 120))
                     Any[]
                  end
@@ -1236,7 +1248,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             items[u]["fetched_at"] = f
             kept += 1
         end
-        @printf(stderr, "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
+        @printf(report(), "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
     end
 
     # **The open list of a polled repository is in the corpus from the start**
@@ -1267,7 +1279,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
             push!(backlog, u)
         end
         spent += pts[]
-        @printf(stderr, "  %-9s %4d rows new to the corpus, read by construction\n",
+        @printf(report(), "  %-9s %4d rows new to the corpus, read by construction\n",
                 "backlog", length(backlog))
     end
 
@@ -1354,7 +1366,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
     end
     promoted += marked
-    promoted == 0 || @printf(stderr, "  %-9s %3d light rows marked or looked at, kept from here\n",
+    promoted == 0 || @printf(report(), "  %-9s %3d light rows marked or looked at, kept from here\n",
                              "promoted", promoted)
     gone = Tuple{String,String}[]
     renamed = Dict{String,String}()           # new url => the one asked
@@ -1364,7 +1376,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         answers = try
             fetch_url_map(collect(keys(ask)))
         catch e
-            @printf(stderr, "  %-9s failed: %s\n", "by url",
+            @printf(warning(), "  %-9s failed: %s\n", "by url",
                     first(sprint(showerror, e), 120))
             OrderedDict{String,Any}()
         end
@@ -1386,7 +1398,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
                 old = prev(asked)
                 delete!(items, asked)
                 push!(gone, (asked, String(nz(jget(old, :ref), asked))))
-                @printf(stderr, "  %-9s %s is now %s\n", "by url", asked, u)
+                @printf(report(), "  %-9s %s is now %s\n", "by url", asked, u)
                 (haskey(items, u) || haskey(answers, u)) && continue
                 renamed[u] = asked
             end
@@ -1411,12 +1423,12 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         end
         # A thread the token cannot see is asked and not answered, and has no
         # row to keep; it stays a light row, and is asked again while unread.
-        @printf(stderr, "  %-9s %3d items fetched: %d moved, %d threads new here%s (of %d asked%s)\n",
+        @printf(report(), "  %-9s %3d items fetched: %d moved, %d threads new here%s (of %d asked%s)\n",
                 "by url", got, length(ask) - brought - marked, landed,
                 landed == brought ? "" : " of $brought asked", length(ask),
                 unanswered == 0 ? "" : "; $unanswered unanswered, kept as they were")
     end
-    @printf(stderr, "  %-9s %3d items no lane returns, kept or re-asked\n", "carried",
+    @printf(report(), "  %-9s %3d items no lane returns, kept or re-asked\n", "carried",
             length(carried))
     carried = Set(carried)
 
@@ -1441,7 +1453,7 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
         for l in fresh
             name_source!(l, f)
         end
-        isempty(fresh) || @printf(stderr, "  %-9s %d source(s) named, read up to today: %s\n",
+        isempty(fresh) || @printf(report(), "  %-9s %d source(s) named, read up to today: %s\n",
                                   "sources", length(fresh), join(fresh, ", "))
     end
 
@@ -1477,9 +1489,9 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
 
     # Once, after the loop: this rewrites a file, and a refresh that finds
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
-    isempty(slept) || @printf(stderr, "  %-16s %4d marked read, having been put away by hand\n",
+    isempty(slept) || @printf(report(), "  %-16s %4d marked read, having been put away by hand\n",
                               "snooze", mark_read(slept, at))
-    isempty(woke) || @printf(stderr, "  %-16s %4d woke: unread, and the snooze is gone\n",
+    isempty(woke) || @printf(report(), "  %-16s %4d woke: unread, and the snooze is gone\n",
                              "snooze", mark_woken(woke))
 
     # **The inbox is a clock, never an answer.** An inbox row for a url the
@@ -1508,13 +1520,13 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     for u in dropped
         delete!(inbox_["items"], u)
     end
-    isempty(dropped) || @printf(stderr, "  %-16s %4d rows asked about and read, dropped\n",
+    isempty(dropped) || @printf(report(), "  %-16s %4d rows asked about and read, dropped\n",
                                 "inbox", length(dropped))
     # A value typed wrong is not a snooze, and nothing else says so.
     for (u, st) in state
         v = get(st, "snooze", nothing)
         truthy(v) && parse_snooze(String(v)) === nothing &&
-            @printf(stderr, "  %-16s bad snooze value '%s'  (%s)\n", "snooze", v, u)
+            @printf(warning(), "  %-16s bad snooze value '%s'  (%s)\n", "snooze", v, u)
     end
 
     store = load_fetched()
@@ -1533,10 +1545,15 @@ function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = 
     # the slow, non-interactive one - and because everything it drops is older
     # than anything the browser would have put on screen.
     swept = cache_clear(; older_than = CACHE_SWEEP[])
-    swept > 0 && @printf(stderr, "  %-16s %d entries over %d days old\n",
+    swept > 0 && @printf(report(), "  %-16s %d entries over %d days old\n",
                          "cache", swept, round(Int, CACHE_SWEEP[] / 86_400))
-    @printf(stderr, "  %d items, %d changes, %d rate-limit points\n",
-            length(items), length(changes), spent)
+    # The summary, which is the line the browser's status row reads off the
+    # child: with the warnings counted here, by the report, so the row can say
+    # there were some without reading the text above it back.
+    nw = current_report().warnings
+    @printf(report(), "  %d items, %d changes, %d rate-limit points%s\n",
+            length(items), length(changes), spent,
+            nw == 0 ? "" : string(" \u00b7 ", nw, nw == 1 ? " warning" : " warnings"))
     0
 end
 

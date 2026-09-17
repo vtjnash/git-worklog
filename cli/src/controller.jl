@@ -502,7 +502,7 @@ function safe_render(v::View, w::Int, h::Int)
         line = logerror!(e, catch_backtrace(), "render")
         rows = vcat([string(THEME.blocked, "this view could not be drawn",
                             THEME.reset)], awrap(line, w),
-                    [""], awrap(errnote(), w))
+                    [""], awrap(standing_note(), w))
         while length(rows) < h
             push!(rows, "")
         end
@@ -534,6 +534,13 @@ end
 # directory `wl` is run from, so its name is enough to find it.
 errnote() = isfile(errlog()) ?
     string("errors logged in ", basename(errlog()), " \u2014 read it, then delete it to clear this") : ""
+
+"""What stands in the footer until it is dealt with: a logged error, else a
+theme that did not load as written. Both are things the reader has to act on
+and neither happens again by itself, which is what makes them the footer's
+rather than the status row's."""
+standing_note() = (e = errnote(); !isempty(e) ? e :
+                   isempty(THEME_NOTES) ? "" : string("theme: ", first(THEME_NOTES)))
 
 """
     run!(ctrl, root)
@@ -901,6 +908,12 @@ const C_X = 24
 
 # --- a multi-line composer, as a view ---------------------------------------
 
+"""What `onsubmit` answers when the send did not happen. The composer stays
+open on it, with the words still there; anything else it answers is a send."""
+struct Unsent
+    why::String
+end
+
 """A small multi-line text area, as a view.
 
 The buffer, the keys, the wrapping and the box are `TermInput.TextArea`. Three
@@ -933,7 +946,8 @@ things are left here because they are this program's rather than a composer's:
 """
 mutable struct EditorView <: View
     ta::TextArea
-    onsubmit::Any            # (String) -> Nothing; not called when cancelled
+    onsubmit::Any            # (String) -> `Unsent`, or anything else for sent;
+                             # not called when cancelled
     suggest::String          # a block `^r` drops in, empty when there is none
     allow_empty::Bool        # an approval needs no words; a comment does
     cycle::Any               # (view, ±1) -> Nothing on `tab`, or `nothing`
@@ -980,7 +994,16 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
             ta.status = "nothing to send — esc cancels"
             return :ok
         end
-        v.onsubmit(submission(ta))
+        # A send that failed keeps the composer, with the failure on its own
+        # status row: the words are still here to send again or copy out,
+        # where a popped composer took them with it and left one line on the
+        # browser's status row, gone at the next key. The one thing the
+        # reader has to act on is the one thing the status row is wrong for.
+        r = v.onsubmit(submission(ta))
+        if r isa Unsent
+            ta.status = string(r.why, " \u2014 ^s tries again, esc keeps nothing")
+            return :ok
+        end
         return :pop
     elseif k == 27 || k == C_G                      # give up, and ask first
         isblank(ta) && return :pop

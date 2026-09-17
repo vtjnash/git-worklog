@@ -530,13 +530,6 @@ refreshlog() = isempty(REFRESHLOG[]) ? datapath("refresh.log") : REFRESHLOG[]
 whole path when `WORKLOG_DATA` put it elsewhere."
 refreshlog_name() = (p = refreshlog(); startswith(p, ROOT) ? relpath(p, ROOT) : p)
 
-"""What in a refresh's output is worth going back for: a lane that failed, a
-notification lag, a lane that is not the open work, a snooze that would not
-parse. Matched by text because the child's stderr is the only channel it has
-until every message is given one of its own (TODO, "Audit what is said on
-stderr"); each pattern is a line `refresh.jl` or `events.jl` prints."""
-const REFRESH_WARNING = r"failed|FAILED|LAGGING|not `is:open`|names neither|bad snooze"
-
 """Run `bin/refresh` to completion and answer with the last line it printed.
 
 The last line is its own summary - items, changes, rate-limit points - which is
@@ -551,8 +544,11 @@ unknowable - by hand the same refresh exited 0 with a `gh: HTTP 504` retried in
 the middle. Now the whole of what the child said is there to be read, `wl log`
 prints it, and the status row points at it: on a failure the error carries the
 file's last lines, so the footer's standing warning says what happened; on
-success it says how many lines are worth going back for, when any are, since
-only the last line reaches the row and a `FAILED:` lane three lines up did not.
+success the child's summary says how many of its lines were warnings - a
+`FAILED:` lane three lines up never reached the row when only the last line
+did - and the row adds where the rest is. The count is the child's own: its
+report (`reporting`) counts every line written through `warning()`, so
+nothing here reads the text back.
 
 `cmd` is an argument so the shape of a failure can be driven without a refresh:
 the default is the real one.
@@ -568,10 +564,7 @@ function run_refresh(cmd::Cmd = `$(joinpath(ROOT, "cli", "bin", "refresh"))`)
               isempty(lines) ? " (it said nothing)" :
               string("; it ended:\n  ", join(last(lines, 5), "\n  ")))
     end
-    said = isempty(lines) ? "refreshed" : String(last(lines))
-    n = count(l -> occursin(REFRESH_WARNING, l), lines)
-    n == 0 ? said : string(said, " \u00b7 ", n, n == 1 ? " warning" : " warnings",
-                           " in ", refreshlog_name())
+    string(isempty(lines) ? "refreshed" : String(last(lines)), " \u00b7 wl log")
 end
 
 """Take the records again, and the item list with them when a refresh landed.

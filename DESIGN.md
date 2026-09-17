@@ -414,6 +414,35 @@ Three things answer it, all read off the mark `r` leaves:
   "gone" is not a state; a failure is the network. Needs a pinned checkout:
   GitHub compares refs, and the head you saw is not one.
 
+## What is said, and where
+
+Three channels, and every message chooses one by what the reader does with
+it. Audited 2026-09-17; before that there were three channels and no rule,
+and a `FAILED:` lane reached the status row only if it happened to be the
+child's last line.
+
+- **The report** is what an operation says as it runs: a lane's count, a
+  retry, a lane that is not `is:open`. It goes to `report()`, the `IO` of the
+  report opened for the current task (`reporting`, in task-local storage) or,
+  failing that, the process's (`REPORT[]`): stderr for a command, `devnull`
+  for the browser, which sets it before its first frame because a line on
+  stderr draws over the frame. A line the reader has to act on goes through
+  `warning()` - the same stream, counted - and `refresh`'s summary line says
+  how many there were, so `run_refresh` never reads the child's text back.
+  Under `u` the report is `data/refresh.log`, whole, and `wl log` prints it.
+- **The status row** is for what just happened and will not happen again -
+  "copied 3 lines", "posted", "sorted by age" - and is replaced by the next
+  key. It is wrong for anything the reader has to act on later, which is why
+  a send that fails keeps its composer open with the failure on the
+  composer's row (`Unsent`) instead of popping and leaving one line here.
+- **Standing** notes stay until dealt with: `errors.log`, written by
+  `logerror!` for exceptions and read as the footer's warning until the file
+  is deleted; and a theme that did not load as written (`THEME_NOTES`), in
+  the same place behind it. `standing_note` is the one reader of both.
+
+The browser writes nothing to stderr. The one exception is `run!` refusing to
+start without a terminal, which is before there is a frame.
+
 ## Code layout
 
 | | |

@@ -437,7 +437,9 @@ function imported_items(have::Set{String}, at::DateTime = utcnow())
     for n in try
                 fetch_urls(missing_)
              catch e
-                println(stderr, "  imported: ", first(sprint(showerror, e), 120))
+                # An exception, so a record: under the browser this ran from
+                # `reload_data!`, and a line on stderr drew over the frame.
+                logerror!(e, catch_backtrace(), "imported")
                 Any[]
              end
         r = normalize(n, "imported", cfg["login"])
@@ -536,6 +538,11 @@ function ui(args = String[], at::DateTime = utcnow())
         refresh(String[])
         at = utcnow()
     end
+    # From here on this process is the browser, and the browser reports
+    # nothing: a line on stderr draws over the frame, and everything below -
+    # the launch poll, a fetch's retries, an import - has the status row for
+    # what just happened and `logerror!` for what must be kept.
+    REPORT[] = Report(devnull)
     cfg = config()
     cc = get(cfg, "cache", Dict{String,Any}())
     # `detail_ttl_minutes` is the older name for the same number, from when it

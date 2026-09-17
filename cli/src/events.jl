@@ -26,7 +26,7 @@ import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
-using ..Worklog: load_read, mark_unread, nz
+using ..Worklog: load_read, mark_unread, nz, report, warning
 import ..Worklog
 
 struct ApiError <: Exception
@@ -690,7 +690,7 @@ function sources(cfg, login; verbose::Bool = true)
     repos = get(cfge, "repos", String[])
     explicit, owners, bad = event_sources(repos)
     verbose && !isempty(bad) &&
-        @printf(stderr, "    ignoring %s: only `owner/*` is a pattern\n", join(bad, ", "))
+        @printf(warning(), "    ignoring %s: only `owner/*` is a pattern\n", join(bad, ", "))
     srcs = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}[]
     p = pat()
     if p !== nothing
@@ -771,7 +771,7 @@ function sources(cfg, login; verbose::Bool = true)
                          fetch = first && !involved_reason(get(t, "reason", nothing)) ?
                                  nothing : path -> api_get(path; auth = p))))
     elseif verbose
-        @printf(stderr, "    %-24s skipped: the token is a GitHub App's, and there is no %s\n",
+        @printf(warning(), "    %-24s skipped: the token is a GitHub App's, and there is no %s\n",
                 "notifications", patfile())
     end
     for repo in explicit
@@ -799,12 +799,12 @@ function sources(cfg, login; verbose::Bool = true)
             # Ten pages a poll. A walk cut short answers with its floor, so
             # the rest is the next poll's rather than lost - which is what
             # "truncated at 1000" used to mean, before the walk went by stamp.
-            cut[] && @printf(stderr, "    %-24s cut at %d of %d; the rest next poll\n",
+            cut[] && @printf(report(), "    %-24s cut at %d of %d; the rest next poll\n",
                              string(owner, "/*"), length(its), total)
             keep && return (its, st[])
             kept = drop_forks(its, owner_forks(owner))
             length(kept) == length(its) ||
-                @printf(stderr, "    %-24s %d on forks skipped\n",
+                @printf(report(), "    %-24s %d on forks skipped\n",
                         string(owner, "/*"), length(its) - length(kept))
             (kept, st[])
         end,
@@ -911,7 +911,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             applicable(fetch, s_, ctx) ? fetch(s_, ctx) : fetch(s_)   # a test's takes one
         catch e
             e isa ApiError || rethrow()
-            @printf(stderr, "    %-24s FAILED: %s\n", label, e.msg)
+            @printf(warning(), "    %-24s FAILED: %s\n", label, e.msg)
             # Written down, so a reader of the file can tell a source that is
             # answering from one that has a token and nothing else. Cleared
             # by the next answer.
@@ -935,7 +935,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             items[url] = old === nothing ? row : merge!(old, row)
             got += 1
         end
-        skipped == 0 || @printf(stderr, "    %-24s %d not an issue or pull request, skipped\n",
+        skipped == 0 || @printf(report(), "    %-24s %d not an issue or pull request, skipped\n",
                                 label, skipped)
         cursors[label] = advanced[label] = max(String(cur), stamp(started))
         polled[label] = stamp(at)
@@ -1023,7 +1023,7 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString)
             if n !== nothing && v !== nothing && haskey(inbox, "wide")
                 lag = Dates.value(at - v) ÷ 60_000
                 own = Dates.value(n - v) ÷ 60_000
-                @printf(stderr, "    %-24s %s: the notification arrived %d min after the event, stamped %s\n",
+                @printf(report(), "    %-24s %s: the notification arrived %d min after the event, stamped %s\n",
                         "notifications", url, lag,
                         own < 1 ? "with the EVENT's time - a late one is behind the cursor" :
                                   "at delivery ($own min after)")
@@ -1048,15 +1048,15 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString)
     if late > 0
         if !haskey(inbox, "wide")
             inbox["wide"] = stamp(at)
-            @printf(stderr, "    %-24s LAGGING: %d polled row(s) moved with no notification after %d min; asking a day behind the cursor until it arrives, or `wl refresh --caught-up`\n",
+            @printf(warning(), "    %-24s LAGGING: %d polled row(s) moved with no notification after %d min; asking a day behind the cursor until it arrives, or `wl refresh --caught-up`\n",
                     "notifications", late, Dates.value(EXPECT_GRACE))
         else
-            @printf(stderr, "    %-24s still lagging: %d awaited, wide since %s\n",
+            @printf(warning(), "    %-24s still lagging: %d awaited, wide since %s\n",
                     "notifications", late, inbox["wide"])
         end
     elseif haskey(inbox, "wide") && isempty(exp)
         delete!(inbox, "wide")
-        @printf(stderr, "    %-24s caught up: every awaited notification arrived; the ask is narrow again\n",
+        @printf(report(), "    %-24s caught up: every awaited notification arrived; the ask is narrow again\n",
                 "notifications")
     end
     isempty(exp) ? delete!(inbox, "expect") : (inbox["expect"] = exp)
@@ -1119,7 +1119,7 @@ function poll(cfg, login, at::DateTime; verbose::Bool = true)
         backfill = Day(get(cfge, "backfill_days", 0)))
     out = collect(OrderedDict{String,Any}, values(items))
     sort!(out; by = e -> e["updated"], rev = true)
-    verbose && @printf(stderr, "  %-16s %4d in the inbox (%d new across %d source(s))\n",
+    verbose && @printf(report(), "  %-16s %4d in the inbox (%d new across %d source(s))\n",
                        "activity", length(out), got, length(srcs))
     out
 end

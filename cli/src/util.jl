@@ -160,6 +160,58 @@ function ago_str(s, at::DateTime)
     d < 0 ? string("in ", n, unit) : string(n, unit, " ago")
 end
 
+# --- what an operation says as it runs --------------------------------------
+#
+# Three channels, and every message chooses one. **The report** is what an
+# operation says while it works - a lane's count, a retry, a lane that is not
+# `is:open` - and it goes to `report()`, which is the report opened for the
+# current task or, failing that, the process's: stderr for a command, nothing
+# for the browser, whose frame a stray line would draw over. A line the reader
+# has to act on goes through `warning()` instead, which is the same stream
+# with a count kept, so the summary the status row reads can say how many
+# there were without anybody reading the text back. **The status row** is for
+# what just happened and will not happen again; the browser writes it directly.
+# **`errors.log`** is for exceptions, through `logerror!`, and stands in the
+# footer until it is deleted. Nothing in the browser writes stderr.
+
+"""One operation's commentary: where it goes, and how many lines were warnings."""
+mutable struct Report
+    io::IO
+    warnings::Int
+end
+Report(io::IO) = Report(io, 0)
+
+"""The process's report, for a task that opened none of its own. Set by the
+browser to `devnull` before the first frame; unset, it is stderr as it stands
+at each call - not captured, since `redirect_stderr` rebinds it and a test
+does - with no count kept, there being nobody to read one."""
+const REPORT = Ref{Union{Nothing,Report}}(nothing)
+
+"The report the current task writes to."
+function current_report()
+    r = get(task_local_storage(), :report, nothing)
+    r === nothing || return r::Report
+    REPORT[] === nothing ? Report(stderr) : REPORT[]::Report
+end
+
+"The stream a progress line goes to. `@printf(report(), ...)`."
+report() = current_report().io
+
+"The same stream, for a line the reader has to act on; counted."
+function warning()
+    r = current_report()
+    r.warnings += 1
+    r.io
+end
+
+"""Run `f` with a report of its own on `io`, and answer with `(f(), report)`.
+What `refresh` does, so its lanes' lines go where it was asked to put them and
+its summary can count its warnings."""
+function reporting(f, io::IO)
+    r = Report(io)
+    (task_local_storage(f, :report, r), r)
+end
+
 """Decode HTML entities.
 
 Numeric ones as well as named: Buildkite escapes path separators as `&#47;`, so
