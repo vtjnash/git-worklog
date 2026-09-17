@@ -27,8 +27,7 @@ failing Buildkite build is expanded into its failed jobs, each of which can
 pull its own log.
 """
 function check_nodes(it::Item; fresh::Bool = false)
-    it.is_pr || return [Node("no checks - this is an issue, not a pull request",
-                             "", :plain, true)]
+    it.is_pr || return [Node(string("no checks - this is ", not_pr(it)), "", :plain, true)]
     # The same window as the thread: an old tally goes up at once and is
     # re-read behind, rather than the pane pausing on a two-minute TTL.
     c = check_contexts(it.repo, it.number;

@@ -216,6 +216,26 @@ end
     @test W.localref("a/b", "x/y") == "b#x/y"
     @test W.islocal("local:a/b#c") && !W.islocal("https://github.com/a/b/pull/1")
 
+    # The link an adopted branch carries is its compare page, where the pull
+    # request is opened from - not the `local:` key, which is a url nowhere.
+    # The base is the project's default branch, bare; the head is bare when
+    # the branch went to the project and `owner:branch` when it went to a fork.
+    g("remote", "set-url", "origin", "git@github.com:Me/proj.git")
+    g("remote", "add", "up", "https://github.com/Org/proj")
+    @test W.remote_repos(main) == Dict("origin" => "Me/proj", "up" => "Org/proj")
+    @test W.compare_link(main, "Org/proj", "mine", "origin/mine") ==
+          "https://github.com/Org/proj/compare/master...Me:mine?expand=1"
+    @test W.compare_link(main, "Org/proj", "mine", "up/mine") ==
+          "https://github.com/Org/proj/compare/master...mine?expand=1"
+    @test W.compare_link(main, "org/proj", "x/y", "") ==
+          "https://github.com/org/proj/compare/master...x/y?expand=1"
+    g("remote", "remove", "up"); g("remote", "set-url", "origin", bare)
+    @test W.weblink(W.Item(url = "local:a/b#x", ref = "b#x", repo = "a/b", number = 0,
+                           title = "t", web = "https://example.invalid/c")) ==
+          "https://example.invalid/c"
+    @test W.weblink(W.Item(url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b",
+                           number = 1, title = "t")) == "https://example.invalid/pr/1"
+
     keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
     write(W.localfile(), "")
     state = read(W.localfile(), String)

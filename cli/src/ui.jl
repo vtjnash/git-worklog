@@ -85,6 +85,10 @@ Base.@kwdef struct Item
     deadline::String = ""
     blocked_on::Vector{String} = String[]
     why::String = ""
+    web::String = ""       # where this is on github.com when `url` is not there:
+                           # an adopted branch's `url` is its `local:` key, and
+                           # this is its compare page, where the pull request
+                           # gets opened. Empty for a row whose `url` is the link
     fetched::String = ""   # when the bundle behind this row was asked for -
                            # GitHub's time, `fetched_at` on the row - and empty
                            # for a light row the poll or a thread made, which
@@ -308,6 +312,35 @@ function localparts(url::AbstractString)
     i === nothing ? (rest, "") : (rest[1:prevind(rest, i)], rest[nextind(rest, i):end])
 end
 
+"The link to follow or copy for `it`: its url, unless that is only a local key."
+weblink(it::Item) = isempty(it.web) ? it.url : it.web
+
+"""The compare page for `branch` on `repo`, which is where a pull request is
+opened from - `?expand=1` is the form already open.
+
+The base is the project's default branch, with its remote name taken off; the
+head is named `owner:branch` when the branch was pushed to a fork, which is what
+github.com wants across repositories, and bare when it went to the project or
+has not been pushed at all - the page is a 404 until it is, but it is the right
+page. Both facts are git's, so this costs two `git` runs per adopted branch,
+which is a handful.
+"""
+function compare_link(path, repo::AbstractString, branch::AbstractString,
+                      upstream::AbstractString)
+    base = something(default_base(path), "master")
+    rs = try remote_repos(path) catch; Dict{String,String}() end
+    i = findfirst('/', base)
+    (i !== nothing && haskey(rs, base[1:prevind(base, i)])) && (base = base[nextind(base, i):end])
+    head = String(branch)
+    j = findfirst('/', upstream)
+    if j !== nothing
+        r = get(rs, upstream[1:prevind(upstream, j)], "")
+        (!isempty(r) && lowercase(r) != lowercase(repo)) &&
+            (head = string(first(split(r, '/')), ":", upstream[nextind(upstream, j):end]))
+    end
+    string("https://github.com/", repo, "/compare/", base, "...", head, "?expand=1")
+end
+
 "Urls of every branch that has been adopted, whether or not it still exists."
 adopted_urls() = sort!([u for u in keys(field_map("adopted")) if islocal(u)])
 
@@ -336,6 +369,8 @@ function local_item(url::AbstractString, b = nothing)
          # there. That is what makes it archivable - and, until the notice has
          # been read, what makes it news.
          state = landed ? "MERGED" : "",
+         web = p === nothing ? "" :
+               compare_link(p, repo, branch, b === nothing ? "" : b.upstream),
          why = b === nothing ? "adopted; the branch is gone" :
                landed ? "adopted; merged into the base" :
                isempty(b.worktree) ? "adopted; no worktree" :

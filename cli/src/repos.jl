@@ -98,6 +98,16 @@ function remote_names(path)
     unique(out)
 end
 
+"Every remote that points at GitHub, by name: `\"origin\" => \"owner/name\"`."
+function remote_repos(path)
+    out = Dict{String,String}()
+    for l in split(git(path, "remote", "-v"), "\n")
+        m = match(r"^(\S+)\s+\S*github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?\s", l * " ")
+        m === nothing || (out[String(m[1])] = string(m[2], "/", m[3]))
+    end
+    out
+end
+
 "Path pinned to `name`, or nothing. Entries pointing at vanished folders are ignored."
 function repo_path(name::AbstractString)
     d = get(load_repos(), String(name), nothing)

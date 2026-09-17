@@ -617,3 +617,26 @@ end
     v["default"] = "main"
     @test W.Events._meta_shape(v).default == "main"
 end
+
+@testset "an adopted branch's panes do not ask GitHub" begin
+    # A `local:` url is not a GitHub one, and splitting it as if it were was a
+    # BoundsError in the thread pane. Nothing about the branch is on GitHub, so
+    # every pane answers from here: the thread is the note, and the others say
+    # what the row is rather than calling it an issue.
+    wip = W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,
+                 title = "t", is_pr = false, branch = "wip", note = "half done\n\nnext: tests")
+    ns = W.comment_nodes(wip, W.utcnow())
+    @test startswith(ns[1].header, "local branch wip")
+    @test !get(ns[1].meta, "failed", false)
+    @test ns[2].header == "your note" && occursin("half done", ns[2].raw)
+    bare = W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,
+                  title = "t", is_pr = false, branch = "wip")
+    @test occursin("`v`", W.comment_nodes(bare, W.utcnow())[2].header)
+    for f in (W.diff_nodes, W.pushed_nodes, W.check_nodes)
+        h = f(bare)[1].header
+        @test occursin("local branch", h) && !occursin("issue", h)
+    end
+    @test occursin("issue", W.diff_nodes(W.Item(url = "https://example.invalid/issues/2",
+                                                ref = "a#2", repo = "a/b", number = 2,
+                                                title = "t", is_pr = false))[1].header)
+end

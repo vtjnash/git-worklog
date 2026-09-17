@@ -100,7 +100,10 @@ function start_meta!(st::BState, it::Item, how::Symbol)
     # read of the same item - that is the read it was pressed to go past.
     st.metapending = fetching(string("meta ", it.url, tag)) do
         try
-            (meta = Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep),
+            # An adopted branch has nothing on GitHub to ask about, and its
+            # `local:` url is not one the request could be made of anyway.
+            (meta = islocal(it) ? nothing :
+                        Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep),
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
              sessions = mux_list())
@@ -229,7 +232,7 @@ function collect_meta!(st::BState)
         # Old enough to want re-reading behind what just went up. Not off a
         # failure, for the reason above; and either half is enough, since the
         # re-read asks only for what is actually old.
-        !hasproperty(r, :err) && it !== nothing &&
+        !hasproperty(r, :err) && it !== nothing && !islocal(it) &&
             (cache_age(Events.meta_key(it.url)) > CACHE_FRESH[] ||
              (it.is_pr && cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[]) ||
              (st.bundletried != it.url && bundle_age(it) > CACHE_FRESH[])) &&

@@ -261,7 +261,30 @@ function group_pushes(evs)
     out
 end
 
+"""The thread pane of an adopted branch, which has no thread.
+
+Nothing about it is on GitHub, so there is nothing to ask for - and asking,
+which is what happened, was a `local:` url split as if it were a GitHub one.
+What it has instead is the note, the one thing written about it, so that is the
+body; a branch without one says how to write it.
+"""
+function local_nodes(it::Item)
+    lead = Node(string("local branch ", it.branch, " - no thread"),
+                string("This is an adopted branch of ", it.repo,
+                       ": nothing about it is on GitHub, so there is nothing ",
+                       "said here until it is pushed and opened as a pull request",
+                       isempty(it.web) ? "" : string(" - which is done from ", it.web),
+                       ". Its title is the tip's subject, and the note below is `v`."),
+                :md, true)
+    isempty(it.web) || (lead.meta["url"] = it.web)
+    ns = Node[lead]
+    isempty(it.note) ? push!(ns, Node("no note - `v` writes one", "", :plain, true)) :
+                       body_nodes!(ns, "your note", it.note, "", true)
+    ns
+end
+
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
+    islocal(it) && return local_nodes(it)
     local body, cs, cms
     stale = false
     try
@@ -402,8 +425,7 @@ stays in each hunk's header so the context is never lost.
 function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
     # rather than an empty result. The assigned lane is full of them.
-    it.is_pr || return [Node("no diff - this is an issue, not a pull request",
-                             "", :plain, true)]
+    it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
     stale = false
     txt = try
         key = diff_key(it)
@@ -836,8 +858,7 @@ or an error, because each of them is a different thing to do about it: press
 `r`, pin a checkout, or nothing at all because nothing was pushed.
 """
 function pushed_nodes(it::Item)
-    it.is_pr || return [Node("no pushes - this is an issue, not a pull request",
-                             "", :plain, true)]
+    it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
     old = read_head(it.url)
     old === nothing &&
         return [Node("nothing to compare against yet",
@@ -924,6 +945,10 @@ function pushed_nodes(it::Item)
     pushfirst!(ns, lead)
     ns
 end
+
+"What a row with no pull request is, for a pane that shows only pull requests."
+not_pr(it::Item) = islocal(it) ? "a local branch, not yet a pull request" :
+                                 "an issue, not a pull request"
 
 """A load that failed, marked as such.
 

@@ -27,7 +27,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # long thread.
     rrows = Row[]
     if it !== nothing
-        htitle = osc8(it.url, string(THEME.bold, it.ref, THEME.reset, "  ", it.title))
+        htitle = osc8(weblink(it), string(THEME.bold, it.ref, THEME.reset, "  ", it.title))
         for l in awrap(htitle, riw)
             push!(rrows, Row(0, false, l, string(it.ref, "  ", it.title), 0))
         end
@@ -287,7 +287,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     bar = if it === nothing
         string(" worklog  ", THEME.dim, length(st.items), " items", THEME.reset)
     else
-        link = osc8(it.url, string(it.ref, "  ", it.title))
+        link = osc8(weblink(it), string(it.ref, "  ", it.title))
         string(" ", THEME.bold, link, THEME.reset, "  ", THEME.dim,
                "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
     end

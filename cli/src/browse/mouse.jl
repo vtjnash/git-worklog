@@ -83,8 +83,8 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             # copy from the keyboard.
             if !wheel && doubled!(st, ev, at) && st.sel == was && st.sel > 0
                 it = st.items[st.sel]
-                clip(it.url)
-                st.status = string("copied ", it.ref, " \u00b7 ", shortlink(it.url, 60))
+                clip(weblink(it))
+                st.status = string("copied ", it.ref, " \u00b7 ", shortlink(weblink(it), 60))
             end
             load_nodes!(st)         # clears any selection with the old nodes
         end

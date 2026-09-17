@@ -450,7 +450,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         txt = selection_text(st, iw)
         note = if isempty(txt)
             i = curnode(st, iw)
-            txt = i > 0 ? get(st.nodes[i].meta, "url", it.url) : it.url
+            txt = i > 0 ? get(st.nodes[i].meta, "url", weblink(it)) : weblink(it)
         else
             string(count(==('\n'), txt) + 1, " lines")
         end
