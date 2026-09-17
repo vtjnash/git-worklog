@@ -355,9 +355,20 @@ Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they
       differ. Left alone.
-- [ ] A pane once reported `session ended` with an empty frame (2026-09-02,
-      scripted launch). The wake-channel theory was tested and is wrong (11
-      of 64 slots). Not recurred.
+- [ ] **`session ended` over an empty frame** (2026-09-02 scripted; since
+      then when a child goes to the alternate screen, and sometimes under
+      `git log`, with nothing said about why). Explained 2026-09-17 and
+      fixed by construction, unverified in a terminal: the control-mode
+      reader raised a wake per `%output` line into a 64-slot queue while the
+      loop it fed was blocked on a `capture-pane` reply only that reader
+      could deliver; a burst past 64 lines - an alternate-screen clear, a
+      pager filling - blocked the reader, the ask timed out at 5s, the
+      client was marked dead, and `mux_capture` dropped the reason. The
+      2026-09-02 test that cleared the theory measured 11 of 64 at rest,
+      not a burst. `wake!` now queues one wake at a time, and a dead client
+      says why on the status. To see: a pane running `less` on a long file,
+      `git log`, and an editor opening, with the status row watched for
+      `session ended:`.
 
 
 # More features to plan:

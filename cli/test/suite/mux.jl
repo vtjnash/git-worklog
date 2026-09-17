@@ -133,7 +133,15 @@ end
         ok, lines = W.mux_ask(c, "no-such-command")
         @test ok === false && occursin("unknown command", join(lines))
         @test W.mux_ask(c, "display-message -p still-here") == (true, ["still-here"])
+        # A reply that does not come kills the client - the next reply would
+        # answer the wrong question - and the reason is kept, the first one:
+        # a pane that says `session ended` over a late reply was read as the
+        # server having gone away, which it had not.
+        @test isempty(c.why)
+        @test W.mux_ask(c, "display-message -p late"; timeout = 0.0) == (false, ["timed out"])
+        @test c.dead && occursin("no reply in 0.0s to display-message", c.why)
         W.mux_close(c)
+        @test c.why != "closed"                         # the first reason stays
         @test W.mux_ask(c, "display-message -p x")[1] === false
         W.mux_kill(n)
     end

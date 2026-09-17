@@ -304,13 +304,34 @@ mutable struct Controller
     running::Bool
     mouse::Bool
     title::String               # what the terminal's title bar was last told
+    woken::Bool                 # a `WakeEvent` is on `events` and not yet taken
 end
 Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
-                          View[], false, false, "")
+                          View[], false, false, "", false)
 
-"Called from a background task to ask for a redraw once its work has landed."
-wake!(ctrl::Controller) = ctrl.running && isopen(ctrl.events) &&
-                          put!(ctrl.events, WakeEvent())
+"""Called from a background task to ask for a redraw once its work has landed.
+
+**One wake on the queue at a time, and never a blocking one.** A wake is a
+level, not a count: the loop that takes it runs every collector there is
+(`onwake!`), so a second one queued behind the first would find nothing left
+to adopt. And the task calling this may be the one the loop is waiting on. A
+hosted pane's control-mode reader calls it once per `%output` line, and the
+loop answers a wake by asking tmux for the screen and blocking on the reply -
+which that same reader has to deliver, after every `%output` line queued in
+front of it. Sixty-four of those and `put!` blocked the reader with the reply
+unread: the ask timed out at five seconds, the client was marked dead, and
+the pane said `session ended` over an empty frame with no reason anywhere. A
+child clearing to the alternate screen, or `git log` into a pager, is that
+many lines in one burst. It was tested once at eleven of the sixty-four and
+called wrong; it was the burst that was missing.
+"""
+function wake!(ctrl::Controller)
+    ctrl.running && isopen(ctrl.events) || return false
+    ctrl.woken && return true
+    ctrl.woken = true
+    put!(ctrl.events, WakeEvent())
+    true
+end
 
 """Hear the terminal change shape, and put a `ResizeEvent` on the loop.
 
@@ -682,6 +703,9 @@ function run!(ctrl::Controller, root::View)
                 # below, which is what hands the terminal back.
                 break
             elseif ev isa WakeEvent
+                # Cleared before the collectors run, so a wake that lands while
+                # they are running queues the next one rather than being lost.
+                ctrl.woken = false
                 dirty = try
                     onwake!(v)
                 catch e

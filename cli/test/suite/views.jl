@@ -594,6 +594,28 @@ end
     @test W.onresize!(mkstate()) === nothing
 end
 
+@testset "a wake is a level, and never blocks the task that raises it" begin
+    # A hosted pane's reader raises one per `%output` line, and the loop that
+    # takes them blocks on a reply only that reader can deliver. With the
+    # queue at sixty-four, a burst of that many lines - a child clearing to
+    # the alternate screen, `git log` into a pager - blocked the reader with
+    # the reply behind it: five seconds, `session ended`, an empty frame.
+    ctrl = W.Controller()
+    ctrl.running = true
+    t = @async for _ in 1:500
+        W.wake!(ctrl)
+    end
+    @test timedwait(() -> istaskdone(t), 5.0) === :ok      # never blocked
+    @test length(ctrl.events.data) == 1                     # one wake, queued once
+    # Taken the way the loop takes it, the next wake queues again.
+    @test take!(ctrl.events) isa W.WakeEvent
+    ctrl.woken = false
+    @test W.wake!(ctrl) && length(ctrl.events.data) == 1
+    # Not running, or closed: nothing is queued, since nobody is reading.
+    ctrl.running = false
+    @test !W.wake!(ctrl)
+end
+
 @testset "the title bar follows the selection" begin
     # `wl JuliaLang/julia#1` while that is the item, `wl` on the import row,
     # and a dialog over the browser leaves the title to what is under it:

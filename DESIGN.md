@@ -652,6 +652,14 @@ Each of the following returns success and the wrong answer:
   lost from the grid. It does arrive in `%output`; `passthrough` relays that
   one and nothing else.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
+- **The control-mode reader must never be made to wait on the loop.** It
+  delivers the replies the loop blocks on, and it raises a wake per
+  `%output` line: a burst longer than the events queue - a child clearing
+  to the alternate screen, `git log` into a pager - blocked it in `put!`
+  with the reply behind it, the ask timed out at five seconds, the client
+  was dead and the pane said `session ended` over an empty frame with no
+  reason kept. `wake!` queues one `WakeEvent` at a time (`woken`); a wake
+  is a level. And a dead client carries `why`, which the status now says.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane
