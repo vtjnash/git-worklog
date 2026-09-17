@@ -98,9 +98,11 @@ function compose_target(st::BState, iw::Int)
     # A hunk of `d`, or of `p` when it is a plain diff: there the right side
     # is the head now, which is what GitHub anchors a `RIGHT` comment on, so
     # a line of it is as good a target as the same line under `d`. The left
-    # side of `p` is the head you last saw and not the base, which
-    # `compose_action` refuses; a range-diff has no hunks and lands on the
-    # item.
+    # side of `d` is the base of the pull request, the same diff GitHub
+    # numbers a `LEFT` comment against, so a deleted line is a target too -
+    # by its old-side number. The left side of `p` is the head you last saw
+    # and not the base, which `compose_action` refuses; a range-diff has no
+    # hunks and lands on the item.
     if st.mode in (:diff, :pushed) && haskey(n.meta, "file")
         (lo, hi) = hunk_rows(st, i, iw)
         a = hunk_line_at(st, i, iw, lo)
@@ -115,10 +117,12 @@ function compose_target(st::BState, iw::Int)
             # What a suggestion would replace: the whole range where there is
             # one, and the anchored line alone where there is not. A one-line
             # suggestion is the commonest kind there is, so standing on a line
-            # is enough to fill `^r` in.
+            # is enough to fill `^r` in. Nothing on the old side: GitHub does
+            # not apply a suggestion to a line that is no longer there.
             return (:line, (file = n.meta["file"], line = b[1], side = b[2],
                             start = first_,
-                            text = hunk_text(st, i, iw,
+                            text = b[2] == "LEFT" ? String[] :
+                                   hunk_text(st, i, iw,
                                              first_ === nothing ? hi : lo, hi)))
         end
     end
@@ -185,10 +189,8 @@ end
 """Open the composer on whatever `c` is pointing at."""
 function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     (kind, target) = compose_target(st, iw)
-    if kind === :line && target.side == "LEFT"
-        st.status = st.mode === :pushed ?
-            "the left side of p is the head you last saw, not the base — comment on a right-side line" :
-            "a comment on a deleted line has to go to the old side — not wired up"
+    if kind === :line && target.side == "LEFT" && st.mode === :pushed
+        st.status = "the left side of p is the head you last saw, not the base — comment on a right-side line"
         return
     end
     suggest = ""
@@ -196,8 +198,11 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         (string("Reply · ", it.ref), "goes into this review thread",
          b -> Events.reply_review_comment(it.url, target, b))
     elseif kind === :line
-        where_ = target.start === nothing ? string(target.file, ":", target.line) :
-                 string(target.file, ":", target.start, "-", target.line)
+        # An old-side line is named as one, since its number is not the file's
+        # any more and the same number on the new side is another line.
+        where_ = string(target.file, ":",
+                        target.start === nothing ? "" : string(target.start, "-"),
+                        target.line, target.side == "LEFT" ? " (old side)" : "")
         suggest = suggestion(target.text)
         held = batch_of(st, it)
         (string("Comment on ", where_),

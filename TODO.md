@@ -19,7 +19,8 @@ sandbox, which covers `issues: write` and `pull_requests: write` everywhere.
 - [ ] `merge_pr`: the first thing to verify is that `expectedHeadOid` refuses
       a stale head rather than merging over it. Then that the row rewritten as
       merged reads correctly beside the refresh's own version when one lands.
-- [ ] a comment, a review comment on a range, a submitted and a discarded
+- [ ] a comment, a review comment on a range and on a deleted line (`LEFT`,
+      numbered against the base), a submitted and a discarded
       draft review, a label toggle.
 - [ ] pushing this repository: `origin` is `vtjnash/git-worklog`, never pushed
       to; needs a fine-grained PAT with `Contents: read/write`.

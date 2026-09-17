@@ -295,7 +295,10 @@ end
     @test occursin(st.items[st.sel].ref, composer(last(ctrl.stack)).title)
     pop!(ctrl.stack)
 
-    # A deleted line has nowhere to post yet, and says so instead of opening.
+    # A deleted line is a target on the old side: the left side of `d` is the
+    # base, which is the diff GitHub numbers a `LEFT` comment against. The
+    # composer says which side, since 41 on the new side is another line, and
+    # offers no suggestion - there is nothing left to replace.
     st.mode = :diff
     n = W.Node("a.jl", " ctx\n-gone", :diff, true)
     merge!(n.meta, Dict{String,Any}("file" => "a.jl", "start" => 10, "count" => 2,
@@ -303,7 +306,10 @@ end
     st.nodes = [n]; st.nrow = 3
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
     W.handle!(st, Int('C'), ctrl)
-    @test length(ctrl.stack) == 1 && occursin("deleted line", st.status)
+    cv = composer(last(ctrl.stack))
+    @test cv isa W.EditorView && cv.title == "Comment on a.jl:41 (old side)"
+    @test isempty(cv.suggest)
+    pop!(ctrl.stack)
 
     # ...and lowercase still only looks: `c` is the checks pane now.
     W.handle!(st, Int('c'), ctrl)
