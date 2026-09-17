@@ -586,6 +586,21 @@ end
     st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
                assignees = String[])
     @test says(pr) == "branch    jn/fix → master"
+    # A base that is not the repository's default branch is said, and coloured
+    # as a thing waiting: it is where the change will not land.
+    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
+               assignees = String[], fork = "", default = "master")
+    @test says(pr) == "branch    jn/fix → master"
+    v1 = W.Item(url = pr.url, ref = "a#1", repo = "a/b", number = 1, title = "t",
+                is_pr = true, branch = "jn/fix", base = "v1.x")
+    @test says(v1) == "branch    jn/fix → v1.x  not master"
+    raw = W.meta_lines(st, v1, 60)[row(W.astrip.(W.meta_lines(st, v1, 60)))]
+    @test occursin(string(W.THEME.waiting, "v1.x"), raw)
+    # Unknown - a cache entry from before the field, or no base repo - says
+    # nothing rather than marking every base.
+    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
+               assignees = String[], fork = "", default = "")
+    @test says(v1) == "branch    jn/fix → v1.x"
     # An adopted branch has one and no base; an issue has neither.
     @test says(W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,
                       title = "t", branch = "wip")) == "branch    wip"
@@ -597,4 +612,8 @@ end
     @test W.Events._meta_shape(v).fork == "c/b"
     delete!(v, "fork")
     @test W.Events._meta_shape(v).fork == ""
+    # So does the default branch, off `base.repo` of the same answer.
+    @test W.Events._meta_shape(v).default == ""
+    v["default"] = "main"
+    @test W.Events._meta_shape(v).default == "main"
 end

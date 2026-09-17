@@ -74,7 +74,10 @@ comes back when it moves. The terminal's title follows the cursor - `wl
 JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on.
 Every date on the metadata pane and on a comment or
 push header has how long ago that was beside it, dim - `3d ago`, `in 2w` for
-a snooze's wake - worked out against the moment the frame is drawn.
+a snooze's wake - worked out against the moment the frame is drawn. The
+`branch` row is `head → base` in the form git takes, `owner/repo:head` for a
+fork, and a base that is not the repository's default branch is coloured and
+says so - `→ v1.x  not master`.
 
 Lowercase keys look at things or change this machine; **uppercase keys reach
 GitHub.**

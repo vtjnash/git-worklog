@@ -1694,10 +1694,11 @@ function resolved_comments(url::AbstractString; ttl = 300.0)
 end
 
 """
-    itemmeta(url, is_pr) -> (requested, teams, assignees, pending, reviews)
+    itemmeta(url, is_pr) -> (requested, teams, assignees, pending, fork, default, reviews)
 
-Who was asked to review, who has, who it is assigned to, and whether a draft
-review of yours is sitting on it.
+Who was asked to review, who has, who it is assigned to, whether a draft
+review of yours is sitting on it, where its head lives and what its
+repository merges into by default.
 
 Fetched for the selected item only, on demand. The heavy GraphQL query carries
 reviews already, but the light query the bulk lanes use does not - so anything
@@ -1722,8 +1723,14 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     head = api_get("/repos/$owner_repo/$kind/$num")[1]
     assignees = String[String(a["login"]) for a in get(head, "assignees", ())]
     requested, teams, latest = String[], String[], OrderedDict{String,Any}()
-    pending, fork = "", ""
+    pending, fork, default = "", "", ""
     if is_pr
+        # And what the base repository merges into by default, off the same
+        # answer: a pull request against `v1.x` or `release-1.12` is one that
+        # will not land on the branch everything else does, and the pane says
+        # so beside the base rather than leaving it to be noticed.
+        default = String(get(get(get(head, "base", Dict{String,Any}()), "repo",
+                                 Dict{String,Any}()), "default_branch", ""))
         # Where the head branch lives, when that is not here: the lanes carry
         # the branch name and not its repository, and `owner:branch` is the
         # half of the name that says which checkout it can be fetched from.
@@ -1760,7 +1767,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     end
     v = OrderedDict{String,Any}(
         "requested" => requested, "teams" => teams, "assignees" => assignees,
-        "pending" => pending, "fork" => fork,
+        "pending" => pending, "fork" => fork, "default" => default,
         "reviews" => [OrderedDict{String,Any}("login" => k, "state" => v["state"],
                                               "at" => v["at"]) for (k, v) in latest])
     cache_put(key, v)
@@ -1773,6 +1780,7 @@ _meta_shape(v) = (requested = String[String(x) for x in v["requested"]],
                   assignees = String[String(x) for x in v["assignees"]],
                   pending = String(get(v, "pending", "")),
                   fork = String(get(v, "fork", "")),
+                  default = String(get(v, "default", "")),
                   reviews = [(login = String(r["login"]), state = String(r["state"]),
                               at = String(r["at"])) for r in v["reviews"]])
 

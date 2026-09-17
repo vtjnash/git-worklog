@@ -387,11 +387,18 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # The branch, and where it is going, in the form `git` and `gh` take:
     # `owner/repo:branch` when the head lives in a fork, which the lanes do
     # not say and the metadata fetch does. An adopted branch has one and no
-    # base; an issue has neither.
+    # base; an issue has neither. A base that is not the repository's default
+    # branch - `v1.x` on libuv, a backport branch anywhere - is the one fact
+    # on this row worth a colour: it says where the change will *not* land.
     if !isempty(it.branch)
         fork = st.meta === nothing ? "" : String(get(st.meta, :fork, ""))
+        default = st.meta === nothing ? "" : String(get(st.meta, :default, ""))
+        offbase = !isempty(default) && !isempty(it.base) && it.base != default
         kv("branch", string(isempty(fork) ? "" : string(fork, ":"), it.branch,
-                            isempty(it.base) ? "" : string(" → ", it.base)))
+                            isempty(it.base) ? "" :
+                            offbase ? string(" → ", THEME.waiting, it.base, THEME.reset,
+                                             THEME.dim, "  not ", default, THEME.reset) :
+                            string(" → ", it.base)))
     end
     # How old it is and when it last changed at all. Both are on the item
     # already and neither was on screen, so the age of what you are reading had
