@@ -68,6 +68,35 @@
         # rather than skips.
         @test byp[realpath(det)].branch == ""
         @test length(byp[realpath(det)].head) == 40
+        @test W.returning_branch(det) == ""
+
+        # But a head detached by a rebase is still that branch's, for the
+        # duration: `worktree list` shows a bare commit, and git's own record
+        # of where it is going is what puts the name - and so the pull request
+        # - back on the row. A conflict is how to hold a rebase open.
+        g(main, "branch", "rebasing", "HEAD~1")
+        rb = joinpath(root, "wt-rebasing")
+        g(main, "worktree", "add", "--quiet", rb, "rebasing")
+        write(joinpath(rb, "a.txt"), "conflict\n")
+        g(rb, "commit", "--quiet", "-am", "clashes with second")
+        @test_throws W.GitError g(rb, "rebase", "--quiet", "master")
+        @test isfile(joinpath(rb, ".git"))         # linked: gitdir is a pointer
+        @test W.returning_branch(rb) == "rebasing"
+        rw = Dict(w.path => w for w in W.worktrees(main))[realpath(rb)]
+        @test rw.branch == "rebasing" && length(rw.head) == 40
+        # And the branch list says the same from its side, though git's own
+        # `%(worktreepath)` goes blank here: a branch mid-rebase has a place,
+        # and offering it another would only be refused.
+        @test Dict(b.name => b for b in W.branches("t/one", main))["rebasing"].worktree == realpath(rb)
+        g(rb, "rebase", "--abort")
+        @test W.returning_branch(rb) == ""
+        # And on the primary checkout, whose gitdir is the directory itself.
+        @test_throws W.GitError g(main, "rebase", "--quiet", "rebasing")
+        @test W.returning_branch(main) == "master"
+        @test Dict(w.path => w for w in W.worktrees(main))[realpath(main)].branch == "master"
+        g(main, "rebase", "--abort")
+        g(main, "worktree", "remove", "--force", rb)
+        g(main, "branch", "-D", "rebasing")
 
         # A new worktree is suggested beside the *main* checkout, whichever
         # copy the request came from - siblings, not a chain of them.

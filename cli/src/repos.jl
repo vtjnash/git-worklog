@@ -157,13 +157,16 @@ end
 
 Each is `(path, branch, head, main)`. `branch` is empty on a detached head - a
 real state for a worktree, and one the survey has to show rather than skip -
-and `main` marks the primary checkout, which git always lists first.
+unless the head is only detached for the length of a rebase or bisect, in which
+case it is the branch that is coming back (`returning_branch`). `main` marks
+the primary checkout, which git always lists first.
 """
 function worktrees(path::AbstractString)
     out = NamedTuple{(:path, :branch, :head, :main),Tuple{String,String,String,Bool}}[]
     cur, br, hd, prunable = "", "", "", false
     flush!() = (!isempty(cur) && !prunable &&
-                push!(out, (path = cur, branch = br, head = hd, main = isempty(out))))
+                push!(out, (path = cur, branch = isempty(br) ? returning_branch(cur) : br,
+                            head = hd, main = isempty(out))))
     for l in split(git(path, "worktree", "list", "--porcelain"), "\n")
         if startswith(l, "worktree ")
             flush!(); cur = String(l[10:end]); br = ""; hd = ""; prunable = false
@@ -177,6 +180,42 @@ function worktrees(path::AbstractString)
     end
     flush!()
     out
+end
+
+"""The branch a detached worktree is on its way back to, or `""`.
+
+A rebase detaches HEAD and reattaches it when it is done, and a bisect does the
+same, so for as long as either lasts `worktree list` shows a bare commit where
+the branch was - and the pull request that branch carries drops off the row at
+exactly the moment the work on it is hottest. git has not forgotten: the name is
+in `rebase-merge/head-name` (`rebase-apply/` for `git am` and the old rebase)
+and in `BISECT_START`, under the *worktree's* git directory, which for a linked
+worktree is named by its `.git` file - read here rather than asked for, to keep
+the survey at one `git` per repo. (`%(worktreepath)` does not help: git answers
+it only for an attached head, so `branches` takes the answer from here.)
+
+A `head-name` that is not a branch is the sha of an already-detached head being
+rebased, which is no branch at all.
+"""
+function returning_branch(path::AbstractString)
+    dot = joinpath(path, ".git")
+    gd = if isdir(dot)
+        dot
+    elseif isfile(dot)
+        m = match(r"^gitdir:\s*(.+?)\s*$"m, read(dot, String))
+        m === nothing && return ""
+        isabspath(m[1]) ? String(m[1]) : normpath(joinpath(path, m[1]))
+    else
+        return ""
+    end
+    for f in ("rebase-merge/head-name", "rebase-apply/head-name", "BISECT_START")
+        p = joinpath(gd, f)
+        isfile(p) || continue
+        n = replace(strip(readline(p)), r"^refs/heads/" => "")
+        (isempty(n) || occursin(r"^[0-9a-f]{40}$", n)) && return ""
+        return n
+    end
+    ""
 end
 
 """The primary checkout of the repository `path` belongs to.
@@ -446,8 +485,14 @@ function track_counts(s::AbstractString)
     (a === nothing ? 0 : parse(Int, a[1]), b === nothing ? 0 : parse(Int, b[1]), false)
 end
 
-"Every local branch of one checkout, in one `for-each-ref`."
-function branches(repo::AbstractString, path::AbstractString)
+"""Every local branch of one checkout, in one `for-each-ref`.
+
+`worktree` is `%(worktreepath)`, which git answers only for a head that is
+attached; a branch mid-rebase has a place too, and `ws` - the worktree list,
+handed in by a caller that already has it - is where that answer lives.
+"""
+function branches(repo::AbstractString, path::AbstractString; ws = worktrees(path))
+    wtof = Dict(w.branch => w.path for w in ws if !isempty(w.branch))
     # %09 is a tab: a branch name cannot contain one, and neither can any of the
     # other fields, so nothing here needs escaping. Dates are ISO strict so they
     # sort as strings, and object names are full, to match what `worktree list`
@@ -464,7 +509,7 @@ function branches(repo::AbstractString, path::AbstractString)
         push!(out, Branch(; repo = String(repo), name = String(f[1]), head = String(f[2]),
                             at = String(f[3]), upstream = String(f[4]),
                             ahead = ahead, behind = behind, gone = gone,
-                            worktree = String(f[6]),
+                            worktree = isempty(f[6]) ? get(wtof, String(f[1]), "") : String(f[6]),
                             subject = length(f) >= 7 ? String(f[7]) : ""))
     end
     out
@@ -521,10 +566,11 @@ function survey(; withdirty::Bool = true)
         p = userpath(get(d, "worktree", ""))
         isdir(p) || continue
         try
-            brs = branches(name, p)
+            wts = worktrees(p)
+            brs = branches(name, p; ws = wts)
             byname = Dict(b.name => b for b in brs)
             append!(bs, brs)
-            for w in worktrees(p)
+            for w in wts
                 b = get(byname, w.branch, nothing)
                 st, un = withdirty ? changes(w.path) : (false, false)
                 push!(ws, Worktree(; repo = String(name), path = w.path,
