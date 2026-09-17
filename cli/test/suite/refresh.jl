@@ -2007,3 +2007,55 @@ end
     @test W.their_head(r("bbb", me), nothing, me) === nothing
     @test W.their_head(Dict{String,Any}(), nothing, me) === nothing
 end
+
+@testset "an adopted branch hands its words to the pull request opened from it" begin
+    keepm = W.LOCAL[]
+    W.LOCAL[] = joinpath(mktempdir(), "local.toml"); write(W.LOCAL[], "")
+    try
+        lu = W.localurl("o/r", "jn/fix")
+        pu = "https://github.com/o/r/pull/7"
+        W.set_fields(lu, ["adopted" => "2026-09-10", "note" => "half done",
+                          "deadline" => "2026-09-20", "track" => "loose",
+                          "blocked_on" => ["o/r#3"]], W.DateTime(2026, 9, 11, 9))
+        W.set_read(lu, "2026-09-11T09:00:00Z")
+        # The pull request already has a note of its own, which stays.
+        W.set_fields(pu, ["note" => "on the PR"], W.DateTime(2026, 9, 12, 9))
+        # A second adopted branch with no pull request, and a stranger's pull
+        # request from a branch of the same name as a third.
+        ou = W.localurl("o/r", "other"); W.set_fields(ou, ["adopted" => "2026-09-10"])
+        tu = W.localurl("o/r", "master"); W.set_fields(tu, ["adopted" => "2026-09-10"])
+        pr(u, n, who, br) = Dict{String,Any}("url" => u, "type" => "PullRequest", "number" => n,
+                                             "repo" => "o/r", "author" => who, "branch" => br)
+        items = W.OrderedDict{String,Any}(
+            pu => pr(pu, 7, "me", "jn/fix"),
+            "https://github.com/o/r/pull/8" => pr("https://github.com/o/r/pull/8", 8, "them", "master"),
+            "https://github.com/o/r/issues/9" => Dict{String,Any}("url" => "x", "type" => "Issue",
+                                                                  "repo" => "o/r", "author" => "me"))
+        state = W.load_state()
+        @test W.adopt_pull_requests!(items, state, "me") == ["r#7"]
+        # Moved, not copied: the branch keeps only what was not about the work
+        # - its read mark - and is no longer adopted, so it is no longer a row.
+        @test W.get_field(lu, "adopted") === nothing && W.get_field(lu, "note") === nothing
+        @test W.get_field(lu, "deadline") === nothing && W.get_field(lu, "track") === nothing
+        @test W.read_at(lu) == "2026-09-11T09:00:00Z"
+        @test !(lu in W.adopted_urls())
+        # What the pull request lacked it has; what it had it keeps.
+        @test W.get_field(pu, "note") == "on the PR"
+        @test W.get_field(pu, "deadline") == "2026-09-20" && W.get_field(pu, "track") == "loose"
+        @test W.get_field(pu, "blocked_on") == "[\"o/r#3\"]"
+        # The interaction clock is the later of the two, not this run's.
+        @test W.touched_at(pu) == "2026-09-12T09:00:00Z"
+        # And `state` in hand says the same, for the rows derived after it.
+        @test state[pu]["track"] == "loose" && state[pu]["note"] == "on the PR"
+        @test !haskey(state[lu], "adopted")
+        # The other two are untouched: no pull request, and not your pull request.
+        @test W.get_field(ou, "adopted") == "2026-09-10"
+        @test W.get_field(tu, "adopted") == "2026-09-10"
+        # Nothing to do is no write.
+        before = read(W.LOCAL[], String)
+        @test W.adopt_pull_requests!(items, W.load_state(), "me") == String[]
+        @test read(W.LOCAL[], String) == before
+    finally
+        W.LOCAL[] = keepm
+    end
+end

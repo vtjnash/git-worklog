@@ -796,6 +796,68 @@ function load_state()
         for (u, st) in raw if st isa AbstractDict && !startswith(u, "repo:"))
 end
 
+"""An adopted branch whose pull request has arrived hands it what was written.
+
+The branch was the item while there was nothing else to be: a `local:` row
+carrying the note, the deadline, the track, whatever was said about the work.
+Once the pull request exists it is the item, and everything the branch row
+carried is about it - so those move to its block, the branch stops being
+adopted, and the row that was in the list under one name is in it under the
+other with nothing lost. Moved rather than copied: a note found again on the
+branch after the pull request is closed would be a note about work that has
+landed, and re-adopting is deliberate anyway.
+
+Only your own pull request, since the branch is yours: somebody else's from a
+branch of the same name - `master` on a fork, twice a week - is not what the
+adoption was about. And only keys the pull request's block does not already
+have, so a note written on the pull request itself is not written over by an
+older one on the branch - except the interaction clock, which is whichever of
+the two is later.
+
+`state` is updated in place as well, so the rows derived after this carry what
+was moved in the same run. Answers with the refs it handed over.
+"""
+function adopt_pull_requests!(items, state, login::AbstractString)
+    byb = Dict{Tuple{String,String},String}()
+    for (u, st) in state
+        (islocal(u) && truthy(get(st, "adopted", nothing))) || continue
+        byb[localparts(u)] = u
+    end
+    isempty(byb) && return String[]
+    carried = ("blocked_on", "deadline", "note", "snooze", "track", "touched")
+    ups = Pair{String,Vector{Pair{String,Any}}}[]
+    out = String[]
+    for (url, r) in items
+        pget(r, "type") == "PullRequest" || continue
+        String(nz(pget(r, "author"), "")) == login || continue
+        lu = get(byb, (String(nz(pget(r, "repo"), "")), String(nz(pget(r, "branch"), ""))), nothing)
+        lu === nothing && continue
+        from = state[lu]
+        to = get!(state, url, Dict{String,Any}())
+        into, outof = Pair{String,Any}[], Pair{String,Any}["adopted" => nothing]
+        for k in carried
+            v = get(from, k, nothing)
+            truthy(v) || continue
+            push!(outof, k => nothing)
+            # The clock is the later of the two; a word is the one already there.
+            have = get(to, k, nothing)
+            truthy(have) && (k != "touched" || String(have) >= String(v)) && continue
+            push!(into, k => v)
+            to[k] = v
+        end
+        delete!(from, "adopted")
+        for k in carried
+            delete!(from, k)
+        end
+        isempty(into) || push!(ups, url => into)
+        push!(ups, lu => outof)
+        push!(out, string(last(split(String(pget(r, "repo")), '/')), "#", pget(r, "number")))
+        delete!(byb, localparts(lu))        # one pull request takes it
+    end
+    isempty(ups) || set_blocks!(ups)
+    out
+end
+
 """Drafts on the items that have just left the dashboard.
 
 Everything still in the list reconciles itself by being opened: the metadata
@@ -1487,6 +1549,10 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # bundle is the row: deriving the older fetch against the newer one would
     # read the comment it lacks as a comment deleted, date that by the
     # refresh clock, and put a thing you were reading back in front of you.
+    # Before the loop, since it changes what `state` says about a row in it.
+    handed = adopt_pull_requests!(items, state, login)
+    isempty(handed) || @printf(report(), "  %-16s %4d adopted branch(es) now a pull request: %s\n",
+                               "adopted", length(handed), join(handed, ", "))
     changes = Any[]
     slept, woke = String[], Pair{String,String}[]
     for (i, (url, r)) in enumerate(collect(items))
