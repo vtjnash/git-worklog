@@ -23,6 +23,7 @@ and each is explained where it is defined.
     wantsraw(v) -> Bool                take input undecoded, as bytes
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
     viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
+    viewtitle(v) -> String | nothing   what the terminal's title bar says while this is on top
     isdialog(v) -> Bool                a question to answer, or a place to be
     closeview!(v)                      let go of whatever it owns
 """
@@ -52,6 +53,22 @@ blink, ignores whatever shape the user chose, and is one more thing to keep in
 step with the frame.
 """
 viewcursor(::View, ::Int, ::Int) = nothing
+
+"""The terminal's title while `v` is on top, or `nothing` to leave it to the
+view underneath - a dialog has nothing to say about it, and the item stays in
+the title bar while a question about it is being answered."""
+viewtitle(::View) = nothing
+
+"""The title for the stack as it stands: the topmost view with an answer, else
+the bare name. Written with OSC 2 after a frame, only when it has changed -
+the tab, or tmux's pane title, says which item the browser is on."""
+function stacktitle(stack::Vector{View})
+    for v in Iterators.reverse(stack)
+        t = viewtitle(v)
+        t === nothing || return String(t)
+    end
+    "wl"
+end
 
 struct KeyEvent
     code::Int
@@ -286,9 +303,10 @@ mutable struct Controller
     stack::Vector{View}
     running::Bool
     mouse::Bool
+    title::String               # what the terminal's title bar was last told
 end
 Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
-                          View[], false, false)
+                          View[], false, false, "")
 
 "Called from a background task to ask for a redraw once its work has landed."
 wake!(ctrl::Controller) = ctrl.running && isopen(ctrl.events) &&
@@ -564,9 +582,9 @@ function run!(ctrl::Controller, root::View)
     # nothing here set after: a tab, or under tmux the pane's title. Pushed
     # first and popped on the way out, so a terminal with a title stack
     # (xterm, VTE, kitty, wezterm, iTerm2, foot) gets its own back; one
-    # without keeps `wl` until its shell's prompt writes the next one, which
-    # every common prompt does.
-    print("\e[22;2t\e]2;wl\e\\")
+    # without keeps the last one until its shell's prompt writes the next,
+    # which every common prompt does. What it says is set per frame, below.
+    print("\e[22;2t")
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     ctrl.running = true
@@ -601,6 +619,12 @@ function run!(ctrl::Controller, root::View)
             if dirty
                 h, w = displaysize(stdout)
                 print("\e[H", replace(safe_render(v, w, h), "\n" => "\e[K\n"), "\e[J")
+                # The title bar follows the selection: `wl JuliaLang/julia#1`
+                # while that is the item, `wl` on the import row. After the
+                # frame and only on a change, since a terminal redraws its
+                # tab for every OSC 2 it is sent.
+                t = stacktitle(ctrl.stack)
+                t == ctrl.title || (ctrl.title = t; print("\e]2;", t, "\e\\"))
                 # After the frame, or drawing it would move the cursor again.
                 cur = try
                     viewcursor(v, w, h)

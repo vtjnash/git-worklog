@@ -70,7 +70,9 @@ or `wl refresh`, is the only thing that fetches.
 Three panes: the item list, its metadata, and the detail. The list opens on
 **what moved and is unfiled**, open or closed, newest first; unread rows are
 bold. Reading an item, or putting it away, takes it out of that list, and it
-comes back when it moves. Every date on the metadata pane and on a comment or
+comes back when it moves. The terminal's title follows the cursor - `wl
+JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on.
+Every date on the metadata pane and on a comment or
 push header has how long ago that was beside it, dim - `3d ago`, `in 2w` for
 a snooze's wake - worked out against the moment the frame is drawn.
 

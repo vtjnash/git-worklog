@@ -563,3 +563,26 @@ end
     # loop does regardless.
     @test W.onresize!(mkstate()) === nothing
 end
+
+@testset "the title bar follows the selection" begin
+    # `wl JuliaLang/julia#1` while that is the item, `wl` on the import row,
+    # and a dialog over the browser leaves the title to what is under it:
+    # the question is about the item, and the tab should go on saying which.
+    st = mkstate()
+    it = st.items[st.sel]
+    @test W.viewtitle(st) == string("wl ", it.repo, "#", it.number)
+    ctrl = W.Controller()
+    W.push_view!(ctrl, st)
+    @test W.stacktitle(ctrl.stack) == W.viewtitle(st)
+    W.push_view!(ctrl, W.ConfirmView("Sure?", String[], ["y" => () -> nothing]))
+    @test W.viewtitle(last(ctrl.stack)) === nothing
+    @test W.stacktitle(ctrl.stack) == W.viewtitle(st)
+    st.sel = 0
+    @test W.stacktitle(ctrl.stack) == "wl"
+    @test W.stacktitle(W.View[]) == "wl"
+    # An adopted branch has no number; it is named by its branch.
+    br = W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
+                title = "a branch", branch = "wip")
+    st2 = W.BState([br], "t"); st2.sel = 1
+    @test W.viewtitle(st2) == "wl o/r wip"
+end

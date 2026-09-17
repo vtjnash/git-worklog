@@ -98,6 +98,13 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     bordered(rvis, rw, rh, rtitle, focused)
 end
 
+"The title bar: the item under the cursor, by repository and number - the
+form that reads on a tab and pastes into a search - or the bare name."
+viewtitle(st::BState) =
+    (st.sel == 0 || isempty(st.items)) ? "wl" :
+    (it = st.items[clamp(st.sel, 1, length(st.items))];
+     string("wl ", it.repo, it.number == 0 ? " " * it.branch : string("#", it.number)))
+
 """
     render_frame(st, w, h) -> String
 

@@ -296,9 +296,11 @@ through a TTY. Strike through rather than delete when one answers.
       Alt it sends (on a Mac, Option may compose instead).
 - [ ] `^s` in the composer: raw mode should clear IXON.
 - [ ] Raw mode restoration on abnormal exit.
-- [ ] The title: `wl` on the tab and the tmux pane while it runs, the old
-      title back on exit where the terminal keeps a title stack (`CSI 22 t`
-      / `CSI 23 t`), `wl` until the next prompt where it does not.
+- [ ] The title: `wl JuliaLang/julia#1` on the tab and the tmux pane,
+      following the selection and staying through a dialog about it; the
+      old title back on exit where the terminal keeps a title stack (`CSI
+      22 t` / `CSI 23 t`), the last one until the next prompt where it does
+      not.
 - [ ] OSC 8 links and the OSC 52 copy end to end. The bundled client is
       3.5.1, but an older server already on the socket renders `capture-pane`
       (OSC 8 needs 3.4), and OSC 52 is opt-in in some terminals. Whether the

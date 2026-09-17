@@ -208,6 +208,8 @@ end
 # A question that hands the keys back, which is what its inner view is. The
 # pane above is a *place*; this is not one, and `push_place!` must not clear it.
 isdialog(::SideView) = true
+# The item the dialog is about, which is the one beside it.
+viewtitle(v::SideView) = viewtitle(v.beside)
 closeview!(v::SideView) = closeview!(v.inner)
 wantsraw(::SideView) = false
 holds(v::SideView, inner::View) = v.inner === inner
@@ -417,6 +419,10 @@ wantsraw(v::PaneView) = v.child.client !== nothing && v.focus === :child
 # worktree list is somewhere you look, and neither is a question asked of the
 # view underneath.
 isdialog(::PaneView) = false
+# The item the session was opened on, read off the reading side when there is
+# one and off the session's own tag otherwise; a session on no item is the pane's name.
+viewtitle(v::PaneView) = v.beside !== nothing ? viewtitle(v.beside) :
+                         string("wl ", v.child.name)
 closeview!(v::PaneView) = iframe_close!(v.child)
 
 """Mouse reports in `bytes`, moved into the child's box - or answered here.
