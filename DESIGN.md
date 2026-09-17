@@ -805,6 +805,14 @@ Each of the following returns success and the wrong answer:
   `@me` is the same thing with no code, and it is what the shared file says.
   The seed is a copy of the template and not `TOML.print`, because the
   comments are the manual for the keys and a serialization drops them.
+- **The metadata pane is a readout, not a third focus.** Editing in place
+  was designed as far as its cost (2026-09-17): every `kv` row carrying its
+  key so the layout can hit-test it and `j`/`k` can walk it, a third stop
+  on `tab` that every composer beside the diff then has to step over, and
+  at the end of it two more GitHub mutations for assignee and reviewer. The
+  fields that can change from here already have keys - `L`, `s`, `v` - and
+  the four that cannot (`deadline`, `blocked`, `why`, `track`) want one key
+  and a picker, the way `'` opens views, not a cursor on the pane.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
   in the user's rc; the agent in a `T` pane and the editor in a `v` pane

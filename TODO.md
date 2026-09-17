@@ -121,21 +121,6 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       parent's meta, and the arithmetic of four ranges in step. Honest version:
       rows that belong to a node without being its body, which changes what a
       `Row` is. Decide which before starting.
-- [ ] **Editing in the metadata pane.** It is a readout, and every field on
-      it that can change is changed from somewhere else or not from here: the
-      labels (`L`), the snooze (`s`), the note (`v`), `deadline`, `blocked`
-      and `why` (`wl set` only), `track` (`wl track` only - its row on the
-      pane names the command, and is the first row this should reach), the
-      assignees and reviewers (nothing at all).
-      Wanted: `tab` reaches the pane as a third focus, `j`/`k` walk its
-      fields, `↵` edits the one under the cursor with the prompt each already
-      has - the label picker, the snooze menu, a line prompt for a
-      `local.toml` field - and a click on a field does the same. Decide
-      first: whether `tab` cycles three panes or the pane has a key of its
-      own; how a row knows its field - `meta_lines` returns strings, so the
-      `kv` rows would have to carry their key for `layout.jl` to hit-test and
-      `mouse.jl` to act on; and that assignee and reviewer are GitHub writes,
-      a mutation each, unexercised like the rest (see the first section).
 - [ ] **Quick actions on the checkout.** Whether the browser should run
       the git and `gh` commands that today mean `t` and typing: `gh pr
       checkout N` (which is what a pull request from a fork needs - the
@@ -145,9 +130,9 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       base for `p`; `mergeable  behind master` on the pane is the row
       that would want it), `git push --force-with-lease` after it, `gh pr
       ready`/`--undo`, re-running a failed check. Decide: **where** - a
-      key opening a picker the way `'` does, the pane's rows once they can
-      be acted on (see the metadata pane above), or `t` opened with the
-      command typed and not sent, which is the one that leaves a conflict
+      key opening a picker the way `'` does (the pane's rows are not a
+      candidate: they are a readout, see DESIGN's decisions), or `t` opened
+      with the command typed and not sent, which is the one that leaves a conflict
       in the shell where it has to be resolved anyway; **which case** - the
       rule is lowercase looks or changes this machine and uppercase reaches
       GitHub, and a rebase is the first, a push the second, a checkout of a
@@ -315,12 +300,13 @@ through a TTY. Strike through rather than delete when one answers.
 ## Known gaps
 
 Reviewing and writing:
-- [ ] `C` refuses a comment on a deleted line - the old-side number is known,
-      but it must be anchored against a commit the line existed in.
 - [ ] `C` on an issue comment writes a new comment rather than replying
       (matches GitHub; surprises).
-- [ ] The metadata pane is a readout; editing it is under "To design". Also
-      not there: opening the check under the eye.
+- [ ] `deadline`, `blocked`, `why` and `track` are `wl set`/`wl track` only;
+      the browser wants one key opening a picker of the four, the way `'`
+      opens views, then the line prompt each already has. Not a cursor on
+      the pane (DESIGN's decisions). Also not there: opening the check under
+      the eye.
 
 The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl read
