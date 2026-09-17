@@ -174,12 +174,15 @@ end
 # **`errors.log`** is for exceptions, through `logerror!`, and stands in the
 # footer until it is deleted. Nothing in the browser writes stderr.
 
-"""One operation's commentary: where it goes, and how many lines were warnings."""
+"""One operation's commentary: where it goes, how many lines were warnings,
+and the one line that says what happened - which is what a status row wants
+of it, and what `refresh` sets last."""
 mutable struct Report
     io::IO
     warnings::Int
+    summary::String
 end
-Report(io::IO) = Report(io, 0)
+Report(io::IO) = Report(io, 0, "")
 
 """The process's report, for a task that opened none of its own. Set by the
 browser to `devnull` before the first frame; unset, it is stderr as it stands

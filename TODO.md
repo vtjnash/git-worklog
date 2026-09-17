@@ -174,22 +174,6 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       and a rebase that stops is not one row. The worktree list (`"`) is
       the other candidate, since a checkout is a fact about a worktree
       and not about an item.
-- [ ] **The refresh under `u`: a Task, not a child.** The reason it was a
-      child is gone: `refresh` reports through `reporting(io)` on its own
-      task-local report and nothing in it touches stderr (DESIGN, "What is
-      said, and where"), so an in-process refresh would write to a buffer
-      or to `refresh.log` and the browser's own fetches would go on
-      reporting nothing. What is left is the CPU: `wl` runs with no `-t`,
-      tasks are cooperative, and a refresh parses and rewrites the 6 MB
-      `fetched.json` and diffs 5,500 rows, which would hold the key loop
-      for as long as that takes. Measure that part first (the `gh` waits
-      already yield). If it is under a frame, `@async` and adopt the result
-      directly instead of through the file watcher; if not, `-t auto` in
-      `bin/wl` and `Threads.@spawn`, and then the corpus written by one
-      thread while another draws from it needs the handoff `reload_data!`
-      already is. Keep `wl refresh` and `bin/refresh` as they are: the cron
-      and the hand run want a process. The warnings count comes straight
-      off the report then, and `run_refresh`'s last-line reading goes.
 - [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
       What this program calls *read* is what GitHub's inbox calls **done**
       - a thread put away that comes back when it moves - and the sync
@@ -307,8 +291,9 @@ through a TTY. Strike through rather than delete when one answers.
       title-bar row settles copy-mode scrolling.
 - [ ] `⌥e`/`^o` launching `$EDITOR` from inside the browser; `e` (`code` is
       not on the sandbox's `PATH`).
-- [ ] `u` end to end: the child's exit and the status line from its last
-      output line.
+- [ ] `u` end to end: the browser staying live through the refresh's walk
+      over the corpus (a ~100 ms hitch at the write is expected; a hang is
+      not), and the status line off the report when it lands.
 - [ ] `p` against a rebase whose base moved, network and arithmetic at once:
       needs a checkout of a repository whose base moves.
 - [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered

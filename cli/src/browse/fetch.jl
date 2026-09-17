@@ -482,18 +482,21 @@ end
 rebuilds the dashboard itself, which until now meant leaving the browser or
 running `wl refresh` in another terminal and waiting for the watcher to notice.
 
-**As a subprocess, and not in this process.** The work would be the same, but
-`refresh` prints thirty lines of lane progress to stderr and there is no way to
-send that somewhere else without `redirect_stderr`, which is process-wide: it
-would take the browser's own writes with it for the half-minute the refresh
-takes. A child gets its own descriptors, and the same `bin/refresh` the user
-would have run by hand - which also means a refresh that dies takes nothing on
-screen with it.
+**In this process, on a task.** It was a child - `bin/refresh` to a temp file
+- because `refresh` reported on stderr and `redirect_stderr` is process-wide.
+It reports through `reporting` now (DESIGN, "What is said, and where"), so
+the same call the command makes runs here with `data/refresh.log` as its
+report, and what is left to answer for is the CPU: the walk over the corpus
+yields every 256 rows (`breathe`) and at each file it reads or writes, so the
+longest stretch the key loop waits is `save_fetched`, about 100 ms - measured
+2026-09-17 with the network faked; the network itself yields on every `gh`.
+The summary and the warning count come straight off the report, and nothing
+reads a last line back. A refresh that throws throws here, into `errors.log`
+with its own stack rather than as `ProcessExited(1)`.
 
-**And it sets `reload` by hand.** `watch_data!` deliberately ignores writes this
-process made, and the child's writes are this process's as far as `OURS` is
-concerned only because the child never touched that map - but the watcher fires
-on the mtime, so the flag is set here rather than left to a race with it.
+**And it sets `reload` by hand.** `watch_data!` deliberately ignores writes
+this process made - which every write of this refresh now is - so the flag is
+set here rather than left to the watcher.
 
 `fetching` is what keeps two of these from overlapping: a second `u` joins the
 one already running instead of starting a second refresh against the same files.
@@ -507,18 +510,37 @@ function refresh_all!(st::BState)
     running && return "already refreshing"
     fetching(key) do
         said = try
-            run_refresh()
+            run_refresh!()
         catch e
-            # Logged, so the footer stands until it is read; and the row names
-            # the file with the whole of what the child said.
+            # Logged, so the footer stands until it is read; the report has
+            # everything the refresh said up to the throw.
             logerror!(e, catch_backtrace(), "refresh")
-            string("refresh failed \u00b7 see ", refreshlog_name(), " and the footer")
+            string("refresh failed \u00b7 see the footer, and ", refreshlog_name())
         end
         st.refreshsaid = said
         st.reload = true
         st.wake === nothing || st.wake()
     end
     "refreshing \u2026"
+end
+
+"""The refresh, reporting to `data/refresh.log`, and the status row's line
+for it: the summary, the warnings when there were any, and where the rest is.
+
+`at` and `kw` reach `refresh_` - the clock, the searches and the poll - so the
+suite can run one without GitHub; the browser gives it nothing, and the
+refresh takes GitHub's time as it always has.
+"""
+function run_refresh!(at::Union{Nothing,DateTime} = nothing; kw...)
+    log = refreshlog()
+    (code, r) = open(log, "w") do io
+        refresh_report(String[], at; io = io, kw...)
+    end
+    code == 0 || error("refresh answered ", code, " \u00b7 see ", refreshlog_name())
+    string(isempty(r.summary) ? "refreshed" : r.summary,
+           r.warnings == 0 ? "" :
+               string(" \u00b7 ", r.warnings, r.warnings == 1 ? " warning" : " warnings"),
+           " \u00b7 wl log")
 end
 
 """Where the last refresh started from the browser wrote what it had to say.
@@ -529,43 +551,6 @@ refreshlog() = isempty(REFRESHLOG[]) ? datapath("refresh.log") : REFRESHLOG[]
 "The log's name as a row says it: `data/refresh.log` from the checkout, the
 whole path when `WORKLOG_DATA` put it elsewhere."
 refreshlog_name() = (p = refreshlog(); startswith(p, ROOT) ? relpath(p, ROOT) : p)
-
-"""Run `bin/refresh` to completion and answer with the last line it printed.
-
-The last line is its own summary - items, changes, rate-limit points - which is
-exactly what a status row wants. Captured to a file rather than a pipe because
-nothing reads it while it runs, and a pipe nobody drains is a way to wedge a
-child that writes more than its buffer.
-
-**The file is `data/refresh.log` and it is kept.** It was a `tempname()`
-deleted in the `finally`, so a refresh that exited 1 left `errors.log` saying
-"ProcessExited(1)" and nothing else, and the lane that died past its retry was
-unknowable - by hand the same refresh exited 0 with a `gh: HTTP 504` retried in
-the middle. Now the whole of what the child said is there to be read, `wl log`
-prints it, and the status row points at it: on a failure the error carries the
-file's last lines, so the footer's standing warning says what happened; on
-success the child's summary says how many of its lines were warnings - a
-`FAILED:` lane three lines up never reached the row when only the last line
-did - and the row adds where the rest is. The count is the child's own: its
-report (`reporting`) counts every line written through `warning()`, so
-nothing here reads the text back.
-
-`cmd` is an argument so the shape of a failure can be driven without a refresh:
-the default is the real one.
-"""
-function run_refresh(cmd::Cmd = `$(joinpath(ROOT, "cli", "bin", "refresh"))`)
-    log = refreshlog()
-    ok = open(log, "w") do io
-        success(pipeline(ignorestatus(cmd); stdin = devnull, stdout = io, stderr = io))
-    end
-    lines = [strip(l) for l in eachline(log) if !isempty(strip(l))]
-    if !ok
-        error("refresh failed \u00b7 see ", refreshlog_name(),
-              isempty(lines) ? " (it said nothing)" :
-              string("; it ended:\n  ", join(last(lines, 5), "\n  ")))
-    end
-    string(isempty(lines) ? "refreshed" : String(last(lines)), " \u00b7 wl log")
-end
 
 """Take the records again, and the item list with them when a refresh landed.
 

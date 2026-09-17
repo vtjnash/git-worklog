@@ -334,33 +334,36 @@ end
         lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
     end
 
-    # What the child said is kept whole, and the row carries its last line -
-    # the summary, which counts its own warnings - and where the rest is. A
-    # child that exits 1 is an error carrying the file's last lines, so the
-    # footer says what happened and not "ProcessExited(1)"; the file is there
-    # either way.
-    keeplog = W.REFRESHLOG[]
-    W.REFRESHLOG[] = joinpath(mktempdir(), "refresh.log")
+    # The refresh runs in this process, on a task, and reports to
+    # `refresh.log`: the file holds everything it said, the status row gets
+    # the summary and the warning count off the report itself - no child, no
+    # last line read back - and where the rest is. Driven here with the
+    # network faked and the data redirected, the way the refresh suite does.
+    keeplog, keepi, keepm = W.REFRESHLOG[], W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.REFRESHLOG[] = joinpath(d, "refresh.log")
+    cp(joinpath("/home/vtjnash/git-worklog/cli/test", "fixture.json"), joinpath(d, "fetched.json"))
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
     try
-        quiet = `sh -c 'echo "  mine        40 items"; echo; echo "  40 items, 2 changes, 8 rate-limit points"'`
-        @test W.run_refresh(quiet) == "40 items, 2 changes, 8 rate-limit points · wl log"
-        @test occursin("mine        40 items", read(W.REFRESHLOG[], String))
-        loud = `sh -c 'echo "    julia  FAILED: 504"; echo "  3 items, 0 changes, 4 rate-limit points · 1 warning"'`
-        @test W.run_refresh(loud) == "3 items, 0 changes, 4 rate-limit points · 1 warning · wl log"
-        @test W.run_refresh(`true`) == "refreshed · wl log"
-        # Named the way a row can say it: relative to the checkout when it is
-        # in it, which is where `data/` is.
+        quiet = (search = q -> (Any[], 4, 0), fetch_url_map = x -> W.OrderedDict{String,Any}(),
+                 poll = (a...) -> Any[], open_list = (a...; kw...) -> [])
+        said = W.run_refresh!(W.DateTime(2026, 9, 17); quiet...)
+        @test occursin(r"^\d+ items, \d+ changes, \d+ rate-limit points · wl log$", said)
+        log = read(W.REFRESHLOG[], String)
+        @test occursin("mine", log) && occursin("rate-limit points", log)
+        # A lane the refresh has something to say about is a warning, counted
+        # on the row; and the file is overwritten per run, not appended.
+        said2 = W.run_refresh!(W.DateTime(2026, 9, 17); merge(quiet, (poll = (a...) -> (println(W.warning(), "    x FAILED: no"); Any[]),))...)
+        @test occursin(r"points · 1 warning · wl log$", said2)
+        @test count("rate-limit points", read(W.REFRESHLOG[], String)) == 1
+        # A refresh that throws throws here, with its own cause.
+        err = try; W.run_refresh!(W.DateTime(2026, 9, 17); merge(quiet, (poll = (a...) -> error("the poll fell over"),))...); nothing
+              catch e; sprint(showerror, e) end
+        @test err !== nothing && occursin("the poll fell over", err)
         @test W.refreshlog_name() == W.REFRESHLOG[]
-        dead = `sh -c 'echo "  mine  40 items"; echo "gh: HTTP 504"; exit 1'`
-        err = try; W.run_refresh(dead); nothing; catch e; sprint(showerror, e); end
-        @test err !== nothing
-        @test occursin("see $(W.REFRESHLOG[])", err) && occursin("gh: HTTP 504", err)
-        @test read(W.REFRESHLOG[], String) == "  mine  40 items\ngh: HTTP 504\n"
-        # Overwritten per run, not appended: it is the last refresh, not a history.
-        @test W.run_refresh(`echo again`) == "again · wl log"
-        @test read(W.REFRESHLOG[], String) == "again\n"
     finally
-        W.REFRESHLOG[] = keeplog
+        W.REFRESHLOG[], W.FETCHED[], W.LOCAL[] = keeplog, keepi, keepm
     end
     @test W.refreshlog_name() == joinpath("data", "refresh.log") || !startswith(W.refreshlog(), W.ROOT)
 

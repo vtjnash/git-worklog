@@ -93,7 +93,7 @@ GitHub.**
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) |
 | `z` | undo the last local action |
-| `u` `R` | refresh everything in the background (its output is kept in `data/refresh.log`; the status row says when a line in it is worth reading) · reload this item |
+| `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings) · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
 | `w` | cycle the order: last activity · url · your interaction clock |

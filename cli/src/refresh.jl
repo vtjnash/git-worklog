@@ -1149,17 +1149,35 @@ function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
     rows
 end
 
+"""Let the other tasks have a turn, every so often inside a loop over the corpus.
+
+The refresh runs on the browser's own task loop under `u` (`refresh_all!`),
+and tasks are cooperative: a walk over 5,500 rows that never yields holds the
+key loop for as long as it takes, which was half a second in one stretch when
+measured (2026-09-17, network faked). With a turn every 256 rows the longest
+stretch left is the file itself - `load_fetched` at 20 ms and `save_fetched` at
+100 ms - which is a hitch and not a hang. Nothing else changes: the same rows
+are walked in the same order, and the browser draws its own copy meanwhile.
+"""
+breathe(i::Int) = (i % 256 == 0 && yield(); nothing)
+
 """Re-fetch, re-derive, re-render. Returns the exit code.
 
 Everything it has to say goes to `io` - stderr under `wl refresh`, the file
-`run_refresh` keeps under `u`, a buffer in a test - through a report of its own
+`run_refresh!` keeps under `u`, a buffer in a test - through a report of its own
 (`reporting`), so the warnings among those lines are counted and the summary
 line says how many there were.
 """
 function refresh(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
                  io::IO = report(), kw...)
-    first(reporting(() -> refresh_(args, at; kw...), io))
+    first(refresh_report(args, at; io = io, kw...))
 end
+
+"The same, answering with the report as well: the browser reads the summary
+and the warning count off it, having no last line of a child to read."
+refresh_report(args::Vector{String} = String[], at::Union{Nothing,DateTime} = nothing;
+               io::IO = report(), kw...) =
+    reporting(() -> refresh_(args, at; kw...), io)
 
 function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
                   search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
@@ -1194,6 +1212,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # themselves - each go back through a fresh read at the moment they are
     # written, since between them they span a minute of network.
     prev_items = something(fetched("items"), (;))
+    yield()                                  # a 6 MB parse, in one piece
     # The row this run knows last about a url: the file's, or the bundle the
     # browser fetched for the row under the cursor when that is the newer.
     # Derived against *that*, so the two agree: a bool becoming true is dated
@@ -1322,7 +1341,8 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     end
     ask = OrderedDict{String,String}()        # url => the lane its row gets
     carried = String[]
-    for k in keys(prev_items)
+    for (i, k) in enumerate(keys(prev_items))
+        breathe(i)
         url = String(k)
         haskey(items, url) && continue
         old = prev(url)
@@ -1469,7 +1489,8 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # refresh clock, and put a thing you were reading back in front of you.
     changes = Any[]
     slept, woke = String[], Pair{String,String}[]
-    for (url, r) in collect(items)
+    for (i, (url, r)) in enumerate(collect(items))
+        breathe(i)
         st = get(state, url, Dict{String,Any}())
         old = prev(get(renamed, url, url))
         if old !== nothing && String(nz(jget(old, :fetched_at), "")) > String(r["fetched_at"])
@@ -1506,11 +1527,14 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # a row on `updated <= read`, which nothing that stamps the wake table's
     # movement could satisfy on a row whose `updated` had moved past it - a
     # push, a label, your own comment: 366 of 5553 rows on the day.
+    yield()
     inbox_ = Events.load_inbox()
     marks = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
                   now = stamp(at))
+    yield()
     dropped = String[]
-    for (url, e) in inbox_["items"]
+    for (i, (url, e)) in enumerate(inbox_["items"])
+        breathe(i)
         r = get(items, url, nothing)
         r === nothing && continue
         String(nz(get(e, "updated", nothing), "")) <= String(r["fetched_at"]) || continue
@@ -1529,6 +1553,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
             @printf(warning(), "  %-16s bad snooze value '%s'  (%s)\n", "snooze", v, u)
     end
 
+    yield()                     # the two unbroken stretches: a parse and a write
     store = load_fetched()
     store["fetched_at"], store["points"], store["items"] = now_isoformat(at), spent, items
     isempty(dropped) || (store["inbox"] = inbox_)
@@ -1540,20 +1565,24 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # source was named is in `local.toml` now, one block per source.
     haskey(store, "baseline") && delete!(store, "baseline")
     save_fetched(store)
+    yield()
     # The one directory nothing else prunes. Swept here rather than in the
     # browser because it is a walk of the whole folder and this run is already
     # the slow, non-interactive one - and because everything it drops is older
     # than anything the browser would have put on screen.
     swept = cache_clear(; older_than = CACHE_SWEEP[])
+    yield()
     swept > 0 && @printf(report(), "  %-16s %d entries over %d days old\n",
                          "cache", swept, round(Int, CACHE_SWEEP[] / 86_400))
     # The summary, which is the line the browser's status row reads off the
     # child: with the warnings counted here, by the report, so the row can say
     # there were some without reading the text above it back.
-    nw = current_report().warnings
-    @printf(report(), "  %d items, %d changes, %d rate-limit points%s\n",
-            length(items), length(changes), spent,
-            nw == 0 ? "" : string(" \u00b7 ", nw, nw == 1 ? " warning" : " warnings"))
+    r = current_report()
+    r.summary = string(length(items), " items, ", length(changes), " changes, ",
+                       spent, " rate-limit points")
+    @printf(report(), "  %s%s\n", r.summary,
+            r.warnings == 0 ? "" :
+            string(" \u00b7 ", r.warnings, r.warnings == 1 ? " warning" : " warnings"))
     0
 end
 

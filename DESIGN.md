@@ -419,7 +419,7 @@ Three things answer it, all read off the mark `r` leaves:
 Three channels, and every message chooses one by what the reader does with
 it. Audited 2026-09-17; before that there were three channels and no rule,
 and a `FAILED:` lane reached the status row only if it happened to be the
-child's last line.
+last line of the child that ran the refresh then.
 
 - **The report** is what an operation says as it runs: a lane's count, a
   retry, a lane that is not `is:open`. It goes to `report()`, the `IO` of the
@@ -427,9 +427,10 @@ child's last line.
   failing that, the process's (`REPORT[]`): stderr for a command, `devnull`
   for the browser, which sets it before its first frame because a line on
   stderr draws over the frame. A line the reader has to act on goes through
-  `warning()` - the same stream, counted - and `refresh`'s summary line says
-  how many there were, so `run_refresh` never reads the child's text back.
-  Under `u` the report is `data/refresh.log`, whole, and `wl log` prints it.
+  `warning()` - the same stream, counted - and the report carries the
+  operation's `summary`, which is what the status row says of it; nothing
+  reads text back. Under `u` the report is `data/refresh.log`, whole, and
+  `wl log` prints it.
 - **The status row** is for what just happened and will not happen again -
   "copied 3 lines", "posted", "sorted by age" - and is replaced by the next
   key. It is wrong for anything the reader has to act on later, which is why
@@ -687,6 +688,17 @@ Each of the following returns success and the wrong answer:
   and parses as no divergence in a translating locale.
 - `bin/wl` ignores SIGHUP in the shell, because an ignored disposition is the
   one thing that survives `exec`.
+- **`u` runs the refresh in-process, on a task, and it yields.** It was a
+  child because `refresh` wrote stderr; once it reported through `reporting`
+  the only reason left was the CPU, and that was measured (2026-09-17, network
+  faked, the real 5.7 MB corpus): 0.45 s in one unbroken stretch. Tasks are
+  cooperative, so `breathe` yields every 256 rows of each walk over the
+  corpus and `yield()` sits at each file read or written; the longest stretch
+  left is `save_fetched` at ~100 ms, a hitch and not a hang, and not worth
+  `-t auto` and a thread with the shared-state audit that would need. The
+  browser draws its own copy meanwhile; the refresh's writes are `OURS` and
+  `refresh_all!` sets `reload` itself. `wl refresh` and `bin/refresh` are
+  still a process, for the cron and the hand.
 - **juliaup's launcher does not pass argv[0] through**: it execs the real
   binary under that binary's own path, so `exec -a wl` in `bin/wl` names
   nothing. The process names itself instead: `uv_set_process_title` in `main`
