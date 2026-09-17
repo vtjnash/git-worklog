@@ -24,6 +24,12 @@ sandbox, which covers `issues: write` and `pull_requests: write` everywhere.
 - [ ] pushing this repository: `origin` is `vtjnash/git-worklog`, never pushed
       to; needs a fine-grained PAT with `Contents: read/write`.
 
+The suite reaches GitHub in one place - `Events.server_now`, through the
+witness testset at `refresh.jl:1257` - so with no token that file errors
+and stops `runtests.jl` there; every other file runs (seen 2026-09-17, when
+the sandbox token expired overnight). Either hand that testset a clock, or
+accept that one line of the suite needs the network.
+
 ## Blocked on GitHub - the notifications sync
 
 **Wanted**: the GitHub inbox and this program's read state kept in step,
@@ -90,9 +96,9 @@ endpoint that marks a thread unread:
 - [ ] **`wl sync [--dry-run]`**, dry-run forced until `[notifications]
       sync = true`: the bootstrap finds hundreds of rows read here and unread
       there, and that list is to be seen before it is sent. `wl refresh`
-      calls it when on, and skips it with a line where `pat()` has no token.
-      Later, the browser runs it in a subprocess after `r`/`s`/`x`, as `R`
-      runs a refresh.
+      calls it when on, and says so through `warning()` where `pat()` has
+      no token. Later, the browser runs it on a task after `r`/`s`/`x`, the
+      way `u` runs the refresh (`refresh_all!`).
 - [ ] **Tests**, with a fake fetch: floor and 404 skip; the two exclusions;
       no corpus row untouched; bootstrap adds ids and no items; a truncated
       listing turns the pull off and says so; asleep then woken and read
@@ -207,6 +213,16 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
+- [ ] **What the browser's own operations have to say, and where.** The
+      browser's report is `devnull` (DESIGN, "What is said, and where"),
+      which is right for a retry and wrong for the one warning it swallows:
+      the launch poll in `ui()` runs `Events.poll` before the first frame,
+      and a lane that answers `FAILED:` there is said to nobody until the
+      next `u` puts it in `refresh.log`. Decide whether the launch reports
+      into `refresh.log` like `u` does - it is the same operation, half of
+      it - or whether a browser-side `warning()` should reach the footer.
+      Also `fetch_urls`' "by url: N not answered" under an import, which the
+      import's own status covers today.
 - [ ] **`TermInput` and Term's `InputBox`** are not the same widget:
       `InputBox` appends keystrokes with no cursor, because `readkey` cannot
       tell Left from Escape-`[`-`D`. Unifying wants, in order: a decoder good
@@ -316,6 +332,11 @@ The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl read
       --consolidate` has been watched for a while - it was shipped explicit
       and dry-run first (2026-09-16). Nothing else about it is open.
+- [ ] `refresh_` parses `fetched.json` three times - `fetched("items")` at
+      the top, `Events.load_inbox()` for the drop, `load_fetched()` for the
+      write - about 60 ms of its 450 (profiled 2026-09-17). One read held
+      for the run would do, if the 100 ms hitch under `u` is ever felt;
+      the write is the larger half of it and stays.
 - [ ] Discussions, releases, commit comments: the notifications source sees
       each arrive and skips it, counted. Nothing here can open one.
 - [ ] A kept row under an old url that is never asked again is a duplicate
