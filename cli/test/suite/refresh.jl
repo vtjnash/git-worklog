@@ -626,12 +626,19 @@ end
                             repository = Dict("nameWithOwner" => "o/moved"),
                             updatedAt = "2026-09-13T11:30:00Z"))
         clock2(cfg, login, at) = [Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")]
+        # And the inbox row under the old name goes with it: no corpus row
+        # will ever be under that name to consume it, and kept it would be
+        # asked by url on every run and follow the same redirect each time.
+        inbox = W.Events.load_inbox()
+        inbox["items"][U(3)] = Dict{String,Any}("url" => U(3), "updated" => "2026-09-13T13:00:00Z")
+        W.Events.save_inbox(inbox)
         @test W.refresh(String[], W.DateTime(2026, 9, 13, 14); search = srch,
                         fetch_url_map = moved, poll = clock2, open_list = (a...; kw...) -> []) == 0
         its = W.fetched("items")
         @test haskey(its, Symbol("https://github.com/o/moved/issues/3")) && !haskey(its, Symbol(U(3)))
         @test its[Symbol("https://github.com/o/moved/issues/3")].lane == "landed"
         @test its[Symbol("https://github.com/o/moved/issues/3")].new == false
+        @test !haskey(W.Events.load_inbox()["items"], U(3))
 
         # The whole fetch failing keeps every asked row as it was.
         boom(urls) = throw(W.FetchError("secondary rate limit"))
@@ -1141,6 +1148,94 @@ end
         @test isempty(W.unread_items(at, []))
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
+    end
+end
+
+@testset "a filed row keeps its stamp, and a light row is stamped by the inbox's clock" begin
+    # Three ways a mark and the list disagreed on 2026-09-17. A filed row
+    # that moved is unread in the `filed` box and nowhere else, so `wl
+    # unread` leaves it out and `wl read all` does not read it; a plain read
+    # mark on a filed row stamps rather than folds, and `--consolidate`
+    # leaves the stamp alone, since the refresh reads a filed row with no
+    # stamp as put away by hand and stamps it at its own clock - over the
+    # movement. And a light row with a cached bundle from before the inbox's
+    # clock is stamped by the clock, which is what `wl unread` listed it
+    # against, or `wl read all` would find it again.
+    keepi, keepm, keepdir = W.FETCHED[], W.LOCAL[], W.CACHE_DIR[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
+    W.CACHE_DIR[] = joinpath(d, "cache")
+    U(n) = "https://github.com/o/r/issues/$n"
+    day(n) = "2026-09-$(lpad(n, 2, '0'))T00:00:00Z"
+    row(n; kw...) = merge(Dict{String,Any}(
+        "url" => U(n), "type" => "Issue", "lane" => "mine", "state" => "OPEN",
+        "mine" => true, "author" => "vtjnash", "title" => "t$n", "number" => n,
+        "repo" => "o/r", "labels" => String[], "created" => day(1),
+        "updated" => day(10), "moved_at" => day(10),
+        "fetched_at" => day(15), "track" => "normal", "ref" => "r#$n"),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))
+    light(n, updated) = W.OrderedDict{String,Any}("url" => U(n), "repo" => "o/r", "number" => n,
+        "title" => "t$n", "is_pr" => false, "state" => "open", "author" => "bob",
+        "updated" => updated, "comments" => 1, "labels" => String[], "mine" => false,
+        "lane" => "activity")
+    at = W.DateTime(2026, 9, 16, 12)
+    try
+        # 1 is filed and moved past its stamp; 2 is filed, read, and under
+        # the floor; 3 is read and under the floor; 4 is a light row looked
+        # at once - a bundle cached on the 12th - and moved on the 14th.
+        W.name_source!("mine", day(11))
+        W.name_source!("o/r", day(11))
+        W.save_fetched(Dict{String,Any}("items" => Dict(
+            U(1) => row(1; moved_at = day(14), updated = day(14)),
+            U(2) => row(2; moved_at = day(9)), U(3) => row(3; moved_at = day(9)))))
+        inbox = W.Events.load_inbox(); inbox["items"][U(4)] = light(4, day(14))
+        W.Events.save_inbox(inbox)
+        W.cache_put(W.bundle_key(U(4)), row(4; lane = "activity", moved_at = day(12),
+                                               updated = day(12), fetched_at = day(12)))
+        W.set_read(U(1), day(10)); W.set_archived(U(1), day(10))
+        W.set_read(U(2), day(9)); W.set_archived(U(2), day(9))
+        W.set_read(U(3), day(9))
+        # Unread in the filed box, and not on the list.
+        m = W.Marks(read = W.load_read(), sources = W.source_since(), now = W.stamp(at))
+        @test W.seen_of(only(it for it in W.corpus_items() if it.url == U(1)), m) === :unread
+        @test [it.url for it in W.unread_items(at)] == [U(4)]
+        # The light row is stamped by the inbox's clock, and the list is empty.
+        @test W.mark_read_moved([U(4)], at; fold = true) == 1
+        @test W.read_at(U(4)) == day(14)
+        @test isempty(W.unread_items(at))
+        # A plain read mark on the filed rows stamps; on the plain one it folds.
+        @test W.mark_read_moved([U(1), U(2), U(3)], at; fold = true) == 3
+        @test W.read_at(U(1)) == day(14) && W.read_at(U(2)) == day(9)
+        @test W.mark_at(U(3), "read") === nothing
+        # And consolidating leaves the filed stamps alone.
+        c = W.consolidate!(at)
+        @test !(U(1) in c.dropped) && !(U(2) in c.dropped)
+        @test W.read_at(U(1)) == day(14) && W.read_at(U(2)) == day(9)
+        # `r` in the browser: the same on a filed row, and `z` after a folded
+        # `r` puts back the head the fold kept, not the head the unread
+        # dropped. The list is one row and every box on, so it stays under
+        # the cursor either way, and there is no thread to fetch.
+        ctrl = W.Controller()
+        st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(3))]); head = "cafe")], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
+        W.set_read(U(3), "")                           # said unread, under the floor
+        st.read = W.field_marks(W.load_marks(), "read")
+        W.handle!(st, Int('r'), ctrl, at)              # folds: no stamp, the head kept
+        @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
+        W.handle!(st, Int('r'), ctrl, at)              # unread: both go
+        @test W.mark_at(U(3), "read") == "" && W.read_head(U(3)) === nothing
+        W.handle!(st, Int('z'), ctrl, at)
+        @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
+        st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(2))]); head = "beef")], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.nodes = W.Node[]; st.loaded = string(U(2), ":", st.mode)
+        W.set_read(U(2), ""); st.read = W.field_marks(W.load_marks(), "read")
+        W.handle!(st, Int('r'), ctrl, at)              # filed: stamped, not folded
+        @test W.read_at(U(2)) == day(9) && W.read_head(U(2)) == "beef"
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.CACHE_DIR[] = keepdir
     end
 end
 

@@ -179,7 +179,10 @@ end
 # than stamping it (`folded`), since the floor already answers and the block
 # goes back to saying nothing. `s` and `x` keep stamping, because the refresh
 # reads a snooze or an archive with no stamp as put away by hand and stamps
-# it, and a hand-typed span counts from the stamp.
+# it, and a hand-typed span counts from the stamp - and so a plain mark on a
+# row that carries either keeps stamping too (`held_by`): folded, the refresh
+# would stamp it at its own clock, over whatever moved since, and a filed row
+# that moved would be read in the `filed` box without anyone looking.
 
 "When each source was named: `label -> ISO8601`, off the `source:` blocks."
 source_since() = Dict{String,String}(String(k)[8:end] => v
@@ -230,6 +233,11 @@ floor_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict) =
 """What a plain read mark writes: `upto`, or `nothing` - the key dropped - when
 the floor already answers for a movement that early."""
 folded(upto::AbstractString, floor) = (floor !== nothing && upto <= floor) ? nothing : upto
+
+"""Does the block hold a snooze or an archive - `url -> field -> value` for
+the one url, as `field_maps` answers - so that a plain read mark stamps
+rather than folds, and `consolidate!` leaves the stamp alone?"""
+held_by(r) = r !== nothing && (haskey(r, "snooze") || haskey(r, "archived"))
 
 "Every seen-up-to timestamp: `url -> ISO8601`."
 load_read() = load_field("read")
@@ -364,22 +372,29 @@ the corpus or the inbox has for it, `at` for a synthetic row that has neither
 which have no thread on screen to have read up to. The inbox as well as the
 corpus so that a light row gets the stamp `r` in the browser would give it,
 and the bundle over the file's row for the same reason `loaditems` takes it:
-it is the newer of the two. With `fold`, a plain read mark: a row whose
-movement is under its source's floor has its key dropped rather than
-stamped, see `folded`; a snooze and an archive stamp regardless."""
+it is the newer of the two - and for a light row, one the corpus has no row
+for, the inbox's row over a bundle from before the inbox's clock for it, the
+way `inbox_items` shows it: `wl unread` lists such a row against `updated`,
+and a stamp off the older bundle would leave it listed. With `fold`, a plain
+read mark: a row whose movement is under its source's floor has its key
+dropped rather than stamped, see `folded`; a snooze and an archive stamp
+regardless, and so does a row carrying either (`held_by`)."""
 function mark_read_moved(urls, at::DateTime; fold::Bool = false)
     items = something(fetched("items"), (;))
     inbox = Events.load_inbox()["items"]
     sources = source_since()
     wakes = wake_map()
+    held = fold ? field_maps(("snooze", "archived")) : Dict{String,Dict{String,String}}()
     us = unique(String(u) for u in urls)
     isempty(us) && return 0
     function upto(u)
-        r = bundled(u, jget(items, Symbol(u)))
-        r === nothing && (r = get(inbox, u, nothing))
+        f = jget(items, Symbol(u))
+        r = bundled(u, f)
+        row = get(inbox, u, nothing)
+        f === nothing && row !== nothing && (r === nothing || before_inbox(r, row)) && (r = row)
         r === nothing && return stamp(at)
         m = something(moved_of(r), stamp(at))
-        fold || return m
+        (fold && !held_by(get(held, u, nothing))) || return m
         folded(m, floor_of(String(nz(rget(r, "lane"), "activity")),
                            String(nz(rget(r, "repo"), "")), sources))
     end

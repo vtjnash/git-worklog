@@ -174,12 +174,13 @@ Wherever a ref is taken, `-` reads them from stdin, one per line:
 
 `wl unread` lists what the browser shows unread - every row of the corpus and
 every light row the clocks know that has moved since you read it, or that no
-stamp and no floor answers for - newest movement first; `wl read all` marks
-that same list, so a second pass finds nothing. A row with no stamp is read
-up to the day its source was named (`since` in the `source:` blocks of
-`local.toml`); `wl read --consolidate` raises every source's `since` as far
-as the stamps allow and drops the stamps the floor then answers for, without
-changing what any row answers. `--dry-run` says what it would do.
+stamp and no floor answers for, less the ones filed away - newest movement
+first; `wl read all` marks that same list, so a second pass finds nothing. A
+row with no stamp is read up to the day its source was named (`since` in the
+`source:` blocks of `local.toml`); `wl read --consolidate` raises every
+source's `since` as far as the stamps allow and drops the stamps the floor
+then answers for, without changing what any row answers. `--dry-run` says
+what it would do.
 
 `cli/bin/gmail-unread <label>` lists the threads with unread GitHub
 notification mail under a Gmail label as urls, one per line, so

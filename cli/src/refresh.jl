@@ -1546,6 +1546,19 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     end
     isempty(dropped) || @printf(report(), "  %-16s %4d rows asked about and read, dropped\n",
                                 "inbox", length(dropped))
+    # And a row under a name GitHub answered with another name for: asked,
+    # and no clock will ever say the old name again - the row it made lives
+    # under the new one, with what this row said carried on it
+    # (`thread_facts!`). Kept, it would never be consumed: no corpus row is
+    # ever under that name, so it would be asked by url on every run, follow
+    # the same redirect, and say "is now" in every report.
+    moved = [u for (u, _) in gone if haskey(inbox_["items"], u)]
+    for u in moved
+        delete!(inbox_["items"], u)
+    end
+    isempty(moved) || @printf(report(), "  %-16s %4d rows under a name that moved, dropped\n",
+                              "inbox", length(moved))
+    append!(dropped, moved)
     # A value typed wrong is not a snooze, and nothing else says so.
     for (u, st) in state
         v = get(st, "snooze", nothing)

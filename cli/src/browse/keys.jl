@@ -501,15 +501,18 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
             # And folded: a row said unread by hand whose movement is still
             # under its source's floor goes back to saying nothing, since
-            # the floor answers. The head is recorded either way.
-            set_read_mark(it.url, folded(upto, floor_of(it, st.sources)), it.head;
-                          fold = true)
+            # the floor answers - unless it is filed, which stamps as `x`
+            # does (`held_by`). The head is recorded either way.
+            haskey(st.archived, it.url) || (upto = folded(upto, floor_of(it, st.sources)))
+            set_read_mark(it.url, upto, it.head; fold = true)
             woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
         else
             mark_unread([it.url])
         end
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
-            set_read_mark(it.url, prev, prevhead)
+            # Raw, and with `fold`: a folded mark is no stamp and a head, and
+            # that is what goes back, not the head dropped with the stamp.
+            set_read_mark(it.url, prev, prevhead; fold = true)
             # The clock goes back after the snooze: `set_fields` stamps it.
             woke && (set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast]);
                      set_touched(it.url, prevtouch))
