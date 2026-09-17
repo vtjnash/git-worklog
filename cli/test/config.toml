@@ -1,0 +1,13 @@
+# The suite's `data/config.toml`. What a test asserts about the browser is a
+# fact about the program, not about which repositories somebody pins or polls,
+# so the per-user layer under the suite is this file and not the developer's.
+# The shared layer is still the real `config.toml`: its defaults are the
+# program's, and are what a test should see.
+login = "vtjnash"
+[filters]
+pinned_repos = []
+[events]
+# The lists the backlog tests name their sources from; what was in the shared
+# file when it was the only one.
+repos = ["JuliaLang/julia", "libuv/libuv", "JuliaCI/julia-buildkite",
+         "JuliaLang/Distributed.jl", "vtjnash/*", "libuv/*"]

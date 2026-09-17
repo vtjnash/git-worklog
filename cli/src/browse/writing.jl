@@ -548,8 +548,8 @@ remembers, and the next view added would have nowhere to go. `ChooseView`
 narrows by typing, so a name is enough to reach one however many there are.
 
 The last entry is the way *out* of the list of names - the current filter,
-written as the TOML that would name it, for pasting into `config.toml`. The
-browser does not write that file.
+written as the TOML that would name it, for pasting into `data/config.toml`.
+The browser does not write that file.
 """
 function view_action(st::BState, ctrl::Controller)
     vs = try
@@ -569,7 +569,7 @@ function view_action(st::BState, ctrl::Controller)
             if v === :save
                 push_view!(ctrl, PromptView(
                     "Name this view",
-                    "prints the TOML to paste into config.toml - this program " *
+                    "prints the TOML to paste into data/config.toml - this program " *
                     "does not write that file",
                     n -> begin
                         # Copied rather than printed: it is several lines of
@@ -579,7 +579,7 @@ function view_action(st::BState, ctrl::Controller)
                         t = view_toml(st.filters, st.sort, n)
                         clip(t)
                         st.status = string("copied [views.", repr(n),
-                                           "] \u00b7 paste it into config.toml")
+                                           "] \u00b7 paste it into data/config.toml")
                     end))
             else
                 msg = apply_view!(st, v)

@@ -1244,8 +1244,8 @@ refresh_report(args::Vector{String} = String[], at::Union{Nothing,DateTime} = no
 function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
                   search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
                   open_list = open_list)
-    cfgtext = read(joinpath(ROOT, "config.toml"), String)
-    cfg = TOML.parse(cfgtext)
+    cfg = config()
+    cfgtext = config_text()
     login = cfg["login"]
     # When a row was fetched, as GitHub's time: `at` plus how long this
     # machine has been running since it asked for `at` - `t0` taken after

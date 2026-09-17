@@ -55,6 +55,10 @@ const REAL_FETCHED = W.fetchedfile()
 let d = mktempdir()
     cp(joinpath(@__DIR__, "fixture.json"), joinpath(d, "fetched.json"))
     W.FETCHED[] = joinpath(d, "fetched.json")
+    # And the per-user half of the config, which used to be the developer's
+    # own: `mkstate` cleared the pinned repos by hand to undo that.
+    cp(joinpath(@__DIR__, "config.toml"), joinpath(d, "config.toml"))
+    W.USER_CONFIG[] = joinpath(d, "config.toml")
     W.LOCAL[] = joinpath(d, "local.toml")
     W.VIEWFILE[] = joinpath(d, "view.toml")
     write(W.LOCAL[], "")
@@ -87,7 +91,6 @@ fresh_local() = (p = joinpath(mktempdir(), "local.toml"); write(p, ""); p)
 items = W.loaditems()
 mkstate() = begin
     st = W.BState(items, "worklog")
-    st.pinned = String[]            # what `config.toml` pins is its own business
     st.nodes = [W.Node("alice  2026-08-01   first", "A paragraph long enough that it has to be wrapped across several rows of the detail pane, which is exactly the case a copy must undo.\n\nsecond para", :md, true),
                 W.Node("bob  2026-08-02   second", "short", :md, true)]
     st.loaded = string(st.items[st.sel].url, ":", st.mode)   # suppress the fetch
@@ -115,6 +118,7 @@ end
 # One file per thing being tested, mirroring `src/browse/`. The order is not
 # cosmetic: several of these leave a file, a session or a filter behind that
 # the next one reads.
+include("suite/config.jl")
 include("suite/theme.jl")
 include("suite/input.jl")
 include("suite/composer.jl")

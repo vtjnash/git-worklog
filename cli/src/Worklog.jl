@@ -34,13 +34,14 @@ own - see `datadir()`.
 
   | file          | owner   | lifetime                          |
   |---------------|---------|-----------------------------------|
-  | `config.toml`      | you     | edited by hand, only ever read    |
+  | `config.toml`      | you     | the shared defaults; edited by hand, only ever read |
+  | `data/config.toml` | you     | your login, theme and repos, on top of them; seeded once from `config.user.toml`, then only ever read |
   | `data/local.toml`  | both    | edited key-by-key, never rewritten, tracked |
   | `data/fetched.json`| machine | everything GitHub can answer again, ignored |
 
-Two files and one line between them: what can be got again from GitHub, and
-what cannot. The second is what you decided about each item and what you have
-done to it - it is worth a history, and it is small enough to read one.
+Two data files and one line between them: what can be got again from GitHub,
+and what cannot. The second is what you decided about each item and what you
+have done to it - it is worth a history, and it is small enough to read one.
 """
 module Worklog
 
@@ -72,7 +73,8 @@ into this one they buried the diffs that matter in the diffs that do not, and
 dirtied the tree on every refresh.
 
 `config.toml` stays beside the code. It is configuration, hand-written, and
-versioned with the program that reads it.
+versioned with the program that reads it - and it names nobody, so it can be.
+What names you is `data/config.toml`, read on top of it; see `config()`.
 
 Resolved lazily and not at precompile time, so `WORKLOG_DATA` can point a test
 somewhere disposable without the answer having been baked into the image.

@@ -631,7 +631,7 @@ would think to search for by name.
 """
 const AXIS_APPLIED_ONLY = (:repo, :label, :author)
 
-"""`[filters] pinned_repos` from `config.toml`: the repos listed on the pane
+"""`[filters] pinned_repos` from the config: the repos listed on the pane
 whether or not they are applied, as written there - a name or `owner/*`."""
 pinned_filter_repos(cfg = config()) =
     String[String(r) for r in get(get(cfg, "filters", Dict{String,Any}()),
@@ -678,7 +678,7 @@ axis_label(axis::Symbol, v::AbstractString) =
     v == AUTHOR_ME ? string("me (", login(), ")") :
     v == AUTHOR_OTHERS ? "anyone else" : String(v)
 
-"""The views `\'` offers, from `config.toml`, in the order they were written.
+"""The views `\'` offers, from the config, in the order they were written.
 
 A view is a whole filter set under a name. The pane composes state × kind × repo
 × label × author, which is enough to ask almost anything and far too much to
@@ -688,7 +688,7 @@ The defaults are deliberately composites. A single tag is already one `f`
 away and needs no name; what needs one is the pair of axes nobody assembles
 twice.
 
-Read and never written: `config.toml` is the user's file, and `wl watching`
+Read and never written: `data/config.toml` is the user's file, and `wl watching`
 already established what this program does when it wants to suggest a line for
 it - it prints one to paste.
 """
@@ -731,7 +731,7 @@ const VIEWS = [
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
 const VIEW_KEYS = ("show", "tag", "kind", "lane", "repo", "label", "author", "sort")
 
-"Every view: the built-in ones, then whatever `config.toml` adds or replaces."
+"Every view: the built-in ones, then whatever `[views]` in the config adds or replaces."
 function views(cfg = config())
     out = Tuple{String,Any}[(n, d) for (n, d) in VIEWS]
     for (name, d) in get(cfg, "views", Dict{String,Any}())
@@ -805,7 +805,7 @@ end
 
 """The current filter written as the TOML line that would name it.
 
-The browser does not write `config.toml`; this is the paste-able form, which is
+The browser does not write `data/config.toml`; this is the paste-able form, which is
 the same answer `wl watching` gives for the repos you watch. A filter you got to
 by hand is the one worth keeping, and it is also the one you cannot reconstruct
 from memory an hour later.

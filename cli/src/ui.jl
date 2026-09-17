@@ -273,7 +273,7 @@ function fetched_items()
     its === nothing ? nothing : loaditems(its)
 end
 
-"""The GitHub login from `config.toml`, read once.
+"""The GitHub login from `data/config.toml`, read once.
 
 Kept here rather than threaded down: the guard on adoption runs on a keystroke,
 inside a view that has no other reason to be handed the whole config.
@@ -281,7 +281,7 @@ inside a view that has no other reason to be handed the whole config.
 const LOGIN = Ref("")
 login() = isempty(LOGIN[]) ?
     (LOGIN[] = try
-        String(get(TOML.parse(read(joinpath(ROOT, "config.toml"), String)), "login", ""))
+        String(get(config(), "login", ""))
     catch
         ""
     end) : LOGIN[]

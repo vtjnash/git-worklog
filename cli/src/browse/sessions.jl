@@ -400,7 +400,7 @@ Both halves of `-ic` are load-bearing, and each was got wrong once:
   foreground process group, so `#{pane_current_command}` still says `claude`
   and not `bash`.
 
-`config.toml` overrides the lot, and is the honest answer for anything this
+`[agent] command` in `data/config.toml` overrides the lot, and is the honest answer for anything this
 cannot guess - a wrapper script, a different agent, flags. An alias is a
 convenience for a person typing, and asking one program to read another
 program's interactive configuration is a long way round.

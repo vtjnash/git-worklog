@@ -39,7 +39,9 @@ row carries a single word for what it is.
 
 - **Facts are fetched, wants are derived, judgement is written down** - in
   `data/local.toml`, which is edited key by key and **never rewritten**.
-  `config.toml` and `themes/` are never written at all.
+  `config.toml` and `themes/` are never written at all; `data/config.toml`
+  - yours, read on top of the shared `config.toml` - is written once, from
+  `config.user.toml`, by the first `wl` that finds none.
 - **Time is an argument, `at`, and it is when the operation started.** No
   global clock, no stored age, no offset.
 

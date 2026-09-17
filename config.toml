@@ -1,7 +1,21 @@
-# Work dashboard configuration.
-# Edited by you. The refresh only ever reads this file.
+# Work dashboard configuration - the shared half.
+#
+# Two files, read as one. This one is versioned with the program and names
+# nobody: every key, its default, and the comment that is its manual. The other
+# is `data/config.toml`, yours, written once from `config.user.toml` the first
+# time `wl` runs and never touched by the program again: your login, your
+# theme, the repositories you poll and pin, and any key here you want otherwise.
+#
+# The merge is two levels deep. A top-level value in your file replaces the one
+# here; a top-level table merges key by key; whatever sits under one of those
+# keys replaces whole. So `[thresholds] reply_days` overrides one number,
+# `[events] repos` in your file *is* the list and not additions to this one,
+# and a `[views."name"]` of the same name replaces the view.
 
-login = "vtjnash"
+# Your GitHub login. Set in `data/config.toml`; nothing runs without it. It is
+# how a row is read as yours or not - the lanes below do not need it, since
+# `@me` in a search is whoever holds the token.
+login = ""
 
 # Which file under `themes/` the colours are read from. One name, and it is the
 # only thing that turns colour on: an empty value, a missing key or a file that
@@ -66,17 +80,23 @@ second_look_days = 2
 # time, which is safe in any order, and the ascending order only saves the
 # re-read. These lanes have no cursor - the whole set, every run - so the
 # order that never moves is the right one.
-mine     = "is:open is:pr author:vtjnash archived:false sort:created-asc"
-review   = "is:open is:pr review-requested:vtjnash archived:false sort:created-asc"
-assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
+#
+# `@me` is GitHub's: the user the token belongs to, in `author:`, `assignee:`,
+# `review-requested:` and the rest. It is why these three can be shared as
+# they stand. A lane in `data/config.toml` under the same key replaces the one
+# here, and a new key there is a fourth lane, walked after these; the first
+# lane to claim a url keeps it.
+mine     = "is:open is:pr author:@me archived:false sort:created-asc"
+review   = "is:open is:pr review-requested:@me archived:false sort:created-asc"
+assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 
 # Named filter sets for `'` in the browser. Ten are built in - notification
 # firehose, my work, open items, waiting on me, waiting on them, ready to merge,
 # needs edits mine, unanswered, snoozed, everything - and a table here adds one,
 # or replaces a built-in of the same name. Every axis the view does not name is cleared when
 # it is applied, so a name always means the same list. `'` then the last entry
-# copies the TOML for whatever filter you are looking at, to paste in here; the
-# browser never writes this file.
+# copies the TOML for whatever filter you are looking at, to paste into
+# `data/config.toml`; the browser never writes that file.
 #
 # The axes: `show` (base, read, filed, done), `tag` (reply, review, edits,
 # ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
@@ -108,7 +128,8 @@ assigned = "is:open is:issue assignee:vtjnash archived:false sort:created-asc"
 # and in this order, at zero too - so each is in the same place every time,
 # one `↵` away. Every other repo is behind the picker row under them. A name,
 # or `owner/*` for every repo of that owner the dashboard has a row from.
-pinned_repos = ["JuliaLang/julia", "libuv/libuv", "vtjnash/*"]
+# Yours, in `data/config.toml`; none by default.
+pinned_repos = []
 
 [events]
 # Every comment and state change in these repos is logged locally, so the
@@ -142,14 +163,12 @@ pinned_repos = ["JuliaLang/julia", "libuv/libuv", "vtjnash/*"]
 # while it is unread; and a push, a label, a draft toggle or an unassignment on
 # a row outside every repo here, which notify nobody - so an open row of yours
 # that no lane returns and no repo here covers is asked by url every refresh.
-repos = [
-  "JuliaLang/julia",
-  "libuv/libuv",
-  "JuliaCI/julia-buildkite",
-  "JuliaLang/Distributed.jl",
-  "vtjnash/*",
-  "libuv/*",
-]
+#
+# Yours, in `data/config.toml` - the list there is the whole list. None by
+# default: with nothing here the dashboard is the three lanes and, when the
+# token allows, your notifications. `wl watching` prints the repositories you
+# watch on GitHub and have not listed, as lines to paste.
+repos = []
 # Whether a glob keeps the owner's forks. Keeping them is free: the sweep is the
 # same one search either way and spends no GraphQL points - those go on the
 # refresh lanes - while *skipping* them costs a repo listing per owner per day,
@@ -203,5 +222,5 @@ merge_minutes = 10
 # Leave it unset if your `claude` is a shell alias you want to stay in sync -
 # reading it is the whole point, and a copy here would be a second definition to
 # drift. Set it when the agent is not what your shell calls `claude` at all: a
-# different agent, a wrapper script, a command with flags.
+# different agent, a wrapper script, a command with flags. In `data/config.toml`:
 # command = "/opt/homebrew/bin/claude --continue"

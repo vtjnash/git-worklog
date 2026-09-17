@@ -25,14 +25,14 @@ newnodes() = [Node("import an item by url",
                    "`\u21b5` here, or `i` from anywhere, asks for a url.\n\n" *
                    "Everything else in this list arrived through a lane - your " *
                    "pull requests, review requests, mentions, the repos in " *
-                   "`config.toml`. An issue in a repo nobody watches that does " *
+                   "`data/config.toml`. An issue in a repo nobody watches that does " *
                    "not mention you matches none of them, and a url is not a " *
                    "query, so this is the way in.\n\n" *
                    "It is followed from then until you archive it, with notes, " *
                    "snoozes, the clock and the tags all working on it as they " *
                    "do on anything else. The one thing it cannot have is the " *
                    "events poller, which only watches the repos named in " *
-                   "`config.toml` - so new activity on an imported item will " *
+                   "`data/config.toml` - so new activity on an imported item will " *
                    "still reach you by email.",
                    :md, true)]
 
@@ -52,7 +52,7 @@ function import_action(st::BState, ctrl::Controller, at::DateTime)
         "Import an item",
         "paste the url of an issue or pull request, in any repo. It is followed " *
         "from now until you archive it - but not by the events poller, which " *
-        "only watches the repos in config.toml, so new activity on it will " *
+        "only watches the repos in data/config.toml, so new activity on it will " *
         "still reach you by email.",
         u -> (st.status = import_url!(st, u, at))))
 end

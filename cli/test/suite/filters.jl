@@ -873,7 +873,7 @@ end
     pv = last(ctrl.stack)
     @test pv isa W.PromptView
     pv.onsubmit("mine, quiet")
-    @test occursin("paste it into config.toml", st.status)
+    @test occursin("paste it into data/config.toml", st.status)
     pop!(ctrl.stack)
     toml = W.view_toml(st.filters, st.sort, "issues, all of them")
     parsed = W.TOML.parse(toml)["views"]["issues, all of them"]

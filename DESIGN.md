@@ -22,7 +22,8 @@ somebody asked on it was never seen. Facts do not compete.
 
 | file | owner | rule |
 |---|---|---|
-| `config.toml`, `themes/*.toml` | you | read, never written |
+| `config.toml`, `themes/*.toml` | you | read, never written. The shared half of the config: every key with its default, naming nobody - the lanes say `@me` |
+| `data/config.toml` | you | your half, read on top of the shared one: login, theme, the repos you poll and pin. Written **once**, from `config.user.toml`, by the first `wl` that finds none (`seed_config!`), with `login` filled from `gh`; never again. The merge is two levels: a table merges key by key, anything under a key replaces whole. Tracked, in `data/`'s own repository |
 | `data/local.toml` | you and the program | **never rewritten.** Every write goes through a line-based editor (`state.jl`) that changes the keys it names inside the block it names and leaves every other line byte-identical. Tracked, in `data/`'s own repository |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Must stay safe to delete: nothing that cannot be rebuilt from GitHub goes in it |
 | `data/cache/` | the browser | per-item reads with a TTL |
@@ -780,6 +781,14 @@ Each of the following returns success and the wrong answer:
 - **The mouse is owned**, `m` gives it back.
 - **`Term.jl/` beside this checkout is ignored, not a submodule**; Term comes
   from the registry.
+- **The config merges two levels deep, and the login is `@me`.** A deeper
+  merge would make `[events] repos` in your file additions to a shared list
+  with no way to take one out, and a `[views."name"]` of the same name a
+  merge of axes rather than the view - so a table key by key, and whatever is
+  under a key whole. The lanes were going to template `{login}`; GitHub's own
+  `@me` is the same thing with no code, and it is what the shared file says.
+  The seed is a copy of the template and not `TOML.print`, because the
+  comments are the manual for the keys and a serialization drops them.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
   in the user's rc; the agent in a `T` pane and the editor in a `v` pane

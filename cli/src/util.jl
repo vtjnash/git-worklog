@@ -276,7 +276,9 @@ function table_key_order(text::AbstractString, table::AbstractString)
         m === nothing && continue
         push!(out, String(strip(m.captures[1], '"')))
     end
-    out
+    # Once each: `config_text` is two files end to end, and a lane both name
+    # sits where the first one put it.
+    unique!(out)
 end
 
 "Iterate a parsed TOML table in the order its keys appear in the file."
@@ -285,6 +287,97 @@ function ordered(tbl::AbstractDict, text::AbstractString, table::AbstractString)
     ks = [k for k in order if haskey(tbl, k)]
     append!(ks, sort([k for k in keys(tbl) if !(k in ks)]))
     [k => tbl[k] for k in ks]
+end
+
+# --- the configuration, in two layers ----------------------------------------
+#
+# `config.toml` beside the code is what is shared: every key, with its default
+# and the comment that is its manual. `data/config.toml` is what is yours -
+# your login, your theme, the repositories you poll and pin - and is read on
+# top of it. Until 2026-09-17 there was one file, committed with one person's
+# login in it, so a second user edited a shared file and every pull was a
+# merge of their name against the first's. Now the shared file names nobody:
+# the lanes say `@me`, which GitHub reads as whoever holds the token.
+#
+# The merge is two levels deep and no more. A top-level scalar or array in
+# your file replaces the shared one; a top-level table merges key by key; and
+# whatever sits under one of those keys replaces whole. One rule, and it is
+# the one each key wants: `[thresholds] reply_days` overrides one number,
+# `[events] repos` is *your* list and not additions to a shared one, and a
+# `[views."name"]` of the same name replaces the view rather than merging its
+# axes - which is what `views` already promised.
+
+"Overridable for the same reason `LOCAL` is. Empty means `data/config.toml`."
+const USER_CONFIG = Ref("")
+userconfig() = isempty(USER_CONFIG[]) ? datapath("config.toml") : USER_CONFIG[]
+
+"The shared file, and the template your file is copied from the first time."
+commonconfig() = joinpath(ROOT, "config.toml")
+configtemplate() = joinpath(ROOT, "config.user.toml")
+
+"""
+    config() -> Dict
+
+Both layers, merged - see above. Parsed on every call and never cached: the
+browser reads `[views]` when `'` opens, so a view pasted into your file is
+there the next time it is pressed, without a restart. `login()` is the one
+cache, and it is over one string.
+"""
+function config()
+    common = TOML.parse(read(commonconfig(), String))
+    f = userconfig()
+    isfile(f) || return common
+    merge_config(common, TOML.parse(read(f, String)))
+end
+
+"""The two files end to end, for `ordered`: the order of `[lanes]` is the
+shared file's, and a lane only your file names comes after them."""
+function config_text()
+    t = read(commonconfig(), String)
+    f = userconfig()
+    isfile(f) ? string(t, "\n", read(f, String)) : t
+end
+
+"Two levels: a table merges key by key, anything else replaces."
+function merge_config(common::AbstractDict, user::AbstractDict)
+    out = Dict{String,Any}(common)
+    for (k, v) in user
+        c = get(out, k, nothing)
+        out[k] = v isa AbstractDict && c isa AbstractDict ? merge(Dict{String,Any}(c), v) : v
+    end
+    out
+end
+
+"""
+    seed_config!(; io = stderr, whoami = gh_login) -> Bool
+
+Write your file from the template, the first time there is none, and say so.
+Answers whether it did.
+
+A copy and not a `TOML.print`: the template's comments are the manual for its
+keys, and a serialization would drop them. The one edit is `login`, filled
+from `gh api user` when it answers - the same `gh` the lanes go through - and
+left `""` otherwise, which `dispatch` refuses to run with, naming the file.
+Nothing else here is ever written by the program again.
+"""
+function seed_config!(; io::IO = stderr, whoami = gh_login)
+    f = userconfig()
+    isfile(f) && return false
+    text = read(configtemplate(), String)
+    who = whoami()
+    isempty(who) || (text = replace(text, r"^login = \"\"$"m => "login = \"$who\""; count = 1))
+    mkpath(dirname(f))
+    write(f, text)
+    println(io, "worklog: wrote ", f, isempty(who) ? " - set `login` in it" : " for $who",
+            "; the repositories to poll and pin are yours to edit there")
+    true
+end
+
+"Whose token `gh` holds, or `\"\"`."
+gh_login() = try
+    String(strip(read(`gh api user --jq .login`, String)))
+catch
+    ""
 end
 
 # Records reach the renderer from two places with two key types: freshly

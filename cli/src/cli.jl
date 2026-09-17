@@ -37,8 +37,6 @@ batch is one process rather than a loop of them:
   wl unread julia#62841 | wl import -
 """
 
-config() = TOML.parse(read(joinpath(ROOT, "config.toml"), String))
-
 """Lines of stdin, blanks and `#` comments dropped, first word of each.
 
 The raw half of `refs`: a url needs no resolving, and requiring one to be in
@@ -138,9 +136,13 @@ function import_urls(urls::Vector{String}, at::DateTime)
 end
 
 function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.poll)
-    (isempty(args) || args == ["--refresh"]) && return ui(args, at)
-    cmd = args[1]
+    cmd = isempty(args) ? "" : args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
+    # Everything below reads rows as yours or not by this name; with none,
+    # every one of them would be wrong quietly.
+    isempty(String(get(config(), "login", ""))) &&
+        die("no `login` in $(userconfig()): set it to your GitHub login")
+    (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     if cmd == "refresh"
         # The word that the notifications are fine: stop waiting on the ones
         # the poll expected, and ask narrowly again. See `Events.expect!`.
@@ -197,7 +199,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
                 length(subs), length(subs) - length(untracked), length(untracked))
         isempty(untracked) ||
             println(stderr, "The uncommented lines go inside [events].repos ",
-                    "in config.toml. `wl watching | grep -v '^#'` is just them.")
+                    "in data/config.toml. `wl watching | grep -v '^#'` is just them.")
         return 0
     end
     if cmd == "repos"
@@ -407,6 +409,10 @@ end
 
 function main(args = String[])
     name_process!(args)
+    # The first `wl`: your file, from the template. The colours were loaded
+    # at `__init__` off the shared file alone, and the file just written
+    # names a theme of its own.
+    seed_config!() && (empty!(THEME_NOTES); append!(THEME_NOTES, load_theme!()))
     # A command's channel is stderr; the browser's is its footer, and it says
     # these there (`standing_note`).
     (isempty(args) || args == ["--refresh"]) ||

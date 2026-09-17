@@ -55,7 +55,7 @@ so your own `tmux ls` sees them. No tmux on Windows.
 ```bash
 git clone --recurse-submodules https://github.com/vtjnash/git-worklog
 cd git-worklog
-cli/bin/wl refresh            # ~25s, 16 rate-limit points
+cli/bin/wl refresh            # writes data/config.toml the first time; ~25s, 16 points
 cli/bin/wl refresh --backlog  # once: the open lists of the polled repos, read
 cli/bin/wl                    # the browser
 ```
@@ -110,7 +110,7 @@ GitHub.**
 **Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - open,
 read ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
 to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
-your own in `config.toml`; the last entry under `'` copies the current filter
+your own in `data/config.toml`; the last entry under `'` copies the current filter
 as the TOML that would name it.
 
 **The filter pane** (`f`): `show` is four boxes that each *add* rows - `unread,
@@ -118,7 +118,7 @@ open` · `read` · `filed away` · `closed or merged` - so the number by each is
 what checking it would bring in. The first and last are on when nothing has
 been asked. The other axes narrow: tag, kind, lane, repo, label, author.
 The repo, label and author axes list what is applied and put the rest
-behind a picker row; `[filters] pinned_repos` in `config.toml` names repos
+behind a picker row; `[filters] pinned_repos` in `data/config.toml` names repos
 listed first regardless, a name or `owner/*`.
 
 **Reviewing**: drag over a diff (or `⇧j`/`⇧k`), then `C` comments on that
@@ -214,15 +214,25 @@ review request being withdrawn.
 
 ## Configuration
 
-`config.toml`, beside the code, hand-edited and never written by the program:
+Two files, read as one. `config.toml` beside the code is the shared half,
+versioned with the program: every key, its default and the comment that is
+its manual, naming nobody. `data/config.toml` is yours - written once from
+`config.user.toml` the first time `wl` runs, with `login` filled from `gh`,
+and never written by the program again. A key set there replaces the shared
+one: a table key by key, anything under a table key whole - so `[events]
+repos` in your file is the list, and a `[views."name"]` of the same name is
+the view. Hand-edited, both, and only ever read.
 
-- `login`, and `theme` - a file under `themes/`. Empty draws everything plain,
-  with no escape sequences at all.
-- `[lanes]` - the three searches for the open work. `sort:created-asc` on each
-  is load-bearing (see DESIGN.md).
-- `[events] repos` - repositories polled for every change, as `owner/name` or
-  `owner/*`. Their open lists become the backlog. `wl watching` prints the ones
-  you watch on GitHub but have not listed.
+- `login` (yours; nothing runs without it), and `theme` - a file under
+  `themes/`. Empty draws everything plain, with no escape sequences at all.
+- `[lanes]` - the three searches for the open work, as `@me`, which GitHub
+  reads as whoever holds the token. `sort:created-asc` on each is load-bearing
+  (see DESIGN.md). A lane of the same key in your file replaces it; a new key
+  is a fourth lane, walked after them.
+- `[events] repos` (yours) - repositories polled for every change, as
+  `owner/name` or `owner/*`. Their open lists become the backlog. `wl watching`
+  prints the ones you watch on GitHub but have not listed.
+- `[filters] pinned_repos` (yours) - repos at the top of the filter pane.
 - `[thresholds]` - `reply_days` (required) and `second_look_days` (working
   days, default 2).
 - `[views]` - named filters for `'`.
@@ -239,7 +249,8 @@ to the 256-colour cube.
 
 | | owner | |
 |---|---|---|
-| `config.toml`, `themes/` | you | hand-edited |
+| `config.toml`, `config.user.toml`, `themes/` | you | hand-edited; the shared half, the template for yours, the colours |
+| `data/config.toml` | you | your half: login, theme, the repos you poll and pin. Seeded from the template on the first launch and never written again. Tracked |
 | `data/local.toml` | you and the program | one block per item: your note, snooze, deadline, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |

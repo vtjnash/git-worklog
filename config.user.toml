@@ -1,0 +1,38 @@
+# Work dashboard configuration - your half.
+#
+# This is the template for `data/config.toml`: `wl` copies it there the first
+# time it runs, fills in `login` from `gh`, and never writes it again. `data/`
+# is a repository of its own, so the copy has a history beside your notes.
+# Everything here is read on top of `config.toml` beside the code, which holds
+# every key with its default and the comment that explains it. A key not here
+# means the shared default; any key from there set here replaces it - a table
+# key by key, an array or a value whole.
+
+# Your GitHub login: how a row is read as yours or not. Nothing runs without it.
+login = ""
+
+# A file under `themes/`, or `""` for no colour at all. `default-ansi.toml` is
+# the terminal's own sixteen colours; the two `github-*-256` files are GitHub's
+# palette pinned to the 256-colour cube.
+theme = "github-light-256.toml"
+
+[filters]
+# Repos at the top of the filter pane (`f`) whether or not they are applied, in
+# this order - one `↵` away, in the same place every time. A name, or `owner/*`.
+pinned_repos = []
+
+[events]
+# Every change in these repositories is polled for, so their email
+# notifications can be turned off; their open lists become the backlog. A
+# repo as `owner/name`, polled exactly, or `owner/*` for everything that owner
+# has, swept with a search. This list is the whole list. `wl watching` prints
+# the repositories you watch on GitHub and have not listed, as lines to paste.
+repos = []
+
+# [agent]
+# What `T` runs in a pane, when it is not what your shell calls `claude`.
+# command = "/opt/homebrew/bin/claude --continue"
+
+# [lanes] and [views] are shared in `config.toml`; a table of the same name
+# here adds a lane or a view, or replaces one of the same key. `'` then the
+# last entry in the browser copies the current filter as a view to paste here.
