@@ -144,18 +144,34 @@ Sorting is orthogonal to all three filter axes - any order makes sense over any
 selection - so it does not belong inside `Filters`, where it would multiply the
 axes instead of sitting beside them. `w` cycles it.
 
-`:latest` is the default, and the order every other inbox opens in: what moved
-most recently is at the top.
+Four orders, and each is the one of the three views it was made for; see
+`lane_sort` for which selection implies which.
 
-`:none` is the url order, descending: owner, then project, then number. That is
-what `facts.json` is written in - it is sorted by key, and the key is the url -
-so it keeps the grouping the file has, everything from one repo together, and
-reads from the newest of each rather than from two thousand rows ago. The number
-is taken as a number and not as the digits it is spelled with; see `urlkey`.
+`:moved` is GitHub's clock alone - the head commit, else the last comment, else
+`updated` - and the firehose's order: what happened most recently is at the
+top, whoever did it. It is the default, and the order the browser opens in.
+
+`:latest` is the later of that and your own last interaction, which is the
+order your work reads in: something you answered this morning belongs above
+something that moved yesterday, and the reverse too. `:touched` is your clock
+alone, with GitHub's standing in where it is empty - what you last dealt with,
+which is what the `touched` selection is asking.
+
+`:name` is the url order, descending: owner, then project, then number - the
+backlog's order. That is what `facts.json` is written in - it is sorted by key,
+and the key is the url - so it keeps the grouping the file has, everything from
+one repo together, and reads from the newest of each rather than from two
+thousand rows ago. The number is taken as a number and not as the digits it is
+spelled with; see `urlkey`.
+
+The two that read the interaction clock tie over a batch of imports, which one
+`at` stamped together; a tie on any clock falls through to the url order, so a
+batch reads the way the backlog does rather than the way the sort left it.
 """
-const SORTS = [(:none, "by url, newest first"),
+const SORTS = [(:moved, "by when it moved"),
+               (:latest, "by when anything last happened"),
                (:touched, "by when you last acted"),
-               (:latest, "by when anything last happened")]
+               (:name, "by url, newest first")]
 
 """Issue, pull request, or both - the third radio group.
 
@@ -168,15 +184,28 @@ const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
 
 """The order a selection opens in, where it implies one.
 
+Each order is the one of the three views it was made for, and the rule reads
+the axis that makes the view what it is - so the order follows a selection
+made by hand as well as the view, and a view names `sort` only to say
+something this table would not.
+
 `touched` alone *is* the interaction clock - membership in it is having acted on
 something - so the clock is the order it means, and arriving in it sorted by
 anything else asks the reader to press `w` to see the thing they came for.
 
-Everything else is newest-first, which is the order an inbox has and the answer
-use gave to the question this table used to leave open. It is still where a
-selection that wants a different one says so.
+Your own work is the author axis naming you, and it reads by the later of the
+two clocks: what you did to it counts for as much as what happened to it.
+
+The backlog is the open list with the read ones beside it and nothing else -
+`show` exactly `base` and `read`, no tag - and it is a standing list rather
+than news, so it reads in the order the file is written in, by url.
+
+Everything else is what moved, newest first, which is the order an inbox has
+and the answer use gave to the question this table used to leave open.
 """
-lane_sort(f) = f.tags == Set([:touched]) ? :touched : :latest
+lane_sort(f) = f.tags == Set([:touched]) ? :touched :
+               AUTHOR_ME in f.authors ? :latest :
+               f.show == Set([:base, :read]) && isempty(f.tags) ? :name : :moved
 
 # Whose it is, as two values of the author axis that are not logins.
 #
@@ -424,25 +453,30 @@ show_ok(show::Set{Symbol}, sn::Symbol, fd::Bool, ov::Symbol) =
 shown(f::Filters, it::Item, m::Marks = Marks()) =
     show_ok(f.show, seen_of(it, m), filed_of(it, m), over_of(it))
 
-"""The timestamp a sorted list is ordered by, under one of two readings of when.
+"""The timestamp a sorted list is ordered by, under one of three readings of
+when.
 
-`:touched` is your own last interaction if there is one and the remote time only
-otherwise: it answers *when did I last deal with this*. `:latest` is the later
-of the two, which answers *when did anything happen to this* - the order
-notification mail would have arrived in, with your own work folded into it.
+`:moved` is GitHub's clock, `act`, and nothing of yours: *when did this last
+happen*. `:touched` is your own last interaction if there is one and the remote
+time only otherwise: *when did I last deal with this*. `:latest` is the later of
+the two, *when did anything happen to this* - the order notification mail would
+have arrived in, with your own work folded into it.
 
 They differ exactly where both exist. An item you touched in March that somebody
-commented on this morning sorts to March under the first and to this morning
-under the second. Neither is righter than the other - a to-do list wants the
-first and an inbox wants the second, and the same key gives both rather than
-choosing on the user's behalf.
+commented on this morning sorts to March under `:touched` and to this morning
+under the other two; one you answered this morning that last moved in March
+sorts to March under `:moved` and to this morning under the other two. None is
+righter than another - a to-do list wants the first, a firehose the second, and
+your own work the third - and the same key gives all three rather than choosing
+on the user's behalf.
 
-One key rather than two groups, under either reading. A branch nothing has been
+One key rather than two groups, under any reading. A branch nothing has been
 done to but that was committed to this morning belongs above a pull request last
 touched in March, and splitting the list into touched-then-untouched would bury
 it.
 """
 function sortkey(it::Item, touched::Dict{String,String}, order::Symbol = :touched)
+    order === :moved && return it.act
     t = get(touched, it.url, "")
     order === :latest && return max(t, it.act)
     isempty(t) ? it.act : t
@@ -478,15 +512,18 @@ function urlkey(it::Item)
      it.number, it.url)
 end
 
-"""Newest first, and stable - so an untimed item keeps the order it was fetched
-in.
+"""Newest first, with the url order under every clock.
 
-All three orders are newest-first; they differ in what "newest" is. `:none` is
-the url, which is the order `facts.json` is written in - by owner, project and
-number - read from the top instead of from two thousand rows ago."""
+All four orders are newest-first; they differ in what "newest" is. `:name` is
+the url alone, which is the order `facts.json` is written in - by owner, project
+and number - read from the top instead of from two thousand rows ago. The other
+three are a timestamp, and a tie on it - a batch of imports, stamped together
+with the one `at` the import ran under; a run of untimed rows - is broken by
+the url the same way, so two items that agree on when read in a known order
+rather than in whichever one the sort happened to leave them."""
 sortitems(items, mode::Symbol, touched::Dict{String,String}) =
-    mode === :none ? sort(items; by = urlkey, rev = true) :
-    sort(items; by = it -> sortkey(it, touched, mode), rev = true)
+    mode === :name ? sort(items; by = urlkey, rev = true) :
+    sort(items; by = it -> (sortkey(it, touched, mode), urlkey(it)), rev = true)
 
 "Issue or pull request, with `:both` restricting nothing."
 kind_ok(kind::Symbol, it::Item) = kind === :both || (kind === :pr) == it.is_pr
@@ -696,7 +733,10 @@ const VIEWS = [
     # The way back to where the browser opens, and the first row for the same
     # reason the import row leads the item list: a control nobody can find is a
     # control nobody uses. It names no axis at all, because the list it goes to
-    # is what is left when every axis is off.
+    # is what is left when every axis is off - and no `sort`, because each of
+    # these three is what one of the orders was made for and `lane_sort` reads
+    # it off the selection: this one by when it moved, the next by the later
+    # of that and when you acted, the backlog by url.
     ("notification firehose — unread, open or closed", Dict{String,Any}()),
     # The two modes that are left. Which work is yours is the author axis; what
     # has moved is the base. One axis per question, and neither of them a lane.
@@ -795,10 +835,18 @@ function apply_view!(st, d)
     st.filters = f
     # Cleared like every other axis when the view names none, and for the same
     # reason: a name has to mean the same list from wherever it is pressed, and
-    # an order left over from the list you were in is not that. It also makes
-    # the url order nameable, which nothing else could say - a view that names
-    # `sort = "none"` gets it even where the selection would have implied one.
-    st.sort = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f)
+    # an order left over from the list you were in is not that. Naming one
+    # overrides what the selection implies - `sort = "name"` on a selection
+    # that would open by a clock. And an order that is not one of the four is
+    # said, like a value on any other axis: `none` was the url order's name,
+    # and a view still spelling it would otherwise sort by a symbol nothing
+    # reads and cycle `w` from nowhere.
+    order = haskey(d, "sort") ? Symbol(d["sort"]) : lane_sort(f)
+    if !any(x -> x[1] === order, SORTS)
+        bad = string(bad, " \u00b7 no sort '", d["sort"], "'")
+        order = lane_sort(f)
+    end
+    st.sort = order
     refilter!(st; keeprow = false)
     string("[", filter_summary(f, st.sort), "]", bad)
 end
@@ -835,7 +883,9 @@ function view_lines(f::Filters, order::Symbol)
         push!(lines, string(k, " = [",
                             join([repr(x) for x in sort(collect(set))], ", "), "]"))
     end
-    order === :none || push!(lines, string("sort = ", repr(String(order))))
+    # Like `show`: written unless it is what a view naming no `sort` would
+    # get anyway, which is the selection's own order and not any fixed one.
+    order === lane_sort(f) || push!(lines, string("sort = ", repr(String(order))))
     lines
 end
 
@@ -1099,7 +1149,8 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     # Not `sort`: that is the name of the function two lines down, and shadowing
     # it turned `sort(collect(f.lanes))` into a call on a Symbol.
     order === lane_sort(f) ||
-        push!(parts, order === :latest ? "by when it moved" :
+        push!(parts, order === :moved ? "by when it moved" :
+                     order === :latest ? "by when anything happened" :
                      order === :touched ? "by when you acted" : "by url")
     isempty(f.authors) ||
         push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))

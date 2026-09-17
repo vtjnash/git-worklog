@@ -103,7 +103,11 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
 # saw, `notifications` for one GitHub notified you of, and `local` for an
-# adopted branch.
+# adopted branch. `sort` is one of `moved`, `latest`, `touched`, `name` - by
+# when it moved, by the later of that and when you acted, by when you acted,
+# by url - and a view that names none opens in the order its selection
+# implies: the three built-in views each open in the order made for them,
+# and `w` cycles from there.
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the

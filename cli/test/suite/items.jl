@@ -504,6 +504,10 @@ end
         # and the quiet read below would reach for the network.
         st.bundletried = it.url
         W.cache_put(W.Events.meta_key(it.url), Dict("x" => 1))
+        # And the checks, which are the other half a pull request's metadata
+        # is old by; which row is first depends on the order the list opens
+        # in, and this is not a test of that.
+        it.is_pr && W.cache_put(W.checks_key(it.repo, it.number), Dict("x" => 1))
         meta = (pending = "", reviews = [], requested = String[], teams = String[],
                 assignees = String[])
         fin(t) = (wait(t); t)

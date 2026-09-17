@@ -100,7 +100,7 @@ GitHub.**
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
-| `w` | cycle the order: last activity · url · your interaction clock |
+| `w` | cycle the order: when it moved · that or when you acted · when you acted · url. Each view opens in the one made for it: the firehose by when it moved, my work by the later of the two clocks, the backlog by url |
 | `i` | import an item by url; lands unread |
 | `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
 | `t` `T` `"` | a shell · an agent on the item's worktree · the worktree list |

@@ -347,7 +347,10 @@ ignored: a misspelt one silently widens a view, and did.
 **Newest first is policy, not a default.** Serving the second-look list
 newest-first answers new work while the author still has the change in their
 head, and an old row is at the bottom rather than in the way. Oldest-first is
-uniform slowness. No fourth sort; `w` cycles three.
+uniform slowness. `w` cycles four orders, each the one of the three views it
+was made for - by when it moved for the firehose, by the later of that and
+when you acted for your work, by url for the backlog, and by when you acted
+for the `touched` selection - and `lane_sort` reads which off the selection.
 
 **A place replaces a place; a dialog stacks on one.** `isdialog` is the
 distinction and `push_place!` enforces it. Going somewhere means leaving where
@@ -780,7 +783,7 @@ Each of the following returns success and the wrong answer:
   dismissal, one item at a time, recorded, undoable.
 - **No bucket**, and no `wl next`: the tags it handed out were the marks the
   browser writes one row at a time, where the row can be read first.
-- **Newest first**, no fourth sort, no ceiling on the second look.
+- **Newest first**, no fifth sort, no ceiling on the second look.
 - **Read by construction is a fact about the source**, one line per
   source, not a stamp per row - in every lane, and raised together by
   `wl read --consolidate`, never per source and never lowered.

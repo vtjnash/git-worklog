@@ -791,23 +791,44 @@ end
     @test st.filters.show == Set([:read])
 
     # The sort is an axis like the rest: a view that names one sets it, and a
-    # view that names none puts it back to the order its lane opens in - newest
-    # first, unless the lane defines its own. A name has to mean the same list
-    # from wherever it is pressed, and an order carried over from the list you
-    # were in is not that.
-    W.apply_view!(st, Dict("sort" => "none"))
-    @test st.sort === :none
+    # view that names none puts it back to the order its selection opens in -
+    # by when it moved, unless the selection is one of the three that define
+    # their own. A name has to mean the same list from wherever it is pressed,
+    # and an order carried over from the list you were in is not that.
+    W.apply_view!(st, Dict("sort" => "name"))
+    @test st.sort === :name
     W.apply_view!(st, Dict("show" => ["read"]))
-    @test st.sort === :latest
+    @test st.sort === :moved
     W.apply_view!(st, Dict("tag" => ["touched"]))
     @test st.sort === :touched          # the selection that *is* the clock
+    # Your own work reads by the later of the two clocks, and the backlog - the
+    # open list with the read ones beside it, and nothing else - by url.
+    W.apply_view!(st, Dict("author" => [W.AUTHOR_ME]))
+    @test st.sort === :latest
+    W.apply_view!(st, Dict("show" => ["base", "read"]))
+    @test st.sort === :name
+    W.apply_view!(st, Dict("show" => ["base", "read"], "tag" => ["second"]))
+    @test st.sort === :moved            # a tag makes it a question, not a list
+    # And the three built-in views land in the three orders without naming
+    # them - which is what makes a view that does name one worth reading.
+    for (name, order) in (("firehose", :moved), ("my work", :latest),
+                          ("open items", :name))
+        v = W.views()[findfirst(x -> occursin(name, x[1]), W.views())][2]
+        @test !haskey(v, "sort")
+        W.apply_view!(st, v)
+        @test st.sort === order
+    end
+    # An order that is not one of the four is said, like a value on any other
+    # axis, and the selection's own is used: `none` was the url order's name.
+    @test occursin("no sort 'none'", W.apply_view!(st, Dict("sort" => "none")))
+    @test st.sort === :moved
 
     # And the first view is the whole of what the browser opens on, sort
     # included.
     st.sort = :touched; st.filters.labels = Set(["docs"])
     W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
     @test W.isdefault(st.filters)
-    @test isempty(st.filters.labels) && st.sort === :latest
+    @test isempty(st.filters.labels) && st.sort === :moved
 
     # `\`` is the way back out, and back in again: one slot, which is the depth
     # the move actually has.
@@ -892,27 +913,35 @@ end
     # Not a preference, a definition: the `touched` tag *is* the interaction
     # clock - carrying it is having acted on something - so arriving in it
     # sorted by anything else asks the reader to press `w` to see what they came
-    # for. Every other selection reads as newest first, which is the order every
+    # for. Your own work reads by the later of the two clocks, and the backlog
+    # - the open list with the read ones beside it, and nothing else - by url.
+    # Every other selection reads by when it moved, which is the order every
     # other inbox opens in and the answer use gave to the question this used to
     # leave open.
     @test W.lane_sort(W.Filters(tags = Set([:touched]))) === :touched
-    @test W.lane_sort(W.Filters()) === :latest
-    @test W.lane_sort(W.DEFAULT_FILTERS()) === :latest
+    @test W.lane_sort(W.Filters()) === :moved
+    @test W.lane_sort(W.DEFAULT_FILTERS()) === :moved
+    @test W.lane_sort(W.Filters(authors = Set([W.AUTHOR_ME]))) === :latest
+    @test W.lane_sort(W.Filters(show = Set([:base, :read]))) === :name
     # The clock is the order of the clock *alone*: crossed with anything else it
     # is one axis of several and has no claim on how the list is read.
-    @test W.lane_sort(W.Filters(tags = Set([:touched, :drafts]))) === :latest
+    @test W.lane_sort(W.Filters(tags = Set([:touched, :drafts]))) === :moved
+    # And a tag on the backlog makes it a question rather than a list.
+    @test W.lane_sort(W.Filters(show = Set([:base, :read]), tags = Set([:second]))) === :moved
+    # Yours outranks the backlog: my work names both, and is your work.
+    @test W.lane_sort(W.Filters(show = Set([:base, :read]), authors = Set([W.AUTHOR_ME]))) === :latest
 
     st = mkstate()
     pick(axis, name) = (st.frow = findfirst(r -> r[1] === axis && r[2] == name,
                                             W.filter_rows(st)); W.toggle_filter!(st))
     st.filters = W.Filters(); W.refilter!(st)
-    @test st.sort === :latest
+    @test st.sort === :moved
     pick(:tag, "touched"); @test st.sort === :touched
-    pick(:tag, "touched"); @test st.sort === :latest      # and off again
+    pick(:tag, "touched"); @test st.sort === :moved       # and off again
     # `w` overrides, and the override lasts until the selection changes - which
     # is the only rule here that can be said in one sentence.
-    st.sort = :none
-    pick(:show, "read"); @test st.sort === :latest
+    st.sort = :name
+    pick(:show, "read"); @test st.sort === :moved
 
     # A view naming the clock gets its order too, since it is clearing every
     # axis it does not name and the order is one of them.
@@ -920,14 +949,22 @@ end
     @test st.sort === :touched
     # ...unless the view says otherwise, which is what makes the url order
     # nameable even where a selection would have implied an order.
-    W.apply_view!(st, Dict("tag" => ["touched"], "sort" => "none"))
-    @test st.sort === :none
+    W.apply_view!(st, Dict("tag" => ["touched"], "sort" => "name"))
+    @test st.sort === :name
     # And the summary names an order only when it is not the selection's own: the
     # default said on every screen is a phrase the reader stops seeing, and
     # three words the keys row would rather have.
-    @test !occursin("by when", W.filter_summary(W.Filters(), :latest))
-    @test occursin("by url", W.filter_summary(W.Filters(), :none))
+    @test !occursin("by when", W.filter_summary(W.Filters(), :moved))
+    @test occursin("by url", W.filter_summary(W.Filters(), :name))
     @test occursin("by when you acted", W.filter_summary(W.Filters(), :touched))
+    @test occursin("by when anything happened", W.filter_summary(W.Filters(), :latest))
+    # The same rule writes the view: the selection's own order is not a line,
+    # and any other is - so a saved firehose reopens by when it moved and a
+    # saved backlog by url, and one put by `w` into another order keeps it.
+    @test !any(startswith("sort"), W.view_lines(W.Filters(), :moved))
+    @test "sort = \"name\"" in W.view_lines(W.Filters(), :name)
+    @test !any(startswith("sort"), W.view_lines(W.Filters(show = Set([:base, :read])), :name))
+    @test "sort = \"moved\"" in W.view_lines(W.Filters(show = Set([:base, :read])), :moved)
 end
 
 @testset "an answer to a key press outranks a standing line" begin

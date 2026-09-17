@@ -35,7 +35,7 @@ const HELP = Union{String,Tuple{String,String}}[
     ("[  ]  l", "widen a hunk's context · fetch a failing Buildkite job's log"),
     ("f", "the filter pane; c there clears it, ↵ toggles a box, n/N jump a group"),
     ("'  1-9 0  `", "views · the first ten of them · back to the previous filter"),
-    ("w", "cycle the order: last activity · url · your interaction clock"),
+    ("w", "cycle the order: when it moved · that or when you acted · when you acted · url"),
     ("y  ⇧j/⇧k  m", "copy the selection · extend it by rows · give the mouse back to the terminal"),
     "",
     "changing this machine",

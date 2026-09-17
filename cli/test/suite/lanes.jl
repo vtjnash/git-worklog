@@ -84,7 +84,7 @@
         # The order is its own control: any of it makes sense over any of the
         # lanes, so it sits beside the filter rather than inside it.
         st.filters = W.everything()
-        st.sort = :none; W.refilter!(st)
+        st.sort = :name; W.refilter!(st)
         # The url order, descending: owner, project, number. It keeps the
         # grouping `facts.json` is written in and reads from the newest of each
         # repo rather than from two thousand rows ago.
@@ -106,11 +106,55 @@
         b2 = W.Item(url = "local:o/r#two", ref = "r#two", repo = "o/r", number = 0, title = "t")
         @test W.urlkey(b1) != W.urlkey(b2)
         @test length(st.items) == n
+        # The url order is not this selection's own, so the summary names it.
+        @test occursin("by url", W.filter_summary(st.filters, st.sort))
+
+        # GitHub's clock alone: when it moved, whoever moved it, which is the
+        # firehose's order and the one this selection opens in - so the
+        # summary stops naming it: the default said on every screen is a
+        # phrase the reader stops seeing. It is named wherever it is not the
+        # selection's own.
         W.handle!(st, Int('w'), ctrl)
-        @test st.sort === :touched && occursin("by when", st.status)
+        @test st.sort === :moved && occursin("by when it moved", st.status)
+        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
+        let f = W.Filters(tags = Set([:touched]))
+            @test occursin("by when it moved", W.filter_summary(f, :moved))
+        end
+        @test length(st.items) == n                    # an order, not a filter
+        keys0 = [W.sortkey(x, st.touched, :moved) for x in st.items]
+        @test issorted(keys0; rev = true)
+        # Nothing of yours counts under it: `b` was acted on this morning and
+        # sorts by what GitHub last said about it all the same.
+        @test W.sortkey(b, st.touched, :moved) == b.act
+        @test W.sortkey(b, st.touched, :moved) != "2026-09-02T12:00:00Z"
+        @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
+
+        # The later of the two clocks, which is what anything happening to an
+        # item sorts by - your own work folded in - and the order your work
+        # opens in. Not this selection's own, so the summary says so.
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :latest && occursin("anything last happened", st.status)
+        @test occursin("by when anything happened", W.filter_summary(st.filters, st.sort))
+        @test length(st.items) == n
+        keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
+        @test issorted(keys2; rev = true)
+        @test W.sortkey(a, st.touched, :latest) == max(a.act, "2020-01-01T00:00:00Z")
+        # Your own work counts under it: the clock on `b` is later than
+        # anything GitHub said about it, and it is what `b` sorts by.
+        @test W.sortkey(b, st.touched, :latest) == "2026-09-02T12:00:00Z"
+        pos2(u) = findfirst(x -> x.url == u, st.items)
+        @test pos2(a.url) < pos2(c.url)          # where precedence had it last
+
+        # Your clock alone, with GitHub's standing in where it is empty. They
+        # differ from the last exactly where both exist - `a` was acted on in
+        # 2020 and has moved since, so this reading leaves it at the bottom
+        # and the last did not.
+        W.handle!(st, Int('w'), ctrl)
+        @test st.sort === :touched && occursin("by when you", st.status)
         keys = [W.sortkey(x, st.touched) for x in st.items]
         @test issorted(keys; rev = true)
-        @test length(st.items) == n                    # an order, not a filter
+        @test length(st.items) == n
+        @test W.sortkey(a, st.touched, :latest) != W.sortkey(a, st.touched)
         # Touched and untouched interleave by their timestamps: a branch
         # committed to this morning belongs above a pull request touched in
         # March, and two blocks would bury it.
@@ -121,35 +165,27 @@
         @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
         # And it says so where the filter says what it is.
         @test occursin("by when you acted", W.filter_summary(st.filters, st.sort))
-        @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
 
-        # The other reading of "when": the later of the two, which is what
-        # anything happening to an item sorts by. They differ exactly where
-        # both exist - `a` was acted on in 2020 and has moved since, so the
-        # first reading leaves it at the bottom and the second does not.
         W.handle!(st, Int('w'), ctrl)
-        @test st.sort === :latest && occursin("anything last happened", st.status)
-        # ...which is the order this lane opens in, so the summary stops naming
-        # it: the default said on every screen is a phrase the reader stops
-        # seeing. It is named wherever it is not the lane's own.
-        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
-        let f = W.Filters(tags = Set([:touched]))
-            @test occursin("by when it moved", W.filter_summary(f, :latest))
+        @test st.sort === :name
+        @test occursin("by url", W.filter_summary(st.filters, st.sort))
+
+        # A tie on any clock falls through to the url order. An import stamps
+        # every url it was given with the one `at` it ran under, so a batch of
+        # them agree to the second under both orders that read the clock -
+        # and under all three where nothing has a time at all.
+        tied = [W.Item(url = "https://github.com/o/r/pull/$n", ref = "r#$n",
+                       repo = "o/r", number = n, title = "t", act = "2026-09-01T00:00:00Z")
+                for n in (3, 30, 4)]
+        stamp = Dict(x.url => "2026-09-02T00:00:00Z" for x in tied)
+        for order in (:moved, :latest, :touched)
+            @test [x.number for x in W.sortitems(tied, order, stamp)] == [30, 4, 3]
+            @test [x.number for x in W.sortitems(tied, order, Dict{String,String}())] == [30, 4, 3]
         end
-        @test length(st.items) == n
-        keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
-        @test issorted(keys2; rev = true)
-        @test W.sortkey(a, st.touched, :latest) == max(a.act, "2020-01-01T00:00:00Z")
-        @test W.sortkey(a, st.touched, :latest) != W.sortkey(a, st.touched)
-        # Your own work still counts under it: the clock on `b` is later than
-        # anything GitHub said about it, and it is what `b` sorts by.
-        @test W.sortkey(b, st.touched, :latest) == "2026-09-02T12:00:00Z"
-        pos2(u) = findfirst(x -> x.url == u, st.items)
-        @test pos2(a.url) < pos2(c.url)          # where precedence had it last
-
-        W.handle!(st, Int('w'), ctrl)
-        @test st.sort === :none
-        @test !occursin("by when", W.filter_summary(st.filters, st.sort))
+        # And the clock still comes first where it says something.
+        stamp[tied[1].url] = "2026-09-03T00:00:00Z"
+        @test [x.number for x in W.sortitems(tied, :touched, stamp)] == [3, 30, 4]
+        @test [x.number for x in W.sortitems(tied, :moved, stamp)] == [30, 4, 3]
 
         # Both are tags in the filter pane, with their counts.
         st.lmode = :filters
