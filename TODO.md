@@ -185,6 +185,32 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       which need homes first, or whether it is the names alone; and
       whether "done and next" (`]`) is wanted at all, given `r` in the
       base list already advances the cursor by removing the row.
+- [ ] **`config.toml` in two layers: what is shared and what is yours.** The
+      file is committed here with one person's `login`, three lanes that
+      spell that login into their queries, their watched repos, pinned repos,
+      theme and agent command - so a second user edits a shared file, and
+      every pull is a merge of their name against the first's. Wanted: a
+      common set that stays here (`[thresholds]`, `[cache]`, the built-in
+      views, the default watch list) and a per-user set in `data/` - its own
+      repository already, per person - read as a merge, the per-user file on
+      top. First launch with no per-user file installs the defaults that
+      name a person - `login`, the lanes, `[events] repos`,
+      `[filters] pinned_repos`, `theme` - and never touches it again.
+      Decide first: **the login in the lanes** - the queries carry it as
+      text, so either the common file templates it (`author:{login}`,
+      substituted at read) or the lanes are per-user whole; **merge depth** -
+      a table merges key by key and an array replaces whole, so a per-user
+      `[events] repos` is the list and not additions to it, which is the
+      simpler rule and the one `[views]` already wants (a view of the same
+      name replaces); **who reads it** - `config()` in `cli.jl:40` and
+      `login()` in `ui.jl:278` each parse the file themselves, so the merge
+      is one function both go through;
+      **the seeding** - there is no `wl init`, so it is the first `wl` with
+      no `data/config.toml`, and what it writes is the file's comments too,
+      which are the manual for the keys; `TOML.print` drops them, so the
+      seed is a copy of a template and not a serialization. And the
+      suite's `mkstate` reads the real file (`views`, and now `pinned`
+      cleared by hand): give it a config of its own.
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
@@ -369,9 +395,3 @@ Panes:
       says why on the status. To see: a pane running `less` on a long file,
       `git log`, and an editor opening, with the status row watched for
       `session ended:`.
-
-
-# More features to plan:
-
-- Highlight if the merge target branch isn't the default branch on github UI (usually main or master, but for libuv it is v1.x).
-
