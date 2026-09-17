@@ -3,6 +3,44 @@
 # markup, code spans, the wrap map, and the fold state a row belongs to - and,
 # at the end, the bordered pane those rows are drawn in.
 
+"""
+    inert(text) -> (text, n)
+
+The C0 and C1 control characters of `text` drawn as caret notation - `^[` for
+an escape, `^G` for a bell - and how many there were. Tab and newline are kept:
+they are what a line is made of, not what one can do to the terminal.
+
+A diff is bytes somebody else wrote, and this program prints it. An escape in
+one is not a byte on the screen but a command to the terminal the frame is
+drawn on: `gh pr diff` found one in a pull request (2026-09) and refused to
+print the diff at all - "the diff contains terminal escape sequences; pass
+--allow-escape-sequences to output it anyway" - which is the right answer for
+a pipe and the wrong one for a reader, who came for the diff. So it is asked
+for anyway and made inert here, the way gh itself draws it on a terminal,
+and the count goes on a row at the top so that what follows is read as a
+diff somebody put a control character in.
+
+`\r` is neutralized with the rest - a CRLF file's diff shows `^M` at every
+line end, which is what `git diff` in a pager shows too, and a bare `\r` on a
+row of the frame would overdraw the row.
+"""
+function inert(s::AbstractString)
+    n = 0
+    out = sprint() do io
+        for c in s
+            cp = UInt32(c)
+            if (cp < 0x20 && c != '\t' && c != '\n') || cp == 0x7f ||
+               0x80 <= cp <= 0x9f
+                n += 1
+                print(io, '^', cp == 0x7f ? '?' : Char((cp & 0x1f) + 0x40))
+            else
+                print(io, c)
+            end
+        end
+    end
+    (out, n)
+end
+
 function diffline(l)
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.

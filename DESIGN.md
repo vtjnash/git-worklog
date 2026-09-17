@@ -676,6 +676,13 @@ Each of the following returns success and the wrong answer:
   the finished frame; a url inside a comment header's OSC 8 payload
   terminated it early and the row came out 224 columns wide. It cuts the
   frame on OSC sequences and substitutes only between them.
+- **A diff is somebody else's bytes, printed.** An escape in one is a
+  command to the terminal the frame is drawn on, and `gh pr diff` refuses
+  to pipe one at all ("pass --allow-escape-sequences"), which was a row of
+  stderr under the diff and no diff. `fetch_diff` captures stderr and asks
+  again with the flag; `inert` draws C0, DEL and C1 as caret notation at
+  both parsers and under `[`/`]`, and `ctlnode` puts the count on the first
+  row, where a long diff cannot push it off the screen.
 - A key code is **the bytes that arrived**, packed big-endian, and `K_BASE`
   is `1 << 32`. Starting the key range at `0x110000` let a malformed
   four-byte sequence assemble to `K_LEFT`; rejecting non-codepoints is wrong,

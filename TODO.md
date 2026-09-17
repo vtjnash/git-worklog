@@ -336,28 +336,6 @@ The corpus:
       would say, only for a real merge.
 
 Reading:
-- [ ] **A diff's "contains control characters" warning is at the bottom,
-      where a long diff pushes it off the screen** (seen once, 2026-09).
-      It should be the first row of the diff - or in the node's header,
-      which is on screen whenever the diff is - since it is a fact about
-      what follows and a reason to read it differently. It was a Term.jl
-      pull request of September 2026. Looked for and not found
-      (2026-09-16): nothing in this program prints it, `gh pr diff` of
-      FedeClaudi/Term.jl#302-#311 carries neither the phrase nor a raw
-      control byte, and neither do the cached copies of #304/#306/#310;
-      of the dependencies only JSON3 has the words, in an *exception* -
-      "encountered unescaped control character in json" - which would
-      reach the footer as the standing `errors.log` warning, not the
-      diff; and not tmux, git or gh either - the bundled tmux 3.5.1, git
-      2.54 and gh 2.98 binaries carry no such phrase past Go's URL
-      errors. It was the `d` view, and the message offered a command-line
-      flag to restart with that would permit it - which is a program with
-      flags, and neither `wl` nor julia has one (`--help-hidden` checked),
-      nor tmux; and `d` is `gh pr diff` read to a string, no pager, so no
-      `less`. What is left is the terminal emulator itself, drawing the
-      frame - or the exact wording, when it can be checked. Then
-      `data/errors.log` on the machine it was seen on. Once found: a line of the text, which `diff_nodes` lifts to the top, or
-      stderr, stitched on after.
 - [ ] Hunk context expands against the head, so context around a `-` line is
       the post-change file.
 - [ ] A fenced block is a node with its own header and fold state; a short

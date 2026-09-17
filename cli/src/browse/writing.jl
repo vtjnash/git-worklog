@@ -925,8 +925,10 @@ function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
     node.meta["up"] = start - lo
     node.meta["down"] = hi - (start + count - 1)
 
-    pre = [string(" ", lines[i]) for i in lo:(start - 1)]
-    post = [string(" ", lines[i]) for i in (start + count):hi]
+    # Through `inert` like the hunk itself was: the file is the same bytes the
+    # diff came from, read off a checkout instead of gh.
+    pre = [string(" ", first(inert(lines[i]))) for i in lo:(start - 1)]
+    post = [string(" ", first(inert(lines[i]))) for i in (start + count):hi]
     node.raw = join(vcat(pre, split(node.meta["body"], "\n"), post), "\n")
     node.cw = -1                                    # force a re-render
     node.header = string(node.meta["file"], "  @@ ", start, ",", count, " @@",

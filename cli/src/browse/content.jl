@@ -371,13 +371,35 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     out
 end
 
+"""The pull request's diff as `gh pr diff` answers it, or a `FetchError`.
+
+Through `gh_run` rather than `read`, so gh's stderr is captured as the reason
+and never printed onto the frame - which is where it went, as a row under the
+diff, the one time gh refused one.
+
+That refusal is the diff carrying a terminal escape sequence, which gh will
+not write to a pipe without being told to; told to, it answers the same diff,
+and `inert` in `hunk_nodes` is what keeps the escape off the terminal. Asked
+for on the refusal and not up front: the flag is gh 2.9x, and a gh without it
+prints the diff verbatim and would refuse the flag on every diff.
+"""
+function fetch_diff(it::Item; run = gh_run)
+    args = ["pr", "diff", string(it.number), "--repo", it.repo]
+    rc, out, err = run(args)
+    if rc != 0 && occursin("--allow-escape-sequences", err)
+        rc, out, err = run([args; "--allow-escape-sequences"])
+    end
+    rc == 0 || throw(FetchError(first(strip(isempty(err) ? out : err), 300)))
+    out
+end
+
 """One node per hunk, not per file.
 
 A file-sized node makes n/N step over whole files, which is the wrong grain for
 reading a change: hunks are the units you actually move between. The file name
 stays in each hunk's header so the context is never lost.
 """
-function diff_nodes(it::Item; fresh::Bool = false)
+function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node("no diff - this is an issue, not a pull request",
@@ -387,7 +409,7 @@ function diff_nodes(it::Item; fresh::Bool = false)
         key = diff_key(it)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
-            cache_put(key, read(`gh pr diff $(it.number) --repo $(it.repo)`, String))
+            cache_put(key, fetch_diff(it; run = run))
         else
             stale = hit[2] > CACHE_FRESH[]
             String(hit[1])
@@ -412,6 +434,7 @@ They differ in where the text comes from and in nothing else, and a second
 parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
 """
 function hunk_nodes(txt::AbstractString, url::AbstractString)
+    txt, ctl = inert(txt)
     ns, file, buf, hdr = Node[], "", String[], ""
     pending_range, pending_old = (0, 0), (0, 0)
     flush!() = if !isempty(hdr)
@@ -451,8 +474,20 @@ function hunk_nodes(txt::AbstractString, url::AbstractString)
         end
     end
     flush!()
+    isempty(ns) || ctl == 0 || pushfirst!(ns, ctlnode(ctl))
     ns
 end
+
+"""The row that says `inert` found something, for the top of a diff.
+
+The first row, not the last: a long diff pushes the bottom off the screen, and
+this is a fact about what follows and a reason to read it differently. A plain
+node with no `file`, which is what `[`/`]`, `C` and `attach_comments` all step
+over.
+"""
+ctlnode(n::Int) =
+    Node(string(THEME.blocked, n, n == 1 ? " control character" : " control characters",
+                " in this diff, drawn as ^[ ^G ^M", THEME.reset), "", :plain, true)
 
 """
     hunk_marks(n) -> Dict{Int,Tuple{Int,Int}}
@@ -763,6 +798,7 @@ walk rather than one wall of text. A commit the rebase left alone folds to its
 header, which is all anybody wants of it.
 """
 function rangediff_nodes(txt::AbstractString)
+    txt, ctl = inert(txt)
     ns, buf = Node[], String[]
     flush!() = if !isempty(ns) && !isempty(buf)
         ns[end].raw = join((rangeline(l) for l in buf), "\n")
@@ -789,6 +825,7 @@ function rangediff_nodes(txt::AbstractString)
         push!(ns, n)
     end
     flush!()
+    isempty(ns) || ctl == 0 || pushfirst!(ns, ctlnode(ctl))
     ns
 end
 

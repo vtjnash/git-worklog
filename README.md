@@ -119,7 +119,9 @@ range - under `d`, or under `p` on its right side, which is the head now;
 `^r` in the composer drops in a suggestion block. Comments accumulate in
 a draft review on GitHub; `A` sends it, and leaving the item asks whether to.
 Existing review threads hang off the hunk they point into, resolved ones
-folded, and the line each is on is marked `💬`.
+folded, and the line each is on is marked `💬`. A control character in a
+diff is drawn as `^[`, `^G`, `^M` rather than sent to the terminal, and a
+row at the top says how many there were.
 
 **Composers** open beside the diff or thread when the screen is 150 columns or
 wider, with `tab` between them. `^s` sends; `M`'s composer cycles the merge

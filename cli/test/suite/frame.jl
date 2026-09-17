@@ -499,6 +499,52 @@ end
     @test occursin("💬2", W.astrip(wide.header))
 end
 
+@testset "a control character in a diff is drawn, not obeyed" begin
+    # An escape in a diff is a command to the terminal the frame is on, and gh
+    # refuses to pipe one. Here it is asked for anyway, and what reaches the
+    # rows is caret notation, with the count on the first row - the top, where
+    # a long diff does not push it off the screen.
+    txt = "diff --git a/a.jl b/a.jl\n--- a/a.jl\n+++ b/a.jl\n@@ -1,2 +1,2 @@\n" *
+          " same\n-old \e[31mred\e[0m\n+new \x07bell\r\n"
+    ns = W.hunk_nodes(txt, "http://x")
+    @test length(ns) == 2
+    @test occursin("4 control characters", W.astrip(ns[1].header))
+    @test ns[1].kind === :plain && !haskey(ns[1].meta, "file")   # stepped over
+    @test ns[2].raw == " same\n-old ^[[31mred^[[0m\n+new ^Gbell^M\n"
+    @test ns[2].meta["body"] == ns[2].raw                        # what C measures
+    @test ns[2].meta["start"] == 1 && ns[2].meta["count"] == 2   # ranges untouched
+    @test !any(occursin(r"[\x00-\x08\x0b-\x1f\x7f]", r.src) for r in W.rows(ns, 80))
+    # A clean diff carries no such row.
+    @test !any(n -> occursin("control", W.astrip(n.header)),
+               W.hunk_nodes("diff --git a/a.jl b/a.jl\n@@ -1 +1 @@\n-a\n+b\n", "u"))
+    @test W.inert("a\tb\nc") == ("a\tb\nc", 0)
+    @test W.inert("\x7f\u0085") == ("^?^E", 2)                    # DEL, and C1
+
+    # The range-diff parser draws the same row for the same reason.
+    rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n    -\e[1mz\n")
+    @test occursin("1 control character in", W.astrip(rd[1].header))
+    @test occursin("^[[1mz", rd[2].raw)
+
+    # And gh's refusal is answered by asking again with the flag it names,
+    # through a run that captures stderr - the message is a reason on a failed
+    # node, never a row printed onto the frame.
+    it = W.Item(url = "u", ref = "o/r#1", repo = "o/r", number = 1, title = "t")
+    calls = Vector{String}[]
+    refuse(args) = (push!(calls, args);
+                    "--allow-escape-sequences" in args ? (0, txt, "") :
+                    (1, "", "the diff contains terminal escape sequences; pass " *
+                            "--allow-escape-sequences to output it anyway\n"))
+    @test W.fetch_diff(it; run = refuse) == txt
+    @test length(calls) == 2 && calls[1] == ["pr", "diff", "1", "--repo", "o/r"]
+    @test calls[2] == [calls[1]; "--allow-escape-sequences"]
+    plain(args) = (push!(calls, args); (0, "diff --git a/a b/a\n", ""))
+    empty!(calls)
+    @test W.fetch_diff(it; run = plain) == "diff --git a/a b/a\n" && length(calls) == 1
+    @test_throws W.FetchError W.fetch_diff(it; run = _ -> (1, "", "no pull requests found"))
+    failed = W.diff_nodes(it; fresh = true, run = _ -> (1, "", "no pull requests found"))
+    @test get(failed[1].meta, "failed", false) && failed[1].raw == "no pull requests found"
+end
+
 @testset "the list says what has been read" begin
     # Weight is the only thing on a row that can say this without costing a
     # column, and the list is two thousand rows of things somebody may or may
