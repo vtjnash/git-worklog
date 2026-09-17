@@ -700,7 +700,12 @@ const VIEWS = [
     ("notification firehose — unread, open or closed", Dict{String,Any}()),
     # The two modes that are left. Which work is yours is the author axis; what
     # has moved is the base. One axis per question, and neither of them a lane.
-    ("my work — mine", Dict("author" => [AUTHOR_ME])),
+    # This one is the *open* work, read or not: it names `show` the way the
+    # backlog does, because left to the default it was the base and the closed
+    # rows - your merged pull requests standing in for the ones you have read
+    # and are still carrying, which is the opposite of what the view is for.
+    ("my work — mine, open, read ones too",
+                       Dict("author" => [AUTHOR_ME], "show" => ["base", "read"])),
     # The backlog. It names `show` and leaves `done` out of it, which is the
     # one place the two boxes the dashboard opens with come apart: a closed
     # thing that moved is news and belongs in the firehose, and it is not

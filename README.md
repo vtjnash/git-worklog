@@ -107,8 +107,8 @@ GitHub.**
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
 | `q` | quit; asks first, and about an unsent draft review if there is one |
 
-**Views** (`'`): 1 the firehose - unread, open or closed · 2 my work · 3 the
-backlog - open, read ones too · 4 waiting on me · 5 waiting on them · 6 ready
+**Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - open,
+read ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
 to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
 your own in `config.toml`; the last entry under `'` copies the current filter
 as the TOML that would name it.
