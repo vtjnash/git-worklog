@@ -406,25 +406,6 @@ Reading:
       where the tally above did not; the per-check counts are as old as that
       entry.
 
-The process:
-- [ ] **`ps`'s full line and tmux's window name still say `julia`.** The
-      title is `wl` now - OSC 2 at `run!`'s start, inside a title push/pop
-      so a terminal with the stack gets its own title back - and so is the
-      comm name, `prctl(PR_SET_NAME)` in `main` on Linux, which is what
-      htop's default column and `ps -o comm` show (2026-09-16). What is
-      left is argv[0]: juliaup's launcher execs the real binary under its
-      own path, so `exec -a wl` in `bin/wl` never reaches it (measured:
-      `ps -o args` shows `.../julia-nightly/bin/julia`), and tmux's
-      automatic window name reads argv[0] from `/proc/<pid>/cmdline`
-      (`osdep-linux.c`), not comm - so a `wl` run in your own tmux window
-      is still a window called `julia`. Fixing it means `bin/wl` exec'ing
-      the resolved binary itself with `-a wl`: a julia launch to ask
-      `Base.julia_cmd()` costs more than the name is worth, and
-      `~/.julia/juliaup/juliaup.json` is juliaup's to change. Or the
-      `automatic-rename-format` that reads `pane_title`, which is the
-      user's `.tmux.conf` and not this program's. Both unverified in a
-      real terminal: the title sequences, and whether the pop lands.
-
 Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they

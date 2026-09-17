@@ -380,22 +380,33 @@ end
 
 """Be called `wl` where the system asks the process its name.
 
-juliaup's launcher execs the real binary under its own path, so `exec -a wl` in
-`bin/wl` never reaches it and `ps`'s full line stays `.../bin/julia` (measured
-2026-09-16); what a process *can* rename from inside is its comm name -
-`/proc/<pid>/comm`, htop's default column, `ps -o comm` - which is
-`prctl(PR_SET_NAME)` on Linux and nothing anywhere else. The browser names the
-terminal itself, with the title, in `run!`.
+libuv's `uv_set_process_title`, which is the one call that reaches everything:
+on Linux it rewrites the argv area, which is `/proc/<pid>/cmdline` - `ps`'s
+full line, and what tmux reads for its automatic window name - and sets the
+comm name as well, which is htop's default column and `ps -o comm`; on macOS
+and Windows it does whatever those have. Julia called `uv_setup_args` at
+startup, which is what makes the argv area writable. `prctl(PR_SET_NAME)` was
+the first attempt and reached only comm; `exec -a wl` in `bin/wl` reached
+nothing, since juliaup's launcher execs the real binary under its own path.
+
+With the arguments, so `wl refresh` in a process list is told apart from the
+browser - and then, on Linux, the comm name set again to the bare name, because
+libuv sets it to the whole title cut at fifteen bytes and `wl refresh --ba` is
+not a name.
 """
-function name_process!(name::AbstractString = "wl")
-    Sys.islinux() || return false
-    n = String(name)
-    GC.@preserve n ccall(:prctl, Cint, (Cint, Ptr{UInt8}, Culong, Culong, Culong),
-                         15 #= PR_SET_NAME =#, pointer(n), 0, 0, 0) == 0
+function name_process!(args = String[]; name::AbstractString = "wl")
+    title = join(vcat(String(name), String.(args)), " ")
+    ok = ccall(:uv_set_process_title, Cint, (Cstring,), title) == 0
+    if Sys.islinux()
+        n = String(name)
+        GC.@preserve n ccall(:prctl, Cint, (Cint, Ptr{UInt8}, Culong, Culong, Culong),
+                             15 #= PR_SET_NAME =#, pointer(n), 0, 0, 0)
+    end
+    ok
 end
 
 function main(args = String[])
-    name_process!()
+    name_process!(args)
     try
         return dispatch(collect(String, args), utcnow())
     catch e

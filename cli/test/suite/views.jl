@@ -523,17 +523,19 @@ end
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
 end
 
-@testset "the process is called wl where it can be" begin
-    # htop, `ps -o comm` and `/proc/<pid>/comm` read the comm name, which is
-    # the one thing a process can rename from inside; the full command line
-    # is juliaup's and stays. Nothing anywhere but Linux.
+@testset "the process is called wl" begin
+    # `uv_set_process_title` reaches the command line - which is what `ps`'s
+    # full line and tmux's automatic window name read - and the comm name,
+    # which is htop's default column; `prctl` reached only the second and
+    # `exec -a` in `bin/wl` neither. With the arguments, so a refresh in a
+    # process list is not the browser - and the comm name is the bare name,
+    # not the title cut at fifteen bytes.
+    @test W.name_process!(["refresh", "--backlog"]; name = "wl-test")
     if Sys.islinux()
-        @test W.name_process!("wl-test")
         @test strip(read("/proc/self/comm", String)) == "wl-test"
-        W.name_process!("julia")
-    else
-        @test !W.name_process!("wl-test")
+        @test startswith(read("/proc/self/cmdline", String), "wl-test refresh --backlog\0")
     end
+    W.name_process!(; name = "julia")
 end
 
 @testset "a resize is an event on the loop" begin

@@ -660,9 +660,10 @@ Each of the following returns success and the wrong answer:
   one thing that survives `exec`.
 - **juliaup's launcher does not pass argv[0] through**: it execs the real
   binary under that binary's own path, so `exec -a wl` in `bin/wl` names
-  nothing, and tmux's automatic window name - argv[0] out of
-  `/proc/<pid>/cmdline` - stays `julia`. What the process can name from inside
-  is its comm (`prctl(PR_SET_NAME)`, `main`) and its terminal (OSC 2, `run!`).
+  nothing. The process names itself instead: `uv_set_process_title` in `main`
+  rewrites the argv area - `ps`'s line and tmux's automatic window name - and
+  the comm name with it; `prctl(PR_SET_NAME)` reached only the second. The
+  terminal's title is OSC 2 in `run!`.
 
 ### local.toml
 
