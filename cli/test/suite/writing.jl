@@ -324,6 +324,29 @@ end
     @test composer(last(ctrl.stack)).allow_empty                    # approve needs no words
     pop!(ctrl.stack)
 
+    # A comment review with no draft under it is nothing without a body, and
+    # the composer holds out for one. Over a draft, the line comments are the
+    # review and the body is a covering note - optional, as on github.com.
+    W.handle!(st, Int('A'), ctrl)
+    ch = last(ctrl.stack)
+    W.handle!(ch, W.K_DOWN, ctrl); W.handle!(ch, W.K_DOWN, ctrl)    # down to "comment"
+    @test W.handle!(ch, 13, ctrl) === :pop
+    at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)
+    @test !composer(last(ctrl.stack)).allow_empty
+    @test occursin("requires a body", composer(last(ctrl.stack)).note)
+    pop!(ctrl.stack)
+    st.batch = W.mkbatch(st.items[st.sel].url, st.items[st.sel].ref, "PRR_1", 2)
+    W.handle!(st, Int('A'), ctrl)
+    ch = last(ctrl.stack)
+    @test [o[2] for o in W.shown(ch)][end] == "DISCARD"
+    W.handle!(ch, W.K_DOWN, ctrl); W.handle!(ch, W.K_DOWN, ctrl)
+    @test W.handle!(ch, 13, ctrl) === :pop
+    at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)
+    @test composer(last(ctrl.stack)).allow_empty
+    @test occursin("optional", composer(last(ctrl.stack)).note)
+    pop!(ctrl.stack)
+    st.batch = nothing
+
     W.handle!(st, Int('L'), ctrl)
     lv = last(ctrl.stack)
     @test lv isa W.ChooseView && !isempty(W.shown(lv))

@@ -284,10 +284,19 @@ function review_action(st::BState, ctrl::Controller, it::Item)
         # Beside the diff, the same as `c` and `M`: a review body is written
         # about the commits it lands, and the verdict picker in front of it is
         # a question rather than a page to write on.
+        # GitHub wants words on a request for changes or a comment review only
+        # when the review has nothing else in it: the line comments of a
+        # draft are the review, and a covering note over them is optional,
+        # as it is on github.com. A draft this program did not start reports
+        # its count as 0 without being empty, so the draft is the test, not
+        # the count; a draft that really is empty is refused by GitHub, and
+        # the refusal keeps the composer open to write in.
+        optional = ev == "APPROVE" || held !== nothing
         push_beside!(ctrl, st, EditorView(
             string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
-            ev == "APPROVE" ? "a body is optional; ^s submits the approval" :
-                              "GitHub requires a body for this",
+            optional ? string("a body is optional; ^s submits ",
+                              ev == "APPROVE" ? "the approval" : "the draft") :
+                       "GitHub requires a body for this",
             b -> begin
                 # The draft is the review once there is one: submitting a second
                 # one beside it would leave the comments unsent and unmentioned.
@@ -301,7 +310,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                                undraft!(it.url); st.drafts = load_drafts();
                                reread!(st))
                 isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
-            end; allow_empty = ev == "APPROVE"))
+            end; allow_empty = optional))
     end))
 end
 

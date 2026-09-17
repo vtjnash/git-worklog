@@ -1439,7 +1439,12 @@ function add_review_thread(url::AbstractString, path::AbstractString, line::Inte
     end
 end
 
-"""Send the pending review, with a verdict and an optional covering note."""
+"""Send the pending review, with a verdict and an optional covering note.
+
+The note is left out when blank rather than sent as an empty string, so that
+a draft whose comments are the whole review goes as one with no body - the
+same as `submit_review` below, and as the web UI.
+"""
 function submit_pending(url::AbstractString, review::AbstractString,
                         event::AbstractString, body::AbstractString)
     _write() do
@@ -1448,7 +1453,7 @@ function submit_pending(url::AbstractString, review::AbstractString,
             "{ submitPullRequestReview(input: {pullRequestReviewId: \$rev, " *
             "event: \$ev, body: \$body}) { pullRequestReview { id } } }";
             vars = Dict{String,Any}("rev" => String(review), "ev" => String(event),
-                                    "body" => String(body)))
+                                    "body" => isempty(strip(body)) ? nothing : String(body)))
         cache_drop(string("review:", url))
         _invalidate(url)
     end
