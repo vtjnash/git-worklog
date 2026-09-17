@@ -188,16 +188,6 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 - [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
       `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
       rule for what one step is.
-- [ ] **What the browser's own operations have to say, and where.** The
-      browser's report is `devnull` (DESIGN, "What is said, and where"),
-      which is right for a retry and wrong for the one warning it swallows:
-      the launch poll in `ui()` runs `Events.poll` before the first frame,
-      and a lane that answers `FAILED:` there is said to nobody until the
-      next `u` puts it in `refresh.log`. Decide whether the launch reports
-      into `refresh.log` like `u` does - it is the same operation, half of
-      it - or whether a browser-side `warning()` should reach the footer.
-      Also `fetch_urls`' "by url: N not answered" under an import, which the
-      import's own status covers today.
 - [ ] **`TermInput` and Term's `InputBox`** are not the same widget:
       `InputBox` appends keystrokes with no cursor, because `readkey` cannot
       tell Left from Escape-`[`-`D`. Unifying wants, in order: a decoder good

@@ -440,8 +440,21 @@ last line of the child that ran the refresh then.
   composer's row (`Unsent`) instead of popping and leaving one line here.
 - **Standing** notes stay until dealt with: `errors.log`, written by
   `logerror!` for exceptions and read as the footer's warning until the file
-  is deleted; and a theme that did not load as written (`THEME_NOTES`), in
-  the same place behind it. `standing_note` is the one reader of both.
+  is deleted; a source the poll cannot get an answer from, off the inbox's
+  `failed` table - `when why`, written by `sync!` on a `FAILED:` and deleted
+  by the next answer - held on `BState.failing` and taken again when
+  `fetched.json` lands; and a theme that did not load as written
+  (`THEME_NOTES`), in the same place behind both. `standing_note` is the
+  one reader of the three.
+
+  The `failed` table is how the browser's own operations get to say the one
+  thing they have to: the launch poll in `ui()` runs before the first frame
+  with the report on `devnull`, and a lane answering `FAILED:` there used to
+  be said to nobody until the next `u`. It does not report into
+  `refresh.log`, which is the last `u` whole and would be overwritten by a
+  poll that is half of one; and the browser grows no `warning()` channel of
+  its own, since the fact was already written down and only wanted its
+  reason kept beside the stamp and a reader.
 
 The browser writes nothing to stderr. The one exception is `run!` refusing to
 start without a terminal, which is before there is a frame.

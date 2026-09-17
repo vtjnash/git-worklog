@@ -164,6 +164,10 @@ Base.@kwdef mutable struct BState <: View
                                # so rather than blame somebody else
     factsat::Float64 = 0.0 # mtime of `fetched.json` as the item list was built
                            # from it, so a refresh landing is told from a note
+    failing::Vector{Any} = Any[]   # the sources whose last poll failed, off the
+                                   # inbox as the item list was built (`Events.failing`);
+                                   # the footer's standing note, read from here
+                                   # and not from the file at every frame
 end
 """The four listed axes, from the items that are in hand.
 
@@ -205,6 +209,7 @@ function BState(all::Vector{Item}, title)
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   sources = source_since(),
                   factsat = mtime(fetchedfile()),
+                  failing = Events.failing(),
                   pinned = pinned_filter_repos())
     rebuild_axes!(st)
     refilter!(st)

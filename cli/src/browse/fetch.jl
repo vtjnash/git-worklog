@@ -603,6 +603,14 @@ function reload_data!(st::BState)
             st.all = fresh
             rebuild_axes!(st)
         end
+        # And the sources the poll in that refresh could not get an answer
+        # from, which stand in the footer until one does.
+        st.failing = try
+            Events.failing()
+        catch e
+            logerror!(e, catch_backtrace(), "failing")
+            st.failing
+        end
     end
     refilter!(st)           # which is what re-reads the three records
     # A refresh this window started says what it did; anything else is somebody

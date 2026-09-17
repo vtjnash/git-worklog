@@ -912,10 +912,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         catch e
             e isa ApiError || rethrow()
             @printf(warning(), "    %-24s FAILED: %s\n", label, e.msg)
-            # Written down, so a reader of the file can tell a source that is
-            # answering from one that has a token and nothing else. Cleared
-            # by the next answer.
-            failed[label] = stamp(at)
+            # Written down - when, then why - so a reader of the file can tell
+            # a source that is answering from one that has a token and
+            # nothing else, and so the browser's footer can say it
+            # (`failing`): the poll before its first frame reports to nobody,
+            # and this is the one line of it the reader has to act on.
+            # Cleared by the next answer.
+            failed[label] = string(stamp(at), " ", e.msg)
             continue
         end
         delete!(failed, label)
@@ -952,6 +955,24 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     save_inbox(inbox)
     Worklog.set_source_cursors!(advanced)
     (items, got)
+end
+
+"""
+    failing() -> [(label, since, why)]
+
+The sources whose last poll failed, off the inbox's `failed` table, by label:
+when it was last tried and what GitHub said. A source that answers is not
+here; a source that is skipped for want of a token was never asked and is
+not here either. `why` is `""` for an entry from before the reason was kept.
+"""
+function failing()
+    out = NamedTuple{(:label, :since, :why),Tuple{String,String,String}}[]
+    for (label, v) in load_inbox()["failed"]
+        parts = split(String(v), ' '; limit = 2)
+        push!(out, (label = String(label), since = String(parts[1]),
+                    why = length(parts) > 1 ? String(strip(parts[2])) : ""))
+    end
+    sort!(out; by = x -> x.label)
 end
 
 # --- the poll as a witness for the notifications ----------------------------

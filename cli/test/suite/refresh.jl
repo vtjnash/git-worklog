@@ -300,6 +300,84 @@ end
     end
 end
 
+@testset "a source the poll cannot get an answer from stands in the footer until it does" begin
+    # The launch poll runs before there is a frame and reports to nobody, so
+    # the one line of its report the reader has to act on - a lane that
+    # FAILED - is written down beside the stamp, and the footer reads it back
+    # as a standing note: ahead of a theme complaint, behind a logged error,
+    # and gone the moment the source answers.
+    E = W.Events
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml")
+    write(W.LOCAL[], "")
+    isfile(W.errlog()) && rm(W.errlog())
+    try
+        broken = Ref(true)
+        srcs = [(label = "o/r",
+                 fetch = since -> broken[] ? throw(E.ApiError("401 Bad credentials")) : [],
+                 overlap = E.OVERLAP_REST, row = (r, _) -> nothing),
+                (label = "p/q", fetch = since -> [], overlap = E.OVERLAP_REST,
+                 row = (r, _) -> nothing)]
+        at = W.DateTime(2026, 9, 17, 9, 0)
+        said = IOBuffer()
+        _, r = W.reporting(() -> E.sync!(srcs, at; now = () -> at, watched = () -> Set{String}()), said)
+        @test r.warnings == 1 && occursin("o/r", String(take!(said)))
+        # When, then why; the source that answered is not here.
+        fs = E.failing()
+        @test length(fs) == 1
+        @test fs[1].label == "o/r" && fs[1].since == "2026-09-17T09:00:00Z" &&
+              fs[1].why == "401 Bad credentials"
+        # The note: what to do first, GitHub's words last, where a cut at the
+        # edge takes the part that can run long.
+        note = W.failnote(fs, at + W.Minute(3))
+        @test startswith(note, "o/r: the poll FAILED 3m ago")
+        @test occursin("until it answers", note) && endswith(note, "401 Bad credentials")
+        @test W.standing_note(at, fs) == W.failnote(fs, at)
+        push!(W.THEME_NOTES, "no such colour")
+        try
+            @test W.standing_note(at, fs) == W.failnote(fs, at)      # ahead of the theme
+            @test W.standing_note(at, ()) == "theme: no such colour"
+        finally
+            pop!(W.THEME_NOTES)
+        end
+        W.logerror!(ErrorException("x"), backtrace(), "test")
+        @test occursin("delete it to clear", W.standing_note(at, fs))  # behind an error
+        rm(W.errlog())
+        # A second failing source is counted, not listed.
+        E.sync!([(label = "z/z", fetch = since -> throw(E.ApiError("500")),
+                  overlap = E.OVERLAP_REST, row = (r, _) -> nothing)],
+                at + W.Minute(1); now = () -> at, watched = () -> Set{String}())
+        fs2 = E.failing()
+        @test [f.label for f in fs2] == ["o/r", "z/z"]
+        @test occursin("(and 1 more)", W.failnote(fs2, at + W.Minute(1)))
+        # An entry from before the reason was kept is a stamp alone.
+        inbox = E.load_inbox()
+        inbox["failed"]["old/one"] = "2026-09-16T00:00:00Z"
+        E.save_inbox(inbox)
+        old = only(f for f in E.failing() if f.label == "old/one")
+        @test old.why == "" && old.since == "2026-09-16T00:00:00Z"
+        @test !occursin("\u00b7", W.failnote([old], at))
+        # The browser holds the table as the item list was built, and takes
+        # it again when `fetched.json` lands - not at every frame.
+        st = W.BState(W.Item[], "worklog")
+        @test [f.label for f in st.failing] == ["o/r", "old/one", "z/z"]
+        @test occursin("the poll FAILED", W.render(st, 120, 40))
+        # The next answer clears the source, and the reload carries that in.
+        broken[] = false
+        E.sync!(srcs, at + W.Minute(5); now = () -> at, watched = () -> Set{String}())
+        @test [f.label for f in E.failing()] == ["old/one", "z/z"]
+        @test [f.label for f in st.failing] == ["o/r", "old/one", "z/z"]   # not yet
+        st.factsat = 0.0; st.reload = true
+        @test W.reload_data!(st)
+        @test [f.label for f in st.failing] == ["old/one", "z/z"]
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm
+        isfile(W.errlog()) && rm(W.errlog())
+    end
+end
+
 @testset "the corpus is asked by url when a clock says it moved" begin
     # The open work is searched for whole; everything else is kept as it was
     # until the notifications source or the repo poll says it moved, and then

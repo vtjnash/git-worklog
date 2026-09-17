@@ -575,11 +575,33 @@ errnote() = isfile(errlog()) ?
     string("errors logged in ", basename(errlog()), " \u2014 read it, then delete it to clear this") : ""
 
 """What stands in the footer until it is dealt with: a logged error, else a
-theme that did not load as written. Both are things the reader has to act on
-and neither happens again by itself, which is what makes them the footer's
-rather than the status row's."""
-standing_note() = (e = errnote(); !isempty(e) ? e :
-                   isempty(THEME_NOTES) ? "" : string("theme: ", first(THEME_NOTES)))
+source the poll cannot get an answer from, else a theme that did not load as
+written. All three are things the reader has to act on and none happens
+again by itself, which is what makes them the footer's rather than the
+status row's."""
+standing_note(at::DateTime = utcnow(), failing = ()) = (e = errnote(); !isempty(e) ? e :
+                   (f = failnote(failing, at); !isempty(f) ? f :
+                    isempty(THEME_NOTES) ? "" : string("theme: ", first(THEME_NOTES))))
+
+"""The first source whose last poll failed, and how many more there are.
+
+`failing` is the inbox's `failed` table as `Events.failing` reads it, held on
+the browser's state (`BState.failing`) and taken again when `fetched.json`
+lands, not read from the file at every frame. The table is where the poll
+writes the one line of its report the reader has to act on - so the launch
+poll, which runs before there is a frame and reports to nobody, is said here
+all the same, and `u`'s is said twice, here and in `refresh.log`. What to do
+comes before what GitHub said, since the row is cut at the edge and the
+message is the part that can run long. Clears itself: the next poll that
+gets an answer from the source deletes the entry.
+"""
+function failnote(fs, at::DateTime)
+    isempty(fs) && return ""
+    f = first(fs)
+    string(f.label, ": the poll FAILED ", ago_str(f.since, at),
+           length(fs) > 1 ? string(" (and ", length(fs) - 1, " more)") : "",
+           " \u2014 stands until it answers", isempty(f.why) ? "" : string(" \u00b7 ", f.why))
+end
 
 """One frame as the bytes the terminal is sent, in one write.
 

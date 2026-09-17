@@ -239,7 +239,8 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # `oneline` is not belt and braces: a status set from an exception carries
     # whatever newlines `showerror` put in it, and one of those in a one-row
     # field makes the frame taller than the screen.
-    msg = oneline(isempty(standing_note()) ? st.status : standing_note())
+    note = standing_note(at, st.failing)
+    msg = oneline(isempty(note) ? st.status : note)
     foot1 = string(THEME.dim, afit(keys1, w), THEME.reset)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
