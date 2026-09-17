@@ -185,9 +185,29 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       which need homes first, or whether it is the names alone; and
       whether "done and next" (`]`) is wanted at all, given `r` in the
       base list already advances the cursor by removing the row.
-- [ ] **Undo in the composer.** `^_`/`^x^u` are unbound; the answer has been
-      `⌥e`. Weak for the `^w` you did not mean. Needs a snapshot stack and a
-      rule for what one step is.
+- [ ] **Undo in the composer** - scoped 2026-09-17, **deferred**: `⌥e` is
+      the answer for anything past a paragraph, and this is the first thing
+      past one. Weak for the `^w` you did not mean; do it when that bites.
+      The scope, so it is not designed twice:
+      - In `TextBuffer`, not the widget: a snapshot is `(lines, row, col)` -
+        one vector copy, the strings being immutable - pushed by each
+        mutating operation before it acts, capped at a couple hundred.
+        `undo!` pops one. No redo, and an undo is not itself recorded, so
+        `^_^_^_` walks straight back; readline has no redo either.
+      - One step, by the rule `killing` already uses for the kill buffer,
+        turned around - the buffer remembers the kind of the last operation
+        and an operation pushes unless it continues a run: typed characters
+        are one step **broken at a word boundary** (a space or newline after
+        a non-space starts a new one, so undo takes back a word at a time);
+        a run of backspaces likewise; every kill, `^y`, `^t`, `^d`, `↵`, a
+        `^r` block and an `⌥e` round trip is its own step; any motion ends a
+        run without pushing. So `^_` after `^w` gives the word back exactly.
+      - `^_` alone (byte 31, what `^/` sends too), in both widgets. Not
+        `^x^u`: the host binds `^x` to cycling the composer's target
+        (`controller.jl`) and the widget sees keys first.
+      - ~40 lines in `buffer.jl`, two per `handle!`, the README row's ✅, a
+        testset driving the sequences above. A `TermInput.jl` commit plus
+        the pointer bump here.
 - [ ] **`TermInput` and Term's `InputBox`** are not the same widget:
       `InputBox` appends keystrokes with no cursor, because `readkey` cannot
       tell Left from Escape-`[`-`D`. Unifying wants, in order: a decoder good
