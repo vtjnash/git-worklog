@@ -197,3 +197,18 @@ end
     ls = split(W.render(p, 90, 24), "\n")
     @test length(ls) == 24 && all(W.awidth(l) == 90 for l in ls)
 end
+
+@testset "a frame is one write, cursor hidden first and shown last" begin
+    b = String(W.frame_bytes("ab\ncd", "", (2, 1)))
+    # Held by the terminal until the closing sequence, drawn with the cursor
+    # hidden, and the cursor put where the view said and shown only then.
+    @test startswith(b, "\e[?2026h\e[?25l\e[H")
+    @test endswith(b, "\e[J\e[2;1H\e[?25h\e[?2026l")
+    @test occursin("ab\e[K\ncd\e[J", b)                  # rows cleared to the end
+    # No cursor to show: it stays hidden, and nothing moves it.
+    n = String(W.frame_bytes("ab", "", nothing))
+    @test endswith(n, "\e[J\e[?2026l") && !occursin("?25h", n)
+    # The title goes after the frame and before the caret, inside the hold.
+    t = String(W.frame_bytes("x", "\e]2;wl o/r#1\e\\", (1, 1)))
+    @test occursin("\e[J\e]2;wl o/r#1\e\\\e[1;1H\e[?25h", t)
+end

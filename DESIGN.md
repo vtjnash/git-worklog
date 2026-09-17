@@ -672,6 +672,12 @@ Each of the following returns success and the wrong answer:
   `oneline`.
 - `capture-pane` says nothing about the cursor; `viewcursor` puts the
   terminal's where the child's is.
+- **A frame is one write** (`frame_bytes`): cursor hidden, home, the rows,
+  the title, the caret and then the cursor shown, inside a synchronized
+  output hold (`?2026`) that a terminal which knows it draws once. A
+  `TTY` is unbuffered, so `print` with three arguments was three writes,
+  and the cursor shown at the end of one frame was at the top left for
+  the start of the next.
 - **A hyperlink is not somewhere to write another one.** `linkify` runs on
   the finished frame; a url inside a comment header's OSC 8 payload
   terminated it early and the row came out 224 columns wide. It cuts the

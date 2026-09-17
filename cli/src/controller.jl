@@ -560,6 +560,39 @@ rather than the status row's."""
 standing_note() = (e = errnote(); !isempty(e) ? e :
                    isempty(THEME_NOTES) ? "" : string("theme: ", first(THEME_NOTES)))
 
+"""One frame as the bytes the terminal is sent, in one write.
+
+Three things about the write, none of them about what is in the frame:
+
+  * **One write.** `print(a, b, c)` on a `TTY` is a write per argument, and the
+    frame, the title and the cursor were three of those; between any two the
+    terminal may draw. A `TTY` is unbuffered - `buffer_writes` is off on
+    `stdout` - so the buffer is made here and handed over whole.
+  * **The cursor is hidden before `\e[H` and shown after the frame.** Shown
+    at the end of one frame, it was still shown at the start of the next,
+    and a terminal that drew between the home and the caret's row showed it
+    at the top left on the way.
+  * **Synchronized output**, DEC private mode 2026, around the whole thing:
+    a terminal that knows it (kitty, wezterm, foot, alacritty, iTerm2,
+    Windows Terminal, tmux 3.4 and up in its panes) holds the frame
+    until the closing sequence and draws it once, which is the end of a
+    torn frame at any size; one that does not ignores an unknown mode,
+    which is what the standard says to do. Nothing on this side can hold the
+    terminal otherwise: a pty is four kilobytes on Linux, so a frame is
+    several reads however it was written.
+
+`\e[K` on every row and `\e[J` at the end rather than a clear first: a clear
+is a blank frame the terminal may draw, which is a flicker on every key.
+"""
+function frame_bytes(frame::AbstractString, title::AbstractString,
+                     cur::Union{Nothing,Tuple{Int,Int}})
+    io = IOBuffer()
+    print(io, "\e[?2026h\e[?25l\e[H", replace(frame, "\n" => "\e[K\n"), "\e[J", title)
+    cur === nothing || print(io, "\e[", cur[1], ";", cur[2], "H\e[?25h")
+    print(io, "\e[?2026l")
+    take!(io)
+end
+
 """
     run!(ctrl, root)
 
@@ -618,22 +651,21 @@ function run!(ctrl::Controller, root::View)
             v = last(ctrl.stack)
             if dirty
                 h, w = displaysize(stdout)
-                print("\e[H", replace(safe_render(v, w, h), "\n" => "\e[K\n"), "\e[J")
                 # The title bar follows the selection: `wl JuliaLang/julia#1`
-                # while that is the item, `wl` on the import row. After the
-                # frame and only on a change, since a terminal redraws its
-                # tab for every OSC 2 it is sent.
+                # while that is the item, `wl` on the import row. Only on a
+                # change, since a terminal redraws its tab for every OSC 2 it
+                # is sent.
                 t = stacktitle(ctrl.stack)
-                t == ctrl.title || (ctrl.title = t; print("\e]2;", t, "\e\\"))
-                # After the frame, or drawing it would move the cursor again.
+                title = t == ctrl.title ? "" : (ctrl.title = t; string("\e]2;", t, "\e\\"))
+                # Asked after the frame is rendered, since rendering is what
+                # decides where a composer's caret is.
                 cur = try
                     viewcursor(v, w, h)
                 catch e
                     logerror!(e, catch_backtrace(), "viewcursor")
                     nothing
                 end
-                print(cur === nothing ? "\e[?25l" :
-                      string("\e[", cur[1], ";", cur[2], "H\e[?25h"))
+                write(stdout, frame_bytes(safe_render(v, w, h), title, cur))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
