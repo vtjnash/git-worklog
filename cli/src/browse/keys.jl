@@ -501,9 +501,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
             # And folded: a row said unread by hand whose movement is still
             # under its source's floor goes back to saying nothing, since
-            # the floor answers - unless it is filed, which stamps as `x`
-            # does (`held_by`). The head is recorded either way.
-            haskey(st.archived, it.url) || (upto = folded(upto, floor_of(it, st.sources)))
+            # the floor answers - unless it is filed or still snoozed,
+            # which stamp as `x` and `s` do (`held_by`): a snoozed row that
+            # moved is unread, and folded, its wake would count from
+            # nothing. A woken one is over below. The head is recorded
+            # either way.
+            held = haskey(st.archived, it.url) || (haskey(st.wakes, it.url) && !woke)
+            held || (upto = folded(upto, floor_of(it, st.sources)))
             set_read_mark(it.url, upto, it.head; fold = true)
             woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
         else

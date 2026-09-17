@@ -1234,6 +1234,16 @@ end
         W.set_read(U(2), ""); st.read = W.field_marks(W.load_marks(), "read")
         W.handle!(st, Int('r'), ctrl, at)              # filed: stamped, not folded
         @test W.read_at(U(2)) == day(9) && W.read_head(U(2)) == "beef"
+        # And on a snoozed row that moved under its wake: the span counts
+        # from the stamp, so a fold would have been the end of the snooze.
+        W.set_read(U(3), day(8)); W.set_fields(U(3), ["snooze" => "30d"])
+        st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(3))]); head = "cafe")], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
+        @test W.seen_of(st.items[1], W.Marks(st)) === :unread
+        W.handle!(st, Int('r'), ctrl, at)
+        @test W.read_at(U(3)) == day(9) && W.get_field(U(3), "snooze") == "30d"
+        @test haskey(W.wake_map(), U(3))
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.CACHE_DIR[] = keepdir
     end
