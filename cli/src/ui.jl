@@ -251,10 +251,22 @@ same fact twice - deliberately, and left that way: the row is what `normalize`,
 item it is. Threading the key through all of them to save a hundred bytes a row
 would put the identity of an item somewhere other than in the item.
 """
-function loaditems()
-    its = fetched("items")
+function loaditems(its = fetched("items"))
     its === nothing && die("nothing fetched yet — run `wl refresh` first")
     [item_of(bundled(String(u), r)) for (u, r) in pairs(its)]
+end
+
+"""The corpus when one has been fetched, or `nothing`.
+
+For the callers that have rows from somewhere else - the inbox, the checkouts,
+an import - and can carry on without: `nothing fetched yet` is the answer for
+a command that has nowhere else to look, not for a browser already open on a
+list. And `nothing` rather than `Item[]`, because a corpus of no rows and no
+corpus are not the same thing to a reload (`reload_data!`).
+"""
+function fetched_items()
+    its = fetched("items")
+    its === nothing ? nothing : loaditems(its)
 end
 
 """The GitHub login from `config.toml`, read once.
@@ -596,7 +608,7 @@ end
 
 "The corpus and the light rows, as items: what the seen bit is asked over."
 function corpus_items(rows = values(Events.load_inbox()["items"]))
-    items = fetched("items") === nothing ? Item[] : loaditems()
+    items = something(fetched_items(), Item[])
     append!(items, inbox_items(Set(x.url for x in items), rows))
 end
 

@@ -94,6 +94,33 @@ end
     end
 end
 
+@testset "a file with no items yet keeps the rows on screen" begin
+    # A refresh landing in a wiped `fetched.json` writes `inbox` first, from
+    # its poll, and `items` last - and on 2026-09-17 the browser read the file
+    # between the two, died in `loaditems` and stood the error in the footer
+    # over a list it had the whole time.
+    st = mkstate()
+    n = length(st.all)
+    keep = W.FETCHED[]
+    isfile(W.errlog()) && rm(W.errlog())
+    try
+        W.FETCHED[] = joinpath(mktempdir(), "fetched.json")
+        W.put_fetched!("inbox", Dict{String,Any}("items" => Dict{String,Any}()))
+        delete!(W.OURS, abspath(W.FETCHED[]))
+        st.factsat, st.reload = 0.0, true
+        @test W.reload_data!(st) === true
+        @test length(st.all) == n                # nothing replaced them
+        @test !isfile(W.errlog())                # and nothing was wrong
+        # A corpus of no rows is a corpus, and does replace them.
+        W.put_fetched!("items", Dict{String,Any}())
+        st.factsat, st.reload = 0.0, true
+        @test W.reload_data!(st) === true
+        @test isempty(st.all)
+    finally
+        W.FETCHED[] = keep
+    end
+end
+
 @testset "the watch is on the directory, and only wakes for what is read" begin
     # A watch rather than a poll: this directory changes a few times an hour,
     # and polling it would be a wakeup a second for the life of the session.

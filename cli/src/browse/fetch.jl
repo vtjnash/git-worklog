@@ -566,6 +566,13 @@ Rows that came from the unread poll rather than from a lane are carried
 across: they are the threads that are unread and untracked, this process asked
 GitHub for them at startup, and a refresh that does not mention them is not
 evidence that they are gone.
+
+A file with no `items` in it is not a corpus of none: it is a refresh landing
+in a file that was wiped - its inbox poll writes `inbox` alone, and `items`
+comes with the `save_fetched` at its end - which on 2026-09-17 stood in the
+footer as `nothing fetched yet`, logged by a browser that had a list on screen
+the whole time. The rows it has stand until the refresh has said what replaces
+them. A corpus of no rows, `items = {}`, does replace them: the file said so.
 """
 function reload_data!(st::BState)
     st.reload || return false
@@ -575,12 +582,13 @@ function reload_data!(st::BState)
     if m != st.factsat && isfile(facts)
         st.factsat = m
         fresh = try
-            vcat(loaditems(), local_items())
+            its = fetched_items()
+            its === nothing ? nothing : vcat(its, local_items())
         catch e
             logerror!(e, catch_backtrace(), "reload_data!")
-            Item[]
+            nothing
         end
-        if !isempty(fresh)
+        if fresh !== nothing
             # The rows the clocks know and the corpus does not, rebuilt the
             # way launch builds them rather than kept by hand off a set the
             # poll wrote once: a light row the refresh has since brought in

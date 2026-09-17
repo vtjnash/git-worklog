@@ -100,7 +100,7 @@ function import_urls(urls::Vector{String}, at::DateTime)
     # What is already carried needs no request: an old issue in a tracked repo
     # or a pull request of yours somewhere else is usually fetched already
     # already, and importing it means "unread again", not "fetch it again".
-    known = Dict(x.url => x for x in (fetched("items") === nothing ? Item[] : loaditems()))
+    known = Dict(x.url => x for x in something(fetched_items(), Item[]))
     fresh = [u for u in want if !haskey(known, u)]
     nodes = isempty(fresh) ? Any[] : fetch_urls(fresh)
     got = Dict(String(n.url) => n for n in nodes)
