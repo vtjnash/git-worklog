@@ -129,6 +129,13 @@ operation with `^x` and asks once before it sends; `⌥e` or `^o` opens
 **A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
 ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`.
+Its shell sees the ssh agent and the `code` of whichever login most recently
+launched `wl`, however old the pane: `SSH_AUTH_SOCK`, `VSCODE_IPC_HOOK_CLI`
+and `code` on `PATH` are links under `$XDG_RUNTIME_DIR/wl/`, re-pointed at
+launch from `wl`'s own environment when what it names still answers - never
+found by searching, since the newest socket on the machine is not
+necessarily yours. When nothing answers, the status line says `no live ssh
+agent` as the pane opens.
 
 **The mouse** selects rows (drag), moves the cursor (click), folds (click a
 marker), scrolls the pane under it. A click on a url copies it; a double click
@@ -227,6 +234,7 @@ to the 256-colour cube.
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
+| `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Gone with the last login, like what they point at |
 
 `data/` is a git repository of its own, so your record has a history without
 cluttering the code's. Nothing commits automatically. `WORKLOG_DATA` points it

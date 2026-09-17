@@ -112,31 +112,6 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
 
 ## To design before starting
 
-- [ ] **The pane's shell should see this login's `code` and ssh agent, and
-      keep seeing the current ones.** `t`/`T` run in a tmux session under a
-      server `wl` starts once (`mux_cmd`, `new-session` with `standalone`,
-      which only *scrubs* `CLAUDE*`). The server keeps the environment it
-      was started with and hands a copy to every later session, so a pane
-      opened tonight carries the `SSH_AUTH_SOCK`, `SSH_CONNECTION`,
-      `VSCODE_IPC_HOOK_CLI` and `VSCODE_GIT_ASKPASS_*` of whichever ssh
-      login started the server - dead sockets once that login has gone, so
-      `code <file>` and `git push` in the pane fail where they work in the
-      terminal beside it. Investigate, in order: (1) what is actually in
-      the pane's environment today, from a real ssh session and after a
-      reconnect; (2) whether the values can be refreshed from the *current*
-      session - tmux's `update-environment` list is applied on attach, and
-      our client is control-mode over a socket, so check whether
-      `mux_sync!`'s attach counts, and otherwise `set-environment` per
-      session plus a `PROMPT_COMMAND`/`precmd` hook that re-reads
-      `show-environment` before each command, which is the usual trick;
-      (3) whether the answer is an intermediate that does not move - a
-      stable path such as `~/.ssh/agent.sock` re-pointed by every login
-      (the classic symlink), and a `code` shim that finds the newest
-      `VSCODE_IPC_HOOK_CLI` socket - so the values in the pane are constant
-      and only what they point at changes, with `wl` doing the re-pointing
-      on launch (a "special magic" per variable rather than a passthrough).
-      Decide which, and what a pane says when the login that owns the
-      forward has gone. Needs a real terminal and a real ssh session.
 - [ ] **A comment box drawn inline, between the diff lines it is about.** The
       rest of that idea is done - threads hang off their hunk, the line is
       marked `💬`, `n`/`N` walks them. A hunk is one node whose body is the
@@ -307,6 +282,15 @@ through a TTY. Strike through rather than delete when one answers.
       title-bar row settles copy-mode scrolling.
 - [ ] `⌥e`/`^o` launching `$EDITOR` from inside the browser; `e` (`code` is
       not on the sandbox's `PATH`).
+- [ ] The forwards, across a reconnect: a pane opened from one VS Code
+      window, the window reconnected (new `vscode-ssh-auth-sock-*` and
+      `vscode-ipc-*.sock`, the old files left behind), then `git push` and
+      `code <file>` in the old pane after a fresh `wl` from the new
+      connection has re-pointed the links; and the `no live ssh agent`
+      suffix from a pane key in a `wl` whose own login has reconnected
+      under it. The re-pointing and the handover are tested on listeners
+      of our own and the bundled tmux; a real forwarded agent has not been
+      connected to.
 - [ ] `u` end to end: the browser staying live through the refresh's walk
       over the corpus (a ~100 ms hitch at the write is expected; a hang is
       not), and the status line off the report when it lands.
@@ -396,3 +380,9 @@ Panes:
 - [ ] A pane once reported `session ended` with an empty frame (2026-09-02,
       scripted launch). The wake-channel theory was tested and is wrong (11
       of 64 slots). Not recurred.
+
+
+# More features to plan:
+
+- Highlight if the merge target branch isn't the default branch on github UI (usually main or master, but for libuv it is v1.x).
+

@@ -8,7 +8,7 @@
 #
 #     julia --project=cli cli/test/runtests.jl
 
-using Test
+using Test, Sockets
 using Worklog
 # By name where a test asks Term what this program told it - the two palettes
 # under `[term]` and `[code]` in a theme file are Term's globals, not ours.
@@ -58,6 +58,9 @@ let d = mktempdir()
     W.LOCAL[] = joinpath(d, "local.toml")
     write(W.LOCAL[], "")
     W.CACHE_DIR[] = joinpath(d, "cache")
+    # And the socket links, which would otherwise be re-pointed under
+    # `/run/user` by a test of the re-pointing.
+    W.RUN_DIR[] = joinpath(d, "run")
 end
 # Where the testsets that point `LOCAL` at a temp file put it back, since ""
 # would mean the user's own file again.

@@ -15,6 +15,8 @@ index of the rest:
   * `refresh.jl` the facts the tags are made of, the wake table, and the
                  snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
+  * `forwards.jl` the ssh agent and `code` of the newest login, at paths a
+                 pane can be handed once
   * `fetched.jl` one half of `data/`: everything GitHub can answer again
   * `state.jl`   the other half: the comment-preserving line editor for
                  `local.toml`, which holds every block anything here writes
@@ -42,7 +44,7 @@ done to it - it is worth a history, and it is small enough to read one.
 """
 module Worklog
 
-using Dates, Printf, SHA, TOML
+using Dates, Printf, SHA, Sockets, TOML
 import FileWatching
 using JSON3, OrderedCollections
 using TermIFrame
@@ -96,6 +98,7 @@ include("marks.jl")
 include("fetched.jl")
 include("cache.jl")
 include("repos.jl")
+include("forwards.jl")
 include("ci.jl")
 include("gh.jl")
 include("events.jl")

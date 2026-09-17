@@ -543,6 +543,13 @@ function ui(args = String[], at::DateTime = utcnow())
     # the launch poll, a fetch's retries, an import - has the status row for
     # what just happened and `logerror!` for what must be kept.
     REPORT[] = Report(devnull)
+    # The panes already running were handed links, not sockets; this login is
+    # the newest, and what its links point at is what they should now see.
+    try
+        forwards!()
+    catch e
+        logerror!(e, catch_backtrace(), "forwards")
+    end
     cfg = config()
     cc = get(cfg, "cache", Dict{String,Any}())
     # `detail_ttl_minutes` is the older name for the same number, from when it

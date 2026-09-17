@@ -138,3 +138,85 @@ end
         W.mux_kill(n)
     end
 end
+
+@testset "what a pane keeps seeing: the forwards" begin
+    # A pane is handed links, and the links are re-pointed at what this login
+    # has when that is live - from its environment, never from a search of
+    # `/run/user` or `/tmp`, whose newest socket is some session's and not
+    # necessarily this one's. `RUN_DIR` is the suite's temp directory, and
+    # every socket here is a listener of our own: liveness is a connection,
+    # not a file.
+    run = W.rundir()
+    rt = mktempdir()
+    link = joinpath(run, "agent.sock")
+    a = joinpath(rt, "own.sock"); la = Sockets.listen(a)
+    withenv("SSH_AUTH_SOCK" => a, "VSCODE_IPC_HOOK_CLI" => nothing, "PATH" => "") do
+        # This process's own, live: the link is made and handed over.
+        fw = W.forwards!()
+        @test islink(link) && readlink(link) == a
+        @test ("SSH_AUTH_SOCK" => link) in fw.env
+        @test isempty(fw.gone)
+        # Nothing was ever forwarded for VS Code or `code`, so neither is
+        # handed over: a pane on a machine without them keeps what it has.
+        @test !any(p -> p.first in ("VSCODE_IPC_HOOK_CLI", "PATH"), fw.env)
+
+        # Another login's, also live: preferred over a link that still works,
+        # since the login that just ran `wl` is the one that will outlast it.
+        b = joinpath(rt, "other.sock"); lb = Sockets.listen(b)
+        withenv("SSH_AUTH_SOCK" => b) do
+            @test isempty(W.forwards!().gone)
+        end
+        @test readlink(link) == b
+
+        # A login whose forward has died - the file stays, nothing listens -
+        # does not move a link that still works.
+        close(la)
+        @test isempty(W.forwards!().gone)
+        @test readlink(link) == b
+
+        # Nothing live anywhere: the link is left alone, still handed over -
+        # its value is the path - and the pane key is told. A stale socket in
+        # the runtime directory is not looked for.
+        close(lb)
+        c = joinpath(rt, "vscode-ssh-auth-sock-3"); lc = Sockets.listen(c)
+        withenv("XDG_RUNTIME_DIR" => rt) do
+            fw = W.forwards!()
+            @test readlink(link) == b
+            @test ("SSH_AUTH_SOCK" => link) in fw.env
+            @test fw.gone == ["ssh agent"]
+            @test W.gone_suffix(fw.gone) == " \u00b7 no live ssh agent"
+        end
+
+        # The classic rc trick - a value that is itself a link - is followed to
+        # the socket; and a value that is *this* link cannot loop it.
+        mine = joinpath(rt, "mine"); symlink(c, mine)
+        withenv("SSH_AUTH_SOCK" => mine) do
+            @test isempty(W.forwards!().gone)
+            @test readlink(link) == c
+        end
+        withenv("SSH_AUTH_SOCK" => link) do
+            @test isempty(W.forwards!().gone)
+            @test readlink(link) == c
+        end
+        close(lc)
+
+        # `code`: a link in the pane's `PATH`, in front of this process's, and
+        # the socket its command line reaches the server through.
+        bin = joinpath(rt, "codebin"); mkpath(bin)
+        code = joinpath(bin, "code"); write(code, "#!/bin/sh\n"); chmod(code, 0o755)
+        ipc = joinpath(rt, "vscode-ipc-1.sock"); li = Sockets.listen(ipc)
+        withenv("PATH" => bin, "VSCODE_IPC_HOOK_CLI" => ipc) do
+            fw = W.forwards!()
+            @test readlink(joinpath(run, "bin", "code")) == code
+            @test readlink(joinpath(run, "vscode-ipc.sock")) == ipc
+            @test ("PATH" => string(joinpath(run, "bin"), ":", bin)) in fw.env
+            @test ("VSCODE_IPC_HOOK_CLI" => joinpath(run, "vscode-ipc.sock")) in fw.env
+        end
+        close(li)
+        rm(code)
+        # All three gone, said in the order they are listed.
+        withenv("PATH" => bin, "VSCODE_IPC_HOOK_CLI" => ipc) do
+            @test W.forwards!().gone == ["ssh agent", "VS Code", "code"]
+        end
+    end
+end

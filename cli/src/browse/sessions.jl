@@ -9,7 +9,14 @@ most likely to have been working in; otherwise falls back to the main checkout.
 function open_editor(it::Item)
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
-    Sys.which("code") === nothing && return "`code` is not on PATH"
+    # The same `code` and the same socket a pane is handed, for the same
+    # reason: this process's own are only as fresh as its launch, and a
+    # reconnect since then left them pointing at nothing.
+    fw = forwards!()
+    "VS Code" in fw.gone && return "no live VS Code to open it in"
+    code = joinpath(rundir(), "bin", "code")
+    (islink(code) && !("code" in fw.gone)) || (code = something(Sys.which("code"), ""))
+    isempty(code) && return "`code` is not on PATH"
     branch = pr_branch(it)
     target = repo
     for w in worktrees(repo)
@@ -19,7 +26,8 @@ function open_editor(it::Item)
         end
     end
     try
-        run(pipeline(`code $target`; stdout = devnull, stderr = devnull); wait = false)
+        run(pipeline(addenv(`$code $target`, fw.env...); stdout = devnull, stderr = devnull);
+            wait = false)
     catch e
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
@@ -68,7 +76,8 @@ function edit_note(st::BState, it::Item, ctrl)
         # holds the note as it was when the key was pressed, so an editor left
         # over from a previous `v` would be writing into a stale copy.
         mux_kill(name)
-        ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)))
+        fw = forwards!()
+        ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)); set = fw.env)
         ok || return err
         mux_tag!(name; worktree = target, kind = :note, item = it.ref)
         v = pane_view(name, string("note  ", it.ref), ctrl; onend = finish)
@@ -83,7 +92,7 @@ function edit_note(st::BState, it::Item, ctrl)
         end
         pane_sync!(v)
         push_place!(ctrl, v)
-        return "editing the note — it is saved when the editor exits"
+        return "editing the note — it is saved when the editor exits" * gone_suffix(fw.gone)
     end
 
     # No multiplexer: hand over the whole terminal, which is what this did
@@ -196,8 +205,12 @@ function enter_session(target::AbstractString, branch::AbstractString,
         return string("already in ", found.name)
     end
     name = mux_name(basename(rstrip(String(target), '/')), branch, num; kind = kind)
+    # Re-pointed whether the session is new or resumed: a resumed one was
+    # handed the links at its start, and this is what puts a live socket under
+    # them. What is handed over is for the new one.
+    fw = forwards!()
     if found === nothing
-        ok, err = mux_start(name, target, mkcmd(target, branch))
+        ok, err = mux_start(name, target, mkcmd(target, branch); set = fw.env)
         ok || return err
     else
         mux_rename(found.name, name)
@@ -207,7 +220,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
     push_place!(ctrl, v)
-    if found === nothing
+    said = if found === nothing
         string("started ", name)
     elseif !isempty(found.item) && !isempty(ref) && found.item != ref
         # Not a refusal - the session is yours to redirect - but the
@@ -217,6 +230,8 @@ function enter_session(target::AbstractString, branch::AbstractString,
     else
         string("back in ", name)
     end
+    # And what the pane will not find, said now rather than by `git push`.
+    said * gone_suffix(fw.gone)
 end
 
 """The same, for an item: its worktree is where its session lives.

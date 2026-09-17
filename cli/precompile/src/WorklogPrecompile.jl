@@ -83,6 +83,7 @@ function hermetic(f)
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.LOCAL[] = joinpath(d, "local.toml")
         Worklog.FETCHED[] = joinpath(d, "fetched.json")
+        Worklog.RUN_DIR[] = joinpath(d, "run")
         redirect_stdout(devnull) do
             f()
         end
@@ -94,6 +95,7 @@ function hermetic(f)
         Worklog.CACHE_DIR[] = ""
         Worklog.LOCAL[] = ""
         Worklog.FETCHED[] = ""
+        Worklog.RUN_DIR[] = ""
         rm(d; recursive = true, force = true)
     end
 end

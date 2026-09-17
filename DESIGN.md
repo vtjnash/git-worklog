@@ -651,6 +651,19 @@ Each of the following returns success and the wrong answer:
   lost from the grid. It does arrive in `%output`; `passthrough` relays that
   one and nothing else.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
+- **The server's environment is the first login's, forever.** Every session
+  gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
+  `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane
+  carried one login's agent socket and another's `SSH_CLIENT`, `PATH` and
+  no `VSCODE_*` (a real ssh session, 2026-09-17; reproduced on the bundled
+  binary). A control-mode attach refreshes the *session* environment too,
+  which reaches nothing already running. `forwards.jl`: the pane is handed
+  links under `$XDG_RUNTIME_DIR/wl/` through `standalone`'s `set`, and every
+  launch re-points them at this login's values when those are live - a
+  connection, since the socket file outlives its listener - and otherwise
+  leaves them. `PATH` is the launching login's with the link directory
+  in front, not the pane's with it in front: `$PATH` reads differently in
+  `fish` than in `sh`, and the command runs through whichever the server has.
 
 ### The terminal
 
@@ -745,6 +758,15 @@ Each of the following returns success and the wrong answer:
 - **The mouse is owned**, `m` gives it back.
 - **`Term.jl/` beside this checkout is ignored, not a submodule**; Term comes
   from the registry.
+- **A pane's environment is paths that do not move, not a passthrough.**
+  Only a shell could re-read the session environment, and only with a hook
+  in the user's rc; the agent in a `T` pane and the editor in a `v` pane
+  never would. Three forwards, each one link: the ssh agent, VS Code's
+  socket, `code`. Not `SSH_CONNECTION`, `DISPLAY` or the askpass variables -
+  nothing in a pane has needed them. **And from `wl`'s own environment or
+  not at all**: the newest `vscode-ipc-*.sock` or `/tmp/ssh-*/agent.*` on
+  the machine is some session's, and a search would hand a pane another
+  window's `code` or another login's keys.
 
 ## Conventions
 
