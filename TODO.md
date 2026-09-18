@@ -275,8 +275,8 @@ through a TTY. Strike through rather than delete when one answers.
 Reviewing and writing:
 - [ ] `C` on an issue comment writes a new comment rather than replying
       (matches GitHub; surprises).
-- [ ] `deadline`, `blocked`, `why` and `track` are `wl set`/`wl track` only;
-      the browser wants one key opening a picker of the four, the way `'`
+- [ ] `deadline`, `blocked` and `track` are `wl set`/`wl track` only;
+      the browser wants one key opening a picker of the three, the way `'`
       opens views, then the line prompt each already has. Not a cursor on
       the pane (DESIGN's decisions). Also not there: opening the check under
       the eye.

@@ -881,7 +881,7 @@ Each of the following returns success and the wrong answer:
   on `tab` that every composer beside the diff then has to step over, and
   at the end of it two more GitHub mutations for assignee and reviewer. The
   fields that can change from here already have keys - `L`, `s`, `v` - and
-  the four that cannot (`deadline`, `blocked`, `why`, `track`) want one key
+  the three that cannot (`deadline`, `blocked`, `track`) want one key
   and a picker, the way `'` opens views, not a cursor on the pane.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
