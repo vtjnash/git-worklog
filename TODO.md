@@ -3,6 +3,39 @@
 What is open. Anything shipped is in `git log`; why things are shaped as they
 are is in DESIGN.md.
 
+## Asked for, 2026-09-18
+
+- [ ] **The last refresh on the title bar, top right**: when the corpus
+      was last fetched (`fetched_at` in `fetched.json`, GitHub's time),
+      absolute and relative the way every other stamp is drawn
+      (`when_str(s, at)`), and `refreshing …` in its place while `u`'s
+      refresh runs. The status row says it once and is gone at the next key;
+      the bar is where a standing fact goes.
+- [ ] **`why` under `local`, and one word for what moved.** Today `why` is
+      the thread's reason ("you were mentioned") beside `lane`, and nothing
+      on the pane says *what* made the row unread. Wanted: `why  unread:
+      comment` - one of `comment`, `pushed`, `reviewed`, `review requested`,
+      `assigned`, `closed`/`merged`/`reopened`, `CI failed`, `new`, `woke`
+      - read off the wake-table key that last moved `moved_at`
+      (`moved_stamp` knows it and throws it away; keep it on the row as
+      `moved_by`), and `read` when it is. The thread's reason stays, dim,
+      after it.
+- [ ] **A stable order under a single-item refresh.** The bundle re-read
+      under the cursor (`collect_meta!` → `replace_item!` → `refilter!`)
+      re-sorts the whole list, so the row being read jumps when its `act`
+      moves. Keep the order the list was opened in while it is being read:
+      a row that changes stays where it is, one that arrives goes where the
+      order would put it, one that leaves leaves. Sort afresh only when a
+      new list is asked for - a view, a filter, `w`, a search, a jump, a
+      refresh landing.
+- [ ] **A tab is columns, not zero.** `textwidth('\t')` is 0, so a diff of a
+      Makefile - every recipe line begins with one - is measured narrower
+      than it draws, and the terminal's own expansion tears the row. Draw a
+      tab as the spaces to the next stop of eight, counted from the start
+      of the line as `git diff` on a terminal does, in what *prints* only:
+      `src` keeps the tab, so `y` copies one and `^r`'s suggestion carries
+      one.
+
 ## Blocked on GitHub - the notifications sync
 
 **Wanted**: the GitHub inbox and this program's read state kept in step,
