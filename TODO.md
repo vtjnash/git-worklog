@@ -3,34 +3,6 @@
 What is open. Anything shipped is in `git log`; why things are shaped as they
 are is in DESIGN.md.
 
-## Blocked on a token that can write
-
-**Every write is unexercised.** `post_comment`, `add_review_thread`,
-`submit_review`, `discard_pending`, the label toggle and `merge_pr` are
-written and none has ever been sent: the sandbox token is read-only. It is
-the only part of the program where a failure loses work. The shapes are from
-the docs and, for the four review mutations, introspected from the live
-schema; the read half (`review_state`) has run against the real API.
-
-`Events.pat()` already finds the `gho_` token with `repo` scope off the
-sandbox, which covers `issues: write` and `pull_requests: write` everywhere.
-**Route the writes through it**, then, in order:
-
-- [ ] `merge_pr`: the first thing to verify is that `expectedHeadOid` refuses
-      a stale head rather than merging over it. Then that the row rewritten as
-      merged reads correctly beside the refresh's own version when one lands.
-- [ ] a comment, a review comment on a range and on a deleted line (`LEFT`,
-      numbered against the base), a submitted and a discarded
-      draft review, a label toggle.
-- [ ] pushing this repository: `origin` is `vtjnash/git-worklog`, never pushed
-      to; needs a fine-grained PAT with `Contents: read/write`.
-
-The suite reaches GitHub in one place - `Events.server_now`, through the
-witness testset at `refresh.jl:1257` - so with no token that file errors
-and stops `runtests.jl` there; every other file runs (seen 2026-09-17, when
-the sandbox token expired overnight). Either hand that testset a clock, or
-accept that one line of the suite needs the network.
-
 ## Blocked on GitHub - the notifications sync
 
 **Wanted**: the GitHub inbox and this program's read state kept in step,
@@ -308,6 +280,15 @@ Reviewing and writing:
       opens views, then the line prompt each already has. Not a cursor on
       the pane (DESIGN's decisions). Also not there: opening the check under
       the eye.
+
+The writes, all tried against GitHub by 2026-09-18 and none wrong so far:
+- [ ] `C` on a deleted line - the one write that landed after the trial
+      (2026-09-17): a `LEFT` thread numbered against the base.
+- [ ] The suite reaches GitHub in one place - `Events.server_now`, through
+      the witness testset at `refresh.jl:1257` - so with no token that file
+      errors and stops `runtests.jl` there; every other file runs (seen
+      2026-09-17, when the sandbox token expired overnight). Either hand that
+      testset a clock, or accept that one line of the suite needs the network.
 
 The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl read
