@@ -513,16 +513,47 @@ Both halves of `-ic` are load-bearing, and each was got wrong once:
   foreground process group, so `#{pane_current_command}` still says `claude`
   and not `bash`.
 
+`--settings` names [`AGENT_SETTINGS`](@ref), and it goes on the alias's line
+rather than into the user's own settings: it is only wanted under a pane, and
+`claude` run from a terminal is not to ring a bell into it every turn.
+
 `[agent] command` in `data/config.toml` overrides the lot, and is the honest answer for anything this
 cannot guess - a wrapper script, a different agent, flags. An alias is a
 convenience for a person typing, and asking one program to read another
-program's interactive configuration is a long way round.
+program's interactive configuration is a long way round. It overrides the
+`--settings` too - the file is `claude`'s to read, and a different agent has no
+use for it - so a command that is still `claude` names it itself.
 """
 function agent_cmd()
     c = get(get(config(), "agent", Dict{String,Any}()), "command", "")
     isempty(c) || return String(c)
-    string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ", shquote("claude"))
+    string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ",
+           shquote(string("claude --settings ", shquote(AGENT_SETTINGS))))
 end
+
+"""What the agent in a pane is told to do at the end of every turn: ring.
+
+A pane's screen is read back as text, and a program that has stopped and one
+that is thinking look the same in it. `claude` has no flag that says which,
+but it has hooks, and `--settings` takes a file of them for one launch: the
+`Stop` hook fires as the turn ends, and a permission prompt is the other way a
+turn stops on you. Each rings the terminal bell, which tmux keeps as the
+window's bell flag until somebody attaches - a seen bit the server holds, that
+[`mux_list`](@ref) reads back as `bell` and the worktree list draws. No socket,
+no listener, nothing for the hook to find: the pane it is in is the whole of
+the channel.
+
+The hook runs under `/bin/sh` in a session of its own, with no controlling
+terminal - `/dev/tty` is `No such device or address` (measured, 2.1.277) - so
+it asks `ps` for its parent's, which is `claude`'s, which is the pane's.
+`ps -o tty= -p` is the one spelling BSD and procps share; `pts/1` and
+`ttys001` are both under `/dev`, and `?`/`??` for none is not a character
+device, so a headless run rings nowhere and says nothing.
+
+A file and not an inline string, so what it says can be read; beside the code
+and not in `data/`, because it names nobody and changes with the program.
+"""
+const AGENT_SETTINGS = joinpath(ROOT, "cli", "claude-settings.json")
 
 """Open an agent on this item's worktree, and watch it work.
 

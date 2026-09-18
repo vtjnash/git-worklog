@@ -722,6 +722,21 @@ Each of the following returns success and the wrong answer:
   leaves them. `PATH` is the launching login's with the link directory
   in front, not the pane's with it in front: `$PATH` reads differently in
   `fish` than in `sh`, and the command runs through whichever the server has.
+- **The bell flag is a seen bit, and the server keeps it.** A bell rung into
+  a session with a client attached sets nothing - somebody was looking; rung
+  into a detached one it sets `window_bell_flag`, which the next attach
+  clears, control-mode or not (measured on 3.5a). `mux_list` reads it back
+  as `bell`. That is the whole of how a `T` pane says its agent stopped:
+  `cli/claude-settings.json`, on the alias's line as `--settings`, holds a
+  `Stop` hook and a `permission_prompt` one that ring, and the worktree
+  list and the item pane draw the bit. No socket and no listener - a
+  listener is a browser that has to be running, and the pane outlives it.
+  The hook runs under `/bin/sh` in a session of its own with no controlling
+  terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
+  rings `/dev/$(ps -o tty= -p $PPID)`, its parent being `claude` and
+  `claude`'s tty the pane's - the one spelling BSD and procps `ps` share.
+  `preferredNotifChannel` would do the same ring, but `auto` resolves to
+  nothing under tmux and the idle delay behind it is a global setting.
 
 ### The terminal
 

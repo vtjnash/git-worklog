@@ -538,6 +538,7 @@ struct SessionRow
     name::String
     kind::Symbol
     attached::Bool
+    bell::Bool                      # rang since anyone looked: see `AGENT_SETTINGS`
 end
 
 """One place work can happen, and what is happening in it.
@@ -614,7 +615,7 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
         # session as an empty one: a shell is what a session is unless it says
         # otherwise.
         kind = Symbol(isempty(r.kind) ? "shell" : r.kind)
-        push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached))
+        push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached, r.bell))
     end
     ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
@@ -758,14 +759,21 @@ end
 const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_DATE, WT_TRACK = 3, 2, 18, 22, 10, 10
 const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
 
-"The three session slots of one row: a shell, an agent and a note, each present or not."
+"""The three session slots of one row: a shell, an agent and a note, each
+present or not.
+
+Green is one you are in; yellow is one that rang while you were not - the agent
+stopped, or is asking - and is waiting on you until you look, since tmux clears
+the bell on the attach. Grey is there and quiet.
+"""
 function session_marks(r::WorktreeRow)
     out = ""
     for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
         i = findfirst(x -> x.kind === kind, r.sessions)
         out *= i === nothing ? " " :
                r.sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
-                                        string(THEME.dim, ch, THEME.reset)
+               r.sessions[i].bell ? string(THEME.waiting, ch, THEME.reset) :
+                                    string(THEME.dim, ch, THEME.reset)
     end
     out
 end
@@ -860,7 +868,8 @@ end
 It does not scroll with the list: a key you have to scroll back to is not a
 key. `t`/`T` and `+`/`*` are one character each and unguessable on their own,
 so the header carries their names and the colour carries the rest - green for a
-session you are attached to and for what is staged, yellow for what is not.
+session you are attached to and for what is staged, yellow for what is not, and
+for a session that rang while you were away.
 """
 function list_header(branches::Bool, iw::Int)
     line = branches ?
@@ -888,7 +897,7 @@ the branch list draws, and none of the session or change marks appear in it.
 """
 list_legend(branches::Bool) = branches ?
     "\u25cf checked out somewhere \u00b7 \u00b1upstream is +ahead/-behind" :
-    "t shell \u00b7 T agent \u00b7 v note (green: attached) \u00b7 + staged \u00b7 * unstaged"
+    "t shell \u00b7 T agent \u00b7 v note (green: in, yellow: rang) \u00b7 + staged \u00b7 * unstaged"
 
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather

@@ -594,11 +594,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # Matched on the item a session was tagged with, not on its name: the name
     # is built from a worktree this pane would have to run `git` to work out,
     # and it redraws per frame.
+    # The bell is the agent's: it rang at the end of a turn or at a question,
+    # with nobody looking, and `T` is what clears it.
     live = [r for r in st.sessions if r.item == it.ref]
     if !isempty(live)
         push!(out, string(THEME.dim, "running", THEME.reset))
         for r in sort(live; by = x -> x.kind)
-            push!(out, string("  ", r.kind == "agent" ? "agent  T to watch" : "shell  t to open"))
+            push!(out, string("  ", r.kind != "agent" ? "shell  t to open" :
+                              r.bell ? string("agent  ", THEME.waiting, "waiting on you",
+                                              THEME.reset, " · T to see") :
+                              "agent  T to watch"))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))

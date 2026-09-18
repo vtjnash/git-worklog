@@ -22,6 +22,21 @@
     end
     # And it is what the worktree list runs too, so the two cannot drift.
     @test occursin("claude", W.agent_cmd())
+    # The hooks that ring the pane's bell ride on the alias's own line, quoted
+    # once for the `-ic` shell and once more for the path inside it.
+    @test occursin("--settings", cmd)
+    @test isfile(W.AGENT_SETTINGS)
+    @test cmd == string("'", ENV["SHELL"], "' -ic 'claude --settings '\\''",
+                        W.AGENT_SETTINGS, "'\\'''")
+    # What the file says: a `Stop` and a permission prompt, each a ring, and
+    # nothing that could block the turn.
+    hooks = W.JSON3.read(read(W.AGENT_SETTINGS, String))[:hooks]
+    @test haskey(hooks, :Stop) && haskey(hooks, :Notification)
+    @test hooks[:Notification][1][:matcher] == "permission_prompt"
+    for ev in (:Stop, :Notification), h in hooks[ev][1][:hooks]
+        @test h[:type] == "command"
+        @test occursin("printf '\\a'", h[:command]) && endswith(h[:command], "exit 0")
+    end
 end
 
 @testset "t asks which checkout, unless something has already said" begin

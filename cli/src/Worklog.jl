@@ -35,6 +35,7 @@ own - see `datadir()`.
   | file          | owner   | lifetime                          |
   |---------------|---------|-----------------------------------|
   | `config.toml`      | you     | the shared defaults; edited by hand, only ever read |
+  | `cli/claude-settings.json` | you | the hooks `T` hands `claude`; only ever read |
   | `data/config.toml` | you     | your login, theme and repos, on top of them; seeded once from `config.user.toml`, then only ever read |
   | `data/local.toml`  | both    | edited key-by-key, never rewritten, tracked |
   | `data/fetched.json`| machine | everything GitHub can answer again, ignored |

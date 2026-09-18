@@ -157,6 +157,15 @@ found by searching, since the newest socket on the machine is not
 necessarily yours. When nothing answers, the status line says `no live ssh
 agent` as the pane opens.
 
+**An agent that stopped while you were elsewhere** shows as a yellow `T` in
+the worktree list and as `waiting on you` under `running` in the item pane,
+until you look at it. `T` runs `claude` with `--settings
+cli/claude-settings.json`: a `Stop` hook and a permission-prompt hook that
+ring the terminal bell, which tmux keeps as the window's bell flag until the
+next attach. It is only that one bit - stopped or asking, not which - and
+it lives in the tmux server with the session, so nothing has to be running
+to catch it.
+
 **VS Code** (`e`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is
 on. The *diff* at that line is more than `code`'s command line can say, so
@@ -259,7 +268,8 @@ the view. Hand-edited, both, and only ever read.
   days, default 2).
 - `[views]` - named filters for `'`.
 - `[cache]` - how long the browser trusts a cached thread, diff or merge state.
-- `[agent] command` - what `T` runs, when it is not your shell's `claude`.
+- `[agent] command` - what `T` runs, when it is not your shell's `claude`
+  (add `--settings cli/claude-settings.json` yourself to keep the bell).
 
 **Themes** name colours by role - `blocked`, `settled`, `diff_add`,
 `cursor_bg` - in words: `"bold white"`, `"black on yellow"`, `"on 236"`.
@@ -272,6 +282,7 @@ to the 256-colour cube.
 | | owner | |
 |---|---|---|
 | `config.toml`, `config.user.toml`, `themes/` | you | hand-edited; the shared half, the template for yours, the colours |
+| `cli/claude-settings.json` | you | what `T` hands `claude` as `--settings`: the hooks that ring the pane when a turn ends. Only ever read |
 | `data/config.toml` | you | your half: login, theme, the repos you poll and pin. Seeded from the template on the first launch and never written again. Tracked |
 | `data/local.toml` | you and the program | one block per item: your note, snooze, deadline, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |

@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "t=$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"/dev/$t\" ] && printf '\\a' > \"/dev/$t\"; exit 0"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "t=$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"/dev/$t\" ] && printf '\\a' > \"/dev/$t\"; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

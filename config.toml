@@ -228,3 +228,9 @@ merge_minutes = 10
 # drift. Set it when the agent is not what your shell calls `claude` at all: a
 # different agent, a wrapper script, a command with flags. In `data/config.toml`:
 # command = "/opt/homebrew/bin/claude --continue"
+#
+# The default also passes `--settings cli/claude-settings.json`: hooks that ring
+# the pane's bell when a turn ends or a permission is asked, which is how the
+# worktree list and the item pane show an agent waiting on you (yellow `T`).
+# A command of your own that is still `claude` keeps that by naming the file:
+# command = "claude --continue --settings /path/to/git-worklog/cli/claude-settings.json"

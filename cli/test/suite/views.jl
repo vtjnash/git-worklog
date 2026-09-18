@@ -575,8 +575,9 @@ end
 
     # A tag comes back from tmux as the string it was set with, so that is what
     # a row carries and what the pane reads.
-    row(kind, ref) = (name = "wl-x", command = "sh", attached = false,
-                      worktree = "/tmp/x", kind = String(kind), item = ref)
+    row(kind, ref; bell = false) = (name = "wl-x", command = "sh", attached = false,
+                                    bell = bell, worktree = "/tmp/x",
+                                    kind = String(kind), item = ref)
     st.sessions = NamedTuple[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
     # Matched on the item the session was tagged with, so the pane never has to
@@ -584,6 +585,11 @@ end
     st.sessions = [row(:agent, tasked.ref)]
     lines = join(W.meta_lines(st, tasked, 40), "\n")
     @test occursin("running", lines) && occursin("agent", lines)
+    @test !occursin("waiting on you", lines)
+    # An agent that rang with nobody attached - its turn ended, or it asked -
+    # is waiting, and says so until `T` looks and tmux drops the bell.
+    st.sessions = [row(:agent, tasked.ref; bell = true)]
+    @test occursin("waiting on you", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, tasked.ref)]
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, "someone/else#1")]
