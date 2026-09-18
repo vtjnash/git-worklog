@@ -130,11 +130,18 @@ end
 """
     word_marks(a, b) -> (score, ranges_a, ranges_b)
 
-How alike two lines are - the share of the longer line's words the two have
-in common, 0 to 1 - and the byte ranges of `a` and of `b` that are not
-common to both, by token. A score under a half is a rewrite rather than an
-edit of one line into the other, and the ranges are then empty: marking
-most of both would be noise over what the two colours already say.
+How alike two lines are, 0 to 1, and the byte ranges of `a` and of `b` that
+are not common to both, by token. A score under a half is a rewrite rather
+than an edit of one line into the other, and the ranges are then empty:
+marking most of both would be noise over what the two colours already say.
+
+The likeness is the share of the *shorter* line's *words* - identifiers and
+numbers, not punctuation - that the two have in common. The shorter, so
+that `else` becoming `else # a long remark` is the edit it is (an append is
+the clearest edit there is) and not a line one-fifteenth alike; words, so
+that `=`, `(` and `,` in common between two unrelated lines do not make
+them alike. A line with no words at all - `}` against `};` - is measured
+on what it has.
 """
 function word_marks(a::AbstractString, b::AbstractString)
     none = (0.0, UnitRange{Int}[], UnitRange{Int}[])
@@ -142,10 +149,17 @@ function word_marks(a::AbstractString, b::AbstractString)
     tb = collect(eachmatch(r"\w+|\s+|[^\w\s]", b))
     n, m = length(ta), length(tb)
     (n == 0 || m == 0 || n * m > 250_000) && return none
-    # Standard LCS table, then walk it back for which tokens are shared.
+    word = t -> isletter(t.match[1]) || isdigit(t.match[1]) || t.match[1] == '_'
+    (any(word, ta) && any(word, tb)) || (word = t -> !all(isspace, t.match))
+    # The LCS table, weighted: a word in common is worth three of a space or
+    # a mark, so that between matching `frame` and matching the `.` beside
+    # it - `frame.linfo` against `StackTraces.frame_mi(frame)` - the word
+    # wins, which is what a reader would pair. Then walked back for which
+    # tokens are shared.
+    weight = t -> word(t) ? Int32(3) : Int32(1)
     L = zeros(Int32, n + 1, m + 1)
     for i in n:-1:1, j in m:-1:1
-        L[i, j] = ta[i].match == tb[j].match ? L[i + 1, j + 1] + 1 :
+        L[i, j] = ta[i].match == tb[j].match ? L[i + 1, j + 1] + weight(ta[i]) :
                   max(L[i + 1, j], L[i, j + 1])
     end
     ina, inb = falses(n), falses(m)
@@ -159,12 +173,9 @@ function word_marks(a::AbstractString, b::AbstractString)
             j += 1
         end
     end
-    # Shared *words*, not shared spaces: a line with three of its ten words
-    # left standing is a rewrite, and blank runs in common say nothing.
-    word = t -> !all(isspace, t.match)
     shared = count(k -> ina[k] && word(ta[k]), 1:n)
     wa, wb = count(word, ta), count(word, tb)
-    score = shared == 0 ? 0.0 : shared / max(wa, wb)
+    score = shared == 0 ? 0.0 : shared / min(wa, wb)
     score < 0.5 && return none
     (score, changed(ta, ina), changed(tb, inb))
 end

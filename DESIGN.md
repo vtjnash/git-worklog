@@ -745,11 +745,14 @@ Each of the following returns success and the wrong answer:
   line for line, and an unequal pair of runs by likeness, each `-` line to
   the `+` line most like it still free and later than the last taken, so
   the pairs read in order. Each pair is diffed by token (a word, a run of
-  spaces, one other character) with a longest common subsequence, and the
-  tokens not in common drawn in `diff_add_word`/`diff_del_word` over the
-  line's colour. A pair sharing under half its words is a rewrite, and
-  marks nothing - which is also how a `-` line with no line like it is
-  left alone in an unequal run. The
+  spaces, one other character) with a longest common subsequence in which
+  a word in common outweighs a mark in common, so `frame` is paired over
+  the `.` beside it, and the tokens not in common are drawn in
+  `diff_add_word`/`diff_del_word` over the line's colour. Likeness is the
+  share of the *shorter* line's *words* the two share - an append is the
+  clearest edit there is, and `(`, `=` in common are not likeness - and
+  under a half is a rewrite that marks nothing, which is also how a `-`
+  line with no line like it is left alone in an unequal run. The
   roles are backgrounds where the palette has them, closed by `49` alone so
   the cursor row's background is re-armed over them like any other.
 - **A diff is somebody else's bytes, printed.** An escape in one is a

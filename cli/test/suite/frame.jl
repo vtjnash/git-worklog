@@ -705,6 +705,15 @@ end
     # rather than most of both.
     @test W.word_marks("return nothing", "for i in 1:n") == (0.0, [], [])
     @test W.word_marks("", "anything") == (0.0, [], [])
+    # Likeness is by words, over the shorter line: JuliaLang/julia#63192.
+    # An append is the clearest edit there is, and punctuation in common
+    # does not make two lines alike - nor does it stop these two being so.
+    sc, a, b = W.word_marks("        else",
+                            "        else # this branch may not be needed, from before current keyword argument handling")
+    @test sc == 1.0 && a == [] && b == [13:91]
+    sc, a, b = W.word_marks("        code = frame.linfo", "        code = StackTraces.frame_mi(frame)")
+    @test sc >= 0.5 && a == [21:26] && b == [16:36, 42:42]
+    @test W.word_marks("}", "};")[1] == 1.0                 # no words: on what it has
 
     # A run of deletions and a run of as many additions pair up line for
     # line; context gets nothing.
