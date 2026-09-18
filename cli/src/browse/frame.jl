@@ -106,6 +106,16 @@ viewtitle(st::BState) =
     (it = st.items[clamp(st.sel, 1, length(st.items))];
      string("wl ", it.repo, it.number == 0 ? " " * it.branch : string("#", it.number)))
 
+"""The title bar's right-hand end: when the corpus was last fetched -
+`fetched_at`, GitHub's time, absolute and relative the way every other stamp
+is drawn - or that `u`'s refresh is running. Empty when nothing has been
+fetched, and for a corpus from before the refresh stamped it."""
+function refresh_stamp(st::BState, at::DateTime)
+    refreshing() && return string(THEME.dim, "refreshing \u2026 ", THEME.reset)
+    w = when_str(st.refreshed, at)
+    isempty(w) ? "" : string(THEME.dim, "refreshed ", THEME.reset, w, " ")
+end
+
 """
     render_frame(st, w, h) -> String
 
@@ -293,10 +303,18 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         string(" ", THEME.bold, link, THEME.reset, "  ", THEME.dim,
                "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
     end
+    # The last refresh at the right-hand end, and the running one: a fact
+    # about the whole list that stands, where the status row is one line the
+    # next key replaces. Not at the title's expense - on a narrow screen the
+    # stamp goes before the title does.
+    tail = refresh_stamp(st, at)
+    room = w - awidth(tail)
+    room < 40 && (tail = ""; room = w)
     # Clamp to the terminal rather than trusting the arithmetic: on a very short
     # terminal the pane minimums add up to more than there is room for, and a
     # frame taller than the screen scrolls the title bar off the top.
-    all_ = vcat([apad(afit(bar, w), w)], body, [apad(foot1, w), apad(foot2, w)])
+    all_ = vcat([string(apad(afit(bar, room), room), tail)], body,
+                [apad(foot1, w), apad(foot2, w)])
     while length(all_) < h
         push!(all_, " "^w)
     end

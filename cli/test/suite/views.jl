@@ -356,9 +356,49 @@ end
     lock(W.INFLIGHT_LOCK) do; W.INFLIGHT["refresh"] = t; end
     try
         @test W.refresh_all!(st) == "already refreshing"
+        # And the title bar says so, top right, while it runs.
+        @test W.refreshing()
+        top = first(split(W.astrip(W.render(st, 150, 40)), "\n"))
+        @test endswith(top, "refreshing … ") && length(top) == 150
     finally
         put!(c, nothing); wait(t)
         lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
+    end
+    @test !W.refreshing()
+    # Otherwise the last refresh: when the corpus was fetched, absolute and
+    # relative like every other stamp, at the same end of the bar - a standing
+    # fact about the whole list, where the status row is one line the next
+    # key replaces. With the title still in front of it.
+    st.refreshed = "2026-09-18T13:56:13.000000+00:00"
+    at = W.ts("2026-09-18T16:00:00Z")
+    top = first(split(W.astrip(W.render_frame(st, 150, 40, at)), "\n"))
+    @test endswith(top, "refreshed 2026-09-18 13:56  2h ago ")
+    @test startswith(top, string(" ", st.items[st.sel].ref))
+    # Nothing to say for a corpus never stamped - and not at the title's
+    # expense on a narrow screen.
+    st.refreshed = ""
+    top = first(split(W.astrip(W.render_frame(st, 150, 40, at)), "\n"))
+    @test !occursin("refreshed", top)
+    st.refreshed = "2026-09-18T13:56:13.000000+00:00"
+    top = first(split(W.astrip(W.render_frame(st, 60, 40, at)), "\n"))
+    @test !occursin("refreshed", top) && startswith(top, string(" ", st.items[st.sel].ref))
+    # It is read off the file with the rows: at launch, and when a refresh
+    # lands under the browser.
+    d = mktempdir()
+    was = W.FETCHED[]
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    try
+        W.save_fetched(Dict("fetched_at" => "2026-09-18T15:00:00.000000+00:00",
+                            "items" => Dict{String,Any}()))
+        st2 = W.BState(W.Item[], "t")
+        @test st2.refreshed == "2026-09-18T15:00:00.000000+00:00"
+        W.save_fetched(Dict("fetched_at" => "2026-09-18T15:30:00.000000+00:00",
+                            "items" => Dict{String,Any}()))
+        st2.factsat = 0.0; st2.reload = true
+        @test W.reload_data!(st2)
+        @test st2.refreshed == "2026-09-18T15:30:00.000000+00:00"
+    finally
+        W.FETCHED[] = was
     end
 
     # The refresh runs in this process, on a task, and reports to

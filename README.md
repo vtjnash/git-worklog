@@ -72,16 +72,17 @@ Three panes: the item list, its metadata, and the detail. The list opens on
 has been closed once, wherever it was closed; unread rows are bold. Reading
 an item, or putting it away, takes it out of that list, and it comes back
 when it moves. The terminal's title follows the cursor - `wl
-JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on.
-Every date on the metadata pane and on a comment or
-push header has how long ago that was beside it, dim - `3d ago`, `in 2w` for
-a snooze's wake - worked out against the moment the frame is drawn. The
-`why` row under `local` says in one word what made the item unread -
-`unread: comment`, `pushed`, `reviewed`, `review requested`, `assigned`,
-`merged`, `CI failed`, `new`, `woke` - with the reason GitHub gave for a
-notification after it. The `branch` row is `head → base` in the form git
-takes, `owner/repo:head` for a fork, and a base that is not the repository's
-default branch is coloured and says so - `→ v1.x  not master`.
+JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on;
+the title bar's right-hand end says when the corpus was last fetched, and
+`refreshing …` while `u` runs. Every date on the metadata pane and on a
+comment or push header has how long ago that was beside it, dim - `3d ago`,
+`in 2w` for a snooze's wake - worked out against the moment the frame is
+drawn. The `why` row under `local` says in one word what made the item
+unread - `unread: comment`, `pushed`, `reviewed`, `review requested`,
+`assigned`, `merged`, `CI failed`, `new`, `woke` - with the reason GitHub
+gave for a notification after it. The `branch` row is `head → base` in the
+form git takes, `owner/repo:head` for a fork, and a base that is not the
+repository's default branch is coloured and says so - `→ v1.x  not master`.
 
 The order a list opens in holds while it is read: a row that changes under
 the cursor - the re-read that brings its tags up to date, a note - stays

@@ -502,13 +502,8 @@ set here rather than left to the watcher.
 one already running instead of starting a second refresh against the same files.
 """
 function refresh_all!(st::BState)
-    key = "refresh"
-    running = lock(INFLIGHT_LOCK) do
-        t = get(INFLIGHT, key, nothing)
-        t !== nothing && !istaskdone(t)
-    end
-    running && return "already refreshing"
-    fetching(key) do
+    refreshing() && return "already refreshing"
+    fetching("refresh") do
         said = try
             run_refresh!()
         catch e
@@ -522,6 +517,12 @@ function refresh_all!(st::BState)
         st.wake === nothing || st.wake()
     end
     "refreshing \u2026"
+end
+
+"Is `refresh_all!`'s refresh in the air? The title bar says so while it is."
+refreshing() = lock(INFLIGHT_LOCK) do
+    t = get(INFLIGHT, "refresh", nothing)
+    t !== nothing && !istaskdone(t)
 end
 
 """The refresh, reporting to `data/refresh.log`, and the status row's line
@@ -582,8 +583,12 @@ function reload_data!(st::BState)
     if m != st.factsat && isfile(facts)
         st.factsat = m
         fresh = try
-            its = fetched_items()
-            its === nothing ? nothing : vcat(its, local_items())
+            # One read of the file for both: the rows, and when they were
+            # fetched, which the title bar shows.
+            store = load_fetched()
+            st.refreshed = String(something(get(store, "fetched_at", nothing), ""))
+            its = get(store, "items", nothing)
+            its === nothing ? nothing : vcat(loaditems(its), local_items())
         catch e
             logerror!(e, catch_backtrace(), "reload_data!")
             nothing

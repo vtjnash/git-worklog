@@ -169,6 +169,8 @@ Base.@kwdef mutable struct BState <: View
                                # so rather than blame somebody else
     factsat::Float64 = 0.0 # mtime of `fetched.json` as the item list was built
                            # from it, so a refresh landing is told from a note
+    refreshed::String = "" # when the corpus was last fetched - `fetched_at`
+                           # in the file, GitHub's time - for the title bar
     failing::Vector{Any} = Any[]   # the sources whose last poll failed, off the
                                    # inbox as the item list was built (`Events.failing`);
                                    # the footer's standing note, read from here
@@ -214,6 +216,7 @@ function BState(all::Vector{Item}, title)
                   drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
                   sources = source_since(),
                   factsat = mtime(fetchedfile()),
+                  refreshed = String(something(fetched("fetched_at"), "")),
                   failing = Events.failing(),
                   pinned = pinned_filter_repos())
     rebuild_axes!(st)

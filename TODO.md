@@ -3,15 +3,6 @@
 What is open. Anything shipped is in `git log`; why things are shaped as they
 are is in DESIGN.md.
 
-## Asked for, 2026-09-18
-
-- [ ] **The last refresh on the title bar, top right**: when the corpus
-      was last fetched (`fetched_at` in `fetched.json`, GitHub's time),
-      absolute and relative the way every other stamp is drawn
-      (`when_str(s, at)`), and `refreshing …` in its place while `u`'s
-      refresh runs. The status row says it once and is gone at the next key;
-      the bar is where a standing fact goes.
-
 ## Blocked on GitHub - the notifications sync
 
 **Wanted**: the GitHub inbox and this program's read state kept in step,

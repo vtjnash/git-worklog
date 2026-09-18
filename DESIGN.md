@@ -463,6 +463,10 @@ last line of the child that ran the refresh then.
   key. It is wrong for anything the reader has to act on later, which is why
   a send that fails keeps its composer open with the failure on the
   composer's row (`Unsent`) instead of popping and leaving one line here.
+  A fact about the whole list that stands - when it was last fetched - is
+  at the right-hand end of the title bar (`refresh_stamp`), absolute and
+  relative like every other stamp, and `refreshing …` there while `u`'s
+  refresh runs; the row still says what the refresh did when it lands.
 - **Standing** notes stay until dealt with: `errors.log`, written by
   `logerror!` for exceptions and read as the footer's warning until the file
   is deleted; a source the poll cannot get an answer from, off the inbox's
