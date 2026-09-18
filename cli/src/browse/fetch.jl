@@ -612,7 +612,9 @@ function reload_data!(st::BState)
             st.failing
         end
     end
-    refilter!(st)           # which is what re-reads the three records
+    # Sorted afresh: what landed is a new list, and what moved in it is
+    # what the order is for.
+    refilter!(st; resort = true)   # which is what re-reads the three records
     # A refresh this window started says what it did; anything else is somebody
     # else's write, and saying whose it was is the whole point of the line.
     st.status = isempty(st.refreshsaid) ? "reloaded — something else wrote in data/" :

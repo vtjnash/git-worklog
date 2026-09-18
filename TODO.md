@@ -20,14 +20,6 @@ are is in DESIGN.md.
       (`moved_stamp` knows it and throws it away; keep it on the row as
       `moved_by`), and `read` when it is. The thread's reason stays, dim,
       after it.
-- [ ] **A stable order under a single-item refresh.** The bundle re-read
-      under the cursor (`collect_meta!` → `replace_item!` → `refilter!`)
-      re-sorts the whole list, so the row being read jumps when its `act`
-      moves. Keep the order the list was opened in while it is being read:
-      a row that changes stays where it is, one that arrives goes where the
-      order would put it, one that leaves leaves. Sort afresh only when a
-      new list is asked for - a view, a filter, `w`, a search, a jump, a
-      refresh landing.
 
 ## Blocked on GitHub - the notifications sync
 

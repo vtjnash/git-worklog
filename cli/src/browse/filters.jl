@@ -1062,6 +1062,32 @@ end
 hits(it::Item, q::AbstractString) =
     occursin(lowercase(q), lowercase(it.title)) || occursin(lowercase(q), lowercase(it.ref))
 
+"""The list in the order it was already being read in.
+
+`fresh` is the list as the sort would have it now; `prev` is the list on
+screen. A row in both keeps its place among the rows that stayed, one that
+arrives goes where the sort puts it among them, and one that left is gone -
+so the order the reader opened is the order they read, until they ask for
+another.
+
+The sort key moves under a list that is being read: the bundle re-read under
+the cursor (`collect_meta!`) brings a fresh `act` for the one row, and a
+re-sort put that row - the one being read - somewhere else on the screen. A
+note, a snooze put on and undone, a label: each is one row changed and the
+whole list re-ordered around it, on an order the reader had already taken in.
+"""
+function held_order(fresh::Vector{Item}, prev::Vector{Item})
+    (isempty(prev) || isempty(fresh)) && return fresh
+    pos = Dict{String,Int}(it.url => i for (i, it) in enumerate(prev))
+    kept = sort!([it for it in fresh if haskey(pos, it.url)]; by = it -> pos[it.url])
+    k, out = 1, Item[]
+    for it in fresh
+        push!(out, haskey(pos, it.url) ? kept[k] : it)
+        haskey(pos, it.url) && (k += 1)
+    end
+    out
+end
+
 """Rebuild `st.items` from the filters, and decide where the cursor lands.
 
 `keeprow` is the difference between the list changing under the reader and the
@@ -1070,8 +1096,17 @@ archiving, snoozing and undoing all take one row out of the list being read, and
 there the cursor belongs on whatever moved up into its place. Choosing a view, a
 filter or a search asks for a list that has nothing to do with where the cursor
 was in the last one, and those pass `keeprow = false` and open at the top.
+
+The order is the same distinction, read off what the list is *of*: the
+filters, the sort and the list search, written the way a view is
+(`view_lines`) and kept as `orderkey`. While those stand, a refilter keeps the
+order the reader has (`held_order`); the moment any of them changes - a view,
+a filter, `w`, a search, a jump that widened the filters to reach its row -
+the list is another list and is sorted afresh. So is one that asks
+(`resort`), which is a refresh landing: the same list, with what moved in it
+moved to where the order says.
 """
-function refilter!(st; keeprow::Bool = true)
+function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
@@ -1085,8 +1120,11 @@ function refilter!(st; keeprow::Bool = true)
     st.archived = archived_map()
     st.wakes = wake_map()
     st.snoozes = field_marks(m, "last_snooze")
-    st.items = sortitems(apply_filters(st.filters, st.all, Marks(st)),
-                         st.sort, st.touched)
+    fresh = sortitems(apply_filters(st.filters, st.all, Marks(st)), st.sort, st.touched)
+    key = string(join(view_lines(st.filters, st.sort), "\n"), "\n/",
+                 st.searchin === :list ? st.search : "")
+    st.items = (resort || !keeprow || key != st.orderkey) ? fresh : held_order(fresh, st.items)
+    st.orderkey = key
     # The text filter sits on top of the tag axes rather than inside `Filters`,
     # so the counts in the filter pane keep describing the tags alone - which is
     # what they are for.

@@ -78,6 +78,11 @@ Base.@kwdef mutable struct BState <: View
     authors::Vector{String} = String[]   # the two predicates, then every login
                                          # that appears, alphabetically
     sort::Symbol = :moved           # how the list is ordered; see `SORTS`
+    orderkey::String = ""           # what `items` is a list of - the filters,
+                                    # the sort, the list search - as of the
+                                    # last refilter; the order is held while
+                                    # it stands and sorted afresh when it
+                                    # changes. See `refilter!`
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
                                     # than per frame

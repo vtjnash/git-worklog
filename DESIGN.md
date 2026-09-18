@@ -399,6 +399,18 @@ leaving the list under you (`r`, `x`, `s`) leaves the cursor in place, so an
 inbox is read by pressing `r`. A new list - view, filter, query - opens at the
 top.
 
+**The order is fixed when a list is asked for, and held while it is read.**
+Every sort key moves under a list on screen - the bundle re-read under the
+cursor brings a fresh `act` for the row being read, a note stamps `touched` -
+and `refilter!` used to sort afresh on each, so the row being read moved
+somewhere else on the screen. Now a refilter that keeps the row keeps the
+order too (`held_order`): a row that changed stays where it was, one that
+arrives goes where the sort puts it among the rows that stayed, one that
+leaves leaves. What the list is *of* - the filters, the sort, the list
+search, written as a view is and kept as `orderkey` - is what fixes it: when
+any of them changes the list is another list and is sorted afresh, and a
+refresh landing asks for the same (`resort`).
+
 ## Showing what changed
 
 Three things answer it, all read off the mark `r` leaves:

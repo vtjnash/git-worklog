@@ -80,6 +80,11 @@ a snooze's wake - worked out against the moment the frame is drawn. The
 fork, and a base that is not the repository's default branch is coloured and
 says so - `→ v1.x  not master`.
 
+The order a list opens in holds while it is read: a row that changes under
+the cursor - the re-read that brings its tags up to date, a note - stays
+where it is, and the list is sorted afresh when another is asked for - a
+view, a filter, `w`, a search, a refresh landing.
+
 Lowercase keys look at things or change this machine; **uppercase keys reach
 GitHub.**
 
