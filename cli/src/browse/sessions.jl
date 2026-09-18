@@ -43,7 +43,7 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
         file, line = at
         full = joinpath(target, file)
         left, right = mode in (:diff, :pushed) && isfile(full) ?
-                      diff_refs(it, target, branch, mode) : ("", "")
+                      diff_refs(it, target, mode) : ("", "")
         if !isempty(left) && has_worklog_ext(code, fw.env)
             q = ["root" => target, "path" => full, "line" => string(line), "left" => left]
             isempty(right) || push!(q, "right" => right)
@@ -77,17 +77,27 @@ Under `d` the left is what GitHub's diff is against, the merge base of the
 pull request's base and its head - measured locally against `HEAD` when the
 checkout is on the branch, against the head GitHub reports otherwise - or the
 base ref itself when that cannot be measured. Under `p` it is the head you
-last read, which `r` wrote and the pane just diffed from. The right side is
-the working tree when the checkout is on the branch, because that is the copy
-being edited; a checkout on some other branch has the wrong file there, so it
-is the head as GitHub has it, and the extension says so if that commit is not
-here. Nothing is fetched: this is a key press, and a base that is only ever
-too old is what `base_ref` is for.
+last read, which `r` wrote and the pane just diffed from.
+
+The right side is the working tree when the checkout is on the pull
+request's branch, because that is the copy being edited. On any other
+branch the working tree has the wrong file, so it is the head as GitHub has
+it - fetched when the checkout lacks it, the one round trip here, since
+without that commit there is no right side at all. *The pull request's*
+branch, not the one [`item_checkout`](@ref) came back with: a session
+tagged with the item answers with its own worktree's branch, which is the
+main checkout on `master` as often as not.
+
+The base is not fetched: a key press does not wait on the network for a
+base that is only ever too old, which is what `base_ref` is for.
 """
-function diff_refs(it::Item, target::AbstractString, branch::AbstractString, mode::Symbol)
+function diff_refs(it::Item, target::AbstractString, mode::Symbol)
+    branch = pr_branch(it)
     onbranch = !isempty(branch) &&
                any(w -> w.branch == branch && wtkey(w.path) == wtkey(target), worktrees(target))
     head = onbranch ? "HEAD" : head_sha(it)
+    onbranch || isempty(head) ||
+        ensure_commit!(target, head, it.number; remote = remote_for(target, it.repo))
     right = onbranch ? "" : head
     left = if mode === :diff
         ref = base_ref(target, it.repo, it.base)

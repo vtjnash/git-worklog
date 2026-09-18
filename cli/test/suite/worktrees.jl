@@ -419,6 +419,21 @@ end
             @test occursin("the diff of", r)
             @test endswith(args()[2], string("&left=", W.urlenc("refs/heads/master"),
                                              "&right=", mine.head))
+            # The head is what GitHub reports, and the checkout on some other
+            # branch is asked whether it has it - here it does, so the merge
+            # base is measured and the head goes on the right.
+            write(joinpath(side, "a.txt"), "two\n")
+            W.git(side, "commit", "--quiet", "-am", "second")
+            pushed = strip(W.git(side, "rev-parse", "HEAD"))
+            real = W.Item(url = pr.url * "y", ref = "wt#8", repo = pr.repo, number = 8,
+                          title = "pushed", branch = "nowhere-local", base = "master",
+                          head = pushed)
+            @test W.diff_refs(real, main, :diff) == (first_, pushed)
+            # And the branch that decides "on the branch" is the pull
+            # request's: the main checkout is not on it, whatever a session
+            # there was opened for.
+            @test W.diff_refs(mine, side, :diff) == (first_, "")
+            @test W.diff_refs(real, side, :diff) == (first_, pushed)
             # Under `o` there is no diff, and the line is just a line.
             r = W.open_editor(mine, ("a.txt", 1); mode = :comments)
             @test args()[1] == "--goto"
