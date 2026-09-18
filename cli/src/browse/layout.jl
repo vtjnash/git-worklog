@@ -180,7 +180,8 @@ earlier in the same line lands on its own copy. `indent` is the depth padding
 `src` is stripped of it and a row may be padded out to the pane.
 
 `nothing` when the row is not a piece of its source at all - a footnote row
-shows an elided URL - and the caller falls back to marking what is visible.
+shows an elided URL; a row with a tab in it shows the tab as spaces (`detab`)
+- and the caller falls back to marking what is visible.
 """
 function row_span(row::Row, indent::Int, from::Int)
     full = collect(astrip(row.text))

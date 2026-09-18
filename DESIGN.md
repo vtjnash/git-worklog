@@ -723,6 +723,15 @@ Each of the following returns success and the wrong answer:
   again with the flag; `inert` draws C0, DEL and C1 as caret notation at
   both parsers and under `[`/`]`, and `ctlnode` puts the count on the first
   row, where a long diff cannot push it off the screen.
+- **A tab is the columns it draws, not zero.** `textwidth('\t')` is 0 and
+  the terminal moves to the next stop of eight, so a Makefile's diff - a
+  tab at the head of every recipe line - fit the pane by measurement and
+  tore it on screen. `detab` draws a tab as the spaces to the next stop,
+  counted from the start of the line as `git diff` on a terminal counts,
+  in what *prints* only - the diff and plain branches of `nodelines` - and
+  the `src` behind the row keeps the tab, so `y` copies one and `^r`'s
+  suggestion carries one. `row_span` gives up on such a row, and the search
+  marks what is visible.
 - A key code is **the bytes that arrived**, packed big-endian, and `K_BASE`
   is `1 << 32`. Starting the key range at `0x110000` let a malformed
   four-byte sequence assemble to `K_LEFT`; rejecting non-codepoints is wrong,

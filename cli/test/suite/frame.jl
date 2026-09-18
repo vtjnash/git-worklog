@@ -564,6 +564,41 @@ end
     @test get(failed[1].meta, "failed", false) && failed[1].raw == "no pull requests found"
 end
 
+@testset "a tab is drawn as the columns it takes" begin
+    # `textwidth('\t')` is 0, so a Makefile's diff - a tab at the head of every
+    # recipe line - measured narrower than it drew, and the terminal's own
+    # expansion tore the row. What prints has the spaces; the source behind
+    # the row keeps the tab, for `y` and for a suggestion.
+    @test W.detab("a\tb") == "a       b"
+    @test W.detab("\tgcc\t-o") == "        gcc     -o"
+    @test W.detab("abcdefgh\tx") == "abcdefgh        x"         # at a stop: a full one
+    @test W.detab("\e[31mab\e[0m\tc") == "\e[31mab\e[0m      c"   # escapes take no columns
+    @test W.detab("日本\tx") == "日本    x"                     # wide characters count two
+    @test W.detab("plain") == "plain"
+    txt = "diff --git a/Makefile b/Makefile\n@@ -1,2 +1,2 @@\n all:\n-\tgcc a.c\n+\tgcc -O2 a.c\n"
+    ns = W.hunk_nodes(txt, "http://x")
+    rs = [r for r in W.rows(ns, 80) if r.node == 1 && !r.header]
+    # The marker is column 0, as `git diff` on a terminal has it, so the stop
+    # is seven spaces on.
+    @test W.astrip(rs[2].text) == "-       gcc a.c"
+    @test W.astrip(rs[3].text) == "+       gcc -O2 a.c"
+    @test rs[3].src == "+\tgcc -O2 a.c"
+    # The word marks are byte ranges of the line as written, and survive the
+    # expansion that follows them.
+    @test occursin(string(W.THEME.diff_add_word, "-O2 ", W.THEME.diff_add_word_off), rs[3].text)
+    # And the widths agree with what the terminal will draw.
+    @test W.awidth(rs[3].text) == length("+       gcc -O2 a.c")
+    # A plain node - a log, a range-diff - is drawn the same way and copies
+    # the same way.
+    p = W.Node("h", "x\ty\n\tz", :plain, true)
+    ls = W.nodelines(p, 80)
+    @test ls == ["x       y", "        z"] && [s for (_, s) in p.srcs] == ["x\ty", "\tz"]
+    # The suggestion `^r` fills in carries the tab, not the spaces.
+    st = mkstate()
+    st.nodes = ns; st.mode = :diff
+    @test W.hunk_text(st, 1, 80, 4, 4) == ["\tgcc -O2 a.c"]     # row 1 is the header
+end
+
 @testset "the list says what has been read" begin
     # Weight is the only thing on a row that can say this without costing a
     # column, and the list is two thousand rows of things somebody may or may

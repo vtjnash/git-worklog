@@ -28,13 +28,6 @@ are is in DESIGN.md.
       order would put it, one that leaves leaves. Sort afresh only when a
       new list is asked for - a view, a filter, `w`, a search, a jump, a
       refresh landing.
-- [ ] **A tab is columns, not zero.** `textwidth('\t')` is 0, so a diff of a
-      Makefile - every recipe line begins with one - is measured narrower
-      than it draws, and the terminal's own expansion tears the row. Draw a
-      tab as the spaces to the next stop of eight, counted from the start
-      of the line as `git diff` on a terminal does, in what *prints* only:
-      `src` keeps the tab, so `y` copies one and `^r`'s suggestion carries
-      one.
 
 ## Blocked on GitHub - the notifications sync
 

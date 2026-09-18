@@ -128,7 +128,9 @@ a draft review on GitHub; `A` sends it, and leaving the item asks whether to.
 Existing review threads hang off the hunk they point into, resolved ones
 folded, and the line each is on carries `💬` in the margin, over the border.
 A control character in a diff is drawn as `^[`, `^G`, `^M` rather than sent
-to the terminal, and a row at the top says how many there were.
+to the terminal, and a row at the top says how many there were; a tab is
+drawn to the next stop of eight, and stays a tab in what `y` copies and `^r`
+suggests.
 
 **Composers** open beside the diff or thread when the screen is 150 columns or
 wider, with `tab` between them. `^s` sends; `M`'s composer cycles the merge

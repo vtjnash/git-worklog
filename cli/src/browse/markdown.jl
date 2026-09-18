@@ -41,6 +41,45 @@ function inert(s::AbstractString)
     (out, n)
 end
 
+"""
+    detab(line, tab = 8) -> String
+
+`line` with each tab drawn as the spaces to the next stop of `tab` columns,
+counted in display columns from the start of the line and past the escapes
+in it.
+
+A tab is the one character whose width is not its own: `textwidth('\\t')` is
+0, and the terminal moves the cursor to the next stop. So a line measured
+here as fitting the pane drew wider than it, and a diff of a Makefile - every
+recipe line begins with one - tore the frame at each of them. Counted from
+the start of the line, prefix and all, which is where `git diff` on a
+terminal puts the first stop.
+
+For what *prints* only, one line at a time: the `src` behind a row keeps the
+tab, so `y` copies one and `^r`'s suggestion carries one, which for a Makefile
+is the difference between a suggestion that applies and one that does not.
+"""
+function detab(s::AbstractString, tab::Int = 8)
+    occursin('\t', s) || return String(s)
+    io, col, i = IOBuffer(), 0, firstindex(s)
+    while i <= lastindex(s)
+        m = match(ESCAPE, SubString(s, i))
+        if m !== nothing
+            write(io, m.match); i += ncodeunits(m.match)
+            continue
+        end
+        c = s[i]
+        if c == '\t'
+            n = tab - col % tab
+            write(io, " "^n); col += n
+        else
+            write(io, c); col += textwidth(c)
+        end
+        i = nextind(s, i)
+    end
+    String(take!(io))
+end
+
 """One line of a diff, coloured by what it is - and, given `words`, the
 byte ranges of it that changed against the line it is paired with, drawn in
 the word role over the line's own colour."""
@@ -550,14 +589,20 @@ function nodelines(n::Node, w::Int)
         raw = String.(split(n.raw, "\n"))
         marks = hunk_marks(n)
         words = hunk_words(raw)
-        txt = join((string(diffline(l, words[k]), markof(get(marks, k, nothing)))
+        # `detab` after the words are marked, since the ranges are bytes of
+        # the line as written; and on the styled line, past its escapes.
+        txt = join((string(detab(diffline(l, words[k])), markof(get(marks, k, nothing)))
                     for (k, l) in enumerate(raw)), "\n")
         srcline = [(true, rstrip(l)) for l in raw]
     else
         # Not `esc`: a plain node never reaches Term, so doubling its braces is
         # doubling them on screen. It showed `Dict{{String,Int}}` in a code
         # block, and had been doing the same to Buildkite logs all along.
-        txt = String(n.raw)
+        # A tab is drawn as its columns here too - a log, a range-diff - and
+        # `src` is taken off the raw line, with the tab, the same as a diff's.
+        raw = String.(split(n.raw, "\n"))
+        txt = join((detab(l) for l in raw), "\n")
+        srcline = [(true, rstrip(astrip(l))) for l in raw]
     end
     lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
     # A diff or a plain block is already one line per line of its source, so
