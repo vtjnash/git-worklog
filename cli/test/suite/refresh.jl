@@ -568,7 +568,8 @@ end
         W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z", "last_snooze" => "2026-09-20T00:00:00Z"])
         @test occursin("until 2026-09-20", snoozeline(it)) && !occursin("moved", snoozeline(it))
         moved = W.with(it; moved_at = "2026-09-08T00:00:00Z")
-        @test occursin("until 2026-09-20", snoozeline(moved)) && occursin("moved before the wake", snoozeline(moved))
+        # Unread under the snooze is the `why` row's to say, with what moved.
+        @test occursin("until 2026-09-20", snoozeline(moved)) && !occursin("moved", snoozeline(moved))
         W.set_fields(u, ["snooze" => nothing])
         @test occursin("until 2026-09-20", snoozeline(it)) && occursin("cleared", snoozeline(it))
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z", "last_snooze" => nothing]); W.refilter!(st)
@@ -2136,6 +2137,18 @@ end
     @test !occursin("unread", plain)
     # And `wl unread` says the last one to an outside reader.
     @test W.item_json(W.with(it; moved_by = "review_at"))["moved_by"] == "review_at"
+
+    # The tags that only restate the pane are the word alone; the reason is
+    # not repeated after `why` while the `reply` row is saying it; the level
+    # is the word and the command.
+    tagged = W.with(it; edits = "changes requested", ready = "approved and green",
+                    reply = "mentioned you 2d ago; last word is theirs")
+    plain = W.astrip(join(W.meta_lines(st, tagged, 60, at), "\n"))
+    @test occursin("\nedits\n", plain) && occursin("\nready\n", plain)
+    @test !occursin("changes requested\n", plain) && !occursin("approved and green", plain)
+    @test occursin("reply     mentioned you 2d ago; last word is theirs", plain)
+    @test occursin("why       read\n", plain) && count("you were mentioned", plain) == 0
+    @test endswith(plain, "track     normal  wl track")
 end
 
 @testset "your own keystrokes are not news" begin

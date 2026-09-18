@@ -176,6 +176,13 @@ end
     @test W.collect_meta!(st)
     @test st.merge === ms && st.mergepending === nothing
     @test says() == "mergeable behind master"
+    # With the CI beside it, the one thing the row repeats from the checks.
+    ci = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
+                title = it.title, is_pr = true, state = "OPEN", ci = "FAILURE")
+    @test W.astrip(join([l for l in W.meta_lines(st, ci, 60) if occursin("mergeable", l)], " ")) ==
+          "mergeable behind master  CI failed"
+    @test W.ci_word("SUCCESS") == "CI passed" && W.ci_word("PENDING") == "CI pending" &&
+          W.ci_word("ERROR") == "CI failed" && W.ci_word("") == ""
 end
 
 @testset "the one toolbar button worth having" begin

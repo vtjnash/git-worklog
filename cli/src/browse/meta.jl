@@ -343,6 +343,12 @@ function moved_words(it::Item, m::Marks)
     unique!(last.(evs))
 end
 
+"The CI state as the mergeable row repeats it, or nothing for no CI."
+ci_word(ci::AbstractString) =
+    ci == "SUCCESS" ? "CI passed" :
+    ci in ("PENDING", "EXPECTED") ? "CI pending" :
+    ci in ("FAILURE", "ERROR") ? "CI failed" : ""
+
 "The pane's word for a key of the wake table; the state's own for a close."
 moved_word(k::AbstractString, it::Item) =
     k == "their_head" ? "pushed" :
@@ -489,24 +495,32 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # arrived - which is after the rest of this pane, since it is the slow
     # answer and has a task of its own - and nothing at all once the pull
     # request is over.
+    # With the CI beside it, the one repeat the row keeps: whether it can be
+    # merged and whether it should be are read together, and the checks
+    # section is a screen's worth of rows up on a pull request with labels.
     if it.is_pr && (isempty(it.state) || it.state == "OPEN")
         ms = st.metakey == it.url ? st.merge : nothing
         mwait = merge_waiting(st, it)
+        ci = ci_word(it.ci)
         kv("mergeable", ms === nothing ? (mwait ? "loading…" : "") :
-                        ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
-                        string(THEME.blocked, merge_note(ms), THEME.reset) :
-                        merge_note(ms))
+                        string(ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
+                                   string(THEME.blocked, merge_note(ms), THEME.reset) :
+                                   merge_note(ms),
+                               isempty(ci) ? "" : string("  ", THEME.dim, ci, THEME.reset)))
     end
-    # The derived facts, each in its own words, and only while it holds: the
-    # tag axis in the filter pane is these same four.
+    # The tags, only while each holds: the tag axis in the filter pane is
+    # these same words. `edits` and `ready` are the word alone - what they
+    # say is on the pane already, as the review decision, the unresolved
+    # count, the checks and the labels; the sentence stays on the row for
+    # `wl` and the filter. The other three say what is said nowhere else:
+    # whose the last word is, that they pushed after your review, how long
+    # the quiet has been.
     isempty(it.reply) ||
         kv("reply", string(THEME.waiting, it.reply, THEME.reset))
     isempty(it.review) ||
         kv("review", string(THEME.waiting, it.review, THEME.reset))
-    isempty(it.edits) ||
-        kv("edits", string(THEME.waiting, it.edits, THEME.reset))
-    isempty(it.ready) ||
-        kv("ready", string(THEME.waiting, it.ready, THEME.reset))
+    isempty(it.edits) || push!(out, string(THEME.waiting, "edits", THEME.reset))
+    isempty(it.ready) || push!(out, string(THEME.waiting, "ready", THEME.reset))
     isempty(it.secondlook) ||
         kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
     b = batch_of(st, it)
@@ -542,28 +556,27 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # which `seen_of` says with the stamp and the list says with the bold and
     # neither says in words; or read. Then, dim, the reason GitHub gave for a
     # thread ("you were mentioned"), which is about the item and not about
-    # the movement, and an adopted branch's standing.
+    # the movement, and an adopted branch's standing - unless the `reply`
+    # row above is saying the mention already.
     seen, words = seen_of(it, marks), moved_words(it, marks)
     kv("why", string(seen === :unread ?
                          (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) :
                          "read",
-                     isempty(it.why) ? "" : string("  ", THEME.dim, it.why, THEME.reset)))
-    # By the command's own word, with what the level means, since nothing on
-    # screen said, and the command's name, since there is no key for it.
-    kv("track", string(it.track, "  ", THEME.dim,
-                       it.track == "loose" ? "ignores bots and strangers' CI" :
-                                             "anything by somebody else moves it",
-                       " · wl track", THEME.reset))
-    # When it wakes, while it is asleep - and, unread meanwhile, that it is
-    # the movement and not the wake that brought it back; once the snooze
-    # has gone, that there was one, and whether it woke or was cleared by
-    # hand (`last_snooze`, which outlives the snooze). Marks read off
-    # `local.toml` rather than anything the refresh decided, so a snooze that
-    # ran out at lunch says so here before the next refresh.
+                     (isempty(it.why) || !isempty(it.reply)) ? "" :
+                         string("  ", THEME.dim, it.why, THEME.reset)))
+    # By the command's own word, and the command's name, since there is no
+    # key for it. What the level means is the command's help; said here it
+    # wrapped the row on every item.
+    kv("track", string(it.track, "  ", THEME.dim, "wl track", THEME.reset))
+    # When it wakes, while it is asleep; once the snooze has gone, that
+    # there was one, and whether it woke or was cleared by hand
+    # (`last_snooze`, which outlives the snooze) - the one place the wake's
+    # time is on screen. Marks read off `local.toml` rather than anything
+    # the refresh decided, so a snooze that ran out at lunch says so here
+    # before the next refresh. That a row is unread under its snooze is the
+    # `why` row's, with what moved.
     if asleep(it, marks)
-        kv("snoozed", string("until ", when_str(st.wakes[it.url], at),
-                             seen_of(it, marks) === :unread ?
-                                 string("  ", THEME.dim, "moved before the wake", THEME.reset) : ""))
+        kv("snoozed", string("until ", when_str(st.wakes[it.url], at)))
     elseif haskey(st.snoozes, it.url) || haskey(st.wakes, it.url)
         # Off the snooze itself where one is still on file and woken - typed
         # by hand, and no refresh has written it down yet.
