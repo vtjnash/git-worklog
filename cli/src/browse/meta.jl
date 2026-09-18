@@ -288,22 +288,63 @@ item, which is the same rule as `age`."""
 when_str(s::AbstractString, at::DateTime) = (w = when_str(s); isempty(w) ? "" :
     string(w, "  ", THEME.dim, ago_str(s, at), THEME.reset))
 
-"""One word for what last moved the item - the wake-table key the refresh
-kept beside the stamp (`moved_by`), in the pane's words - or for what brought
-it back when it was not the table: a snooze that ran out (`woke`), or the
-poll's clock on a light row (`updated`), which has no table to say more.
+"""What has moved since you read the item, newest first, in the pane's
+words - `pushed`, `comment`, `reviewed`, `review requested`, `assigned`,
+`merged`/`closed`/`reopened`, `CI failed`, `new`, `woke`, `updated` - or
+nothing for an adopted branch, which no clock moves.
 
-The word is the one movement `moved_at` is the time of. Two keys moving in
-one refresh are the later one; a push read and a comment since is the
-comment. `moved`, for a row the refresh has not kept the key on; nothing for
-an adopted branch, which no clock moves and whose `why` says its standing.
+Read off the item against the read stamp - the same stamp `seen_of` compares,
+so the words are the unread - and not off a record: the wake table's keys are
+each the time somebody else last did the thing, and every one past the stamp
+is a thing that happened since you looked. Computed here, per frame, so `r`
+empties it and a stamp that moves back fills it, with no refresh between.
+
+Two movements have no time of their own to compare, and for those the
+refresh's own answer stands in: the key it kept beside the stamp
+(`moved_by`) is the *last* movement, dated `moved_at`, and is listed
+whatever it was - the bool that rose (`CI failed`), the force-push of an
+older commit whose date cannot account for it. `new` says the row itself
+arrived, and is said only when nothing since is. A push is dated by the head
+only while the head is theirs: after a push of your own the date is yours,
+and their push before it is the refresh's to remember.
+
+Beside the table: a snooze that ran out (`woke`), and a light row (`updated`),
+which has the poll's clock and nothing else.
 """
-function moved_word(it::Item, m::Marks)
-    islocal(it) && return ""
+function moved_words(it::Item, m::Marks)
+    islocal(it) && return String[]
+    stamp = get(m.read, it.url, nothing)
+    stamp === nothing && (stamp = floor_of(it, m.sources))
+    # Never in front of you at all: everything on it is new, and one word
+    # says so.
+    stamp === nothing && return ["new"]
+    evs = Tuple{String,String}[]          # (when, word), to sort newest first
+    keys = get(TRACK_KEYS, it.track, TRACK_KEYS["normal"])
+    for k in keys
+        t = k == "their_head" ? (it.head_by == login() ? "" : it.head_at) :
+            k == "their_comment_at" ? it.their_comment_at :
+            k == "human_comment_at" ? it.human_comment_at :
+            k == "review_at" ? it.review_at :
+            k == "review_requested_at" ? it.review_requested_at :
+            k == "assigned_at" ? it.assigned_at :
+            k == "state_at" ? it.state_at : ""
+        isempty(t) || t <= stamp || push!(evs, (t, moved_word(k, it)))
+    end
     moved = something(moved_of(it), "")
     wake = get(m.wake, it.url, nothing)
-    wake !== nothing && wake <= m.now && wake > moved && return "woke"
-    k = it.moved_by
+    wake !== nothing && wake <= m.now && wake > stamp && push!(evs, (wake, "woke"))
+    # The last movement as the refresh recorded it, which is the one the
+    # timed keys cannot always say: dated by the stamp it set.
+    if moved > stamp && !isempty(it.moved_by) && (it.moved_by != "new" || isempty(evs))
+        push!(evs, (moved, moved_word(it.moved_by, it)))
+    end
+    isempty(evs) && return moved > stamp ? [isempty(it.moved_at) ? "updated" : "moved"] : String[]
+    sort!(evs; by = first, rev = true)
+    unique!(last.(evs))
+end
+
+"The pane's word for a key of the wake table; the state's own for a close."
+moved_word(k::AbstractString, it::Item) =
     k == "their_head" ? "pushed" :
     k in ("their_comment_at", "human_comment_at") ? "comment" :
     k == "review_at" ? "reviewed" :
@@ -311,9 +352,7 @@ function moved_word(it::Item, m::Marks)
     k == "assigned_at" ? "assigned" :
     k == "state_at" ? (it.state == "OPEN" ? "reopened" : lowercase(it.state)) :
     k == "ci_failed" ? "CI failed" :
-    k == "new" ? "new" :
-    isempty(it.moved_at) ? "updated" : "moved"
-end
+    k == "new" ? "new" : "moved"
 
 """Lines for the metadata pane: what is true of this item, rather than what is
 in it.
@@ -506,14 +545,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # What is written down about it, in `local.toml`: the block is the file's
     # block for this item, and the heading is the file's name.
     head("local")
-    # Why it is in front of you, first: unread, and in one word what moved -
-    # a comment, a push, a review - which `seen_of` says with the stamp and
-    # the list says with the bold and neither says in words; or read. Then,
-    # dim, the reason GitHub gave for a thread ("you were mentioned"), which
-    # is about the item and not about the movement, and an adopted branch's
-    # standing.
-    seen, word = seen_of(it, marks), moved_word(it, marks)
-    kv("why", string(seen === :unread ? (isempty(word) ? "unread" : string("unread: ", word)) : "read",
+    # Why it is in front of you, first: unread, and in a word each what has
+    # moved since you read it - a comment, a push, a review, newest first -
+    # which `seen_of` says with the stamp and the list says with the bold and
+    # neither says in words; or read. Then, dim, the reason GitHub gave for a
+    # thread ("you were mentioned"), which is about the item and not about
+    # the movement, and an adopted branch's standing.
+    seen, words = seen_of(it, marks), moved_words(it, marks)
+    kv("why", string(seen === :unread ?
+                         (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) :
+                         "read",
                      isempty(it.why) ? "" : string("  ", THEME.dim, it.why, THEME.reset)))
     # By the command's own word, with what the level means, since nothing on
     # screen said, and the command's name, since there is no key for it.

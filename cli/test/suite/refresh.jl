@@ -2051,43 +2051,91 @@ end
     @test W.movement(husk, row(; review_at = "2026-09-12T10:45:00Z"), now_)[2] == "review_at"
 end
 
-@testset "why says in one word what moved" begin
+@testset "why says what moved, a word each" begin
     # The stamp says when, the bold says that; neither says what. The pane
-    # reads the key the refresh kept beside the stamp, under `local`, and the
-    # thread's reason follows it dim.
+    # reads the wake table's keys off the item against the read stamp - so
+    # every movement since you looked is a word, newest first, with no
+    # refresh between - and the refresh's own answer for the last one, which
+    # is the one a key cannot always date. Under `local`, with the reason
+    # GitHub gave dim after it.
     st = mkstate()
     mk(; kw...) = W.with(st.items[1]; url = "https://github.com/o/r/pull/9", ref = "r#9",
                          moved_at = "2026-09-12T10:00:00Z", updated = "2026-09-12T10:00:00Z",
-                         state = "OPEN", kw...)
-    m = W.Marks(st, W.ts("2026-09-13T00:00:00Z"))
-    for (k, w) in (("their_head", "pushed"), ("their_comment_at", "comment"),
-                   ("human_comment_at", "comment"), ("review_at", "reviewed"),
-                   ("review_requested_at", "review requested"), ("assigned_at", "assigned"),
-                   ("ci_failed", "CI failed"), ("new", "new"), ("", "moved"))
-        @test W.moved_word(mk(; moved_by = k), m) == w
-    end
-    @test W.moved_word(mk(; moved_by = "state_at", state = "MERGED"), m) == "merged"
-    @test W.moved_word(mk(; moved_by = "state_at", state = "CLOSED"), m) == "closed"
-    @test W.moved_word(mk(; moved_by = "state_at", state = "OPEN"), m) == "reopened"
+                         state = "OPEN", track = "normal", moved_by = "", head_at = "",
+                         head_by = "", their_comment_at = "", human_comment_at = "",
+                         review_at = "", review_requested_at = "", assigned_at = "",
+                         state_at = "", kw...)
+    at = W.ts("2026-09-13T00:00:00Z")
+    marks(read; wake = nothing) =
+        W.Marks(read = read === nothing ? Dict{String,String}() : Dict(mk().url => read),
+                wake = wake === nothing ? Dict{String,String}() : Dict(mk().url => wake),
+                now = W.stamp(at))
+    read = marks("2026-09-12T08:00:00Z")
+    # The words, one per key.
+    @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
+    @test W.moved_words(mk(; head_at = "2026-09-12T09:00:00Z", head_by = "alice"), read) == ["pushed"]
+    @test W.moved_words(mk(; review_at = "2026-09-12T09:00:00Z"), read) == ["reviewed"]
+    @test W.moved_words(mk(; review_requested_at = "2026-09-12T09:00:00Z"), read) == ["review requested"]
+    @test W.moved_words(mk(; assigned_at = "2026-09-12T09:00:00Z"), read) == ["assigned"]
+    @test W.moved_words(mk(; state_at = "2026-09-12T09:00:00Z", state = "MERGED"), read) == ["merged"]
+    @test W.moved_words(mk(; state_at = "2026-09-12T09:00:00Z", state = "CLOSED"), read) == ["closed"]
+    @test W.moved_words(mk(; state_at = "2026-09-12T09:00:00Z"), read) == ["reopened"]
+    # All of them, newest first, and each once: the comment and the push
+    # since the stamp, not the review before it.
+    @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z",
+                            head_at = "2026-09-12T09:30:00Z", head_by = "alice",
+                            review_at = "2026-09-12T07:00:00Z"), read) == ["pushed", "comment"]
+    @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z",
+                            moved_by = "their_comment_at"), read) == ["comment"]
+    # `r` empties it, with no refresh between.
+    @test isempty(W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
+                                marks("2026-09-12T10:00:00Z")))
+    # The level decides which keys are read: loosely, a bot's comment is not
+    # one - the stamp alone says the row moved - and the human key is.
+    @test W.moved_words(mk(; track = "loose", their_comment_at = "2026-09-12T09:00:00Z"), read) == ["moved"]
+    @test W.moved_words(mk(; track = "loose", human_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
+    # Your own push after theirs dates the head and is not news; theirs
+    # before it is the refresh's to remember.
+    me = W.login()
+    @test W.moved_words(mk(; head_at = "2026-09-12T09:30:00Z", head_by = me), read) == ["moved"]
+    @test W.moved_words(mk(; head_at = "2026-09-12T09:30:00Z", head_by = me,
+                            moved_by = "their_head"), read) == ["pushed"]
+    # What no key can date: the bool that rose, and the force-push of an
+    # older commit, both dated by the refresh and named by it - listed
+    # first, since the stamp they set is the newest thing on the row.
+    @test W.moved_words(mk(; moved_by = "ci_failed", their_comment_at = "2026-09-12T09:00:00Z"),
+                        read) == ["CI failed", "comment"]
+    @test W.moved_words(mk(; moved_by = "their_head", head_at = "2026-09-12T07:00:00Z",
+                            head_by = "alice"), read) == ["pushed"]
+    # A row never in front of you is new, whatever is on it; one that
+    # arrived with things on it since the floor says those.
+    @test W.moved_words(mk(; moved_by = "new", their_comment_at = "2026-09-12T09:00:00Z"),
+                        marks(nothing)) == ["new"]
+    @test W.moved_words(mk(; moved_by = "new"), read) == ["new"]
+    @test W.moved_words(mk(; moved_by = "new", their_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
     # A light row has the poll's clock and no table; a woken snooze is the
     # wake and not the table; an adopted branch has neither.
-    @test W.moved_word(mk(; moved_by = "", moved_at = ""), m) == "updated"
-    woke = W.Marks(wake = Dict(mk().url => "2026-09-12T12:00:00Z"), now = "2026-09-13T00:00:00Z")
-    @test W.moved_word(mk(; moved_by = "their_head"), woke) == "woke"
-    @test W.moved_word(mk(; url = "local:o/r/wip", moved_by = "their_head"), m) == ""
-    # On the pane: under `local`, unread with the word, read without one, and
+    @test W.moved_words(mk(; moved_at = ""), read) == ["updated"]
+    @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
+                        marks("2026-09-12T08:00:00Z"; wake = "2026-09-12T12:00:00Z")) == ["woke", "comment"]
+    @test W.moved_words(mk(; url = "local:o/r/wip", moved_by = "their_head"), read) == String[]
+    # On the pane: under `local`, unread with the words, read without, and
     # the reason GitHub gave after either.
-    it = mk(; moved_by = "review_at", why = "you were mentioned")
+    it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z",
+            why = "you were mentioned")
     st.read = Dict{String,String}(); st.sources = Dict{String,String}()
-    plain = W.astrip(join(W.meta_lines(st, it, 60, W.ts("2026-09-13T00:00:00Z")), "\n"))
-    @test occursin("why       unread: reviewed  you were mentioned", plain)
+    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
+    @test occursin("why       unread: new  you were mentioned", plain)
+    st.read = Dict(it.url => "2026-09-12T08:00:00Z")
+    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
+    @test occursin("why       unread: reviewed, comment  you were mentioned", plain)
     @test first(findfirst("local", plain)) < first(findfirst("why  ", plain))
     st.read = Dict(it.url => "2026-09-12T10:00:00Z")
-    plain = W.astrip(join(W.meta_lines(st, it, 60, W.ts("2026-09-13T00:00:00Z")), "\n"))
+    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       read  you were mentioned", plain)
     @test !occursin("unread", plain)
-    # And `wl unread` says it to an outside reader.
-    @test W.item_json(it)["moved_by"] == "review_at"
+    # And `wl unread` says the last one to an outside reader.
+    @test W.item_json(W.with(it; moved_by = "review_at"))["moved_by"] == "review_at"
 end
 
 @testset "your own keystrokes are not news" begin

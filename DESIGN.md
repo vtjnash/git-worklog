@@ -248,16 +248,22 @@ The rules behind the table, each of which cost a bug:
 - **Not in the table, on purpose:** `mergeable`, `unresolved`, labels,
   milestones, title edits, ready-for-review (arrives with the request that
   follows), a team being asked (the token cannot see it).
-- **The key that moved it is kept beside the stamp**, `moved_by`: the one
-  whose time the stamp is, the bool that rose, `new` on first sight, and
-  the key it had when nothing moved (`movement`, which is `moved_stamp`
-  answering the second question too). It is what the pane's `why` row
-  reads - `unread: comment`, `pushed`, `reviewed`, `review requested`,
-  `assigned`, `merged`, `CI failed`, `new`; `woke` for a snooze that ran
-  out and `updated` for a light row, which are the two reasons beside the
-  table - since the stamp says when and the bold says that, and neither
-  said what. A row from before the key was kept is caught up once off the
-  stamp (`moved_key`), and says `moved` where that names nothing.
+- **What moved since you read is read off the keys, per frame.** The
+  pane's `why` row lists, newest first, every key of the wake table whose
+  time is past the read stamp - the same stamp `seen_of` compares, so the
+  words are the unread - `unread: pushed, comment`, `reviewed`, `review
+  requested`, `assigned`, `merged`, `new`, and `woke` for a snooze that ran
+  out (`moved_words`). Computed and not stored: `r` empties it and a stamp
+  put back fills it, with no refresh between. Two movements have no time
+  to compare - the bool that rose (`CI failed`), the force-push of an older
+  commit - and for those the refresh keeps the key that set the stamp
+  beside it, `moved_by` (`movement`, which is `moved_stamp` answering the
+  second question too; `new` on first sight; the key it had when nothing
+  moved; caught up once off the stamp by `moved_key` for a row from before
+  it was kept). That is the *last* movement, dated `moved_at`, and is
+  listed whatever it was. A push is dated by `head_at` only while `head_by`
+  is not you: after a push of your own the date is yours, and theirs
+  before it is `moved_by`'s to say.
 
 ## Time
 

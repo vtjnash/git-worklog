@@ -38,10 +38,23 @@ Base.@kwdef struct Item
                            # where `updated` is the only answer anybody has
     moved_by::String = ""  # and the key of the wake table that moved it then -
                            # `their_head`, `review_at`, `ci_failed`... - or
-                           # `new` on first sight: what the pane's one word for
-                           # why the row is unread is read off (`moved_word`).
-                           # Empty on a light row, and on a row from before
-                           # the refresh kept it
+                           # `new` on first sight. The last movement; the ones
+                           # before it are read off the keys below against the
+                           # read stamp (`moved_words`). Empty on a light row,
+                           # and on a row from before the refresh kept it
+    # The wake table's own keys, as the refresh left them: each is the time
+    # somebody else last did the thing, or "" - `head_at` with `head_by`
+    # saying whose the head is, since a push of yours after theirs dates the
+    # head and is not news. What the pane lists as having moved since you
+    # read, key by key, without a refresh to say so.
+    head_at::String = ""
+    head_by::String = ""
+    their_comment_at::String = ""
+    human_comment_at::String = ""
+    review_at::String = ""
+    review_requested_at::String = ""
+    assigned_at::String = ""
+    state_at::String = ""
     act::String = ""       # when this last moved: the head commit, else the last
                            # comment, else `updated`. Stored as the timestamp
                            # and not as an age in days, because an age is only
@@ -136,6 +149,14 @@ function item_of(r)
             act = String(nz(act, "")),
             moved_at = String(nz(jget(r, :moved_at), "")),
             moved_by = String(nz(jget(r, :moved_by), "")),
+            head_at = String(nz(jget(r, :head_at), "")),
+            head_by = String(nz(jget(r, :head_by), "")),
+            their_comment_at = String(nz(jget(r, :their_comment_at), "")),
+            human_comment_at = String(nz(jget(r, :human_comment_at), "")),
+            review_at = String(nz(jget(r, :review_at), "")),
+            review_requested_at = String(nz(jget(r, :review_requested_at), "")),
+            assigned_at = String(nz(jget(r, :assigned_at), "")),
+            state_at = String(nz(jget(r, :state_at), "")),
             created = String(nz(jget(r, :created), "")),
             updated = String(nz(jget(r, :updated), "")),
             new = nz(jget(r, :new), false),

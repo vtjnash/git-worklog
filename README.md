@@ -77,10 +77,10 @@ the title bar's right-hand end says when the corpus was last fetched, and
 `refreshing …` while `u` runs. Every date on the metadata pane and on a
 comment or push header has how long ago that was beside it, dim - `3d ago`,
 `in 2w` for a snooze's wake - worked out against the moment the frame is
-drawn. The `why` row under `local` says in one word what made the item
-unread - `unread: comment`, `pushed`, `reviewed`, `review requested`,
-`assigned`, `merged`, `CI failed`, `new`, `woke` - with the reason GitHub
-gave for a notification after it. The `branch` row is `head → base` in the
+drawn. The `why` row under `local` says in a word each what has moved since
+you read the item, newest first - `unread: pushed, comment`, `reviewed`,
+`review requested`, `assigned`, `merged`, `CI failed`, `new`, `woke` - with
+the reason GitHub gave for a notification after it. The `branch` row is `head → base` in the
 form git takes, `owner/repo:head` for a fork, and a base that is not the
 repository's default branch is coloured and says so - `→ v1.x  not master`.
 
