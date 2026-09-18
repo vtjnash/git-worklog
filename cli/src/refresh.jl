@@ -141,6 +141,9 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # knowing which branch that is there is no way to tell the base's own
         # commits from the ones somebody pushed. See `branch_moved`.
         rec["base"] = something(jget(n, :baseRefName), "")
+        # And where that branch was, so `d` can measure from the merge base
+        # with no round trip: a checkout that has both shas has the diff.
+        rec["base_sha"] = something(jget(n, :baseRefOid), "")
         # Who pushed the button, and only ever asked of the closed lanes -
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)

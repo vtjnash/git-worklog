@@ -62,6 +62,8 @@ Base.@kwdef struct Item
                            # it is what makes "what was pushed since I looked"
                            # answerable: the merge base against it is what
                            # separates their commits from the base's own
+    base_sha::String = ""  # and where that branch was at the refresh, so the
+                           # merge base is a local question given both shas
     head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
                            # a push happened; this says what it pushed, which is
                            # the other end of the range-diff `p` takes against
@@ -141,6 +143,7 @@ function item_of(r)
             branch = nz(jget(r, :branch), ""),
             head = nz(jget(r, :head_sha), ""),
             base = nz(jget(r, :base), ""),
+            base_sha = nz(jget(r, :base_sha), ""),
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
             reply = nz(jget(r, :reply), ""),

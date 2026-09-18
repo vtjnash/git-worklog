@@ -382,17 +382,20 @@ checkout cannot: `git diff` from the merge base of the base branch and `head`
 to `head`, which is the diff GitHub serves for it.
 
 The head is fetched when it is not here - `refs/pull/N/head`, as `p` and
-`]` do - and the base is fetched every time, because a copy of it that is
-too old is the one thing that makes this diff *wrong* rather than late: a
-pull request forked from a base newer than the copy here measures from the
-copy's tip, and the base's own commits come out as the pull request's.
-Whether the copy is that old cannot be told from here - a base tip that is
-an ancestor of the head is what a stale copy looks like, and also what a
-branch made from the current tip looks like - so the round trip is taken,
-once per head, since a miss under the exact key is a head this program has
-not seen. When it fails (no network) a base that is an ancestor of the
-head is refused for that reason, and one that is not is a real fork point
-and answers.
+`]` do. The base is measured from `base_sha`, where the lanes saw the base
+branch, and with both shas in the checkout the merge base is a local
+question and nothing goes over the network: git is the cache, and there is
+nothing to key a diff by. A base sha the checkout lacks is fetched by its
+branch, once.
+
+Without a base sha - a record from before the lanes carried one, or a base
+the fetch did not bring - the base *branch* answers, and it has to be
+fetched every time: a copy of it older than the fork point is the one thing
+that makes this diff wrong rather than late, the base's own commits coming
+out as the pull request's, and nothing local tells that copy apart from a
+branch made off the current tip, since both have the base as an ancestor of
+the head. When that fetch fails and the base is an ancestor, the checkout
+says nothing and gh's copy is the better answer.
 
 `-M` because GitHub detects renames; the prefixes said outright because
 `diff.noprefix` in someone's config would take the `b/` that `hunk_nodes`
@@ -400,14 +403,21 @@ strips; `--no-ext-diff` and `--no-color` because a difftool or `color.ui`
 would put something that is not a diff on the pipe.
 """
 function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractString,
-                 head::AbstractString)
+                 base_sha::AbstractString, head::AbstractString)
     isempty(head) && return nothing
     ensure_commit!(path, head, prnum; remote = remote_for(path, repo)) || return nothing
-    fetched = fetch_base!(path, repo, base)
-    ref = base_ref(path, repo, base)
-    isempty(ref) && return nothing
-    fetched || !is_ancestor(path, ref, head) || return nothing
-    mb = merge_base(path, ref, head)
+    from = ""
+    if !isempty(base_sha)
+        have_commit(path, base_sha) || fetch_base!(path, repo, base)
+        have_commit(path, base_sha) && (from = base_sha)
+    end
+    if isempty(from)
+        fetched = fetch_base!(path, repo, base)
+        from = base_ref(path, repo, base)
+        isempty(from) && return nothing
+        fetched || !is_ancestor(path, from, head) || return nothing
+    end
+    mb = merge_base(path, from, head)
     isempty(mb) && return nothing
     try
         git(path, "diff", "-M", "--no-color", "--no-ext-diff",

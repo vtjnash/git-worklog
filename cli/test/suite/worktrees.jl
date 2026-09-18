@@ -461,7 +461,7 @@ end
     end
 end
 
-@testset "d is the checkout's diff, by head, and gh's only without one" begin
+@testset "d is the checkout's diff, and gh's only without one" begin
     # Two repositories: `remote`, which stands for GitHub, and `main`, the
     # pinned checkout, cloned from it - so a fetch has somewhere to go.
     root = mktempdir()
@@ -471,10 +471,9 @@ end
     W.git(remote, "config", "user.name", "t")
     write(joinpath(remote, "a.txt"), "one\ntwo\n")
     W.git(remote, "add", "a.txt"); W.git(remote, "commit", "--quiet", "-m", "first")
+    base1 = strip(W.git(remote, "rev-parse", "HEAD"))
     main = joinpath(root, "main")
     run(pipeline(`git clone --quiet $remote $main`; stdout = devnull, stderr = devnull))
-    # Make the clone's remote look like GitHub's, so `remote_for` finds it.
-    W.git(main, "remote", "set-url", "origin", remote)
     W.git(main, "config", "user.email", "t@example.com")
     W.git(main, "config", "user.name", "t")
     # The pull request: a branch on the remote, and its head where GitHub
@@ -485,19 +484,35 @@ end
     head = strip(W.git(remote, "rev-parse", "HEAD"))
     W.git(remote, "update-ref", "refs/pull/5/head", head)
     W.git(remote, "checkout", "--quiet", "master")
+    offline() = W.git(main, "remote", "set-url", "origin", joinpath(root, "nowhere"))
+    online() = W.git(main, "remote", "set-url", "origin", remote)
+    # Move master on the remote and rebase topic onto it; the new head is
+    # served, and where master now is comes back for the record.
+    function rebase!(file)
+        write(joinpath(remote, file), "base moved\n")
+        W.git(remote, "add", file); W.git(remote, "commit", "--quiet", "-m", "on master")
+        b = strip(W.git(remote, "rev-parse", "HEAD"))
+        W.git(remote, "checkout", "--quiet", "topic")
+        W.git(remote, "rebase", "--quiet", "master")
+        h = strip(W.git(remote, "rev-parse", "HEAD"))
+        W.git(remote, "update-ref", "refs/pull/5/head", h)
+        W.git(remote, "checkout", "--quiet", "master")
+        (b, h)
+    end
+    pr(; kw...) = W.Item(url = "https://example.invalid/pull/5", ref = "o/r#5", repo = "o/r",
+                         number = 5, title = "t", base = "master", branch = "topic"; kw...)
 
     keept, keepdir = W.LOCAL[], W.CACHE_DIR[]
     W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
     W.CACHE_DIR[] = joinpath(root, "cache")
     asked = Ref(0)
     gh = _ -> (asked[] += 1; (0, "diff --git a/gh b/gh\n@@ -1 +1 @@\n-x\n+y\n", ""))
-    it = W.Item(url = "https://example.invalid/pull/5", ref = "o/r#5", repo = "o/r",
-                number = 5, title = "t", base = "master", head = head, branch = "topic")
+    it = pr(head = head, base_sha = base1)
     try
-        # No checkout pinned: gh, under the key by number.
+        # No checkout pinned: gh, under its key by number.
         ns = W.diff_nodes(it; run = gh)
         @test asked[] == 1 && ns[1].meta["file"] == "gh"
-        @test W.cache_has(W.diff_key(it)) && !W.cache_has(W.diff_key(it, head))
+        @test W.cache_has(W.diff_key(it)) && !(string(it.url, "@", head) in W.DIFFED)
 
         # Pinned: the checkout's diff, the head fetched from `refs/pull/5/head`
         # since the clone has never seen it, and gh not asked.
@@ -508,61 +523,47 @@ end
         @test length(ns) == 1 && ns[1].meta["file"] == "a.txt"
         @test ns[1].meta["start"] == 1 && ns[1].meta["count"] == 3
         @test occursin("+three", ns[1].raw)
-        @test W.have_commit(main, head) && W.cache_has(W.diff_key(it, head))
+        @test W.have_commit(main, head) && string(it.url, "@", head) in W.DIFFED
         @test W.mode_cached(:diff, it)
 
-        # A second read is the cache - the remote is gone and it is not
-        # noticed.
-        W.git(main, "remote", "set-url", "origin", joinpath(root, "nowhere"))
+        # With both shas here nothing goes over the network: the remote can
+        # be gone and the answer is the same.
+        offline()
         @test W.diff_nodes(it; run = gh)[1].meta["file"] == "a.txt" && asked[] == 1
-        W.git(main, "remote", "set-url", "origin", remote)
+        online()
 
-        # The pull request is rebased past the base the checkout has: master
-        # moves on the remote, topic is rebuilt on top of it. The base is
-        # fetched on the miss, and the diff is the pull request's commit
-        # alone, not master's new one with it.
-        write(joinpath(remote, "b.txt"), "base moved\n")
-        W.git(remote, "add", "b.txt"); W.git(remote, "commit", "--quiet", "-m", "on master")
-        W.git(remote, "checkout", "--quiet", "topic")
-        W.git(remote, "rebase", "--quiet", "master")
-        head2 = strip(W.git(remote, "rev-parse", "HEAD"))
-        W.git(remote, "update-ref", "refs/pull/5/head", head2)
-        W.git(remote, "checkout", "--quiet", "master")
-        it2 = W.Item(url = it.url, ref = it.ref, repo = it.repo, number = 5, title = "t",
-                     base = "master", head = head2, branch = "topic")
+        # Rebased past the base the checkout has. The record carries where
+        # master is now, the checkout does not have it, and one fetch of the
+        # branch brings it: the diff is the pull request's commit alone, not
+        # master's new one with it.
+        base2, head2 = rebase!("b.txt")
+        it2 = pr(head = head2, base_sha = base2)
         ns = W.diff_nodes(it2; run = gh)
         @test asked[] == 1
         @test length(ns) == 1 && ns[1].meta["file"] == "a.txt"
         @test !any(n -> n.meta["file"] == "b.txt", ns)
+        @test W.have_commit(main, base2)
 
-        # Offline, with a base copy the head has been rebased past - master
-        # moves again, topic follows, and the remote is unreachable: the
-        # checkout has the head (given to it here, as a push from this
-        # checkout would) but cannot tell its base copy is stale, and says
-        # nothing rather than a diff with master's commits in it. gh answers
-        # - its copy by number, still inside its two minutes.
-        write(joinpath(remote, "c.txt"), "base moved again\n")
-        W.git(remote, "add", "c.txt"); W.git(remote, "commit", "--quiet", "-m", "on master 2")
-        W.git(remote, "checkout", "--quiet", "topic")
-        W.git(remote, "rebase", "--quiet", "master")
-        head3 = strip(W.git(remote, "rev-parse", "HEAD"))
-        W.git(remote, "checkout", "--quiet", "master")
+        # A record with no base sha - from before the lanes carried one - is
+        # the branch, fetched every time. Offline, with a copy the head has
+        # been rebased past, the checkout cannot tell its copy is stale and
+        # says nothing rather than a diff with master's commits in it; gh's
+        # copy by number, still inside its two minutes, answers.
+        base3, head3 = rebase!("c.txt")
         W.git(main, "fetch", "--quiet", "origin", string(head3, ":refs/heads/topic-local"))
-        W.git(main, "remote", "set-url", "origin", joinpath(root, "nowhere"))
-        it3 = W.Item(url = it.url, ref = it.ref, repo = it.repo, number = 5, title = "t",
-                     base = "master", head = head3, branch = "topic")
+        offline()
+        it3 = pr(head = head3)
         ns = W.diff_nodes(it3; run = gh)
         @test asked[] == 1 && ns[1].meta["file"] == "gh"
-        @test !W.cache_has(W.diff_key(it3, head3))
-        # Online again, the same head is answered locally, and exactly.
-        W.git(main, "remote", "set-url", "origin", remote)
-        ns = W.diff_nodes(it3; fresh = true, run = gh)
+        @test !(string(it3.url, "@", head3) in W.DIFFED)
+        # The same record online is the branch fetched, and the right diff.
+        online()
+        ns = W.diff_nodes(it3; run = gh)
         @test asked[] == 1 && length(ns) == 1 && ns[1].meta["file"] == "a.txt"
-        @test W.cache_has(W.diff_key(it3, head3))
+        @test string(it3.url, "@", head3) in W.DIFFED
 
         # A head nobody serves: the checkout cannot answer, and gh does.
-        it4 = W.Item(url = it.url, ref = it.ref, repo = it.repo, number = 5, title = "t",
-                     base = "master", head = "0123456789012345678901234567890123456789")
+        it4 = pr(head = "0123456789012345678901234567890123456789", base_sha = base3)
         ns = W.diff_nodes(it4; fresh = true, run = gh)
         @test asked[] == 2 && ns[1].meta["file"] == "gh"
     finally

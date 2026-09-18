@@ -4,8 +4,8 @@
 # thread and diff was fetched fresh each time an item was selected -
 # several REST calls or a `gh pr diff` per keystroke, which is what makes the
 # browser feel slow when moving back and forth over the same few items. The
-# diff has since moved to the pinned checkout where there is one, keyed by
-# the head's sha, and gh's copy by number is the answer where there is not.
+# diff has since moved to the pinned checkout where there is one - git is
+# its cache - and gh's copy by number is the answer where there is not.
 #
 # Entries are keyed by the request, not the item, so switching modes or lanes
 # still hits whatever was already fetched. Writes are atomic: a torn JSON file
@@ -47,7 +47,7 @@ what apply them.
 | read                    | where           | fresh         | keep         | past fresh       | held  |
 |-------------------------|-----------------|---------------|--------------|------------------|-------|
 | thread (`thread:`)      | `comment_nodes` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read   | yes   |
-| diff, local (`diff:…@sha`) | `diff_nodes` | = keep       | `CACHE_KEEP` | exact key; never stale | yes |
+| diff, checkout          | `diff_nodes`    | -             | -            | local git; not cached | once per head |
 | diff, gh (`diff:`)      | `diff_nodes`    | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read   | yes   |
 | checks (`checks:`)      | `check_nodes`, `load_meta!` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read | yes |
 | reviewers (`itemmeta:`) | `load_meta!`    | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read   | yes   |

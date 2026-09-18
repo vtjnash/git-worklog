@@ -28,7 +28,7 @@ Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
 # the metadata pane lists who is asked from the REST head it already fetches.
 const PR_FIELDS = "\n" * """
       url number title isDraft createdAt updatedAt state
-      headRefName headRefOid baseRefName
+      headRefName headRefOid baseRefName baseRefOid
       mergedBy { login }
       repository { nameWithOwner }
       author { login }

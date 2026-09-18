@@ -23,8 +23,13 @@ const REFRESH_AFTER = Ref(1.0)
 thread_key(url::AbstractString) = string("thread:", url)
 "The gh answer, by number: what it was at the time, and so on a clock."
 diff_key(it::Item) = string("diff:", it.repo, "#", it.number)
-"The checkout's answer, by head: exact, so a hit is never stale."
-diff_key(it::Item, head::AbstractString) = string("diff:", it.repo, "#", it.number, "@", head)
+
+"""The heads whose diff the checkout has answered this launch - what
+`mode_cached` asks, since the checkout's answer is not cached and "is there
+something to show at once" is then "has this been shown": the first `d` on
+an item waits out the dwell like a fetch, and every one after is immediate,
+which is what git being the cache means for the pane."""
+const DIFFED = Set{String}()
 
 """
     split_details(md) -> Vector{Tuple{Symbol,String,String}}
@@ -426,15 +431,15 @@ reading a change: hunks are the units you actually move between. The file name
 stays in each hunk's header so the context is never lost.
 
 **The checkout answers first, gh second.** Both ends of the diff are known -
-the head from the lanes, the base branch on the item - and a pinned checkout
-has the objects, or fetches them once as `p` and `]` already do. So the diff
-is [`pr_diff`](@ref), cached under the head's sha: an exact key, which a
-number and a clock never were - `gh pr diff` by number was fresh for two
-minutes whatever was pushed inside them, and a request every two minutes
-past that whether anything moved or not. gh's answer, under the old key
-and the old clock, is for an item with no checkout pinned, a head the
-checkout cannot get, or a base it cannot bring up to date - and for the
-`stale` flag, which the exact key has no use for.
+the head from the lanes, the base branch and where it was on the item - and
+a pinned checkout has the objects, or fetches them once as `p` and `]`
+already do. So the diff is [`pr_diff`](@ref), computed every time: `git
+diff` between two shas is milliseconds and never stale, where `gh pr diff`
+by number was cached for two minutes whatever was pushed inside them, and a
+request every two minutes past that whether anything moved or not. gh's
+answer, under its key and its clock, is for an item with no checkout
+pinned, a head the checkout cannot get, or a base it cannot bring up to
+date - and for the `stale` flag, which a local answer has no use for.
 """
 function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
@@ -446,14 +451,10 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
         # `head_sha` asks gh for a head the lanes did not supply, which is
         # worth it only where a checkout could use the answer.
         head = repo === nothing ? it.head : head_sha(it)
-        local_ = nothing
-        if repo !== nothing && !isempty(head)
-            hit = fresh ? nothing : cache_get(diff_key(it, head), CACHE_KEEP[])
-            local_ = hit !== nothing ? String(hit[1]) :
-                     pr_diff(repo, it.repo, it.number, it.base, head)
-            hit === nothing && local_ !== nothing && cache_put(diff_key(it, head), local_)
-        end
+        local_ = repo === nothing || isempty(head) ? nothing :
+                 pr_diff(repo, it.repo, it.number, it.base, it.base_sha, head)
         if local_ !== nothing
+            push!(DIFFED, string(it.url, "@", head))
             local_
         else
             key = diff_key(it)
@@ -1004,5 +1005,5 @@ wait for."""
 mode_cached(mode::Symbol, it::Item) =
     mode === :comments ? cache_has(thread_key(it.url)) :
     mode === :diff     ? (!it.is_pr || cache_has(diff_key(it)) ||
-                          (!isempty(it.head) && cache_has(diff_key(it, it.head)))) :
+                          string(it.url, "@", it.head) in DIFFED) :
     mode === :checks   ? (!it.is_pr || cache_has(checks_key(it.repo, it.number))) : true
