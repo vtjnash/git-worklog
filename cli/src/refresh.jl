@@ -1099,18 +1099,16 @@ moved. `fetched_at` stays what it was, which is the whole point."""
 kept_row(old) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
 
 """What a thread the notifications source saw contributes to the corpus row
-built for it: the reason, and the reason in words. Off the inbox row, which
+built for it: the reason. Off the inbox row, which
 is where GitHub said it - or off the row being replaced, when the inbox has
 no thread for this url any more: a mention that was read, and then moved in
 a way the repo poll saw and the notifications source did not re-deliver (a
 label, your own comment), is still a mention, and the `reply` tag still reads
 the reason."""
 function thread_facts!(r, inbox_row, old = nothing)
-    for k in ("reason", "why")
-        v = inbox_row === nothing ? nothing : get(inbox_row, k, nothing)
-        truthy(v) || (v = jget(old, Symbol(k)))
-        truthy(v) && (r[k] = String(v))
-    end
+    v = inbox_row === nothing ? nothing : get(inbox_row, "reason", nothing)
+    truthy(v) || (v = jget(old, :reason))
+    truthy(v) && (r["reason"] = String(v))
     r
 end
 

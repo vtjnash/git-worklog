@@ -105,10 +105,6 @@ Base.@kwdef struct Item
     draft::Bool = false
     deadline::String = ""
     blocked_on::Vector{String} = String[]
-    why::String = ""       # the reason a thread gave, in words (`THREAD_WHY`,
-                           # off `reason` at load, so the table's word is the
-                           # word), or an adopted branch's standing. What `wl
-                           # unread` prints; the pane's `why` is what moved
     web::String = ""       # where this is on github.com when `url` is not there:
                            # an adopted branch's `url` is its `local:` key, and
                            # this is its compare page, where the pull request
@@ -118,15 +114,6 @@ Base.@kwdef struct Item
                            # for a light row the poll or a thread made, which
                            # has no bundle at all. What `bundle_stale` reads.
 end
-
-"""The reason in words, off the row's `reason` and the table as it stands -
-not off the sentence the refresh wrote beside it, which is the table's word
-on the day and outlived it: "something of yours moved" stood on every row of
-yours after the table stopped saying so. The written sentence answers for a
-row with no reason at all."""
-why_of(r) = (reason = String(nz(rget(r, "reason"), ""));
-             isempty(reason) ? String(nz(rget(r, "why"), "")) :
-             get(Events.THREAD_WHY, reason, reason))
 
 "The last movement on record, off the row; see `moved_of` in `marks.jl`."
 moved_of(it::Item) = moved_of(it.moved_at, it.updated)
@@ -193,7 +180,6 @@ function item_of(r)
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
-            why = why_of(r),
             fetched = String(nz(jget(r, :fetched_at), "")))
 end
 
@@ -281,8 +267,7 @@ function fetch_bundle(it::Item)
         e = get(Events.load_inbox()["items"], it.url, nothing)
         reason = e === nothing ? nothing : get(e, "reason", nothing)
     end
-    truthy(reason) && (r["reason"] = String(reason);
-                       r["why"] = get(Events.THREAD_WHY, String(reason), String(reason)))
+    truthy(reason) && (r["reason"] = String(reason))
     r["fetched_at"] = stamp(at)
     derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
     pop!(r, "slept", nothing); pop!(r, "woken", nothing)
@@ -413,11 +398,7 @@ function local_item(url::AbstractString, b = nothing)
          # been read, what makes it news.
          state = landed ? "MERGED" : "",
          web = p === nothing ? "" :
-               compare_link(p, repo, branch, b === nothing ? "" : b.upstream),
-         why = b === nothing ? "adopted; the branch is gone" :
-               landed ? "adopted; merged into the base" :
-               isempty(b.worktree) ? "adopted; no worktree" :
-               string("adopted; ", basename(rstrip(b.worktree, '/'))))
+               compare_link(p, repo, branch, b === nothing ? "" : b.upstream))
 end
 
 """Every adopted branch, as items.
@@ -489,8 +470,7 @@ knows, which is less than a lane returns: no CI, no review state, no branch.
 `activity` is the lane, which is what the poll is - not `unread`, which is
 what the *seen* axis says about a row and would be the same word twice on two
 different axes in the same pane - unless the row says otherwise: a thread the
-notifications source saw carries `lane = "notifications"`, and its `reason` in
-words as `why`, which is otherwise empty on a row no bucket rule has judged.
+notifications source saw carries `lane = "notifications"`.
 
 Beside `inbox_row` because they are one conversion in two directions, and the
 pair of them being apart is how the fields drifted the first time.
@@ -499,7 +479,6 @@ poll_item(u) = Item(
     url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
     ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
     title = String(u["title"]), lane = String(nz(get(u, "lane", nothing), "activity")),
-    why = why_of(u),
     author = String(nz(get(u, "author", nothing), "")),
     updated = String(nz(get(u, "updated", nothing), "")),
     act = String(nz(get(u, "updated", nothing), "")),
@@ -678,11 +657,16 @@ with is in the inbox as a light row, said unread, until one has.
 """
 function unread_items(at::DateTime, rows = values(Events.load_inbox()["items"]))
     items = corpus_items(rows)
-    m = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
-              archived = archived_map(), now = stamp(at))
+    m = unread_marks(at)
     sort!([it for it in items if seen_of(it, m) === :unread && !filed_of(it, m)];
           by = it -> something(moved_of(it), ""), rev = true)
 end
+
+"The marks off `local.toml` as `wl unread` reads them, at `at`. (`Marks` is
+the browser's, defined after this file; both callers are at run time.)"
+unread_marks(at::DateTime) =
+    Marks(read = load_read(), sources = source_since(), wake = wake_map(),
+          archived = archived_map(), now = stamp(at))
 
 "The corpus and the light rows, as items: what the seen bit is asked over."
 function corpus_items(rows = values(Events.load_inbox()["items"]))
@@ -760,16 +744,17 @@ function consolidate!(at::DateTime; dry_run::Bool = false,
 end
 
 """One item as `wl unread` prints it: what an outside reader can act on -
-the url and the ref, what it is, whose, where it stands, and when it last
-moved. The shape the inbox rows had, with `moved_at` beside `updated`."""
-item_json(it::Item) = OrderedDict{String,Any}(
+the url and the ref, what it is, whose, where it stands, when it last moved
+and what has moved since it was read - `why`, the same words the pane's row
+says, against the same marks (`moved_words`). The shape the inbox rows had,
+with `moved_at` beside `updated`."""
+item_json(it::Item, m) = OrderedDict{String,Any}(
     "url" => it.url, "ref" => it.ref, "repo" => it.repo, "number" => it.number,
     "title" => it.title, "is_pr" => it.is_pr,
     "state" => lowercase(isempty(it.state) ? "open" : it.state),
     "author" => it.author, "updated" => it.updated, "moved_at" => it.moved_at,
-    "moved_by" => it.moved_by,
     "labels" => it.labels, "mine" => it.author == login(),
-    "lane" => it.lane, "why" => it.why)
+    "lane" => it.lane, "why" => moved_words(it, m))
 
 """The rows the clocks know and the corpus does not, as items to select.
 

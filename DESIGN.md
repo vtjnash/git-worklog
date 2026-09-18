@@ -81,8 +81,8 @@ the unread side starts at now. The same floor answers in every lane; see
 "Marks".
 
 **Light rows are promoted, not replaced.** When a poll or thread row enters
-the open work, or is selected, it gets the bundle and keeps its `lane`,
-`reason` and `why`. `sync!` merges a row over the entry at its url, so two
+the open work, or is selected, it gets the bundle and keeps its `lane` and
+`reason`. `sync!` merges a row over the entry at its url, so two
 sources that each saw one url keep what only they knew.
 
 **The poll is a witness for the notifications.** GitHub's notifications have

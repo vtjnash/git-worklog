@@ -131,7 +131,7 @@ end
     @test r["url"] == "https://github.com/o/r/issues/469"
     @test r["repo"] == "o/r" && r["number"] == 469 && r["is_pr"] == false
     @test r["lane"] == "notifications" && r["reason"] == "mention"
-    @test r["why"] == "you were mentioned"
+    @test !haskey(r, "why")              # the reason is the fact; words are the pane's
     @test r["updated"] == "2026-09-09T11:34:00Z"
     @test !haskey(r, "state")            # a thread does not know
     # `unread` and `last_read_at` are GitHub's read state, and never read.
@@ -139,10 +139,9 @@ end
     r = E.thread_row(thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest";
                             reason = "review_requested"), "me"; fetch = nothing)
     @test r["url"] == "https://github.com/o/r/pull/7" && r["is_pr"] == true
-    @test r["why"] == "your review was asked for"
-    # A reason this program has no words for is printed as itself.
+    @test r["reason"] == "review_requested"
     @test E.thread_row(thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest";
-                              reason = "invitation"), "me"; fetch = nothing)["why"] == "invitation"
+                              reason = "invitation"), "me"; fetch = nothing)["reason"] == "invitation"
     # Nothing here can open a release, a commit or a discussion.
     for (u, k) in (("https://api.github.com/repos/o/r/releases/5", "Release"),
                    ("https://api.github.com/repos/o/r/commits/abc", "Commit"),
@@ -255,7 +254,7 @@ end
         @test E.load_inbox()["items"]["https://github.com/o/r/pull/7"]["reason"] == "mention"
         # `poll_item` reads the lane and the reason off the row.
         it = W.poll_item(E.load_inbox()["items"]["https://github.com/o/r/pull/7"])
-        @test it.lane == "notifications" && it.why == "you were mentioned"
+        @test it.lane == "notifications"
         @test it.state == "CLOSED"
         @test W.poll_item(E.issue_row(issue, "me")).lane == "activity"
     finally
@@ -413,14 +412,14 @@ end
           !W.retired_lane("carried")
     # What the thread contributes to the row built for it.
     r = W.thread_facts!(Dict{String,Any}("url" => "u"),
-                        Dict{String,Any}("reason" => "mention", "why" => "you were mentioned"))
-    @test r["reason"] == "mention" && r["why"] == "you were mentioned"
+                        Dict{String,Any}("reason" => "mention"))
+    @test r["reason"] == "mention"
     @test W.thread_facts!(Dict{String,Any}("url" => "u"), nothing) == Dict{String,Any}("url" => "u")
     # And off the row being replaced when the inbox has no thread any more: a
     # mention that was read and then moved in a way only the poll saw.
     r = W.thread_facts!(Dict{String,Any}("url" => "u"), Dict{String,Any}("url" => "u"),
-                        J(Dict{String,Any}("reason" => "mention", "why" => "you were mentioned")))
-    @test r["reason"] == "mention" && r["why"] == "you were mentioned"
+                        J(Dict{String,Any}("reason" => "mention")))
+    @test r["reason"] == "mention"
     # First sight is the newest thing GitHub says happened, not only a push
     # or a comment: the review request that brought the row is on it.
     @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-01T00:00:00Z",
@@ -689,8 +688,7 @@ end
             Dict{String,Any}("url" => U(5), "updated" => "2026-09-13T11:00:00Z"),
             Dict{String,Any}("url" => U(2), "updated" => "2026-09-11T23:59:00Z"),  # before fetched_at
             Dict{String,Any}("url" => U(6), "updated" => "2026-09-13T09:00:10Z",
-                             "lane" => "notifications", "reason" => "mention",
-                             "why" => "you were mentioned"),
+                             "lane" => "notifications", "reason" => "mention"),
             Dict{String,Any}("url" => U(7), "updated" => "2026-09-13T09:00:10Z",
                              "lane" => "notifications", "reason" => "subscribed")]
         @test W.refresh(String[], at; search = srch, fetch_url_map = byurl, poll = clock, open_list = (a...; kw...) -> []) == 0
@@ -2120,14 +2118,11 @@ end
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                         marks("2026-09-12T08:00:00Z"; wake = "2026-09-12T12:00:00Z")) == ["woke", "comment"]
     @test W.moved_words(mk(; url = "local:o/r/wip", moved_by = "their_head"), read) == String[]
-    # On the pane: under `local`, unread with the words, read without. The
-    # reason GitHub gave is a standing fact about the item and is not here:
-    # `why` on the pane is what moved.
-    it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z",
-            why = "you were mentioned")
+    # On the pane: under `local`, unread with the words, read without.
+    it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z")
     st.read = Dict{String,String}(); st.sources = Dict{String,String}()
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
-    @test occursin("why       unread: new\n", plain) && !occursin("you were mentioned", plain)
+    @test occursin("why       unread: new\n", plain)
     st.read = Dict(it.url => "2026-09-12T08:00:00Z")
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       unread: reviewed, comment\n", plain)
@@ -2136,8 +2131,11 @@ end
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       read\n", plain)
     @test !occursin("unread", plain)
-    # And `wl unread` says the last one to an outside reader.
-    @test W.item_json(W.with(it; moved_by = "review_at"))["moved_by"] == "review_at"
+    # And `wl unread` says the same words to an outside reader, against the
+    # same marks.
+    @test W.item_json(it, marks("2026-09-12T08:00:00Z"))["why"] == ["reviewed", "comment"]
+    @test W.item_json(it, marks("2026-09-12T10:00:00Z"))["why"] == String[]
+    @test !haskey(W.item_json(it, read), "moved_by")
 
     # The tags that only restate the pane are the word alone; the level is
     # the word and the command.

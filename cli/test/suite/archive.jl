@@ -122,7 +122,6 @@
         end
         its = Dict(x.ref => x for x in W.local_items())
         @test its["m#landed"].state == "MERGED"
-        @test occursin("merged into the base", its["m#landed"].why)
         @test isempty(its["m#inflight"].state)
         @test W.isdone(its["m#landed"]) && !W.isdone(its["m#inflight"])
         # An unknown state is not a closed one: a facts.json written before the
@@ -348,7 +347,7 @@ end
         @test length(ours()) == 1
         g("branch", "-D", "mine")
         gone = ours()
-        @test length(gone) == 1 && occursin("gone", gone[1].why)
+        @test length(gone) == 1 && isempty(gone[1].act)   # no tip to date it by
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
         write(W.localfile(), state)

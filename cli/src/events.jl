@@ -539,26 +539,6 @@ function issue_row(r, login)
         "mine" => who == login)
 end
 
-"""What a notification thread's `reason` says, in words: `why` as `wl unread`
-prints it. The reason is the *latest* one GitHub has for the thread - it
-evolves, `author` becoming `mention` - and it maps onto the item, not onto
-an event: a thread is one row per subject, one reason, one `updated_at`, no
-actor and no history. Not on the metadata pane, whose `why` row is what
-moved since you read; this is a standing fact about the item.
-
-`author` and `comment` say nothing: "something of yours moved" and "a thread
-you commented on moved" said only that it moved."""
-const THREAD_WHY = Dict{String,String}(
-    "mention" => "you were mentioned",
-    "team_mention" => "a team you are on was mentioned",
-    "review_requested" => "your review was asked for",
-    "assign" => "assigned to you",
-    "author" => "",
-    "comment" => "",
-    "state_change" => "you changed its state",
-    "subscribed" => "you watch the repository",
-    "manual" => "you subscribed to the thread")
-
 """
     thread_subject(t) -> (path, url, repo, number, is_pr), or nothing
 
@@ -597,7 +577,7 @@ not only one whose url is new to the inbox - it was the latter until
 its delivery time as `updated` over the poll's event time, the two clocks
 this docstring's last paragraph is about.
 
-What the thread contributes is `updated`, `lane`, `reason` and `why`. `unread`
+What the thread contributes is `updated`, `lane` and `reason`. `unread`
 and `last_read_at` are never read: the cursor is ours and the read stamp is
 ours, and adopting GitHub's would undo the property the whole lane exists for.
 
@@ -626,8 +606,7 @@ function thread_row(t, login; fetch = path -> api_get(path; auth = pat()[1]))
         # the subject's below - because it is the *delivery* time, and the
         # poll's witness is measured against it; see `expect!`.
         "notified" => String(t["updated_at"]),
-        "lane" => "notifications", "reason" => reason,
-        "why" => get(THREAD_WHY, reason, reason))
+        "lane" => "notifications", "reason" => reason)
     fetch === nothing && return row
     issue = try
         first(fetch(sub.path))
@@ -686,7 +665,7 @@ lane at all.
 
 It goes **first**, and a row is merged over what is there rather than written
 over it, so the repo poll's richer row for the same url - state, author,
-labels, comments - lands on top of the thread's `lane`, `reason` and `why`
+labels, comments - lands on top of the thread's `lane` and `reason`
 rather than in place of them; see `sync!`.
 """
 function sources(cfg, login; verbose::Bool = true)

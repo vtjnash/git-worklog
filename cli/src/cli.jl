@@ -168,7 +168,8 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         end
         cfg = config()
         rows = poll(cfg, cfg["login"], at; verbose = false)
-        print(json_dumps([item_json(it) for it in unread_items(at, rows)]))
+        m = unread_marks(at)
+        print(json_dumps([item_json(it, m) for it in unread_items(at, rows)]))
         return 0
     end
     if cmd == "log"
