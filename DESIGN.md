@@ -189,6 +189,22 @@ and what brought the row back - `woke <when>`, `until <when> · moved before
 the wake`, or `until <when> · cleared`. The one thing that wakes an item
 that GitHub did not do and the row does not show already.
 
+**An agent's bell is a seen bit tmux holds, and every mark clears it.** The
+agent in a `T` pane rings as its turn ends or as it asks
+(`cli/claude-settings.json`), and tmux keeps the bell while nobody is
+attached, cleared by the next attach - exactly a seen bit, kept by the server
+the session lives in, so nothing has to be running to catch it. `seen_of`
+reads it before the stamp (`Marks.rang`, off `rang_urls`): unread while it
+stands, whatever the stamp says, since it has no time to compare and needs
+none - the third reason beside the table and the wake, and the second that
+GitHub did not do. And the woken-snooze rule applies: `r`, `s`, `x` and
+`mark_read_moved` silence it (`agent_seen!`, a control-mode attach on a
+closed stdin, 4 ms) or a bell left beside the stamp would keep the row unread
+whatever was pressed; `z` rings it back (`agent_ring!`). Read per
+`refilter!` like the records, one `list-panes`, and polled every
+`SESSIONS_EVERY` while the browser is up (`watch_sessions!`), since tmux tells
+a control client about the pane it is on and nothing else.
+
 **An archive is a read mark that filters separately.** `x` stamps `archived`
 and `read`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
@@ -252,8 +268,10 @@ The rules behind the table, each of which cost a bug:
   pane's `why` row lists, newest first, every key of the wake table whose
   time is past the read stamp - the same stamp `seen_of` compares, so the
   words are the unread - `unread: pushed, comment`, `reviewed`, `review
-  requested`, `assigned`, `merged`, `new`, and `woke` for a snooze that ran
-  out (`moved_words`). Computed and not stored: `r` empties it and a stamp
+  requested`, `assigned`, `merged`, `new`, `woke` for a snooze that ran
+  out, and `agent` in front of them all for a bell standing on the item's
+  `T` pane, which has no time and is standing now (`moved_words`).
+  Computed and not stored: `r` empties it and a stamp
   put back fills it, with no refresh between. Two movements have no time
   to compare - the bool that rose (`CI failed`), the force-push of an older
   commit - and for those the refresh keeps the key that set the stamp
@@ -726,11 +744,14 @@ Each of the following returns success and the wrong answer:
   a session with a client attached sets nothing - somebody was looking; rung
   into a detached one it sets `window_bell_flag`, which the next attach
   clears, control-mode or not (measured on 3.5a). `mux_list` reads it back
-  as `bell`. That is the whole of how a `T` pane says its agent stopped:
-  `cli/claude-settings.json`, on the alias's line as `--settings`, holds a
-  `Stop` hook and a `permission_prompt` one that ring, and the worktree
-  list and the item pane draw the bit. No socket and no listener - a
-  listener is a browser that has to be running, and the pane outlives it.
+  as `bell`, `mux_seen!` clears it and `mux_ring!` sets it. That is the
+  whole of how a `T` pane says its agent stopped: `cli/claude-settings.json`,
+  on the alias's line as `--settings`, holds a `Stop` hook and a
+  `permission_prompt` one that ring; the worktree list and the item pane
+  draw the bit, and `seen_of` reads it (Marks, above). No socket and no
+  listener - a listener is a browser that has to be running, and the pane
+  outlives it. A session is tagged with the item's url as well as its ref,
+  since the marks are keyed by url.
   The hook runs under `/bin/sh` in a session of its own with no controlling
   terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
   rings `/dev/$(ps -o tty= -p $PPID)`, its parent being `claude` and

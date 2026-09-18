@@ -476,6 +476,47 @@ function watch_data!(st::BState)
     end
 end
 
+"""How often the sessions are listed for a bell, in seconds.
+
+One `list-panes` a poll, about 5 ms: nothing against a bell that is the
+difference between an agent waiting and an agent working, and the reason
+this is not a second.
+"""
+const SESSIONS_EVERY = Ref(2.0)
+
+"""Hear an agent ring while the browser is elsewhere.
+
+The bell is tmux's, and tmux tells nobody: a control client hears `%output`
+for the pane it is on and nothing for any other, and there is no client at all
+while the list is up. So the sessions are listed, every `SESSIONS_EVERY`
+seconds, and a change in who rang is a wake - compared against what
+`refilter!` last read, so a change it already took, `r` silencing a bell or
+`T` looking, wakes nothing, and a wake that reached a view with no list in it
+comes again. Not started where there is no tmux to ask.
+"""
+function watch_sessions!(st::BState)
+    mux_bin() === nothing && return
+    @async while true
+        try
+            sleep(SESSIONS_EVERY[])
+            rang_urls() == st.rang && continue
+            st.rerang = true
+            st.wake === nothing || st.wake()
+        catch e
+            logerror!(e, catch_backtrace(), "watch_sessions!")
+            return
+        end
+    end
+end
+
+"Take the sessions again once one rang, or went quiet, behind the frame."
+function rerang!(st::BState)
+    st.rerang || return false
+    st.rerang = false
+    refilter!(st)
+    true
+end
+
 """Run the whole refresh, from inside the browser, without blocking it.
 
 `R` re-reads the item under the cursor; this is the other half - the fetch that

@@ -36,7 +36,7 @@ Bitwise `|` and not `||`: each of these has to run whichever way the ones before
 it answered, and what comes back is whether the frame is now wrong.
 """
 onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
-                      reload_data!(st) | due_load!(st)
+                      reload_data!(st) | rerang!(st) | due_load!(st)
 
 """
     browse(items, title, unread)
@@ -50,6 +50,7 @@ function browse(items::Vector{Item}, title::AbstractString)
     ctrl = Controller()
     st.wake = () -> wake!(ctrl)
     watch_data!(st)
+    watch_sessions!(st)
     try
         run!(ctrl, st)
     finally
@@ -521,6 +522,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         else
             mark_unread([it.url])
         end
+        # And the agent's bell, which is the same kind of thing as the woken
+        # snooze: a reason to be unread that the stamp cannot answer.
+        rang = seen ? agent_seen!(it.url) : String[]
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
             # Raw, and with `fold`: a folded mark is no stamp and a head, and
             # that is what goes back, not the head dropped with the stamp.
@@ -528,6 +532,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # The clock goes back after the snooze: `set_fields` stamps it.
             woke && (set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast]);
                      set_touched(it.url, prevtouch))
+            agent_ring!(rang)
         end))
         # The list is what the axes say it is, so a row that has just stopped
         # answering one of them leaves - which for `r` in the base list is the

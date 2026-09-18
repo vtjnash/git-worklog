@@ -192,7 +192,7 @@ function edit_note(st::BState, it::Item, ctrl)
         fw = forwards!()
         ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)); set = fw.env)
         ok || return err
-        mux_tag!(name; worktree = target, kind = :note, item = it.ref)
+        mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
         v = pane_view(name, string("note  ", it.ref), ctrl; onend = finish)
         if v === nothing
             # Still running means the attach really failed. Gone means the
@@ -303,7 +303,7 @@ What differs between the kinds is only what gets run when there is nothing
 there yet.
 """
 function enter_session(target::AbstractString, branch::AbstractString,
-                       ref::AbstractString, num::AbstractString,
+                       ref::AbstractString, num::AbstractString, url::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return no_mux()
     found = mux_find(target, kind)
@@ -328,7 +328,9 @@ function enter_session(target::AbstractString, branch::AbstractString,
     else
         mux_rename(found.name, name)
     end
-    mux_tag!(name; worktree = target, kind = kind, item = ref)
+    # The url as well as the ref: the ref is what the pane says, the url is
+    # what the marks are keyed by, and an agent's bell is read as one.
+    mux_tag!(name; worktree = target, kind = kind, item = ref, url = url)
     v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
@@ -374,7 +376,7 @@ function item_session!(it::Item, target::AbstractString, branch::AbstractString,
     # the place it was opened from, so the depth can be the same on both sides
     # of a session that opened perfectly well.
     was = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
-    r = enter_session(target, branch, it.ref, string(it.number),
+    r = enter_session(target, branch, it.ref, string(it.number), it.url,
                       string(kind === :agent ? "agent  " : "", it.ref,
                              isempty(branch) ? "" : string("  ", branch)),
                       ctrl, kind, mkcmd)
@@ -554,6 +556,38 @@ A file and not an inline string, so what it says can be read; beside the code
 and not in `data/`, because it names nobody and changes with the program.
 """
 const AGENT_SETTINGS = joinpath(ROOT, "cli", "claude-settings.json")
+
+"""The items whose agent rang with nobody looking - `bell` on an agent
+session, by the url it was tagged with.
+
+What `Marks.rang` is made of: the third reason a row is unread, beside the
+wake table and a snooze that ran out, and the second that GitHub did not do.
+Read once per `refilter!` the way the records are, and once by `wl unread`;
+a listing is one process. A session from before the url was tagged reads
+back an empty one and is nobody's bell until it is entered again, which
+re-tags it.
+"""
+rang_urls(rows = mux_list()) =
+    Set{String}(r.url for r in rows if r.kind == "agent" && r.bell && !isempty(r.url))
+
+"""Silence the item's agent, as every mark that reads the item does.
+
+The woken-snooze rule again: every mark stamps the last movement, and a bell
+left standing beside the stamp would keep the row unread whatever was pressed.
+So `r`, `s`, `x` and the shell's marks clear it, through `mux_seen!` - an
+attach tmux counts as looking. Answers the sessions it silenced, which is what
+`z` rings again.
+"""
+function agent_seen!(url::AbstractString, rows = mux_list())
+    names = String[r.name for r in rows if r.kind == "agent" && r.bell && r.url == url]
+    for n in names
+        mux_seen!(n)
+    end
+    names
+end
+
+"Ring again what `agent_seen!` silenced: the undo of a mark."
+agent_ring!(names) = foreach(mux_ring!, names)
 
 """Open an agent on this item's worktree, and watch it work.
 

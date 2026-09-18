@@ -666,7 +666,7 @@ end
 the browser's, defined after this file; both callers are at run time.)"
 unread_marks(at::DateTime) =
     Marks(read = load_read(), sources = source_since(), wake = wake_map(),
-          archived = archived_map(), now = stamp(at))
+          archived = archived_map(), now = stamp(at), rang = rang_urls())
 
 "The corpus and the light rows, as items: what the seen bit is asked over."
 function corpus_items(rows = values(Events.load_inbox()["items"]))

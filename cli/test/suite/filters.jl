@@ -146,6 +146,14 @@ end
     # No read stamp is unread whatever the wake says.
     @test W.seen_of(it, W.Marks(wake = wake("2026-09-20T00:00:00Z"), now = now)) === :unread
 
+    # **An agent that rang on it is a third.** tmux's bell on its `T` pane,
+    # standing while nobody has looked: a seen bit already, read as one, so
+    # it is unread whatever the stamp says - the bell has no time to compare
+    # and needs none - until looking, or any mark, clears it.
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; rang = Set([it.url]))) === :unread
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; rang = Set(["https://github.com/o/r/pull/2"]))) === :read
+    @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z"; rang = Set([it.url]))) === :unread
+
     # **Nothing overrides it.** Filing is an answer to "do I want to see this";
     # it says nothing about whether it has changed, and this is the correction
     # the whole model turns on: a filed item that moves is unread, and the

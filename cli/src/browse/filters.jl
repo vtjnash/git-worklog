@@ -280,6 +280,8 @@ isdefault(f::Filters) =
 
 "One empty map, shared, for every caller that has no marks to hand."
 const EMPTY_TOUCHED = Dict{String,String}()
+"And one empty set, for a caller with no sessions to ask."
+const EMPTY_RANG = Set{String}()
 
 """What is recorded about the items on screen, as one argument.
 
@@ -304,9 +306,12 @@ Base.@kwdef struct Marks
     now::String = stamp(utcnow())   # the instant the wakes are read against,
                                     # one per `refilter!` so a list is not
                                     # half-woken across its own rows
+    rang::Set{String} = EMPTY_RANG  # urls whose agent rang with nobody
+                                    # looking: tmux's bell, `rang_urls`
 end
 Marks(st, at::DateTime = utcnow()) =
-    Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes, stamp(at))
+    Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes, stamp(at),
+          st.rang)
 
 """Has this item changed since you last looked at it?
 
@@ -338,6 +343,14 @@ be the refresh's alone to decide, because the old snooze *armed* against a
 hash and wrote `WOKE` when it differed - a decision that had to be recorded
 exactly once. A time needs nothing recorded.
 
+**And an agent that stopped on it is a third.** The agent in its `T` pane
+rings as its turn ends or as it asks, and tmux keeps the bell while nobody is
+attached (`rang_urls`). That is a seen bit already - looking clears it - so it
+is read as one: unread while it stands, whatever the stamp says, since it has
+no time to compare and needs none. Every mark clears it (`agent_seen!`), for
+the reason the woken snooze taught: a reason left standing beside the stamp
+would keep the row unread whatever was pressed.
+
 No stamp at all reads against the floor - the day the row's source was named,
 `floor_of` - and as unread only where there is none, which is what "never been
 in front of you" means. It used to be a third value, `unseen`, on the theory
@@ -351,6 +364,7 @@ the moment `r` is pressed - `Item` is immutable and rebuilt by the refresh - so
 the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
+    it.url in m.rang && return :unread
     at = get(m.read, it.url, nothing)
     # Nothing said about it: it is read up to the day its source was named,
     # whatever the lane - day zero reads zero - and unread if the source has
@@ -1120,6 +1134,9 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     st.archived = archived_map()
     st.wakes = wake_map()
     st.snoozes = field_marks(m, "last_snooze")
+    # And the one record that is not in the file: whose agent rang. A
+    # process, the same as the reads above are a file.
+    st.rang = rang_urls()
     fresh = sortitems(apply_filters(st.filters, st.all, Marks(st)), st.sort, st.touched)
     key = string(join(view_lines(st.filters, st.sort), "\n"), "\n/",
                  st.searchin === :list ? st.search : "")

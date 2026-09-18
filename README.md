@@ -79,7 +79,8 @@ comment or push header has how long ago that was beside it, dim - `3d ago`,
 `in 2w` for a snooze's wake - worked out against the moment the frame is
 drawn. The `why` row under `local` says in a word each what has moved since
 you read the item, newest first - `unread: pushed, comment`, `reviewed`,
-`review requested`, `assigned`, `merged`, `CI failed`, `new`, `woke`. The
+`review requested`, `assigned`, `merged`, `CI failed`, `new`, `woke`, and
+`agent` first of all for an agent that stopped on it while you were away. The
 `branch` row is `head → base` in the form git takes, `owner/repo:head` for
 a fork, and a base that is not the repository's default branch is coloured
 and says so - `→ v1.x  not master`.
@@ -157,14 +158,17 @@ found by searching, since the newest socket on the machine is not
 necessarily yours. When nothing answers, the status line says `no live ssh
 agent` as the pane opens.
 
-**An agent that stopped while you were elsewhere** shows as a yellow `T` in
-the worktree list and as `waiting on you` under `running` in the item pane,
-until you look at it. `T` runs `claude` with `--settings
-cli/claude-settings.json`: a `Stop` hook and a permission-prompt hook that
-ring the terminal bell, which tmux keeps as the window's bell flag until the
-next attach. It is only that one bit - stopped or asking, not which - and
-it lives in the tmux server with the session, so nothing has to be running
-to catch it.
+**An agent that stopped while you were elsewhere** makes its item unread -
+`why  unread: agent`, on the list and in `wl unread` - and shows as a yellow
+`T` in the worktree list and as `waiting on you` under `running` in the item
+pane. `T` runs `claude` with `--settings cli/claude-settings.json`: a `Stop`
+hook and a permission-prompt hook that ring the terminal bell, which tmux
+keeps as the window's bell flag until somebody looks. It is only that one bit
+- stopped or asking, not which - and it lives in the tmux server with the
+session, so nothing has to be running to catch it. Looking (`T`) clears it,
+and so does every mark - `r`, `s`, `x`, `wl read` - the way a mark ends a
+woken snooze; `z` rings it back. The browser lists the sessions every two
+seconds for it while it is up.
 
 **VS Code** (`e`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is

@@ -308,10 +308,18 @@ arrived, and is said only when nothing since is. A push is dated by the head
 only while the head is theirs: after a push of your own the date is yours,
 and their push before it is the refresh's to remember.
 
-Beside the table: a snooze that ran out (`woke`), and a light row (`updated`),
-which has the poll's clock and nothing else.
+Beside the table: a snooze that ran out (`woke`), a light row (`updated`),
+which has the poll's clock and nothing else, and an agent that rang on the
+item (`agent`) - first, since it is standing now whatever else moved when,
+and on a local row too, which is the one kind of movement one can have.
 """
 function moved_words(it::Item, m::Marks)
+    words = table_words(it, m)
+    it.url in m.rang ? pushfirst!(words, "agent") : words
+end
+
+"The words off the wake table alone; `moved_words` puts the agent's in front."
+function table_words(it::Item, m::Marks)
     islocal(it) && return String[]
     stamp = get(m.read, it.url, nothing)
     stamp === nothing && (stamp = floor_of(it, m.sources))

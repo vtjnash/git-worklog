@@ -2065,10 +2065,10 @@ end
                          review_at = "", review_requested_at = "", assigned_at = "",
                          state_at = "", kw...)
     at = W.ts("2026-09-13T00:00:00Z")
-    marks(read; wake = nothing) =
+    marks(read; wake = nothing, rang = false) =
         W.Marks(read = read === nothing ? Dict{String,String}() : Dict(mk().url => read),
                 wake = wake === nothing ? Dict{String,String}() : Dict(mk().url => wake),
-                now = W.stamp(at))
+                now = W.stamp(at), rang = rang ? Set([mk().url]) : Set{String}())
     read = marks("2026-09-12T08:00:00Z")
     # The words, one per key.
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
@@ -2118,6 +2118,14 @@ end
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                         marks("2026-09-12T08:00:00Z"; wake = "2026-09-12T12:00:00Z")) == ["woke", "comment"]
     @test W.moved_words(mk(; url = "local:o/r/wip", moved_by = "their_head"), read) == String[]
+    # An agent's bell is first, whatever else moved when: it is standing now.
+    # And it is the one movement an adopted branch can have.
+    @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
+                        marks("2026-09-12T08:00:00Z"; rang = true)) == ["agent", "comment"]
+    @test W.moved_words(mk(), marks("2026-09-12T10:00:00Z"; rang = true)) == ["agent"]
+    @test W.moved_words(mk(; moved_by = "new"), marks(nothing; rang = true)) == ["agent", "new"]
+    @test W.moved_words(mk(; url = "local:o/r/wip"),
+                        W.Marks(now = W.stamp(at), rang = Set(["local:o/r/wip"]))) == ["agent"]
     # On the pane: under `local`, unread with the words, read without.
     it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z")
     st.read = Dict{String,String}(); st.sources = Dict{String,String}()

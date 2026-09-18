@@ -318,11 +318,11 @@ end
         W.apply_snooze!(st, it, "3d", now)
         W.set_read(it.url, "2026-09-12T12:00:00Z")
         m = W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes,
-                    "2026-09-15T13:00:00Z")
+                    "2026-09-15T13:00:00Z", st.rang)
         @test W.seen_of(it, m) === :unread
         @test !(:snoozed in W.tags_of(it, m))
         @test W.seen_of(it, W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts,
-                                    st.wakes, "2026-09-15T11:00:00Z")) === :read
+                                    st.wakes, "2026-09-15T11:00:00Z", st.rang)) === :read
 
         # Every write is undoable, back to nothing at all.
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end

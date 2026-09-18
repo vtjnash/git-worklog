@@ -775,11 +775,14 @@ function archive!(st::BState, it::Item, at::DateTime)
         set_read(it.url, something(moved_of(it), stamp(at)))
         woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
     end
+    # The agent's bell goes with the stamp, as the woken snooze does.
+    rang = was ? String[] : agent_seen!(it.url)
     push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
         set_archived(it.url, prev)
         woke && set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
+        agent_ring!(rang)
     end))
     refilter!(st)
     was ? string("back out: ", it.ref) : string("archived ", it.ref)
@@ -885,6 +888,8 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     #
     # Only on the way in. Clearing a snooze is not a claim about whether you
     # have read the thing; it takes the wake away and leaves the read stamp.
+    # And the agent's bell with the stamp, as the woken snooze goes.
+    rang = val === nothing ? String[] : agent_seen!(it.url)
     if val !== nothing
         set_read(it.url, something(moved_of(it), stamp(at)))
     end
@@ -896,6 +901,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)
+        agent_ring!(rang)
     end))
     # The seen axis is over the stamp just written and the `snoozed` tag over
     # the wake, so the row has to be able to leave or arrive on the strength of

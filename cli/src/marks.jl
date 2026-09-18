@@ -401,6 +401,13 @@ function mark_read_moved(urls, at::DateTime; fold::Bool = false)
     # A snooze that has run out goes with the stamp; see `woken_by`.
     set_blocks!([u => woken_by(u, wakes, at) ? vcat(["read" => upto(u)], end_snooze(wakes[u])) :
                       ["read" => upto(u)] for u in us])
+    # And an agent's bell, for the same reason: `wl unread` lists it against
+    # the bell, and a stamp that left the bell standing would leave it listed.
+    # One listing for the lot, since each silence is a process of its own.
+    rows = mux_list()
+    for u in us
+        agent_seen!(u, rows)
+    end
     length(us)
 end
 

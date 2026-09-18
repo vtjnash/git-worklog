@@ -107,6 +107,10 @@ Base.@kwdef mutable struct BState <: View
     wakes::Dict{String,String} = Dict{String,String}()     # url -> when its
                                     # snooze ends; `seen_of` reads it against
                                     # the clock, so a wake needs no refresh
+    rang::Set{String} = Set{String}()   # urls whose agent rang with nobody
+                                    # looking, off the sessions (`rang_urls`)
+    rerang::Bool = false   # `watch_sessions!` saw that set change; the next
+                           # wake takes the sessions again
     drafts::Dict{String,String} = Dict{String,String}()    # url -> when a review
                                     # was last written to on it and not sent;
                                     # the one lane GitHub cannot be asked for

@@ -28,9 +28,11 @@ each of them is exactly right:
    `filed` is a separate mark - it is the one thing the backlog leaves out.
 
 There is one seen bit: the read stamp against the item's last movement
-(`moved_of`), which is what every mark stamps and `seen_of` reads. The inbox
-is a clock, never an answer; `wl unread`, `wl read all` and the browser are
-one list, `unread_items`.
+(`moved_of`), which is what every mark stamps and `seen_of` reads - and one
+tmux holds for it, the bell an agent rings on its `T` pane, unread while it
+stands and cleared by looking or by any mark. The inbox is a clock, never an
+answer; `wl unread`, `wl read all` and the browser are one list,
+`unread_items`.
 
 A view names a filter, one axis per question; it is never a lane, and no
 row carries a single word for what it is.

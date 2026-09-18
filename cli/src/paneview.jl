@@ -950,6 +950,7 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     out = enter_session(r.path, r.branch,
                         r.item === nothing ? "" : r.item.ref,
                         r.item === nothing ? "" : string(r.item.number),
+                        r.item === nothing ? "" : r.item.url,
                         title, ctrl, kind, (_, _) -> cmd)
     (!isempty(ctrl.stack) && last(ctrl.stack) !== was) || return out
     # The same rule the item keys follow: starting work on something is what

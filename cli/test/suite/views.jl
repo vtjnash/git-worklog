@@ -278,14 +278,14 @@ end
         st = mkstate()
         ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
         wt = mktempdir()
-        out = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :shell,
+        out = W.enter_session(wt, "master", "a#1", "1", "https://example.com/a/1", "a#1", ctrl, :shell,
                               (_, _) -> "sleep 120")
         @test occursin("started", out)
         @test last(ctrl.stack) isa W.PaneView
         depth = length(ctrl.stack)
 
         # The same kind again, from the pane it is already showing in.
-        out2 = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :shell,
+        out2 = W.enter_session(wt, "master", "a#1", "1", "https://example.com/a/1", "a#1", ctrl, :shell,
                                (_, _) -> "sleep 120")
         @test occursin("already in", out2)
         @test length(ctrl.stack) == depth
@@ -294,7 +294,7 @@ end
         # rather than on top: two terminals on the stack at once is not a state
         # anybody meant to be in, and it is how `t` from `"` left four views
         # between the shell and the dashboard.
-        out3 = W.enter_session(wt, "master", "a#1", "1", "a#1", ctrl, :agent,
+        out3 = W.enter_session(wt, "master", "a#1", "1", "https://example.com/a/1", "a#1", ctrl, :agent,
                                (_, _) -> "sleep 120")
         @test occursin("started", out3)
         @test length(ctrl.stack) == depth
@@ -594,6 +594,83 @@ end
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
+end
+
+@testset "an agent's bell is a seen bit" begin
+    # The agent's `Stop` hook rings the pane, tmux keeps the bell while nobody
+    # is attached, and the browser reads it as the third reason a row is
+    # unread. `T` clears it by looking; every mark clears it by hand, since
+    # a reason left standing beside the stamp would keep the row unread
+    # whatever was pressed - the woken-snooze rule; `z` rings it again.
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the bell-as-seen-bit test"
+    else
+        st = mkstate(); st.filters = W.everything(); W.refilter!(st)
+        ctrl = W.Controller(); ctrl.running = true
+        it = st.items[st.sel]
+        state = read(W.localfile(), String)
+        keep = W.LOCAL[]
+        W.LOCAL[] = fresh_local()
+        now = W.ts("2026-09-12T12:00:00Z")
+        wt = mktempdir()
+        n = W.mux_name(wt, "main", string(it.number); kind = :agent)
+        W.mux_kill(n)
+        try
+            @test first(W.mux_start(n, wt, "sleep 120"))
+            @test W.mux_tag!(n; worktree = wt, kind = :agent, item = it.ref, url = it.url)
+            # Read, and quiet: nothing to say.
+            W.mark_read_moved([it.url], now)
+            @test isempty(W.rang_urls())
+            W.refilter!(st)
+            @test W.seen_of(it, W.Marks(st, now)) === :read
+            # It rings. The listing says which item, `refilter!` takes it, and
+            # the row is unread with `agent` as the first word of why.
+            @test W.mux_ring!(n); sleep(0.2)
+            @test W.rang_urls() == Set([it.url])
+            W.refilter!(st)
+            @test it.url in st.rang
+            @test W.seen_of(it, W.Marks(st, now)) === :unread
+            @test first(W.moved_words(it, W.Marks(st, now))) == "agent"
+            # `r` reads it: the stamp is written and the bell is cleared with
+            # it, so the row is read in the same frame and stays so.
+            i = findfirst(x -> x.url == it.url, st.items)
+            i === nothing || (st.sel = i)
+            @test W.handle!(st, Int('r'), ctrl, now) === :ok
+            @test st.status == "marked read"
+            @test isempty(W.rang_urls())
+            @test W.seen_of(it, W.Marks(st, now)) === :read
+            # `z` puts the bell back with the stamp.
+            W.handle!(st, Int('z'), ctrl); sleep(0.2)
+            @test W.rang_urls() == Set([it.url])
+            W.refilter!(st)
+            @test W.seen_of(it, W.Marks(st, now)) === :unread
+            # The shell's marks go through `mark_read_moved`, and clear it too.
+            @test W.mark_read_moved([it.url], now) == 1
+            @test isempty(W.rang_urls())
+            W.refilter!(st)
+            @test isempty(st.rang)
+            # `wl unread` reads the same bit: rung, the item is on its list.
+            @test W.mux_ring!(n); sleep(0.2)
+            @test it.url in W.unread_marks(now).rang
+            # The poll notices a change the frame has not taken, and only that.
+            @test W.rang_urls() != st.rang
+            st.rerang = false
+            woke = Ref(false); st.wake = () -> woke[] = true
+            W.SESSIONS_EVERY[] = 0.05
+            W.watch_sessions!(st)
+            for _ in 1:40; woke[] && break; sleep(0.05); end
+            @test woke[] && st.rerang
+            @test W.rerang!(st)          # the wake's half: the sessions taken again
+            @test it.url in st.rang && !st.rerang
+            woke[] = false; sleep(0.3)
+            @test !woke[]                # nothing changed since, so no wake
+        finally
+            W.SESSIONS_EVERY[] = 2.0
+            W.mux_kill(n)
+            W.LOCAL[] = keep
+            write(W.localfile(), state)
+        end
+    end
 end
 
 @testset "the process is called wl" begin
