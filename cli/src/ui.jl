@@ -107,7 +107,8 @@ Base.@kwdef struct Item
     blocked_on::Vector{String} = String[]
     why::String = ""       # the reason a thread gave, in words (`THREAD_WHY`,
                            # off `reason` at load, so the table's word is the
-                           # word), or an adopted branch's standing
+                           # word), or an adopted branch's standing. What `wl
+                           # unread` prints; the pane's `why` is what moved
     web::String = ""       # where this is on github.com when `url` is not there:
                            # an adopted branch's `url` is its `local:` key, and
                            # this is its compare page, where the pull request

@@ -452,8 +452,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # How it got here, first: which search claimed the row - the filter axis
     # of the same name. A fact, so it sits with the facts; it was under
     # "tracking" beside `track`, where three rows read as three settings and
-    # one was. The reason GitHub gave for a thread is on the `why` row under
-    # `local`, after the word for what moved.
+    # one was. The reason GitHub gave for a thread is not on the pane: it is
+    # what `wl unread` prints as `why`, and what moved is the `why` here.
     kv("lane", it.lane)
     kv("author", it.author)
     st.meta === nothing || isempty(st.meta.assignees) ||
@@ -554,16 +554,13 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # Why it is in front of you, first: unread, and in a word each what has
     # moved since you read it - a comment, a push, a review, newest first -
     # which `seen_of` says with the stamp and the list says with the bold and
-    # neither says in words; or read. Then, dim, the reason GitHub gave for a
-    # thread ("you were mentioned"), which is about the item and not about
-    # the movement, and an adopted branch's standing - unless the `reply`
-    # row above is saying the mention already.
+    # neither says in words; or read. What moved and nothing standing: the
+    # reason GitHub gave for a thread ("you were mentioned") and an adopted
+    # branch's standing stood after it for a day, and are facts about the
+    # item, which the pane says above - the lane, the author, the branch.
     seen, words = seen_of(it, marks), moved_words(it, marks)
-    kv("why", string(seen === :unread ?
-                         (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) :
-                         "read",
-                     (isempty(it.why) || !isempty(it.reply)) ? "" :
-                         string("  ", THEME.dim, it.why, THEME.reset)))
+    kv("why", seen === :unread ?
+              (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) : "read")
     # By the command's own word, and the command's name, since there is no
     # key for it. What the level means is the command's help; said here it
     # wrapped the row on every item.

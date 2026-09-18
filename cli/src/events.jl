@@ -539,15 +539,15 @@ function issue_row(r, login)
         "mine" => who == login)
 end
 
-"""What a notification thread's `reason` says, in the words the metadata pane
-prints after `why`. The reason is the *latest* one GitHub has for the thread -
-it evolves, `author` becoming `mention` - and it maps onto the item, not onto
+"""What a notification thread's `reason` says, in words: `why` as `wl unread`
+prints it. The reason is the *latest* one GitHub has for the thread - it
+evolves, `author` becoming `mention` - and it maps onto the item, not onto
 an event: a thread is one row per subject, one reason, one `updated_at`, no
-actor and no history.
+actor and no history. Not on the metadata pane, whose `why` row is what
+moved since you read; this is a standing fact about the item.
 
 `author` and `comment` say nothing: "something of yours moved" and "a thread
-you commented on moved" said only that it moved, which the `why` row now says
-in words - what, and since when - and whose it is is the author row."""
+you commented on moved" said only that it moved."""
 const THREAD_WHY = Dict{String,String}(
     "mention" => "you were mentioned",
     "team_mention" => "a team you are on was mentioned",

@@ -2120,34 +2120,34 @@ end
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                         marks("2026-09-12T08:00:00Z"; wake = "2026-09-12T12:00:00Z")) == ["woke", "comment"]
     @test W.moved_words(mk(; url = "local:o/r/wip", moved_by = "their_head"), read) == String[]
-    # On the pane: under `local`, unread with the words, read without, and
-    # the reason GitHub gave after either.
+    # On the pane: under `local`, unread with the words, read without. The
+    # reason GitHub gave is a standing fact about the item and is not here:
+    # `why` on the pane is what moved.
     it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z",
             why = "you were mentioned")
     st.read = Dict{String,String}(); st.sources = Dict{String,String}()
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
-    @test occursin("why       unread: new  you were mentioned", plain)
+    @test occursin("why       unread: new\n", plain) && !occursin("you were mentioned", plain)
     st.read = Dict(it.url => "2026-09-12T08:00:00Z")
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
-    @test occursin("why       unread: reviewed, comment  you were mentioned", plain)
+    @test occursin("why       unread: reviewed, comment\n", plain)
     @test first(findfirst("local", plain)) < first(findfirst("why  ", plain))
     st.read = Dict(it.url => "2026-09-12T10:00:00Z")
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
-    @test occursin("why       read  you were mentioned", plain)
+    @test occursin("why       read\n", plain)
     @test !occursin("unread", plain)
     # And `wl unread` says the last one to an outside reader.
     @test W.item_json(W.with(it; moved_by = "review_at"))["moved_by"] == "review_at"
 
-    # The tags that only restate the pane are the word alone; the reason is
-    # not repeated after `why` while the `reply` row is saying it; the level
-    # is the word and the command.
+    # The tags that only restate the pane are the word alone; the level is
+    # the word and the command.
     tagged = W.with(it; edits = "changes requested", ready = "approved and green",
                     reply = "mentioned you 2d ago; last word is theirs")
     plain = W.astrip(join(W.meta_lines(st, tagged, 60, at), "\n"))
     @test occursin("\nedits\n", plain) && occursin("\nready\n", plain)
     @test !occursin("changes requested\n", plain) && !occursin("approved and green", plain)
     @test occursin("reply     mentioned you 2d ago; last word is theirs", plain)
-    @test occursin("why       read\n", plain) && count("you were mentioned", plain) == 0
+    @test occursin("why       read\n", plain)
     @test endswith(plain, "track     normal  wl track")
 end
 
