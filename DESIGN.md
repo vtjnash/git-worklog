@@ -742,10 +742,14 @@ Each of the following returns success and the wrong answer:
   frame on OSC sequences and substitutes only between them.
 - **Inside a changed line, the words that changed are marked**, as GitHub
   marks them: a run of `-` lines followed by as many `+` lines is paired
-  line for line, each pair diffed by token (a word, a run of spaces, one
-  other character) with a longest common subsequence, and the tokens not in
-  common drawn in `diff_add_word`/`diff_del_word` over the line's colour.
-  A pair sharing under half its words is a rewrite, and marks nothing. The
+  line for line, and an unequal pair of runs by likeness, each `-` line to
+  the `+` line most like it still free and later than the last taken, so
+  the pairs read in order. Each pair is diffed by token (a word, a run of
+  spaces, one other character) with a longest common subsequence, and the
+  tokens not in common drawn in `diff_add_word`/`diff_del_word` over the
+  line's colour. A pair sharing under half its words is a rewrite, and
+  marks nothing - which is also how a `-` line with no line like it is
+  left alone in an unequal run. The
   roles are backgrounds where the palette has them, closed by `49` alone so
   the cursor row's background is re-armed over them like any other.
 - **A diff is somebody else's bytes, printed.** An escape in one is a

@@ -128,13 +128,16 @@ end
 # over the two colours that already say so: nothing is marked there.
 
 """
-    word_marks(a, b) -> (ranges_a, ranges_b)
+    word_marks(a, b) -> (score, ranges_a, ranges_b)
 
-The byte ranges of `a` and of `b` that are not common to both, by token.
-Both empty when the lines share too little to be an edit of each other.
+How alike two lines are - the share of the longer line's words the two have
+in common, 0 to 1 - and the byte ranges of `a` and of `b` that are not
+common to both, by token. A score under a half is a rewrite rather than an
+edit of one line into the other, and the ranges are then empty: marking
+most of both would be noise over what the two colours already say.
 """
 function word_marks(a::AbstractString, b::AbstractString)
-    none = (UnitRange{Int}[], UnitRange{Int}[])
+    none = (0.0, UnitRange{Int}[], UnitRange{Int}[])
     ta = collect(eachmatch(r"\w+|\s+|[^\w\s]", a))
     tb = collect(eachmatch(r"\w+|\s+|[^\w\s]", b))
     n, m = length(ta), length(tb)
@@ -161,8 +164,9 @@ function word_marks(a::AbstractString, b::AbstractString)
     word = t -> !all(isspace, t.match)
     shared = count(k -> ina[k] && word(ta[k]), 1:n)
     wa, wb = count(word, ta), count(word, tb)
-    (shared == 0 || 2 * shared < max(wa, wb)) && return none
-    (changed(ta, ina), changed(tb, inb))
+    score = shared == 0 ? 0.0 : shared / max(wa, wb)
+    score < 0.5 && return none
+    (score, changed(ta, ina), changed(tb, inb))
 end
 
 "The byte ranges of the tokens not marked common, adjacent ones joined."
@@ -180,14 +184,19 @@ end
 """
     hunk_words(lines) -> Vector{Vector{UnitRange{Int}}}
 
-For each line of a hunk, the ranges [`diffline`](@ref) is to mark: a run of
-`-` lines followed by a run of exactly as many `+` lines is paired line for
-line and each pair handed to [`word_marks`](@ref); every other line gets none.
-The ranges are into the whole line, marker included, so they can go straight
-back onto it.
+For each line of a hunk, the ranges [`diffline`](@ref) is to mark. A run of
+`-` lines followed by a run of `+` lines is one change: as many lines of
+each, and they are paired line for line, as GitHub pairs them; otherwise
+each `-` line takes the `+` line most like it that is still free and later
+than the last one taken, so the pairs read in order - the one line that
+became two is marked against the one of the two it became. A line whose
+best match is a rewrite is left unmarked, and so is every line outside a
+change. The ranges are into the whole line, marker included, so they go
+straight back onto it.
 """
 function hunk_words(lines::AbstractVector{<:AbstractString})
     out = [UnitRange{Int}[] for _ in lines]
+    shift = rs -> [(first(r) + 1):(last(r) + 1) for r in rs]
     i, n = 1, length(lines)
     while i <= n
         startswith(lines[i], "-") || (i += 1; continue)
@@ -195,11 +204,23 @@ function hunk_words(lines::AbstractVector{<:AbstractString})
         while d <= n && startswith(lines[d], "-"); d += 1; end
         a = d
         while a <= n && startswith(lines[a], "+"); a += 1; end
-        if d - i == a - d
-            for k in 0:(d - i - 1)
-                ra, rb = word_marks(SubString(lines[i + k], 2), SubString(lines[d + k], 2))
-                out[i + k] = [(first(r) + 1):(last(r) + 1) for r in ra]
-                out[d + k] = [(first(r) + 1):(last(r) + 1) for r in rb]
+        dels, adds = i:(d - 1), d:(a - 1)
+        if length(dels) == length(adds)
+            for (x, y) in zip(dels, adds)
+                _, ra, rb = word_marks(SubString(lines[x], 2), SubString(lines[y], 2))
+                out[x], out[y] = shift(ra), shift(rb)
+            end
+        elseif !isempty(adds) && length(dels) * length(adds) <= 400
+            from = first(adds)
+            for x in dels
+                best, at, marks = 0.0, 0, nothing
+                for y in from:last(adds)
+                    sc, ra, rb = word_marks(SubString(lines[x], 2), SubString(lines[y], 2))
+                    sc > best && ((best, at, marks) = (sc, y, (ra, rb)))
+                end
+                at == 0 && continue
+                out[x], out[at] = shift(marks[1]), shift(marks[2])
+                from = at + 1
             end
         end
         i = a

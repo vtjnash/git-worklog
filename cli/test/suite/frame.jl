@@ -696,23 +696,35 @@ end
 @testset "the words that changed inside a line are marked" begin
     # Tokens, by longest common subsequence: the renamed identifier and
     # nothing else, on both sides, as byte ranges into each line.
-    a, b = W.word_marks("    foo(bar, baz)", "    foo(qux, baz)")
-    @test a == [9:11] && b == [9:11]
+    sc, a, b = W.word_marks("    foo(bar, baz)", "    foo(qux, baz)")
+    @test a == [9:11] && b == [9:11] && sc > 0.5
     # Adjacent changed tokens are one range; a change at the end is found.
-    a, b = W.word_marks("x = a + b", "x = a - b + c")
+    _, a, b = W.word_marks("x = a + b", "x = a - b + c")
     @test a == [7:7] && b == [7:7, 10:13]
     # A rewrite is not an edit: two lines with little in common mark nothing
     # rather than most of both.
-    @test W.word_marks("return nothing", "for i in 1:n") == ([], [])
-    @test W.word_marks("", "anything") == ([], [])
+    @test W.word_marks("return nothing", "for i in 1:n") == (0.0, [], [])
+    @test W.word_marks("", "anything") == (0.0, [], [])
 
     # A run of deletions and a run of as many additions pair up line for
-    # line; unequal runs, and context, get nothing.
-    lines = [" ctx", "-a = 1", "-b = 2", "+a = 10", "+b = 2", " more", "-gone", "+x", "+y"]
+    # line; context gets nothing.
+    lines = [" ctx", "-a = 1", "-b = 2", "+a = 10", "+b = 2", " more"]
     ws = W.hunk_words(lines)
     @test ws[2] == [6:6] && ws[4] == [6:7]         # `1` → `10`, past the marker
     @test isempty(ws[3]) && isempty(ws[5])          # `b = 2` did not change
-    @test all(isempty, ws[[1, 6, 7, 8, 9]])
+    @test all(isempty, ws[[1, 6]])
+    # Unequal runs pair by likeness, in order: the one line that became
+    # two is marked against the one of the two it became, and a line with
+    # no line like it - `-gone` against `+x`, `+y` - is left alone.
+    lines = ["-gone", "+x", "+y", " ctx",
+             "-total = sum(xs)", "+n = length(xs)", "+total = sum(xs) / n"]
+    ws = W.hunk_words(lines)
+    @test all(isempty, ws[1:4])
+    @test isempty(ws[6])                                # `n = length(xs)` is new
+    @test ws[5] == [] && ws[7] == [17:20]               # ` / n` added at the end
+    # And the other way about: two lines that became one.
+    ws = W.hunk_words(["-a = f(x)", "-b = g(y)", "+b = g(y, z)"])
+    @test isempty(ws[1]) && ws[2] == [] && ws[3] == [9:11]
 
     # Drawn in the word role inside the line's colour, and closed by what
     # ends a background alone, so the cursor's background over the row is
