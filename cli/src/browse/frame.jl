@@ -69,7 +69,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
             end
             isempty(hs) && continue
             rrows[i + st.hdr] = Row(r.node, r.header, hlspan(r.text, hs, THEME.match_bg),
-                                    r.src, r.part)
+                                    r.src, r.part, r.gutter)
         end
     end
     for i in 1:length(nrows)
@@ -82,7 +82,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         rrows[i + st.hdr] = Row(r.node, r.header,
                                 hlrow(apad(afit(r.text, riw), riw),
                                       insel ? THEME.select_bg : THEME.cursor_bg),
-                                r.src, r.part)
+                                r.src, r.part, r.gutter)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
 
@@ -95,7 +95,8 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                         string("  ", THEME.bold, sr[2] - sr[1] + 1, " selected",
                                THEME.reset))
 
-    bordered(rvis, rw, rh, rtitle, focused)
+    bordered([r.text for r in rvis], rw, rh, rtitle, focused;
+             gutter = [r.gutter for r in rvis])
 end
 
 "The title bar: the item under the cursor, by repository and number - the
@@ -174,7 +175,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
-    left = bordered(lvis, lw, lh, ltitle, st.focus === :list)
+    left = bordered([r.text for r in lvis], lw, lh, ltitle, st.focus === :list)
     L.mh > 0 && append!(left, bordered(first(mlines, L.mh - 2), lw, L.mh,
                                    it === nothing ? "meta" : string("meta  ", it.ref),
                                    false))

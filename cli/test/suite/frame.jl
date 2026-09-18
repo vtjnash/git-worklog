@@ -465,14 +465,33 @@ end
     # And the hunk says *where* it is being talked about, not only that it is:
     # the row each thread hangs off carries the same mark its header counts.
     # `-old` is the first line of this hunk's body and is old line 40; `+new` is
-    # the second and is new line 10.
+    # the second and is new line 10. The mark is the row's gutter - drawn over
+    # the pane's left border, where the eye is, and not after the text, where
+    # it was and was not seen - so the text is the diff line alone.
     marked = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
                                [cmt(1, "a.jl", 40; side = "LEFT"),
                                 cmt(2, "a.jl", 10), cmt(3, "a.jl", 10; reply = 2)],
                                "http://x")
     @test W.hunk_marks(marked[1]) == Dict(1 => (1, 0), 2 => (1, 0))
-    drawn = [W.astrip(r.text) for r in W.rows(marked, 70) if r.node == 1 && !r.header]
-    @test drawn == ["-old  💬", "+new  💬"]
+    body = [r for r in W.rows(marked, 70) if r.node == 1 && !r.header]
+    @test [W.astrip(r.text) for r in body] == ["-old", "+new"]
+    @test [W.astrip(r.gutter) for r in body] == ["💬", "💬"]
+    @test all(isempty(r.gutter) for r in W.rows(marked, 70) if r.header)
+    # Two threads on one line say their count at the end of the row, since the
+    # gutter has room for the mark and not for a number.
+    two = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
+                            [cmt(1, "a.jl", 10), cmt(2, "a.jl", 10)], "http://x")
+    tworows = [r for r in W.rows(two, 70) if r.node == 1 && !r.header]
+    @test W.astrip(tworows[2].text) == "+new  💬2" && W.astrip(tworows[2].gutter) == "💬"
+    @test isempty(tworows[1].gutter)
+    # On screen: the mark stands where the border was on that row, and the
+    # border is there on the rows around it.
+    st = mkstate(); st.mode = :diff; st.nodes = marked
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    pane = W.astrip.(W.detail_pane(st, st.items[st.sel], 60, 12, true))
+    at = findfirst(l -> occursin("-old", l), pane)
+    @test at !== nothing && startswith(pane[at], "💬-old")
+    @test startswith(pane[at + 1], "💬+new") && startswith(pane[at - 1], "│")
     # Two threads on the hunk, one on each of its two lines - and the reply is
     # not a third of either: the thread is what hangs off a line, which is what
     # the header has always counted. A lone thread's mark carries no number,

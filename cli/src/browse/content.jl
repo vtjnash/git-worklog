@@ -548,13 +548,14 @@ end
 """One line's worth of that, as it is drawn at the end of the row.
 
 The same two marks the hunk header carries, so a count on a header and a mark on
-a line read as the same thing said at two grains. The number is left off a lone
-thread: `💬` on the line is the sentence, and `💬1` is it said twice.
+a line read as the same thing said at two grains. A lone open thread says
+nothing here: its `💬` stands in the gutter, over the pane's border (`rows`),
+and `💬` at the end of the row as well is it said twice. Two or more say their
+count, and a settled thread its tick, dim.
 """
 markof(m::Union{Nothing,Tuple{Int,Int}}) =
     m === nothing ? "" :
-    string(m[1] == 0 ? "" : string("  ", THEME.accent, "💬", m[1] == 1 ? "" : m[1],
-                                   THEME.reset),
+    string(m[1] <= 1 ? "" : string("  ", THEME.accent, "💬", m[1], THEME.reset),
            m[2] == 0 ? "" : string("  ", THEME.dim, "✓", m[2] == 1 ? "" : m[2],
                                    THEME.reset))
 

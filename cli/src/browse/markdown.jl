@@ -428,7 +428,9 @@ function nodelines(n::Node, w::Int)
         # The marks go on here rather than into the node's text: the line a
         # review comment hangs off is worth seeing in the hunk, and it is not
         # part of the diff - so `srcline` is taken from the raw lines and a copy
-        # of a marked row is the line as it was written.
+        # of a marked row is the line as it was written. What goes on here is
+        # the tail - a count past one, and the settled threads; the mark
+        # itself stands in the gutter, which `rows` fills off the same table.
         raw = String.(split(n.raw, "\n"))
         marks = hunk_marks(n)
         txt = join((string(diffline(l), markof(get(marks, k, nothing)))
@@ -500,7 +502,10 @@ struct Row
     text::String
     src::String
     part::Int
+    gutter::String   # a mark drawn over the pane's left border on this row,
+                     # or nothing: a comment hanging off a line of a diff
 end
+Row(node, header, text, src, part) = Row(node, header, text, src, part, "")
 
 """The mark drawn at the right-hand end of a header, and clicked to copy the
 node whole. Two joined squares, which is what everything else draws for this."""
@@ -611,23 +616,33 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
             continue
         end
         ls = nodelines(n, iw)                # fills n.srcs alongside n.cache
+        # The line a thread hangs off gets its mark in the gutter - over the
+        # pane's border, where a margin note goes and the eye already is -
+        # rather than after the text, where it was and was not seen. The row
+        # is counted back to its diff line the way `hunk_line_at` counts, so
+        # the mark lands on the first row of a wrapped line, once.
+        hm = n.kind === :diff ? hunk_marks(n) : nothing
+        k = 0
         for (j, l) in enumerate(ls)
             (part, src) = n.srcs[j]
-            push!(out, Row(i, false, string(pad, l), src, part))
+            part == 0 && (k += 1)
+            m = (hm === nothing || part != 0) ? nothing : get(hm, k, nothing)
+            g = (m === nothing || m[1] == 0) ? "" : string(THEME.accent, "💬")
+            push!(out, Row(i, false, string(pad, l), src, part, g))
         end
     end
     out
 end
 
-"Vertical slice with the cursor's node kept in view."
+"Vertical slice with the cursor's node kept in view: the rows, and the top."
 function window(rs::Vector{Row}, cur, top, h)
-    isempty(rs) && return (String[], 1)
+    isempty(rs) && return (Row[], 1)
     top = clamp(top, 1, max(1, length(rs)))
     if cur !== nothing
         cur < top && (top = cur)
         cur > top + h - 1 && (top = cur - h + 1)
     end
     top = clamp(top, 1, max(1, length(rs) - h + 1))
-    ([r.text for r in rs[top:min(end, top + h - 1)]], top)
+    (rs[top:min(end, top + h - 1)], top)
 end
 
