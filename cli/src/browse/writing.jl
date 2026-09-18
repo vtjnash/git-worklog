@@ -2,19 +2,24 @@
 # --- writing ----------------------------------------------------------------
 
 """
-    hunk_line_at(st, i, w) -> (line, side) or nothing
+    hunk_numbers_at(st, i, w) -> (old, new, del) or nothing
 
-The source line under the cursor inside hunk node `i`.
+Both numberings of the diff line under the cursor inside hunk node `i`, and
+whether that line is a deletion - the one case where only the old number
+names a line that exists.
 
 The cursor is a display row and the hunk is diff lines, so the rows are counted
 back to a logical line first - `part == 0` marks the first row of each - and the
 hunk is then walked from its own top, which knows where it starts and how far
 `[`/`]` has widened it.
 
-The old-side number is only right while expansion has added pure context, which
-is all it ever adds; a hunk expanded across a deletion would drift.
+On a deleted line `new` is the line the deletion sits before: the place in
+the file as it is now where that line used to be, which is where an editor
+should land. The old-side number is only right while expansion has added pure
+context, which is all it ever adds; a hunk expanded across a deletion would
+drift.
 """
-function hunk_line_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
+function hunk_numbers_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
     n = st.nodes[i]
     haskey(n.meta, "start") || return nothing
     rs = rows(st.nodes, w)
@@ -31,10 +36,43 @@ function hunk_line_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
     oldno = get(n.meta, "ostart", n.meta["start"]) - up
     for (k, l) in enumerate(lines)
         del, add = startswith(l, "-"), startswith(l, "+")
-        k == idx && return del ? (oldno, "LEFT") : (newno, "RIGHT")
+        k == idx && return (old = oldno, new = newno, del = del)
         del ? (oldno += 1) : add ? (newno += 1) : (oldno += 1; newno += 1)
     end
     nothing
+end
+
+"""
+    hunk_line_at(st, i, w) -> (line, side) or nothing
+
+The source line under the cursor inside hunk node `i`, as GitHub anchors a
+review comment: the new-side number and `RIGHT`, or on a deleted line the
+old-side number and `LEFT`.
+"""
+function hunk_line_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
+    at = hunk_numbers_at(st, i, w, row)
+    at === nothing ? nothing : at.del ? (at.old, "LEFT") : (at.new, "RIGHT")
+end
+
+"""
+    edit_target(st, iw) -> (file, line) or nothing
+
+Where `e` should put the editor's cursor: the file and the new-side line
+under the browser's cursor, when that is a hunk of `d` or `p`.
+
+The new side always, even on a deleted line, because the checkout is the file
+as it is now and the old side names a line that is not there; the deletion
+sits before the line `hunk_numbers_at` gives. A range-diff has no hunks, and
+so does the thread, and there this is nothing: the folder is opened instead.
+"""
+function edit_target(st::BState, iw::Int)
+    st.mode in (:diff, :pushed) || return nothing
+    i = curnode(st, iw)
+    i > 0 || return nothing
+    n = st.nodes[i]
+    haskey(n.meta, "file") || return nothing
+    at = hunk_numbers_at(st, i, iw)
+    at === nothing ? nothing : (String(n.meta["file"]), at.new)
 end
 
 """The rows of hunk `i` a comment is about: the selection, or the cursor row.

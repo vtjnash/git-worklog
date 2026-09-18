@@ -324,3 +324,58 @@ end
         W.LOCAL[] = REPOS_SANDBOX
     end
 end
+
+@testset "e opens the checkout, and a diff line in it" begin
+    pr = fixture_item("yours, open, with a branch and labels")
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a.txt"), "one\n")
+    W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
+    side = joinpath(root, "side")
+    W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
+
+    # A `code` that writes down what it was asked, and a socket for it to be
+    # "live" through - the same two things `forwards!` looks for.
+    bin = joinpath(root, "bin"); mkpath(bin)
+    log = joinpath(root, "code.log")
+    write(joinpath(bin, "code"), string("#!/bin/sh\nprintf '%s\\n' \"\$@\" > ", log, "\n"))
+    chmod(joinpath(bin, "code"), 0o755)
+    ipc = joinpath(root, "ipc.sock"); li = Sockets.listen(ipc)
+    args() = (sleep(0.2); readlines(log))
+    path = string(bin, ":", ENV["PATH"])       # in front, and git still found
+
+    keept, keeprun = W.LOCAL[], W.RUN_DIR[]
+    W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
+    W.RUN_DIR[] = joinpath(root, "run")
+    try
+        @test W.open_editor(pr) === :needs_repo
+        W.register_repo!(pr.repo, main)
+        withenv("PATH" => path, "VSCODE_IPC_HOOK_CLI" => ipc) do
+            # The folder is the worktree on the branch - `t`'s answer too.
+            r = W.open_editor(pr)
+            @test occursin("opened", r) && occursin(pr.branch, r)
+            @test args() == [side]
+            # A line: the folder stays on the command line, so the file opens
+            # in that folder's window, and the file is named as it is there.
+            r = W.open_editor(pr, ("a.txt", 1))
+            @test occursin("a.txt:1", r)
+            @test args() == ["--goto", side, joinpath(side, "a.txt") * ":1"]
+            # A file the diff names that the checkout lacks: the folder, said.
+            r = W.open_editor(pr, ("gone.txt", 3))
+            @test occursin("no gone.txt", r)
+            @test args() == [side]
+        end
+        # Nothing live to open it in - the link's socket gone too - is said,
+        # and nothing is run.
+        rm(log); close(li)
+        withenv("PATH" => path, "VSCODE_IPC_HOOK_CLI" => joinpath(root, "dead.sock")) do
+            @test W.open_editor(pr) == "no live VS Code to open it in"
+            @test !isfile(log)
+        end
+    finally
+        close(li)
+        W.LOCAL[] = keept; W.RUN_DIR[] = keeprun
+    end
+end

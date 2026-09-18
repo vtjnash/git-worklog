@@ -1,14 +1,22 @@
 # Programs, drawn in a pane: `$EDITOR` on a note, a shell, an agent. This file
 # decides *what to run and where*; `paneview.jl` draws it and forwards the keys.
 
-"""Open a checkout of this pull request's branch in VS Code.
+"""Open this item's checkout in VS Code - and, given `at = (file, line)`, that
+file at that line in it.
 
-Prefers a worktree already on that branch, since that is the copy the user is
-most likely to have been working in; otherwise falls back to the main checkout.
+The checkout is [`item_checkout`](@ref)'s answer, the same one `t` reads, so
+the two cannot disagree about where an item's work is. With `at`, the folder
+is still on the command line: `code --goto <folder> <file>:<line>` opens the
+file in the window whose workspace that folder is, making the window when
+there is none, where `--goto <file>:<line>` alone would land it in whichever
+window was last active. Not `--reuse-window`, for the same reason. A file the
+diff names that is not in the checkout - deleted by the pull request, or a
+checkout behind its head - opens the folder instead and says so, rather than
+an untitled buffer under that name.
 """
-function open_editor(it::Item)
-    repo = repo_path(it.repo)
-    repo === nothing && return :needs_repo
+function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing)
+    target, branch = item_checkout(it)
+    target === nothing && return :needs_repo
     # The same `code` and the same socket a pane is handed, for the same
     # reason: this process's own are only as fresh as its launch, and a
     # reconnect since then left them pointing at nothing.
@@ -17,21 +25,24 @@ function open_editor(it::Item)
     code = joinpath(rundir(), "bin", "code")
     (islink(code) && !("code" in fw.gone)) || (code = something(Sys.which("code"), ""))
     isempty(code) && return "`code` is not on PATH"
-    branch = pr_branch(it)
-    target = repo
-    for w in worktrees(repo)
-        if !isempty(branch) && w.branch == branch
-            target = w.path
-            break
+    where = string(target, isempty(branch) ? "" : string(" (", branch, ")"))
+    cmd, said = `$code $target`, string("opened ", where)
+    if at !== nothing
+        file, line = at
+        if isfile(joinpath(target, file))
+            cmd = `$code --goto $target $(string(joinpath(target, file), ":", line))`
+            said = string("opened ", file, ":", line, " in ", where)
+        else
+            said = string("opened ", where, " \u00b7 no ", file, " in it")
         end
     end
     try
-        run(pipeline(addenv(`$code $target`, fw.env...); stdout = devnull, stderr = devnull);
+        run(pipeline(addenv(cmd, fw.env...); stdout = devnull, stderr = devnull);
             wait = false)
     catch e
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
-    string("opened ", target, isempty(branch) ? "" : string(" (", branch, ")"))
+    said
 end
 
 """The editor to open a note in: `\$VISUAL`, then `\$EDITOR`, then `vi`.

@@ -42,7 +42,7 @@ const HELP = Union{String,Tuple{String,String}}[
     ("r", "read ↔ unread"),
     ("s", "snooze: 3d, 2w, 6mo, a date; wakes then, or when it moves, whichever is first"),
     ("x", "file it away, and back; a filed item that moves is unread again"),
-    ("v  e", "edit the note in \$VISUAL/\$EDITOR · open the checkout in VS Code"),
+    ("v  e", "edit the note in \$VISUAL/\$EDITOR · open the checkout in VS Code, at the diff line under the cursor"),
     ("i", "import an item by url; it lands unread"),
     ("z", "undo the last local action"),
     ("u  R", "refresh everything in the background · reload this item"),

@@ -226,6 +226,16 @@ end
     st.nrow = 4; @test W.hunk_line_at(st, 1, iw) == (11, "RIGHT")   # addition
     st.nrow = 1; @test W.hunk_line_at(st, 1, iw) === nothing        # the header
 
+    # `e` lands on the new side whatever the row is: the checkout is the file
+    # as it is now, and a deleted line opens at the line it sat before.
+    st.nrow = 2; @test W.edit_target(st, iw) == ("a.jl", 10)
+    st.nrow = 3; @test W.edit_target(st, iw) == ("a.jl", 11)
+    st.nrow = 4; @test W.edit_target(st, iw) == ("a.jl", 11)
+    st.nrow = 1; @test W.edit_target(st, iw) === nothing
+    st.mode = :comments; st.nrow = 4
+    @test W.edit_target(st, iw) === nothing
+    st.mode = :diff
+
     st.nrow = 4
     t = W.compose_target(st, iw)
     @test t[1] === :line
