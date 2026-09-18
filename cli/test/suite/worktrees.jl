@@ -337,14 +337,25 @@ end
     W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
 
     # A `code` that writes down what it was asked, and a socket for it to be
-    # "live" through - the same two things `forwards!` looks for.
+    # "live" through - the same two things `forwards!` looks for. Its answer
+    # to `--list-extensions` is a file, so the extension can be installed
+    # part way through.
     bin = joinpath(root, "bin"); mkpath(bin)
-    log = joinpath(root, "code.log")
-    write(joinpath(bin, "code"), string("#!/bin/sh\nprintf '%s\\n' \"\$@\" > ", log, "\n"))
+    log = joinpath(root, "code.log"); exts = joinpath(root, "extensions")
+    write(exts, "")
+    write(joinpath(bin, "code"),
+          string("#!/bin/sh\n[ \"\$1\" = --list-extensions ] && exec cat ", exts, "\n",
+                 "printf '%s\\n' \"\$@\" > ", log, "\n"))
     chmod(joinpath(bin, "code"), 0o755)
     ipc = joinpath(root, "ipc.sock"); li = Sockets.listen(ipc)
     args() = (sleep(0.2); readlines(log))
     path = string(bin, ":", ENV["PATH"])       # in front, and git still found
+
+    # The fixture's pull request, with a base this repository has.
+    first_ = strip(W.git(main, "rev-parse", "HEAD"))
+    mine = W.Item(url = pr.url, ref = pr.ref, repo = pr.repo, number = pr.number,
+                  title = pr.title, branch = pr.branch, base = "master",
+                  head = "0123456789012345678901234567890123456789")
 
     keept, keeprun = W.LOCAL[], W.RUN_DIR[]
     W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
@@ -366,6 +377,61 @@ end
             r = W.open_editor(pr, ("gone.txt", 3))
             @test occursin("no gone.txt", r)
             @test args() == [side]
+
+            # The diff at the line wants the extension. Without it, the file
+            # at the line, and the status says what is missing.
+            empty!(W.HAS_WORKLOG_EXT)
+            r = W.open_editor(mine, ("a.txt", 1); mode = :diff)
+            @test occursin("a.txt:1", r) && occursin("no worklog extension", r)
+            @test args() == ["--goto", side, joinpath(side, "a.txt") * ":1"]
+            # The same without a base to measure against is not a shortfall
+            # of the extension's, and is not blamed on it.
+            nobase = W.Item(url = pr.url, ref = pr.ref, repo = pr.repo, number = pr.number,
+                            title = pr.title, branch = pr.branch)
+            r = W.open_editor(nobase, ("a.txt", 1); mode = :diff)
+            @test occursin("a.txt:1", r) && !occursin("extension", r)
+            @test W.urlenc("a b&c/é~") == "a%20b%26c%2F%C3%A9~"
+
+            # With it: a url to the extension. Under `d` the left side is the
+            # merge base with the base branch, and the right side is the
+            # working tree, since the checkout is on the branch.
+            write(exts, "ms-vscode.something\nvtjnash.worklog\n")
+            empty!(W.HAS_WORKLOG_EXT)
+            r = W.open_editor(mine, ("a.txt", 1); mode = :diff)
+            @test occursin("the diff of a.txt:1", r)
+            a = args()
+            @test a[1] == "--open-url" && length(a) == 2
+            @test a[2] == string("vscode://vtjnash.worklog/diff?root=", W.urlenc(side),
+                                 "&path=", W.urlenc(joinpath(side, "a.txt")),
+                                 "&line=1&left=", first_)
+            # Under `p`, the head you last read.
+            W.set_read_mark(mine.url, "2026-09-01T00:00:00Z", first_)
+            r = W.open_editor(mine, ("a.txt", 1); mode = :pushed)
+            @test occursin("the diff of", r) && endswith(args()[2], "&left=" * first_)
+            # A checkout that is not on the branch has the wrong file in its
+            # working tree, so the right side is the head GitHub reports - and
+            # the merge base cannot be measured against a commit that is not
+            # here, so the left is the base ref itself.
+            other = W.Item(url = pr.url * "x", ref = "wt#7", repo = pr.repo, number = 7,
+                           title = "elsewhere", branch = "nowhere-local", base = "master",
+                           head = mine.head)
+            r = W.open_editor(other, ("a.txt", 1); mode = :diff)
+            @test occursin("the diff of", r)
+            @test endswith(args()[2], string("&left=", W.urlenc("refs/heads/master"),
+                                             "&right=", mine.head))
+            # Under `o` there is no diff, and the line is just a line.
+            r = W.open_editor(mine, ("a.txt", 1); mode = :comments)
+            @test args()[1] == "--goto"
+        end
+        # The server's CLI - what a Remote-SSH terminal has - spells the url
+        # option differently, and an Insiders server answers to its own
+        # scheme; both are read off the path the link resolves to.
+        rcli = joinpath(root, ".vscode-server-insiders", "bin", "remote-cli"); mkpath(rcli)
+        cp(joinpath(bin, "code"), joinpath(rcli, "code"))
+        withenv("PATH" => string(rcli, ":", ENV["PATH"]), "VSCODE_IPC_HOOK_CLI" => ipc) do
+            r = W.open_editor(mine, ("a.txt", 1); mode = :diff)
+            a = args()
+            @test a[1] == "--openExternal" && startswith(a[2], "vscode-insiders://vtjnash.worklog/diff?")
         end
         # Nothing live to open it in - the link's socket gone too - is said,
         # and nothing is run.

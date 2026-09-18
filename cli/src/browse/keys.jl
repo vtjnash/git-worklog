@@ -384,8 +384,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     elseif k == Int('e')
         at = edit_target(st, iw)
-        retry_edit = () -> (rr = open_editor(it, at); st.status = rr isa String ? rr : "")
-        r = open_editor(it, at)
+        retry_edit = () -> (rr = open_editor(it, at; mode = st.mode);
+                            st.status = rr isa String ? rr : "")
+        r = open_editor(it, at; mode = st.mode)
         r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
         return :ok
     elseif k == Int('t')

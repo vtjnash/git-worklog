@@ -95,7 +95,7 @@ GitHub.**
 | `r` | read ↔ unread |
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
-| `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) - under `d` or `p`, the file at the line the cursor is on |
+| `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
 | `z` | undo the last local action |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |
@@ -145,6 +145,16 @@ launch from `wl`'s own environment when what it names still answers - never
 found by searching, since the newest socket on the machine is not
 necessarily yours. When nothing answers, the status line says `no live ssh
 agent` as the pane opens.
+
+**VS Code** (`e`) opens the item's checkout - the worktree on its branch
+when there is one - and under `d` or `p` the file at the line the cursor is
+on. The *diff* at that line is more than `code`'s command line can say, so
+it goes through a small extension of our own, `vscode/`: build it with
+`vscode/package.sh`, install it once with `code --install-extension` (from
+the terminal that reaches the VS Code you use - under Remote-SSH that is the
+remote one), and `e` on a diff line then opens the diff editor at that line,
+against the merge base under `d` and against the head you last read under
+`p`. Without the extension `e` opens the file at the line and says so.
 
 **The mouse** selects rows (drag), moves the cursor (click), folds (click a
 marker), scrolls the pane under it. A click on a url copies it; a double click

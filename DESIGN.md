@@ -822,6 +822,23 @@ Each of the following returns success and the wrong answer:
   not at all**: the newest `vscode-ipc-*.sock` or `/tmp/ssh-*/agent.*` on
   the machine is some session's, and a search would hand a pane another
   window's `code` or another login's keys.
+- **`code`'s command line stops at a file and a line.** `--goto file:line`
+  opens one; `--diff a b` opens a diff but the workbench drops the line
+  (`NativeWindow.openResources` builds the diff input with `pinned` and
+  nothing else); there is no `--command`, the remote CLI's socket carries
+  only `open`, `openExternal`, `status` and `extensionManagement`, and
+  `command:` urls are honoured inside VS Code's own markdown alone. The only
+  way to ask for anything else is a `vscode://<publisher>.<name>/...` url,
+  which is routed to that extension - so `vscode/` is one, with one verb,
+  and `e` on a diff line hands it the url when `--list-extensions` says it
+  is there, and is `--goto` when it is not. The desktop CLI takes the url
+  as `--open-url` and the server's (`bin/remote-cli/code`, what a Remote-SSH
+  terminal has) as `--openExternal`; each drops the other's option and
+  opens a file named after the url, so the path the `code` link resolves to
+  picks the spelling, and the scheme with it. The refs it sends are local
+  answers (`base_ref`, `merge_base`, `read_head`), never a fetch: a key press
+  does not wait on the network, and a base that is only ever too old is the
+  trade.
 
 ## Conventions
 

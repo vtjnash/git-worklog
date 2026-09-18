@@ -2,19 +2,31 @@
 # decides *what to run and where*; `paneview.jl` draws it and forwards the keys.
 
 """Open this item's checkout in VS Code - and, given `at = (file, line)`, that
-file at that line in it.
+file at that line in it: the diff of it under `d` or `p`, the file alone
+elsewhere.
 
 The checkout is [`item_checkout`](@ref)'s answer, the same one `t` reads, so
-the two cannot disagree about where an item's work is. With `at`, the folder
-is still on the command line: `code --goto <folder> <file>:<line>` opens the
-file in the window whose workspace that folder is, making the window when
-there is none, where `--goto <file>:<line>` alone would land it in whichever
-window was last active. Not `--reuse-window`, for the same reason. A file the
-diff names that is not in the checkout - deleted by the pull request, or a
-checkout behind its head - opens the folder instead and says so, rather than
-an untitled buffer under that name.
+the two cannot disagree about where an item's work is.
+
+**The file at a line** is `code --goto <folder> <file>:<line>`. The folder is
+still on the command line: that opens the file in the window whose workspace
+the folder is, making the window when there is none, where `--goto
+<file>:<line>` alone would land it in whichever window was last active. Not
+`--reuse-window`, for the same reason. A file the diff names that is not in
+the checkout - deleted by the pull request, or a checkout behind its head -
+opens the folder instead and says so, rather than an untitled buffer under
+that name.
+
+**The diff at a line** cannot be said on `code`'s command line: `--diff` takes
+two files and drops the line `--goto` parsed, and there is no `--command`. So
+it is a url to the `worklog` extension in `vscode/`, `--open-url
+vscode://vtjnash.worklog/diff?...`, with the refs [`diff_refs`](@ref) picks -
+when that extension is installed in the VS Code `code` reaches, which is
+asked once per launch. Without it the file opens at the line, and the status
+says what is missing.
 """
-function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing)
+function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
+                     mode::Symbol = :comments)
     target, branch = item_checkout(it)
     target === nothing && return :needs_repo
     # The same `code` and the same socket a pane is handed, for the same
@@ -29,9 +41,21 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing)
     cmd, said = `$code $target`, string("opened ", where)
     if at !== nothing
         file, line = at
-        if isfile(joinpath(target, file))
-            cmd = `$code --goto $target $(string(joinpath(target, file), ":", line))`
-            said = string("opened ", file, ":", line, " in ", where)
+        full = joinpath(target, file)
+        left, right = mode in (:diff, :pushed) && isfile(full) ?
+                      diff_refs(it, target, branch, mode) : ("", "")
+        if !isempty(left) && has_worklog_ext(code, fw.env)
+            q = ["root" => target, "path" => full, "line" => string(line), "left" => left]
+            isempty(right) || push!(q, "right" => right)
+            scheme, flag = code_kind(code)
+            url = string(scheme, "://vtjnash.worklog/diff?",
+                         join((string(k, "=", urlenc(v)) for (k, v) in q), "&"))
+            cmd = `$code $flag $url`
+            said = string("opened the diff of ", file, ":", line, " in ", where)
+        elseif isfile(full)
+            cmd = `$code --goto $target $(string(full, ":", line))`
+            said = string("opened ", file, ":", line, " in ", where,
+                          isempty(left) ? "" : " \u00b7 no worklog extension in VS Code, see vscode/")
         else
             said = string("opened ", where, " \u00b7 no ", file, " in it")
         end
@@ -43,6 +67,74 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing)
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
     said
+end
+
+"""The two sides of the diff `e` opens, as refs `git` in `target` resolves:
+`(left, right)`, `right` empty for the working tree, `left` empty when there
+is nothing to diff against.
+
+Under `d` the left is what GitHub's diff is against, the merge base of the
+pull request's base and its head - measured locally against `HEAD` when the
+checkout is on the branch, against the head GitHub reports otherwise - or the
+base ref itself when that cannot be measured. Under `p` it is the head you
+last read, which `r` wrote and the pane just diffed from. The right side is
+the working tree when the checkout is on the branch, because that is the copy
+being edited; a checkout on some other branch has the wrong file there, so it
+is the head as GitHub has it, and the extension says so if that commit is not
+here. Nothing is fetched: this is a key press, and a base that is only ever
+too old is what `base_ref` is for.
+"""
+function diff_refs(it::Item, target::AbstractString, branch::AbstractString, mode::Symbol)
+    onbranch = !isempty(branch) &&
+               any(w -> w.branch == branch && wtkey(w.path) == wtkey(target), worktrees(target))
+    head = onbranch ? "HEAD" : head_sha(it)
+    right = onbranch ? "" : head
+    left = if mode === :diff
+        ref = base_ref(target, it.repo, it.base)
+        isempty(ref) || isempty(head) ? ref :
+            let mb = merge_base(target, ref, head); isempty(mb) ? ref : mb end
+    else
+        something(read_head(it.url), "")
+    end
+    (left, isempty(left) ? "" : right)
+end
+
+"""Whether the VS Code `code` reaches has the `worklog` extension - asked once
+per `code` per launch, since `--list-extensions` is a round trip through its
+socket, and an install is a thing done once. By the binary the link resolves
+to, since the link is re-pointed at every launch and the answer is the
+binary's."""
+const HAS_WORKLOG_EXT = Dict{String,Bool}()
+function has_worklog_ext(code::AbstractString, env)
+    get!(HAS_WORKLOG_EXT, code_real(code)) do
+        out = try
+            read(pipeline(addenv(`$code --list-extensions`, env...); stderr = devnull), String)
+        catch
+            ""
+        end
+        any(==("vtjnash.worklog"), lowercase.(strip.(split(out, '\n'))))
+    end
+end
+
+"The binary behind the `code` link, or the path as given when it resolves to nothing."
+code_real(code::AbstractString) = try realpath(code) catch; String(code) end
+
+"""What the `code` behind the link is: `(scheme, flag)` - the url scheme its
+VS Code answers to, and the option that hands it a url.
+
+Both are in the path the link resolves to and nowhere cheaper. The product
+names the scheme: `.vscode-server-insiders/` or `Code - Insiders.app` is
+`vscode-insiders://`, `VSCodium` is `vscodium://`. And the *server's* CLI -
+`bin/remote-cli/code`, the one a terminal under Remote-SSH has, which talks
+to the window over `VSCODE_IPC_HOOK_CLI` - spells the option `--openExternal`
+(`server.cli.ts`); the desktop's is `--open-url`, and each drops the other's
+as unknown and would open a file named after the url.
+"""
+function code_kind(code::AbstractString)
+    p = lowercase(code_real(code))
+    scheme = occursin("insiders", p) ? "vscode-insiders" :
+             occursin("codium", p) ? "vscodium" : "vscode"
+    (scheme, occursin("remote-cli", p) ? "--openExternal" : "--open-url")
 end
 
 """The editor to open a note in: `\$VISUAL`, then `\$EDITOR`, then `vi`.

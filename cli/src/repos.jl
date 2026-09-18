@@ -336,15 +336,27 @@ repository, which two of these running at once would tear.
 function ensure_base!(path, repo::AbstractString, base::AbstractString)
     (isempty(base) || match(REF_OK, base) === nothing) && return ""
     r = remote_for(path, repo)
-    ref = "refs/remotes/$r/$base"
     try
-        git(path, "fetch", "--quiet", r, "+refs/heads/$base:$ref")
+        git(path, "fetch", "--quiet", r, "+refs/heads/$base:refs/remotes/$r/$base")
     catch
         # No network, no such branch, no such remote. Whatever is already here
         # is still worth measuring against - it is only ever too old, never
         # wrong about which commits are the base's.
     end
-    for cand in (ref, "refs/heads/$base")
+    base_ref(path, repo, base)
+end
+
+"""The ref holding the base branch as this checkout last heard of it, or `""`.
+
+The remote-tracking ref first, then a local branch of the name. What
+[`ensure_base!`](@ref) answers with once it has fetched, and the answer on its
+own for a caller that must not wait on the network - a key press that opens
+an editor - and can live with a base that is only ever too old.
+"""
+function base_ref(path, repo::AbstractString, base::AbstractString)
+    (isempty(base) || match(REF_OK, base) === nothing) && return ""
+    r = remote_for(path, repo)
+    for cand in ("refs/remotes/$r/$base", "refs/heads/$base")
         try
             git(path, "rev-parse", "--verify", "--quiet", cand)
             return cand

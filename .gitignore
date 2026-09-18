@@ -35,3 +35,7 @@ data/
 # `config.toml` and the theme files are hand-edited here often enough for one to
 # appear, but the pattern is the editor's and not those files'.
 *.un~
+
+# What `vscode/package.sh` builds: the extension zipped for `code
+# --install-extension`, made from what is committed beside it.
+/vscode/*.vsix

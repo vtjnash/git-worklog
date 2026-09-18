@@ -243,6 +243,17 @@ splitlines(s::AbstractString) = split(replace(s, "\r\n" => "\n"), '\n')[1:end-(e
 
 rstripnl(s::AbstractString) = replace(s, r"\n+$" => "")
 
+"""Percent-encode `s` for a url's query: everything but the unreserved set,
+as `%XX` of its UTF-8 bytes. A path with a space or a `&` in it, or a branch
+with a `#`, must survive `URLSearchParams` on the far side."""
+urlenc(s::AbstractString) = sprint() do io
+    for b in codeunits(s)
+        c = Char(b)
+        (isascii(c) && (isletter(c) || isdigit(c) || c in "-._~")) ? write(io, c) :
+            print(io, '%', uppercase(string(b, base = 16, pad = 2)))
+    end
+end
+
 """
     table_key_order(text, table) -> Vector{String}
 
