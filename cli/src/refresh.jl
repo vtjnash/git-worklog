@@ -381,31 +381,44 @@ the deleted comment - it is the CI change nobody ever looked at.
 
 First sight has no old row and is not this: it is `activity_at`, what GitHub
 says, or a rebuilt `fetched.json` would read as every item moving at once.
+
+`movement` is the same walk answering the second question too - *which* key
+moved it, `""` when none did - and `moved_stamp` is its first half.
 """
-function moved_stamp(old, r, at::DateTime)
+moved_stamp(old, r, at::DateTime) = first(movement(old, r, at))
+
+"""
+    movement(old, r, at) -> (stamp, key)
+
+When the item last moved (`moved_stamp`), and the key of the wake table that
+moved it then: the one whose time is the stamp, the bool that rose, the key
+whose time could not account for the change. `""` when nothing moved and the
+mark stayed, so the caller keeps the key it had.
+"""
+function movement(old, r, at::DateTime)
     prev = jget(old, :moved_at)
     high = prev isa AbstractString ? String(prev) : ""
-    ev = String[]
+    ev = Pair{String,String}[]          # the event's time => the key
     for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
         was, now_ = jget(old, Symbol(k)), get(r, k, nothing)
         was == now_ && continue
         by = get(TIMED_KEYS, k, nothing)
         if by === nothing
             # A bool: the rising edge is the event, and the falling one is not.
-            (now_ === true && was !== true) && return stamp(at)
+            (now_ === true && was !== true) && return (stamp(at), k)
             continue
         end
         t = get(r, by, nothing)
-        truthy(t) || return stamp(at)
+        truthy(t) || return (stamp(at), k)
         # The record catching up rather than something happening; see above.
-        (was === nothing && !isempty(high) && String(t) <= high) || push!(ev, String(t))
+        (was === nothing && !isempty(high) && String(t) <= high) || push!(ev, String(t) => k)
     end
     # Nothing moved at this level, or only keys that were arriving, or a bool
     # that cleared: the mark stays where it is. An old row with no mark at all
     # is a shape from before there was one, and gets what first sight gets.
-    isempty(ev) && return isempty(high) ? activity_at(r) : high
-    m = maximum(ev)
-    m <= high ? stamp(at) : m
+    isempty(ev) && return (isempty(high) ? activity_at(r) : high, "")
+    (m, k) = maximum(ev)
+    (m <= high ? stamp(at) : m, k)
 end
 
 """Explicit setting wins; otherwise **your unfinished work is tracked normally
@@ -993,9 +1006,39 @@ function derive!(r, old, st, cfg, at::DateTime)
     # by the poll that noticed it and woke on a bool clearing as well as
     # setting. On first sight it is what GitHub says rather than now, or a
     # rebuilt `fetched.json` would read as every item moving at once.
-    r["moved_at"] = old === nothing ? first_seen_at(r) : moved_stamp(old, r, at)
+    #
+    # **And which key moved it**, `moved_by`, kept beside the stamp: the
+    # pane's one word for what made the row unread - a push, a comment, a
+    # review - which the stamp alone cannot say. `new` on first sight; the
+    # key it had when nothing moved, or nothing, for a row from before there
+    # was one.
+    if old === nothing
+        r["moved_at"], r["moved_by"] = first_seen_at(r), "new"
+    else
+        (r["moved_at"], by) = movement(old, r, at)
+        r["moved_by"] = isempty(by) ? String(nz(jget(old, :moved_by), "")) : by
+        isempty(r["moved_by"]) && (r["moved_by"] = moved_key(r))
+    end
     r["new"] = old === nothing
     r
+end
+
+"""The key of the wake table whose time is the row's `moved_at`, or `""`.
+
+For a row from before the refresh kept `moved_by`: the record catching up,
+once, so that the pane does not say `moved` of every row until each moves
+again. A stamp that is an event's time names the event; a bool's, a
+force-push's or a first sight's names nothing, and `""` is the answer.
+"""
+function moved_key(r)
+    m = String(nz(get(r, "moved_at", nothing), ""))
+    isempty(m) && return ""
+    for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
+        by = get(TIMED_KEYS, k, nothing)
+        by === nothing && continue
+        String(nz(get(r, by, nothing), "")) == m && return k
+    end
+    ""
 end
 
 """The mark a row gets on first sight: the newest thing GitHub says happened

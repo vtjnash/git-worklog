@@ -248,6 +248,16 @@ The rules behind the table, each of which cost a bug:
 - **Not in the table, on purpose:** `mergeable`, `unresolved`, labels,
   milestones, title edits, ready-for-review (arrives with the request that
   follows), a team being asked (the token cannot see it).
+- **The key that moved it is kept beside the stamp**, `moved_by`: the one
+  whose time the stamp is, the bool that rose, `new` on first sight, and
+  the key it had when nothing moved (`movement`, which is `moved_stamp`
+  answering the second question too). It is what the pane's `why` row
+  reads - `unread: comment`, `pushed`, `reviewed`, `review requested`,
+  `assigned`, `merged`, `CI failed`, `new`; `woke` for a snooze that ran
+  out and `updated` for a light row, which are the two reasons beside the
+  table - since the stamp says when and the bold says that, and neither
+  said what. A row from before the key was kept is caught up once off the
+  stamp (`moved_key`), and says `moved` where that names nothing.
 
 ## Time
 

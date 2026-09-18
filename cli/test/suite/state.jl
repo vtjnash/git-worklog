@@ -219,11 +219,12 @@ end
     @test !occursin("tracking", plain) && !occursin("level", plain)
     @test occursin(string("track     ", it.track), plain)
     @test occursin("wl track", plain)
-    # Which search claimed it, and why GitHub said so, are facts and sit with
-    # the facts - above the written-down block, not inside it.
+    # Which search claimed it is a fact and sits with the facts - above the
+    # written-down block, not inside it. Why it is in front of you is under
+    # `local`, with the marks.
     at_(w) = first(something(findfirst(w, plain), 0:0))
     isempty(it.lane) || isempty(it.author) ||
-        @test at_("lane") < at_("author") < at_("local")
+        @test at_("lane") < at_("author") < at_("local") < at_("why")
     isempty(it.labels) || @test occursin(first(it.labels), plain)
     isempty(it.author) || @test occursin(it.author, plain)
     # How old it is and when it last changed at all, to the minute: the age of

@@ -288,6 +288,33 @@ item, which is the same rule as `age`."""
 when_str(s::AbstractString, at::DateTime) = (w = when_str(s); isempty(w) ? "" :
     string(w, "  ", THEME.dim, ago_str(s, at), THEME.reset))
 
+"""One word for what last moved the item - the wake-table key the refresh
+kept beside the stamp (`moved_by`), in the pane's words - or for what brought
+it back when it was not the table: a snooze that ran out (`woke`), or the
+poll's clock on a light row (`updated`), which has no table to say more.
+
+The word is the one movement `moved_at` is the time of. Two keys moving in
+one refresh are the later one; a push read and a comment since is the
+comment. `moved`, for a row the refresh has not kept the key on; nothing for
+an adopted branch, which no clock moves and whose `why` says its standing.
+"""
+function moved_word(it::Item, m::Marks)
+    islocal(it) && return ""
+    moved = something(moved_of(it), "")
+    wake = get(m.wake, it.url, nothing)
+    wake !== nothing && wake <= m.now && wake > moved && return "woke"
+    k = it.moved_by
+    k == "their_head" ? "pushed" :
+    k in ("their_comment_at", "human_comment_at") ? "comment" :
+    k == "review_at" ? "reviewed" :
+    k == "review_requested_at" ? "review requested" :
+    k == "assigned_at" ? "assigned" :
+    k == "state_at" ? (it.state == "OPEN" ? "reopened" : lowercase(it.state)) :
+    k == "ci_failed" ? "CI failed" :
+    k == "new" ? "new" :
+    isempty(it.moved_at) ? "updated" : "moved"
+end
+
 """Lines for the metadata pane: what is true of this item, rather than what is
 in it.
 
@@ -378,12 +405,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     end
 
     # How it got here, first: which search claimed the row - the filter axis
-    # of the same name - and, for a thread, the reason GitHub gave
-    # (`THREAD_WHY`). Facts, so they sit with the facts; they were under
+    # of the same name. A fact, so it sits with the facts; it was under
     # "tracking" beside `track`, where three rows read as three settings and
-    # one was.
+    # one was. The reason GitHub gave for a thread is on the `why` row under
+    # `local`, after the word for what moved.
     kv("lane", it.lane)
-    kv("why", it.why)
     kv("author", it.author)
     st.meta === nothing || isempty(st.meta.assignees) ||
         kv("assignee", join(st.meta.assignees, ", "))
@@ -480,6 +506,15 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # What is written down about it, in `local.toml`: the block is the file's
     # block for this item, and the heading is the file's name.
     head("local")
+    # Why it is in front of you, first: unread, and in one word what moved -
+    # a comment, a push, a review - which `seen_of` says with the stamp and
+    # the list says with the bold and neither says in words; or read. Then,
+    # dim, the reason GitHub gave for a thread ("you were mentioned"), which
+    # is about the item and not about the movement, and an adopted branch's
+    # standing.
+    seen, word = seen_of(it, marks), moved_word(it, marks)
+    kv("why", string(seen === :unread ? (isempty(word) ? "unread" : string("unread: ", word)) : "read",
+                     isempty(it.why) ? "" : string("  ", THEME.dim, it.why, THEME.reset)))
     # By the command's own word, with what the level means, since nothing on
     # screen said, and the command's name, since there is no key for it.
     kv("track", string(it.track, "  ", THEME.dim,

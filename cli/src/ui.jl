@@ -36,6 +36,12 @@ Base.@kwdef struct Item
                            # tracking level - what the seen axis is measured
                            # against. Empty on an item no refresh has seen,
                            # where `updated` is the only answer anybody has
+    moved_by::String = ""  # and the key of the wake table that moved it then -
+                           # `their_head`, `review_at`, `ci_failed`... - or
+                           # `new` on first sight: what the pane's one word for
+                           # why the row is unread is read off (`moved_word`).
+                           # Empty on a light row, and on a row from before
+                           # the refresh kept it
     act::String = ""       # when this last moved: the head commit, else the last
                            # comment, else `updated`. Stored as the timestamp
                            # and not as an age in days, because an age is only
@@ -129,6 +135,7 @@ function item_of(r)
             ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
             act = String(nz(act, "")),
             moved_at = String(nz(jget(r, :moved_at), "")),
+            moved_by = String(nz(jget(r, :moved_by), "")),
             created = String(nz(jget(r, :created), "")),
             updated = String(nz(jget(r, :updated), "")),
             new = nz(jget(r, :new), false),
@@ -727,6 +734,7 @@ item_json(it::Item) = OrderedDict{String,Any}(
     "title" => it.title, "is_pr" => it.is_pr,
     "state" => lowercase(isempty(it.state) ? "open" : it.state),
     "author" => it.author, "updated" => it.updated, "moved_at" => it.moved_at,
+    "moved_by" => it.moved_by,
     "labels" => it.labels, "mine" => it.author == login(),
     "lane" => it.lane, "why" => it.why)
 

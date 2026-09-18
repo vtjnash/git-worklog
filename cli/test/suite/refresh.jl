@@ -450,15 +450,31 @@ end
     @test kept["their_head"] == "abc" && kept["fetched_at"] == "2026-09-10T10:01:00Z"
     @test isempty(W.change_of(J(row), kept))
     @test kept["slept"] == false
+    # The key that moved it is kept beside the stamp. A row from before there
+    # was one has none to keep, and is caught up off the stamp: here the head's
+    # time is the stamp, so it was the push.
+    @test kept["moved_by"] == "their_head"
+    @test W.moved_key(Dict{String,Any}("track" => "normal", "moved_at" => "2026-09-10T10:00:00Z",
+                                       "head_at" => "2026-09-10T09:00:00Z")) == ""
+    @test W.moved_key(Dict{String,Any}("track" => "normal", "moved_at" => "2026-09-10T10:00:00Z",
+                                       "review_at" => "2026-09-10T10:00:00Z")) == "review_at"
+    @test W.moved_key(Dict{String,Any}("track" => "loose", "moved_at" => "2026-09-10T10:00:00Z",
+                                       "their_comment_at" => "2026-09-10T10:00:00Z")) == ""
     # First sight: the mark is what GitHub says, and the row is new.
     fresh = W.kept_row(row); delete!(fresh, "moved_at")
     W.derive!(fresh, nothing, Dict{String,Any}(), cfg, at)
     @test fresh["new"] == true && fresh["moved_at"] == "2026-09-10T10:00:00Z"
+    @test fresh["moved_by"] == "new"
     # And a push by somebody else since is a movement, said as one.
     pushed = W.kept_row(J(row)); pushed["head_sha"] = "def"; pushed["head_at"] = "2026-09-12T09:00:00Z"
     W.derive!(pushed, J(row), Dict{String,Any}(), cfg, at)
     @test pushed["moved_at"] == "2026-09-12T09:00:00Z"
+    @test pushed["moved_by"] == "their_head"
     @test W.change_of(J(row), pushed) == "new push"
+    # A refresh that finds nothing moved keeps the key with the stamp.
+    still = W.kept_row(J(pushed))
+    W.derive!(still, J(pushed), Dict{String,Any}(), cfg, at)
+    @test still["moved_at"] == "2026-09-12T09:00:00Z" && still["moved_by"] == "their_head"
     # A hand-typed snooze with no read stamp is reported for stamping, once
     # for all of them, by the caller.
     W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-20"), cfg, at)
@@ -2008,6 +2024,70 @@ end
           "2026-09-12T09:55:00Z"
     @test W.moved_stamp(loose, row(; track = "loose", ci_failed = true), now_) ==
           "2026-09-12T09:00:00Z"
+
+    # **And which key it was**, kept for the pane's one word: the key whose
+    # time is the stamp, the bool that rose, the key whose time could not
+    # account for the change; none when the mark stayed.
+    @test W.movement(old, row(), now_) == ("2026-09-12T09:00:00Z", "")
+    @test W.movement(old, row(; their_comment_at = "2026-09-12T09:55:00Z",
+                              human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          ("2026-09-12T09:55:00Z", "their_comment_at")
+    @test W.movement(loose, row(; track = "loose", their_comment_at = "2026-09-12T09:55:00Z",
+                                human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          ("2026-09-12T09:55:00Z", "human_comment_at")
+    @test W.movement(old, row(; their_head = "ffff", head_at = "2026-09-12T10:30:00Z"), now_) ==
+          ("2026-09-12T10:30:00Z", "their_head")
+    @test W.movement(old, row(; ci_failed = true), now_) == (W.stamp(now_), "ci_failed")
+    @test W.movement(old, row(; their_head = "ffff", head_at = "2026-09-12T07:00:00Z"), now_) ==
+          (W.stamp(now_), "their_head")
+    # Two in one refresh: the later one is the word, since it is the stamp.
+    @test W.movement(old, row(; review_at = "2026-09-12T10:15:00Z",
+                              their_comment_at = "2026-09-12T09:55:00Z",
+                              human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          ("2026-09-12T10:15:00Z", "review_at")
+    @test W.movement(old, row(; state = "MERGED", state_at = "2026-09-12T10:40:00Z"), now_)[2] ==
+          "state_at"
+    @test W.movement(husk, row(), now_)[2] == ""                # arriving is not an event
+    @test W.movement(husk, row(; review_at = "2026-09-12T10:45:00Z"), now_)[2] == "review_at"
+end
+
+@testset "why says in one word what moved" begin
+    # The stamp says when, the bold says that; neither says what. The pane
+    # reads the key the refresh kept beside the stamp, under `local`, and the
+    # thread's reason follows it dim.
+    st = mkstate()
+    mk(; kw...) = W.with(st.items[1]; url = "https://github.com/o/r/pull/9", ref = "r#9",
+                         moved_at = "2026-09-12T10:00:00Z", updated = "2026-09-12T10:00:00Z",
+                         state = "OPEN", kw...)
+    m = W.Marks(st, W.ts("2026-09-13T00:00:00Z"))
+    for (k, w) in (("their_head", "pushed"), ("their_comment_at", "comment"),
+                   ("human_comment_at", "comment"), ("review_at", "reviewed"),
+                   ("review_requested_at", "review requested"), ("assigned_at", "assigned"),
+                   ("ci_failed", "CI failed"), ("new", "new"), ("", "moved"))
+        @test W.moved_word(mk(; moved_by = k), m) == w
+    end
+    @test W.moved_word(mk(; moved_by = "state_at", state = "MERGED"), m) == "merged"
+    @test W.moved_word(mk(; moved_by = "state_at", state = "CLOSED"), m) == "closed"
+    @test W.moved_word(mk(; moved_by = "state_at", state = "OPEN"), m) == "reopened"
+    # A light row has the poll's clock and no table; a woken snooze is the
+    # wake and not the table; an adopted branch has neither.
+    @test W.moved_word(mk(; moved_by = "", moved_at = ""), m) == "updated"
+    woke = W.Marks(wake = Dict(mk().url => "2026-09-12T12:00:00Z"), now = "2026-09-13T00:00:00Z")
+    @test W.moved_word(mk(; moved_by = "their_head"), woke) == "woke"
+    @test W.moved_word(mk(; url = "local:o/r/wip", moved_by = "their_head"), m) == ""
+    # On the pane: under `local`, unread with the word, read without one, and
+    # the reason GitHub gave after either.
+    it = mk(; moved_by = "review_at", why = "you were mentioned")
+    st.read = Dict{String,String}(); st.sources = Dict{String,String}()
+    plain = W.astrip(join(W.meta_lines(st, it, 60, W.ts("2026-09-13T00:00:00Z")), "\n"))
+    @test occursin("why       unread: reviewed  you were mentioned", plain)
+    @test first(findfirst("local", plain)) < first(findfirst("why  ", plain))
+    st.read = Dict(it.url => "2026-09-12T10:00:00Z")
+    plain = W.astrip(join(W.meta_lines(st, it, 60, W.ts("2026-09-13T00:00:00Z")), "\n"))
+    @test occursin("why       read  you were mentioned", plain)
+    @test !occursin("unread", plain)
+    # And `wl unread` says it to an outside reader.
+    @test W.item_json(it)["moved_by"] == "review_at"
 end
 
 @testset "your own keystrokes are not news" begin

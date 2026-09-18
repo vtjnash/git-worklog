@@ -11,15 +11,6 @@ are is in DESIGN.md.
       (`when_str(s, at)`), and `refreshing …` in its place while `u`'s
       refresh runs. The status row says it once and is gone at the next key;
       the bar is where a standing fact goes.
-- [ ] **`why` under `local`, and one word for what moved.** Today `why` is
-      the thread's reason ("you were mentioned") beside `lane`, and nothing
-      on the pane says *what* made the row unread. Wanted: `why  unread:
-      comment` - one of `comment`, `pushed`, `reviewed`, `review requested`,
-      `assigned`, `closed`/`merged`/`reopened`, `CI failed`, `new`, `woke`
-      - read off the wake-table key that last moved `moved_at`
-      (`moved_stamp` knows it and throws it away; keep it on the row as
-      `moved_by`), and `read` when it is. The thread's reason stays, dim,
-      after it.
 
 ## Blocked on GitHub - the notifications sync
 
