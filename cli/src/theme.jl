@@ -58,6 +58,11 @@ Base.@kwdef mutable struct Theme
     # The diff, the one surface where the colour is the content.
     diff_add::String = ""
     diff_del::String = ""
+    # What changed inside a changed line, drawn over the line's own colour.
+    diff_add_word::String = ""
+    diff_add_word_off::String = ""
+    diff_del_word::String = ""
+    diff_del_word_off::String = ""
     diff_hunk::String = ""
     diff_meta::String = ""
     code_bg::String = ""

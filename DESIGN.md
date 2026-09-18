@@ -708,6 +708,14 @@ Each of the following returns success and the wrong answer:
   the finished frame; a url inside a comment header's OSC 8 payload
   terminated it early and the row came out 224 columns wide. It cuts the
   frame on OSC sequences and substitutes only between them.
+- **Inside a changed line, the words that changed are marked**, as GitHub
+  marks them: a run of `-` lines followed by as many `+` lines is paired
+  line for line, each pair diffed by token (a word, a run of spaces, one
+  other character) with a longest common subsequence, and the tokens not in
+  common drawn in `diff_add_word`/`diff_del_word` over the line's colour.
+  A pair sharing under half its words is a rewrite, and marks nothing. The
+  roles are backgrounds where the palette has them, closed by `49` alone so
+  the cursor row's background is re-armed over them like any other.
 - **A diff is somebody else's bytes, printed.** An escape in one is a
   command to the terminal the frame is drawn on, and `gh pr diff` refuses
   to pipe one at all ("pass --allow-escape-sequences"), which was a row of

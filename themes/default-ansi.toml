@@ -57,6 +57,10 @@ accent  = "cyan"
 # range-diff's inner diff.
 diff_add  = "green"
 diff_del  = "red"
+# The words that changed inside a changed line. Reverse video, since the
+# eight colours have no lighter green to put behind a green word.
+diff_add_word = "reverse"
+diff_del_word = "reverse"
 diff_hunk = "cyan"
 diff_meta = "dim"
 # An inline code span, drawn as a quiet background instead of loud punctuation.

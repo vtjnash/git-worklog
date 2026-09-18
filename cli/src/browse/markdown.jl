@@ -41,15 +41,131 @@ function inert(s::AbstractString)
     (out, n)
 end
 
-function diffline(l)
+"""One line of a diff, coloured by what it is - and, given `words`, the
+byte ranges of it that changed against the line it is paired with, drawn in
+the word role over the line's own colour."""
+function diffline(l, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
     startswith(l, "@@") && return THEME.diff_hunk * l * THEME.reset
     (startswith(l, "+++") || startswith(l, "---") || startswith(l, "index ")) &&
         return THEME.diff_meta * l * THEME.reset
-    startswith(l, "+") && return THEME.diff_add * l * THEME.reset
-    startswith(l, "-") && return THEME.diff_del * l * THEME.reset
+    startswith(l, "+") &&
+        return string(THEME.diff_add,
+                      markwords(l, words, THEME.diff_add_word, THEME.diff_add_word_off),
+                      THEME.reset)
+    startswith(l, "-") &&
+        return string(THEME.diff_del,
+                      markwords(l, words, THEME.diff_del_word, THEME.diff_del_word_off),
+                      THEME.reset)
     String(l)
+end
+
+"`l` with `on`/`off` around each of `ranges` - byte ranges into `l`, in order."
+function markwords(l::AbstractString, ranges::Vector{UnitRange{Int}}, on, off)
+    (isempty(ranges) || isempty(on)) && return String(l)
+    io, i = IOBuffer(), firstindex(l)
+    for r in ranges
+        write(io, SubString(l, i, prevind(l, first(r))), on, SubString(l, r), off)
+        i = nextind(l, last(r))
+    end
+    write(io, SubString(l, i))
+    String(take!(io))
+end
+
+# --- what changed inside a line ---------------------------------------------
+#
+# GitHub marks, inside a changed line, the words that differ from the line it
+# replaced - and a review is mostly that: the one identifier renamed in a
+# line of forty, which `-` and `+` in two colours leave the reader to find by
+# eye. So a run of deletions followed by a run of the same number of additions
+# is taken as line-for-line replacements, as GitHub takes it, and each pair
+# is diffed by word.
+#
+# A pair is compared as tokens - a word, a run of spaces, one other character
+# - by longest common subsequence, which is the diff itself at the grain of
+# tokens, and cheap at the size of a line. A pair with little in common is a
+# line rewritten rather than edited, and marking most of it would be noise
+# over the two colours that already say so: nothing is marked there.
+
+"""
+    word_marks(a, b) -> (ranges_a, ranges_b)
+
+The byte ranges of `a` and of `b` that are not common to both, by token.
+Both empty when the lines share too little to be an edit of each other.
+"""
+function word_marks(a::AbstractString, b::AbstractString)
+    none = (UnitRange{Int}[], UnitRange{Int}[])
+    ta = collect(eachmatch(r"\w+|\s+|[^\w\s]", a))
+    tb = collect(eachmatch(r"\w+|\s+|[^\w\s]", b))
+    n, m = length(ta), length(tb)
+    (n == 0 || m == 0 || n * m > 250_000) && return none
+    # Standard LCS table, then walk it back for which tokens are shared.
+    L = zeros(Int32, n + 1, m + 1)
+    for i in n:-1:1, j in m:-1:1
+        L[i, j] = ta[i].match == tb[j].match ? L[i + 1, j + 1] + 1 :
+                  max(L[i + 1, j], L[i, j + 1])
+    end
+    ina, inb = falses(n), falses(m)
+    i = j = 1
+    while i <= n && j <= m
+        if ta[i].match == tb[j].match
+            ina[i] = inb[j] = true; i += 1; j += 1
+        elseif L[i + 1, j] >= L[i, j + 1]
+            i += 1
+        else
+            j += 1
+        end
+    end
+    # Shared *words*, not shared spaces: a line with three of its ten words
+    # left standing is a rewrite, and blank runs in common say nothing.
+    word = t -> !all(isspace, t.match)
+    shared = count(k -> ina[k] && word(ta[k]), 1:n)
+    wa, wb = count(word, ta), count(word, tb)
+    (shared == 0 || 2 * shared < max(wa, wb)) && return none
+    (changed(ta, ina), changed(tb, inb))
+end
+
+"The byte ranges of the tokens not marked common, adjacent ones joined."
+function changed(ts, common)
+    out = UnitRange{Int}[]
+    for (k, t) in enumerate(ts)
+        common[k] && continue
+        r = t.offset:(t.offset + ncodeunits(t.match) - 1)
+        (!isempty(out) && last(out[end]) + 1 == first(r)) ? (out[end] = first(out[end]):last(r)) :
+            push!(out, r)
+    end
+    out
+end
+
+"""
+    hunk_words(lines) -> Vector{Vector{UnitRange{Int}}}
+
+For each line of a hunk, the ranges [`diffline`](@ref) is to mark: a run of
+`-` lines followed by a run of exactly as many `+` lines is paired line for
+line and each pair handed to [`word_marks`](@ref); every other line gets none.
+The ranges are into the whole line, marker included, so they can go straight
+back onto it.
+"""
+function hunk_words(lines::AbstractVector{<:AbstractString})
+    out = [UnitRange{Int}[] for _ in lines]
+    i, n = 1, length(lines)
+    while i <= n
+        startswith(lines[i], "-") || (i += 1; continue)
+        d = i
+        while d <= n && startswith(lines[d], "-"); d += 1; end
+        a = d
+        while a <= n && startswith(lines[a], "+"); a += 1; end
+        if d - i == a - d
+            for k in 0:(d - i - 1)
+                ra, rb = word_marks(SubString(lines[i + k], 2), SubString(lines[d + k], 2))
+                out[i + k] = [(first(r) + 1):(last(r) + 1) for r in ra]
+                out[d + k] = [(first(r) + 1):(last(r) + 1) for r in rb]
+            end
+        end
+        i = a
+    end
+    out
 end
 
 """
@@ -433,7 +549,8 @@ function nodelines(n::Node, w::Int)
         # itself stands in the gutter, which `rows` fills off the same table.
         raw = String.(split(n.raw, "\n"))
         marks = hunk_marks(n)
-        txt = join((string(diffline(l), markof(get(marks, k, nothing)))
+        words = hunk_words(raw)
+        txt = join((string(diffline(l, words[k]), markof(get(marks, k, nothing)))
                     for (k, l) in enumerate(raw)), "\n")
         srcline = [(true, rstrip(l)) for l in raw]
     else

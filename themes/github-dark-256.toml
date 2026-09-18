@@ -44,6 +44,11 @@ accent  = "69"
 # mid-line. Same green and red as the verdicts, as on GitHub.
 diff_add  = "71"
 diff_del  = "203"
+# The words that changed inside a changed line, which GitHub draws as a
+# stronger tint behind them: a background does stop with the word, so here
+# is the one place the diff has one. diffstat.addition-bg and deletion-bg.
+diff_add_word = "on 22"
+diff_del_word = "on 52"
 diff_hunk = "69"
 diff_meta = "243"
 # The grey behind an inline code span, a step lighter than the cursor row so a

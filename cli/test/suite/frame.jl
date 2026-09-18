@@ -657,3 +657,45 @@ end
     @test W.onmouse!(v, W.MouseEvent(:press, 0, 1, 1, 0), ctrl) === :pop
     @test W.handle!(v, Int('x'), ctrl) === :pop
 end
+
+@testset "the words that changed inside a line are marked" begin
+    # Tokens, by longest common subsequence: the renamed identifier and
+    # nothing else, on both sides, as byte ranges into each line.
+    a, b = W.word_marks("    foo(bar, baz)", "    foo(qux, baz)")
+    @test a == [9:11] && b == [9:11]
+    # Adjacent changed tokens are one range; a change at the end is found.
+    a, b = W.word_marks("x = a + b", "x = a - b + c")
+    @test a == [7:7] && b == [7:7, 10:13]
+    # A rewrite is not an edit: two lines with little in common mark nothing
+    # rather than most of both.
+    @test W.word_marks("return nothing", "for i in 1:n") == ([], [])
+    @test W.word_marks("", "anything") == ([], [])
+
+    # A run of deletions and a run of as many additions pair up line for
+    # line; unequal runs, and context, get nothing.
+    lines = [" ctx", "-a = 1", "-b = 2", "+a = 10", "+b = 2", " more", "-gone", "+x", "+y"]
+    ws = W.hunk_words(lines)
+    @test ws[2] == [6:6] && ws[4] == [6:7]         # `1` → `10`, past the marker
+    @test isempty(ws[3]) && isempty(ws[5])          # `b = 2` did not change
+    @test all(isempty, ws[[1, 6, 7, 8, 9]])
+
+    # Drawn in the word role inside the line's colour, and closed by what
+    # ends a background alone, so the cursor's background over the row is
+    # re-armed by `hlrow` and the line's own colour runs on.
+    keep = W.THEME.diff_add, W.THEME.diff_add_word, W.THEME.diff_add_word_off, W.THEME.reset
+    W.THEME.diff_add = "\e[32m"; W.THEME.diff_add_word = "\e[48;5;22m"
+    W.THEME.diff_add_word_off = "\e[49m"; W.THEME.reset = "\e[0m"
+    try
+        @test W.diffline("+a = 10", [6:7]) == "\e[32m+a = \e[48;5;22m10\e[49m\e[0m"
+        @test W.diffline("+a = 10") == "\e[32m+a = 10\e[0m"
+        @test W.astrip(W.diffline("+a = 10", [6:7])) == "+a = 10"
+    finally
+        W.THEME.diff_add, W.THEME.diff_add_word, W.THEME.diff_add_word_off, W.THEME.reset = keep
+    end
+    # A node of the two lines renders with the marks and copies without them.
+    n = W.Node("a.jl  @@ 1,2 @@", "-a = 1\n+a = 10", :diff, true)
+    merge!(n.meta, Dict{String,Any}("file" => "a.jl", "start" => 1, "count" => 2,
+                                    "ostart" => 1, "ocount" => 2, "up" => 0, "down" => 0))
+    rs = W.rows([n], 60)
+    @test any(r -> r.src == "+a = 10", rs)
+end

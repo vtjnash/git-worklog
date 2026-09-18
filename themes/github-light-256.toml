@@ -54,6 +54,10 @@ accent  = "26"
 # `diff_hunk` is the accent blue; `diff_meta` is fg.subtle, quieter than `dim`.
 diff_add  = "29"
 diff_del  = "160"
+# The words that changed inside a changed line, the stronger tint GitHub
+# puts behind them - a background that stops with the word, so it can be one.
+diff_add_word = "on 157"
+diff_del_word = "on 217"
 diff_hunk = "26"
 diff_meta = "245"
 # neutral.muted, the grey GitHub puts behind an inline code span. A step darker
