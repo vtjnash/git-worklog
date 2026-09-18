@@ -376,7 +376,9 @@ function merge_note(ms)
     ms.status == "BEHIND" && return string("behind ", ms.base)
     ms.status == "BLOCKED" && return "blocked — a required review or check is missing"
     ms.status == "DIRTY" && return string("conflicts with ", ms.base)
-    ms.status == "UNSTABLE" && return "checks are failing, none of them required"
+    # Mergeable with checks failing that are not required: the checks row is
+    # a line up and says which, so the failing is not said twice.
+    ms.status == "UNSTABLE" && return "mergeable"
     ms.mergeable == "CONFLICTING" && return string("conflicts with ", ms.base)
     ms.mergeable == "MERGEABLE" && return "mergeable"
     "computing"                 # GitHub's, lazily, on being asked; ask again
@@ -574,8 +576,8 @@ end
 """Send it, and make the row say so without waiting for a refresh.
 
 `merged_by` is set to you deliberately: it is what `mergedbyme` reads, and the
-metadata pane uses it to skip the "new since you last looked" notice and offer
-`x` at once. A merge you pressed the button for is not news to you.
+metadata pane says "you merged it" beside the offer of `x`. A merge you
+pressed the button for is not news to you.
 """
 function merge_now!(st::BState, it::Item, ms, method::AbstractString,
                     head::AbstractString, body::AbstractString)

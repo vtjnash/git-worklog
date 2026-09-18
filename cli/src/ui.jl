@@ -105,7 +105,9 @@ Base.@kwdef struct Item
     draft::Bool = false
     deadline::String = ""
     blocked_on::Vector{String} = String[]
-    why::String = ""
+    why::String = ""       # the reason a thread gave, in words (`THREAD_WHY`,
+                           # off `reason` at load, so the table's word is the
+                           # word), or an adopted branch's standing
     web::String = ""       # where this is on github.com when `url` is not there:
                            # an adopted branch's `url` is its `local:` key, and
                            # this is its compare page, where the pull request
@@ -115,6 +117,15 @@ Base.@kwdef struct Item
                            # for a light row the poll or a thread made, which
                            # has no bundle at all. What `bundle_stale` reads.
 end
+
+"""The reason in words, off the row's `reason` and the table as it stands -
+not off the sentence the refresh wrote beside it, which is the table's word
+on the day and outlived it: "something of yours moved" stood on every row of
+yours after the table stopped saying so. The written sentence answers for a
+row with no reason at all."""
+why_of(r) = (reason = String(nz(rget(r, "reason"), ""));
+             isempty(reason) ? String(nz(rget(r, "why"), "")) :
+             get(Events.THREAD_WHY, reason, reason))
 
 "The last movement on record, off the row; see `moved_of` in `marks.jl`."
 moved_of(it::Item) = moved_of(it.moved_at, it.updated)
@@ -181,7 +192,7 @@ function item_of(r)
             draft = nz(jget(r, :draft), false),
             deadline = nz(jget(r, :deadline), ""),
             blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
-            why = nz(jget(r, :why), ""),
+            why = why_of(r),
             fetched = String(nz(jget(r, :fetched_at), "")))
 end
 
@@ -487,7 +498,7 @@ poll_item(u) = Item(
     url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
     ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
     title = String(u["title"]), lane = String(nz(get(u, "lane", nothing), "activity")),
-    why = String(nz(get(u, "why", nothing), "")),
+    why = why_of(u),
     author = String(nz(get(u, "author", nothing), "")),
     updated = String(nz(get(u, "updated", nothing), "")),
     act = String(nz(get(u, "updated", nothing), "")),

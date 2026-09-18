@@ -540,17 +540,21 @@ function issue_row(r, login)
 end
 
 """What a notification thread's `reason` says, in the words the metadata pane
-prints under `why`. The reason is the *latest* one GitHub has for the thread -
+prints after `why`. The reason is the *latest* one GitHub has for the thread -
 it evolves, `author` becoming `mention` - and it maps onto the item, not onto
 an event: a thread is one row per subject, one reason, one `updated_at`, no
-actor and no history."""
+actor and no history.
+
+`author` and `comment` say nothing: "something of yours moved" and "a thread
+you commented on moved" said only that it moved, which the `why` row now says
+in words - what, and since when - and whose it is is the author row."""
 const THREAD_WHY = Dict{String,String}(
     "mention" => "you were mentioned",
     "team_mention" => "a team you are on was mentioned",
     "review_requested" => "your review was asked for",
     "assign" => "assigned to you",
-    "author" => "something of yours moved",
-    "comment" => "a thread you commented on moved",
+    "author" => "",
+    "comment" => "",
     "state_change" => "you changed its state",
     "subscribed" => "you watch the repository",
     "manual" => "you subscribed to the thread")

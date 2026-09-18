@@ -573,7 +573,7 @@ end
     @test W.merge_note(ms(status = "BEHIND")) == "behind main"
     @test occursin("required", W.merge_note(ms(status = "BLOCKED")))
     @test occursin("conflicts with main", W.merge_note(ms(status = "DIRTY")))
-    @test occursin("none of them required", W.merge_note(ms(status = "UNSTABLE")))
+    @test W.merge_note(ms(status = "UNSTABLE")) == "mergeable"   # the checks row says the checks
     @test occursin("draft", W.merge_note(ms(draft = true)))
     # `UNKNOWN` is GitHub still working it out, which it does lazily on being
     # asked - so `mergeable` is the second opinion rather than nothing at all.

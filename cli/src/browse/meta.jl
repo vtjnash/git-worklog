@@ -519,20 +519,12 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         a = st.archived[it.url]
         kv("archived", string(when_str(a, at), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
-    elseif isdone(it) && !mergedbyme(it) && seen_of(it, marks) === :unread
-        # Merged, and you have not looked at it since. That is news, not
-        # filing: a merge you did not do is exactly the thing to be told
-        # about. `seen_of` alone: `new` is "arrived this refresh", which the
-        # change line reads, and it stood in here for a row with no stamp -
-        # which is what `seen_of` already says of one, or, under its
-        # source's floor, is the row read by construction that the floor
-        # says it is.
-        kv("state", string(lowercase(it.state), "  ", THEME.dim,
-                           "new since you last looked", THEME.reset))
     elseif isdone(it)
-        # Offered once the notice has been read, and never done silently: a
-        # merged pull request is usually finished with and occasionally the one
-        # thing you still owe a reply on, and this cannot tell the difference.
+        # Offered, never done silently: a merged pull request is usually
+        # finished with and occasionally the one thing you still owe a reply
+        # on, and this cannot tell the difference. That a merge you did not
+        # do is news is the `why` row's under `local` - `unread: merged` -
+        # which used to be said here as "new since you last looked".
         kv("state", string(lowercase(it.state), "  ", THEME.dim,
                            mergedbyme(it) ? "you merged it \u00b7 x archives it" :
                                             "x archives it", THEME.reset))

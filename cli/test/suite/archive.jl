@@ -131,12 +131,14 @@
 
         st = W.BState(vcat(W.loaditems(), collect(values(its))), "worklog")
         l = its["m#landed"]
-        says() = W.astrip(join([x for x in W.meta_lines(st, l, 50) if occursin("state", x)], " "))
+        says() = W.astrip(join([x for x in W.meta_lines(st, l, 50)
+                                if occursin("state", x) || occursin("why", x)], " "))
         # Merged and not yet looked at is news - a merge you did not do is
         # exactly the thing to be told about, so it stays in the unread lane.
-        # Unread is `seen_of`: no read stamp, or one from before it moved.
-        @test occursin("new since you last looked", says())
-        @test !occursin("x archives", says())
+        # Unread is `seen_of`: no read stamp, or one from before it moved;
+        # the `why` row says so, and the filing is offered beside it.
+        @test occursin("why       unread", says())
+        @test occursin("x archives", says())
         # Read, and it becomes something to file. Offered, never done silently.
         W.set_read(l.url, "2026-12-31T00:00:00Z"); st.read = W.field_marks(W.load_marks(), "read")
         @test occursin("x archives it", says())
@@ -157,10 +159,11 @@
         @test !W.mergedbyme(W.Item(url = "u4", ref = "m#4", repo = "o/m", number = 4,
                                    title = "t", merged_by = W.login()))
         st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog")
-        line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50) if occursin("state", r)], " "))
+        line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50)
+                                 if occursin("state", r) || occursin("why", r)], " "))
         @test occursin("you merged it", line(mine)) && occursin("x archives it", line(mine))
-        @test occursin("new since you last looked", line(theirs))
-        @test occursin("new since you last looked", line(old))
+        @test occursin("why       unread", line(theirs)) && !occursin("you merged it", line(theirs))
+        @test occursin("why       unread", line(old)) && !occursin("you merged it", line(old))
     finally
         write(W.localfile(), before)
         W.LOCAL[] = keept
