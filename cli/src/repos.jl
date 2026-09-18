@@ -334,16 +334,23 @@ would be fresher and is a single file shared by every worktree of the
 repository, which two of these running at once would tear.
 """
 function ensure_base!(path, repo::AbstractString, base::AbstractString)
-    (isempty(base) || match(REF_OK, base) === nothing) && return ""
+    # No network, no such branch, no such remote: whatever is already here is
+    # still worth measuring against - it is only ever too old, never wrong
+    # about which commits are the base's.
+    fetch_base!(path, repo, base)
+    base_ref(path, repo, base)
+end
+
+"The round trip of [`ensure_base!`](@ref) alone: whether the base branch was brought up to date."
+function fetch_base!(path, repo::AbstractString, base::AbstractString)
+    (isempty(base) || match(REF_OK, base) === nothing) && return false
     r = remote_for(path, repo)
     try
         git(path, "fetch", "--quiet", r, "+refs/heads/$base:refs/remotes/$r/$base")
+        true
     catch
-        # No network, no such branch, no such remote. Whatever is already here
-        # is still worth measuring against - it is only ever too old, never
-        # wrong about which commits are the base's.
+        false
     end
-    base_ref(path, repo, base)
 end
 
 """The ref holding the base branch as this checkout last heard of it, or `""`.
@@ -369,6 +376,46 @@ end
 "The newest commit two revisions share, or empty when they share none."
 merge_base(path, a, b) =
     try; String(strip(git(path, "merge-base", string(a), string(b)))); catch; ""; end
+
+"""The pull request's diff as the checkout computes it, or `nothing` when the
+checkout cannot: `git diff` from the merge base of the base branch and `head`
+to `head`, which is the diff GitHub serves for it.
+
+The head is fetched when it is not here - `refs/pull/N/head`, as `p` and
+`]` do - and the base is fetched every time, because a copy of it that is
+too old is the one thing that makes this diff *wrong* rather than late: a
+pull request forked from a base newer than the copy here measures from the
+copy's tip, and the base's own commits come out as the pull request's.
+Whether the copy is that old cannot be told from here - a base tip that is
+an ancestor of the head is what a stale copy looks like, and also what a
+branch made from the current tip looks like - so the round trip is taken,
+once per head, since a miss under the exact key is a head this program has
+not seen. When it fails (no network) a base that is an ancestor of the
+head is refused for that reason, and one that is not is a real fork point
+and answers.
+
+`-M` because GitHub detects renames; the prefixes said outright because
+`diff.noprefix` in someone's config would take the `b/` that `hunk_nodes`
+strips; `--no-ext-diff` and `--no-color` because a difftool or `color.ui`
+would put something that is not a diff on the pipe.
+"""
+function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractString,
+                 head::AbstractString)
+    isempty(head) && return nothing
+    ensure_commit!(path, head, prnum; remote = remote_for(path, repo)) || return nothing
+    fetched = fetch_base!(path, repo, base)
+    ref = base_ref(path, repo, base)
+    isempty(ref) && return nothing
+    fetched || !is_ancestor(path, ref, head) || return nothing
+    mb = merge_base(path, ref, head)
+    isempty(mb) && return nothing
+    try
+        git(path, "diff", "-M", "--no-color", "--no-ext-diff",
+            "--src-prefix=a/", "--dst-prefix=b/", mb, head)
+    catch
+        nothing
+    end
+end
 
 "Is `a` reachable from `b`? False rather than an error when either is missing."
 is_ancestor(path, a, b) =

@@ -793,6 +793,18 @@ Each of the following returns success and the wrong answer:
 - **The lanes stay GraphQL**; REST search could answer the three queries but
   not the bundle. GraphQL is slow per row (150-200ms a node), not per request.
 - **`p` uses a checkout**; there is no endpoint.
+- **`d` uses the checkout too, when one is pinned, and gh without.** Both
+  ends are known - the head from the lanes, the base branch on the item - so
+  the diff is `git diff` from their merge base, cached under the head's sha:
+  an exact key, where `gh pr diff` by number was a clock, fresh for two
+  minutes whatever was pushed inside them and a request every two minutes
+  after. gh does no caching of its own. The head is fetched when missing
+  and the base every miss: a base copy older than the fork point puts the
+  base's own commits in the diff, and nothing local can tell that copy from
+  a branch made off the current tip - both have the base as an ancestor of
+  the head - so the round trip is taken once per head, and refused when it
+  fails and the base is an ancestor, since gh's copy is the better answer
+  than a wrong one.
 - **`^u` kills to the start of the line** (readline), not the whole line.
 - **The mouse is owned**, `m` gives it back.
 - **`Term.jl/` beside this checkout is ignored, not a submodule**; Term comes

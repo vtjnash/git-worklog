@@ -21,7 +21,10 @@ const REFRESH_AFTER = Ref(1.0)
 # The keys under which the detail pane's reads are cached, named once so that
 # the loader can ask `cache_age` about an entry without fetching it.
 thread_key(url::AbstractString) = string("thread:", url)
+"The gh answer, by number: what it was at the time, and so on a clock."
 diff_key(it::Item) = string("diff:", it.repo, "#", it.number)
+"The checkout's answer, by head: exact, so a hit is never stale."
+diff_key(it::Item, head::AbstractString) = string("diff:", it.repo, "#", it.number, "@", head)
 
 """
     split_details(md) -> Vector{Tuple{Symbol,String,String}}
@@ -421,6 +424,17 @@ end
 A file-sized node makes n/N step over whole files, which is the wrong grain for
 reading a change: hunks are the units you actually move between. The file name
 stays in each hunk's header so the context is never lost.
+
+**The checkout answers first, gh second.** Both ends of the diff are known -
+the head from the lanes, the base branch on the item - and a pinned checkout
+has the objects, or fetches them once as `p` and `]` already do. So the diff
+is [`pr_diff`](@ref), cached under the head's sha: an exact key, which a
+number and a clock never were - `gh pr diff` by number was fresh for two
+minutes whatever was pushed inside them, and a request every two minutes
+past that whether anything moved or not. gh's answer, under the old key
+and the old clock, is for an item with no checkout pinned, a head the
+checkout cannot get, or a base it cannot bring up to date - and for the
+`stale` flag, which the exact key has no use for.
 """
 function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
@@ -428,13 +442,28 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
     stale = false
     txt = try
-        key = diff_key(it)
-        hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
-        if hit === nothing
-            cache_put(key, fetch_diff(it; run = run))
+        repo = repo_path(it.repo)
+        # `head_sha` asks gh for a head the lanes did not supply, which is
+        # worth it only where a checkout could use the answer.
+        head = repo === nothing ? it.head : head_sha(it)
+        local_ = nothing
+        if repo !== nothing && !isempty(head)
+            hit = fresh ? nothing : cache_get(diff_key(it, head), CACHE_KEEP[])
+            local_ = hit !== nothing ? String(hit[1]) :
+                     pr_diff(repo, it.repo, it.number, it.base, head)
+            hit === nothing && local_ !== nothing && cache_put(diff_key(it, head), local_)
+        end
+        if local_ !== nothing
+            local_
         else
-            stale = hit[2] > CACHE_FRESH[]
-            String(hit[1])
+            key = diff_key(it)
+            hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
+            if hit === nothing
+                cache_put(key, fetch_diff(it; run = run))
+            else
+                stale = hit[2] > CACHE_FRESH[]
+                String(hit[1])
+            end
         end
     catch e
         return [failednode("no diff (not a PR, or gh failed)",
@@ -974,5 +1003,6 @@ up without a request? The pushed view reads a local checkout and has nothing to
 wait for."""
 mode_cached(mode::Symbol, it::Item) =
     mode === :comments ? cache_has(thread_key(it.url)) :
-    mode === :diff     ? (!it.is_pr || cache_has(diff_key(it))) :
+    mode === :diff     ? (!it.is_pr || cache_has(diff_key(it)) ||
+                          (!isempty(it.head) && cache_has(diff_key(it, it.head)))) :
     mode === :checks   ? (!it.is_pr || cache_has(checks_key(it.repo, it.number))) : true
