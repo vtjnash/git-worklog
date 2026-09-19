@@ -391,7 +391,9 @@ distinction and `push_place!` enforces it. Going somewhere means leaving where
 you were; a dialog answers a question and hands the keys back.
 
 **The side without the focus gets no keys.** Which keys belong to which side
-is answerable by looking at which side is lit. A hosted pane's reading side
+is answerable by looking at which side is lit - the border, not the cursor
+row: the list's selected row stays lit on either side, since it says which
+item the reading pane is showing. A hosted pane's reading side
 keeps three (`tab` back, `esc`/`t`/`T` out); through `^]` it runs the other
 way. `tab` moves the keyboard between two things on screen everywhere, which
 is why the merge composer cycles with `^x`.

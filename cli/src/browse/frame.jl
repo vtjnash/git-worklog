@@ -173,7 +173,11 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         marks = Marks(st, at)
         for i in 1:length(st.items)
             it_ = st.items[i]
-            on = i == st.sel && st.focus === :list
+            # Whichever side has the keys: the row says which item the reading
+            # pane is showing, and it went dark on `tab`, so the item being
+            # read had to be found again in the list on the way back. Which
+            # side is lit is the border's to say, and it does.
+            on = i == st.sel
             txt = afit(string(" ", it_.ref, " ", it_.title), liw)
             # Weight says whether it has been read, which is the one thing
             # about a row worth knowing before opening it and the one thing the
