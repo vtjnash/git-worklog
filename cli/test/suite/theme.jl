@@ -144,6 +144,15 @@ end
     roles = sort([k for k in keys(tbl) if !(tbl[k] isa AbstractDict)])
     @test roles == sort([String(r) for r in W.ROLES])
     @test isempty(W.load_theme!(THEME_DEFAULT))
+    # And the other two shipped, the same both ways: a role the 256-colour
+    # themes did not name would be drawn as nothing on the terminals that can
+    # draw the most.
+    for f in ("github-dark-256.toml", "github-light-256.toml")
+        t = W.TOML.parsefile(joinpath(W.ROOT, "themes", f))
+        @test sort([k for k in keys(t) if !(t[k] isa AbstractDict)]) == roles
+        @test isempty(W.load_theme!(joinpath(W.ROOT, "themes", f)))
+    end
+    W.load_theme!(THEME_DEFAULT)
     # It is the ANSI theme: the sixteen colours and the 256 cube, and nothing
     # that assumes a terminal can do truecolour.
     @test !any(occursin("38;2", getfield(W.THEME, f)) for f in fieldnames(W.Theme))

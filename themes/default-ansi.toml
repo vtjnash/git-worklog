@@ -36,6 +36,14 @@
 bold  = "bold"
 dim   = "dim"
 focus = "bold white"
+# The item list while `tab` has put the keys on the reading pane, laid over
+# every row of it; `quiet_bold` is what an unread row is drawn in there
+# instead of `bold`. Empty here on purpose: `dim` and `bold` are the one
+# attribute pair terminals disagree about - VS Code draws bold-dim as plain
+# bold - so on the eight colours the weight is dropped rather than drawn
+# wrong. A 256-colour theme gives it a lighter grey and keeps the weight.
+quiet      = "dim"
+quiet_bold = ""
 
 # --- the three verdicts, and a name ------------------------------------------
 # How something stands, which is the same question wherever it is asked: an

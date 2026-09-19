@@ -35,6 +35,11 @@
 bold  = "bold 235"
 dim   = "241"
 focus = "bold 16"
+# The list with the keys elsewhere: fg.muted again, and an unread row a step
+# darker and bold - explicit, because `bold` carries its own foreground and
+# would come out full black over any grey laid under it.
+quiet      = "241"
+quiet_bold = "bold 238"
 
 # --- the three verdicts, and a name ------------------------------------------
 # success.fg, danger.fg and attention.fg, which on a light ground are darker

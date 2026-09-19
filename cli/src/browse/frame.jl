@@ -171,6 +171,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # One reading of the marks for the whole frame, so a list is not
         # half-woken across its own rows; the same answer `refilter!` sorted by.
         marks = Marks(st, at)
+        quiet = st.focus !== :list
         for i in 1:length(st.items)
             it_ = st.items[i]
             # Whichever side has the keys: the row says which item the reading
@@ -184,8 +185,11 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # list never said: unread is bold, read is plain. Dim is left to the
             # import row, which is the only row that is not an item - two
             # thousand dimmed rows were what made the unread ones invisible
-            # among them.
-            styled = string(seen_of(it_, marks) === :unread ? THEME.bold : "", txt, THEME.reset)
+            # among them. In the quiet list the weight is the theme's
+            # `quiet_bold`, which may be nothing: see `quietrow`.
+            styled = string(seen_of(it_, marks) === :unread ?
+                                (quiet ? THEME.quiet_bold : THEME.bold) : "",
+                            txt, THEME.reset)
             (isempty(st.search) || st.searchin !== :list) ||
                 (styled = hlspan(styled, findhits(astrip(styled), st.search),
                                  THEME.match_bg))
@@ -199,7 +203,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # The whole list quieter while the keys are on the other side, on
             # top of everything else: the lit border says which side has them,
             # and a screen of equal weight had to be read for it.
-            st.focus === :list || (styled = dimrow(styled))
+            quiet && (styled = quietrow(styled))
             push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end

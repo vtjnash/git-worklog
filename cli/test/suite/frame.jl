@@ -636,9 +636,22 @@ end
     st.focus = :detail
     lines = split(W.render(st, 150, 40), "\n")
     @test occursin(W.THEME.cursor_bg, row(st.items[st.sel]))
-    @test occursin(W.THEME.dim, row(read_)) && occursin(W.THEME.dim, row(unread))
-    @test occursin(W.THEME.bold, row(unread)) && !occursin(W.THEME.bold, row(read_))
-    @test occursin(W.THEME.dim, row(st.items[st.sel]))
+    @test occursin(W.THEME.quiet, row(read_)) && occursin(W.THEME.quiet, row(unread))
+    @test occursin(W.THEME.quiet, row(st.items[st.sel]))
+    # The ANSI theme has no `quiet_bold`: bold over dim is the pair terminals
+    # disagree about, so the weight goes rather than being drawn wrong. A
+    # 256-colour theme names one, and the unread row keeps it in place of
+    # `bold`, which there carries a foreground of its own.
+    @test isempty(W.THEME.quiet_bold) && !occursin(W.THEME.bold, row(unread))
+    W.load_theme!(joinpath(W.ROOT, "themes", "github-dark-256.toml"))
+    try
+        lines = split(W.render(st, 150, 40), "\n")
+        @test !isempty(W.THEME.quiet_bold) && W.THEME.quiet_bold != W.THEME.bold
+        @test occursin(W.THEME.quiet_bold, row(unread)) && !occursin(W.THEME.bold, row(unread))
+        @test !occursin(W.THEME.quiet_bold, row(read_)) && occursin(W.THEME.quiet, row(read_))
+    finally
+        W.load_theme!(THEME_DEFAULT)
+    end
     st.focus = :list
     lines = split(W.render(st, 150, 40), "\n")
     # The import row keeps its dim, being the one row that is not an item.

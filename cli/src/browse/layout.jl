@@ -139,13 +139,16 @@ hlrow(s::AbstractString, bg::AbstractString) =
     isempty(bg) ? String(s) :
     string(bg, rearm(s, bg, (THEME.reset, THEME.no_bg)), THEME.reset)
 
-"""Dim a whole row, re-arming after every reset - the list while the keys are
-on the reading side. The weight and the cursor stay under it: unread is still
-bold and the selected row still has its background, only quieter, so the list
-says the same things while saying that it is not where the keys go."""
-dimrow(s::AbstractString) =
-    isempty(THEME.dim) ? String(s) :
-    string(THEME.dim, rearm(s, THEME.dim, (THEME.reset, THEME.dim_off)), THEME.reset)
+"""Lay `quiet` over a whole row, re-arming after every reset - the list while
+the keys are on the reading side. The cursor stays under it, and so does the
+weight where the theme gives `quiet_bold` one: the row is drawn with that in
+place of `bold` first, since `bold` in a 256-colour theme carries the full
+foreground and would come out white over any grey laid under it, and `bold`
+over the `dim` attribute is the pair terminals disagree about. So the list says
+the same things, quieter, and that it is not where the keys go."""
+quietrow(s::AbstractString) =
+    isempty(THEME.quiet) ? String(s) :
+    string(THEME.quiet, rearm(s, THEME.quiet, (THEME.reset, THEME.quiet_off)), THEME.reset)
 
 """Lay a background over given ranges of a row's *plain* characters.
 

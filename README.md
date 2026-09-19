@@ -70,7 +70,7 @@ or `wl refresh`, is the only thing that fetches.
 Three panes: the item list, its metadata, and the detail. The list opens on
 **what moved and is unfiled**, open or closed, newest first - or, once it
 has been closed once, wherever it was closed; unread rows are bold, and the
-whole list is dim while `tab` has put the keys on the reading pane. Reading
+whole list is quieter while `tab` has put the keys on the reading pane. Reading
 an item, or putting it away, takes it out of that list, and it comes back
 when it moves. The terminal's title follows the cursor - `wl
 JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on;

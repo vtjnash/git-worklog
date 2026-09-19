@@ -50,6 +50,10 @@ Base.@kwdef mutable struct Theme
     dim::String = ""
     dim_off::String = ""
     focus::String = ""
+    # The list while the keys are on the reading side, and an unread row in it.
+    quiet::String = ""
+    quiet_off::String = ""
+    quiet_bold::String = ""
     # The three verdicts, and a name or a place.
     settled::String = ""
     blocked::String = ""

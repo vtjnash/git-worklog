@@ -392,9 +392,13 @@ you were; a dialog answers a question and hands the keys back.
 
 **The side without the focus gets no keys.** Which keys belong to which side
 is answerable by looking at which side is lit - the border, and the list as
-a whole, which goes dim while the keys are on the reading side; not the
-cursor row, which stays lit on either side, since it says which item the
-reading pane is showing. A hosted pane's reading side
+a whole, drawn in `quiet` while the keys are on the reading side, its unread
+rows in `quiet_bold` rather than `bold` (a 256-colour theme's `bold` carries
+the full foreground, and `bold` over the `dim` attribute is the pair
+terminals disagree about - VS Code draws it as plain bold - so the ANSI theme
+leaves `quiet_bold` empty and drops the weight); not the cursor row, which
+stays lit on either side, since it says which item the reading pane is
+showing. A hosted pane's reading side
 keeps three (`tab` back, `esc`/`t`/`T` out); through `^]` it runs the other
 way. `tab` moves the keyboard between two things on screen everywhere, which
 is why the merge composer cycles with `^x`.
