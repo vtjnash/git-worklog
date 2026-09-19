@@ -382,21 +382,22 @@ end
     # A merge not yet looked at is news, wherever it is: `seen_of` says so
     # of a row with no stamp and no floor, and `new` - "arrived this
     # refresh" - is not read here at all. Said on the `why` row, in the
-    # word for what moved; the state row offers the filing either way.
+    # word for what moved; the state row says the state and offers nothing.
     st = mkstate()
     done = W.Item(url = "https://example.invalid/x/y/pull/1", ref = "y#1", repo = "x/y",
                   number = 1, title = "t", state = "MERGED", lane = "nowhere",
                   moved_by = "state_at")
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
                               if occursin("state", l) || occursin("why", l)], " "))
-    @test occursin("unread: new", says(done)) && occursin("x archives it", says(done))
+    @test occursin("unread: new", says(done)) && occursin("state     merged", says(done))
+    @test !occursin("archives", says(done))
     @test occursin("unread: new", says(W.with(done; new = true)))
     # Read past its last movement: something to file. Unread is `seen_of` -
     # no stamp, or a stamp from before it moved - and nothing else: a row
     # under its source's floor is read by construction, new or not.
     seen = W.with(done; moved_at = "2026-09-01T00:00:00Z", state_at = "2026-09-01T00:00:00Z")
     st.read = Dict(seen.url => "2026-09-02T00:00:00Z")
-    @test occursin("why       read", says(seen)) && occursin("x archives it", says(seen))
+    @test occursin("why       read", says(seen)) && occursin("state     merged", says(seen))
     st.read = Dict(seen.url => "2026-08-31T00:00:00Z")
     @test occursin("unread: merged", says(seen))
     st.read = Dict{String,String}()

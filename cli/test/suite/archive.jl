@@ -135,16 +135,19 @@
         # Merged and not yet looked at is news - a merge you did not do is
         # exactly the thing to be told about, so it stays in the unread lane.
         # Unread is `seen_of`: no read stamp, or one from before it moved;
-        # the `why` row says so, and the filing is offered beside it.
+        # the `why` row says so, and the state row says the state and no
+        # more - the filing is `x`, named in the footer, not offered on
+        # every closed row.
         @test occursin("why       unread", says())
-        @test occursin("x archives", says())
-        # Read, and it becomes something to file. Offered, never done silently.
+        @test occursin("state     merged", says()) && !occursin("archives", says())
+        # Read, and it is still nothing but the state; filing is never done
+        # silently.
         W.set_read(l.url, "2026-12-31T00:00:00Z"); st.read = W.field_marks(W.load_marks(), "read")
-        @test occursin("x archives it", says())
+        @test occursin("state     merged", says()) && !occursin("archives", says())
         @test W.get_field(l.url, "snooze") === nothing
 
-        # A merge you pushed yourself is not news at all, so the wait is
-        # skipped: unread or not, the offer stands on the first frame.
+        # A merge you pushed yourself is not news at all, and the state row
+        # says whose the merge was.
         mine = W.Item(url = "u1", ref = "m#1", repo = "o/m", number = 1, title = "t",
                       state = "MERGED", merged_by = W.login())
         theirs = W.Item(url = "u2", ref = "m#2", repo = "o/m", number = 2, title = "t",
@@ -160,7 +163,7 @@
         st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog")
         line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50)
                                  if occursin("state", r) || occursin("why", r)], " "))
-        @test occursin("you merged it", line(mine)) && occursin("x archives it", line(mine))
+        @test occursin("you merged it", line(mine)) && !occursin("archives", line(mine))
         @test occursin("why       unread", line(theirs)) && !occursin("you merged it", line(theirs))
         @test occursin("why       unread", line(old)) && !occursin("you merged it", line(old))
     finally

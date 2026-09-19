@@ -73,9 +73,12 @@ has been closed once, wherever it was closed; unread rows are bold. Reading
 an item, or putting it away, takes it out of that list, and it comes back
 when it moves. The terminal's title follows the cursor - `wl
 JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on;
-the title bar's right-hand end says when the corpus was last fetched, and
-`refreshing …` while `u` runs. Every date on the metadata pane and on a
-comment or push header has how long ago that was beside it, dim - `3d ago`,
+the title bar and the detail pane's header say what the number is of, between
+it and the title - `issue`, `pull request`, `draft pull request`, `merged
+pull request`, `closed issue`; the title bar's right-hand end says when the
+corpus was last fetched, and `refreshing …` while `u` runs. Every date on
+the metadata pane and on a comment, push or state header has how long ago
+that was beside it, dim - `3d ago`,
 `in 2w` for a snooze's wake - worked out against the moment the frame is
 drawn. The `why` row under `local` says in a word each what has moved since
 you read the item, newest first - `unread: pushed, comment`, `reviewed`,
@@ -98,7 +101,7 @@ GitHub.**
 | `?` | this table, on screen |
 | `j`/`k` `g`/`G` `space`/`b` | move; `tab` moves the keyboard between panes |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
-| `o` `d` `p` `c` | the thread · the diff · what was pushed since you last looked · the checks |
+| `o` `d` `p` `c` | the thread, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks |
 | `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
 | `n`/`N` | next/previous node, or search match |
 | `/` | search; a bare number in the list jumps to that item past any filter |
@@ -113,7 +116,7 @@ GitHub.**
 | `w` | cycle the order: when it moved · that or when you acted · when you acted · url. Each view opens in the one made for it: the firehose by when it moved, my work by the later of the two clocks, the backlog by url |
 | `i` | import an item by url; lands unread |
 | `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
-| `t` `T` `"` | a shell · an agent on the item's worktree · the worktree list |
+| `t` `T` `"` | a shell · an agent on the item's worktree, asking which checkout when nothing says - each row with the worktree list's `tT` marks and the item those sessions are on · the worktree list |
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
 | `q` | quit; asks first, and about an unsent draft review if there is one |
 

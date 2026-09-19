@@ -314,6 +314,9 @@ The corpus:
       would say, only for a real merge.
 
 Reading:
+- [ ] `wl show` and `wl thread` print the comments alone; the pushes and the
+      state events the browser draws among them (`Events.thread`'s third and
+      fourth answers) are fetched and dropped there.
 - [ ] Hunk context expands against the head, so context around a `-` line is
       the post-change file.
 - [ ] A fenced block is a node with its own header and fold state; a short

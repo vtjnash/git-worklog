@@ -393,17 +393,28 @@ end
 
 The branch is what tells two copies of one repo apart, and a live session is
 what says somebody is already in there - both of which are reasons to pick a
-row, so both are on it. The marks are the worktree list's own, so a reader who
-has seen `"` already knows them.
+row, so both are on it. The sessions are the worktree list's marks, `tTv`, with
+the item they were opened on beside them - `#62452` for one of this repository,
+the whole ref for one of another - so a reader who has seen `"` already knows
+them, and can see that the shell in this copy is on something else. Picking the
+row re-points that session at this item, which is what `enter_session` does
+with every session it resumes; the other item then has nothing running on it.
+
+Second, and fixed width: the box is 72 columns inside, and a phrase hung off
+the end of the row - "· agent + shell running" - was cut at "age" or "she" on
+every row that had one, which is the one column the row was there to show.
 """
-function checkout_option(w, rows)
-    live = sort!(unique(String[string(r.kind) for r in rows
-                              if !isempty(r.worktree) &&
-                                 wtkey(r.worktree) == wtkey(w.path)]))
-    string(apad(afit(basename(rstrip(String(w.path), '/')), 30), 30), "  ",
+function checkout_option(w, rows, repo::AbstractString)
+    here = [r for r in rows if !isempty(r.worktree) && wtkey(r.worktree) == wtkey(w.path)]
+    live = [(kind = Symbol(isempty(r.kind) ? "shell" : r.kind),
+             attached = r.attached, bell = r.bell) for r in here]
+    stem = string(last(split(String(repo), '/')), '#')
+    on = unique(String[startswith(r.item, stem) ? chop(r.item; head = length(stem) - 1, tail = 0) :
+                       r.item for r in here if !isempty(r.item)])
+    string(apad(afit(basename(rstrip(String(w.path), '/')), 24), 24), "  ",
+           session_marks(live), " ", apad(afit(join(on, " "), 8), 8), "  ",
            apad(amid(isempty(w.branch) ? "(detached)" : w.branch, 26), 26), "  ",
-           w.main ? "main" : "    ",
-           isempty(live) ? "" : string("  · ", join(live, " + "), " running"))
+           w.main ? "main" : "    ")
 end
 
 """Ask which checkout to work in, then work in it.
@@ -419,7 +430,7 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say)
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
     rows = mux_list()
-    opts = Tuple{String,Any}[(checkout_option(w, rows), w.path) for w in ws]
+    opts = Tuple{String,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
     push!(opts, ("+ a new worktree …", ""))
     push_view!(ctrl, ChooseView(
         string(kind === :agent ? "Agent for " : "Shell for ", it.ref),

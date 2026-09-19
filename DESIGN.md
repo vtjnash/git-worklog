@@ -452,9 +452,12 @@ Three things answer it, all read off the mark `r` leaves:
 - **The thread opens on a rule.** `r` marks read up to the newest event it
   showed, so everything before the stamp was on screen. Nothing records
   *which* comment you got to: a second answer can disagree with the first.
-- **The thread is one activity list**: commits drawn among the comments in
-  order, a run nobody spoke between folded into one `↑ pushed N commits`.
-  `commits(last: 30)` beside the REST reads, in the thread's own cache entry.
+- **The thread is one activity list**: commits and the changes of state -
+  closed, merged, reopened, draft, ready - drawn among the comments in
+  order, a run of commits nobody spoke between folded into one `↑ pushed N
+  commits`, a close that names what closed it (`by julia#63266`). One
+  GraphQL request - `commits(last: 30)` and `timelineItems` - beside the
+  REST reads, in the thread's own cache entry.
 - **`p` diffs `read_head` against the head now.** Only added to (old head
   still in history, base unmoved): plain `git diff`. Otherwise `git
   range-diff`, **measured from the base branch on each side** - `old...new`

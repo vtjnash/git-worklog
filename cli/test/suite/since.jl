@@ -187,6 +187,109 @@ end
     end
 end
 
+@testset "what happened to the state is in the thread" begin
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    try
+        u = "https://github.com/o/r/pull/9"
+        it = W.Item(url = u, ref = "r#9", repo = "o/r", number = 9,
+                    title = "a pull request", head = "9999999999", state = "MERGED")
+        cmt(id, who, when, body) = Dict{String,Any}(
+            "id" => id, "user" => Dict{String,Any}("login" => who),
+            "created_at" => when, "body" => body,
+            "html_url" => string(u, "#issuecomment-", id))
+        ev(kind, who, when; more...) = merge(Dict{String,Any}(
+            "kind" => kind, "at" => when, "by" => who),
+            Dict{String,Any}(string(k) => v for (k, v) in more))
+        # Closed with a comment the same second, reopened, then merged after
+        # the last word: the thread used to end at "third" and read as open.
+        W.cache_put("thread:" * u, (
+            body = Dict{String,Any}("user" => Dict{String,Any}("login" => "ann"),
+                                    "body" => "why this is here", "html_url" => u),
+            comments = [cmt(1, "ann", "2026-09-01T10:00:00Z", "first"),
+                        cmt(2, "bob", "2026-09-03T10:00:00Z", "closing, see r#11"),
+                        cmt(3, "cat", "2026-09-05T10:00:00Z", "third")],
+            commits = [Dict{String,Any}("oid" => "aaaaaaa1", "at" => "2026-09-02T09:00:00Z",
+                                        "headline" => "first commit", "by" => "ann")],
+            events = [ev("closed", "bob", "2026-09-03T10:00:00Z";
+                         closer = "r#11", closer_url = "https://github.com/o/r/pull/11",
+                         reason = "not planned"),
+                      ev("reopened", "ann", "2026-09-04T08:00:00Z"),
+                      ev("merged", "dan", "2026-09-06T12:00:00Z";
+                         into = "master", oid = "fd4b58c")]))
+        ns = W.comment_nodes(it, W.utcnow())
+        heads = [W.astrip(n.header) for n in ns if n.depth == 0]
+        # In order among the comments and the push; the close after the
+        # comment it was made with, the merge last of all.
+        @test findfirst(h -> occursin("bob  2026-09-03", h), heads) <
+              findfirst(h -> occursin("closed", h), heads) <
+              findfirst(h -> occursin("reopened", h), heads) <
+              findfirst(h -> occursin("cat  2026-09-05", h), heads) <
+              findfirst(h -> occursin("merged", h), heads)
+        closed = ns[findfirst(n -> occursin("closed", W.astrip(n.header)), ns)]
+        merged = ns[findfirst(n -> occursin("merged", W.astrip(n.header)), ns)]
+        # What closed it and why, where it went; who and when, as a comment
+        # says them; and each in the state's own colour.
+        @test occursin("by r#11", W.astrip(closed.header)) &&
+              occursin("as not planned", W.astrip(closed.header))
+        @test occursin("bob  2026-09-03T10:00", W.astrip(closed.header))
+        @test occursin(W.THEME.blocked, closed.header)
+        @test closed.meta["url"] == "https://github.com/o/r/pull/11"
+        @test occursin("into master", W.astrip(merged.header)) &&
+              occursin("fd4b58c", W.astrip(merged.header))
+        @test occursin(W.THEME.settled, merged.header)
+        @test merged.meta["url"] == u && merged.meta["at"] == "2026-09-06T12:00:00Z"
+        # A header and nothing under it: open, it still says the whole thing,
+        # since there is no body for the rest to be read off.
+        @test isempty(merged.raw) && merged.open
+        drawn = [W.astrip(r.text) for r in W.rows(ns, 100; at = W.ts("2026-09-07T12:00:00Z"))]
+        @test any(l -> occursin("merged", l) && occursin("into master", l) &&
+                       occursin("1d ago", l), drawn)
+        # The merge is the newest thing shown, so it is what `r` reads up to.
+        @test ns[1].meta["seen_up_to"] == "2026-09-06T12:00:00Z"
+        # Read before the merge, and the rule lands above it alone.
+        W.set_read_mark(u, "2026-09-05T12:00:00Z", "9999999999")
+        ns = W.comment_nodes(it, W.utcnow())
+        i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
+        @test i !== nothing && occursin("1 entry", W.astrip(ns[i].header))
+        @test occursin("merged", W.astrip(ns[i + 1].header))
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
+@testset "the timeline's state events, read off GitHub's answer" begin
+    # Two real answers, 2026-09-18. A merged pull request is two events the
+    # same second - `MergedEvent` and `ClosedEvent` - and reads as one here;
+    # the close that a pull request did names it the way an item is named.
+    pr = W.JSON3.read("""{"resource":{"commits":{"nodes":[{"commit":{"oid":"7b724d9cc6fd98817dd3638258233a1075e5d562","committedDate":"2026-09-03T14:31:16Z","messageHeadline":"rewrite prose","author":{"user":{"login":"vtjnash"},"name":"Jameson Nash"}}}]},"timelineItems":{"nodes":[{"__typename":"ReadyForReviewEvent","createdAt":"2026-07-24T19:39:27Z","actor":{"login":"vtjnash"}},{"__typename":"MergedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"mergeRefName":"master","commit":{"abbreviatedOid":"fd4b58c"}},{"__typename":"ClosedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":null}]}}}""")
+    cms, evs = W.Events.activity_of(pr, "https://github.com/JuliaLang/julia/pull/62396")
+    @test length(cms) == 1 && cms[1]["by"] == "vtjnash" && cms[1]["oid"] == "7b724d9cc6fd98817dd3638258233a1075e5d562"
+    @test [e["kind"] for e in evs] == ["ready", "merged"]
+    @test evs[2]["by"] == "IanButterworth" && evs[2]["into"] == "master" && evs[2]["oid"] == "fd4b58c"
+    @test !haskey(evs[1], "into")
+
+    issue = W.JSON3.read("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":63266,"url":"https://github.com/JuliaLang/julia/pull/63266","repository":{"nameWithOwner":"JuliaLang/julia"}}}]}}}""")
+    cms, evs = W.Events.activity_of(issue, "https://github.com/JuliaLang/julia/issues/63263")
+    @test isempty(cms)
+    @test length(evs) == 1 && evs[1]["kind"] == "closed"
+    @test evs[1]["closer"] == "julia#63266"
+    @test evs[1]["closer_url"] == "https://github.com/JuliaLang/julia/pull/63266"
+    @test !haskey(evs[1], "reason")             # completed is the usual case, unsaid
+    # From another repository the owner is kept, and a commit is its sha; a
+    # reason other than completed is said in words.
+    other = W.JSON3.read("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"x"},"stateReason":"NOT_PLANNED","closer":{"__typename":"PullRequest","number":5,"url":"https://github.com/o/r/pull/5","repository":{"nameWithOwner":"o/r"}}},{"__typename":"ReopenedEvent","createdAt":"2026-09-19T00:00:00Z","actor":null},{"__typename":"ClosedEvent","createdAt":"2026-09-20T00:00:00Z","actor":{"login":"y"},"stateReason":"DUPLICATE","closer":{"__typename":"Commit","abbreviatedOid":"abc1234","url":"https://github.com/JuliaLang/julia/commit/abc1234"}}]}}}""")
+    _, evs = W.Events.activity_of(other, "https://github.com/JuliaLang/julia/issues/1")
+    @test [e["kind"] for e in evs] == ["closed", "reopened", "closed"]
+    @test evs[1]["closer"] == "o/r#5" && evs[1]["reason"] == "not planned"
+    @test evs[2]["by"] == ""
+    @test evs[3]["closer"] == "abc1234" && evs[3]["reason"] == "duplicate"
+    # Nothing at all - `resource` null, as for a url GitHub cannot find - is
+    # two empty lists, not an error.
+    @test W.Events.activity_of(W.JSON3.read("""{"resource":null}"""),
+                                 "https://github.com/o/r/issues/1") == ([], [])
+end
+
 @testset "consecutive pushes are one entry" begin
     p(at) = (kind = :push, at = at,
              c = Dict{String,Any}("oid" => "x", "at" => at, "headline" => "h", "by" => "a"))

@@ -576,8 +576,8 @@ end
 """Send it, and make the row say so without waiting for a refresh.
 
 `merged_by` is set to you deliberately: it is what `mergedbyme` reads, and the
-metadata pane says "you merged it" beside the offer of `x`. A merge you
-pressed the button for is not news to you.
+metadata pane says "you merged it" on the state row. A merge you pressed the
+button for is not news to you.
 """
 function merge_now!(st::BState, it::Item, ms, method::AbstractString,
                     head::AbstractString, body::AbstractString)
@@ -792,20 +792,20 @@ end
 
 `state` is empty on a `facts.json` written before the lanes were asked for it,
 which reads as "not known to be closed" rather than as closed - the wrong way
-round would offer to archive the whole dashboard after an upgrade.
+round would have called the whole dashboard finished after an upgrade.
 """
 isdone(it::Item) = it.state == "CLOSED" || it.state == "MERGED"
 
 """Merged by you: the one ending that is not news.
 
-The wait before archive is offered exists so that a merge is read before it is
-filed - somebody else finished your work, or finished with it, and that is worth
-being told. When you pushed the button yourself there is nothing to be told, so
-the notice is skipped and the offer stands on the first frame.
+A merge somebody else did is news - they finished your work, or finished with
+it - and the `why` row says so, `unread: merged`. When you pushed the button
+yourself there is nothing to be told, and the pane's `state` row says whose
+the merge was instead.
 
 Empty for a `facts.json` written before the field was asked for, and for every
 open item, which reads as "not known to have been merged by you" - the wrong way
-round would have offered to file half the dashboard unread after an upgrade.
+round would have called half the dashboard yours after an upgrade.
 
 An adopted local branch has no record of this at all: `merged_here` says the
 work landed and says nothing about who pushed it, which would want the merge

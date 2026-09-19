@@ -1188,23 +1188,24 @@ end
 
 """Fetch a thread live - the part email used to hand you.
 
-Returns `(body, comments, commits)`. The commits are what the thread is read
-*with*: "they replied, then pushed, then replied" is one sequence, and having
-them arrive on a second cadence from a second cache is how it came to be read as
-two. Callers that only want the conversation destructure the first two and are
-none the wiser.
+Returns `(body, comments, commits, events)`. The commits and the state events
+are what the thread is read *with*: "they replied, then pushed, then replied,
+then it was merged" is one sequence, and having the pushes arrive on a second
+cadence from a second cache is how it came to be read as two. Callers that
+only want the conversation destructure the first two and are none the wiser.
 
-The commit query is started before the REST reads and waited on after them, so
+The GraphQL half is started before the REST reads and waited on after them, so
 what a person waits for is the slower of the two rather than the sum. It is
-also the only part allowed to come back empty on failure: an issue has no
-branch, and a pull request whose commits could not be read is a line missing
-from a list rather than a reason to show no thread at all.
+also the only part allowed to come back empty on failure: a pull request whose
+commits could not be read is a line missing from a list rather than a reason
+to show no thread at all.
 """
 function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
-    commits = @async try; pr_commits(url); catch; OrderedDict{String,Any}[]; end
+    none = (OrderedDict{String,Any}[], OrderedDict{String,Any}[])
+    act = @async try; activity(url); catch; none; end
     body = api_get("/repos/$owner_repo/issues/$num")[1]
     cs = api_paged("/repos/$owner_repo/issues/$num/comments")
     try
@@ -1213,23 +1214,33 @@ function thread(url::AbstractString; limit::Int = 10)
         e isa ApiError || rethrow()   # not a PR, or no review comments
     end
     sort!(cs; by = c -> c["created_at"])
-    (body, cs[max(1, end - limit + 1):end],
-     try; fetch(commits); catch; OrderedDict{String,Any}[]; end)
+    commits, events = try; fetch(act); catch; none; end
+    (body, cs[max(1, end - limit + 1):end], commits, events)
 end
 
-"""The last commits on a pull request's branch: `oid`, `at`, `headline`, `by`.
+"""The last commits on a pull request's branch - `oid`, `at`, `headline`, `by`
+- and what happened to its state - `kind`, `at`, `by`, and what else the event
+says - in one request.
 
-Empty for an issue, which has no branch - `resource` answers `null` against a
-selection that only spreads `... on PullRequest`.
-
-GraphQL rather than `/pulls/N/commits`, for one reason that decides it: REST
-returns commits oldest-first and pages forward, so the *newest* thirty of a
-four-hundred-commit branch are four requests away, while `commits(last: 30)` is
-one request and one rate-limit point for exactly the end anybody is reading.
+The commits are empty for an issue, which has no branch. GraphQL rather than
+`/pulls/N/commits`, for one reason that decides it: REST returns commits
+oldest-first and pages forward, so the *newest* thirty of a four-hundred-commit
+branch are four requests away, while `commits(last: 30)` is one request and
+one rate-limit point for exactly the end anybody is reading.
 
 `committedDate` and not `authoredDate`: a rebase rewrites the first and keeps
 the second, and the question this answers is when the branch moved rather than
 when the work was originally done.
+
+The events are the ones that change what the item *is* - closed, merged,
+reopened, converted to draft, ready for review - which the comments never say
+and the thread used to end without: a pull request read to its last comment
+looked open when it had been merged an hour later. `closed` carries what
+closed it when GitHub knows - the pull request, `julia#63266`, or the commit -
+and why, when the closer said (`not planned`, `duplicate`); `merged` the branch
+it went into and the merge commit. A merge is two events on the timeline,
+`MergedEvent` and a `ClosedEvent` the same second, and the second is dropped
+here: one thing happened.
 
 Uncached on purpose. It is stored inside the thread's own cache entry, so it
 ages with the thread it is drawn into and a hit on one can never be a miss on
@@ -1237,18 +1248,43 @@ the other - which is what the two-threshold window on that entry is for: a
 cached thread goes up at once, and a fetch that had to wait on this would have
 been exactly the pause it exists to avoid.
 """
-function pr_commits(url::AbstractString; n::Int = 30)
+function activity(url::AbstractString; n::Int = 30)
+    closed = "... on ClosedEvent { createdAt actor { login } stateReason closer { __typename" *
+             " ... on PullRequest { number repository { nameWithOwner } url }" *
+             " ... on Commit { abbreviatedOid url } } }\n"
     d = gh_graphql(
-        "query(\$u: URI!, \$n: Int!) { resource(url: \$u) { ... on PullRequest {\n" *
-        "      commits(last: \$n) { nodes { commit {\n" *
-        "        oid committedDate messageHeadline\n" *
-        "        author { user { login } name }\n" *
-        "      } } }\n  } } }";
+        "query(\$u: URI!, \$n: Int!) { resource(url: \$u) {\n" *
+        "  ... on PullRequest {\n" *
+        "    commits(last: \$n) { nodes { commit {\n" *
+        "      oid committedDate messageHeadline\n" *
+        "      author { user { login } name }\n" *
+        "    } } }\n" *
+        "    timelineItems(last: 30, itemTypes: [CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT," *
+        " CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT]) { nodes { __typename\n" *
+        "      " * closed *
+        "      ... on MergedEvent { createdAt actor { login } mergeRefName commit { abbreviatedOid } }\n" *
+        "      ... on ReopenedEvent { createdAt actor { login } }\n" *
+        "      ... on ConvertToDraftEvent { createdAt actor { login } }\n" *
+        "      ... on ReadyForReviewEvent { createdAt actor { login } }\n" *
+        "    } }\n" *
+        "  }\n" *
+        "  ... on Issue {\n" *
+        "    timelineItems(last: 30, itemTypes: [CLOSED_EVENT, REOPENED_EVENT]) { nodes { __typename\n" *
+        "      " * closed *
+        "      ... on ReopenedEvent { createdAt actor { login } }\n" *
+        "    } }\n" *
+        "  }\n" *
+        "} }";
         vars = Dict{String,Any}("u" => String(url), "n" => n))
+    activity_of(d, url)
+end
+
+"The answer to [`activity`](@ref)'s query, read into its two lists."
+function activity_of(d, url::AbstractString)
     r = get(d, :resource, nothing)
     cc = r === nothing ? nothing : get(r, :commits, nothing)
     ns = cc === nothing ? () : something(get(cc, :nodes, nothing), ())
-    out = OrderedDict{String,Any}[]
+    commits = OrderedDict{String,Any}[]
     for x in ns
         c = get(x, :commit, nothing)
         c === nothing && continue
@@ -1258,12 +1294,50 @@ function pr_commits(url::AbstractString; n::Int = 30)
         a = something(get(c, :author, nothing), Dict{Symbol,Any}())
         u = something(get(a, :user, nothing), Dict{Symbol,Any}())
         who = something(get(u, :login, nothing), get(a, :name, nothing), "")
-        push!(out, OrderedDict{String,Any}(
+        push!(commits, OrderedDict{String,Any}(
             "oid" => String(c.oid), "at" => String(c.committedDate),
             "headline" => String(something(get(c, :messageHeadline, nothing), "")),
             "by" => String(who)))
     end
-    out
+    tl = r === nothing ? nothing : get(r, :timelineItems, nothing)
+    events = OrderedDict{String,Any}[]
+    repo = join(split(url, '/')[4:5], '/')
+    for e in (tl === nothing ? () : something(get(tl, :nodes, nothing), ()))
+        e === nothing && continue
+        kind = get(Dict("ClosedEvent" => "closed", "MergedEvent" => "merged",
+                        "ReopenedEvent" => "reopened", "ConvertToDraftEvent" => "draft",
+                        "ReadyForReviewEvent" => "ready"),
+                   String(something(get(e, :__typename, nothing), "")), "")
+        isempty(kind) && continue
+        ev = OrderedDict{String,Any}(
+            "kind" => kind, "at" => String(something(get(e, :createdAt, nothing), "")),
+            "by" => String(something(get(something(get(e, :actor, nothing), Dict{Symbol,Any}()), :login, nothing), "")))
+        if kind == "closed"
+            why = String(something(get(e, :stateReason, nothing), ""))
+            why in ("", "COMPLETED") || (ev["reason"] = lowercase(replace(why, "_" => " ")))
+            c = get(e, :closer, nothing)
+            if c !== nothing
+                t = String(something(get(c, :__typename, nothing), ""))
+                # The item's own spelling for a pull request: the repository's
+                # name and the number, the owner too when it is another one.
+                ev["closer"] = t == "PullRequest" ?
+                    string((rn = String(c.repository.nameWithOwner)) == repo ?
+                               last(split(rn, '/')) : rn, "#", c.number) :
+                    String(something(get(c, :abbreviatedOid, nothing), ""))
+                ev["closer_url"] = String(something(get(c, :url, nothing), ""))
+            end
+        elseif kind == "merged"
+            ev["into"] = String(something(get(e, :mergeRefName, nothing), ""))
+            ev["oid"] = String(something(get(something(get(e, :commit, nothing), Dict{Symbol,Any}()),
+                                             :abbreviatedOid, nothing), ""))
+        end
+        push!(events, ev)
+    end
+    # The close that is the merge's other half, not a second thing.
+    merged_at = Set(e["at"] for e in events if e["kind"] == "merged")
+    filter!(e -> !(e["kind"] == "closed" && e["at"] in merged_at), events)
+    sort!(events; by = e -> e["at"])
+    (commits, events)
 end
 
 # --- writing ---------------------------------------------------------------

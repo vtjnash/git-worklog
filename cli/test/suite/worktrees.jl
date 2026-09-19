@@ -147,6 +147,38 @@ end
             @test said[] === nothing         # nothing was asked, so nothing reported
             pop!(ctrl.stack)
 
+            # The chooser says what is already running in each copy, and on
+            # what: the worktree list's own marks in a column of their own,
+            # with the item beside them - not a phrase off the end of the row,
+            # which the box cut at "she".
+            issue2 = W.Item(url = "https://example.invalid/i/10", ref = "wt#10",
+                            repo = pr.repo, number = 10, title = "another", is_pr = false)
+            said[] = nothing
+            @test W.enter_session(issue2, ctrl, :shell, (_, _) -> "sleep 120", say) == ""
+            ch = last(ctrl.stack)
+            @test ch isa W.ChooseView
+            row = W.astrip(ch.options[2][1])
+            # `wt#9` whole: the ref is not this repository's spelling, and a
+            # ref from another repository keeps its name. One of this
+            # repository's is the number alone, `#9`.
+            @test occursin("side", row) && occursin(" t ", row) && occursin(" wt#9 ", row)
+            @test occursin(" #9 ", W.astrip(W.checkout_option(
+                (path = side, branch = pr.branch, main = false), W.mux_list(), "o/wt")))
+            @test !occursin("running", row) && W.awidth(row) <= 72
+            @test !occursin("#9", W.astrip(ch.options[1][1]))
+            # Picking it re-points the shell: the session is on this item now
+            # and not on the last one, so rule 2 answers for this one alone and
+            # the other is back to asking.
+            ch.sel = 2
+            W.handle!(ch, 13, ctrl)
+            @test last(ctrl.stack) isa W.PaneView
+            pop!(ctrl.stack)
+            @test any(r -> r.item == issue2.ref, W.mux_list())
+            @test !any(r -> r.item == issue.ref, W.mux_list())
+            @test W.wtkey(W.item_worktree(issue2)[1]) == W.wtkey(side)
+            t, b, ask = W.item_worktree(issue)
+            @test W.wtkey(t) == W.wtkey(main) && ask
+
             # A typed path that is already a worktree is a way of picking it,
             # not an error - which is what makes the list's overflow reachable.
             said[] = nothing
@@ -156,7 +188,7 @@ end
             pop!(ctrl.stack)
 
             for r in W.mux_list()
-                r.item == issue.ref && W.mux_kill(r.name)
+                r.item in (issue.ref, issue2.ref) && W.mux_kill(r.name)
             end
         end
     finally

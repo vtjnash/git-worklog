@@ -228,6 +228,51 @@ function push_node(run, url::AbstractString)
     nd
 end
 
+"""One change of state, as a node: closed, merged, reopened, converted to
+draft, ready for review.
+
+A header and no body, like the rule below: what happened, who did it and when,
+and what else the event says - what closed it (`by julia#63266`, a commit) and
+why (`not planned`), where a merge went (`into master  fd4b58c`). It is in the
+activity list because it is activity: "they replied, then it was merged" is
+one sequence, and a thread that ended at the last comment read as open a day
+after the merge. Merged is settled and closed is blocked, the colours the state
+has on the pane's header; reopened is waiting, since it is open work again.
+
+Followed to the closer when there is one - the pull request that fixed it is
+where the answer is - and to the item itself otherwise.
+"""
+function state_node(e, url::AbstractString)
+    kind = String(e["kind"])
+    (col, word) = kind == "merged" ? (THEME.settled, "\u2713 merged") :
+                  kind == "closed" ? (THEME.blocked, "\u2717 closed") :
+                  kind == "reopened" ? (THEME.waiting, "\u21bb reopened") :
+                  kind == "draft" ? (THEME.dim, "converted to draft") :
+                                    (THEME.settled, "ready for review")
+    by = String(nz(get(e, "by", nothing), ""))
+    when = first(String(e["at"]), 16)
+    closer = String(nz(get(e, "closer", nothing), ""))
+    reason = String(nz(get(e, "reason", nothing), ""))
+    into = String(nz(get(e, "into", nothing), ""))
+    oid = String(nz(get(e, "oid", nothing), ""))
+    said = kind == "closed" ? join(filter(!isempty, [isempty(closer) ? "" : string("by ", closer),
+                                                     isempty(reason) ? "" : string("as ", reason)]),
+                                   ", ") :
+           kind == "merged" ? join(filter(!isempty, [isempty(into) ? "" : string("into ", into), oid]),
+                                   "  ") : ""
+    # No `byline`: an open header is drawn as its byline in place of the peek,
+    # and there is no body under this one for the rest to be read off - so the
+    # whole of it stays on the header.
+    nd = Node(string(col, word, THEME.reset, "  ", THEME.dim,
+                     isempty(by) ? "" : string(by, "  "), when, THEME.reset,
+                     isempty(said) ? "" : string("   ", said)), "", :plain, true)
+    nd.meta["src"] = string(word, "  ", isempty(by) ? "" : string(by, "  "), when,
+                            isempty(said) ? "" : string("  ", said))
+    nd.meta["url"] = String(nz(get(e, "closer_url", nothing), url))
+    nd.meta["at"] = String(e["at"])
+    nd
+end
+
 """The rule the new part of a thread begins under.
 
 Drawn from the read stamp alone, which is the whole of what it needs: `r` marks
@@ -293,20 +338,22 @@ end
 
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
-    local body, cs, cms
+    local body, cs, cms, sts
     stale = false
     try
         key = thread_key(it.url)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
-            body, cs, cms = Events.thread(it.url; limit = 30)
-            cache_put(key, (body = body, comments = cs, commits = cms))
+            body, cs, cms, sts = Events.thread(it.url; limit = 30)
+            cache_put(key, (body = body, comments = cs, commits = cms, events = sts))
         else
             body, cs = hit[1].body, hit[1].comments
-            # Absent on an entry written before the pushes were drawn in here.
-            # A thread kept for a week is worth showing without them rather
-            # than dropped for want of a field that is new.
+            # Absent on an entry written before the pushes, and then the state
+            # events, were drawn in here. A thread kept for a week is worth
+            # showing without them rather than dropped for want of a field
+            # that is new.
             cms = something(jget(hit[1], :commits), ())
+            sts = something(jget(hit[1], :events), ())
             stale = hit[2] > CACHE_FRESH[]
         end
     catch e
@@ -328,15 +375,25 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # Only the pushes that fall inside the window the comments are shown for -
     # the thread is the last thirty of those - so a branch with two hundred
     # commits does not arrive above the first thing anybody said.
+    #
+    # The state changes are all shown, wherever they fall: there are a handful
+    # at most, and a close from before the window is the one thing a reader
+    # of the last thirty comments most needs told.
     from = isempty(cs) ? "" : String(first(cs)["created_at"])
     evs = Any[(kind = :comment, at = String(c["created_at"]), c = c) for c in cs]
     for c in cms
         t = String(c["at"])
         (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
     end
+    for e in sts
+        push!(evs, (kind = :state, at = String(e["at"]), c = e))
+    end
     # A commit and a comment stamped the same second: the commit first, because
     # the reply is about the push in that case and never the other way round.
-    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : 1))
+    # A comment and a close the same second: the comment first, since "closing
+    # as fixed by #N" is what the close button with a comment produces, in
+    # that order.
+    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :comment ? 1 : 2))
     evs = group_pushes(evs)
     # Where the new part starts, and how much of it there is. Nothing at all for
     # an item never marked read: the whole thread is new then, and a rule above
@@ -348,6 +405,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         k == mark && push!(ns, newmark_node(length(evs) - mark + 1))
         if e.kind === :push
             push!(ns, push_node(e.c, it.url))
+            continue
+        elseif e.kind === :state
+            push!(ns, state_node(e.c, it.url))
             continue
         end
         c = e.c
@@ -385,16 +445,17 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     end
     # **What this thread shows you up to**, which is what `r` marks the item
     # seen up to: the newest event on screen - a comment, a review comment, a
-    # push, the body's own last edit - and no clock at all, this machine's or
-    # GitHub's. A comment that landed while the reads were in flight is either
-    # here, and seen, or not here, and newer than this - unread at the next
-    # refresh, as it should be. A cached thread stamps the same, since the
-    # newest thing in it is the newest thing in it. `r` takes the max of this
-    # and `moved_at`, for the movements a thread does not show: an approval
-    # with no comment, a merge, a CI edge.
+    # push, a close or a merge, the body's own last edit - and no clock at
+    # all, this machine's or GitHub's. A comment that landed while the reads
+    # were in flight is either here, and seen, or not here, and newer than
+    # this - unread at the next refresh, as it should be. A cached thread
+    # stamps the same, since the newest thing in it is the newest thing in
+    # it. `r` takes the max of this and `moved_at`, for the movements a
+    # thread does not show: an approval with no comment, a CI edge.
     seen = maximum(Iterators.flatten((
                (String(nz(get(c, "created_at", nothing), "")) for c in cs),
                (String(nz(get(c, "at", nothing), "")) for c in cms),
+               (String(nz(get(e, "at", nothing), "")) for e in sts),
                (String(nz(get(body, "updated_at", nothing), "")),))); init = "")
     isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns

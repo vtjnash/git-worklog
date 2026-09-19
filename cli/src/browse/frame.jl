@@ -27,7 +27,8 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # long thread.
     rrows = Row[]
     if it !== nothing
-        htitle = osc8(weblink(it), string(THEME.bold, it.ref, THEME.reset, "  ", it.title))
+        htitle = string(osc8(weblink(it), string(THEME.bold, it.ref, THEME.reset)),
+                        "  ", kind_phrase(it), "  ", osc8(weblink(it), it.title))
         for l in awrap(htitle, riw)
             push!(rrows, Row(0, false, l, string(it.ref, "  ", it.title), 0))
         end
@@ -97,6 +98,21 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
 
     bordered([r.text for r in rvis], rw, rh, rtitle, focused;
              gutter = [r.gutter for r in rvis])
+end
+
+"""What the number is of, said beside it: `issue`, `pull request`, `draft
+pull request`, `branch` for an adopted one - the words the filter's kind axis
+uses - with the state in front once it is over, `merged pull request`, `closed
+issue`. `julia#62452` says neither, and which of the two it is decides what
+the keys under it do: `d`, `p`, `M` and a review are a pull request's. Merged
+is settled and closed is blocked, the colours the state has everywhere else;
+open is dim, being the usual case."""
+function kind_phrase(it::Item)
+    islocal(it) && return string(THEME.dim, "branch", THEME.reset)
+    what = it.is_pr ? (it.draft ? "draft pull request" : "pull request") : "issue"
+    it.state == "MERGED" && return string(THEME.settled, "merged ", what, THEME.reset)
+    it.state == "CLOSED" && return string(THEME.blocked, "closed ", what, THEME.reset)
+    string(THEME.dim, what, THEME.reset)
 end
 
 "The title bar: the item under the cursor, by repository and number - the
@@ -299,9 +315,11 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     bar = if it === nothing
         string(" worklog  ", THEME.dim, length(st.items), " items", THEME.reset)
     else
-        link = osc8(weblink(it), string(it.ref, "  ", it.title))
-        string(" ", THEME.bold, link, THEME.reset, "  ", THEME.dim,
-               "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
+        # The kind between the number and the title, as on the pane's own
+        # header: it is the one thing about the item the number does not say.
+        string(" ", THEME.bold, osc8(weblink(it), it.ref), THEME.reset, "  ",
+               kind_phrase(it), "  ", THEME.bold, osc8(weblink(it), it.title), THEME.reset,
+               "  ", THEME.dim, "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
     end
     # The last refresh at the right-hand end, and the running one: a fact
     # about the whole list that stands, where the status row is one line the

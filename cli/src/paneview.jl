@@ -765,18 +765,24 @@ present or not.
 Green is one you are in; yellow is one that rang while you were not - the agent
 stopped, or is asking - and is waiting on you until you look, since tmux clears
 the bell on the attach. Grey is there and quiet.
+
+Over anything with `kind`, `attached` and `bell` - the row's `SessionRow`s, or
+the sessions of one worktree straight off `mux_list` - so the checkout picker
+draws the same three letters this list does, and a reader who has seen either
+knows the other.
 """
-function session_marks(r::WorktreeRow)
+function session_marks(sessions)
     out = ""
     for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
-        i = findfirst(x -> x.kind === kind, r.sessions)
+        i = findfirst(x -> x.kind === kind, sessions)
         out *= i === nothing ? " " :
-               r.sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
-               r.sessions[i].bell ? string(THEME.waiting, ch, THEME.reset) :
-                                    string(THEME.dim, ch, THEME.reset)
+               sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
+               sessions[i].bell ? string(THEME.waiting, ch, THEME.reset) :
+                                  string(THEME.dim, ch, THEME.reset)
     end
     out
 end
+session_marks(r::WorktreeRow) = session_marks(r.sessions)
 
 "`+2/-1` against upstream, or nothing to say."
 function track_mark(ahead::Int, behind::Int)

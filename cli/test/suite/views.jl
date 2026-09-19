@@ -761,3 +761,31 @@ end
     st2 = W.BState([br], "t"); st2.sel = 1
     @test W.viewtitle(st2) == "wl o/r wip"
 end
+
+@testset "what the number is of, beside it" begin
+    # `julia#62452` says neither issue nor pull request, and which it is
+    # decides what the keys under it do - so the word is between the number
+    # and the title, on the pane's header and the title bar both, with the
+    # state in front once it is over.
+    say(it) = W.astrip(W.kind_phrase(it))
+    issue = fixture_item("an issue")
+    pr = fixture_item("yours, open, with a branch and labels")
+    @test say(issue) == "issue" && say(pr) == "pull request"
+    @test say(fixture_item("a draft")) == "draft pull request"
+    @test say(fixture_item("merged")) == "merged pull request"
+    closed = fixture_item("closed")
+    @test say(closed) == string("closed ", closed.is_pr ? "pull request" : "issue")
+    @test occursin(W.THEME.settled, W.kind_phrase(fixture_item("merged")))
+    @test occursin(W.THEME.blocked, W.kind_phrase(closed))
+    @test say(W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
+                     title = "a branch", branch = "wip")) == "branch"
+    st = W.BState([issue, pr], "t")
+    frame(i) = (st.sel = i; st.loaded = string(st.items[i].url, ":", st.mode);
+                split(W.render(st, 150, 40), "\n"))
+    lines = frame(findfirst(x -> x.url == issue.url, st.items))
+    # The title bar, and the header over the detail pane.
+    @test occursin(string(issue.ref, "  issue  ", first(issue.title, 20)), W.astrip(lines[1]))
+    @test any(l -> occursin(string(issue.ref, "  issue  "), W.astrip(l)), lines[2:6])
+    lines = frame(findfirst(x -> x.url == pr.url, st.items))
+    @test occursin(string(pr.ref, "  pull request  "), W.astrip(lines[1]))
+end

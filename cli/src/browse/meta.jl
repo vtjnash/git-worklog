@@ -541,17 +541,15 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         a = st.archived[it.url]
         kv("archived", string(when_str(a, at), "  ", THEME.dim,
                               "x takes it back out", THEME.reset))
-    elseif isdone(it)
-        # Offered, never done silently: a merged pull request is usually
-        # finished with and occasionally the one thing you still owe a reply
-        # on, and this cannot tell the difference. That a merge you did not
-        # do is news is the `why` row's under `local` - `unread: merged` -
-        # which used to be said here as "new since you last looked".
-        kv("state", string(lowercase(it.state), "  ", THEME.dim,
-                           mergedbyme(it) ? "you merged it \u00b7 x archives it" :
-                                            "x archives it", THEME.reset))
     elseif !isempty(it.state) && it.state != "OPEN"
-        kv("state", lowercase(it.state))
+        # Whether you were the one who merged it, beside the state: a merge
+        # you pressed the button for is not news, and the pane is where that
+        # is read. That a merge you did not do is news is the `why` row's
+        # under `local` - `unread: merged`. Nothing is offered here: filing
+        # is `x`, which the footer names, and the same offer on every closed
+        # row was a row of noise on the pane.
+        kv("state", string(lowercase(it.state),
+                           mergedbyme(it) ? string("  ", THEME.dim, "you merged it", THEME.reset) : ""))
     end
     it.draft && kv("state", "draft")
     push!(out, "")
