@@ -256,14 +256,27 @@ Only for a branch that is checked out nowhere: git refuses a second worktree on
 the same branch, and that refusal is what lets the branch list claim a branch
 either has a place or has none.
 
+With `from`, the branch is not here yet and is made there, tracking `from` -
+a remote-tracking ref, named in full. Said outright rather than left to git's
+guess from the bare name, which makes a local branch off the one remote that
+has it and refuses with `invalid reference` the moment two remotes do: a
+checkout with `origin` on the fork and `upstream` on the project carries the
+project's release branches on both.
+
 The path is resolved on the way out rather than on the way in - `realpath`
 wants the directory to exist, and a worktree is matched to its row and to its
 sessions by the resolved form, so the unresolved one would fail to find what it
 had just made.
 """
-function add_worktree!(path::AbstractString, branch::AbstractString, at::AbstractString)
+function add_worktree!(path::AbstractString, branch::AbstractString, at::AbstractString;
+                       from::AbstractString = "")
     dest = abspath(expanduser(String(at)))
-    git(path, "worktree", "add", "--quiet", dest, String(branch))
+    if isempty(from)
+        git(path, "worktree", "add", "--quiet", dest, String(branch))
+    else
+        git(path, "worktree", "add", "--quiet", "--track", "-b", String(branch), dest,
+            String(from))
+    end
     try realpath(dest) catch; dest end
 end
 
@@ -280,13 +293,21 @@ branch of the project's own it is the tracking checkout git would have made.
 The url and not the number, so which repository is not left to gh to infer
 from the remotes - a checkout of somebody else's project has two.
 
+`as` is the local branch to make, when the head's own name will not do. Left
+to itself gh uses the head's name, and when a branch of that name is already
+here it fetches `refs/pull/N/head` *into it*: a fork's pull request from its
+`master` would fast-forward this checkout's `master` onto the fork's commits
+when it could, and be refused when `master` is checked out somewhere, which
+it always is. Neither is a checkout of the pull request.
+
 Throws `GitError` with what gh said, since every way this fails - a changed
 file the branch would overwrite, no network, no `gh` - is a thing to show in
 its own words. Blocks for the fetch, as `ensure_base!` does for `p`.
 """
-function checkout_pr!(path::AbstractString, url::AbstractString)
+function checkout_pr!(path::AbstractString, url::AbstractString; as::AbstractString = "")
     out, err = IOBuffer(), IOBuffer()
-    cmd = addenv(Cmd(`gh pr checkout $url`; dir = String(path)), "LC_ALL" => "C")
+    args = isempty(as) ? `gh pr checkout $url` : `gh pr checkout $url --branch $as`
+    cmd = addenv(Cmd(args; dir = String(path)), "LC_ALL" => "C")
     try
         run(pipeline(cmd; stdout = out, stderr = err))
     catch e
@@ -298,18 +319,21 @@ function checkout_pr!(path::AbstractString, url::AbstractString)
 end
 
 """A new worktree at `at` with the pull request checked out in it, for a branch
-this repository has never had - a fork's, before anything fetched it.
+this repository does not have - a fork's, before anything fetched it - or has
+only the name of, in which case `as` is the name to make instead
+(`checkout_pr!`).
 
 `add_worktree!` wants a branch that is here. What is always here is `HEAD`, so
 the worktree is made detached on it and `checkout_pr!` runs inside, which
 makes the branch and moves onto it. When that fails the worktree is taken away
 again, so a failure leaves git's complaint and no directory to explain.
 """
-function add_worktree_pr!(path::AbstractString, url::AbstractString, at::AbstractString)
+function add_worktree_pr!(path::AbstractString, url::AbstractString, at::AbstractString;
+                          as::AbstractString = "")
     dest = abspath(expanduser(String(at)))
     git(path, "worktree", "add", "--quiet", "--detach", dest)
     try
-        checkout_pr!(dest, url)
+        checkout_pr!(dest, url; as)
     catch
         try git(path, "worktree", "remove", "--force", dest) catch end
         rethrow()

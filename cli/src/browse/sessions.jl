@@ -362,15 +362,18 @@ Asked once, not once per press: opening the session tags it with the item, and
 that tag is rule 2 next time.
 
 `items` is the list the browser has, for [`branch_owner`](@ref): what tells a
-copy on another branch from a copy on another *item's* branch.
+copy on another branch from a copy on another *item's* branch. What
+`item_worktree` looked up on the way - the pull request's branch, the mux
+rows - goes down with the answer, so one press is one look at each.
 """
 function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
                        items = Item[])
     mux_bin() === nothing && return no_mux()
-    target, branch, ask = item_worktree(it; items)
-    target === nothing && return :needs_repo
-    ask && return ask_checkout(it, ctrl, kind, mkcmd, say; items)
-    item_session!(it, target, branch, ctrl, kind, mkcmd, say; items)
+    r = item_worktree(it; items)
+    r.path === nothing && return :needs_repo
+    r.ask && return ask_checkout(it, ctrl, kind, mkcmd, say; items, pr = r.pr, rows = r.rows)
+    item_session!(it, (path = r.path, branch = r.branch, main = r.main), r.pr,
+                  ctrl, kind, mkcmd, say; items, rows = r.rows)
 end
 
 """Open the item's session in a checkout that has been settled on - after one
@@ -387,13 +390,16 @@ kind.
 
 The question reports through `say`, long after this has returned `""`; the
 route that had nothing to ask reports through the return value, as before.
+
+`w` is the copy - a row of `worktrees`, or anything with its `path`, `branch`
+and `main` - and `pr` the pull request's own branch, both handed down from
+whoever looked them up rather than asked again here.
 """
-function item_session!(it::Item, target::AbstractString, branch::AbstractString,
-                       ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
-                       picked::Bool = false, items = Item[])
-    q = checkout_offer(it, target, branch, ctrl, kind, mkcmd, say; picked, items)
+function item_session!(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd,
+                       say = _ -> nothing; picked::Bool = false, items = Item[], rows = nothing)
+    q = checkout_offer(it, w, pr, ctrl, kind, mkcmd, say; picked, items, rows)
     q === nothing || return q
-    session_in!(it, target, branch, ctrl, kind, mkcmd)
+    session_in!(it, w.path, w.branch, ctrl, kind, mkcmd)
 end
 
 """Open the item's session in `target`, on whatever branch it is on, and touch
@@ -440,27 +446,36 @@ is where a reused copy is given up. Anything else is no shell at all.
 
 Blocks the browser for the fetch under `y`, the way `p` does for its base;
 the pane opens when it lands.
+
+`w` and `pr` are [`item_session!`](@ref)'s; `rows` the mux rows if the caller
+has them, listed here otherwise - and only when there is something to look
+for: a copy `picked` is asked whatever is running in it, and an item with no
+ref has no session anywhere, whatever an untagged shell's empty tag says
+(rule 2 has the same guard).
 """
-function checkout_offer(it::Item, target::AbstractString, wbranch::AbstractString,
-                        ctrl, kind::Symbol, mkcmd, say; picked::Bool, items)
+function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd, say;
+                        picked::Bool, items, rows = nothing)
     mux_bin() === nothing && return nothing
-    branch = pr_branch(it)
-    (isempty(branch) || wbranch == branch) && return nothing
-    here = any(r -> r.item == it.ref && wtkey(r.worktree) == wtkey(target), mux_list())
-    (picked || !here) || return nothing
-    name = basename(rstrip(String(target), '/'))
-    owner = branch_owner(it, wbranch, items)
+    (isempty(pr) || w.branch == pr) && return nothing
+    target, wbranch = String(w.path), String(w.branch)
+    if !picked && !isempty(it.ref)
+        rows === nothing && (rows = mux_list())
+        any(r -> r.item == it.ref && wtkey(r.worktree) == wtkey(target), rows) &&
+            return nothing
+    end
+    name = basename(rstrip(target, '/'))
+    owner = branch_owner(it, w, branch_index(items))
     on = isempty(wbranch) ? string(name, " is detached") :
          string(name, " is on ", wbranch,
                 owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
     notes = vcat([on], status_preview(target),
                  [string("y runs ", it.is_pr ? string("gh pr checkout ", it.number) :
-                                              string("git checkout ", branch), " there")])
+                                              string("git checkout ", pr), " there")])
     push_view!(ctrl, ConfirmView(
-        string("Check out ", branch, " in ", name, "?"), notes,
-        ["yY" => () -> say(checkout_session!(it, target, wbranch, branch, ctrl, kind, mkcmd)),
+        string("Check out ", pr, " in ", name, "?"), notes,
+        ["yY" => () -> say(checkout_session!(it, target, wbranch, pr, ctrl, kind, mkcmd)),
          "nN" => () -> say(session_in!(it, target, wbranch, ctrl, kind, mkcmd)),
-         "wW" => () -> say(ask_checkout(it, ctrl, kind, mkcmd, say; items))];
+         "wW" => () -> say(ask_checkout(it, ctrl, kind, mkcmd, say; items, pr))];
         hint = "y checks it out \u00b7 n goes in as it is \u00b7 w another place \u00b7 esc cancels"))
     ""
 end
@@ -525,12 +540,16 @@ makes a new place. Nothing is pre-selected on the user's behalf: this is only
 reached when neither the branch nor a running session said where the work is,
 and picking the main checkout by default is exactly the guess that made the
 answer wrong often enough to be worth asking about.
+
+`pr` is the pull request's branch and `rows` the mux rows, from a caller that
+has them; each is looked up once here otherwise, and handed on from here.
 """
-function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[])
+function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
+                      pr::AbstractString = pr_branch(it), rows = nothing)
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
-    rows = mux_list()
+    rows === nothing && (rows = mux_list())
     opts = Tuple{String,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
     push!(opts, ("+ a new worktree …", ""))
     push_view!(ctrl, ChooseView(
@@ -539,12 +558,11 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[])
         opts,
         p -> begin
             if isempty(String(p))
-                say(ask_worktree_for(it, ctrl, kind, mkcmd, say; items))
+                say(ask_worktree_for(it, ctrl, kind, mkcmd, say; items, pr))
             else
                 i = findfirst(w -> w.path == p, ws)
-                say(item_session!(it, String(p),
-                                  i === nothing ? "" : ws[i].branch,
-                                  ctrl, kind, mkcmd, say; picked = true, items))
+                w = i === nothing ? (path = String(p), branch = "", main = false) : ws[i]
+                say(item_session!(it, w, pr, ctrl, kind, mkcmd, say; picked = true, items))
             end
         end))
     ""
@@ -562,18 +580,18 @@ worktree rather than an error, which is what makes typing a path a way of
 reaching one that the list drew off the bottom.
 """
 function ask_worktree_for(it::Item, ctrl, kind::Symbol, mkcmd, say;
-                          seed = "", note = "", items = Item[])
+                          seed = "", note = "", items = Item[],
+                          pr::AbstractString = pr_branch(it))
     repo = repo_path(it.repo)
     repo === nothing && return "no local checkout registered for " * it.repo
-    branch = pr_branch(it)
     dest = !isempty(seed) ? String(seed) :
-           isempty(branch) ? main_worktree(repo) : worktree_dest(repo, branch)
+           isempty(pr) ? main_worktree(repo) : worktree_dest(repo, pr)
     push_view!(ctrl, PromptView(
         string("New worktree for ", it.ref),
         isempty(note) ? string("where to check ",
-                               isempty(branch) ? "it" : branch,
+                               isempty(pr) ? "it" : pr,
                                " out · ", it.repo, " is at ", repo) : note,
-        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at; items)); initial = dest))
+        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at; items, pr)); initial = dest))
     ""
 end
 
@@ -581,66 +599,94 @@ end
 
 A branch this repository has, when it is the pull request's
 ([`pr_branch_here`](@ref)), is checked out as a worktree of it
-(`add_worktree!`); one it has not - a fork's, before anything fetched it -
-is made by `gh` in a detached worktree (`add_worktree_pr!`), which is what a
-pull request from a fork always needed and this used to refuse with `invalid
-reference`. An adopted branch is here by definition, and is git's.
+(`add_worktree!`) - made off the remote's copy when that is the only one
+here, said by its full name so two remotes carrying it is not a refusal. One
+it has not - a fork's, before anything fetched it - is made by `gh` in a
+detached worktree (`add_worktree_pr!`), which is what a pull request from a
+fork always needed and this used to refuse with `invalid reference`. One it
+has only the *name* of - a fork's `master`, when this checkout has its own -
+is gh's too, under a name of its own, `pr<N>/<branch>`, since gh handed the
+head's name would fetch the pull request into the branch that is already
+here. A worktree under that name is found by its session (rule 2) and not by
+its branch (rule 1), which is the price of not touching `master`. An adopted
+branch is here by definition, and is git's.
 
 Failure re-opens the prompt with what was typed still in it and git's own
 complaint above it: every way this fails is a path that wants correcting - the
 directory exists, its parent does not, the branch is checked out somewhere else.
 """
 function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractString;
-                        items = Item[])
+                        items = Item[], pr::AbstractString = pr_branch(it))
     repo = repo_path(it.repo)
     repo === nothing && return "no local checkout registered for " * it.repo
     want = wtkey(abspath(expanduser(String(at))))
     for w in worktrees(repo)
         wtkey(w.path) == want &&
-            return item_session!(it, w.path, w.branch, ctrl, kind, mkcmd, say;
-                                 picked = true, items)
+            return item_session!(it, w, pr, ctrl, kind, mkcmd, say; picked = true, items)
     end
-    branch = pr_branch(it)
-    isempty(branch) &&
+    isempty(pr) &&
         return string(it.ref, " has no branch to check out · pick a worktree that exists")
+    branch = pr
     dest = try
-        if it.is_pr ? pr_branch_here(repo, it, branch) : has_rev(repo, "refs/heads/" * branch)
-            add_worktree!(repo, branch, at)
+        found = it.is_pr ? pr_branch_here(repo, it, pr) :
+                has_rev(repo, "refs/heads/" * pr) ? :local : :none
+        if found === :local
+            add_worktree!(repo, pr, at)
+        elseif found === :remote
+            add_worktree!(repo, pr, at;
+                          from = string("refs/remotes/", remote_for(repo, it.repo), "/", pr))
+        elseif found === :taken
+            branch = string("pr", it.number, "/", pr)
+            add_worktree_pr!(repo, it.url, at; as = branch)
         elseif it.is_pr
             add_worktree_pr!(repo, it.url, at)
         else
-            return string("no branch ", branch, " here to check out")
+            return string("no branch ", pr, " here to check out")
         end
     catch e
         e isa GitError || rethrow()
         ask_worktree_for(it, ctrl, kind, mkcmd, say;
-                         seed = at, note = oneline(first(sprint(showerror, e), 200)), items)
+                         seed = at, note = oneline(first(sprint(showerror, e), 200)), items, pr)
         return ""
     end
     r = session_in!(it, dest, branch, ctrl, kind, mkcmd)
     r isa String ? string("made ", dest, " · ", r) : r
 end
 
-"""Whether the `branch` this repository has - local, or on the project's
-remote, which `git worktree add` takes as a local one to make - is the pull
-request's, and not merely of the same name.
+"""Where this repository has the pull request's `branch`, if it has it at all:
+`:local`, `:remote` (on the project's remote only, which `git worktree add`
+can make a local one from), `:taken` when it has a branch of that name that
+is *not* the pull request's, and `:none`.
 
 Names are not distinctive: a fork's pull request is from its `master` as
 often as not, and checking the project's own `master` out under that name
 would put a worktree on the wrong branch that rule 1 then swears by. The
 head sha the lanes reported is what says: the branch here is the pull
 request's when that commit is on it - ahead of it too, since unpushed work of
-yours is still yours - and gh's fetch is the answer when it is not, or when
-the sha is not here to ask about. A row with no head sha (old, or made by a
-poll) is taken at its name, which is the old rule.
+yours is still yours.
+
+A local branch the head is *not* on is not yet a stranger's: it is as often
+your own, pushed from another machine since - moved off the head, or the
+head off it - and the project's copy of the branch is what tells the two
+apart, since a fork's `master` is on no branch of the project's. So when the
+head is not on the local branch the remote-tracking one is asked, and brought
+up to date first when it does not have the head either (`fetch_base!`, one
+round trip), because a copy that is merely stale is behind the head by
+definition. A branch of your own that has moved is still `:local`, and a
+worktree on it is where the reconciling gets done; only a name that the
+project's own copy disowns is `:taken`. A row with no head sha (old, or made
+by a poll) is taken at its name, which is the old rule.
 """
 function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     r = remote_for(repo, it.repo)
-    for ref in ("refs/heads/" * branch, string("refs/remotes/", r, "/", branch))
-        has_rev(repo, ref) || continue
-        (isempty(it.head) || is_ancestor(repo, it.head, ref)) && return true
-    end
-    false
+    loc, rem = "refs/heads/" * branch, string("refs/remotes/", r, "/", branch)
+    hasloc = has_rev(repo, loc)
+    (hasloc || has_rev(repo, rem)) || return :none
+    isempty(it.head) && return hasloc ? :local : :remote
+    on(ref) = has_rev(repo, ref) && is_ancestor(repo, it.head, ref)
+    hasloc && on(loc) && return :local
+    on(rem) || (fetch_base!(repo, it.repo, branch) && on(rem)) || return :taken
+    hasloc ? :local : :remote
 end
 
 """What to run for `T`, as a shell command line.

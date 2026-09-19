@@ -268,10 +268,14 @@ through a TTY. Strike through rather than delete when one answers.
 - [ ] `y` on the checkout question against GitHub itself: `gh pr checkout
       <url>` in a copy of julia on master, a fork's branch into a fresh
       detached worktree (`add_worktree_pr!`), a fork's pull request named
-      like a branch here (`pr_branch_here` sends it to gh; what gh does with
-      the local name in the way is its own), and the refusal with a changed
-      file in the way, which is to open the shell anyway with gh's words on
-      the status line. The suite drives all of it through a `gh` of its own.
+      like a branch here (`pr_branch_here` says the name is taken, and gh
+      makes `pr<N>/<branch>` instead of fetching into the one in the way -
+      whether the upstream it sets on that branch is the fork's), one of
+      your own branches that moved on the remote (the project's copy says it
+      is yours, after one fetch), a branch two remotes carry (made from the
+      project's by name), and the refusal with a changed file in the way,
+      which is to open the shell anyway with gh's words on the status line.
+      The suite drives all of it through a `gh` of its own.
 - [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered
       every time.
 - [ ] Whether owning the mouse is the right trade, or `m` is reached for

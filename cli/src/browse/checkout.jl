@@ -34,29 +34,44 @@ not, but they must not disagree about the same item - so both read the same
 first two rules here, and answering one of them for `t` (by starting a session,
 which tags it) answers it for `e` on the next press.
 
-Returns `(nothing, "", false)` when the repo has never been registered.
+The answer is a named tuple, and the first three fields are the answer
+proper: `path`, the `branch` that copy is on, and `ask`. Behind them is what
+was looked up on the way and would otherwise be looked up again a key press
+later ([`item_session!`](@ref) asks the same questions): whether the copy is
+the `main` checkout, the pull request's own branch `pr` - a `gh` round trip
+for a row from before the field existed - and the mux `rows`, or `nothing`
+when they were not needed. `path` is `nothing` when the repo has never been
+registered.
 """
 function item_worktree(it::Item; items = Item[])
     repo = repo_path(it.repo)
-    repo === nothing && return (nothing, "", false)
+    repo === nothing &&
+        return (path = nothing, branch = "", ask = false, main = false, pr = "", rows = nothing)
     branch = pr_branch(it)
     ws = worktrees(repo)
+    rows = nothing
     if !isempty(branch)
         for w in ws
-            w.branch == branch && return (w.path, branch, false)
+            w.branch == branch &&
+                return (path = w.path, branch = branch, ask = false, main = w.main,
+                        pr = branch, rows = rows)
         end
     end
     if !isempty(it.ref)
         here = Dict(wtkey(w.path) => w for w in ws)
-        for r in mux_list()
+        # Once, not once per session: the index is a pass over the whole list.
+        ix = isempty(branch) ? nothing : branch_index(items)
+        rows = mux_list()
+        for r in rows
             (r.item == it.ref && !isempty(r.worktree)) || continue
             w = get(here, wtkey(r.worktree), nothing)
             w === nothing && continue
-            (!isempty(branch) && branch_owner(it, w.branch, items) !== nothing) && continue
-            return (w.path, w.branch, false)
+            (ix !== nothing && branch_owner(it, w, ix) !== nothing) && continue
+            return (path = w.path, branch = w.branch, ask = false, main = w.main,
+                    pr = branch, rows = rows)
         end
     end
-    (repo, branch, true)
+    (path = repo, branch = branch, ask = true, main = true, pr = branch, rows = rows)
 end
 
 """The checkout to work in for an item, and the branch it is for.
@@ -65,21 +80,45 @@ The same answer without the flag, for the callers that have nowhere to ask
 from: an editor opens on the best guess rather than refusing to open.
 """
 function item_checkout(it::Item; items = Item[])
-    target, branch, _ = item_worktree(it; items)
-    (target, branch)
+    r = item_worktree(it; items)
+    (r.path, r.branch)
 end
 
-"""The other item whose branch this is, or `nothing`.
+"""The item whose branch a checkout `w` is on - a row of `worktrees`, or
+anything with its `branch` and `main` - read off a [`branch_index`](@ref), or
+`nothing`.
+
+One refusal, and it is the same one wherever a checkout is matched to an item,
+which is why it lives here and not in the pane that first needed it: a pull
+request is matched to a checkout by branch name alone, which is all
+`headRefName` gives - and on the *primary* checkout that is a collision
+waiting to happen. It sits on `master`, and somebody's fork opens a pull
+request from their own `master` about twice a week. Yours is at least
+plausibly the work in there; a stranger's is not, and reading "the branch
+carries its pull request" off it is simply wrong - the worktree list would
+file the main checkout under their number, and rule 2 above would take it
+for a copy *reused* for them, and ask about a place it had already been
+answered for, on every press.
+"""
+function branch_carrier(ix, repo::AbstractString, w)
+    it = get(ix, (String(repo), String(w.branch)), nothing)
+    (it !== nothing && w.main && !author_ok(Set([AUTHOR_ME]), it)) ? nothing : it
+end
+
+"""The *other* item whose branch the checkout `w` is on, or `nothing`.
 
 What says a checkout has been reused: the branch under a worktree is some
-other pull request's, or an adopted branch's, in the same repository. Joined
-through `branch_index` over the list the browser has, which is why it is an
-argument - loading the corpus for one key press is not the price of a look.
-An empty list sees nothing, which is the old answer.
+other pull request's, or an adopted branch's, in the same repository - with
+[`branch_carrier`](@ref)'s refusal, so a stranger's `master` does not make
+the main checkout theirs. Joined through a `branch_index` over the list the
+browser has, which is why it is an argument - loading the corpus for one key
+press is not the price of a look, and the index is built once by the caller
+rather than once per session it looks at. An empty index sees nothing, which
+is the old answer.
 """
-function branch_owner(it::Item, branch::AbstractString, items)
-    (isempty(branch) || isempty(items)) && return nothing
-    o = get(branch_index(items), (it.repo, String(branch)), nothing)
+function branch_owner(it::Item, w, ix)
+    (isempty(w.branch) || isempty(ix)) && return nothing
+    o = branch_carrier(ix, it.repo, w)
     (o === nothing || o.url == it.url) ? nothing : o
 end
 

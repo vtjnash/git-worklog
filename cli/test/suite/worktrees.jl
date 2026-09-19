@@ -217,23 +217,33 @@ end
     write(joinpath(main, "a.txt"), "one\n")
     W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
     # Two more pull requests of the same repository, on branches of their own:
-    # one to reuse the copy for, one from a fork whose branch is nowhere here.
+    # one of yours to reuse the copy for, one from a fork whose branch is
+    # nowhere here.
     pr2 = W.Item(url = "https://example.invalid/o/wt/pull/21", ref = "wt#21",
-                 repo = pr.repo, number = 21, title = "another", branch = "jn/other")
+                 repo = pr.repo, number = 21, title = "another", branch = "jn/other",
+                 author = W.login())
     pr3 = W.Item(url = "https://example.invalid/o/wt/pull/22", ref = "wt#22",
                  repo = pr.repo, number = 22, title = "from a fork", branch = "them/theirs")
     known = vcat(items, [pr2, pr3])
+    # And a stranger's, from their fork's `master`: a name the main checkout
+    # is on, and not a claim to it.
+    stranger = W.Item(url = "https://example.invalid/o/wt/pull/30", ref = "wt#30",
+                      repo = pr.repo, number = 30, title = "from their master",
+                      branch = "master", author = "somebody-else")
+    withstranger = vcat(known, [stranger])
 
-    # A `gh` that checks out whichever branch `want` names, in the directory
-    # it is run in, and writes down what it was asked - or refuses, with git's
-    # own words for a changed file in the way, while `fail` exists.
+    # A `gh` that checks out whichever branch `want` names - or the one
+    # `--branch` names, as the real one does - in the directory it is run in,
+    # and writes down what it was asked; or refuses, with git's own words for
+    # a changed file in the way, while `fail` exists.
     bin = joinpath(root, "bin"); mkpath(bin)
     log = joinpath(root, "gh.log"); want = joinpath(root, "want"); fail = joinpath(root, "fail")
     write(joinpath(bin, "gh"),
           string("#!/bin/sh\nprintf '%s\\n' \"\$@\" > ", log, "\n",
                  "[ \"\$1 \$2\" = 'pr checkout' ] || exit 2\n",
                  "if [ -e ", fail, " ]; then echo 'error: Your local changes would be overwritten' >&2; exit 1; fi\n",
-                 "exec git checkout -q -B \"\$(cat ", want, ")\"\n"))
+                 "b=\"\$(cat ", want, ")\"; [ \"\$4\" = --branch ] && b=\"\$5\"\n",
+                 "exec git checkout -q -B \"\$b\"\n"))
     chmod(joinpath(bin, "gh"), 0o755)
     asked() = isfile(log) ? split(read(log, String), '\n'; keepempty = false) : String[]
 
@@ -253,11 +263,31 @@ end
         # Nothing to ask without a branch, or on the branch already.
         issue = W.Item(url = "https://example.invalid/i/9", ref = "wt#9",
                        repo = pr.repo, number = 9, title = "an issue", is_pr = false)
-        @test W.checkout_offer(issue, main, "master", ctrl, :shell, sleep120, say;
+        atmain = (path = main, branch = "master", main = true)
+        @test W.checkout_offer(issue, atmain, "", ctrl, :shell, sleep120, say;
                                picked = true, items = known) === nothing
-        @test W.checkout_offer(pr, main, pr.branch, ctrl, :shell, sleep120, say;
+        @test W.checkout_offer(pr, (path = main, branch = pr.branch, main = true), pr.branch,
+                               ctrl, :shell, sleep120, say;
                                picked = true, items = known) === nothing
         @test top() === shown
+
+        # Whose branch a checkout is on is one answer for the list and the
+        # key alike, refusal included: a stranger's pull request from their
+        # `master` does not own the main checkout, which is on `master` for
+        # its own reasons - though it does own a worktree made for it, and
+        # one of yours from `master` owns either.
+        ix = W.branch_index(withstranger)
+        @test W.branch_owner(pr, atmain, ix) === nothing
+        @test W.branch_owner(pr, (branch = "master", main = false), ix) === stranger
+        @test W.branch_carrier(ix, pr.repo, atmain) === nothing
+        @test W.branch_owner(stranger, (branch = "master", main = false), ix) === nothing
+        yours = W.Item(url = "https://example.invalid/o/wt/pull/31", ref = "wt#31",
+                       repo = pr.repo, number = 31, title = "from your master",
+                       branch = "master", author = W.login())
+        @test W.branch_owner(pr, atmain, W.branch_index(vcat(known, [yours]))) === yours
+        # An item that is nobody's branch sees nothing, and an empty index too.
+        @test W.branch_owner(pr, (branch = "nowhere", main = false), ix) === nothing
+        @test W.branch_owner(pr, atmain, W.branch_index(W.Item[])) === nothing
 
         if W.mux_bin() === nothing
             @info "no tmux; skipping the checkout offer"
@@ -316,6 +346,17 @@ end
                 @test r isa String && occursin("back in", r)
                 @test top() isa W.PaneView && said[] === nothing
                 drop!(top())
+                # Nor when a stranger's pull request from their `master` is in
+                # the list: main being on `master` is not main being theirs,
+                # so the copy is not reused and the answer still stands.
+                r = W.item_worktree(pr; items = withstranger)
+                @test W.wtkey(r.path) == W.wtkey(main) && !r.ask && r.main && r.pr == pr.branch
+                @test r.rows !== nothing && any(x -> x.item == pr.ref, r.rows)
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = withstranger)
+                @test r isa String && occursin("back in", r)
+                @test top() isa W.PaneView && said[] === nothing
+                drop!(top())
                 # Nor is an agent there: the question was about the place,
                 # and the shell's `n` answered it for the agent too.
                 said[] = nothing
@@ -334,7 +375,8 @@ end
                 @test W.wtkey(t) == W.wtkey(main) && ask
                 t, b, ask = W.item_worktree(pr)
                 @test W.wtkey(t) == W.wtkey(main) && b == pr2.branch && !ask
-                @test W.item_checkout(pr; items = known) == W.item_worktree(pr; items = known)[1:2]
+                r = W.item_worktree(pr; items = known)
+                @test W.item_checkout(pr; items = known) == (r.path, r.branch)
                 # Picking it anyway says whose it is now, and `w` is the way
                 # to another place.
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
@@ -426,16 +468,82 @@ end
                 ours = W.Item(url = "https://example.invalid/o/wt/pull/25", ref = "wt#25",
                               repo = pr.repo, number = 25, title = "ours", branch = "shared",
                               head = tip)
-                @test !W.pr_branch_here(main, theirs, "shared")
-                @test W.pr_branch_here(main, ours, "shared")
-                @test W.pr_branch_here(main, pr4, "local-only")     # no sha: the name
+                @test W.pr_branch_here(main, theirs, "shared") === :taken
+                @test W.pr_branch_here(main, ours, "shared") === :local
+                @test W.pr_branch_here(main, pr4, "local-only") === :local  # no sha: the name
+                @test W.pr_branch_here(main, W.with(pr3; branch = "them/nowhere"), "them/nowhere") === :none
+                # A name that is taken is gh's under a name of its own, since
+                # gh handed the taken one would fetch the pull request *into*
+                # the branch that is here. That branch is left as it was.
                 write(want, "shared")
                 dest5 = joinpath(root, "main-shared")
                 r = W.make_checkout!(theirs, ctrl, :shell, sleep120, say, dest5; items = known)
                 @test r isa String && occursin("made", r)
-                @test asked() == ["pr", "checkout", theirs.url]
+                @test asked() == ["pr", "checkout", theirs.url, "--branch", "pr24/shared"]
+                ws = Dict(w.path => w for w in W.worktrees(main))
+                @test haskey(ws, realpath(dest5)) && ws[realpath(dest5)].branch == "pr24/shared"
+                @test strip(W.git(main, "rev-parse", "shared")) == tip
                 drop!(top())
                 rm(log)
+
+                # The project's own copy of a branch is what tells one of
+                # yours that has moved from a stranger's of the same name.
+                # `other` stands in for the project: main's `origin`, and its
+                # `upstream` too, since a checkout of somebody else's project
+                # has both and they carry the same release branches.
+                other = joinpath(root, "other")
+                W.git(root, "clone", "--quiet", main, other)
+                W.git(other, "config", "user.email", "t@example.com")
+                W.git(other, "config", "user.name", "t")
+                W.git(other, "checkout", "--quiet", "-b", "moved", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "pushed from elsewhere")
+                moved1 = strip(W.git(other, "rev-parse", "moved"))
+                W.git(main, "remote", "add", "origin", other)
+                W.git(main, "remote", "add", "upstream", other)
+                W.git(main, "fetch", "--quiet", "origin")
+                W.git(main, "fetch", "--quiet", "upstream")
+                # Your local `moved` is behind the head; the remote's copy has
+                # it, so it is yours - the old rule sent it to gh's ff-only
+                # merge, which refuses exactly the branch with your work on it.
+                W.git(main, "branch", "--quiet", "moved", "master")
+                mine1 = W.Item(url = "https://example.invalid/o/wt/pull/26", ref = "wt#26",
+                               repo = pr.repo, number = 26, title = "moved", branch = "moved",
+                               head = moved1)
+                @test W.pr_branch_here(main, mine1, "moved") === :local
+                # And when the remote's copy is stale it is brought up to date
+                # before the name is disowned: one more commit there, unfetched.
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "and again")
+                moved2 = strip(W.git(other, "rev-parse", "moved"))
+                mine2 = W.with(mine1; url = "https://example.invalid/o/wt/pull/27", ref = "wt#27",
+                               number = 27, head = moved2)
+                @test !W.have_commit(main, moved2)
+                @test W.pr_branch_here(main, mine2, "moved") === :local
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/moved")) == moved2
+                # A stranger's `moved` - a head the project's copy has never
+                # heard of - is still taken, fetch or no fetch.
+                @test W.pr_branch_here(main, W.with(mine1; head = theirs.head), "moved") === :taken
+
+                # A branch on the remote only is made from the remote's copy,
+                # said by name: two remotes carry it, and left to guess git
+                # refuses with `invalid reference`.
+                W.git(other, "checkout", "--quiet", "-b", "remote-only", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "on the remote")
+                W.git(main, "fetch", "--quiet", "origin")
+                W.git(main, "fetch", "--quiet", "upstream")
+                rtip = strip(W.git(main, "rev-parse", "refs/remotes/origin/remote-only"))
+                remo = W.Item(url = "https://example.invalid/o/wt/pull/28", ref = "wt#28",
+                              repo = pr.repo, number = 28, title = "remote", branch = "remote-only",
+                              head = rtip)
+                @test W.pr_branch_here(main, remo, "remote-only") === :remote
+                @test_throws W.GitError W.add_worktree!(main, "remote-only", joinpath(root, "nope"))
+                dest6 = joinpath(root, "main-remote-only")
+                r = W.make_checkout!(remo, ctrl, :shell, sleep120, say, dest6; items = known)
+                @test r isa String && occursin("made", r) && occursin("started", r)
+                @test isempty(asked())
+                ws = Dict(w.path => w for w in W.worktrees(main))
+                @test haskey(ws, realpath(dest6)) && ws[realpath(dest6)].branch == "remote-only"
+                @test strip(W.git(dest6, "rev-parse", "--abbrev-ref", "@{u}")) == "origin/remote-only"
+                drop!(top())
 
                 # An adopted branch is nobody's to fetch: the question names
                 # `git checkout`, and `y` runs it, with gh never asked.
