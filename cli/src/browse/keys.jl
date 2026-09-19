@@ -375,10 +375,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         if i > 0
             dir = k == Int('[') ? -1 : 1
             retry_expand = () -> begin
-                rr = expand_hunk!(st.nodes[i], it, dir)
+                rr = expand_hunk!(st.nodes, i, it, dir)
                 st.status = rr isa String ? rr : ""
             end
-            r = expand_hunk!(st.nodes[i], it, dir)
+            r = expand_hunk!(st.nodes, i, it, dir)
             r === :needs_repo ? needs_repo(retry_expand) :
                 (st.status = r isa String ? r : "")
         end

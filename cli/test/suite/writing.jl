@@ -298,6 +298,71 @@ end
     @test W.compose_target(st, iw) == (:item, nothing)
 end
 
+@testset "[ and ] stop where the next hunk starts" begin
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    root = mktempdir()
+    try
+        # Two changes in one file, far enough apart for git to make two hunks
+        # of them, and one in another file whose numbering is nobody's fence.
+        main = joinpath(root, "main"); mkpath(main)
+        W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+        W.git(main, "config", "user.email", "t@e.com")
+        W.git(main, "config", "user.name", "t")
+        lines(a, b) = join([i == 5 ? a : i == 20 ? b : "line $i" for i in 1:40], "\n")
+        write(joinpath(main, "f.txt"), lines("line 5", "line 20"))
+        write(joinpath(main, "g.txt"), lines("line 5", "line 20"))
+        W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", "base")
+        base = strip(W.git(main, "rev-parse", "HEAD"))
+        write(joinpath(main, "f.txt"), lines("FIVE", "TWENTY"))
+        write(joinpath(main, "g.txt"), lines("five", "line 20"))
+        W.git(main, "commit", "--quiet", "-am", "change")
+        head = strip(W.git(main, "rev-parse", "HEAD"))
+        W.save_repo!("o/r", ["worktree" => main])
+
+        u = "https://github.com/o/r/pull/4"
+        it = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
+                    head = head, base = "master")
+        ns = W.hunk_nodes(W.git(main, "diff", base, head), u)
+        @test [(n.meta["file"], n.meta["start"], n.meta["count"]) for n in ns] ==
+              [("f.txt", 2, 7), ("f.txt", 17, 7), ("g.txt", 2, 7)]
+        # A thread under the first hunk, which is what sits between two hunks
+        # on screen and is not a hunk.
+        insert!(ns, 2, W.Node("ann  2026-09-01   looks fine", "ok", :md, true))
+        @test W.hunk_fence(ns, 1) == (0, 17)
+        @test W.hunk_fence(ns, 3) == (8, typemax(Int))
+        @test W.hunk_fence(ns, 4) == (0, typemax(Int))
+
+        # Ten below the first hunk would be lines 9-18; the second hunk starts
+        # at 17, so it stops at 16 and the mark says how far it got.
+        @test W.expand_hunk!(ns, 1, it, 1) == ""
+        @test ns[1].meta["down"] == 8
+        @test occursin("↓8", ns[1].header)
+        @test endswith(ns[1].raw, "line 15\n line 16")
+        # And again does nothing more: the two show adjacent lines already.
+        @test W.expand_hunk!(ns, 1, it, 1) == ""
+        @test ns[1].meta["down"] == 8
+        # Which the second hunk sees from its side.
+        @test W.hunk_fence(ns, 3) == (16, typemax(Int))
+        @test W.expand_hunk!(ns, 3, it, -1) == ""
+        @test ns[3].meta["up"] == 0 && !occursin("↑", ns[3].header)
+        # Still two nodes, each with its own header, rather than one merged.
+        @test count(n -> n.kind === :diff, ns) == 3
+
+        # The file's own ends are the other fence, as before.
+        @test W.expand_hunk!(ns, 1, it, -1) == ""
+        @test ns[1].meta["up"] == 1 && startswith(ns[1].raw, " line 1\n")
+        @test W.expand_hunk!(ns, 3, it, 1) == ""
+        @test W.expand_hunk!(ns, 3, it, 1) == ""
+        @test ns[3].meta["down"] == 17 && endswith(ns[3].raw, " line 40")
+        # The other file is fenced by nothing but its own length.
+        @test W.expand_hunk!(ns, 4, it, 1) == ""
+        @test ns[4].meta["down"] == 10
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "the write keys open the right views" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()

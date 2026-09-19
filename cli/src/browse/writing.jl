@@ -956,13 +956,52 @@ function head_sha(it::Item)
 end
 
 """
-    expand_hunk!(node, it, dir, n) -> status
+    hunk_fence(nodes, i) -> (above, below)
 
-Widen a hunk by `n` lines above (`dir < 0`) or below (`dir > 0`), reading the
+The new-side lines the hunks either side of `i` already show: the last one of
+the nearest hunk above in the same file, and the first one of the nearest hunk
+below, each as far as `[`/`]` has widened it. `0` and `typemax(Int)` where there
+is no such hunk, so the fence reads as a bound whether or not it is real.
+
+Only hunks count as neighbours - the comment threads placed under a hunk and
+the resolved-thread fold are stepped over - and only within the file, since the
+next file's numbering says nothing about this one.
+"""
+function hunk_fence(nodes::Vector{Node}, i::Int)
+    file = nodes[i].meta["file"]
+    above, below = 0, typemax(Int)
+    for j in (i - 1):-1:1
+        n = nodes[j]
+        (n.kind === :diff && haskey(n.meta, "file")) || continue
+        n.meta["file"] == file &&
+            (above = n.meta["start"] + n.meta["count"] - 1 + get(n.meta, "down", 0))
+        break
+    end
+    for j in (i + 1):length(nodes)
+        n = nodes[j]
+        (n.kind === :diff && haskey(n.meta, "file")) || continue
+        n.meta["file"] == file && (below = n.meta["start"] - get(n.meta, "up", 0))
+        break
+    end
+    (above, below)
+end
+
+"""
+    expand_hunk!(nodes, i, it, dir, n) -> status
+
+Widen hunk `i` by `n` lines above (`dir < 0`) or below (`dir > 0`), reading the
 file from the pinned local checkout rather than the API - the objects are
 already there, so expanding repeatedly costs nothing after the first fetch.
+
+It stops where the file ends and where the next hunk of the same file begins,
+counting what that one has been widened by: once the two show adjacent lines
+there is nothing between them left to show, and a line shown twice would put
+two rows under one number. The hunks stay two nodes with their own `↑`/`↓`
+marks - n/N still step between them, and the marks still say how far each was
+opened.
 """
-function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
+function expand_hunk!(nodes::Vector{Node}, i::Int, it::Item, dir::Int, n::Int = 10)
+    node = nodes[i]
     node.kind === :diff && haskey(node.meta, "file") ||
         return "not a hunk"
     repo = repo_path(it.repo)
@@ -980,8 +1019,9 @@ function expand_hunk!(node::Node, it::Item, dir::Int, n::Int = 10)
     start, count = node.meta["start"], node.meta["count"]
     up = node.meta["up"] + (dir < 0 ? n : 0)
     down = node.meta["down"] + (dir > 0 ? n : 0)
-    lo = max(1, start - up)
-    hi = min(length(lines), start + count - 1 + down)
+    above, below = hunk_fence(nodes, i)
+    lo = max(1, above + 1, start - up)
+    hi = min(length(lines), below - 1, start + count - 1 + down)
     node.meta["up"] = start - lo
     node.meta["down"] = hi - (start + count - 1)
 
