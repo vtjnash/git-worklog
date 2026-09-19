@@ -26,8 +26,8 @@ asked once per launch. Without it the file opens at the line, and the status
 says what is missing.
 """
 function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
-                     mode::Symbol = :comments)
-    target, branch = item_checkout(it)
+                     mode::Symbol = :comments, items = Item[])
+    target, branch = item_checkout(it; items)
     target === nothing && return :needs_repo
     # The same `code` and the same socket a pane is handed, for the same
     # reason: this process's own are only as fresh as its launch, and a
@@ -360,18 +360,46 @@ after this call has already come back.
 
 Asked once, not once per press: opening the session tags it with the item, and
 that tag is rule 2 next time.
+
+`items` is the list the browser has, for [`branch_owner`](@ref): what tells a
+copy on another branch from a copy on another *item's* branch.
 """
-function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing)
+function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
+                       items = Item[])
     mux_bin() === nothing && return no_mux()
-    target, branch, ask = item_worktree(it)
+    target, branch, ask = item_worktree(it; items)
     target === nothing && return :needs_repo
-    ask && return ask_checkout(it, ctrl, kind, mkcmd, say)
-    item_session!(it, target, branch, ctrl, kind, mkcmd)
+    ask && return ask_checkout(it, ctrl, kind, mkcmd, say; items)
+    item_session!(it, target, branch, ctrl, kind, mkcmd, say; items)
 end
 
-"""Open the item's session in a checkout that has already been settled on."""
+"""Open the item's session in a checkout that has been settled on - after one
+look at what is checked out there.
+
+`branch` is the checkout's, and when the item is a pull request on another
+one the session is about to open on the wrong branch. That is worth a
+question ([`checkout_offer`](@ref)) exactly when the place is new to the
+item: a session being started, one taken over from another item, or a copy
+`picked` by hand from the chooser or typed as a path. Going back to a session
+already on this item is not - it was asked when it opened, and `n` there was
+an answer, not a thing to say again on every `^]q`.
+
+The question reports through `say`, long after this has returned `""`; the
+route that had nothing to ask reports through the return value, as before.
+"""
 function item_session!(it::Item, target::AbstractString, branch::AbstractString,
-                       ctrl, kind::Symbol, mkcmd)
+                       ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
+                       picked::Bool = false, items = Item[])
+    q = checkout_offer(it, target, branch, ctrl, kind, mkcmd, say; picked, items)
+    q === nothing || return q
+    session_in!(it, target, branch, ctrl, kind, mkcmd)
+end
+
+"""Open the item's session in `target`, on whatever branch it is on, and touch
+the item: the unconditional half of [`item_session!`](@ref), and what its
+question's answers come back to."""
+function session_in!(it::Item, target::AbstractString, branch::AbstractString,
+                     ctrl, kind::Symbol, mkcmd)
     # What was on top before, and not how tall the stack was: a pane *replaces*
     # the place it was opened from, so the depth can be the same on both sides
     # of a session that opened perfectly well.
@@ -387,6 +415,72 @@ function item_session!(it::Item, target::AbstractString, branch::AbstractString,
     # does no reading at all.
     (!isempty(ctrl.stack) && last(ctrl.stack) !== was) && touch!(it.url)
     r
+end
+
+"""Ask whether to check the pull request out where its session is about to
+open, when the copy is on some other branch - or `nothing`, when there is
+nothing to ask: no branch, the right branch already, or a session of this
+kind already on this item and not `picked` afresh.
+
+The question shows what is checked out there before anything is done to it,
+which is the look `t` used to skip: the branch the copy is on and, when it is
+another item's, whose ([`branch_owner`](@ref)) - that is a copy that was
+*reused*, and the thing to do is more often `w` than `y`; then `git status`
+([`status_preview`](@ref)), since a changed file is what a checkout trips on
+and what would be carried across. Three answers, each a key reached for on
+purpose: `y` runs `gh pr checkout` there and goes in
+([`checkout_session!`](@ref)); `n` goes in as it is, which is the scratch copy
+an agent was left in; `w` opens the chooser, which is where a reused copy is
+given up. Anything else is no shell at all.
+
+Blocks the browser for the fetch under `y`, the way `p` does for its base;
+the pane opens when it lands.
+"""
+function checkout_offer(it::Item, target::AbstractString, wbranch::AbstractString,
+                        ctrl, kind::Symbol, mkcmd, say; picked::Bool, items)
+    mux_bin() === nothing && return nothing
+    branch = pr_branch(it)
+    (isempty(branch) || wbranch == branch) && return nothing
+    found = mux_find(target, kind)
+    (picked || found === nothing || found.item != it.ref) || return nothing
+    name = basename(rstrip(String(target), '/'))
+    owner = branch_owner(it, wbranch, items)
+    on = isempty(wbranch) ? string(name, " is detached") :
+         string(name, " is on ", wbranch,
+                owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
+    notes = vcat([on], status_preview(target),
+                 [string("y runs gh pr checkout ", it.number, " there")])
+    push_view!(ctrl, ConfirmView(
+        string("Check out ", branch, " in ", name, "?"), notes,
+        ["yY" => () -> say(checkout_session!(it, target, wbranch, ctrl, kind, mkcmd)),
+         "nN" => () -> say(session_in!(it, target, wbranch, ctrl, kind, mkcmd)),
+         "wW" => () -> say(ask_checkout(it, ctrl, kind, mkcmd, say; items))];
+        hint = "y checks it out \u00b7 n goes in as it is \u00b7 w another place \u00b7 esc cancels"))
+    ""
+end
+
+"""`y` to the question above: check the pull request out in `target`, then open
+the session there.
+
+A checkout that fails still opens the session, on the branch the copy was on,
+with gh's complaint ahead of the pane's own report: a shell is where the file
+in the way gets dealt with, and refusing the shell for it would leave nowhere
+to. A `T` failing the same way is an agent told nothing about it - the status
+line says, and the agent reads its branch off its own prompt.
+"""
+function checkout_session!(it::Item, target::AbstractString, wbranch::AbstractString,
+                           ctrl, kind::Symbol, mkcmd)
+    branch = pr_branch(it)
+    try
+        checkout_pr!(target, it.url)
+    catch e
+        e isa GitError || rethrow()
+        r = session_in!(it, target, wbranch, ctrl, kind, mkcmd)
+        return string("could not check out ", branch, ": ", oneline(first(e.msg, 120)),
+                      r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
+    end
+    r = session_in!(it, target, branch, ctrl, kind, mkcmd)
+    r isa String ? string("checked out ", branch, " \u00b7 ", r) : r
 end
 
 """One line for a checkout, in the list of places this item could be worked on.
@@ -425,7 +519,7 @@ reached when neither the branch nor a running session said where the work is,
 and picking the main checkout by default is exactly the guess that made the
 answer wrong often enough to be worth asking about.
 """
-function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say)
+function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[])
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
@@ -438,12 +532,12 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say)
         opts,
         p -> begin
             if isempty(String(p))
-                say(ask_worktree_for(it, ctrl, kind, mkcmd, say))
+                say(ask_worktree_for(it, ctrl, kind, mkcmd, say; items))
             else
                 i = findfirst(w -> w.path == p, ws)
                 say(item_session!(it, String(p),
                                   i === nothing ? "" : ws[i].branch,
-                                  ctrl, kind, mkcmd))
+                                  ctrl, kind, mkcmd, say; picked = true, items))
             end
         end))
     ""
@@ -461,7 +555,7 @@ worktree rather than an error, which is what makes typing a path a way of
 reaching one that the list drew off the bottom.
 """
 function ask_worktree_for(it::Item, ctrl, kind::Symbol, mkcmd, say;
-                          seed = "", note = "")
+                          seed = "", note = "", items = Item[])
     repo = repo_path(it.repo)
     repo === nothing && return "no local checkout registered for " * it.repo
     branch = pr_branch(it)
@@ -472,36 +566,50 @@ function ask_worktree_for(it::Item, ctrl, kind::Symbol, mkcmd, say;
         isempty(note) ? string("where to check ",
                                isempty(branch) ? "it" : branch,
                                " out · ", it.repo, " is at ", repo) : note,
-        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at)); initial = dest))
+        at -> say(make_checkout!(it, ctrl, kind, mkcmd, say, at; items)); initial = dest))
     ""
 end
 
 """Make the place the prompt named, and open the session there.
 
+A branch this repository has is checked out as a worktree of it
+(`add_worktree!`); one it has never had - a fork's, before anything fetched
+it - is made by `gh` in a detached worktree (`add_worktree_pr!`), which is
+what a pull request from a fork always needed and this used to refuse with
+`invalid reference`.
+
 Failure re-opens the prompt with what was typed still in it and git's own
 complaint above it: every way this fails is a path that wants correcting - the
 directory exists, its parent does not, the branch is checked out somewhere else.
 """
-function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractString)
+function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractString;
+                        items = Item[])
     repo = repo_path(it.repo)
     repo === nothing && return "no local checkout registered for " * it.repo
     want = wtkey(abspath(expanduser(String(at))))
     for w in worktrees(repo)
         wtkey(w.path) == want &&
-            return item_session!(it, w.path, w.branch, ctrl, kind, mkcmd)
+            return item_session!(it, w.path, w.branch, ctrl, kind, mkcmd, say;
+                                 picked = true, items)
     end
     branch = pr_branch(it)
     isempty(branch) &&
         return string(it.ref, " has no branch to check out · pick a worktree that exists")
     dest = try
-        add_worktree!(repo, branch, at)
+        if has_rev(repo, "refs/heads/" * branch)
+            add_worktree!(repo, branch, at)
+        elseif it.is_pr
+            add_worktree_pr!(repo, it.url, at)
+        else
+            return string("no branch ", branch, " here to check out")
+        end
     catch e
         e isa GitError || rethrow()
         ask_worktree_for(it, ctrl, kind, mkcmd, say;
-                         seed = at, note = oneline(first(sprint(showerror, e), 200)))
+                         seed = at, note = oneline(first(sprint(showerror, e), 200)), items)
         return ""
     end
-    r = item_session!(it, dest, branch, ctrl, kind, mkcmd)
+    r = session_in!(it, dest, branch, ctrl, kind, mkcmd)
     r isa String ? string("made ", dest, " · ", r) : r
 end
 
@@ -636,8 +744,8 @@ here would be a second, staler copy of what it can see - and a system prompt
 survives `/clear`, so a stale copy would outlive every correction made from
 inside.
 """
-function open_agent(it::Item, ctrl, say = _ -> nothing)
-    enter_session(it, ctrl, :agent, (_, _) -> agent_cmd(), say)
+function open_agent(it::Item, ctrl, say = _ -> nothing; items = Item[])
+    enter_session(it, ctrl, :agent, (_, _) -> agent_cmd(), say; items)
 end
 
 """Open a shell on this item's checkout, in its worktree's session, and show it.
@@ -645,5 +753,5 @@ end
 Leaving the pane is not ending it: come back to the same checkout and the same
 shell is still there, with whatever was half-typed still on the line.
 """
-open_terminal(it::Item, ctrl, say = _ -> nothing) =
-    enter_session(it, ctrl, :shell, (_, _) -> get(ENV, "SHELL", "/bin/sh"), say)
+open_terminal(it::Item, ctrl, say = _ -> nothing; items = Item[]) =
+    enter_session(it, ctrl, :shell, (_, _) -> get(ENV, "SHELL", "/bin/sh"), say; items)

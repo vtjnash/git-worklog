@@ -201,6 +201,230 @@ end
     end
 end
 
+@testset "t looks at the branch before it opens, and offers the checkout" begin
+    # A copy on some other branch is where a session used to open without a
+    # word. Now the branch is looked at first: when the place is new to the
+    # item - started, taken over, or picked by hand - the question says what
+    # is checked out there and offers `gh pr checkout`; and a copy that has
+    # been reused for another item is not this item's place any more.
+    items = W.loaditems()
+    shown = W.BState(items, "worklog")
+    pr = fixture_item("yours, open, with a branch and labels")
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    write(joinpath(main, "a.txt"), "one\n")
+    W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
+    # Two more pull requests of the same repository, on branches of their own:
+    # one to reuse the copy for, one from a fork whose branch is nowhere here.
+    pr2 = W.Item(url = "https://example.invalid/o/wt/pull/21", ref = "wt#21",
+                 repo = pr.repo, number = 21, title = "another", branch = "jn/other")
+    pr3 = W.Item(url = "https://example.invalid/o/wt/pull/22", ref = "wt#22",
+                 repo = pr.repo, number = 22, title = "from a fork", branch = "them/theirs")
+    known = vcat(items, [pr2, pr3])
+
+    # A `gh` that checks out whichever branch `want` names, in the directory
+    # it is run in, and writes down what it was asked - or refuses, with git's
+    # own words for a changed file in the way, while `fail` exists.
+    bin = joinpath(root, "bin"); mkpath(bin)
+    log = joinpath(root, "gh.log"); want = joinpath(root, "want"); fail = joinpath(root, "fail")
+    write(joinpath(bin, "gh"),
+          string("#!/bin/sh\nprintf '%s\\n' \"\$@\" > ", log, "\n",
+                 "[ \"\$1 \$2\" = 'pr checkout' ] || exit 2\n",
+                 "if [ -e ", fail, " ]; then echo 'error: Your local changes would be overwritten' >&2; exit 1; fi\n",
+                 "exec git checkout -q -B \"\$(cat ", want, ")\"\n"))
+    chmod(joinpath(bin, "gh"), 0o755)
+    asked() = isfile(log) ? split(read(log, String), '\n'; keepempty = false) : String[]
+
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
+    write(W.localfile(), "")
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, shown)
+    said = Ref{Any}(nothing); say = x -> (said[] = x)
+    sleep120 = (_, _) -> "sleep 120"
+    top() = last(ctrl.stack)
+    # The dialogs pop themselves by identity in the loop; here the loop is
+    # this test, so what a key left on top is taken off by hand.
+    drop!(v) = W.pop_view!(ctrl, v)
+    try
+        W.register_repo!(pr.repo, main)
+        write(want, pr.branch)
+
+        # Nothing to ask without a branch, or on the branch already.
+        issue = W.Item(url = "https://example.invalid/i/9", ref = "wt#9",
+                       repo = pr.repo, number = 9, title = "an issue", is_pr = false)
+        @test W.checkout_offer(issue, main, "master", ctrl, :shell, sleep120, say;
+                               picked = true, items = known) === nothing
+        @test W.checkout_offer(pr, main, pr.branch, ctrl, :shell, sleep120, say;
+                               picked = true, items = known) === nothing
+        @test top() === shown
+
+        if W.mux_bin() === nothing
+            @info "no tmux; skipping the checkout offer"
+        else
+            # Not `withenv` with a block: a closure over this many `@test`s
+            # took the compiler a minute, and the same lines at this level
+            # take it a second.
+            keptpath = get(ENV, "PATH", "")
+            ENV["PATH"] = string(bin, ":", keptpath)
+            try
+                # Rule 3 asks which copy; picking the main checkout, which is
+                # on master, asks the second question rather than opening on
+                # master. The question shows the branch and `git status`.
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1
+                W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top()
+                @test cv isa W.ConfirmView
+                @test cv.title == string("Check out ", pr.branch, " in main?")
+                @test cv.notes[1] == "main is on master"
+                @test "clean" in cv.notes
+                @test occursin(string("gh pr checkout ", pr.number), cv.notes[end])
+                @test occursin("w another place", cv.hint)
+                for (w, h) in ((80, 24), (165, 50))
+                    ls = split(W.render(cv, w, h), "\n")
+                    @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                end
+                @test isempty(asked())
+                # Anything but the three named keys is no shell at all.
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+                @test top() === shown && said[] in (nothing, "")
+                @test !any(r -> r.item == pr.ref, W.mux_list())
+
+                # A changed file is on the question, since it is what a
+                # checkout trips on. `n` goes in as it is: a shell on master,
+                # tagged with the item, and nothing run.
+                write(joinpath(main, "a.txt"), "two\n")
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test any(n -> occursin("M a.txt", n), cv.notes)
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test occursin("started", string(said[]))
+                @test isempty(asked())
+                @test any(r -> r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main),
+                          W.mux_list())
+                drop!(top())
+                W.git(main, "checkout", "--quiet", "--", "a.txt")
+
+                # Going back to that session is not asked again: `n` was the
+                # answer, and rule 2 finds the session without a question.
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r)
+                @test top() isa W.PaneView && said[] === nothing
+                drop!(top())
+                # But an agent there is a session being started, and is asked.
+                @test W.enter_session(pr, ctrl, :agent, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+
+                # The copy is reused: a `gh pr checkout` in that shell put
+                # another pull request's branch under it. With the list to
+                # join through, the session's tag no longer places the item
+                # and `t` asks again; without it the old answer stands.
+                W.git(main, "checkout", "--quiet", "-b", pr2.branch)
+                t, b, ask = W.item_worktree(pr; items = known)
+                @test W.wtkey(t) == W.wtkey(main) && ask
+                t, b, ask = W.item_worktree(pr)
+                @test W.wtkey(t) == W.wtkey(main) && b == pr2.branch && !ask
+                @test W.item_checkout(pr; items = known) == W.item_worktree(pr; items = known)[1:2]
+                # Picking it anyway says whose it is now, and `w` is the way
+                # to another place.
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
+                @test W.handle!(cv, Int('w'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.ChooseView
+                drop!(top())
+
+                # `y` runs the checkout there and goes in: the copy is on the
+                # branch, the session is this item's, and the report says both.
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test asked() == ["pr", "checkout", pr.url]
+                @test occursin("checked out", string(said[])) && occursin("back in", string(said[]))
+                @test first(W.worktrees(main)).branch == pr.branch
+                drop!(top())
+                # And now rule 1 answers, with nothing to ask.
+                t, b, ask = W.item_worktree(pr; items = known)
+                @test W.wtkey(t) == W.wtkey(main) && b == pr.branch && !ask
+                rm(log)
+
+                # Taking the session over for another item asks the same
+                # question - a checkout that fails still opens the shell,
+                # since the shell is where the file in the way gets dealt
+                # with, and gh's words lead the report.
+                @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                @test occursin(string("#", pr.number), W.astrip(ch.options[1][1]))
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                touch(fail); said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test startswith(string(said[]), string("could not check out ", pr2.branch))
+                @test occursin("local changes", string(said[]))
+                @test occursin("was on " * pr.ref, string(said[]))
+                @test first(W.worktrees(main)).branch == pr.branch
+                @test any(r -> r.item == pr2.ref, W.mux_list())
+                drop!(top())
+                rm(fail)
+
+                # A new worktree for a branch this repository has never had:
+                # made detached and checked out by gh, and taken away again
+                # when gh refuses - the prompt comes back with why.
+                dest = joinpath(root, "main-them-theirs")
+                write(want, pr3.branch)
+                touch(fail)
+                @test W.make_checkout!(pr3, ctrl, :shell, sleep120, say, dest; items = known) == ""
+                pv = top(); @test pv isa W.PromptView
+                @test occursin("local changes", pv.note) && W.text(pv) == dest
+                @test !isdir(dest)
+                @test length(W.worktrees(main)) == 1
+                drop!(pv)
+                rm(fail)
+                r = W.make_checkout!(pr3, ctrl, :shell, sleep120, say, dest; items = known)
+                @test r isa String && occursin("made", r) && occursin("started", r)
+                @test top() isa W.PaneView
+                @test asked() == ["pr", "checkout", pr3.url]
+                ws = Dict(w.path => w for w in W.worktrees(main))
+                @test haskey(ws, realpath(dest)) && ws[realpath(dest)].branch == pr3.branch
+                drop!(top())
+                # A branch that is here is still git's to check out, not gh's.
+                rm(log)
+                W.git(main, "branch", "--quiet", "local-only", "master")
+                pr4 = W.Item(url = "https://example.invalid/o/wt/pull/23", ref = "wt#23",
+                             repo = pr.repo, number = 23, title = "local", branch = "local-only")
+                dest4 = joinpath(root, "main-local-only")
+                r = W.make_checkout!(pr4, ctrl, :shell, sleep120, say, dest4; items = known)
+                @test r isa String && occursin("made", r)
+                @test isempty(asked())
+                drop!(top())
+            finally
+                ENV["PATH"] = keptpath
+            end
+            for r in W.mux_list()
+                r.item in (pr.ref, pr2.ref, pr3.ref, "wt#23") && W.mux_kill(r.name)
+            end
+        end
+    finally
+        W.LOCAL[] = keept
+        while top() !== shown
+            pop!(ctrl.stack)
+        end
+    end
+end
+
 @testset "worktrees, with the sessions folded in" begin
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true

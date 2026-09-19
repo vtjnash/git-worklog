@@ -385,24 +385,26 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     elseif k == Int('e')
         at = edit_target(st, iw)
-        retry_edit = () -> (rr = open_editor(it, at; mode = st.mode);
+        retry_edit = () -> (rr = open_editor(it, at; mode = st.mode, items = st.all);
                             st.status = rr isa String ? rr : "")
-        r = open_editor(it, at; mode = st.mode)
+        r = open_editor(it, at; mode = st.mode, items = st.all)
         r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
         return :ok
     elseif k == Int('t')
         # `say` and not the return value alone: `t` may have to ask which
-        # checkout, and the answer to that arrives long after this call has
-        # returned. Both routes report through the same line.
+        # checkout, or whether to check the branch out there, and the answer
+        # to that arrives long after this call has returned. Both routes
+        # report through the same line. `st.all` is for the second question:
+        # which item's branch a copy has been reused for.
         say = rr -> (st.status = rr isa String ? rr : "")
-        retry_term = () -> say(open_terminal(it, ctrl, say))
-        r = open_terminal(it, ctrl, say)
+        retry_term = () -> say(open_terminal(it, ctrl, say; items = st.all))
+        r = open_terminal(it, ctrl, say; items = st.all)
         r === :needs_repo ? needs_repo(retry_term) : say(r)
         return :ok
     elseif k == Int('T')
         say = rr -> (st.status = rr isa String ? rr : "")
-        retry_agent = () -> say(open_agent(it, ctrl, say))
-        r = open_agent(it, ctrl, say)
+        retry_agent = () -> say(open_agent(it, ctrl, say; items = st.all))
+        r = open_agent(it, ctrl, say; items = st.all)
         r === :needs_repo ? needs_repo(retry_agent) : say(r)
         return :ok
     elseif k == Int('v')

@@ -270,6 +270,72 @@ end
 have_commit(path, sha) =
     try; git(path, "cat-file", "-e", string(sha, "^{commit}")); true; catch; false; end
 
+"""Check the pull request out in `path`, the way `gh pr checkout` does it.
+
+`gh` rather than `git`, because the branch of a pull request from a fork is
+on no remote this checkout has: `refs/pull/N/head` is on the project's
+remote, and gh fetches it into a branch of the head's name and points that
+branch's upstream at the fork, which is what `git push` from it needs. For a
+branch of the project's own it is the tracking checkout git would have made.
+The url and not the number, so which repository is not left to gh to infer
+from the remotes - a checkout of somebody else's project has two.
+
+Throws `GitError` with what gh said, since every way this fails - a changed
+file the branch would overwrite, no network, no `gh` - is a thing to show in
+its own words. Blocks for the fetch, as `ensure_base!` does for `p`.
+"""
+function checkout_pr!(path::AbstractString, url::AbstractString)
+    out, err = IOBuffer(), IOBuffer()
+    cmd = addenv(Cmd(`gh pr checkout $url`; dir = String(path)), "LC_ALL" => "C")
+    try
+        run(pipeline(cmd; stdout = out, stderr = err))
+    catch e
+        e isa Base.IOError && throw(GitError("could not run gh: " * e.msg))
+        msg = strip(String(take!(err)))
+        throw(GitError(isempty(msg) ? "gh pr checkout failed" : msg))
+    end
+    nothing
+end
+
+"""A new worktree at `at` with the pull request checked out in it, for a branch
+this repository has never had - a fork's, before anything fetched it.
+
+`add_worktree!` wants a branch that is here. What is always here is `HEAD`, so
+the worktree is made detached on it and `checkout_pr!` runs inside, which
+makes the branch and moves onto it. When that fails the worktree is taken away
+again, so a failure leaves git's complaint and no directory to explain.
+"""
+function add_worktree_pr!(path::AbstractString, url::AbstractString, at::AbstractString)
+    dest = abspath(expanduser(String(at)))
+    git(path, "worktree", "add", "--quiet", "--detach", dest)
+    try
+        checkout_pr!(dest, url)
+    catch
+        try git(path, "worktree", "remove", "--force", dest) catch end
+        rethrow()
+    end
+    try realpath(dest) catch; dest end
+end
+
+"""What `git status` says about `path`, short, for a question about switching
+it: the changed files, up to `limit` of them and a count of the rest, or
+`clean`. Untracked files are left out for `changes`'s reason - a build tree is
+full of them - and a status that cannot be read is one row saying why.
+"""
+function status_preview(path::AbstractString; limit::Int = 8)
+    out = try
+        git(path, "--no-optional-locks", "status", "--short", "--untracked-files=no")
+    catch e
+        e isa GitError || rethrow()
+        return [string("git status: ", oneline(e.msg))]
+    end
+    ls = String[String(l) for l in split(out, '\n'; keepempty = false)]
+    isempty(ls) && return ["clean"]
+    length(ls) <= limit && return ls
+    vcat(ls[1:limit], [string("\u2026 and ", length(ls) - limit, " more")])
+end
+
+
 """Which remote points at `repo`, or `origin` when none does.
 
 A checkout of somebody else's project has two, and which one is called `origin`

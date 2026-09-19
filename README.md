@@ -117,7 +117,7 @@ GitHub.**
 | `w` | cycle the order: when it moved · that or when you acted · when you acted · url. Each view opens in the one made for it: the firehose by when it moved, my work by the later of the two clocks, the backlog by url |
 | `i` | import an item by url; lands unread |
 | `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
-| `t` `T` `"` | a shell · an agent on the item's worktree, asking which checkout when nothing says - each row with the worktree list's `tT` marks and the item those sessions are on · the worktree list |
+| `t` `T` `"` | a shell · an agent on the item's worktree, asking which checkout when nothing says - each row with the worktree list's `tT` marks and the item those sessions are on - and, when the copy is on some other branch, whether to `gh pr checkout` there first: the question shows the branch, whose it is, and `git status`; `y` checks out, `n` goes in as it is, `w` picks another place. Asked when the place is new to the item, not on the way back to its own session; a copy since checked out on another item's branch is not its place any more · the worktree list |
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
 | `q` | quit; asks first, and about an unsent draft review if there is one |
 

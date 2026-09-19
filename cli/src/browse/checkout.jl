@@ -20,6 +20,15 @@ Three questions in order, and only the last one is a guess:
    is the flag: the caller who can ask the user should, and the callers who
    cannot go there anyway.
 
+Rule 2 has one exception, and `items` is what sees it: a pull request's
+session in a copy that has since been checked out on *another* item's branch
+(`branch_owner`). The tag is from before - a `gh pr checkout` in that shell
+moved the place under it - and going back there would open the shell on the
+wrong branch without a word. The place is reused, so the item has none, and
+the rule falls through to the guess, which asks. An item with no branch of
+its own keeps its session wherever it is: the copy cannot be on the wrong
+branch when there is no right one.
+
 The flag is the whole reason this is not two functions. `t` asks and `e` does
 not, but they must not disagree about the same item - so both read the same
 first two rules here, and answering one of them for `t` (by starting a session,
@@ -27,7 +36,7 @@ which tags it) answers it for `e` on the next press.
 
 Returns `(nothing, "", false)` when the repo has never been registered.
 """
-function item_worktree(it::Item)
+function item_worktree(it::Item; items = Item[])
     repo = repo_path(it.repo)
     repo === nothing && return (nothing, "", false)
     branch = pr_branch(it)
@@ -43,6 +52,7 @@ function item_worktree(it::Item)
             (r.item == it.ref && !isempty(r.worktree)) || continue
             w = get(here, wtkey(r.worktree), nothing)
             w === nothing && continue
+            (!isempty(branch) && branch_owner(it, w.branch, items) !== nothing) && continue
             return (w.path, w.branch, false)
         end
     end
@@ -54,9 +64,23 @@ end
 The same answer without the flag, for the callers that have nowhere to ask
 from: an editor opens on the best guess rather than refusing to open.
 """
-function item_checkout(it::Item)
-    target, branch, _ = item_worktree(it)
+function item_checkout(it::Item; items = Item[])
+    target, branch, _ = item_worktree(it; items)
     (target, branch)
+end
+
+"""The other item whose branch this is, or `nothing`.
+
+What says a checkout has been reused: the branch under a worktree is some
+other pull request's, or an adopted branch's, in the same repository. Joined
+through `branch_index` over the list the browser has, which is why it is an
+argument - loading the corpus for one key press is not the price of a look.
+An empty list sees nothing, which is the old answer.
+"""
+function branch_owner(it::Item, branch::AbstractString, items)
+    (isempty(branch) || isempty(items)) && return nothing
+    o = get(branch_index(items), (it.repo, String(branch)), nothing)
+    (o === nothing || o.url == it.url) ? nothing : o
 end
 
 """This pull request's head branch, or `""` when it has none.

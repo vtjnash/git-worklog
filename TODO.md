@@ -95,24 +95,25 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       rows that belong to a node without being its body, which changes what a
       `Row` is. Decide which before starting.
 - [ ] **Quick actions on the checkout.** Whether the browser should run
-      the git and `gh` commands that today mean `t` and typing: `gh pr
-      checkout N` (which is what a pull request from a fork needs - the
-      pane now names the fork, and `add_worktree!` is `git worktree add
-      <dest> <branch>`, which only works for a branch that is already here),
-      `git rebase <remote>/<base>` (`ensure_base!` already fetches the
-      base for `p`; `mergeable  behind master` on the pane is the row
-      that would want it), `git push --force-with-lease` after it, `gh pr
-      ready`/`--undo`, re-running a failed check. Decide: **where** - a
-      key opening a picker the way `'` does (the pane's rows are not a
-      candidate: they are a readout, see DESIGN's decisions), or `t` opened
-      with the command typed and not sent, which is the one that leaves a conflict
-      in the shell where it has to be resolved anyway; **which case** - the
-      rule is lowercase looks or changes this machine and uppercase reaches
-      GitHub, and a rebase is the first, a push the second, a checkout of a
-      fork's branch both; **how it reports** - the status line is one row,
-      and a rebase that stops is not one row. The worktree list (`"`) is
-      the other candidate, since a checkout is a fact about a worktree
-      and not about an item.
+      the git and `gh` commands that today mean `t` and typing. ~~`gh pr
+      checkout N`~~ - done 2026-09-19, as the question `t`/`T` asks on a
+      copy that is on some other branch, and as what makes a new worktree
+      for a branch this repository has never had; the checkout that fails
+      opens the shell anyway with gh's words on the status line, which is
+      the "leaves the conflict in the shell" answer. Still open: `git rebase
+      <remote>/<base>` (`ensure_base!` already fetches the base for `p`;
+      `mergeable  behind master` on the pane is the row that would want it),
+      `git push --force-with-lease` after it, `gh pr ready`/`--undo`,
+      re-running a failed check. Decide: **where** - a key opening a picker
+      the way `'` does (the pane's rows are not a candidate: they are a
+      readout, see DESIGN's decisions), or `t` opened with the command typed
+      and not sent, which is the one that leaves a conflict in the shell
+      where it has to be resolved anyway; **which case** - the rule is
+      lowercase looks or changes this machine and uppercase reaches GitHub,
+      and a rebase is the first, a push the second; **how it reports** - the
+      status line is one row, and a rebase that stops is not one row. The
+      worktree list (`"`) is the other candidate, since a checkout is a fact
+      about a worktree and not about an item.
 - [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
       What this program calls *read* is what GitHub's inbox calls **done**
       - a thread put away that comes back when it moves - and the sync
@@ -264,6 +265,11 @@ through a TTY. Strike through rather than delete when one answers.
       not), and the status line off the report when it lands.
 - [ ] `p` against a rebase whose base moved, network and arithmetic at once:
       needs a checkout of a repository whose base moves.
+- [ ] `y` on the checkout question against GitHub itself: `gh pr checkout
+      <url>` in a copy of julia on master, a fork's branch into a fresh
+      detached worktree (`add_worktree_pr!`), and the refusal with a changed
+      file in the way, which is to open the shell anyway with gh's words on
+      the status line. The suite drives all three through a `gh` of its own.
 - [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered
       every time.
 - [ ] Whether owning the mouse is the right trade, or `m` is reached for
