@@ -387,6 +387,19 @@ end
                 @test W.handle!(cv, Int('w'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.ChooseView
                 drop!(top())
+                # `n` here is an answer about the place as it is, not for
+                # good: the copy is still another item's, so the next `t`
+                # asks again rather than opening on their branch on the
+                # strength of an old answer.
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("back in", string(said[]))
+                drop!(top())
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                @test top() isa W.ChooseView
+                drop!(top())
 
                 # `y` runs the checkout there and goes in: the copy is on the
                 # branch, the session is this item's, and the report says both.
@@ -425,6 +438,59 @@ end
                 @test any(r -> r.item == pr2.ref, W.mux_list())
                 drop!(top())
                 rm(fail)
+
+                # A session is keyed to its worktree, and taking it over moves
+                # it between items; each move onto a copy that is on the other
+                # item's branch is asked about, in either direction. Taking it
+                # back while the copy is still on this item's branch is not:
+                # rule 1 has the answer, and the shell is re-pointed with a word.
+                # The agent in main from before stays pr's throughout: a
+                # session is its worktree *and* its kind.
+                shell_of() = [r.item for r in W.mux_list()
+                              if W.wtkey(r.worktree) == W.wtkey(main) && r.kind == "shell"]
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r) && occursin("was on " * pr2.ref, r)
+                @test top() isa W.PaneView && said[] === nothing
+                @test shell_of() == [pr.ref]
+                @test any(r -> r.item == pr.ref && r.kind == "agent", W.mux_list())
+                drop!(top())
+                # pr2 takes it, and this time the checkout lands.
+                write(want, pr2.branch)
+                @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("checked out " * pr2.branch, string(said[]))
+                @test first(W.worktrees(main)).branch == pr2.branch
+                @test shell_of() == [pr2.ref]
+                drop!(top())
+                # Back to pr: the copy is on pr2's branch now, so it is asked.
+                write(want, pr.branch)
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                @test occursin(string("#", pr2.number), W.astrip(ch.options[1][1]))
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("checked out " * pr.branch, string(said[]))
+                @test first(W.worktrees(main)).branch == pr.branch
+                @test shell_of() == [pr.ref]
+                drop!(top())
+                # And pr2 again: the third move is asked like the first two.
+                @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+                @test top() === shown
+                @test shell_of() == [pr.ref]
+                rm(log)
 
                 # A new worktree for a branch this repository has never had:
                 # made detached and checked out by gh, and taken away again

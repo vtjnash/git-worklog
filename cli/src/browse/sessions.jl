@@ -386,7 +386,12 @@ item: nothing of the item's running there yet, or a copy `picked` by hand
 from the chooser or typed as a path. Going back to a copy where the item
 already has a session is not - it was asked when that opened, and `n` there
 was an answer, not a thing to say again on every `^]q`, or for the other
-kind.
+kind. An answer is about the place *as it was*, though, and is not made to
+outlive it: a copy that has since been checked out on another item's branch
+is not the item's place any more (rule 2's exception), so the next `t` goes
+back through the chooser and the question, whatever was answered before.
+Things move between one session and the next, and a question is cheaper
+than a shell on the wrong branch.
 
 The question reports through `say`, long after this has returned `""`; the
 route that had nothing to ask reports through the return value, as before.
