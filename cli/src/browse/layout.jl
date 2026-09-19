@@ -139,6 +139,14 @@ hlrow(s::AbstractString, bg::AbstractString) =
     isempty(bg) ? String(s) :
     string(bg, rearm(s, bg, (THEME.reset, THEME.no_bg)), THEME.reset)
 
+"""Dim a whole row, re-arming after every reset - the list while the keys are
+on the reading side. The weight and the cursor stay under it: unread is still
+bold and the selected row still has its background, only quieter, so the list
+says the same things while saying that it is not where the keys go."""
+dimrow(s::AbstractString) =
+    isempty(THEME.dim) ? String(s) :
+    string(THEME.dim, rearm(s, THEME.dim, (THEME.reset, THEME.dim_off)), THEME.reset)
+
 """Lay a background over given ranges of a row's *plain* characters.
 
 The row carries escapes, so a character offset in the text it prints is not an

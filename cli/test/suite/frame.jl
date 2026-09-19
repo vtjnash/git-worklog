@@ -631,10 +631,14 @@ end
           !occursin(W.THEME.cursor_bg, row(read_))
     @test W.awidth(first(l for l in lines if occursin(W.THEME.cursor_bg, l))) == 150
     # And it stays lit with the keys on the reading side: it says which item
-    # is being read, and the border says which side has the keys.
+    # is being read, and the border says which side has the keys - as does the
+    # whole list going dim, weight and cursor still under it.
     st.focus = :detail
     lines = split(W.render(st, 150, 40), "\n")
     @test occursin(W.THEME.cursor_bg, row(st.items[st.sel]))
+    @test occursin(W.THEME.dim, row(read_)) && occursin(W.THEME.dim, row(unread))
+    @test occursin(W.THEME.bold, row(unread)) && !occursin(W.THEME.bold, row(read_))
+    @test occursin(W.THEME.dim, row(st.items[st.sel]))
     st.focus = :list
     lines = split(W.render(st, 150, 40), "\n")
     # The import row keeps its dim, being the one row that is not an item.
