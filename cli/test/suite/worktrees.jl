@@ -410,11 +410,52 @@ end
                 @test r isa String && occursin("made", r)
                 @test isempty(asked())
                 drop!(top())
+
+                # Unless it is only a branch of the same *name*: a fork's pull
+                # request from its `shared` is not the `shared` here, and the
+                # head sha says so. One whose head is on the branch here is.
+                W.git(main, "branch", "--quiet", "shared", "master")
+                tip = strip(W.git(main, "rev-parse", "shared"))
+                theirs = W.Item(url = "https://example.invalid/o/wt/pull/24", ref = "wt#24",
+                                repo = pr.repo, number = 24, title = "theirs", branch = "shared",
+                                head = "0123456789012345678901234567890123456789")
+                ours = W.Item(url = "https://example.invalid/o/wt/pull/25", ref = "wt#25",
+                              repo = pr.repo, number = 25, title = "ours", branch = "shared",
+                              head = tip)
+                @test !W.pr_branch_here(main, theirs, "shared")
+                @test W.pr_branch_here(main, ours, "shared")
+                @test W.pr_branch_here(main, pr4, "local-only")     # no sha: the name
+                write(want, "shared")
+                dest5 = joinpath(root, "main-shared")
+                r = W.make_checkout!(theirs, ctrl, :shell, sleep120, say, dest5; items = known)
+                @test r isa String && occursin("made", r)
+                @test asked() == ["pr", "checkout", theirs.url]
+                drop!(top())
+                rm(log)
+
+                # An adopted branch is nobody's to fetch: the question names
+                # `git checkout`, and `y` runs it, with gh never asked.
+                W.git(main, "branch", "--quiet", "mine", "master")
+                mine = W.local_item(W.localurl(pr.repo, "mine"))
+                @test !mine.is_pr && mine.branch == "mine"
+                @test W.enter_session(mine, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == "Check out mine in main?"
+                @test cv.notes[end] == "y runs git checkout mine there"
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test occursin("checked out mine", string(said[]))
+                @test first(W.worktrees(main)).branch == "mine"
+                @test isempty(asked())
+                drop!(top())
             finally
                 ENV["PATH"] = keptpath
             end
             for r in W.mux_list()
-                r.item in (pr.ref, pr2.ref, pr3.ref, "wt#23") && W.mux_kill(r.name)
+                startswith(r.worktree, realpath(root)) && W.mux_kill(r.name)
             end
         end
     finally

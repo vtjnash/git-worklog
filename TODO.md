@@ -267,9 +267,11 @@ through a TTY. Strike through rather than delete when one answers.
       needs a checkout of a repository whose base moves.
 - [ ] `y` on the checkout question against GitHub itself: `gh pr checkout
       <url>` in a copy of julia on master, a fork's branch into a fresh
-      detached worktree (`add_worktree_pr!`), and the refusal with a changed
+      detached worktree (`add_worktree_pr!`), a fork's pull request named
+      like a branch here (`pr_branch_here` sends it to gh; what gh does with
+      the local name in the way is its own), and the refusal with a changed
       file in the way, which is to open the shell anyway with gh's words on
-      the status line. The suite drives all three through a `gh` of its own.
+      the status line. The suite drives all of it through a `gh` of its own.
 - [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered
       every time.
 - [ ] Whether owning the mouse is the right trade, or `m` is reached for

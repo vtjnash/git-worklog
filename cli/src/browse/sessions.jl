@@ -428,10 +428,11 @@ another item's, whose ([`branch_owner`](@ref)) - that is a copy that was
 *reused*, and the thing to do is more often `w` than `y`; then `git status`
 ([`status_preview`](@ref)), since a changed file is what a checkout trips on
 and what would be carried across. Three answers, each a key reached for on
-purpose: `y` runs `gh pr checkout` there and goes in
-([`checkout_session!`](@ref)); `n` goes in as it is, which is the scratch copy
-an agent was left in; `w` opens the chooser, which is where a reused copy is
-given up. Anything else is no shell at all.
+purpose: `y` checks it out there and goes in ([`checkout_session!`](@ref)) -
+`gh pr checkout` for a pull request, `git checkout` for an adopted branch,
+which is here by definition and is nobody's to fetch; `n` goes in as it is,
+which is the scratch copy an agent was left in; `w` opens the chooser, which
+is where a reused copy is given up. Anything else is no shell at all.
 
 Blocks the browser for the fetch under `y`, the way `p` does for its base;
 the pane opens when it lands.
@@ -449,30 +450,32 @@ function checkout_offer(it::Item, target::AbstractString, wbranch::AbstractStrin
          string(name, " is on ", wbranch,
                 owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
     notes = vcat([on], status_preview(target),
-                 [string("y runs gh pr checkout ", it.number, " there")])
+                 [string("y runs ", it.is_pr ? string("gh pr checkout ", it.number) :
+                                              string("git checkout ", branch), " there")])
     push_view!(ctrl, ConfirmView(
         string("Check out ", branch, " in ", name, "?"), notes,
-        ["yY" => () -> say(checkout_session!(it, target, wbranch, ctrl, kind, mkcmd)),
+        ["yY" => () -> say(checkout_session!(it, target, wbranch, branch, ctrl, kind, mkcmd)),
          "nN" => () -> say(session_in!(it, target, wbranch, ctrl, kind, mkcmd)),
          "wW" => () -> say(ask_checkout(it, ctrl, kind, mkcmd, say; items))];
         hint = "y checks it out \u00b7 n goes in as it is \u00b7 w another place \u00b7 esc cancels"))
     ""
 end
 
-"""`y` to the question above: check the pull request out in `target`, then open
-the session there.
+"""`y` to the question above: check `branch` out in `target`, then open the
+session there. `branch` is the question's, so it is not asked of GitHub a
+second time for a row from before the field existed.
 
 A checkout that fails still opens the session, on the branch the copy was on,
-with gh's complaint ahead of the pane's own report: a shell is where the file
-in the way gets dealt with, and refusing the shell for it would leave nowhere
-to. A `T` failing the same way is an agent told nothing about it - the status
-line says, and the agent reads its branch off its own prompt.
+with git's or gh's complaint ahead of the pane's own report: a shell is where
+the file in the way gets dealt with, and refusing the shell for it would leave
+nowhere to. A `T` failing the same way is an agent told nothing about it - the
+status line says, and the agent reads its branch off its own prompt.
 """
 function checkout_session!(it::Item, target::AbstractString, wbranch::AbstractString,
-                           ctrl, kind::Symbol, mkcmd)
-    branch = pr_branch(it)
+                           branch::AbstractString, ctrl, kind::Symbol, mkcmd)
     try
-        checkout_pr!(target, it.url)
+        it.is_pr ? checkout_pr!(target, it.url) :
+                   git(target, "checkout", "--quiet", branch)
     catch e
         e isa GitError || rethrow()
         r = session_in!(it, target, wbranch, ctrl, kind, mkcmd)
@@ -572,11 +575,12 @@ end
 
 """Make the place the prompt named, and open the session there.
 
-A branch this repository has is checked out as a worktree of it
-(`add_worktree!`); one it has never had - a fork's, before anything fetched
-it - is made by `gh` in a detached worktree (`add_worktree_pr!`), which is
-what a pull request from a fork always needed and this used to refuse with
-`invalid reference`.
+A branch this repository has, when it is the pull request's
+([`pr_branch_here`](@ref)), is checked out as a worktree of it
+(`add_worktree!`); one it has not - a fork's, before anything fetched it -
+is made by `gh` in a detached worktree (`add_worktree_pr!`), which is what a
+pull request from a fork always needed and this used to refuse with `invalid
+reference`. An adopted branch is here by definition, and is git's.
 
 Failure re-opens the prompt with what was typed still in it and git's own
 complaint above it: every way this fails is a path that wants correcting - the
@@ -596,7 +600,7 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     isempty(branch) &&
         return string(it.ref, " has no branch to check out · pick a worktree that exists")
     dest = try
-        if has_rev(repo, "refs/heads/" * branch)
+        if it.is_pr ? pr_branch_here(repo, it, branch) : has_rev(repo, "refs/heads/" * branch)
             add_worktree!(repo, branch, at)
         elseif it.is_pr
             add_worktree_pr!(repo, it.url, at)
@@ -611,6 +615,28 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     end
     r = session_in!(it, dest, branch, ctrl, kind, mkcmd)
     r isa String ? string("made ", dest, " · ", r) : r
+end
+
+"""Whether the `branch` this repository has - local, or on the project's
+remote, which `git worktree add` takes as a local one to make - is the pull
+request's, and not merely of the same name.
+
+Names are not distinctive: a fork's pull request is from its `master` as
+often as not, and checking the project's own `master` out under that name
+would put a worktree on the wrong branch that rule 1 then swears by. The
+head sha the lanes reported is what says: the branch here is the pull
+request's when that commit is on it - ahead of it too, since unpushed work of
+yours is still yours - and gh's fetch is the answer when it is not, or when
+the sha is not here to ask about. A row with no head sha (old, or made by a
+poll) is taken at its name, which is the old rule.
+"""
+function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
+    r = remote_for(repo, it.repo)
+    for ref in ("refs/heads/" * branch, string("refs/remotes/", r, "/", branch))
+        has_rev(repo, ref) || continue
+        (isempty(it.head) || is_ancestor(repo, it.head, ref)) && return true
+    end
+    false
 end
 
 """What to run for `T`, as a shell command line.
