@@ -260,7 +260,7 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
         i = findfirst(x -> x.url == it.url, v)
         i === nothing || (v[i] = now)
     end
-    push!(st.undos, Undo(string("note ", it.ref), () -> begin
+    push!(st.undos, Undo(string("note ", it.ref), it.url, () -> begin
         set_fields(it.url, ["note" => isempty(before) ? nothing : before])
         set_touched(it.url, prevtouch)
     end))

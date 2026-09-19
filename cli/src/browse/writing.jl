@@ -732,6 +732,13 @@ function undo!(st::BState)
         # Every axis is membership in something an undo can put back, so the
         # list is rebuilt rather than asked whether it cares.
         refilter!(st)
+        # And the cursor goes back to the row, when the list has it: the action
+        # moved the row away - out of the list, or down it - and the cursor
+        # stayed, so the two are apart by the time `z` is pressed. A row the
+        # undo took *out* again (undoing an unarchive) is left alone: that is
+        # not a thing to go and look at, and the filter is not cleared for it.
+        i = isempty(u.url) ? nothing : findfirst(x -> x.url == u.url, st.items)
+        i === nothing || (st.sel = i)
         string("undid: ", u.what)
     catch e
         string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
@@ -777,7 +784,7 @@ function archive!(st::BState, it::Item, at::DateTime)
     end
     # The agent's bell goes with the stamp, as the woken snooze does.
     rang = was ? String[] : agent_seen!(it.url)
-    push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), () -> begin
+    push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), it.url, () -> begin
         set_archived(it.url, prev)
         woke && set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
@@ -897,7 +904,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # whether or not there was a snooze here before. The clock goes back after
     # it, not before: restoring the value writes through `set_fields`, which
     # stamps on the way past.
-    push!(st.undos, Undo(string("snooze ", it.ref), () -> begin
+    push!(st.undos, Undo(string("snooze ", it.ref), it.url, () -> begin
         set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_read(it.url, prevread)

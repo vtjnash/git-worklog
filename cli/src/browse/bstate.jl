@@ -1,16 +1,23 @@
 # What the browser is looking at, and the one step of it that can be taken
 # back. Everything below this file takes a `BState` and most of it mutates one.
 
-"""One undoable local action: what it was, and how to put it back.
+"""One undoable local action: what it was, how to put it back, and whose it was.
 
 The stack's scope is exactly the lowercase keys, and not by coincidence. A
 capital reaches GitHub, and nothing here could take that back - so if this ever
 holds one, it is the binding rule that has gone wrong, not this.
+
+`url` is the item the action was on, so that taking it back can put the cursor
+there too: an archive or a snooze moves the row out from under the cursor, and
+the undo of one puts the row back wherever the sort says, which is not where
+the cursor is now. Empty when there is no item to go back to.
 """
 struct Undo
     what::String
+    url::String
     undo::Any            # () -> Nothing
 end
+Undo(what::AbstractString, undo) = Undo(String(what), "", undo)
 
 """The browser's whole state.
 

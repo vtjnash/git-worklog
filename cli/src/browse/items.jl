@@ -98,7 +98,7 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
     # belongs in. `inbox_add!` leaves a poll's own richer entry alone.
     Events.inbox_add!([inbox_row(it, at)]; overwrite = false)
     was === nothing && add_item!(st, it)
-    push!(st.undos, Undo(string("import ", it.ref), () -> begin
+    push!(st.undos, Undo(string("import ", it.ref), u, () -> begin
         set_fields(u, ["imported" => nothing])
         set_read(u, prevread)
         # A row a poll wrote is not this import's to remove: the import found it
@@ -128,7 +128,7 @@ function adopt!(st::BState, repo, branch, at::DateTime)
     set_fields(u, ["adopted" => string(Date(at))], at)
     it = local_item(u, branchfor(repo, branch))
     add_item!(st, it)
-    push!(st.undos, Undo(string("adopt ", it.ref), () -> begin
+    push!(st.undos, Undo(string("adopt ", it.ref), u, () -> begin
         set_fields(u, ["adopted" => nothing])
         set_touched(u, prev)
         drop_item!(st, u)
@@ -149,7 +149,7 @@ function unadopt!(st::BState, repo, branch, at::DateTime)
     prev = touched_at(u)
     set_fields(u, ["adopted" => nothing], at)
     drop_item!(st, u)
-    push!(st.undos, Undo(string("release ", localref(repo, branch)), () -> begin
+    push!(st.undos, Undo(string("release ", localref(repo, branch)), u, () -> begin
         set_fields(u, ["adopted" => was])
         set_touched(u, prev)
         add_item!(st, local_item(u, branchfor(repo, branch)))

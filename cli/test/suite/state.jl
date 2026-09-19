@@ -99,6 +99,48 @@
                           write(W.localfile(), before)
     end
 
+    # The undo puts the cursor back on the row. In the list the browser opens
+    # on, `r` takes the row out and the cursor lands on its neighbour; `z`
+    # brings the row back wherever the sort puts it, which is where you want
+    # to be looking, not where the cursor happened to be left.
+    before = marks()
+    try
+        st = mkstate()
+        st.sel = findfirst(x -> x.url == fixture_item("unresolved review threads").url,
+                           st.items)
+        it = st.items[st.sel]
+        W.handle!(st, Int('r'), ctrl)
+        @test findfirst(x -> x.url == it.url, st.items) === nothing   # gone
+        st.sel = max(1, st.sel - 1)                # and the cursor wandered
+        W.handle!(st, Int('z'), ctrl)
+        @test st.items[st.sel].url == it.url
+        # Same for a row put away with `x`.
+        W.handle!(st, Int('x'), ctrl)
+        @test findfirst(x -> x.url == it.url, st.items) === nothing
+        st.sel = 1
+        W.handle!(st, Int('z'), ctrl)
+        @test st.items[st.sel].url == it.url
+        # An undo that takes the row *out* - taking back an unarchive - does
+        # not chase it: the cursor stays in the list it is in.
+        W.handle!(st, Int('x'), ctrl)
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = findfirst(x -> x.url == it.url, st.items)
+        W.handle!(st, Int('x'), ctrl)                       # back out
+        st.filters = W.DEFAULT_FILTERS(); W.refilter!(st)
+        st.sel = 1
+        W.handle!(st, Int('z'), ctrl)                       # filed again
+        @test findfirst(x -> x.url == it.url, st.items) === nothing
+        @test st.sel == 1 && st.filters.show == W.DEFAULT_FILTERS().show
+        # And one with no item goes nowhere, as before.
+        st.sel = 2
+        push!(st.undos, W.Undo("plain", () -> nothing))
+        W.handle!(st, Int('z'), ctrl)
+        @test st.sel == 2
+    finally
+        isempty(before) ? rm(W.localfile(); force = true) :
+                          write(W.localfile(), before)
+    end
+
     # The footer counts what is pending.
     st = mkstate()
     push!(st.undos, W.Undo("x", () -> nothing))

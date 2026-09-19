@@ -525,7 +525,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # And the agent's bell, which is the same kind of thing as the woken
         # snooze: a reason to be unread that the stamp cannot answer.
         rang = seen ? agent_seen!(it.url) : String[]
-        push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), () -> begin
+        push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), it.url, () -> begin
             # Raw, and with `fold`: a folded mark is no stamp and a head, and
             # that is what goes back, not the head dropped with the stamp.
             set_read_mark(it.url, prev, prevhead; fold = true)
