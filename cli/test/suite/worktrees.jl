@@ -316,10 +316,14 @@ end
                 @test r isa String && occursin("back in", r)
                 @test top() isa W.PaneView && said[] === nothing
                 drop!(top())
-                # But an agent there is a session being started, and is asked.
-                @test W.enter_session(pr, ctrl, :agent, sleep120, say; items = known) == ""
-                cv = top(); @test cv isa W.ConfirmView
-                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+                # Nor is an agent there: the question was about the place,
+                # and the shell's `n` answered it for the agent too.
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
+                @test r isa String && occursin("started", r)
+                @test top() isa W.PaneView && said[] === nothing
+                @test isempty(asked())
+                drop!(top())
 
                 # The copy is reused: a `gh pr checkout` in that shell put
                 # another pull request's branch under it. With the list to

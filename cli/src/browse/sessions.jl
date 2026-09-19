@@ -379,10 +379,11 @@ look at what is checked out there.
 `branch` is the checkout's, and when the item is a pull request on another
 one the session is about to open on the wrong branch. That is worth a
 question ([`checkout_offer`](@ref)) exactly when the place is new to the
-item: a session being started, one taken over from another item, or a copy
-`picked` by hand from the chooser or typed as a path. Going back to a session
-already on this item is not - it was asked when it opened, and `n` there was
-an answer, not a thing to say again on every `^]q`.
+item: nothing of the item's running there yet, or a copy `picked` by hand
+from the chooser or typed as a path. Going back to a copy where the item
+already has a session is not - it was asked when that opened, and `n` there
+was an answer, not a thing to say again on every `^]q`, or for the other
+kind.
 
 The question reports through `say`, long after this has returned `""`; the
 route that had nothing to ask reports through the return value, as before.
@@ -419,8 +420,11 @@ end
 
 """Ask whether to check the pull request out where its session is about to
 open, when the copy is on some other branch - or `nothing`, when there is
-nothing to ask: no branch, the right branch already, or a session of this
-kind already on this item and not `picked` afresh.
+nothing to ask: no branch, the right branch already, or a session already on
+this item in that copy and not `picked` afresh. Of either kind: the question
+is about the place, and rule 2 already says a shell lands where the item's
+agent is - `n` for the shell was the answer for the agent too, not a thing
+to ask again one key later.
 
 The question shows what is checked out there before anything is done to it,
 which is the look `t` used to skip: the branch the copy is on and, when it is
@@ -442,8 +446,8 @@ function checkout_offer(it::Item, target::AbstractString, wbranch::AbstractStrin
     mux_bin() === nothing && return nothing
     branch = pr_branch(it)
     (isempty(branch) || wbranch == branch) && return nothing
-    found = mux_find(target, kind)
-    (picked || found === nothing || found.item != it.ref) || return nothing
+    here = any(r -> r.item == it.ref && wtkey(r.worktree) == wtkey(target), mux_list())
+    (picked || !here) || return nothing
     name = basename(rstrip(String(target), '/'))
     owner = branch_owner(it, wbranch, items)
     on = isempty(wbranch) ? string(name, " is detached") :
