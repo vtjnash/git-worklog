@@ -165,7 +165,9 @@ agent` as the pane opens.
 **An agent that stopped while you were elsewhere** makes its item unread -
 `why  unread: agent`, on the list and in `wl unread` - and shows as a yellow
 `T` in the worktree list and as `waiting on you` under `running` in the item
-pane. `T` runs `claude` with `--settings cli/claude-settings.json`: a `Stop`
+pane. `T` runs `claude` with `--settings` holding the contents of
+`cli/claude-settings.json` - the JSON, not the path, since a sandboxed `claude`
+sees the worktree and its config directory and not this checkout: a `Stop`
 hook and a permission-prompt hook that ring the terminal bell, which tmux
 keeps as the window's bell flag until somebody looks. It is only that one bit
 - stopped or asking, not which - and it lives in the tmux server with the
@@ -277,7 +279,7 @@ the view. Hand-edited, both, and only ever read.
 - `[views]` - named filters for `'`.
 - `[cache]` - how long the browser trusts a cached thread, diff or merge state.
 - `[agent] command` - what `T` runs, when it is not your shell's `claude`
-  (add `--settings cli/claude-settings.json` yourself to keep the bell).
+  (add `--settings "$(cat …/cli/claude-settings.json)"` yourself to keep the bell).
 
 **Themes** name colours by role - `blocked`, `settled`, `diff_add`,
 `cursor_bg` - in words: `"bold white"`, `"black on yellow"`, `"on 236"`.

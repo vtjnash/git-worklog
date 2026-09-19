@@ -526,9 +526,10 @@ Both halves of `-ic` are load-bearing, and each was got wrong once:
   foreground process group, so `#{pane_current_command}` still says `claude`
   and not `bash`.
 
-`--settings` names [`AGENT_SETTINGS`](@ref), and it goes on the alias's line
-rather than into the user's own settings: it is only wanted under a pane, and
-`claude` run from a terminal is not to ring a bell into it every turn.
+`--settings` carries [`AGENT_SETTINGS`](@ref) - the JSON itself, not the path
+([`agent_settings`](@ref)) - and it goes on the alias's line rather than into
+the user's own settings: it is only wanted under a pane, and `claude` run from
+a terminal is not to ring a bell into it every turn.
 
 `[agent] command` in `data/config.toml` overrides the lot, and is the honest answer for anything this
 cannot guess - a wrapper script, a different agent, flags. An alias is a
@@ -540,8 +541,31 @@ use for it - so a command that is still `claude` names it itself.
 function agent_cmd()
     c = get(get(config(), "agent", Dict{String,Any}()), "command", "")
     isempty(c) || return String(c)
+    j = agent_settings()
     string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ",
-           shquote(string("claude --settings ", shquote(AGENT_SETTINGS))))
+           shquote(isempty(j) ? "claude" : string("claude --settings ", shquote(j))))
+end
+
+"""The hooks, as the one JSON string `--settings` is handed - or `""` when the
+file cannot be read, and `T` runs `claude` bare rather than not at all.
+
+Inline and not the path, because the path is not the same everywhere the
+agent runs. `claude` is as often a sandbox as a binary: one that mounts the
+item's worktree and its own config directory and nothing else, so this
+checkout is not there, and `~/.claude` is `/root/.claude` inside and
+`/home/you/.claude` outside - one name in two places, and `--settings` expands
+no `~` (measured, 2.1.277: `Settings file not found: ~/...`). A copy under
+`~/.claude/wl` would still be at two paths; a hard link would come apart at
+the next checkout, which writes a new inode. The contents have no path.
+Minified, so the command line and `ps` carry one line of it.
+"""
+function agent_settings()
+    try
+        JSON3.write(JSON3.read(read(AGENT_SETTINGS, String)))
+    catch e
+        logerror!(e, catch_backtrace(), "agent settings")
+        ""
+    end
 end
 
 """What the agent in a pane is told to do at the end of every turn: ring.
@@ -563,8 +587,9 @@ it asks `ps` for its parent's, which is `claude`'s, which is the pane's.
 `ttys001` are both under `/dev`, and `?`/`??` for none is not a character
 device, so a headless run rings nowhere and says nothing.
 
-A file and not an inline string, so what it says can be read; beside the code
-and not in `data/`, because it names nobody and changes with the program.
+A file, so what it says can be read and diffed, handed over as a string
+([`agent_settings`](@ref)); beside the code and not in `data/`, because it
+names nobody and changes with the program.
 """
 const AGENT_SETTINGS = joinpath(ROOT, "cli", "claude-settings.json")
 

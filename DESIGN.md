@@ -756,8 +756,11 @@ Each of the following returns success and the wrong answer:
   clears, control-mode or not (measured on 3.5a). `mux_list` reads it back
   as `bell`, `mux_seen!` clears it and `mux_ring!` sets it. That is the
   whole of how a `T` pane says its agent stopped: `cli/claude-settings.json`,
-  on the alias's line as `--settings`, holds a `Stop` hook and a
-  `permission_prompt` one that ring; the worktree list and the item pane
+  on the alias's line as `--settings` - **its contents, not its path**: a
+  sandboxed `claude` mounts the worktree and `~/.claude` (at `/root/.claude`
+  inside, another name outside) and not this checkout, `--settings` expands
+  no `~`, and a hard link comes apart at the next checkout - holds a `Stop`
+  hook and a `permission_prompt` one that ring; the worktree list and the item pane
   draw the bit, and `seen_of` reads it (Marks, above). No socket and no
   listener - a listener is a browser that has to be running, and the pane
   outlives it. A session is tagged with the item's url as well as its ref,

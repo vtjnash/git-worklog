@@ -229,8 +229,11 @@ merge_minutes = 10
 # different agent, a wrapper script, a command with flags. In `data/config.toml`:
 # command = "/opt/homebrew/bin/claude --continue"
 #
-# The default also passes `--settings cli/claude-settings.json`: hooks that ring
-# the pane's bell when a turn ends or a permission is asked, which is how the
-# worktree list and the item pane show an agent waiting on you (yellow `T`).
-# A command of your own that is still `claude` keeps that by naming the file:
-# command = "claude --continue --settings /path/to/git-worklog/cli/claude-settings.json"
+# The default also passes `--settings` with the contents of
+# `cli/claude-settings.json`: hooks that ring the pane's bell when a turn ends
+# or a permission is asked, which is what makes the item unread (`why  unread:
+# agent`) and the worktree list's `T` yellow. The contents and not the path,
+# since a sandboxed `claude` does not see this checkout. A command of your own
+# that is still `claude` keeps that by reading the file on the way - the shell
+# tmux runs it through is the server's own, so this is its syntax:
+# command = 'claude --continue --settings "$(cat /path/to/git-worklog/cli/claude-settings.json)"'

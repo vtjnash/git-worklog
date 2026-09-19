@@ -22,12 +22,17 @@
     end
     # And it is what the worktree list runs too, so the two cannot drift.
     @test occursin("claude", W.agent_cmd())
-    # The hooks that ring the pane's bell ride on the alias's own line, quoted
-    # once for the `-ic` shell and once more for the path inside it.
+    # The hooks that ring the pane's bell ride on the alias's own line as the
+    # JSON itself - a path is not the same inside a sandbox as outside it -
+    # quoted once for the `-ic` shell and once more for the string inside it.
     @test occursin("--settings", cmd)
     @test isfile(W.AGENT_SETTINGS)
-    @test cmd == string("'", ENV["SHELL"], "' -ic 'claude --settings '\\''",
-                        W.AGENT_SETTINGS, "'\\'''")
+    j = W.agent_settings()
+    @test startswith(j, "{") && !occursin('\n', j)
+    @test W.JSON3.read(j) == W.JSON3.read(read(W.AGENT_SETTINGS, String))
+    @test cmd == string("'", ENV["SHELL"], "' -ic ",
+                        W.shquote(string("claude --settings ", W.shquote(j))))
+    @test !occursin(W.AGENT_SETTINGS, cmd)
     # What the file says: a `Stop` and a permission prompt, each a ring, and
     # nothing that could block the turn.
     hooks = W.JSON3.read(read(W.AGENT_SETTINGS, String))[:hooks]
