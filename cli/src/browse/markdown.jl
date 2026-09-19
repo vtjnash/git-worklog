@@ -81,8 +81,8 @@ function detab(s::AbstractString, tab::Int = 8)
 end
 
 """One line of a diff, coloured by what it is - and, given `words`, the
-byte ranges of it that changed against the line it is paired with, drawn in
-the word role over the line's own colour."""
+ranges of it - string indices - that changed against the line it is paired
+with, drawn in the word role over the line's own colour."""
 function diffline(l, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
@@ -100,7 +100,7 @@ function diffline(l, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
     String(l)
 end
 
-"`l` with `on`/`off` around each of `ranges` - byte ranges into `l`, in order."
+"`l` with `on`/`off` around each of `ranges` - index ranges into `l`, in order."
 function markwords(l::AbstractString, ranges::Vector{UnitRange{Int}}, on, off)
     (isempty(ranges) || isempty(on)) && return String(l)
     io, i = IOBuffer(), firstindex(l)
@@ -130,10 +130,11 @@ end
 """
     word_marks(a, b) -> (score, ranges_a, ranges_b)
 
-How alike two lines are, 0 to 1, and the byte ranges of `a` and of `b` that
-are not common to both, by token. A score under a half is a rewrite rather
-than an edit of one line into the other, and the ranges are then empty:
-marking most of both would be noise over what the two colours already say.
+How alike two lines are, 0 to 1, and the ranges of `a` and of `b` - string
+indices into each - that are not common to both, by token. A score under a
+half is a rewrite rather than an edit of one line into the other, and the
+ranges are then empty: marking most of both would be noise over what the two
+colours already say.
 
 The likeness is the share of the *shorter* line's *words* - identifiers and
 numbers, not punctuation - that the two have in common. The shorter, so
@@ -180,14 +181,20 @@ function word_marks(a::AbstractString, b::AbstractString)
     (score, changed(ta, ina), changed(tb, inb))
 end
 
-"The byte ranges of the tokens not marked common, adjacent ones joined."
+"""The ranges of the tokens not marked common, adjacent ones joined - as
+string indices, first character to last, which is what a `SubString` takes.
+The last *byte* is not that for a token ending in `₃`: three bytes wide, and
+an index into its middle is an error at the draw. So adjacency is judged by
+the byte after, which is where the next token's offset lands."""
 function changed(ts, common)
     out = UnitRange{Int}[]
+    after = 0                   # the byte past the last range pushed
     for (k, t) in enumerate(ts)
         common[k] && continue
-        r = t.offset:(t.offset + ncodeunits(t.match) - 1)
-        (!isempty(out) && last(out[end]) + 1 == first(r)) ? (out[end] = first(out[end]):last(r)) :
+        r = t.offset:(t.offset + lastindex(t.match) - 1)
+        (!isempty(out) && after == t.offset) ? (out[end] = first(out[end]):last(r)) :
             push!(out, r)
+        after = t.offset + ncodeunits(t.match)
     end
     out
 end
@@ -621,7 +628,7 @@ function nodelines(n::Node, w::Int)
         raw = String.(split(n.raw, "\n"))
         marks = hunk_marks(n)
         words = hunk_words(raw)
-        # `detab` after the words are marked, since the ranges are bytes of
+        # `detab` after the words are marked, since the ranges index
         # the line as written; and on the styled line, past its escapes.
         txt = join((string(detab(diffline(l, words[k])), markof(get(marks, k, nothing)))
                     for (k, l) in enumerate(raw)), "\n")

@@ -725,6 +725,17 @@ end
     sc, a, b = W.word_marks("        code = frame.linfo", "        code = StackTraces.frame_mi(frame)")
     @test sc >= 0.5 && a == [21:26] && b == [16:36, 42:42]
     @test W.word_marks("}", "};")[1] == 1.0                 # no words: on what it has
+    # String indices, not bytes: a token ending in a three-byte character -
+    # JuliaLang/julia#63006 has `x₃` - ends at the index of that character,
+    # where `markwords` can cut; its last byte is the middle of it, and the
+    # diff view of that PR threw on every frame.
+    a, b = "f(x₃) + x₃", "f(x₃) - y₃"
+    _, ra, rb = W.word_marks(a, b)
+    @test ra == [9:9, 11:12] && rb == [9:9, 11:12]
+    @test W.astrip(W.markwords(a, ra, "<", ">")) == "f(x₃) <+> <x₃>"
+    @test W.astrip(W.markwords(b, rb, "<", ">")) == "f(x₃) <-> <y₃>"
+    _, ra, rb = W.word_marks("s = x₃", "s = x₃y")
+    @test ra == [5:6] && rb == [5:9]                         # `x₃` ends at 6, not byte 8
 
     # A run of deletions and a run of as many additions pair up line for
     # line; context gets nothing.
