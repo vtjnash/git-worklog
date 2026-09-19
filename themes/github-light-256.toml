@@ -35,11 +35,12 @@
 bold  = "bold 235"
 dim   = "241"
 focus = "bold 16"
-# The list with the keys elsewhere: fg.muted again, and an unread row a step
-# darker and bold - explicit, because `bold` carries its own foreground and
+# The list with the keys elsewhere: a step lighter than fg.muted - the
+# chrome's 241 was barely a change from the text - and an unread row at a
+# grey between, bold. Explicit, because `bold` carries its own foreground and
 # would come out full black over any grey laid under it.
-quiet      = "241"
-quiet_bold = "bold 238"
+quiet      = "248"
+quiet_bold = "bold 244"
 
 # --- the three verdicts, and a name ------------------------------------------
 # success.fg, danger.fg and attention.fg, which on a light ground are darker
