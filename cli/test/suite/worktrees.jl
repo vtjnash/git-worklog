@@ -368,13 +368,14 @@ end
 
                 # The copy is reused: a `gh pr checkout` in that shell put
                 # another pull request's branch under it. With the list to
-                # join through, the session's tag no longer places the item
-                # and `t` asks again; without it the old answer stands.
+                # join through, the copy is theirs; without it, it has still
+                # moved off the branch the sessions were entered on. Either
+                # way the tag no longer places the item and `t` asks again.
                 W.git(main, "checkout", "--quiet", "-b", pr2.branch)
                 t, b, ask = W.item_worktree(pr; items = known)
                 @test W.wtkey(t) == W.wtkey(main) && ask
                 t, b, ask = W.item_worktree(pr)
-                @test W.wtkey(t) == W.wtkey(main) && b == pr2.branch && !ask
+                @test W.wtkey(t) == W.wtkey(main) && ask
                 r = W.item_worktree(pr; items = known)
                 @test W.item_checkout(pr; items = known) == (r.path, r.branch)
                 # Picking it anyway says whose it is now, and `w` is the way
@@ -417,6 +418,53 @@ end
                 t, b, ask = W.item_worktree(pr; items = known)
                 @test W.wtkey(t) == W.wtkey(main) && b == pr.branch && !ask
                 rm(log)
+
+                # Parking. The copy is put on master under the item's own
+                # shell - a branch that is nobody's, the way a worktree is
+                # marked free - and going back is asked, with or without the
+                # list: the copy has moved since the shell was last entered.
+                @test any(r -> r.item == pr.ref && r.kind == "shell" && r.branch == pr.branch,
+                          W.mux_list())
+                W.git(main, "checkout", "--quiet", "master")
+                @test W.item_worktree(pr; items = known).ask
+                @test W.item_worktree(pr).ask
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.notes[1] == "main is on master"
+                said[] = nothing
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("back in", string(said[]))
+                drop!(top())
+                # `n` re-tags the shell with master, so while the copy stays
+                # put the answer holds, for the agent too; detaching it is a
+                # move again, and so is any other branch.
+                r = W.item_worktree(pr; items = known)
+                @test W.wtkey(r.path) == W.wtkey(main) && r.branch == "master" && !r.ask
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r) && said[] === nothing
+                drop!(top())
+                W.git(main, "checkout", "--quiet", "--detach", "master")
+                @test W.item_worktree(pr; items = known).ask
+                W.git(main, "checkout", "--quiet", "-b", "scratch", "master")
+                @test W.item_worktree(pr; items = known).ask
+                W.git(main, "checkout", "--quiet", "master")
+                @test !W.item_worktree(pr; items = known).ask
+                W.git(main, "branch", "--quiet", "-D", "scratch")
+                # An issue has no right branch, so its shell is wherever it is.
+                @test W.enter_session(issue, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                @test top() isa W.PaneView; drop!(top())
+                W.git(main, "checkout", "--quiet", "--detach", "master")
+                @test !W.item_worktree(issue; items = known).ask
+                # Back on the branch, and the shell is pr's again for the
+                # moves below.
+                W.git(main, "checkout", "--quiet", pr.branch)
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r)
+                drop!(top())
 
                 # Taking the session over for another item asks the same
                 # question - a checkout that fails still opens the shell,
@@ -631,9 +679,11 @@ end
                 drop!(top())
             finally
                 ENV["PATH"] = keptpath
-            end
-            for r in W.mux_list()
-                startswith(r.worktree, realpath(root)) && W.mux_kill(r.name)
+                # In the `finally`, so a run that errors out leaves nothing
+                # behind for the next one to trip over.
+                for r in W.mux_list()
+                    startswith(r.worktree, realpath(root)) && W.mux_kill(r.name)
+                end
             end
         end
     finally

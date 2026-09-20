@@ -20,14 +20,19 @@ Three questions in order, and only the last one is a guess:
    is the flag: the caller who can ask the user should, and the callers who
    cannot go there anyway.
 
-Rule 2 has one exception, and `items` is what sees it: a pull request's
-session in a copy that has since been checked out on *another* item's branch
-(`branch_owner`). The tag is from before - a `gh pr checkout` in that shell
-moved the place under it - and going back there would open the shell on the
-wrong branch without a word. The place is reused, so the item has none, and
-the rule falls through to the guess, which asks. An item with no branch of
-its own keeps its session wherever it is: the copy cannot be on the wrong
-branch when there is no right one.
+Rule 2 has two exceptions, both a copy that has *moved* under the session
+since the item was last put there, so that going back would open the shell
+on the wrong branch without a word. Every session of the item's in a copy
+carries the branch the copy was on when the item was last put there - the
+answer is about the place, so it is written on all of them - and a copy on
+some other branch now has moved: parked at `master`, detached, or checked
+out on anything else, and whose the new branch is does not matter. And,
+with `items` to see it, a copy that is on *another* item's branch
+(`branch_owner`) is reused for them, whatever it was tagged with; that one
+holds even for a session tagged before there was a branch to carry. Either
+way the item has no place, and the rule falls through to the guess, which
+asks. An item with no branch of its own keeps its session wherever it is:
+the copy cannot be on the wrong branch when there is no right one.
 
 The flag is the whole reason this is not two functions. `t` asks and `e` does
 not, but they must not disagree about the same item - so both read the same
@@ -62,11 +67,17 @@ function item_worktree(it::Item; items = Item[])
         # Once, not once per session: the index is a pass over the whole list.
         ix = isempty(branch) ? nothing : branch_index(items)
         rows = mux_list()
-        for r in rows
-            (r.item == it.ref && !isempty(r.worktree)) || continue
+        mine = [r for r in rows if r.item == it.ref && !isempty(r.worktree)]
+        for r in mine
             w = get(here, wtkey(r.worktree), nothing)
             w === nothing && continue
             (ix !== nothing && branch_owner(it, w, ix) !== nothing) && continue
+            # Moved if *any* session of the item's here was last entered on
+            # some other branch: an answer is written on all of them, so one
+            # that still disagrees is one from before the copy moved.
+            (!isempty(branch) &&
+             any(x -> wtkey(x.worktree) == wtkey(w.path) && x.branch != w.branch, mine)) &&
+                continue
             return (path = w.path, branch = w.branch, ask = false, main = w.main,
                     pr = branch, rows = rows)
         end

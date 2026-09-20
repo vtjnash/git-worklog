@@ -306,7 +306,8 @@ function enter_session(target::AbstractString, branch::AbstractString,
                        ref::AbstractString, num::AbstractString, url::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return no_mux()
-    found = mux_find(target, kind)
+    rows = mux_list()
+    found = mux_find(target, kind, rows)
     # Already looking at it. `^]t` and `^]T` reach here from inside a pane -
     # which is how a shell gets to the agent on the same item and back - and the
     # press that names the kind already showing would otherwise open a second
@@ -329,8 +330,20 @@ function enter_session(target::AbstractString, branch::AbstractString,
         mux_rename(found.name, name)
     end
     # The url as well as the ref: the ref is what the pane says, the url is
-    # what the marks are keyed by, and an agent's bell is read as one.
-    mux_tag!(name; worktree = target, kind = kind, item = ref, url = url)
+    # what the marks are keyed by, and an agent's bell is read as one. The
+    # branch is the copy's as of now - re-tagged on every entry, so it is
+    # always the branch the last answer was about, and a copy on some other
+    # branch next time is one that has moved since (`item_worktree`, rule 2).
+    mux_tag!(name; worktree = target, kind = kind, item = ref, url = url, branch = branch)
+    # And on the item's other sessions here: the answer was about the place,
+    # not the kind, so the agent left in this copy is told the branch the
+    # shell was just put back on, or an old answer of its would say the copy
+    # has moved when it is this entry that moved it back.
+    for r in rows
+        (!isempty(ref) && r.item == ref && wtkey(r.worktree) == wtkey(target) &&
+         r.name != name && (found === nothing || r.name != found.name)) || continue
+        mux_tag!(r.name; branch = branch)
+    end
     v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
@@ -387,11 +400,12 @@ from the chooser or typed as a path. Going back to a copy where the item
 already has a session is not - it was asked when that opened, and `n` there
 was an answer, not a thing to say again on every `^]q`, or for the other
 kind. An answer is about the place *as it was*, though, and is not made to
-outlive it: a copy that has since been checked out on another item's branch
-is not the item's place any more (rule 2's exception), so the next `t` goes
-back through the chooser and the question, whatever was answered before.
-Things move between one session and the next, and a question is cheaper
-than a shell on the wrong branch.
+outlive it: a copy that has since moved off the branch it was answered on -
+parked at `master` or detached to mark it free, or checked out on another
+item's branch - is not the item's place any more (rule 2's exceptions), so
+the next `t` goes back through the chooser and the question, whatever was
+answered before. Things move between one session and the next, and a
+question is cheaper than a shell on the wrong branch.
 
 The question reports through `say`, long after this has returned `""`; the
 route that had nothing to ask reports through the return value, as before.
