@@ -272,10 +272,14 @@ through a TTY. Strike through rather than delete when one answers.
       makes `pr<N>/<branch>` instead of fetching into the one in the way -
       whether the upstream it sets on that branch is the fork's), one of
       your own branches that moved on the remote (the project's copy says it
-      is yours, after one fetch), a branch two remotes carry (made from the
-      project's by name), and the refusal with a changed file in the way,
-      which is to open the shell anyway with gh's words on the status line.
-      The suite drives all of it through a `gh` of its own.
+      is yours, after one fetch into `refs/worklog/` - check that
+      `refs/remotes/origin/<branch>` did not move, since it is your
+      force-with-lease lease), a branch two remotes carry (made from the
+      project's by name), the fast-forward offer on a branch a push from
+      another machine left behind (and no offer on one you rewound yourself,
+      which its reflog knows), and the refusal with a changed file in the
+      way, which is to open the shell anyway with gh's words on the status
+      line. The suite drives all of it through a `gh` of its own.
 - [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered
       every time.
 - [ ] Whether owning the mouse is the right trade, or `m` is reached for

@@ -624,18 +624,32 @@ end
                                repo = pr.repo, number = 26, title = "moved", branch = "moved",
                                head = moved1)
                 @test W.pr_branch_here(main, mine1, "moved") === :local
-                # And when the remote's copy is stale it is brought up to date
-                # before the name is disowned: one more commit there, unfetched.
+                # And when the remote's copy is stale the branch is fetched
+                # before the name is disowned - into a ref of the program's
+                # own, not the remote-tracking one, which is the user's
+                # force-with-lease lease and stays where they last saw it.
                 W.git(other, "commit", "--quiet", "--allow-empty", "-m", "and again")
                 moved2 = strip(W.git(other, "rev-parse", "moved"))
                 mine2 = W.with(mine1; url = "https://example.invalid/o/wt/pull/27", ref = "wt#27",
                                number = 27, head = moved2)
                 @test !W.have_commit(main, moved2)
                 @test W.pr_branch_here(main, mine2, "moved") === :local
-                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/moved")) == moved2
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/moved")) == moved1
+                @test strip(W.git(main, "rev-parse", "refs/worklog/origin/moved")) == moved2
                 # A stranger's `moved` - a head the project's copy has never
                 # heard of - is still taken, fetch or no fetch.
                 @test W.pr_branch_here(main, W.with(mine1; head = theirs.head), "moved") === :taken
+                # A branch that once had the head and was rewound is yours by
+                # its own reflog, with nothing asked of the network: the
+                # remote has no such branch, and no private copy is made.
+                W.git(main, "branch", "--quiet", "rewound", moved2)
+                W.git(main, "branch", "--quiet", "-f", "rewound", "master")
+                rw = W.with(mine1; url = "https://example.invalid/o/wt/pull/29", ref = "wt#29",
+                            number = 29, branch = "rewound")
+                @test W.branch_included(main, "rewound", moved2)
+                @test !W.branch_included(main, "moved", moved2)
+                @test W.pr_branch_here(main, W.with(rw; head = moved2), "rewound") === :local
+                @test !W.has_rev(main, "refs/worklog/origin/rewound")
 
                 # A branch on the remote only is made from the remote's copy,
                 # said by name: two remotes carry it, and left to guess git
@@ -657,6 +671,106 @@ end
                 ws = Dict(w.path => w for w in W.worktrees(main))
                 @test haskey(ws, realpath(dest6)) && ws[realpath(dest6)].branch == "remote-only"
                 @test strip(W.git(dest6, "rev-parse", "--abbrev-ref", "@{u}")) == "origin/remote-only"
+                drop!(top())
+
+                # Upstream moved while nobody here was looking. `other` has two
+                # commits on `ff`; the local `ff` is at the first, never had
+                # the second, and the pull request's head is the second. A
+                # fresh landing on it offers the fast-forward, and says why.
+                W.git(other, "checkout", "--quiet", "-b", "ff", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "ff one")
+                f1 = strip(W.git(other, "rev-parse", "ff"))
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "ff two")
+                f2 = strip(W.git(other, "rev-parse", "ff"))
+                W.git(main, "fetch", "--quiet", "origin")
+                W.git(main, "branch", "--quiet", "ff", f1)
+                W.git(main, "branch", "--quiet", "-u", "origin/ff", "ff")
+                ffpr = W.Item(url = "https://example.invalid/o/wt/pull/40", ref = "wt#40",
+                              repo = pr.repo, number = 40, title = "moved on", branch = "ff",
+                              head = f2)
+                @test W.branch_lag(main, "ff", f2) == (ahead = 0, behind = 1)
+                dest7 = joinpath(root, "main-ff")
+                @test W.make_checkout!(ffpr, ctrl, :shell, sleep120, say, dest7; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == "Fast-forward ff in main-ff?"
+                @test cv.notes[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
+                @test cv.notes[end] == "y runs git merge --ff-only there"
+                @test isempty(asked())
+                # `n` goes in as it is, and the place is looked at: the agent
+                # one key later is not asked, nor is going back.
+                said[] = nothing
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("started", string(said[]))
+                @test strip(W.git(dest7, "rev-parse", "ff")) == f1
+                drop!(top())
+                said[] = nothing
+                r = W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known)
+                @test r isa String && occursin("started", r) && top() isa W.PaneView
+                drop!(top())
+                r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r)
+                drop!(top())
+                # A new session some time later is a new look: `y` fast-forwards
+                # and goes in, and the branch is at the head.
+                for r in W.mux_list()
+                    W.wtkey(r.worktree) == W.wtkey(dest7) && W.mux_kill(r.name)
+                end
+                @test W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test occursin("fast-forwarded ff", string(said[])) && occursin("started", string(said[]))
+                @test strip(W.git(dest7, "rev-parse", "ff")) == f2
+                drop!(top())
+                # And nothing more to ask, with or without a session there.
+                for r in W.mux_list()
+                    W.wtkey(r.worktree) == W.wtkey(dest7) && W.mux_kill(r.name)
+                end
+                r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("started", r) && top() isa W.PaneView
+                drop!(top())
+                # The lease stayed put through all of it.
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/ff")) == f2
+
+                # Diverged unseen: a commit of the branch's own on top of the
+                # first, and the head on neither. No fast-forward to offer; the
+                # status line says so and the shell is where the rebase is.
+                W.git(other, "checkout", "--quiet", "-b", "div", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "div one")
+                d1 = strip(W.git(other, "rev-parse", "div"))
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "div two")
+                d2 = strip(W.git(other, "rev-parse", "div"))
+                W.git(main, "fetch", "--quiet", "origin")
+                tree = strip(W.git(main, "rev-parse", string(d1, "^{tree}")))
+                dl = strip(W.git(main, "commit-tree", tree, "-p", d1, "-m", "local"))
+                W.git(main, "branch", "--quiet", "div", dl)
+                W.git(main, "branch", "--quiet", "-u", "origin/div", "div")
+                divpr = W.Item(url = "https://example.invalid/o/wt/pull/41", ref = "wt#41",
+                               repo = pr.repo, number = 41, title = "diverged", branch = "div",
+                               head = d2)
+                @test W.branch_lag(main, "div", d2) == (ahead = 1, behind = 1)
+                @test W.pr_branch_here(main, divpr, "div") === :local
+                dest8 = joinpath(root, "main-div")
+                r = W.make_checkout!(divpr, ctrl, :shell, sleep120, say, dest8; items = known)
+                @test r isa String && occursin("made", r) && occursin("started", r)
+                @test occursin("div has 1 commit not in wt#41's head, and is 1 behind it", r)
+                @test top() isa W.PaneView && strip(W.git(dest8, "rev-parse", "div")) == dl
+                drop!(top())
+
+                # Rewound on purpose: the branch once had the head, so being
+                # behind it is no news, and the landing says nothing.
+                W.git(main, "branch", "--quiet", "rw", f2)
+                W.git(main, "branch", "--quiet", "-f", "rw", f1)
+                W.git(main, "branch", "--quiet", "-u", "origin/ff", "rw")
+                rwpr = W.Item(url = "https://example.invalid/o/wt/pull/42", ref = "wt#42",
+                              repo = pr.repo, number = 42, title = "rewound", branch = "rw",
+                              head = f2)
+                dest9 = joinpath(root, "main-rw")
+                r = W.make_checkout!(rwpr, ctrl, :shell, sleep120, say, dest9; items = known)
+                @test r isa String && occursin("made", r) && occursin("started", r)
+                @test !occursin("behind", r) && top() isa W.PaneView
+                @test strip(W.git(dest9, "rev-parse", "rw")) == f1
                 drop!(top())
 
                 # An adopted branch is nobody's to fetch: the question names

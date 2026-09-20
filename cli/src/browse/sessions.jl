@@ -418,7 +418,103 @@ function item_session!(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcm
                        say = _ -> nothing; picked::Bool = false, items = Item[], rows = nothing)
     q = checkout_offer(it, w, pr, ctrl, kind, mkcmd, say; picked, items, rows)
     q === nothing || return q
+    q = update_offer(it, w, pr, ctrl, kind, mkcmd, say; rows)
+    q === nothing || return q
     session_in!(it, w.path, w.branch, ctrl, kind, mkcmd)
+end
+
+"""The other look before a session opens: the copy is on the item's branch,
+and the branch here is behind where the item is. Ask whether to fast-forward
+it - or `nothing`, when there is nothing to ask.
+
+Where the item *is* is the head the lanes reported for a pull request, and
+the branch's upstream for an adopted branch; a head not here yet is fetched
+(`ensure_commit!`, off `refs/pull/N/head` and into no ref of the user's).
+Behind alone is not the question, though - `branch_included` is: a branch
+that once had those commits and was rewound was moved on purpose, and gets
+no offer; one that never had them was left behind by a push from somewhere
+else, which is the case for a word. Two words, by whether the branch has
+commits of its own: none, and `y` fast-forwards it (`git merge --ff-only`,
+which a changed file in the way refuses - the session opens anyway, with
+git's words first); some, and the branches have diverged unseen, which is
+said on the status line and left to the shell, since a rebase is nobody's
+to run but the user's.
+
+Asked on a fresh landing only. A copy the item already has a session in -
+of either kind - was looked at when that opened, and `n` there is not
+un-said one key later for the other kind, or on every `^]q`; a new session
+some time later is a new look, since things move.
+"""
+function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd, say;
+                      rows = nothing)
+    mux_bin() === nothing && return nothing
+    (isempty(pr) || w.branch != pr) && return nothing
+    if !isempty(it.ref)
+        rows === nothing && (rows = mux_list())
+        any(r -> r.item == it.ref && wtkey(r.worktree) == wtkey(w.path), rows) &&
+            return nothing
+    end
+    target = String(w.path)
+    tip, at = if it.is_pr
+        isempty(it.head) && return nothing
+        have_commit(target, it.head) ||
+            ensure_commit!(target, it.head, it.number; remote = remote_for(target, it.repo)) ||
+            return nothing
+        (it.head, string(it.ref, "'s head"))
+    else
+        u = try
+            strip(git(target, "rev-parse", "--verify", "--quiet",
+                      string("refs/heads/", pr, "@{u}")))
+        catch
+            return nothing
+        end
+        isempty(u) && return nothing
+        (String(u), try
+                        strip(git(target, "rev-parse", "--abbrev-ref",
+                                  string("refs/heads/", pr, "@{u}")))
+                    catch
+                        "upstream"
+                    end)
+    end
+    is_ancestor(target, tip, "refs/heads/" * pr) && return nothing
+    branch_included(target, pr, tip) && return nothing
+    lag = branch_lag(target, pr, tip)
+    lag === nothing && return nothing
+    name = basename(rstrip(target, '/'))
+    if lag.ahead > 0
+        r = session_in!(it, target, pr, ctrl, kind, mkcmd)
+        return string(pr, " has ", lag.ahead, " commit", lag.ahead == 1 ? "" : "s",
+                      " not in ", at, ", and is ", lag.behind, " behind it",
+                      r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
+    end
+    notes = vcat([string(pr, " is ", lag.behind, " commit", lag.behind == 1 ? "" : "s",
+                         " behind ", at, ", pushed from somewhere else")],
+                 status_preview(target),
+                 [string("y runs git merge --ff-only there")])
+    push_view!(ctrl, ConfirmView(
+        string("Fast-forward ", pr, " in ", name, "?"), notes,
+        ["yY" => () -> say(fastforward_session!(it, target, pr, tip, ctrl, kind, mkcmd)),
+         "nN" => () -> say(session_in!(it, target, pr, ctrl, kind, mkcmd))];
+        hint = "y fast-forwards \u00b7 n goes in as it is \u00b7 esc cancels"))
+    ""
+end
+
+"""`y` to the question above: fast-forward `branch` in `target` to `tip`, then
+open the session there. A merge that fails - a changed file in the way - still
+opens the session, with git's complaint ahead of the pane's own report, for
+[`checkout_session!`](@ref)'s reason."""
+function fastforward_session!(it::Item, target::AbstractString, branch::AbstractString,
+                              tip::AbstractString, ctrl, kind::Symbol, mkcmd)
+    try
+        git(target, "merge", "--quiet", "--ff-only", tip)
+    catch e
+        e isa GitError || rethrow()
+        r = session_in!(it, target, branch, ctrl, kind, mkcmd)
+        return string("could not fast-forward ", branch, ": ", oneline(first(e.msg, 120)),
+                      r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
+    end
+    r = session_in!(it, target, branch, ctrl, kind, mkcmd)
+    r isa String ? string("fast-forwarded ", branch, " \u00b7 ", r) : r
 end
 
 """Open the item's session in `target`, on whatever branch it is on, and touch
@@ -646,14 +742,19 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     isempty(pr) &&
         return string(it.ref, " has no branch to check out · pick a worktree that exists")
     branch = pr
+    found = :none
     dest = try
         found = it.is_pr ? pr_branch_here(repo, it, pr) :
                 has_rev(repo, "refs/heads/" * pr) ? :local : :none
         if found === :local
             add_worktree!(repo, pr, at)
         elseif found === :remote
-            add_worktree!(repo, pr, at;
-                          from = string("refs/remotes/", remote_for(repo, it.repo), "/", pr))
+            # Off the remote-tracking ref when there is one; when only this
+            # program's private copy has the branch, gh's checkout sets the
+            # tracking up as git would have.
+            rem = string("refs/remotes/", remote_for(repo, it.repo), "/", pr)
+            has_rev(repo, rem) ? add_worktree!(repo, pr, at; from = rem) :
+                                 add_worktree_pr!(repo, it.url, at)
         elseif found === :taken
             branch = string("pr", it.number, "/", pr)
             add_worktree_pr!(repo, it.url, at; as = branch)
@@ -668,8 +769,14 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
                          seed = at, note = oneline(first(sprint(showerror, e), 200)), items, pr)
         return ""
     end
-    r = session_in!(it, dest, branch, ctrl, kind, mkcmd)
-    r isa String ? string("made ", dest, " · ", r) : r
+    # A worktree made on a local branch goes through the same look as any
+    # other landing, and is offered the fast-forward when the branch is
+    # behind the pull request; one gh just made is where the pull request is.
+    r = found === :local ?
+        item_session!(it, (path = dest, branch = branch, main = false), pr, ctrl, kind, mkcmd,
+                      say; picked = true, items) :
+        session_in!(it, dest, branch, ctrl, kind, mkcmd)
+    r isa String && !isempty(r) ? string("made ", dest, " · ", r) : r
 end
 
 """Where this repository has the pull request's `branch`, if it has it at all:
@@ -685,16 +792,18 @@ request's when that commit is on it - ahead of it too, since unpushed work of
 yours is still yours.
 
 A local branch the head is *not* on is not yet a stranger's: it is as often
-your own, pushed from another machine since - moved off the head, or the
-head off it - and the project's copy of the branch is what tells the two
-apart, since a fork's `master` is on no branch of the project's. So when the
-head is not on the local branch the remote-tracking one is asked, and brought
-up to date first when it does not have the head either (`fetch_base!`, one
-round trip), because a copy that is merely stale is behind the head by
-definition. A branch of your own that has moved is still `:local`, and a
-worktree on it is where the reconciling gets done; only a name that the
-project's own copy disowns is `:taken`. A row with no head sha (old, or made
-by a poll) is taken at its name, which is the old rule.
+your own - rewound from the head on purpose, or pushed from another machine
+since - and two things tell the two apart. The branch's own reflog first
+(`branch_included`): a branch that once contained the head was moved off it
+deliberately, and is yours without a word to the network. Then the project's
+copy of the branch, since a fork's `master` is on no branch of the project's:
+the remote-tracking ref as it stands, and failing that a fetch into a ref of
+this program's own (`fetch_private!`, one round trip) - not into the tracking
+ref, which is the user's `--force-with-lease` lease and not this program's to
+move. A branch of your own that has moved is still `:local`, and a worktree on
+it is where the fast-forward is offered ([`update_offer`](@ref)); only a name
+that the project's own copy disowns is `:taken`. A row with no head sha
+(old, or made by a poll) is taken at its name, which is the old rule.
 """
 function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     r = remote_for(repo, it.repo)
@@ -703,9 +812,11 @@ function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     (hasloc || has_rev(repo, rem)) || return :none
     isempty(it.head) && return hasloc ? :local : :remote
     on(ref) = has_rev(repo, ref) && is_ancestor(repo, it.head, ref)
-    hasloc && on(loc) && return :local
-    on(rem) || (fetch_base!(repo, it.repo, branch) && on(rem)) || return :taken
-    hasloc ? :local : :remote
+    hasloc && (on(loc) || branch_included(repo, branch, it.head)) && return :local
+    on(rem) && return hasloc ? :local : :remote
+    priv = fetch_private!(repo, it.repo, branch)
+    (!isempty(priv) && on(priv)) && return hasloc ? :local : :remote
+    :taken
 end
 
 """What to run for `T`, as a shell command line.

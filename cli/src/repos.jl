@@ -522,6 +522,84 @@ is_ancestor(path, a, b) =
     try; git(path, "merge-base", "--is-ancestor", string(a), string(b)); true
     catch; false; end
 
+"""Did the local `branch` ever contain `tip`, at any position its reflog
+remembers?
+
+`git push --force-if-includes`'s question, asked for the other direction. A
+branch that is behind its upstream is one of two things ancestry cannot tell
+apart: one that upstream moved away from while nobody here was looking, and
+one that was rewound *from* a position that had those commits - a reset, a
+rebase in progress, a commit dropped on purpose. The reflog can: if any past
+position of the branch contains the tip, the tip was here and was moved away
+from deliberately, and an offer to fast-forward would undo that. If none did,
+upstream moved unseen.
+
+One `rev-list` over every remembered position rather than an ancestry test
+per entry: the count of commits reachable from `tip` and from none of them is
+zero exactly when some position contains it. Capped at the newest 200 - the
+reflog of a long-lived branch runs to thousands, and a rewind that far back
+is not the case this is for. A branch with no reflog (expired at ninety days
+by default, or `core.logAllRefUpdates` off) never included anything, which
+errs towards the offer.
+"""
+function branch_included(path, branch::AbstractString, tip::AbstractString)
+    (isempty(branch) || isempty(tip)) && return false
+    log = try
+        git(path, "reflog", "show", "-n", "200", "--format=%H", "refs/heads/" * branch)
+    catch
+        return false
+    end
+    hs = split(log, '\n'; keepempty = false)
+    isempty(hs) && return false
+    n = try
+        strip(git(path, "rev-list", "--count", string(tip), "--not", String.(hs)...))
+    catch
+        return false
+    end
+    n == "0"
+end
+
+"""How the local `branch` stands to `tip`, as `(ahead, behind)`: commits on
+the branch not reachable from the tip, and the reverse. `nothing` when either
+is missing."""
+function branch_lag(path, branch::AbstractString, tip::AbstractString)
+    out = try
+        git(path, "rev-list", "--left-right", "--count",
+            string("refs/heads/", branch, "...", tip))
+    catch
+        return nothing
+    end
+    m = match(r"^(\d+)\s+(\d+)", strip(out))
+    m === nothing ? nothing : (ahead = parse(Int, m[1]), behind = parse(Int, m[2]))
+end
+
+"""Fetch the project's `branch` into a ref of this program's own, and answer
+with that ref - or `""` when it could not.
+
+Not into `refs/remotes/<r>/<branch>`, though that is where a fetch of the
+branch would go: that ref is the *lease* `git push --force-with-lease` checks
+the remote against, and a program updating it from behind the user's back
+makes the lease pass for commits the user never saw - the very hole
+`--force-if-includes` was added to close. What this program learns about the
+remote it keeps under `refs/worklog/`, where nothing of the user's reads it.
+
+`--refmap=` with nothing after it is load-bearing: a fetch of a branch by
+name also updates the configured remote-tracking ref for it as a courtesy
+(the "opportunistic" update, since 1.8.4), whatever refspec was given - the
+empty refmap is the one way to say not to.
+"""
+function fetch_private!(path, repo::AbstractString, branch::AbstractString)
+    (isempty(branch) || match(REF_OK, branch) === nothing) && return ""
+    r = remote_for(path, repo)
+    ref = string("refs/worklog/", r, "/", branch)
+    try
+        git(path, "fetch", "--quiet", r, "--refmap=", string("+refs/heads/", branch, ":", ref))
+        ref
+    catch
+        ""
+    end
+end
+
 "How many commits `b` has that `a` does not, and 0 when git will not say."
 function commits_ahead(path, a, b)
     try
