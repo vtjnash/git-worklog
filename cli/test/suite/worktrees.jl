@@ -214,6 +214,9 @@ end
     W.git(main, "init", "--quiet", "--initial-branch=master", ".")
     W.git(main, "config", "user.email", "t@example.com")
     W.git(main, "config", "user.name", "t")
+    # Said in the repo, so the questions below read the same whatever the
+    # machine's own git config says; the lease block flips it.
+    W.git(main, "config", "push.useForceIfIncludes", "true")
     write(joinpath(main, "a.txt"), "one\n")
     W.git(main, "add", "a.txt"); W.git(main, "commit", "--quiet", "-m", "first")
     # Two more pull requests of the same repository, on branches of their own:
@@ -690,12 +693,18 @@ end
                               head = f2)
                 @test W.branch_lag(main, "ff", f2) == (ahead = 0, behind = 1)
                 dest7 = joinpath(root, "main-ff")
+                # With the lease setting off, the question ends on the line
+                # about it: a branch somebody else pushed to is what a lease
+                # is about, and the user's own gh moves it as much as ours.
+                W.git(main, "config", "push.useForceIfIncludes", "false")
                 @test W.make_checkout!(ffpr, ctrl, :shell, sleep120, say, dest7; items = known) == ""
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Fast-forward ff in main-ff?"
                 @test cv.notes[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
-                @test cv.notes[end] == "y runs git merge --ff-only there"
+                @test cv.notes[end - 1] == "y runs git merge --ff-only there"
+                @test cv.notes[end] == "push.useForceIfIncludes is not set \u00b7 any fetch moves origin/ff, which is all --force-with-lease checks"
                 @test isempty(asked())
+                W.git(main, "config", "push.useForceIfIncludes", "true")
                 # `n` goes in as it is, and the place is looked at: the agent
                 # one key later is not asked, nor is going back.
                 said[] = nothing
@@ -772,6 +781,40 @@ end
                 @test !occursin("behind", r) && top() isa W.PaneView
                 @test strip(W.git(dest9, "rev-parse", "rw")) == f1
                 drop!(top())
+
+                # The lease line on the checkout question: about the setting,
+                # not about any one fetch, since the user's own `gh pr
+                # checkout` moves the tracking ref as much as `y`'s does.
+                W.git(other, "checkout", "--quiet", "-b", "lease", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "leased")
+                W.git(main, "fetch", "--quiet", "origin")
+                ltip = strip(W.git(main, "rev-parse", "refs/remotes/origin/lease"))
+                leasepr = W.Item(url = "https://example.invalid/o/wt/pull/43", ref = "wt#43",
+                                 repo = pr.repo, number = 43, title = "leased", branch = "lease",
+                                 head = ltip)
+                W.git(main, "config", "push.useForceIfIncludes", "false")
+                @test occursin("any fetch moves origin/lease", W.lease_note(main, pr.repo, "lease"))
+                @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == "Check out lease in main?"
+                @test occursin("gh pr checkout 43", cv.notes[end - 1])
+                @test cv.notes[end] == "push.useForceIfIncludes is not set \u00b7 any fetch moves origin/lease, which is all --force-with-lease checks"
+                for (w, h) in ((80, 24), (165, 50))
+                    ls = split(W.render(cv, w, h), "\n")
+                    @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                end
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+                # With the setting on, nothing is said, and the question ends
+                # on what `y` runs.
+                W.git(main, "config", "push.useForceIfIncludes", "true")
+                @test W.lease_note(main, pr.repo, "lease") == ""
+                @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                @test occursin("gh pr checkout 43", cv.notes[end])
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
 
                 # An adopted branch is nobody's to fetch: the question names
                 # `git checkout`, and `y` runs it, with gh never asked.

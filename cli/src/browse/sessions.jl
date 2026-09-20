@@ -438,7 +438,8 @@ commits of its own: none, and `y` fast-forwards it (`git merge --ff-only`,
 which a changed file in the way refuses - the session opens anyway, with
 git's words first); some, and the branches have diverged unseen, which is
 said on the status line and left to the shell, since a rebase is nobody's
-to run but the user's.
+to run but the user's. And [`lease_note`](@ref)'s line, when it has one: a
+branch somebody else pushed to is the branch a lease is about.
 
 Asked on a fresh landing only. A copy the item already has a session in -
 of either kind - was looked at when that opened, and `n` there is not
@@ -487,10 +488,12 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
                       " not in ", at, ", and is ", lag.behind, " behind it",
                       r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
     end
+    lease = lease_note(target, it.repo, pr)
     notes = vcat([string(pr, " is ", lag.behind, " commit", lag.behind == 1 ? "" : "s",
                          " behind ", at, ", pushed from somewhere else")],
                  status_preview(target),
-                 [string("y runs git merge --ff-only there")])
+                 [string("y runs git merge --ff-only there")],
+                 isempty(lease) ? String[] : [lease])
     push_view!(ctrl, ConfirmView(
         string("Fast-forward ", pr, " in ", name, "?"), notes,
         ["yY" => () -> say(fastforward_session!(it, target, pr, tip, ctrl, kind, mkcmd)),
@@ -557,7 +560,10 @@ purpose: `y` checks it out there and goes in ([`checkout_session!`](@ref)) -
 `gh pr checkout` for a pull request, `git checkout` for an adopted branch,
 which is here by definition and is nobody's to fetch; `n` goes in as it is,
 which is the scratch copy an agent was left in; `w` opens the chooser, which
-is where a reused copy is given up. Anything else is no shell at all.
+is where a reused copy is given up. Anything else is no shell at all. A last
+line for a pull request when `push.useForceIfIncludes` is off
+([`lease_note`](@ref)): `y`'s gh refreshes the lease `--force-with-lease`
+reads, and so does the user's own gh, so the line is about the setting.
 
 Blocks the browser for the fetch under `y`, the way `p` does for its base;
 the pane opens when it lands.
@@ -583,9 +589,11 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
     on = isempty(wbranch) ? string(name, " is detached") :
          string(name, " is on ", wbranch,
                 owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
+    lease = it.is_pr ? lease_note(target, it.repo, pr) : ""
     notes = vcat([on], status_preview(target),
                  [string("y runs ", it.is_pr ? string("gh pr checkout ", it.number) :
-                                              string("git checkout ", pr), " there")])
+                                              string("git checkout ", pr), " there")],
+                 isempty(lease) ? String[] : [lease])
     push_view!(ctrl, ConfirmView(
         string("Check out ", pr, " in ", name, "?"), notes,
         ["yY" => () -> say(checkout_session!(it, target, wbranch, pr, ctrl, kind, mkcmd)),

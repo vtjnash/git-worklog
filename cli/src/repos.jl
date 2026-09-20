@@ -573,6 +573,36 @@ function branch_lag(path, branch::AbstractString, tip::AbstractString)
     m === nothing ? nothing : (ahead = parse(Int, m[1]), behind = parse(Int, m[2]))
 end
 
+"""One line when `push.useForceIfIncludes` is off in this checkout - or `""`.
+
+`--force-with-lease` on its own checks the remote against
+`refs/remotes/<r>/<b>`, and any fetch moves that ref: gh's, when it checks a
+pull request of the project's own out (`+refs/heads/<b>:refs/remotes/<r>/<b>`),
+an editor's in the background, a `git fetch` of the user's own a minute
+before. A lease refreshed that way passes for commits the user never saw.
+`push.useForceIfIncludes` closes it - the push then also wants the lease's
+tip in the branch's own history, which a fetch cannot put there.
+
+This program fetches into `refs/worklog/` for that reason (`fetch_private!`),
+but every place it could touch is not the point: the user runs `gh pr
+checkout` by hand as often as through `y`, and the hole is the same. So the
+line is about the setting and not about any one fetch, and it is said where a
+branch is already the question - the checkout and fast-forward offers - so it
+is read once, next to the branch it protects. Read through git in the
+checkout, so a global setting counts.
+"""
+function lease_note(path, repo::AbstractString, branch::AbstractString)
+    v = try
+        strip(git(path, "config", "--type=bool", "--get", "push.useForceIfIncludes"))
+    catch
+        ""
+    end
+    v == "true" && return ""
+    r = remote_for(path, repo)
+    string("push.useForceIfIncludes is not set \u00b7 any fetch moves ", r, "/", branch,
+           ", which is all --force-with-lease checks")
+end
+
 """Fetch the project's `branch` into a ref of this program's own, and answer
 with that ref - or `""` when it could not.
 
