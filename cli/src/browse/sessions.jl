@@ -433,7 +433,7 @@ it - or `nothing`, when there is nothing to ask.
 
 Where the item *is* is the head the lanes reported for a pull request, and
 the branch's upstream for an adopted branch; a head not here yet is fetched
-(`ensure_commit!`, off `refs/pull/N/head` and into no ref of the user's).
+(`ensure_commit!`, off `refs/pull/N/head`, objects only).
 Behind alone is not the question, though - `branch_included` is: a branch
 that once had those commits and was rewound was moved on purpose, and gets
 no offer; one that never had them was left behind by a push from somewhere
@@ -780,9 +780,9 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
         if found === :local
             add_worktree!(repo, pr, at)
         elseif found === :remote
-            # Off the remote-tracking ref when there is one; when only this
-            # program's private copy has the branch, gh's checkout sets the
-            # tracking up as git would have.
+            # Off the remote-tracking ref, which `pr_branch_here` has just
+            # brought up to date when it had to; without one at all, gh's
+            # checkout sets the tracking up as git would have.
             rem = string("refs/remotes/", remote_for(repo, it.repo), "/", pr)
             has_rev(repo, rem) ? add_worktree!(repo, pr, at; from = rem) :
                                  add_worktree_pr!(repo, it.url, at)
@@ -802,9 +802,7 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     end
     # A worktree git made goes through the same look as any other landing,
     # and is offered the fast-forward when the branch is behind the pull
-    # request - off a local branch, or off a remote-tracking ref that was
-    # stale when only this program's private copy had the head. One gh just
-    # made is where the pull request is.
+    # request. One gh just made is where the pull request is.
     r = found in (:local, :remote) ?
         item_session!(it, (path = dest, branch = branch, main = false), pr, ctrl, kind, mkcmd,
                       say; picked = true, items) :
@@ -832,12 +830,13 @@ deliberately, and is yours without a word to the network. Its upstream next
 (`upstream_of`): a branch set up to track the project's copy of the name is
 a copy of it by its own declaration, which outlasts a head the lanes saw
 before a force-push from elsewhere. Then the project's copy of the branch
-itself, since a fork's `master` is on no branch of the project's:
-the remote-tracking ref as it stands, and failing that a fetch into a ref of
-this program's own (`fetch_private!`, one round trip) - not into the tracking
-ref, which is the user's `--force-with-lease` lease and not this program's to
-move. A branch of your own that has moved is still `:local`, and a worktree on
-it is where the fast-forward is offered ([`update_offer`](@ref)); only a name
+itself, since a fork's `master` is on no branch of the project's: the
+remote-tracking ref as it stands, and failing that brought up to date
+(`fetch_base!`, one round trip) - into the tracking ref, since a fresh one
+is what the user's `git show` and ahead/behind read, and the lease it is
+for `--force-with-lease` is the questions' line to say ([`lease_note`](@ref)).
+A branch of your own that has moved is still `:local`, and a worktree on it
+is where the fast-forward is offered ([`update_offer`](@ref)); only a name
 that the project's own copy disowns is `:taken`. A row with no head sha
 (old, or made by a poll) is taken at its name, which is the old rule.
 """
@@ -854,8 +853,7 @@ function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     # says - a force-push from elsewhere since then is still yours.
     (hasloc && upstream_of(repo, branch) == string(r, "/", branch)) && return :local
     on(rem) && return hasloc ? :local : :remote
-    priv = fetch_private!(repo, it.repo, branch)
-    (!isempty(priv) && on(priv)) && return hasloc ? :local : :remote
+    (fetch_base!(repo, it.repo, branch) && on(rem)) && return hasloc ? :local : :remote
     :taken
 end
 

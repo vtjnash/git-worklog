@@ -662,23 +662,22 @@ end
                                head = moved1)
                 @test W.pr_branch_here(main, mine1, "moved") === :local
                 # And when the remote's copy is stale the branch is fetched
-                # before the name is disowned - into a ref of the program's
-                # own, not the remote-tracking one, which is the user's
-                # force-with-lease lease and stays where they last saw it.
+                # before the name is disowned - into the remote-tracking ref,
+                # so that what the user's own git show and ahead/behind read
+                # is fresh; the lease that ref is for is the questions' line.
                 W.git(other, "commit", "--quiet", "--allow-empty", "-m", "and again")
                 moved2 = strip(W.git(other, "rev-parse", "moved"))
                 mine2 = W.with(mine1; url = "https://example.invalid/o/wt/pull/27", ref = "wt#27",
                                number = 27, head = moved2)
                 @test !W.have_commit(main, moved2)
                 @test W.pr_branch_here(main, mine2, "moved") === :local
-                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/moved")) == moved1
-                @test strip(W.git(main, "rev-parse", "refs/worklog/origin/moved")) == moved2
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/moved")) == moved2
                 # A stranger's `moved` - a head the project's copy has never
                 # heard of - is still taken, fetch or no fetch.
                 @test W.pr_branch_here(main, W.with(mine1; head = theirs.head), "moved") === :taken
                 # A branch that once had the head and was rewound is yours by
                 # its own reflog, with nothing asked of the network: the
-                # remote has no such branch, and no private copy is made.
+                # remote has no such branch, and no tracking ref appears.
                 W.git(main, "branch", "--quiet", "rewound", moved2)
                 W.git(main, "branch", "--quiet", "-f", "rewound", "master")
                 rw = W.with(mine1; url = "https://example.invalid/o/wt/pull/29", ref = "wt#29",
@@ -686,7 +685,7 @@ end
                 @test W.branch_included(main, "rewound", moved2)
                 @test !W.branch_included(main, "moved", moved2)
                 @test W.pr_branch_here(main, W.with(rw; head = moved2), "rewound") === :local
-                @test !W.has_rev(main, "refs/worklog/origin/rewound")
+                @test !W.has_rev(main, "refs/remotes/origin/rewound")
 
                 # A branch on the remote only is made from the remote's copy,
                 # said by name: two remotes carry it, and left to guess git
@@ -822,10 +821,9 @@ end
                 drop!(top())
 
                 # A branch on the remote only, whose tracking ref here is
-                # stale: the private copy says the head is the project's, the
-                # worktree is made off the tracking ref as it stands, and the
-                # landing offers the fast-forward that closes the gap. The
-                # tracking ref - the lease - never moves.
+                # stale: the fetch that says the head is the project's brings
+                # the tracking ref up to date, the worktree is made off it,
+                # and the landing has nothing to fast-forward.
                 W.git(other, "checkout", "--quiet", "-b", "stale", "origin/master")
                 W.git(other, "commit", "--quiet", "--allow-empty", "-m", "stale one")
                 W.git(main, "fetch", "--quiet", "origin")
@@ -835,20 +833,15 @@ end
                 stpr = W.Item(url = "https://example.invalid/o/wt/pull/46", ref = "wt#46",
                               repo = pr.repo, number = 46, title = "stale", branch = "stale",
                               head = s2)
-                @test W.pr_branch_here(main, stpr, "stale") === :remote
                 @test strip(W.git(main, "rev-parse", "refs/remotes/origin/stale")) == s1
-                @test strip(W.git(main, "rev-parse", "refs/worklog/origin/stale")) == s2
+                @test W.pr_branch_here(main, stpr, "stale") === :remote
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/stale")) == s2
                 dest12 = joinpath(root, "main-stale")
-                @test W.make_checkout!(stpr, ctrl, :shell, sleep120, say, dest12; items = known) == ""
-                cv = top(); @test cv isa W.ConfirmView
-                @test cv.title == "Fast-forward stale in main-stale?"
-                @test cv.notes[1] == "stale is 1 commit behind wt#46's head, pushed from somewhere else"
-                said[] = nothing
-                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
-                @test top() isa W.PaneView && occursin("fast-forwarded stale", string(said[]))
+                r = W.make_checkout!(stpr, ctrl, :shell, sleep120, say, dest12; items = known)
+                @test r isa String && occursin("made", r) && occursin("started", r)
+                @test top() isa W.PaneView
                 @test strip(W.git(dest12, "rev-parse", "stale")) == s2
                 @test strip(W.git(dest12, "rev-parse", "--abbrev-ref", "@{u}")) == "origin/stale"
-                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/stale")) == s1
                 @test isempty(asked())
                 drop!(top())
 

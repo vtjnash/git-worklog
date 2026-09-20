@@ -395,12 +395,20 @@ from `HeadRefForcePushedEvent` on FedeClaudi/Term.jl - from 2026-09-02,
 2026-06-03 and 2025-07-25 - all came back from `git fetch <remote> <sha>` on
 2026-09-11, the oldest of them fourteen months after it stopped being anybody's
 head. That is why the bare sha is a real second try and not a formality.
+
+Objects only: no ref is given for either spec, and `--no-write-fetch-head`
+keeps the fetch from writing `FETCH_HEAD`, which is one file for every
+worktree of the repository and the last thing the user's own fetch or pull
+left there - two of these at once from two worktrees would tear it, and one
+of them would overwrite what a `git pull` was about to read. The commit is
+held by nothing until something points at it, and is fetched again when a
+`gc` has taken it, which is what the fetch was for the first time.
 """
 function ensure_commit!(path, sha, prnum::Integer; remote::AbstractString = "origin")
     have_commit(path, sha) && return true
     for spec in ("pull/$prnum/head", string(sha))
         try
-            git(path, "fetch", "--quiet", remote, spec)
+            git(path, "fetch", "--quiet", "--no-write-fetch-head", remote, spec)
             have_commit(path, sha) && return true
         catch
         end
@@ -583,13 +591,16 @@ before. A lease refreshed that way passes for commits the user never saw.
 `push.useForceIfIncludes` closes it - the push then also wants the lease's
 tip in the branch's own history, which a fetch cannot put there.
 
-This program fetches into `refs/worklog/` for that reason (`fetch_private!`),
-but every place it could touch is not the point: the user runs `gh pr
-checkout` by hand as often as through `y`, and the hole is the same. So the
-line is about the setting and not about any one fetch, and it is said where a
-branch is already the question - the checkout and fast-forward offers - so it
-is read once, next to the branch it protects. Read through git in the
-checkout, so a global setting counts.
+This program's own fetches move the tracking ref too (`fetch_base!`, and
+`pr_branch_here` through it), and on purpose: a fresh remote-tracking ref is
+what makes `git show origin/<b>` and the ahead/behind counts true, and a copy
+of the remote kept somewhere of the program's own would be one nothing of the
+user's reads. Keeping every fetch off the ref would not close the hole
+anyway - the user runs `gh pr checkout` by hand as often as through `y`. So
+the line is about the setting and not about any one fetch, and it is said
+where a branch is already the question - the checkout and fast-forward
+offers - so it is read once, next to the branch it protects. Read through
+git in the checkout, so a global setting counts.
 """
 function lease_note(path, repo::AbstractString, branch::AbstractString)
     v = try
@@ -601,33 +612,6 @@ function lease_note(path, repo::AbstractString, branch::AbstractString)
     r = remote_for(path, repo)
     string("push.useForceIfIncludes is not set \u00b7 any fetch moves ", r, "/", branch,
            ", which is all --force-with-lease checks")
-end
-
-"""Fetch the project's `branch` into a ref of this program's own, and answer
-with that ref - or `""` when it could not.
-
-Not into `refs/remotes/<r>/<branch>`, though that is where a fetch of the
-branch would go: that ref is the *lease* `git push --force-with-lease` checks
-the remote against, and a program updating it from behind the user's back
-makes the lease pass for commits the user never saw - the very hole
-`--force-if-includes` was added to close. What this program learns about the
-remote it keeps under `refs/worklog/`, where nothing of the user's reads it.
-
-`--refmap=` with nothing after it is load-bearing: a fetch of a branch by
-name also updates the configured remote-tracking ref for it as a courtesy
-(the "opportunistic" update, since 1.8.4), whatever refspec was given - the
-empty refmap is the one way to say not to.
-"""
-function fetch_private!(path, repo::AbstractString, branch::AbstractString)
-    (isempty(branch) || match(REF_OK, branch) === nothing) && return ""
-    r = remote_for(path, repo)
-    ref = string("refs/worklog/", r, "/", branch)
-    try
-        git(path, "fetch", "--quiet", r, "--refmap=", string("+refs/heads/", branch, ":", ref))
-        ref
-    catch
-        ""
-    end
 end
 
 "How many commits `b` has that `a` does not, and 0 when git will not say."
