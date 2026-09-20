@@ -592,15 +592,13 @@ before. A lease refreshed that way passes for commits the user never saw.
 tip in the branch's own history, which a fetch cannot put there.
 
 This program's own fetches move the tracking ref too (`fetch_base!`, and
-`pr_branch_here` through it), and on purpose: a fresh remote-tracking ref is
-what makes `git show origin/<b>` and the ahead/behind counts true, and a copy
-of the remote kept somewhere of the program's own would be one nothing of the
-user's reads. Keeping every fetch off the ref would not close the hole
-anyway - the user runs `gh pr checkout` by hand as often as through `y`. So
-the line is about the setting and not about any one fetch, and it is said
-where a branch is already the question - the checkout and fast-forward
-offers - so it is read once, next to the branch it protects. Read through
-git in the checkout, so a global setting counts.
+`pr_branch_here` through it), on purpose: a fresh one is what makes `git show
+origin/<b>` and ahead/behind true. Keeping them off it would not close the
+hole anyway - the user runs `gh pr checkout` by hand as often as through `y`.
+So the line is about the setting and not about any one fetch, said where a
+branch is already the question - the checkout and fast-forward offers - so it
+is read next to the branch it protects. Read through git in the checkout, so
+a global setting counts.
 """
 function lease_note(path, repo::AbstractString, branch::AbstractString)
     v = try

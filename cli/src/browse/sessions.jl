@@ -393,30 +393,32 @@ function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
                   ctrl, kind, mkcmd, say; items, rows = r.rows)
 end
 
-"""Open the item's session in a checkout that has been settled on - after one
-look at what is checked out there.
+"""Open the item's session in a checkout that has been settled on - after two
+looks at what is there.
 
-`branch` is the checkout's, and when the item is a pull request on another
-one the session is about to open on the wrong branch. That is worth a
-question ([`checkout_offer`](@ref)) exactly when the place is new to the
-item: nothing of the item's running there yet, or a copy `picked` by hand
-from the chooser or typed as a path. Going back to a copy where the item
-already has a session is not - it was asked when that opened, and `n` there
-was an answer, not a thing to say again on every `^]q`, or for the other
-kind. An answer is about the place *as it was*, though, and is not made to
-outlive it: a copy that has since moved off the branch it was answered on -
-parked at `master` or detached to mark it free, or checked out on another
-item's branch - is not the item's place any more (rule 2's exceptions), so
-the next `t` goes back through the chooser and the question, whatever was
-answered before. Things move between one session and the next, and a
-question is cheaper than a shell on the wrong branch.
+The first is the branch: `w.branch` is the copy's, and when the item is a
+pull request on another one the session is about to open on the wrong branch
+([`checkout_offer`](@ref)). The second, when the branch is the right one, is
+whether it is behind where the item is ([`update_offer`](@ref)). Both are
+asked exactly when the place is new to the item: nothing of the item's
+running there yet, or a copy `picked` by hand from the chooser or typed as a
+path. Going back to a copy where the item already has a session is not - it
+was looked at when that opened, and `n` there was an answer, not a thing to
+say again on every `^]q`, or for the other kind. An answer is about the place
+*as it was*, though: a copy that has since moved off the branch it was
+answered on - parked at `master` or detached to mark it free, or checked out
+on another item's branch - is not the item's place any more (rule 2's
+exceptions), so the next `t` goes back through the chooser and both looks,
+whatever was answered before. Things move between one session and the next,
+and a question is cheaper than a shell on the wrong branch.
 
-The question reports through `say`, long after this has returned `""`; the
-route that had nothing to ask reports through the return value, as before.
+A question reports through `say`, long after this has returned `""`; the
+route that had nothing to ask reports through the return value.
 
 `w` is the copy - a row of `worktrees`, or anything with its `path`, `branch`
 and `main` - and `pr` the pull request's own branch, both handed down from
-whoever looked them up rather than asked again here.
+whoever looked them up rather than asked again here; `rows`, the mux rows,
+the same.
 """
 function item_session!(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd,
                        say = _ -> nothing; picked::Bool = false, items = Item[], rows = nothing)
@@ -445,11 +447,8 @@ said on the status line and left to the shell, since a rebase is nobody's
 to run but the user's. And [`lease_note`](@ref)'s line, when it has one: a
 branch somebody else pushed to is the branch a lease is about.
 
-Asked on a fresh landing only, the checkout question's rule: a copy the item
-already has a session in - of either kind - was looked at when that opened,
-and `n` there is not un-said one key later for the other kind, or on every
-`^]q`; a new session some time later is a new look, since things move, and
-so is a copy `picked` by hand from the chooser or typed as a path.
+Asked when the place is new to the item, which is the checkout question's
+rule too ([`item_session!`](@ref) says when that is).
 
 Only when `HEAD` is the branch itself. A copy detached for a rebase or a
 bisect reports the branch it will return to, and a fast-forward there would
@@ -550,11 +549,8 @@ end
 
 """Ask whether to check the pull request out where its session is about to
 open, when the copy is on some other branch - or `nothing`, when there is
-nothing to ask: no branch, the right branch already, or a session already on
-this item in that copy and not `picked` afresh. Of either kind: the question
-is about the place, and rule 2 already says a shell lands where the item's
-agent is - `n` for the shell was the answer for the agent too, not a thing
-to ask again one key later.
+nothing to ask: no branch, the right branch already, or a place that is not
+new to the item ([`item_session!`](@ref) says when that is).
 
 The question shows what is checked out there before anything is done to it,
 which is the look `t` used to skip: the branch the copy is on and, when it is
@@ -574,11 +570,11 @@ reads, and so does the user's own gh, so the line is about the setting.
 Blocks the browser for the fetch under `y`, the way `p` does for its base;
 the pane opens when it lands.
 
-`w` and `pr` are [`item_session!`](@ref)'s; `rows` the mux rows if the caller
-has them, listed here otherwise - and only when there is something to look
-for: a copy `picked` is asked whatever is running in it, and an item with no
-ref has no session anywhere, whatever an untagged shell's empty tag says
-(rule 2 has the same guard).
+`w`, `pr` and `rows` are [`item_session!`](@ref)'s, the rows listed here when
+it had none - and only when there is something to look for: a copy `picked`
+is asked whatever is running in it, and an item with no ref has no session
+anywhere, whatever an untagged shell's empty tag says (rule 2 has the same
+guard).
 """
 function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd, say;
                         picked::Bool, items, rows = nothing)
@@ -832,13 +828,11 @@ a copy of it by its own declaration, which outlasts a head the lanes saw
 before a force-push from elsewhere. Then the project's copy of the branch
 itself, since a fork's `master` is on no branch of the project's: the
 remote-tracking ref as it stands, and failing that brought up to date
-(`fetch_base!`, one round trip) - into the tracking ref, since a fresh one
-is what the user's `git show` and ahead/behind read, and the lease it is
-for `--force-with-lease` is the questions' line to say ([`lease_note`](@ref)).
-A branch of your own that has moved is still `:local`, and a worktree on it
-is where the fast-forward is offered ([`update_offer`](@ref)); only a name
-that the project's own copy disowns is `:taken`. A row with no head sha
-(old, or made by a poll) is taken at its name, which is the old rule.
+(`fetch_base!`, one round trip; what that moves is [`lease_note`](@ref)'s
+subject). A branch of your own that has moved is still `:local`, and a
+worktree on it is where the fast-forward is offered ([`update_offer`](@ref));
+only a name that the project's own copy disowns is `:taken`. A row with no
+head sha (old, or made by a poll) is taken at its name, which is the old rule.
 """
 function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     r = remote_for(repo, it.repo)

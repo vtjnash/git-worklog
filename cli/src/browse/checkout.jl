@@ -11,10 +11,8 @@ Three questions in order, and only the last one is a guess:
 
 1. **A worktree already on the pull request's branch.** That is the copy the
    work is in, and no other answer can beat it - with the one refusal the
-   worktree list makes too (`carrier_refused`): the main checkout on `master`
-   is not a stranger's fork's `master`, whatever the name says, and taking
-   it for one would put every `t` on their pull request in the project's own
-   main checkout, on the project's own `master`, without a word.
+   worktree list makes too ([`carrier_refused`](@ref)): the main checkout on
+   `master` is not a stranger's fork's `master` by the name alone.
 2. **A session already tagged with this item.** `mux_list` rows carry the item
    they were opened on and the worktree they are in, so a session says where
    the work is happening whatever branch happens to be checked out there - and
@@ -104,29 +102,27 @@ function item_checkout(it::Item; items = Item[])
 end
 
 """The item whose branch a checkout `w` is on - a row of `worktrees`, or
-anything with its `branch` and `main` - read off a [`branch_index`](@ref), or
-`nothing`.
-
-One refusal, and it is the same one wherever a checkout is matched to an item,
-which is why it lives here and not in the pane that first needed it: a pull
-request is matched to a checkout by branch name alone, which is all
-`headRefName` gives - and on the *primary* checkout that is a collision
-waiting to happen. It sits on `master`, and somebody's fork opens a pull
-request from their own `master` about twice a week. Yours is at least
-plausibly the work in there; a stranger's is not, and reading "the branch
-carries its pull request" off it is simply wrong - the worktree list would
-file the main checkout under their number, and rule 2 above would take it
-for a copy *reused* for them, and ask about a place it had already been
-answered for, on every press.
-"""
+anything with its `branch` and `main` - read off a [`branch_index`](@ref)
+with [`carrier_refused`](@ref)'s one refusal, or `nothing`."""
 function branch_carrier(ix, repo::AbstractString, w)
     it = get(ix, (String(repo), String(w.branch)), nothing)
     (it === nothing || carrier_refused(it, w)) ? nothing : it
 end
 
-"""The refusal itself: the main checkout is not a stranger's, by the name of
-its branch alone. Shared by the list, rule 1 and rule 2, so no two of them
-disagree about whose a copy is."""
+"""The one refusal in matching a checkout to an item by its branch: the main
+checkout is not a stranger's.
+
+A pull request is matched to a checkout by branch name alone, which is all
+`headRefName` gives, and on the *primary* checkout that is a collision
+waiting to happen: it sits on `master`, and somebody's fork opens a pull
+request from their own `master` about twice a week. Yours is at least
+plausibly the work in there; a stranger's is not. Shared by the worktree
+list, rule 1 and rule 2 of [`item_worktree`](@ref), so no two of them
+disagree about whose a copy is - each place it was missing from had its own
+wrong answer: the list filing the main checkout under their number, rule 1
+opening it for them without a word, rule 2 taking it for a copy reused by
+them and asking on every press.
+"""
 carrier_refused(it::Item, w) = w.main && !author_ok(Set([AUTHOR_ME]), it)
 
 """The *other* item whose branch the checkout `w` is on, or `nothing`.
