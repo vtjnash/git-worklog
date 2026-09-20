@@ -331,10 +331,14 @@ function enter_session(target::AbstractString, branch::AbstractString,
     end
     # The url as well as the ref: the ref is what the pane says, the url is
     # what the marks are keyed by, and an agent's bell is read as one. The
-    # branch is the copy's as of now - re-tagged on every entry, so it is
-    # always the branch the last answer was about, and a copy on some other
-    # branch next time is one that has moved since (`item_worktree`, rule 2).
-    mux_tag!(name; worktree = target, kind = kind, item = ref, url = url, branch = branch)
+    # branch is the copy's as of now, read off git and not off the caller
+    # (`place_branch`: a caller's word for it is a row that may have gone
+    # stale, or the branch it *asked* gh for when gh chose another name) -
+    # re-tagged on every entry, so it is always the branch the last answer
+    # was about, and a copy on some other branch next time is one that has
+    # moved since (`item_worktree`, rule 2).
+    on = place_branch(target)
+    mux_tag!(name; worktree = target, kind = kind, item = ref, url = url, branch = on)
     # And on the item's other sessions here: the answer was about the place,
     # not the kind, so the agent left in this copy is told the branch the
     # shell was just put back on, or an old answer of its would say the copy
@@ -342,7 +346,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     for r in rows
         (!isempty(ref) && r.item == ref && wtkey(r.worktree) == wtkey(target) &&
          r.name != name && (found === nothing || r.name != found.name)) || continue
-        mux_tag!(r.name; branch = branch)
+        mux_tag!(r.name; branch = on)
     end
     v = pane_view(name, title, ctrl)
     v === nothing && return "could not attach to " * name
@@ -418,7 +422,7 @@ function item_session!(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcm
                        say = _ -> nothing; picked::Bool = false, items = Item[], rows = nothing)
     q = checkout_offer(it, w, pr, ctrl, kind, mkcmd, say; picked, items, rows)
     q === nothing || return q
-    q = update_offer(it, w, pr, ctrl, kind, mkcmd, say; rows)
+    q = update_offer(it, w, pr, ctrl, kind, mkcmd, say; picked, rows)
     q === nothing || return q
     session_in!(it, w.path, w.branch, ctrl, kind, mkcmd)
 end
@@ -441,21 +445,27 @@ said on the status line and left to the shell, since a rebase is nobody's
 to run but the user's. And [`lease_note`](@ref)'s line, when it has one: a
 branch somebody else pushed to is the branch a lease is about.
 
-Asked on a fresh landing only. A copy the item already has a session in -
-of either kind - was looked at when that opened, and `n` there is not
-un-said one key later for the other kind, or on every `^]q`; a new session
-some time later is a new look, since things move.
+Asked on a fresh landing only, the checkout question's rule: a copy the item
+already has a session in - of either kind - was looked at when that opened,
+and `n` there is not un-said one key later for the other kind, or on every
+`^]q`; a new session some time later is a new look, since things move, and
+so is a copy `picked` by hand from the chooser or typed as a path.
+
+Only when `HEAD` is the branch itself. A copy detached for a rebase or a
+bisect reports the branch it will return to, and a fast-forward there would
+move the detached head under the rebase and leave the branch where it was.
 """
 function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd, say;
-                      rows = nothing)
+                      picked::Bool = false, rows = nothing)
     mux_bin() === nothing && return nothing
     (isempty(pr) || w.branch != pr) && return nothing
-    if !isempty(it.ref)
+    if !picked && !isempty(it.ref)
         rows === nothing && (rows = mux_list())
         any(r -> r.item == it.ref && wtkey(r.worktree) == wtkey(w.path), rows) &&
             return nothing
     end
     target = String(w.path)
+    head_branch(target) == pr || return nothing
     tip, at = if it.is_pr
         isempty(it.head) && return nothing
         have_commit(target, it.head) ||
@@ -463,19 +473,15 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
             return nothing
         (it.head, string(it.ref, "'s head"))
     else
+        at = upstream_of(target, pr)
+        isempty(at) && return nothing
         u = try
-            strip(git(target, "rev-parse", "--verify", "--quiet",
-                      string("refs/heads/", pr, "@{u}")))
+            strip(git(target, "rev-parse", "--verify", "--quiet", string(pr, "@{u}")))
         catch
             return nothing
         end
         isempty(u) && return nothing
-        (String(u), try
-                        strip(git(target, "rev-parse", "--abbrev-ref",
-                                  string("refs/heads/", pr, "@{u}")))
-                    catch
-                        "upstream"
-                    end)
+        (String(u), at)
     end
     is_ancestor(target, tip, "refs/heads/" * pr) && return nothing
     branch_included(target, pr, tip) && return nothing
@@ -607,6 +613,15 @@ end
 session there. `branch` is the question's, so it is not asked of GitHub a
 second time for a row from before the field existed.
 
+A pull request's branch is looked for here first ([`pr_branch_here`](@ref)),
+the way a new worktree's is: a name this repository has that is *not* the
+pull request's is handed to gh under a name of its own, `pr<N>/<branch>`,
+since gh handed the taken name fetches the pull request into the branch
+that is in the way. And the branch the copy is on afterwards is read off git,
+not assumed: gh picks a name of its own for a fork's branch that collides
+with the project's default, and the session's tag and the report are about
+the branch that is there.
+
 A checkout that fails still opens the session, on the branch the copy was on,
 with git's or gh's complaint ahead of the pane's own report: a shell is where
 the file in the way gets dealt with, and refusing the shell for it would leave
@@ -616,16 +631,23 @@ status line says, and the agent reads its branch off its own prompt.
 function checkout_session!(it::Item, target::AbstractString, wbranch::AbstractString,
                            branch::AbstractString, ctrl, kind::Symbol, mkcmd)
     try
-        it.is_pr ? checkout_pr!(target, it.url) :
-                   git(target, "checkout", "--quiet", branch)
+        if it.is_pr
+            as = pr_branch_here(target, it, branch) === :taken ?
+                 string("pr", it.number, "/", branch) : ""
+            checkout_pr!(target, it.url; as)
+        else
+            git(target, "checkout", "--quiet", branch)
+        end
     catch e
         e isa GitError || rethrow()
         r = session_in!(it, target, wbranch, ctrl, kind, mkcmd)
         return string("could not check out ", branch, ": ", oneline(first(e.msg, 120)),
                       r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
     end
-    r = session_in!(it, target, branch, ctrl, kind, mkcmd)
-    r isa String ? string("checked out ", branch, " \u00b7 ", r) : r
+    now = head_branch(target)
+    isempty(now) && (now = branch)
+    r = session_in!(it, target, now, ctrl, kind, mkcmd)
+    r isa String ? string("checked out ", now, " \u00b7 ", r) : r
 end
 
 """One line for a checkout, in the list of places this item could be worked on.
@@ -685,7 +707,8 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
             else
                 i = findfirst(w -> w.path == p, ws)
                 w = i === nothing ? (path = String(p), branch = "", main = false) : ws[i]
-                say(item_session!(it, w, pr, ctrl, kind, mkcmd, say; picked = true, items))
+                say(item_session!(it, w, pr, ctrl, kind, mkcmd, say;
+                                  picked = true, items, rows))
             end
         end))
     ""
@@ -777,10 +800,12 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
                          seed = at, note = oneline(first(sprint(showerror, e), 200)), items, pr)
         return ""
     end
-    # A worktree made on a local branch goes through the same look as any
-    # other landing, and is offered the fast-forward when the branch is
-    # behind the pull request; one gh just made is where the pull request is.
-    r = found === :local ?
+    # A worktree git made goes through the same look as any other landing,
+    # and is offered the fast-forward when the branch is behind the pull
+    # request - off a local branch, or off a remote-tracking ref that was
+    # stale when only this program's private copy had the head. One gh just
+    # made is where the pull request is.
+    r = found in (:local, :remote) ?
         item_session!(it, (path = dest, branch = branch, main = false), pr, ctrl, kind, mkcmd,
                       say; picked = true, items) :
         session_in!(it, dest, branch, ctrl, kind, mkcmd)
@@ -801,10 +826,13 @@ yours is still yours.
 
 A local branch the head is *not* on is not yet a stranger's: it is as often
 your own - rewound from the head on purpose, or pushed from another machine
-since - and two things tell the two apart. The branch's own reflog first
+since - and three things tell the two apart. The branch's own reflog first
 (`branch_included`): a branch that once contained the head was moved off it
-deliberately, and is yours without a word to the network. Then the project's
-copy of the branch, since a fork's `master` is on no branch of the project's:
+deliberately, and is yours without a word to the network. Its upstream next
+(`upstream_of`): a branch set up to track the project's copy of the name is
+a copy of it by its own declaration, which outlasts a head the lanes saw
+before a force-push from elsewhere. Then the project's copy of the branch
+itself, since a fork's `master` is on no branch of the project's:
 the remote-tracking ref as it stands, and failing that a fetch into a ref of
 this program's own (`fetch_private!`, one round trip) - not into the tracking
 ref, which is the user's `--force-with-lease` lease and not this program's to
@@ -821,6 +849,10 @@ function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     isempty(it.head) && return hasloc ? :local : :remote
     on(ref) = has_rev(repo, ref) && is_ancestor(repo, it.head, ref)
     hasloc && (on(loc) || branch_included(repo, branch, it.head)) && return :local
+    # The branch's own word: one set up to track the project's copy of the
+    # name is a copy of it by declaration, whatever a head the lanes last saw
+    # says - a force-push from elsewhere since then is still yours.
+    (hasloc && upstream_of(repo, branch) == string(r, "/", branch)) && return :local
     on(rem) && return hasloc ? :local : :remote
     priv = fetch_private!(repo, it.repo, branch)
     (!isempty(priv) && on(priv)) && return hasloc ? :local : :remote

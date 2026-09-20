@@ -10,7 +10,11 @@ guess rather than an answer.
 Three questions in order, and only the last one is a guess:
 
 1. **A worktree already on the pull request's branch.** That is the copy the
-   work is in, and no other answer can beat it.
+   work is in, and no other answer can beat it - with the one refusal the
+   worktree list makes too (`carrier_refused`): the main checkout on `master`
+   is not a stranger's fork's `master`, whatever the name says, and taking
+   it for one would put every `t` on their pull request in the project's own
+   main checkout, on the project's own `master`, without a word.
 2. **A session already tagged with this item.** `mux_list` rows carry the item
    they were opened on and the worktree they are in, so a session says where
    the work is happening whatever branch happens to be checked out there - and
@@ -57,7 +61,7 @@ function item_worktree(it::Item; items = Item[])
     rows = nothing
     if !isempty(branch)
         for w in ws
-            w.branch == branch &&
+            (w.branch == branch && !carrier_refused(it, w)) &&
                 return (path = w.path, branch = branch, ask = false, main = w.main,
                         pr = branch, rows = rows)
         end
@@ -74,9 +78,13 @@ function item_worktree(it::Item; items = Item[])
             (ix !== nothing && branch_owner(it, w, ix) !== nothing) && continue
             # Moved if *any* session of the item's here was last entered on
             # some other branch: an answer is written on all of them, so one
-            # that still disagrees is one from before the copy moved.
+            # that still disagrees is one from before the copy moved. The tag
+            # is `place_branch`'s word, `@` for a detached head; one that is
+            # empty is from before there was a tag, and knows nothing.
+            want = isempty(w.branch) ? "@" : w.branch
             (!isempty(branch) &&
-             any(x -> wtkey(x.worktree) == wtkey(w.path) && x.branch != w.branch, mine)) &&
+             any(x -> wtkey(x.worktree) == wtkey(w.path) && !isempty(x.branch) &&
+                      x.branch != want, mine)) &&
                 continue
             return (path = w.path, branch = w.branch, ask = false, main = w.main,
                     pr = branch, rows = rows)
@@ -113,8 +121,13 @@ answered for, on every press.
 """
 function branch_carrier(ix, repo::AbstractString, w)
     it = get(ix, (String(repo), String(w.branch)), nothing)
-    (it !== nothing && w.main && !author_ok(Set([AUTHOR_ME]), it)) ? nothing : it
+    (it === nothing || carrier_refused(it, w)) ? nothing : it
 end
+
+"""The refusal itself: the main checkout is not a stranger's, by the name of
+its branch alone. Shared by the list, rule 1 and rule 2, so no two of them
+disagree about whose a copy is."""
+carrier_refused(it::Item, w) = w.main && !author_ok(Set([AUTHOR_ME]), it)
 
 """The *other* item whose branch the checkout `w` is on, or `nothing`.
 

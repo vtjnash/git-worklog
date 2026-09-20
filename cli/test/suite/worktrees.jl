@@ -209,7 +209,12 @@ end
     # been reused for another item is not this item's place any more.
     items = W.loaditems()
     shown = W.BState(items, "worklog")
-    pr = fixture_item("yours, open, with a branch and labels")
+    # Without its head: the fixture's is a real commit that is nowhere in the
+    # repository made here, and a name here whose head nothing can find is
+    # taken (`pr_branch_here`), which is the case for the rows made below
+    # for it, not for this one, which stands for a pull request whose branch
+    # is simply its name.
+    pr = W.with(fixture_item("yours, open, with a branch and labels"); head = "")
     root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
     W.git(main, "init", "--quiet", "--initial-branch=master", ".")
     W.git(main, "config", "user.email", "t@example.com")
@@ -291,6 +296,15 @@ end
         # An item that is nobody's branch sees nothing, and an empty index too.
         @test W.branch_owner(pr, (branch = "nowhere", main = false), ix) === nothing
         @test W.branch_owner(pr, atmain, W.branch_index(W.Item[])) === nothing
+        # Rule 1 makes the same refusal: main on `master` is not the
+        # stranger's place by the name alone, list or no list, so `t` on
+        # their pull request asks rather than opening the project's own
+        # main checkout on the project's own `master`. Yours from `master`
+        # is found there.
+        @test W.item_worktree(stranger; items = withstranger).ask
+        @test W.item_worktree(stranger).ask
+        r = W.item_worktree(yours)
+        @test !r.ask && W.wtkey(r.path) == W.wtkey(main) && r.main
 
         if W.mux_bin() === nothing
             @info "no tmux; skipping the checkout offer"
@@ -456,6 +470,26 @@ end
                 W.git(main, "checkout", "--quiet", "master")
                 @test !W.item_worktree(pr; items = known).ask
                 W.git(main, "branch", "--quiet", "-D", "scratch")
+                # A tag from before there was one knows nothing, and sees no
+                # move until the item is put there again, which writes one -
+                # `@` for a detached head, so that staying detached is not a
+                # move and leaving it is.
+                for r in W.mux_list()
+                    (r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main)) &&
+                        W.mux_tag!(r.name; branch = "")
+                end
+                W.git(main, "checkout", "--quiet", "--detach", "master")
+                @test !W.item_worktree(pr; items = known).ask
+                said[] = nothing
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r) && said[] === nothing
+                drop!(top())
+                tags = [r.branch for r in W.mux_list()
+                        if r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main)]
+                @test length(tags) == 2 && all(==("@"), tags)
+                @test !W.item_worktree(pr; items = known).ask
+                W.git(main, "checkout", "--quiet", "master")
+                @test W.item_worktree(pr; items = known).ask
                 # An issue has no right branch, so its shell is wherever it is.
                 @test W.enter_session(issue, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
@@ -712,6 +746,11 @@ end
                 @test top() isa W.PaneView && occursin("started", string(said[]))
                 @test strip(W.git(dest7, "rev-parse", "ff")) == f1
                 drop!(top())
+                # Picked by hand, the copy is a fresh look, session or not.
+                @test W.make_checkout!(ffpr, ctrl, :shell, sleep120, say, dest7; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView && cv.title == "Fast-forward ff in main-ff?"
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+                @test top() isa W.BState
                 said[] = nothing
                 r = W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known)
                 @test r isa String && occursin("started", r) && top() isa W.PaneView
@@ -781,6 +820,113 @@ end
                 @test !occursin("behind", r) && top() isa W.PaneView
                 @test strip(W.git(dest9, "rev-parse", "rw")) == f1
                 drop!(top())
+
+                # A branch on the remote only, whose tracking ref here is
+                # stale: the private copy says the head is the project's, the
+                # worktree is made off the tracking ref as it stands, and the
+                # landing offers the fast-forward that closes the gap. The
+                # tracking ref - the lease - never moves.
+                W.git(other, "checkout", "--quiet", "-b", "stale", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "stale one")
+                W.git(main, "fetch", "--quiet", "origin")
+                s1 = strip(W.git(main, "rev-parse", "refs/remotes/origin/stale"))
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "stale two")
+                s2 = strip(W.git(other, "rev-parse", "stale"))
+                stpr = W.Item(url = "https://example.invalid/o/wt/pull/46", ref = "wt#46",
+                              repo = pr.repo, number = 46, title = "stale", branch = "stale",
+                              head = s2)
+                @test W.pr_branch_here(main, stpr, "stale") === :remote
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/stale")) == s1
+                @test strip(W.git(main, "rev-parse", "refs/worklog/origin/stale")) == s2
+                dest12 = joinpath(root, "main-stale")
+                @test W.make_checkout!(stpr, ctrl, :shell, sleep120, say, dest12; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == "Fast-forward stale in main-stale?"
+                @test cv.notes[1] == "stale is 1 commit behind wt#46's head, pushed from somewhere else"
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("fast-forwarded stale", string(said[]))
+                @test strip(W.git(dest12, "rev-parse", "stale")) == s2
+                @test strip(W.git(dest12, "rev-parse", "--abbrev-ref", "@{u}")) == "origin/stale"
+                @test strip(W.git(main, "rev-parse", "refs/remotes/origin/stale")) == s1
+                @test isempty(asked())
+                drop!(top())
+
+                # A branch's own upstream is its word for whose copy it is: one
+                # tracking the project's copy of the name is yours whatever
+                # head the lanes last saw, with nothing fetched; one with no
+                # upstream and a head nothing here has is taken.
+                W.git(other, "checkout", "--quiet", "-b", "own", "origin/master")
+                W.git(other, "commit", "--quiet", "--allow-empty", "-m", "owned")
+                W.git(main, "fetch", "--quiet", "origin")
+                W.git(main, "branch", "--quiet", "own", "origin/own")
+                @test W.upstream_of(main, "own") == "origin/own"
+                ownpr = W.Item(url = "https://example.invalid/o/wt/pull/47", ref = "wt#47",
+                               repo = pr.repo, number = 47, title = "own", branch = "own",
+                               head = theirs.head)
+                @test W.pr_branch_here(main, ownpr, "own") === :local
+                W.git(main, "branch", "--quiet", "--no-track", "own2", "origin/own")
+                @test W.upstream_of(main, "own2") == ""
+                @test W.pr_branch_here(main, W.with(ownpr; branch = "own2"), "own2") === :taken
+
+                # A copy detached for a rebase reports the branch it will
+                # return to, and is found by it - but the fast-forward is not
+                # offered there, since it would move the detached head under
+                # the rebase and leave the branch where it was. Once the
+                # rebase is over and the branch is checked out, it is.
+                W.git(main, "branch", "--quiet", "rb", f1)
+                W.git(main, "branch", "--quiet", "-u", "origin/ff", "rb")
+                dest13 = joinpath(root, "main-rb")
+                W.add_worktree!(main, "rb", dest13)
+                W.git(dest13, "checkout", "--quiet", "--detach")
+                gd = strip(W.git(dest13, "rev-parse", "--absolute-git-dir"))
+                mkpath(joinpath(gd, "rebase-merge"))
+                write(joinpath(gd, "rebase-merge", "head-name"), "refs/heads/rb\n")
+                rbpr = W.Item(url = "https://example.invalid/o/wt/pull/48", ref = "wt#48",
+                              repo = pr.repo, number = 48, title = "rebasing", branch = "rb",
+                              head = f2)
+                r = W.item_worktree(rbpr; items = known)
+                @test W.wtkey(r.path) == W.wtkey(dest13) && r.branch == "rb" && !r.ask
+                @test W.place_branch(dest13) == "rb" && W.head_branch(dest13) == ""
+                said[] = nothing
+                r = W.enter_session(rbpr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("started", r) && top() isa W.PaneView
+                @test strip(W.git(main, "rev-parse", "rb")) == f1
+                drop!(top())
+                rm(joinpath(gd, "rebase-merge"); recursive = true)
+                W.git(dest13, "checkout", "--quiet", "rb")
+                for r in W.mux_list()
+                    W.wtkey(r.worktree) == W.wtkey(dest13) && W.mux_kill(r.name)
+                end
+                @test W.enter_session(rbpr, ctrl, :shell, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView && cv.title == "Fast-forward rb in main-rb?"
+                @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
+
+                # `y` on the checkout question, for a name this repository
+                # has that is not the pull request's: gh is handed a name of
+                # its own, the branch in the way is left alone, and the tag
+                # and the report say the branch the copy is on afterwards.
+                W.git(main, "branch", "--quiet", "dup", "master")
+                mtip = strip(W.git(main, "rev-parse", "master"))
+                duppr = W.Item(url = "https://example.invalid/o/wt/pull/45", ref = "wt#45",
+                               repo = pr.repo, number = 45, title = "dup", branch = "dup",
+                               head = theirs.head)
+                @test W.enter_session(duppr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); @test ch isa W.ChooseView
+                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView && cv.title == "Check out dup in main?"
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test asked() == ["pr", "checkout", duppr.url, "--branch", "pr45/dup"]
+                @test occursin("checked out pr45/dup", string(said[]))
+                @test first(W.worktrees(main)).branch == "pr45/dup"
+                @test strip(W.git(main, "rev-parse", "dup")) == mtip
+                @test any(r -> r.item == duppr.ref && r.branch == "pr45/dup" &&
+                               W.wtkey(r.worktree) == W.wtkey(main), W.mux_list())
+                drop!(top()); rm(log)
+                W.git(main, "checkout", "--quiet", pr.branch)
+                W.git(main, "branch", "--quiet", "-D", "pr45/dup")
 
                 # The lease line on the checkout question: about the setting,
                 # not about any one fetch, since the user's own `gh pr

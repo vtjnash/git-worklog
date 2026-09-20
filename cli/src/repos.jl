@@ -891,6 +891,34 @@ function merged_here(path::AbstractString, branch::AbstractString; base = nothin
     end
 end
 
+"The branch `HEAD` is on in `path`, or `\"\"` when it is detached."
+head_branch(path::AbstractString) =
+    try; strip(git(path, "symbolic-ref", "--quiet", "--short", "HEAD")); catch; ""; end
+
+"""The local `branch`'s upstream as `<remote>/<branch>`, or `\"\"` when it has
+none - the branch's own word for which remote copy it is a copy of. The bare
+name, since `@{u}` is a suffix for a branch name and not for a ref."""
+upstream_of(path::AbstractString, branch::AbstractString) =
+    try
+        strip(git(path, "rev-parse", "--abbrev-ref", string(branch, "@{u}")))
+    catch
+        ""
+    end
+
+"""What a session is tagged with for the branch its copy is on: the branch,
+the branch a rebase or bisect will return to when the head is detached for
+one (`returning_branch`), and `@` for a head detached on purpose. The same
+answer `worktrees` gives for the copy, with the one difference that a plain
+detached head is a word and not an empty string - so that a tag that *is*
+empty can mean what it did before there was one: nothing known.
+"""
+function place_branch(path::AbstractString)
+    b = head_branch(path)
+    isempty(b) || return b
+    b = returning_branch(path)
+    isempty(b) ? "@" : b
+end
+
 "Does `rev` name something in this repo?"
 has_rev(path::AbstractString, rev::AbstractString) =
     try; git(path, "rev-parse", "--verify", "--quiet", string(rev, "^{commit}")); true
