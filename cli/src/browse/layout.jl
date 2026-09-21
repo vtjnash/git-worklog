@@ -107,6 +107,54 @@ selrange(st::BState) = (st.sela == 0 || st.selb == 0) ? nothing :
 
 clearsel!(st::BState) = (st.sela = 0; st.selb = 0; st.anchor = 0; nothing)
 
+"""Carry the cursor and the selection across a change of pane width.
+
+`nrow`, `anchor`, `sela` and `selb` are indices into the rows, and the rows are
+made again at whatever width the pane is drawn at: the thread wrapped to half
+the screen beside a composer has other rows than the same thread wrapped to
+the browser's own pane, and an index taken against one names some other line
+in the other. That is what put the highlight on the wrong rows once `C` was
+open - the comment itself was right, resolved before the pane moved.
+
+Each index is turned back into what it stood on - a node and the written line
+within it, the way `hunk_line_at` counts - at the width it was taken at, and
+forward into a row at the new one. The low end of a selection lands on the
+first row of its line and the high end on the last, so a line the new width
+wraps across more rows is still covered whole, which is what `y` copies and
+`c` comments on either way.
+"""
+function rewrap!(st::BState, from::Int, to::Int)
+    (from <= 0 || from == to) && return
+    old, new = rows(st.nodes, from), rows(st.nodes, to)
+    (isempty(old) || isempty(new)) && return
+    st.nrow = samerow(old, new, st.nrow, false)
+    st.anchor > 0 && (st.anchor = samerow(old, new, st.anchor, false))
+    if st.sela > 0 && st.selb > 0
+        a, b = st.sela, st.selb
+        st.sela = samerow(old, new, a, a > b)
+        st.selb = samerow(old, new, b, b >= a)
+    end
+    nothing
+end
+
+"""Where row `j` of `from` stands in `to`: the first row of the same written
+line of the same node - or its last, with `last`. The rows of a node at either
+width run over the same written lines, each starting a `part == 0` row, so the
+line is its ordinal among those; ordinal zero is the spacer row above a
+top-level header, which is the node's first row."""
+function samerow(from::Vector{Row}, to::Vector{Row}, j::Int, last::Bool)
+    j = clamp(j, 1, length(from))
+    node = from[j].node
+    k = count(i -> from[i].node == node && from[i].part == 0, 1:j)
+    idx = findall(r -> r.node == node, to)
+    isempty(idx) && return clamp(j, 1, length(to))
+    starts = filter(i -> to[i].part == 0, idx)
+    (k == 0 || isempty(starts)) && return first(idx)
+    k = min(k, length(starts))
+    last || return starts[k]
+    k < length(starts) ? starts[k + 1] - 1 : idx[end]
+end
+
 """Rebuild the selected text from the nodes rather than from the screen.
 
 One line out per *logical* line covered: a paragraph the pane wrapped across

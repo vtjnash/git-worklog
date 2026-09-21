@@ -20,7 +20,10 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # is: only the thing that draws it knows how wide it got. `render_frame`
     # hands over what `layout` said, but a hosted pane hands over half the
     # screen - and a row index taken against the other number lands on a line
-    # that was wrapped somewhere else.
+    # that was wrapped somewhere else. And the indices already taken - the
+    # cursor, and the rows a drag went over - are carried across to the new
+    # wrapping before the width is forgotten, or they would land there too.
+    rewrap!(st, st.diw, riw)
     st.diw, st.dpage = riw, max(1, rh - 3)
     # The item title again, above the detail. The title bar is a row away at the
     # top of the screen and easy to lose track of once you have scrolled into a

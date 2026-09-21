@@ -190,6 +190,57 @@ end
     pop!(ctrl.stack)
 end
 
+@testset "the cursor and the selection survive a change of pane width" begin
+    # Select rows, then `C`: the highlight landed on other rows while the
+    # composer was up. The comment was right - resolved at the browser's width
+    # before the pane moved - but `sela`/`selb` are row indices and the rows
+    # beside a composer are wrapped to half the screen, so the same indices
+    # named other lines. What was selected is carried across instead.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    st = mkstate()
+    long = repeat("a long sentence that has to wrap several times over ", 6)
+    st.nodes = [W.Node("alice  2026-09-01   first", long, :md, true),
+                W.Node("bob  2026-09-02   second", string(long, "\n\n", long), :md, true)]
+    st.metakey = st.items[st.sel].url
+    st.focus = :detail
+    L = W.layout(170, 40, st.nmeta)
+    lw, _ = W.split_box(170)
+    wide, narrow = W.rows(st.nodes, L.riw), W.rows(st.nodes, lw - 4)
+    @test length(wide) != length(narrow)
+    # The second paragraph of bob's comment, whole, at the browser's width.
+    a = findlast(r -> r.node == 2 && r.part == 0, wide)
+    b = length(wide)
+    W.render(st, 170, 40)
+    st.nrow = b; st.anchor = a; st.sela, st.selb = a, b
+    before = W.selection_text(st, st.diw)
+    @test count(==('\n'), before) == 0 && startswith(before, "a long")
+    # Drawn beside the composer, it is the same paragraph on its own rows -
+    # the last written line of bob's comment, first row to last - and the
+    # cursor is on the line it was on.
+    W.detail_pane(st, st.items[st.sel], lw, 40, true)
+    @test st.diw == lw - 4
+    @test st.sela == findlast(r -> r.node == 2 && r.part == 0, narrow)
+    @test st.selb == length(narrow)
+    @test st.nrow == st.sela && st.anchor == st.sela
+    @test W.selection_text(st, st.diw) == before
+    # And back again, once the composer closes.
+    W.render(st, 170, 40)
+    @test st.diw == L.riw && (st.sela, st.selb) == (a, b)
+    # A range dragged upwards keeps its ends the way round they were, and the
+    # spacer row above a header - part of no written line - stays a row.
+    st.sela, st.selb = b, a
+    W.detail_pane(st, st.items[st.sel], lw, 40, true)
+    @test st.selb == findlast(r -> r.node == 2 && r.part == 0, narrow)
+    @test st.sela == length(narrow)
+    sp = findfirst(r -> r.node == 2 && r.header && r.part == 1 && isempty(r.src), narrow)
+    st.nrow = sp; W.clearsel!(st)
+    W.render(st, 170, 40)
+    @test st.nrow == findfirst(r -> r.node == 2, wide)
+    # The same width is no change at all.
+    W.rewrap!(st, L.riw, L.riw)
+    @test st.nrow == findfirst(r -> r.node == 2, wide)
+end
+
 @testset "a place replaces a place; a dialog stacks on one" begin
     # `t` from `"` used to leave four views between the shell and the dashboard,
     # so getting back out was ^]tab, esc, esc, ^]tab, esc. Two terminals - or a

@@ -432,8 +432,12 @@ from `set_theme` - are set from the same file. With no theme, Term's own
 resets are stripped too.
 
 **A row index is only meaningful against the width it was measured at.**
-Beside a hosted pane the detail is half the screen; `detail_pane` records the
-width and page it was drawn at, and every key that indexes rows reads that.
+Beside a hosted pane or a composer the detail is half the screen; `detail_pane`
+records the width and page it was drawn at, and every key that indexes rows
+reads that. The indices already held - the cursor, the drag's two ends - are
+carried across by `rewrap!` when the width changes: back to the node and
+written line each stood on, forward to a row at the new width. Without it a
+selection made in the browser lit other rows beside `C`.
 
 **A resize is an event, not a tick.** SIGWINCH reaches the loop through
 libuv's `uv_signal_t` (`watch_winch!`) as a `ResizeEvent`, and the frame is

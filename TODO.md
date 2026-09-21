@@ -43,22 +43,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       because the binding is `const` and the contents are anybody's. Offer a
       patch from the `Term.jl/` clone.
 
-## The browser
-
-- [ ] **The selected rows are the wrong rows once `C` is open.** Select rows,
-      then `C`: the highlight lands on other rows while the composer is up, and
-      presumably the comment is placed against them too. `sela`/`selb` are
-      `nrow` coordinates - indices into the flattened rows, not into the text -
-      and the rows are made again by whoever reads them: the frame draws
-      `rows(st.nodes, riw, st.mouse; at)`, `hunk_rows` in `writing.jl` calls
-      `rows(st.nodes, w)` at the width it is handed. Any difference in width or
-      in the copy marks (`markw` moves the wrap) between the pane the drag was
-      made on and the pane beside the composer re-wraps the rows, and the same
-      indices name different ones. Either pin the selection to what it is about
-      - a node and a source line each end, resolved to rows per frame, the way
-      search hits are marked against the source - or make sure every reader
-      wraps at the same width and marks as the drag did.
-
 ## The list
 
 - [ ] **A list row two high.** For the titles the one row cuts at about half.
