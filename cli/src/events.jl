@@ -847,9 +847,15 @@ place. Two sources can see one url - the notifications source and the poll of
 the repo it is in - and each knows something the other does not: the thread
 its `reason`, the poll the state and the author. Merging keeps both whichever
 came second; overwriting kept whichever came last.
+
+`now` and `lastby` are the two things here that reach GitHub outside the
+sources' own fetches - the server's clock, and who wrote the newest comment
+on a row awaited past the grace - and both are arguments so a test says what
+they answer, the way it says when now is.
 """
 function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
-               now = server_now, watched = watched_repos, login = Worklog.login())
+               now = server_now, watched = watched_repos, login = Worklog.login(),
+               lastby = last_comment_by)
     inbox = load_inbox()
     polled, items = inbox["polled"], inbox["items"]
     # The cursors are `local.toml`'s - `source_cursors`, how far each source
@@ -927,7 +933,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         polled[label] = stamp(at)
     end
 
-    witness && settle_expectations!(inbox, items, at, login)
+    witness && settle_expectations!(inbox, items, at, login; lastby)
     # Nothing leaves here. A row is dropped by the refresh once the corpus
     # has asked about it and it is read - see `refresh` - and not on
     # `updated <= read`, which it was until 2026-09-16: the marks stamp the
@@ -1009,8 +1015,10 @@ end
 
 """Go over what is expected: satisfied by a thread that arrived, dropped when
 the last comment turns out to be yours, and otherwise - past the grace - the
-lag, said, with the wide ask switched on until it is met."""
-function settle_expectations!(inbox, items, at::DateTime, login::AbstractString)
+lag, said, with the wide ask switched on until it is met. `lastby` is
+[`last_comment_by`](@ref), or what stands in for it."""
+function settle_expectations!(inbox, items, at::DateTime, login::AbstractString;
+                              lastby = last_comment_by)
     exp = get(inbox, "expect", nothing)
     (exp === nothing || isempty(exp)) && (haskey(inbox, "wide") || return; )
     exp === nothing && (exp = Dict{String,Any}())
@@ -1041,7 +1049,7 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString)
         # list could not tell; one look at the last comment settles it.
         if !get(e, "checked", false)
             e["checked"] = true
-            by = last_comment_by(url)
+            by = lastby(url)
             if by == login
                 delete!(exp, url)
                 continue

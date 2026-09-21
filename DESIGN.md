@@ -608,7 +608,9 @@ No TTY, so the UI is tested by construction:
   assertion about a bold row passes by `occursin("", x)`.
 - A background fetch signals with a `WakeEvent`: `take!(ctrl.events)` then
   `onwake!`.
-- Time is an argument: a test says when now is by passing it.
+- Time is an argument: a test says when now is by passing it. So is the
+  network where a function reaches it outside its sources - `sync!`'s
+  `now` and `lastby` - and the suite runs whole with no token.
 - `--project=cli`, never the wrapper. `latency.jl` builds the image and spawns
   cold processes and is deliberately not in the suite.
 - What none of this reaches - the terminal's own bytes and title, a resize,

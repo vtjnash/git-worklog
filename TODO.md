@@ -246,11 +246,6 @@ Reviewing and writing:
 The writes, all tried against GitHub by 2026-09-18 and none wrong so far:
 - [ ] `C` on a deleted line - the one write that landed after the trial
       (2026-09-17): a `LEFT` thread numbered against the base.
-- [ ] The suite reaches GitHub in one place - `Events.server_now`, through
-      the witness testset at `refresh.jl:1257` - so with no token that file
-      errors and stops `runtests.jl` there; every other file runs (seen
-      2026-09-17, when the sandbox token expired overnight). Either hand that
-      testset a clock, or accept that one line of the suite needs the network.
 
 The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl read

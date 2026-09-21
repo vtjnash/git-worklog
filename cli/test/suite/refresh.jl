@@ -1478,7 +1478,10 @@ end
              row = (r, _) -> E.issue_row(r, "me")),
         ]
         watched = () -> Set(["o/r"])
-        run(at; kw...) = E.sync!(srcs, at; now = () -> at, watched = watched, login = "me", kw...)
+        # The last comment's author is the one thing the settling asks
+        # GitHub for; unknown here, which is "not yours".
+        run(at; kw...) = E.sync!(srcs, at; now = () -> at, watched = watched, login = "me",
+                                 lastby = _ -> nothing, kw...)
         at = W.DateTime(2026, 9, 13, 12, 10)
         # A new issue by somebody else in a watched, polled repo, and no
         # thread yet: expected. One by you: not.
