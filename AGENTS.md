@@ -3,8 +3,9 @@
 Read `DESIGN.md` before changing anything: its headings are the index, and
 "Invariants found by debugging" and "Decisions not to re-litigate" are the
 parts that will otherwise be re-learned the hard way. `README.md` is the
-manual; `TODO.md` is what is open; `git log` is the history. `Worklog.jl`'s
-include list is the index to the code.
+manual; `TODO.md` is what needs doing and `LATER.md` what is blocked or
+undecided; `git log` is the history. `Worklog.jl`'s include list is the index
+to the code.
 
 ## The views set the design
 
