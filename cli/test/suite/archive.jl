@@ -455,15 +455,15 @@ end
         W.handle!(v, 13, ctrl)
         @test v.mode === :worktrees && v.rows[v.sel].name == "made"
 
-        # `i` works from either lens.
+        # `h` works from either lens.
         st = W.BState(items, "worklog")
         v2 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
         W.handle!(v2, 9, ctrl)
         v2.bsel = findfirst(b -> b.name == pr.branch, v2.brows)
-        @test W.handle!(v2, Int('i'), ctrl) === :pop
+        @test W.handle!(v2, Int('h'), ctrl) === :pop
         @test st.items[st.sel].url == pr.url
         v2.bsel = findfirst(b -> b.name == "homeless", v2.brows)
-        @test W.handle!(v2, Int('i'), ctrl) === :ok
+        @test W.handle!(v2, Int('h'), ctrl) === :ok
         @test occursin("no pull request", v2.status)
 
         # A click lands on the row under it - the border and the column

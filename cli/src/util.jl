@@ -73,7 +73,7 @@ for what is only ever compared against itself: a snooze's wake against the
 frame that reads it, the interaction clock, a draft's age. A stamp that will
 meet one *GitHub* wrote - the refresh's `at`, which dates movements and read
 marks; the poll's cursor, compared on the server against `updated_at`; the
-moment a thread was read, which `r` marks it seen up to - is taken off GitHub
+moment a thread was read, which `e` marks it seen up to - is taken off GitHub
 instead, from the `Date` header of the response that produced it: see
 `Events.server_now` and `Events.thread`. Not corrected from this clock by a
 measured offset, which was tried and is a correction factor with all the ways

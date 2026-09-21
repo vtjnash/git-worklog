@@ -49,7 +49,7 @@ end
     # one only the inbox holds - has `updated` and nothing else; a synthetic
     # one has neither and gets `at`, the one place a clock is the answer.
     # `wl read`, `wl snooze` and `wl archive` go through `mark_read_moved`,
-    # which has no thread on screen and reads the rows itself; `r`, `s` and
+    # which has no thread on screen and reads the rows itself; `e`, `s` and
     # `x` read the `Item`. Each stamp is read against `seen_of` afterwards,
     # which is the whole test.
     keepi, keepm = W.FETCHED[], W.LOCAL[]
@@ -86,9 +86,9 @@ end
             st.filters = W.everything(); W.refilter!(st)
             st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
             st.nodes = W.Node[]
-            W.handle!(st, Int('r'), ctrl, at)
+            W.handle!(st, Int('e'), ctrl, at)
             @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
-            W.handle!(st, Int('r'), ctrl, at)                 # unread
+            W.handle!(st, Int('e'), ctrl, at)                 # unread
             W.apply_snooze!(st, it, "3d", at)
             @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
             W.apply_snooze!(st, it, nothing, at); W.set_read(it.url, nothing)
@@ -149,7 +149,7 @@ end
 @testset "what the clock does not count" begin
     keep = W.LOCAL[]
     # The read stamps are in here too now, so redirecting the file is the whole
-    # of what this testset has to put back: `r` below writes one.
+    # of what this testset has to put back: `e` below writes one.
     W.LOCAL[] = fresh_local()
     try
         st = mkstate()
@@ -159,7 +159,7 @@ end
         # Looking is not interacting. Moving the cursor, folding, changing pane,
         # searching and switching mode must all leave the clock alone - a list
         # ordered by it would otherwise be a record of browsing.
-        for k in (Int('j'), Int('k'), Int('\t'), Int('\r'), Int('d'), Int('o'),
+        for k in (Int('j'), Int('k'), Int('\t'), Int('\r'), Int('d'), Int('h'),
                   Int('g'), Int('G'), Int('n'), Int('N'), Int('/'))
             W.handle!(st, k, ctrl)
         end
@@ -171,10 +171,10 @@ end
         # browser opens on, which is what moved.
         st = mkstate(); st.filters = W.everything(); W.refilter!(st)
         it = st.items[st.sel]
-        W.handle!(st, Int('r'), ctrl)
-        @test st.status == "marked read"
+        W.handle!(st, Int('e'), ctrl)
+        @test st.status == "done"
         @test W.touched_at(it.url) === nothing
-        W.handle!(st, Int('r'), ctrl)          # and back, which is the toggle
+        W.handle!(st, Int('e'), ctrl)          # and back, which is the toggle
         @test W.touched_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
 
@@ -266,7 +266,7 @@ end
 end
 
 @testset "s asks how long for" begin
-    # `s` used to write on-change and say nothing. "Until it moves" is what `r`
+    # `s` used to write on-change and say nothing. "Until it moves" is what `e`
     # does - a snooze is a wake *time* beside the wake table, not a hold
     # against it - so the menu is the spans and a date, and the one thing to
     # decide is how long.
@@ -326,7 +326,7 @@ end
 
         # A value parse_snooze cannot read is refused rather than written: it
         # would leave the item not snoozed and look like it had worked. "Until
-        # it moves" and "forever" are two of those - `r` and `x` are what they
+        # it moves" and "forever" are two of those - `e` and `x` are what they
         # are, and a snooze is a time.
         @test occursin("bad snooze value", W.apply_snooze!(st, it, "3days", now))
         @test occursin("bad snooze value", W.apply_snooze!(st, it, "on-change", now))

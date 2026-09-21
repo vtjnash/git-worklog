@@ -75,9 +75,9 @@ end
 
 """Follow items that no lane returns, and land them unread.
 
-The bulk half of the browser's `i`. One batched request for the lot rather than
+The bulk half of the browser's `I`. One batched request for the lot rather than
 one each, `imported` written per url so a refresh keeps them, and an inbox entry
-per item so they arrive in the unread lane - which is the difference from `i`,
+per item so they arrive in the unread lane - which is the difference from `I`,
 where you are already looking at the thing.
 
 A url that resolves to nothing is reported and skipped rather than written: a

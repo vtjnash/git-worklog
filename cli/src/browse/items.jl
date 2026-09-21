@@ -7,7 +7,7 @@
 
 Importing is not an action on whatever happens to be selected - it is how
 something that is *not* here gets in - so it is a row you move onto and press
-`\u21b5` on rather than a key you have to have been told about. `i` still does it
+`\u21b5` on rather than a key you have to have been told about. `I` still does it
 from anywhere, and this is what tells you that.
 
 It is not in `st.items`. A row that is not an item, in the vector every filter,
@@ -22,7 +22,7 @@ const NEWROW = "\u002b import an item by url"
 
 "What the detail pane says while the import row is selected."
 newnodes() = [Node("import an item by url",
-                   "`\u21b5` here, or `i` from anywhere, asks for a url.\n\n" *
+                   "`\u21b5` here, or `I` from anywhere, asks for a url.\n\n" *
                    "Everything else in this list arrived through a lane - your " *
                    "pull requests, review requests, mentions, the repos in " *
                    "`data/config.toml`. An issue in a repo nobody watches that does " *

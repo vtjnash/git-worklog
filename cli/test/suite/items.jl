@@ -120,7 +120,7 @@ end
         @test !occursin(r.items[1].title, drawn())
         # Every per-item key is inert here: this row is not an item.
         r.status = ""
-        for k in (Int('x'), Int('s'), Int('r'), Int('d'), Int('o'), Int('L'))
+        for k in (Int('x'), Int('s'), Int('e'), Int('d'), Int('h'), Int('L'))
             @test W.handle!(r, k, ctrl) === :ok
         end
         @test isempty(r.status) && r.sel == 0
@@ -183,16 +183,16 @@ end
             W.FETCHED[] = keepi
         end
 
-        # `i` is not a key about the selected item: an empty list is where the
+        # `I` is not a key about the selected item: an empty list is where the
         # first import gets made, and every per-item key is dropped there.
         empty_ = mkstate(); empty!(empty_.items)
-        @test W.handle!(empty_, Int('i'), ctrl) === :ok
+        @test W.handle!(empty_, Int('I'), ctrl) === :ok
         @test last(ctrl.stack) isa W.PromptView
         @test occursin("events poller", last(ctrl.stack).note)
         pop!(ctrl.stack)
         # The filter pane owns its own keys, the way it does for `z`.
         empty_.lmode = :filters
-        W.handle!(empty_, Int('i'), ctrl)
+        W.handle!(empty_, Int('I'), ctrl)
         @test isempty(ctrl.stack)
 
         url = "https://github.com/rust-lang/rust/issues/1"
@@ -392,20 +392,20 @@ end
         @test seenat(subject, W.DateTime(2030)) == cold
     end
 
-    # And `r`'s fallback, for a thread carrying no fetch time at all: the
+    # And `e`'s fallback, for a thread carrying no fetch time at all: the
     # last movement on record, which is GitHub's time by construction.
     before = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     try
         st.nodes = W.Node[]
         W.set_read(it.url, nothing); st.read = W.field_marks(W.load_marks(), "read")
         ctrl = W.Controller()
-        W.handle!(st, Int('r'), ctrl, then)
+        W.handle!(st, Int('e'), ctrl, then)
         @test W.read_at(it.url) == W.moved_of(it)
         @test W.read_at(it.url) != "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, and the mark is the
         # same: it does not depend on the clock at all.
-        W.handle!(st, Int('r'), ctrl)          # unread again
-        W.handle!(st, Int('r'), ctrl)          # and read
+        W.handle!(st, Int('e'), ctrl)          # unread again
+        W.handle!(st, Int('e'), ctrl)          # and read
         @test W.read_at(it.url) == W.moved_of(it)
     finally
         isempty(before) ? rm(W.localfile(); force = true) :

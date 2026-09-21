@@ -63,7 +63,7 @@ second_look_days = 2
 # Until 2026-09-13 there were nine more lanes here - three for what had recently
 # closed, six searching for mentions and comments, and a firehose of every open
 # julia pull request - two thousand rows fetched every six hours so the ones
-# that moved could be noticed. A row you want that nothing here returns is `i`:
+# that moved could be noticed. A row you want that nothing here returns is `I`:
 # an import, fetched by url from then on.
 #
 # `sort:created-asc` on each, and it is load-bearing: `search` reads a lane

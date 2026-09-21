@@ -104,36 +104,37 @@ GitHub.**
 | `?` | this table, on screen |
 | `j`/`k` `g`/`G` `space`/`b` | move, and the arrow, Home/End and page keys likewise; `tab` moves the keyboard between panes |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
-| `o` `d` `p` `c` | the thread, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks |
+| `h` `d` `p` `c` | the thread - its history, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks |
 | `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
 | `n`/`N` | next/previous node, or search match |
 | `/` | search; a bare number in the list jumps to that item past any filter |
-| `r` | read ↔ unread |
+| `e` | done ↔ not done: the same key, and the same word, as the GitHub inbox and Gmail. A done item that moves is not done again |
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
-| `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
+| `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
 | `;` | set the deadline, what it is blocked on, or the tracking level - a picker of the three, then a line for the value; empty clears |
 | `z` | undo the last local action, and go back to the row it was on |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten, `` ` `` goes back to the previous filter |
 | `w` | cycle the order: when it moved · that or when you acted · when you acted · url. Each view opens in the one made for it: the firehose by when it moved, my work by the later of the two clocks, the backlog by url |
-| `i` | import an item by url; lands unread |
+| `I` | import an item by url; lands unread. Uppercase because it fetches, like `R` |
 | `y` | copy the selection (rows from a drag, or `⇧j`/`⇧k`); `m` gives the mouse back to the terminal |
-| `t` `T` `"` | a shell · an agent on the item's worktree, asking which checkout when nothing says - each row with the worktree list's `tT` marks and the item those sessions are on - and, when the copy is on some other branch, whether to `gh pr checkout` there first: the question shows the branch, whose it is, the head commit, how the branch stands to its upstream (and whether a force push from there would go), and `git status`; `y` checks out, `n` goes in as it is, `w` picks another place. Asked when the place is new to the item, not on the way back to its own session; a copy since checked out on another item's branch is not its place any more · the worktree list |
+| `t` `T` `"` | a shell · an agent on the item's worktree, asking which checkout when nothing says - each row with the worktree list's `tT` marks and the item those sessions are on - and, when the copy is on some other branch, whether to `gh pr checkout` there first: the question shows the branch, whose it is, the head commit, how the branch stands to its upstream (and whether a force push from there would go), and `git status`; `y` checks out, `n` goes in as it is, `w` picks another place. Asked when the place is new to the item, not on the way back to its own session; a copy since checked out on another item's branch is not its place any more · the worktree list; `h` on a row there goes to its item |
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
 | `q` | quit; asks first, and about an unsent draft review if there is one |
 
 **Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - open,
-read ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
+done ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
 to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
 your own in `data/config.toml`; the last entry under `'` copies the current filter
 as the TOML that would name it.
 
-**The filter pane** (`f`): `show` is four boxes that each *add* rows - `unread,
-open` · `read` · `filed away` · `closed or merged` - so the number by each is
-what checking it would bring in. The first and last are on when nothing has
-been asked. The other axes narrow: tag, kind, lane, repo, label, author.
+**The filter pane** (`f`): `show` is four boxes that each *add* rows - `not done,
+open` · `done` · `filed away` · `closed or merged` - so the number by each is
+what checking it would bring in. (In a view's TOML the four are still `base`,
+`read`, `filed`, `done` - and `done` there is the closed-or-merged box.) The
+first and last are on when nothing has been asked. The other axes narrow: tag, kind, lane, repo, label, author.
 The repo, label and author axes list what is applied and put the rest
 behind a picker row; `[filters] pinned_repos` in `data/config.toml` names repos
 listed first regardless, a name or `owner/*`.
@@ -175,19 +176,19 @@ hook and a permission-prompt hook that ring the terminal bell, which tmux
 keeps as the window's bell flag until somebody looks. It is only that one bit
 - stopped or asking, not which - and it lives in the tmux server with the
 session, so nothing has to be running to catch it. Looking (`T`) clears it,
-and so does every mark - `r`, `s`, `x`, `wl read` - the way a mark ends a
+and so does every mark - `e`, `s`, `x`, `wl read` - the way a mark ends a
 woken snooze; `z` rings it back. The browser lists the sessions every two
 seconds for it while it is up.
 
-**VS Code** (`e`) opens the item's checkout - the worktree on its branch
+**VS Code** (`o`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is
 on. The *diff* at that line is more than `code`'s command line can say, so
 it goes through a small extension of our own, `vscode/`: build it with
 `vscode/package.sh`, install it once with `code --install-extension` (from
 the terminal that reaches the VS Code you use - under Remote-SSH that is the
-remote one), and `e` on a diff line then opens the diff editor at that line,
+remote one), and `o` on a diff line then opens the diff editor at that line,
 against the merge base under `d` and against the head you last read under
-`p`. Without the extension `e` opens the file at the line and says so.
+`p`. Without the extension `o` opens the file at the line and says so.
 
 **The mouse** selects rows (drag), moves the cursor (click), folds (click a
 marker), scrolls the pane under it; in the pickers - `'`, the checkout

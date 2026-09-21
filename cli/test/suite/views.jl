@@ -339,7 +339,7 @@ end
     # `R` is the item under the cursor; `u` is everything - the fetch that used
     # to mean leaving the browser, or running `wl refresh` in another terminal
     # and waiting for the watcher to notice. It took the key `u` had, which was
-    # the unconditional half of the read toggle: two presses of `r` reach either
+    # the unconditional half of the read toggle: two presses of `e` reach either
     # state, and nothing at all could ask for a refresh.
     #
     # The refresh itself is a subprocess and is not started here - a testset
@@ -631,12 +631,12 @@ end
             @test it.url in st.rang
             @test W.seen_of(it, W.Marks(st, now)) === :unread
             @test first(W.moved_words(it, W.Marks(st, now))) == "agent"
-            # `r` reads it: the stamp is written and the bell is cleared with
+            # `e` reads it: the stamp is written and the bell is cleared with
             # it, so the row is read in the same frame and stays so.
             i = findfirst(x -> x.url == it.url, st.items)
             i === nothing || (st.sel = i)
-            @test W.handle!(st, Int('r'), ctrl, now) === :ok
-            @test st.status == "marked read"
+            @test W.handle!(st, Int('e'), ctrl, now) === :ok
+            @test st.status == "done"
             @test isempty(W.rang_urls())
             @test W.seen_of(it, W.Marks(st, now)) === :read
             # `z` puts the bell back with the stamp.

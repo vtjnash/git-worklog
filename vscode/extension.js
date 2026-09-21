@@ -1,4 +1,4 @@
-// The half of `e` that `code`'s command line cannot do.
+// The half of `o` that `code`'s command line cannot do.
 //
 // `code --goto file:line` opens a file at a line, and `code --diff a b` opens
 // a diff, but the two do not compose: the CLI parses the `:line` in diff mode

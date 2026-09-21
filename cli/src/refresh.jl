@@ -175,7 +175,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # `ReviewRequestedEvent` naming you, and as a stamp it compares against
         # the read mark directly. Not the withdrawal: being let off is the end
         # of a claim on your attention and not a claim on it, and it used to
-        # wake the item on the theory that `r` was waiting to hear it - decided
+        # wake the item on the theory that `e` was waiting to hear it - decided
         # otherwise on 2026-09-12.
         #
         # Only *you*. A request of somebody else is not news at either level -
@@ -345,7 +345,7 @@ now the loop asks it about every row that has an old one, and "nothing moved"
 is an answer it gives rather than a case it never sees.
 
 `stamp(at)` - the refresh clock - is the honest answer for a state with no clock
-of its own, and the wrong one for a comment. The gap is not academic: `r` stamps
+of its own, and the wrong one for a comment. The gap is not academic: `e` stamps
 you read at the moment the *thread* was fetched, which is fresher than any
 refresh, so a comment posted at 09:55 and read at 10:00 was dated 11:00 by the
 refresh that first saw it and the item came back unread for something you had
@@ -536,7 +536,7 @@ function second_look(r, at::DateTime, days::Int)
     # first, so an old row is already at the bottom and already out of the way -
     # the ceiling was solving a crowding problem that the order does not have.
     #
-    # `r` is what takes one out now: read, which is a decision somebody made,
+    # `e` is what takes one out now: read, which is a decision somebody made,
     # is written down in `local.toml`, comes back by itself when the thing
     # moves, and can be undone with `z`. None of those five things is true of a
     # number in `config.toml`.
@@ -666,7 +666,7 @@ rather than a hold that the table has to get past - so every shape is a time:
     The second is what the first two are written as.
 
 `nothing` for anything else, which is a value that was typed wrong. "Until it
-moves" is not a shape, because it is what `r` does; "forever" is not one,
+moves" is not a shape, because it is what `e` does; "forever" is not one,
 because it is what `x` does.
 """
 function parse_snooze(sv::AbstractString)
@@ -1127,7 +1127,7 @@ the notifications source saw; `fetched_at` is GitHub's time for when the
 bundle was asked. Both GitHub's, so they compare - where the row's own
 `updated` does not: a thread's `updated_at` is the *delivery* time, 2 to 46
 seconds after the subject's `updatedAt` for the same event, and comparing the
-two read 35 unmoved rows as moved. And the **read stamp**, `read`: `r` on a
+two read 35 unmoved rows as moved. And the **read stamp**, `read`: `e` on a
 row in the list writes it up to the newest movement the list knew of, which
 for a light row is the inbox's clock, and with a thread on screen the newest
 event in it, fetched fresher than any bundle - so a read stamp past the
@@ -1477,11 +1477,11 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     end
     # **A mark is proof it was in front of you.** A watched repository's
     # thread stays a light row in the inbox until it is looked at - and the
-    # inbox is a clock, not a place: a light row you opened, or pressed `r`
+    # inbox is a clock, not a place: a light row you opened, or pressed `e`
     # or `s` or `x` on, has to be somewhere the boxes can find it once the
     # clock has been read. Any url with a block in `local.toml` that the
     # corpus does not have joins it: off the bundle the browser cached when
-    # you looked, kept as it is, or - marked without a look, `r` from the
+    # you looked, kept as it is, or - marked without a look, `e` from the
     # list - asked by url like a thread that names you.
     promoted, marked = 0, 0
     for url in keys(state)

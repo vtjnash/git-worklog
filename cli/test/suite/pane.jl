@@ -282,7 +282,7 @@ end
             was = st.nrow
             W.handle!(v, Int('j'), ctrl)
             @test st.nrow >= was
-            W.handle!(v, Int('o'), ctrl)           # and the mode keys work too
+            W.handle!(v, Int('h'), ctrl)           # and the mode keys work too
             @test st.mode === :comments
 
             # And the child gets *nothing* while it does not have the focus -
@@ -296,9 +296,9 @@ end
             st.filters = W.everything(); W.refilter!(st)
             it = st.items[st.sel]
             was = W.read_at(it.url)
-            W.handle!(v, Int('r'), ctrl)           # the browser's read toggle
+            W.handle!(v, Int('e'), ctrl)           # the browser's read toggle
             @test W.read_at(it.url) != was
-            W.handle!(v, Int('r'), ctrl)           # put it back
+            W.handle!(v, Int('e'), ctrl)           # put it back
             @test W.read_at(it.url) == was
             # `K` is the pane's, so from here it is the browser's - and the
             # browser does not bind it, so nothing happens and nothing dies.
@@ -352,7 +352,7 @@ end
             push!(ctrl.stack, v5)
             was = st.mode
             st.mode = :diff
-            @test W.onraw!(v5, [W.IFRAME_PREFIX, UInt8('o')], ctrl) === :ok
+            @test W.onraw!(v5, [W.IFRAME_PREFIX, UInt8('h')], ctrl) === :ok
             @test st.mode === :comments            # reached the browser
             @test v5.focus === :child              # without leaving the child
             @test W.wantsraw(v5) === true
@@ -398,7 +398,7 @@ end
     # Everything else is still the browser's, which is the rule this is the one
     # exception to.
     st.mode = :thread
-    @test W.forward!(v, Int('o'), ctrl) === :ok
+    @test W.forward!(v, Int('h'), ctrl) === :ok
     @test st.mode === :comments
 end
 
@@ -440,7 +440,7 @@ end
     was = st.nrow
     W.handle!(v, Int('j'), ctrl)
     @test st.nrow >= was
-    W.handle!(v, Int('o'), ctrl)
+    W.handle!(v, Int('h'), ctrl)
     @test st.mode === :comments
     # What the browser said goes under the composer, since the browser's own
     # footer is not on screen - the composer took the columns it would be in.

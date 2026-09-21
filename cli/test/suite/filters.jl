@@ -345,11 +345,11 @@ end
     # it on each one is a phrase the reader stops seeing. Off, it is the most
     # important thing on the screen and is said first.
     @test occursin("unread", W.filter_summary(W.DEFAULT_FILTERS()))
-    @test occursin("also read+filed away",
+    @test occursin("also done+filed away",
                    W.filter_summary(W.Filters(show = Set([:base, :read, :filed, :done]))))
     # `done` is on by default and is as quiet as the base while it is; what
     # gets said is its absence, since the open half is the narrower list.
-    @test occursin("also read+filed away · open only",
+    @test occursin("also done+filed away · open only",
                    W.filter_summary(W.Filters(show = Set([:base, :read, :filed]))))
     @test !occursin("closed", W.filter_summary(W.Filters(show = Set([:base, :done]))))
     @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
@@ -368,11 +368,11 @@ end
     @test occursin("show = []", W.view_toml(W.Filters(show = Set{Symbol}()), :latest, "x"))
     @test !occursin("show", W.view_toml(W.DEFAULT_FILTERS(), :latest, "x"))
     # A view names the axes, and a misspelt value is said rather than ignored.
-    @test occursin("only read", W.apply_view!(st, Dict("show" => ["read"])))
+    @test occursin("only done", W.apply_view!(st, Dict("show" => ["read"])))
     @test st.filters.show == Set([:read])
     # Named means named *whole*: a view that wants the base beside what it adds
     # says so, and one that names no `show` at all keeps the default.
-    @test occursin("also read", W.apply_view!(st, Dict("show" => ["base", "read"])))
+    @test occursin("also done", W.apply_view!(st, Dict("show" => ["base", "read"])))
     @test st.filters.show == Set([:base, :read])
     @test W.apply_view!(st, Dict("kind" => "pr")) isa String
     @test st.filters.show == W.SHOW_DEFAULT
@@ -433,7 +433,7 @@ end
 end
 
 @testset "when a row leaves, the cursor stays where it was" begin
-    # `r` in the base list takes the row it marks read out of it, and a
+    # `e` in the base list takes the row it marks read out of it, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
     # back down, r, scroll back down. The url it was on is gone, so the fallback
     # is the row - whatever moved up into the place being read.
@@ -451,7 +451,7 @@ end
         @test length(st.items) == 5 && st.sel == 1
         st.sel = 3
         gone = st.items[3].url
-        W.mark_read([gone], W.utcnow())     # what `r` does before it refilters
+        W.mark_read([gone], W.utcnow())     # what `e` does before it refilters
         W.refilter!(st)
         @test length(st.items) == 4
         @test st.sel == 3 && st.items[3].url != gone
@@ -717,19 +717,19 @@ end
 
     line = W.astrip(W.render(st, 200, 40))
     # Every key the list and the detail bind should be findable in the footer.
-    for k in ("? help", "f filters", "d diff", "o comments", "c checks", "l log", "y copy",
+    for k in ("? help", "f filters", "d diff", "h thread", "c checks", "l log", "y copy",
               "/ search", "n/N node", "j/k line", "space/b page",
               "q quit", "tab pane", "C comment", "A review", "M merge", "L labels",
-              "r read/unread", "u update all", "R reload", "s snooze", "z undo",
-              "v note", "e edit", "\u21e7j/k select",
+              "e done/not done", "u update all", "R reload", "s snooze", "z undo",
+              "v note", "o code", "\u21e7j/k select",
               "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
     end
-    # Except `i`, which is the one key whose control is on screen already: the
+    # Except `I`, which is the one key whose control is on screen already: the
     # import row leads the list, permanently, and says what it does. A second
     # copy of it in the footer costs the room a key with no such row needs -
     # which is what it cost when `R` arrived and the row was cut at 150 columns.
-    @test !occursin("i import", line)
+    @test !occursin("I import", line)
     # And `g/G`, which gave its place to `?`: the help names it, and it is the
     # key least worth a footer's column.
     @test !occursin("g/G", line)

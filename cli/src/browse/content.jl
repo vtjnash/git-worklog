@@ -275,7 +275,7 @@ end
 
 """The rule the new part of a thread begins under.
 
-Drawn from the read stamp alone, which is the whole of what it needs: `r` marks
+Drawn from the read stamp alone, which is the whole of what it needs: `e` marks
 the thread read up to the moment it was *fetched*, so everything written before
 that stamp was on screen and everything written after it was not. There is no
 second record of where you had got to, because a second record is a second
@@ -452,14 +452,14 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
         append!(ns, made)
     end
-    # **What this thread shows you up to**, which is what `r` marks the item
+    # **What this thread shows you up to**, which is what `e` marks the item
     # seen up to: the newest event on screen - a comment, a review comment, a
     # push, a close or a merge, the body's own last edit - and no clock at
     # all, this machine's or GitHub's. A comment that landed while the reads
     # were in flight is either here, and seen, or not here, and newer than
     # this - unread at the next refresh, as it should be. A cached thread
     # stamps the same, since the newest thing in it is the newest thing in
-    # it. `r` takes the max of this and `moved_at`, for the movements a
+    # it. `e` takes the max of this and `moved_at`, for the movements a
     # thread does not show: an approval with no comment, a CI edge.
     seen = maximum(Iterators.flatten((
                (String(nz(get(c, "created_at", nothing), "")) for c in cs),
@@ -688,7 +688,7 @@ end
 Hang each review comment off the hunk it was left on.
 
 A review comment carries the file and line it points at, so it belongs against
-the code - not at the end of a chronological thread, which is where the `o`
+the code - not at the end of a chronological thread, which is where the `h`
 pane necessarily puts it, several screens away from the change it is a question
 about.
 
@@ -840,15 +840,15 @@ end
 #
 # The third question about an item, after "what is it" and "what does it
 # change": *what changed since I was here*. The thread answers it for the
-# conversation - the rule `r` leaves behind - and nothing answered it for the
+# conversation - the rule `e` leaves behind - and nothing answered it for the
 # branch, which is where it matters most: you already know what the pull request
 # does, and what you came back for is the rebase.
 #
 # It needs two commits and a checkout. The new head rides in on the item
 # (`headRefOid`, selected by every lane); the old one is `read_head`, written by
-# `r` and by nothing else. An item that has neither has no view here and says
+# `e` and by nothing else. An item that has neither has no view here and says
 # so - that is the honest answer for a pull request nobody has marked read yet,
-# and it becomes a real one the first time `r` is pressed on it.
+# and it becomes a real one the first time `e` is pressed on it.
 
 """One line's worth of `git range-diff`, coloured by which range it is in.
 
@@ -956,7 +956,7 @@ end
 
 Every way this can have nothing to show is a sentence rather than an empty pane
 or an error, because each of them is a different thing to do about it: press
-`r`, pin a checkout, or nothing at all because nothing was pushed.
+`e`, pin a checkout, or nothing at all because nothing was pushed.
 """
 function pushed_nodes(it::Item)
     it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
@@ -965,7 +965,7 @@ function pushed_nodes(it::Item)
         return [Node("nothing to compare against yet",
                      "This view is the diff between the head commit you last " *
                      "looked at and the head commit now, and the first half of " *
-                     "that is written by `r`.\n\nMark it read once and the next " *
+                     "that is written by `e`.\n\nMark it done once and the next " *
                      "time it comes back unread, this pane is the rebase.",
                      :md, true)]
     new = head_sha(it)
@@ -976,15 +976,15 @@ function pushed_nodes(it::Item)
     old == new &&
         return [Node("nothing pushed since you last looked",
                      string("The branch is still at `", first(new, 8),
-                            "`, which is where it was when you marked this read.\n\n" *
-                            "`o` has what has been *said* since then."), :md, true)]
+                            "`, which is where it was when you marked this done.\n\n" *
+                            "`h` has what has been *said* since then."), :md, true)]
     repo = repo_path(it.repo)
     repo === nothing &&
         return [Node(string("no checkout pinned for ", it.repo),
                      string("The two commits are `", first(old, 8), "` and `",
                             first(new, 8), "`, and diffing them is a local " *
                             "operation - GitHub has no endpoint that compares " *
-                            "two heads of the same pull request.\n\nPress `e`, " *
+                            "two heads of the same pull request.\n\nPress `o`, " *
                             "`t` or `T` on this item to pin one, or " *
                             "`wl repo add ", it.repo, " <path>`."), :md, true)]
     rem = remote_for(repo, it.repo)

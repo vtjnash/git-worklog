@@ -489,7 +489,7 @@ end
     # frame; but every mark stamps the last movement, which is under the
     # wake, so a snooze left standing would keep the row unread whatever was
     # pressed. So the refresh writes a woken row down - `read = ""`, the
-    # snooze gone, the head kept - and `r`, `x` and `wl read` on one the
+    # snooze gone, the head kept - and `e`, `x` and `wl read` on one the
     # refresh has not reached drop the snooze with the stamp they write.
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
@@ -526,7 +526,7 @@ end
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread
         # And the wake is remembered, so the pane can say what woke it.
         @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
-        # `r` on a woken row the refresh has not reached: read, the snooze
+        # `e` on a woken row the refresh has not reached: read, the snooze
         # gone; `z` puts it back, and the row is unread again for the wake.
         W.set_read(u, "2026-09-01T00:00:00Z")
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"])
@@ -535,8 +535,8 @@ end
         ctrl = W.Controller()
         now = W.DateTime(2026, 9, 10)
         W.set_fields(u, ["last_snooze" => nothing])
-        W.handle!(st, Int('r'), ctrl, now)
-        @test st.status == "marked read" && W.get_field(u, "snooze") === nothing
+        W.handle!(st, Int('e'), ctrl, now)
+        @test st.status == "done" && W.get_field(u, "snooze") === nothing
         @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
         @test W.seen_of(it, W.Marks(st, now)) === :read
         W.handle!(st, Int('z'), ctrl, now)
@@ -572,11 +572,11 @@ end
         W.set_fields(u, ["snooze" => nothing])
         @test occursin("until 2026-09-20", snoozeline(it)) && occursin("cleared", snoozeline(it))
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z", "last_snooze" => nothing]); W.refilter!(st)
-        # A snooze still to come is left alone by `r`: the row is read, the
+        # A snooze still to come is left alone by `e`: the row is read, the
         # wake stands.
         W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z"]); W.refilter!(st)
-        W.handle!(st, Int('r'), ctrl, now)                    # unread
-        W.handle!(st, Int('r'), ctrl, now)                    # read
+        W.handle!(st, Int('e'), ctrl, now)                    # unread
+        W.handle!(st, Int('e'), ctrl, now)                    # read
         @test W.get_field(u, "snooze") == "2026-09-20T00:00:00Z"
         # `x` on a woken row files it read, and undo restores the snooze.
         W.set_read(u, "2026-09-01T00:00:00Z")
@@ -786,7 +786,7 @@ end
             its = W.fetched("items")
             @test haskey(its, Symbol(U(8))) && its[Symbol(U(8))].lane == "notifications"
             @test U(9) in asked
-            # And a read stamp past the bundle is a clock too: `r` from the
+            # And a read stamp past the bundle is a clock too: `e` from the
             # list on a row whose inbox entry the poll then dropped. 2 is over
             # and would not be asked for any other reason.
             @test !(U(2) in asked)
@@ -1009,7 +1009,7 @@ end
         @test W.seen_of(W.with(it2; lane = "mine"), m()) === :unread
         # And a plain read mark on a row the floor already answers for folds
         # the key away rather than stamping it: the block says nothing again,
-        # and `seen_of` answers the same. `wl read` and `r` alike; a snooze
+        # and `seen_of` answers the same. `wl read` and `e` alike; a snooze
         # and an archive keep their stamp, since the refresh reads either
         # with no stamp as put away by hand.
         @test W.folded("2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z") === nothing
@@ -1024,8 +1024,8 @@ end
         st = W.BState([it], "t"); st.filters = W.everything(); W.refilter!(st)
         st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
         st.nodes = W.Node[]
-        W.handle!(st, Int('r'), ctrl, W.DateTime(2026, 9, 13, 12))
-        @test st.status == "marked read" && W.mark_at(u1, "read") === nothing
+        W.handle!(st, Int('e'), ctrl, W.DateTime(2026, 9, 13, 12))
+        @test st.status == "done" && W.mark_at(u1, "read") === nothing
         @test W.seen_of(it, W.Marks(st)) === :read
         W.handle!(st, Int('z'), ctrl)
         @test W.mark_at(u1, "read") == ""
@@ -1160,7 +1160,7 @@ end
         # `wl read` on the light row promotes it - asked by url, in the
         # corpus from here - and once asked and read it leaves; and the 366
         # leave the same way, which nothing could make them do before.
-        W.set_read(U(4), "2026-09-11T00:00:00Z")           # `r` from the list
+        W.set_read(U(4), "2026-09-11T00:00:00Z")           # `e` from the list
         @test W.dispatch(["read", U(5)], W.DateTime(2026, 9, 13, 13)) == 0
         @test W.read_at(U(5)) == "2026-09-10T00:00:00Z"    # `moved_at`, under `updated`
         asked = String[]
@@ -1305,8 +1305,8 @@ end
         c = W.consolidate!(at)
         @test !(U(1) in c.dropped) && !(U(2) in c.dropped)
         @test W.read_at(U(1)) == day(14) && W.read_at(U(2)) == day(9)
-        # `r` in the browser: the same on a filed row, and `z` after a folded
-        # `r` puts back the head the fold kept, not the head the unread
+        # `e` in the browser: the same on a filed row, and `z` after a folded
+        # `e` puts back the head the fold kept, not the head the unread
         # dropped. The list is one row and every box on, so it stays under
         # the cursor either way, and there is no thread to fetch.
         ctrl = W.Controller()
@@ -1315,9 +1315,9 @@ end
         st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
         W.set_read(U(3), "")                           # said unread, under the floor
         st.read = W.field_marks(W.load_marks(), "read")
-        W.handle!(st, Int('r'), ctrl, at)              # folds: no stamp, the head kept
+        W.handle!(st, Int('e'), ctrl, at)              # folds: no stamp, the head kept
         @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
-        W.handle!(st, Int('r'), ctrl, at)              # unread: both go
+        W.handle!(st, Int('e'), ctrl, at)              # unread: both go
         @test W.mark_at(U(3), "read") == "" && W.read_head(U(3)) === nothing
         W.handle!(st, Int('z'), ctrl, at)
         @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
@@ -1325,7 +1325,7 @@ end
         st.filters = W.everything(); W.refilter!(st)
         st.nodes = W.Node[]; st.loaded = string(U(2), ":", st.mode)
         W.set_read(U(2), ""); st.read = W.field_marks(W.load_marks(), "read")
-        W.handle!(st, Int('r'), ctrl, at)              # filed: stamped, not folded
+        W.handle!(st, Int('e'), ctrl, at)              # filed: stamped, not folded
         @test W.read_at(U(2)) == day(9) && W.read_head(U(2)) == "beef"
         # And on a snoozed row that moved under its wake: the span counts
         # from the stamp, so a fold would have been the end of the snooze.
@@ -1334,7 +1334,7 @@ end
         st.filters = W.everything(); W.refilter!(st)
         st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
         @test W.seen_of(st.items[1], W.Marks(st)) === :unread
-        W.handle!(st, Int('r'), ctrl, at)
+        W.handle!(st, Int('e'), ctrl, at)
         @test W.read_at(U(3)) == day(9) && W.get_field(U(3), "snooze") == "30d"
         @test haskey(W.wake_map(), U(3))
     finally
@@ -1869,7 +1869,7 @@ end
     @test W.moved_stamp(was(asked), again, now_) == "2026-09-05T09:00:00Z"
 
     # Withdrawing it does not. This said the opposite once - that being off
-    # the hook was what `r` on it was waiting to hear - and was decided the
+    # the hook was what `e` on it was waiting to hear - and was decided the
     # other way on 2026-09-12: being let off is the end of a claim on your
     # attention, not a claim on it. The standing bool clears and the time
     # stays, and the time is the key.
@@ -1897,7 +1897,7 @@ end
 end
 @testset "a movement is dated by the thing that moved" begin
     # The refresh clock is the honest answer for a state with no clock of its
-    # own and the wrong one for a comment: `r` stamps you read at the moment the
+    # own and the wrong one for a comment: `e` stamps you read at the moment the
     # thread was fetched, which is fresher than any refresh, so a comment posted
     # at 09:55 and read at 10:00 was dated 11:00 by the refresh that first saw
     # it, and the item came back unread for something you had already read.
@@ -2089,7 +2089,7 @@ end
                             review_at = "2026-09-12T07:00:00Z"), read) == ["pushed", "comment"]
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z",
                             moved_by = "their_comment_at"), read) == ["comment"]
-    # `r` empties it, with no refresh between.
+    # `e` empties it, with no refresh between.
     @test isempty(W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                                 marks("2026-09-12T10:00:00Z")))
     # The level decides which keys are read: loosely, a bot's comment is not

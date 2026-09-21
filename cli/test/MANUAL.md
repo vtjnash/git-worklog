@@ -39,7 +39,7 @@ and every pager binds `K_PGUP`/`K_PGDN` beside `space`/`b`).
 
 ## 2. SIGWINCH
 
-- **the frame**: `wl`, `o` on a pull request, drag the terminal narrower
+- **the frame**: `wl`, `h` on a pull request, drag the terminal narrower
   and wider without pressing a key. Pass: the frame redraws to each size on
   its own; crossing 150 columns switches side-by-side and stacked.
 - **a hosted pane**: `t`, `tput cols`, resize, `tput cols` again. Pass: the
@@ -106,7 +106,7 @@ right in Terminal.app after.
   the frame gone while it is up, and returns with the edit and a clean
   redraw. Look for a stray character (a dead-key accent) in the editor's
   buffer or in the composer afterwards. Esc, `y` to discard.
-- **`e`**: on a pull request with a checkout, the worktree opens in `code`;
+- **`o`**: on a pull request with a checkout, the worktree opens in `code`;
   under `d` on a diff line, the file at that line - the diff editor at it
   with the `vscode/` extension installed.
 - **raw mode on abnormal exit**: `kill -TERM` the `wl` julia from another
@@ -119,7 +119,7 @@ right in Terminal.app after.
 ## 6. `u` end to end
 
 `u`. The title bar's right end says `refreshing …` and the browser stays
-live - `j`/`k`, `o` - for the ~25s; one ~100 ms hitch at the corpus write is
+live - `j`/`k`, `h` - for the ~25s; one ~100 ms hitch at the corpus write is
 expected. When it lands: the report on the status row, the fetched time now,
 the list re-sorted with the new on top. `wl log` afterwards prints what the
 run said.

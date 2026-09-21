@@ -69,7 +69,7 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
     said
 end
 
-"""The two sides of the diff `e` opens, as refs `git` in `target` resolves:
+"""The two sides of the diff `o` opens, as refs `git` in `target` resolves:
 `(left, right)`, `right` empty for the working tree, `left` empty when there
 is nothing to diff against.
 
@@ -77,7 +77,7 @@ Under `d` the left is what GitHub's diff is against, the merge base of the
 pull request's base and its head - measured locally against `HEAD` when the
 checkout is on the branch, against the head GitHub reports otherwise - or the
 base ref itself when that cannot be measured. Under `p` it is the head you
-last read, which `r` wrote and the pane just diffed from.
+last read, which `e` wrote and the pane just diffed from.
 
 The right side is the working tree when the checkout is on the pull
 request's branch, because that is the copy being edited. On any other
@@ -974,7 +974,7 @@ rang_urls(rows = mux_list()) =
 
 The woken-snooze rule again: every mark stamps the last movement, and a bell
 left standing beside the stamp would keep the row unread whatever was pressed.
-So `r`, `s`, `x` and the shell's marks clear it, through `mux_seen!` - an
+So `e`, `s`, `x` and the shell's marks clear it, through `mux_seen!` - an
 attach tmux counts as looking. Answers the sessions it silenced, which is what
 `z` rings again.
 """

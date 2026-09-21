@@ -9,7 +9,7 @@ are is in DESIGN.md.
 both ways at once - a thread marked done there is read here, a thread read
 here is done there - because either direction alone is no use. "Done" means
 read *and* done: a thread glanced at on the website is not one dealt with.
-Nice to have: `r` a second time un-dones it there. Not wanted: the reverse.
+Nice to have: `e` a second time un-dones it there. Not wanted: the reverse.
 
 **Why it is blocked.** Measured 2026-09-16 with the `gho_` token: a thread
 record has one bit, `unread`, and every action - `DELETE` (done), `PATCH`
@@ -62,15 +62,15 @@ endpoint that marks a thread unread:
       No ledger: the remote state says whether a write is needed. The two
       exclusions on the pull are what one would have been for - a snooze
       that has just woken is not put back to sleep by a stale remote read,
-      and an `r`-unread is a statement and wins. Reads applied here have no
-      `z`; `r` toggles them. This is the one place `unread` or `done` is read
+      and an `e`-not-done is a statement and wins. Reads applied here have no
+      `z`; `e` toggles them. This is the one place `unread` or `done` is read
       off a thread; the cursor is untouched, and DESIGN item 8 under GitHub
       is rewritten to say so.
 - [ ] **`wl sync [--dry-run]`**, dry-run forced until `[notifications]
       sync = true`: the bootstrap finds hundreds of rows read here and unread
       there, and that list is to be seen before it is sent. `wl refresh`
       calls it when on, and says so through `warning()` where `pat()` has
-      no token. Later, the browser runs it on a task after `r`/`s`/`x`, the
+      no token. Later, the browser runs it on a task after `e`/`s`/`x`, the
       way `u` runs the refresh (`refresh_all!`).
 - [ ] **Tests**, with a fake fetch: floor and 404 skip; the two exclusions;
       no corpus row untouched; bootstrap adds ids and no items; a truncated
@@ -114,36 +114,13 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       status line is one row, and a rebase that stops is not one row. The
       worktree list (`"`) is the other candidate, since a checkout is a fact
       about a worktree and not about an item.
-- [ ] **Realign the names, and maybe the keys, with GitHub and Gmail.**
-      What this program calls *read* is what GitHub's inbox calls **done**
-      - a thread put away that comes back when it moves - and the sync
-      entry above already equates them; "read" here is a stamp, and what
-      the user does with `r` is finish with the thing. Names first: `r`
-      says "marked read" and should say done; the `read` show box, the
-      `unread, open` box, "read ↔ unread" in the help; and *filed away*
-      (`x`) wants a word too, since it is also a thing that comes back
-      when it moves, and the difference - out of the backlog as well - is
-      not in either name. Then the keys, which are the same across the
-      two inboxes and mostly not this program's:
-
-      | does | GitHub | Gmail | here |
-      |---|---|---|---|
-      | done / archive | `e` | `e`, `y` | `r` (and `x` is filed) |
-      | done and next / previous | | `]` `[` | |
-      | mark read / unread | `⇧i` / `⇧u` | `⇧i` / `⇧u` | `r` toggles |
-      | snooze | | `b` | `s` |
-      | save / star | `s` | `s` | |
-      | unsubscribe | `⇧m` | | |
-      | undo | | `z` | `z` |
-      | search · help · move | `/` `?` `j`/`k` | `/` `?` `j`/`k` | `/` `?` `j`/`k` |
-
-      Every one of `e`, `y`, `[`, `]`, `s` is taken here - the editor, copy,
-      hunk context, snooze - and `⇧i`/`⇧u` would be two local keys in the
-      uppercase-reaches-GitHub case. Decide whether the hand that lives in
-      those inboxes is worth moving the editor and the context keys for,
-      which need homes first, or whether it is the names alone; and
-      whether "done and next" (`]`) is wanted at all, given `r` in the
-      base list already advances the cursor by removing the row.
+- [ ] **A word for *filed away*.** The read mark is now *done* and its key
+      `e`, the thread `h`, VS Code `o`, import `I` (DESIGN, decisions,
+      2026-09-21). Still open: `x` puts a thing out of the backlog as well
+      as out of the inbox, and comes back when it moves like `done` does -
+      neither "filed away" nor "done" says the difference. Also open, and
+      only if it ever bites: the `show` keys in a view's TOML are still
+      `read` and `done`, where `done` is the closed-or-merged box.
 - [ ] **Undo in the composer** - scoped 2026-09-17, **deferred**: `⌥e` is
       the answer for anything past a paragraph, and this is the first thing
       past one. Weak for the `^w` you did not mean; do it when that bites.

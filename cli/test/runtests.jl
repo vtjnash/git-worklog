@@ -27,7 +27,7 @@ isfile(W.errlog()) && rm(W.errlog())
 # Every path this program writes through is a `Ref`, and the rule is that all of
 # them are pointed somewhere else for the whole run - not that each leak is
 # fixed as it turns up. Both halves of `data/` are redirected here: a test that
-# pressed `r` stamped a real item as read, and one that adopted a branch left a
+# pressed `e` stamped a real item as read, and one that adopted a branch left a
 # block behind in a file whose `finally` did not run.
 #
 # **Seeded from `fixture.json`, and it used to be from the real files** - on the

@@ -27,7 +27,7 @@
 const LOCAL = Ref("")
 localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # `archive` is not one of them: it is a mark - `archived`, when you filed it -
-# written by `x` and `wl archive` the way `read` is written by `r`, and it
+# written by `x` and `wl archive` the way `read` is written by `e`, and it
 # lives with the marks. `snooze` is one of them, and is a wake time: `wl snooze`
 # writes it resolved, and one typed here as a span counts from the read stamp.
 # `imported` is, and was not: it is written by `wl import` and by the browser,

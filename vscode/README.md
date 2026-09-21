@@ -1,6 +1,6 @@
 # worklog, the VS Code half
 
-One URI handler, for the thing `code`'s command line cannot do: `e` in `wl`
+One URI handler, for the thing `code`'s command line cannot do: `o` in `wl`
 under `d` or `p` opens the diff of the file at the line the cursor is on.
 `code --goto` takes a line and `code --diff` takes two files, and the two do
 not compose - the workbench drops the line in diff mode - and there is no
@@ -24,6 +24,6 @@ code --install-extension vscode/worklog-0.1.0.vsix
 
 It is a workspace extension: under Remote-SSH, `code` in the remote terminal
 installs it on the remote, which is where the checkout is and where it has to
-run. Without it, `e` on a diff line falls back to `code --goto` and says so.
+run. Without it, `o` on a diff line falls back to `code --goto` and says so.
 
 `node vscode/test.js` is its test, against a stub of the two APIs it touches.

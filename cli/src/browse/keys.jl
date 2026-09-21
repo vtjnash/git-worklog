@@ -298,7 +298,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end
     end
     # Neither of these is about the selected item, so both sit above the guard
-    # that wants one - the same reason `z` and `i` do.
+    # that wants one - the same reason `z` and `I` do.
     if k == Int('\'') && st.lmode !== :filters
         view_action(st, ctrl)
         return :ok
@@ -335,11 +335,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         st.status = refresh_all!(st)
         return :ok
     end
-    # For the same reason: `i` is about something that is *not* here yet, so
+    # For the same reason: `I` is about something that is *not* here yet, so
     # wanting it and having nothing selected are the same situation. A list
     # filtered down to nothing, or a dashboard whose lanes returned nothing, is
-    # exactly where the first import gets made.
-    if k == Int('i') && st.lmode !== :filters
+    # exactly where the first import gets made. Uppercase because it is a
+    # fetch, like `R`; the lowercase letter went to the `"` list.
+    if k == Int('I') && st.lmode !== :filters
         import_action(st, ctrl, at)
         return :ok
     end
@@ -383,7 +384,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                 (st.status = r isa String ? r : "")
         end
         return :ok
-    elseif k == Int('e')
+    elseif k == Int('o')
         at = edit_target(st, iw)
         retry_edit = () -> (rr = open_editor(it, at; mode = st.mode, items = st.all);
                             st.status = rr isa String ? rr : "")
@@ -446,7 +447,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # Lowercase shows you something, uppercase changes something. `c` was the
     # composer and `C` the checks pane, which had it exactly backwards.
     if k == Int('d');     st.mode = :diff
-    elseif k == Int('o'); st.mode = :comments
+    elseif k == Int('h'); st.mode = :comments
     # The fourth reading of an item, and the only one that is about *you*: the
     # other three are what it is, what it changes and whether it builds, and
     # this one is what has happened to it since you were last here.
@@ -476,8 +477,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif k == Int('A'); review_action(st, ctrl, it)
     elseif k == Int('M'); merge_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
-    elseif k == Int('r')
-        # A toggle: on something unread it marks it read, on something read it
+    elseif k == Int('e')
+        # Done, the word and the key GitHub's inbox and Gmail use. A toggle:
+        # on something unread it marks it done, on something done it
         # puts it back. `u` used to be the unconditional half of this and is
         # now the whole refresh - two presses of a toggle reach either state,
         # and nothing else in the program could ask for a refresh at all.
@@ -540,12 +542,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             agent_ring!(rang)
         end))
         # The list is what the axes say it is, so a row that has just stopped
-        # answering one of them leaves - which for `r` in the base list is the
+        # answering one of them leaves - which for `e` in the base list is the
         # whole of reading an inbox. Its own return for the same reason `x`
         # has one: the selection moves when the row goes, and `load_nodes!`
         # would put "loading …" over what this has to say.
         refilter!(st)
-        msg = seen ? "marked read" : "marked unread"
+        msg = seen ? "done" : "not done"
         load_nodes!(st); load_meta!(st)
         st.status = msg
         return :ok

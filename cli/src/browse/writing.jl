@@ -57,7 +57,7 @@ end
 """
     edit_target(st, iw) -> (file, line) or nothing
 
-Where `e` should put the editor's cursor: the file and the new-side line
+Where `o` should put the editor's cursor: the file and the new-side line
 under the browser's cursor, when that is a hunk of `d` or `p`.
 
 The new side always, even on a deleted line, because the checkout is the file
@@ -823,7 +823,7 @@ mergedbyme(it::Item) = it.state == "MERGED" && !isempty(it.merged_by) &&
 
 """Ask how long for, then snooze.
 
-`s` used to set `on-change` and say nothing. "Until it moves" is what `r` does
+`s` used to set `on-change` and say nothing. "Until it moves" is what `e` does
 - a snooze is a wake *time* beside the wake table, not a hold against it - so
 the menu is the spans and a date, and the one thing to decide is how long.
 The item comes back at the time, or the moment it moves, whichever is first.
@@ -868,7 +868,7 @@ end
 Written *resolved*: a span becomes the moment it ends, so the file says when
 and nothing has to remember when it was set. Rejected here rather than
 written: a value with no wake time in it is not a snooze - "until it moves" is
-`r`, and "forever" is `x` - and a bad one used to look like it had worked and
+`e`, and "forever" is `x` - and a bad one used to look like it had worked and
 quietly do nothing.
 """
 function apply_snooze!(st::BState, it::Item, v, at::DateTime)

@@ -18,11 +18,11 @@
 #     them - `seen: read` alone hid everything that had moved, which is the one
 #     list nobody wants - and all but one of the built-in views had to spell
 #     `sleep = awake` to avoid it. What each value means:
-#       - **unread, open** - the open half of the dashboard, and a box that is
+#       - **not done, open** - the open half of the dashboard, and a box that is
 #         on when nothing has been asked, so the screen cannot be emptied by
 #         accident. Unchecking it is how one of the other three is asked for
 #         *alone*, and the only way there is.
-#       - **read** - the read stamp against `moved_at` and against the snooze's
+#       - **done** (`read` in TOML) - the read stamp against `moved_at` and against the snooze's
 #         wake time, and **nothing overrides it**: an item that moves is unread
 #         again whether it is snoozed, filed, yours or a stranger's. A review
 #         request, a mention and a reply all land here, which is why none of
@@ -95,7 +95,7 @@ unread again, not a place to be.
 The three readings the values come from are `seen_of`, `filed_of` and `over_of`
 - what merged is the control over them, not the facts.
 """
-const SHOW = [(:base, "unread, open"), (:read, "read"),
+const SHOW = [(:base, "not done, open"), (:read, "done"),
               (:filed, "filed away"), (:done, "closed or merged")]
 
 """The boxes that are on when nothing has been asked; see `isdefault` and `c`.
@@ -331,7 +331,7 @@ not, which is what `track` is for and what it did not used to reach. An item no
 refresh has seen - a row the activity poll alone knows about - has no
 wake table to compare, and there `updated` is the only answer anybody has.
 `moved_of` is that rule, and it is the rule every mark stamps by, so what is
-compared here is what `r`, `s`, `x` and `wl read` wrote.
+compared here is what `e`, `s`, `x` and `wl read` wrote.
 
 **And a snooze is a second reason, beside the table.** A snooze is a wake
 time; once it has passed it is as if the item moved then, and it is unread
@@ -360,7 +360,7 @@ common with one that moved this morning is exactly that you have not seen what
 it says now.
 
 Computed rather than stored. On `Item` it would be derived state that goes stale
-the moment `r` is pressed - `Item` is immutable and rebuilt by the refresh - so
+the moment `e` is pressed - `Item` is immutable and rebuilt by the refresh - so
 the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
@@ -758,13 +758,13 @@ const VIEWS = [
     # backlog does, because left to the default it was the base and the closed
     # rows - your merged pull requests standing in for the ones you have read
     # and are still carrying, which is the opposite of what the view is for.
-    ("my work — mine, open, read ones too",
+    ("my work — mine, open, done ones too",
                        Dict("author" => [AUTHOR_ME], "show" => ["base", "read"])),
     # The backlog. It names `show` and leaves `done` out of it, which is the
     # one place the two boxes the dashboard opens with come apart: a closed
     # thing that moved is news and belongs in the firehose, and it is not
     # work and does not belong here.
-    ("open items — the backlog, read ones too", Dict("show" => ["base", "read"])),
+    ("open items — the backlog, done ones too", Dict("show" => ["base", "read"])),
     ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
@@ -778,7 +778,7 @@ const VIEWS = [
     # The corpus, which no longer has a keystroke of its own: it is the base
     # with the three things it leaves out added back to it, and it names all
     # four because a view that names the axis names the whole of it.
-    ("everything — read, filed and closed too",
+    ("everything — done, filed and closed too",
                        Dict("show" => ["base", "read", "filed", "done"])),
 ]
 
@@ -1152,10 +1152,10 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
         (st.items = [it for it in st.items if hits(it, st.search)])
     i = findfirst(x -> x.url == keep, st.items)
     # Stay on the same item when possible, and failing that on the same *row* -
-    # whatever moved up into the place being read. `r` in the unread lane is the
+    # whatever moved up into the place being read. `e` in the unread lane is the
     # case: the row it marks read leaves the lane it is in, and a cursor thrown
-    # to the top of the list by that turns reading an inbox into `r`, scroll
-    # back down, `r`, scroll back down.
+    # to the top of the list by that turns reading an inbox into `e`, scroll
+    # back down, `e`, scroll back down.
     #
     # The import row only when there is no item at all to be on. Deliberately
     # not sticky: you land on that row by moving to it, and a rebuilt list that

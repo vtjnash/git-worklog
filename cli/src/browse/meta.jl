@@ -296,7 +296,7 @@ nothing for an adopted branch, which no clock moves.
 Read off the item against the read stamp - the same stamp `seen_of` compares,
 so the words are the unread - and not off a record: the wake table's keys are
 each the time somebody else last did the thing, and every one past the stamp
-is a thing that happened since you looked. Computed here, per frame, so `r`
+is a thing that happened since you looked. Computed here, per frame, so `e`
 empties it and a stamp that moves back fills it, with no refresh between.
 
 Two movements have no time of their own to compare, and for those the

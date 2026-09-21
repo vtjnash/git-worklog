@@ -452,8 +452,8 @@ end
 
 The child gets *nothing* here, not even the keys that would reach it from the
 other side. Which keys belong to which side has to be answerable by looking at
-which side has the focus; a pane that still answered `r` by re-reading its own
-screen, while the thread beside it read `r` as "mark this one read", would be
+which side has the focus; a pane that answered `r` by re-reading its own
+screen, while the thread beside it took `e` as "done", would be
 asking the reader to hold a list instead - some keys and not others, for a side
 that does not have the focus.
 
@@ -466,7 +466,7 @@ the same key ended the whole session from one side of a split and closed a pane
 from the other. `t` and `T` leave as well, because the key that put the pane on
 the screen is the one that takes it off again.
 
-Everything else, `K` and `r` included, is the browser's and does there exactly
+Everything else, `K` and `e` included, is the browser's and does there exactly
 what it does there.
 
 `t` and `T` are the one thing here that is not settled. The child's side
@@ -922,8 +922,8 @@ function render(v::WorktreeView, w::Int, h::Int)
     n == 0 && push!(body, string(THEME.dim, branches ?
         "no branches — none of the registered repos is here" :
         "no worktrees — register a repo with e, t or T on an item", THEME.reset))
-    keys = branches ? "↵ its worktree, or make one · i item · tab worktrees · r refresh · q back" :
-                      "↵/t shell · T agent · i item · K kill · tab branches · r refresh · q back"
+    keys = branches ? "↵ its worktree, or make one · h item · tab worktrees · r refresh · q back" :
+                      "↵/t shell · T agent · h item · K kill · tab branches · r refresh · q back"
     rows = vcat(bordered(body, w, h - 2, branches ? "branches" : "worktrees", true),
                 [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
                  string(THEME.dim, afit(isempty(v.status) ? keys : v.status, w),
@@ -1137,7 +1137,7 @@ function handle!(v::WorktreeView, k::Int, ctrl)
             v.status = row_session(v, r, ctrl, kind)
             worktree_reload!(v)
         end
-    elseif k == Int('i')
+    elseif k == Int('h')
         return goto_item(v, r.item)
     elseif k == Int('a')
         v.status = adopt_row(v, r)

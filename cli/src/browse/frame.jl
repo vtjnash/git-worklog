@@ -241,7 +241,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # are sets now, so the summary is as long as the selection rather than one
     # word, and this row was already being cut at 200 columns with `M` on it.
     keys1 = string("? help \u00b7 f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
-                   "d diff \u00b7 o comments \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
+                   "d diff \u00b7 h thread \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
                    "y copy \u00b7 / search \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a
                    # footer that names only one of the three is why the row at
@@ -252,13 +252,13 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                    "j/k line \u00b7 space/b page \u00b7 ",
                    "q quit \u00b7 tab pane")
     nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
-    # `i import` is not in here, and is the only key that is not: its control is
+    # `I import` is not in here, and is the only key that is not: its control is
     # the row at the top of the list, permanently on screen and saying what it
     # does. A second copy of it costs the row that the keys which have no such
     # row are competing for.
-    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 M merge \u00b7 L labels \u00b7 r read/unread \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
+    keys2 = string("C comment \u00b7 A review", nb, " \u00b7 M merge \u00b7 L labels \u00b7 e done/not done \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
-                   " \u00b7 v note \u00b7 x archive \u00b7 e edit \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 ",
+                   " \u00b7 v note \u00b7 x archive \u00b7 o code \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 ",
                    # Beside the mouse, which is the other half of it: a
                    # selection is made with either and copied with `y`. The
                    # first row is full - it was cut at 200 columns with this on

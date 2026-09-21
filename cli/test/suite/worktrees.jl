@@ -80,7 +80,7 @@ end
         W.git(main, "worktree", "add", "--quiet", "-b", pr.branch, side)
         t, b, ask = W.item_worktree(pr)
         @test W.wtkey(t) == W.wtkey(side) && b == pr.branch && !ask
-        # `e` reads the same rules, so the two cannot disagree about one item.
+        # `o` reads the same rules, so the two cannot disagree about one item.
         @test W.item_checkout(pr) == (t, b)
         # The issue still has nothing to go on: a worktree on somebody else's
         # branch is not a claim about this item.
@@ -1008,7 +1008,7 @@ end
 
     # A repo with two worktrees, one of them on a branch that has a pull
     # request in the real facts.json - which is the join this view is for.
-    # Taken from what the browser is actually showing, since `i` goes to the
+    # Taken from what the browser is actually showing, since `h` goes to the
     # row in that list and an item outside it is a different case, tested below.
     shown = W.BState(items, "worklog")
     # The shortest branch among them, not the first: the narrow render below
@@ -1088,15 +1088,15 @@ end
         @test !W.onwake!(v2)                          # nothing left pending
         W.git(main, "checkout", "--quiet", "--", "a.txt")
 
-        # `i` leaves for the item, and reports rather than moving when the
+        # `h` leaves for the item, and reports rather than moving when the
         # list underneath is not showing it.
         st = W.BState(items, "worklog")
         v3 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
         v3.sel = findfirst(r -> r.name == "side", v3.rows)
-        @test W.handle!(v3, Int('i'), ctrl) === :pop
+        @test W.handle!(v3, Int('h'), ctrl) === :pop
         @test st.items[st.sel].url == pr.url
         v3.sel = findfirst(r -> r.name == "main", v3.rows)
-        @test W.handle!(v3, Int('i'), ctrl) === :ok
+        @test W.handle!(v3, Int('h'), ctrl) === :ok
         @test occursin("no pull request", v3.status)
         # Asking to go to an item is asking to *see* it, so a filter hiding it
         # is the thing in the way and not the answer. It used to refuse with
@@ -1108,7 +1108,7 @@ end
         @test isempty(st2.items)
         v4 = W.worktree_view(items; onitem = x -> W.select_item!(st2, x))
         v4.sel = findfirst(r -> r.name == "side", v4.rows)
-        @test W.handle!(v4, Int('i'), ctrl) === :pop
+        @test W.handle!(v4, Int('h'), ctrl) === :pop
         @test st2.items[st2.sel].url == pr.url
         # Everything, since the row being jumped to may be filed or closed: the
         # jump clears the axes *and* turns the four disposition boxes on.
@@ -1344,7 +1344,7 @@ end
             # there was opened for.
             @test W.diff_refs(mine, side, :diff) == (first_, "")
             @test W.diff_refs(real, side, :diff) == (first_, pushed)
-            # Under `o` there is no diff, and the line is just a line.
+            # Under `h` there is no diff, and the line is just a line.
             r = W.open_editor(mine, ("a.txt", 1); mode = :comments)
             @test args()[1] == "--goto"
         end

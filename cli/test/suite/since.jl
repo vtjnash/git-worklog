@@ -53,12 +53,12 @@ end
         st.nodes = [W.Node("h", "b", :md, true)]
         st.nodes[1].meta["seen_up_to"] = "2026-09-05T00:00:00Z"
 
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('e'), ctrl)
         @test W.read_at(it.url) == "2026-09-05T00:00:00Z"
         @test W.read_head(it.url) == "cafef00dcafef00d"
 
         # Unread clears the sha with the stamp, and undo puts both back.
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('e'), ctrl)
         @test W.read_at(it.url) === nothing && W.read_head(it.url) === nothing
         W.handle!(st, Int('z'), ctrl)
         @test W.read_head(it.url) == "cafef00dcafef00d"
@@ -75,7 +75,7 @@ end
         st2.sel = findfirst(x -> x.url == plain.url, st2.items)
         st2.loaded = string(plain.url, ":", st2.mode)
         st2.metakey = plain.url
-        W.handle!(st2, Int('r'), ctrl)
+        W.handle!(st2, Int('e'), ctrl)
         @test W.read_at(plain.url) !== nothing && W.read_head(plain.url) === nothing
     finally
         W.LOCAL[] = keep
@@ -245,7 +245,7 @@ end
         drawn = [W.astrip(r.text) for r in W.rows(ns, 100; at = W.ts("2026-09-07T12:00:00Z"))]
         @test any(l -> occursin("merged", l) && occursin("into master", l) &&
                        occursin("1d ago", l), drawn)
-        # The merge is the newest thing shown, so it is what `r` reads up to.
+        # The merge is the newest thing shown, so it is what `e` reads up to.
         @test ns[1].meta["seen_up_to"] == "2026-09-06T12:00:00Z"
         # Read before the merge, and the rule lands above it alone.
         W.set_read_mark(u, "2026-09-05T12:00:00Z", "9999999999")
@@ -407,7 +407,7 @@ end
         # Never marked read, so there is no old head and the pane says which
         # key makes one.
         ns = W.pushed_nodes(it)
-        @test occursin("nothing to compare", ns[1].header) && occursin("`r`", ns[1].raw)
+        @test occursin("nothing to compare", ns[1].header) && occursin("`e`", ns[1].raw)
 
         # A real branch, rebased onto a base that moved ten commits under it,
         # with the old head recorded. The file is long enough for
@@ -491,12 +491,12 @@ end
         @test occursin("1 commit added", W.astrip(ns[1].header))
         @test any(n -> n.kind === :diff && occursin("THREE", n.raw), ns)
 
-        # Standing where you left it is a sentence too, and points at `o` for
+        # Standing where you left it is a sentence too, and points at `h` for
         # the half of "what changed" that is not the branch.
         W.set_read_mark(u, "2026-09-01T00:00:00Z", ahead)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master"))
-        @test occursin("nothing pushed", ns[1].header) && occursin("`o`", ns[1].raw)
+        @test occursin("nothing pushed", ns[1].header) && occursin("`h`", ns[1].raw)
     finally
         W.LOCAL[] = keep
     end

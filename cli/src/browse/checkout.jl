@@ -1,4 +1,4 @@
-# Which local checkout an item's work is in - the question `t`, `T` and `e`
+# Which local checkout an item's work is in - the question `t`, `T` and `o`
 # all have to answer, and the join between a pull request and a branch.
 
 
@@ -36,10 +36,10 @@ way the item has no place, and the rule falls through to the guess, which
 asks. An item with no branch of its own keeps its session wherever it is:
 the copy cannot be on the wrong branch when there is no right one.
 
-The flag is the whole reason this is not two functions. `t` asks and `e` does
+The flag is the whole reason this is not two functions. `t` asks and `o` does
 not, but they must not disagree about the same item - so both read the same
 first two rules here, and answering one of them for `t` (by starting a session,
-which tags it) answers it for `e` on the next press.
+which tags it) answers it for `o` on the next press.
 
 The answer is a named tuple, and the first three fields are the answer
 proper: `path`, the `branch` that copy is on, and `ask`. Behind them is what

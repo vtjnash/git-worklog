@@ -203,7 +203,7 @@ function load_nodes!(st::BState)
     held!(st, mode_cached(mode, it)) && return
     # Taken here rather than inside the task: a moment before the fetch begins
     # is early by however long scheduling takes, and early is the safe end -
-    # `fetched` decides what `r` can mark seen, and too early leaves a comment
+    # `fetched` decides what `e` can mark seen, and too early leaves a comment
     # unread rather than hiding one.
     at = utcnow()
     st.pending = fetching(key) do
@@ -490,7 +490,7 @@ The bell is tmux's, and tmux tells nobody: a control client hears `%output`
 for the pane it is on and nothing for any other, and there is no client at all
 while the list is up. So the sessions are listed, every `SESSIONS_EVERY`
 seconds, and a change in who rang is a wake - compared against what
-`refilter!` last read, so a change it already took, `r` silencing a bell or
+`refilter!` last read, so a change it already took, `e` silencing a bell or
 `T` looking, wakes nothing, and a wake that reached a view with no list in it
 comes again. Not started where there is no tmux to ask.
 """

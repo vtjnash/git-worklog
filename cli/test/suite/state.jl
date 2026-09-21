@@ -44,28 +44,28 @@
     before = marks()
     try
         # Everything, so the row stays under the cursor: in the list the browser
-        # opens on - unread, awake and open - `r` takes the row it marks read
+        # opens on - unread, awake and open - `e` takes the row it marks read
         # out of the list, which is the behaviour the filter suite tests. The
         # cursor goes to an unread row, since a toggle needs somewhere to start.
         st = mkstate()
         st.filters = W.everything(); W.refilter!(st)
         # A row of its own rather than "the first unread one": what is read by
         # now depends on which files ran before this, and a cursor that lands
-        # somewhere different every run is not a test of `r`.
+        # somewhere different every run is not a test of `e`.
         st.sel = findfirst(x -> x.url == fixture_item("unresolved review threads").url,
                            st.items)
         @test W.seen_of(st.items[st.sel], W.Marks(st)) === :unread
         it = st.items[st.sel]
         prev = W.read_at(it.url)
-        # `r` toggles against the stamp, which is the axis and the one answer
+        # `e` toggles against the stamp, which is the axis and the one answer
         # to "is it unread" - there is no second set beside it any more.
         @test W.seen_of(it, W.Marks(st)) === :unread
-        W.handle!(st, Int('r'), ctrl)
-        @test st.status == "marked read"
+        W.handle!(st, Int('e'), ctrl)
+        @test st.status == "done"
         @test W.read_at(it.url) !== nothing
         @test W.seen_of(it, W.Marks(st)) === :read
-        W.handle!(st, Int('r'), ctrl)                   # ...and back again
-        @test st.status == "marked unread" && W.seen_of(it, W.Marks(st)) === :unread
+        W.handle!(st, Int('e'), ctrl)                   # ...and back again
+        @test st.status == "not done" && W.seen_of(it, W.Marks(st)) === :unread
         @test W.read_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
         @test W.read_at(it.url) == prev          # exactly what was there
@@ -76,11 +76,11 @@
         # while you were reading was in neither and stays unread.
         st.nodes = [W.Node("h", "b", :md, true)]
         st.nodes[1].meta["seen_up_to"] = "2099-01-02T03:04:05Z"
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('e'), ctrl)
         @test W.read_at(it.url) == "2099-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes[1].meta["seen_up_to"] = "2020-01-02T03:04:05Z"
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('e'), ctrl)
         @test W.read_at(it.url) == W.moved_of(it)
         @test W.read_at(it.url) > "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
@@ -88,7 +88,7 @@
 
         # A run of them unwinds in order.
         for _ in 1:3
-            W.handle!(st, Int('r'), ctrl)
+            W.handle!(st, Int('e'), ctrl)
             st.sel = min(st.sel + 1, length(st.items))
         end
         @test length(st.undos) == 3
@@ -100,7 +100,7 @@
     end
 
     # The undo puts the cursor back on the row. In the list the browser opens
-    # on, `r` takes the row out and the cursor lands on its neighbour; `z`
+    # on, `e` takes the row out and the cursor lands on its neighbour; `z`
     # brings the row back wherever the sort puts it, which is where you want
     # to be looking, not where the cursor happened to be left.
     before = marks()
@@ -109,7 +109,7 @@
         st.sel = findfirst(x -> x.url == fixture_item("unresolved review threads").url,
                            st.items)
         it = st.items[st.sel]
-        W.handle!(st, Int('r'), ctrl)
+        W.handle!(st, Int('e'), ctrl)
         @test findfirst(x -> x.url == it.url, st.items) === nothing   # gone
         st.sel = max(1, st.sel - 1)                # and the cursor wandered
         W.handle!(st, Int('z'), ctrl)
@@ -194,7 +194,7 @@ end
 
     # The shapes, and what each means now that a snooze is a wake time and
     # nothing else: a span, a date, a moment. "Until it moves" and "forever"
-    # are not shapes - they are `r` and `x` - and do not parse.
+    # are not shapes - they are `e` and `x` - and do not parse.
     @test W.parse_snooze("2w") == (mode = :days, days = 14, until = nothing)
     @test W.parse_snooze("6mo").days == 180
     @test W.parse_snooze("2026-09-15") == (mode = :at, days = nothing, until = "2026-09-15T00:00:00Z")

@@ -98,7 +98,7 @@ Base.@kwdef mutable struct BState <: View
                                     # whole corpus, read by `seen_of`, which is
                                     # the one answer to "is it unread" - the
                                     # list, the bold, the metadata line and
-                                    # `r` all ask it. There used to be a second
+                                    # `e` all ask it. There used to be a second
                                     # answer beside it, the poll's own set of
                                     # what moved, kept in step by hand at every
                                     # key that wrote a stamp; gone 2026-09-14

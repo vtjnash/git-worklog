@@ -47,7 +47,7 @@
 # is what you are handed when you open it: the whole thread and the whole diff,
 # with the new part somewhere in them.
 #
-# For the thread, the stamp alone answers it. `r` stamps the moment the thread
+# For the thread, the stamp alone answers it. `e` stamps the moment the thread
 # was *fetched* - see the key - so every comment written before it was on
 # screen, every comment written after it was not, and "new since you last
 # looked" is a comparison the file already supports. That is why there is no
@@ -61,7 +61,7 @@
 # the head now, and an item with no `read_head` simply has no such view to show
 # - which is the honest state for one marked read before this existed.
 #
-# Only `r` writes it, because only `r` means "I have looked at this". The other
+# Only `e` writes it, because only `e` means "I have looked at this". The other
 # things that stamp `read` - a snooze, an archive, `wl read` over the whole
 # lane - are saying "not now", and they know when you decided that and nothing
 # at all about what you were looking at. They leave the sha alone rather than
@@ -171,7 +171,7 @@ end
 # and `mine` back to 2021 - were unread with nothing to read.
 #
 # And **unread is sayable**: `read = ""` is a key present with nothing in it,
-# which `get_field` tells from an absent one, and it is what `r` writes to put
+# which `get_field` tells from an absent one, and it is what `e` writes to put
 # a row back - under the floor as under a stamp, "" is earlier than any
 # movement. An absent key means nothing has been said, and the floor answers;
 # an empty one means you said unread. The other way round folds: a plain read
@@ -344,7 +344,7 @@ synthetic row, an adopted branch or an import no refresh has caught up with.
     moved_of(it::Item); moved_of(row)      # a corpus row, or an inbox row
 
 **The one thing a read stamp is ever compared against**, and so the one thing
-every mark writes. `seen_of` reads it; `r`, `s`, `x`, `wl read`, `wl snooze`
+every mark writes. `seen_of` reads it; `e`, `s`, `x`, `wl read`, `wl snooze`
 and `wl archive` stamp it. Stamping the movement rather than a clock is read
 by definition, and it is GitHub's time by construction, so a local clock
 minutes out cannot leave a just-snoozed item unread (behind) or swallow the
@@ -370,7 +370,7 @@ rget(r, k::AbstractString) = jget(r, Symbol(k))
 the corpus or the inbox has for it, `at` for a synthetic row that has neither
 - and answer how many. The shell's `wl snooze`, `wl archive` and `wl read`,
 which have no thread on screen to have read up to. The inbox as well as the
-corpus so that a light row gets the stamp `r` in the browser would give it,
+corpus so that a light row gets the stamp `e` in the browser would give it,
 and the bundle over the file's row for the same reason `loaditems` takes it:
 it is the newer of the two - and for a light row, one the corpus has no row
 for, the inbox's row over a bundle from before the inbox's clock for it, the

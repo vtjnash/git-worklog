@@ -124,7 +124,7 @@ wake table below. The other two marks are the read stamp with one thing added.
 **One seen bit.** The read stamp is compared against one thing, the item's
 last movement - `moved_of`: `moved_at`, else `updated` for a light row that
 has no wake table, else nothing - and every mark stamps that same thing:
-`r` (taking the max with the thread's `seen_up_to`), `s`, `x`, `wl read`,
+`e` (taking the max with the thread's `seen_up_to`), `s`, `x`, `wl read`,
 `wl snooze`, `wl archive`. Nothing compares a read stamp against `updated`.
 There used to be three answers to "is it unread" - the poll pruning its
 inbox on `updated <= read`, the marks stamping `moved_at`, the browser
@@ -173,14 +173,14 @@ read from then, and comes back at the wake time **or the moment it moves,
 whichever is first** - a second reason to be unread beside the wake table, not
 a hold against it. Waking is `seen_of` comparing `max(moved_at, wake)` against
 the read stamp per frame: no write, no arbiter, no refresh, so two windows on
-one dashboard cannot disagree. There is no `on-change` (that is `r`) and no
+one dashboard cannot disagree. There is no `on-change` (that is `e`) and no
 `forever` (that is `x`).
 
 **A woken snooze is over: unread implies no snooze.** Every mark stamps the
 last movement, which is under the wake, so a snooze left standing would keep
-the row unread whatever was pressed - `r` said "marked read" and the row
+the row unread whatever was pressed - `e` said "done" and the row
 stayed bold. So the refresh writes a woken row down (`read = ""`, the snooze
-dropped, `read_head` kept), and `r`, `x` and `wl read` on one the refresh has
+dropped, `read_head` kept), and `e`, `x` and `wl read` on one the refresh has
 not reached drop the snooze with the stamp they write; `z` puts it back. A
 snooze still to come is left alone by all of them. What ends keeps a trace:
 `last_snooze` is the wake of the last snooze put on a row, written where a
@@ -197,7 +197,7 @@ the session lives in, so nothing has to be running to catch it. `seen_of`
 reads it before the stamp (`Marks.rang`, off `rang_urls`): unread while it
 stands, whatever the stamp says, since it has no time to compare and needs
 none - the third reason beside the table and the wake, and the second that
-GitHub did not do. And the woken-snooze rule applies: `r`, `s`, `x` and
+GitHub did not do. And the woken-snooze rule applies: `e`, `s`, `x` and
 `mark_read_moved` silence it (`agent_seen!`, a control-mode attach on a
 closed stdin, 4 ms) or a bell left beside the stamp would keep the row unread
 whatever was pressed; `z` rings it back (`agent_ring!`). Read per
@@ -211,7 +211,7 @@ answer about whether a thing changed - but `show_ok` holds it out of every
 list that does not name the `filed` box. That one asymmetry is why it is a
 mark of its own: the backlog is `base + read`, and leaves the filed work out.
 
-Only `r` writes `read_head`, the sha the read was made at, because only `r`
+Only `e` writes `read_head`, the sha the read was made at, because only `e`
 knows what you were looking at; `s`, `x` and `wl read` stamp "not now" and
 leave it alone.
 
@@ -271,7 +271,7 @@ The rules behind the table, each of which cost a bug:
   requested`, `assigned`, `merged`, `new`, `woke` for a snooze that ran
   out, and `agent` in front of them all for a bell standing on the item's
   `T` pane, which has no time and is standing now (`moved_words`).
-  Computed and not stored: `r` empties it and a stamp
+  Computed and not stored: `e` empties it and a stamp
   put back fills it, with no refresh between. Two movements have no time
   to compare - the bool that rose (`CI failed`), the force-push of an older
   commit - and for those the refresh keeps the key that set the stamp
@@ -314,7 +314,7 @@ counterexamples, each of which loses or re-shows a comment:
 - `moved_stamp` dating a movement `max(m, at)` so a late arrival is always
   past any stamp: the bundle under the cursor is fresh for `fresh_minutes`,
   so a comment landing after the bundle was fetched, read live in the thread
-  pane and marked `r` (`read = seen_up_to`, GitHub's time) is dated by the
+  pane and marked `e` (`read = seen_up_to`, GitHub's time) is dated by the
   next refresh's clock, past the stamp - back for something you read, on
   every comment inside that window. That is the bug `moved_stamp`'s
   docstring records, at two minutes instead of an hour.
@@ -323,12 +323,12 @@ GitHub's timeline is the one clock both observers see; dating by it is what
 lets the browser and the refresh agree. What "later information wins" needs
 is already the high-water rule: a movement dated at or before the mark is
 stamped `at`. The residual - an event learned late whose time falls between
-`moved_at` and an `r` stamp that the thread's `seen_up_to` pushed past it -
+`moved_at` and an `e` stamp that the thread's `seen_up_to` pushed past it -
 is a review made before your own last reply on the same thread, and is read
 by any reading of "read".
 
 **By GitHub's time wherever a stamp will meet one GitHub wrote**, and by an
-*event's* time wherever there is one. `r` stamps `max(moved_at, newest
+*event's* time wherever there is one. `e` stamps `max(moved_at, newest
 visible event in the thread)` - all times GitHub wrote. `s` and `x` stamp
 `moved_at` alone. The poll cursor is the newest `updated_at` a source
 returned, asked again from behind it - 5 minutes for REST, 15 for search -
@@ -364,7 +364,7 @@ label), `issue` (`kind`), `stale` and `needs-nudge` (the second look says
 
 ## The browser's model
 
-**`show` is one axis that only adds.** Four boxes - `unread, open` · `read` ·
+**`show` is one axis that only adds.** Four boxes - `not done, open` · `done` ·
 `filed away` · `closed or merged` - each brings its own kind of row beside the
 others, and none can take another's away. The first and last are checked when
 nothing has been asked, so the screen cannot be emptied by accident, and `c`
@@ -404,7 +404,7 @@ way. `tab` moves the keyboard between two things on screen everywhere, which
 is why the merge composer cycles with `^x`.
 
 **A capital reaches GitHub; lowercase does not.** The line is *remote*, not
-*writes something* - `r` and `s` write `local.toml`. `z` may undo the
+*writes something* - `e` and `s` write `local.toml`. `z` may undo the
 lowercase set and must never offer to undo a capital.
 
 **A composer is drawn beside what it is about**, in the same split `t` and
@@ -436,8 +436,8 @@ The alternative was a timer comparing `displaysize` five times a second for
 the life of the browser, and nothing here runs on a cadence of its own.
 
 **Coming back to an item lands where you were**, per item and per mode; a row
-leaving the list under you (`r`, `x`, `s`) leaves the cursor in place, so an
-inbox is read by pressing `r`. A new list - view, filter, query - opens at the
+leaving the list under you (`e`, `x`, `s`) leaves the cursor in place, so an
+inbox is read by pressing `e`. A new list - view, filter, query - opens at the
 top.
 
 **The order is fixed when a list is asked for, and held while it is read.**
@@ -454,9 +454,9 @@ refresh landing asks for the same (`resort`).
 
 ## Showing what changed
 
-Three things answer it, all read off the mark `r` leaves:
+Three things answer it, all read off the mark `e` leaves:
 
-- **The thread opens on a rule.** `r` marks read up to the newest event it
+- **The thread opens on a rule.** `e` marks read up to the newest event it
   showed, so everything before the stamp was on screen. Nothing records
   *which* comment you got to: a second answer can disagree with the first.
 - **The thread is one activity list**: commits and the changes of state -
@@ -962,7 +962,7 @@ Each of the following returns success and the wrong answer:
   `command:` urls are honoured inside VS Code's own markdown alone. The only
   way to ask for anything else is a `vscode://<publisher>.<name>/...` url,
   which is routed to that extension - so `vscode/` is one, with one verb,
-  and `e` on a diff line hands it the url when `--list-extensions` says it
+  and `o` on a diff line hands it the url when `--list-extensions` says it
   is there, and is `--goto` when it is not. The desktop CLI takes the url
   as `--open-url` and the server's (`bin/remote-cli/code`, what a Remote-SSH
   terminal has) as `--openExternal`; each drops the other's option and
@@ -971,6 +971,32 @@ Each of the following returns success and the wrong answer:
   answers (`base_ref`, `merge_base`, `read_head`), never a fetch: a key press
   does not wait on the network, and a base that is only ever too old is the
   trade.
+- **The mark is called done, and the key is `e`** (2026-09-21). What the
+  program stamps is what the GitHub inbox and Gmail call done - a thread put
+  away that comes back when it moves - and both bind it to `e`, so the hand
+  that lives in those inboxes finds it here. The word for the other state
+  is *not done*, not *undone*: `z` undoes, and a state named after a verb
+  the next key over performs reads as its result. *Unread* stays the word
+  for the fact - an item moved since your mark; the bold row, `why  unread:`,
+  `wl unread` - and *done* is the act; in this program the two states are
+  the same two, so the base box says `not done, open` and the `read` box
+  says `done`. The TOML keys under `show` are not renamed: `read` is the
+  done box and `done` is the closed-or-merged one, and a rename would
+  break every view written before it.
+  The keys `e` displaced: VS Code moved to `o`, *open*; the thread moved to
+  `h`, *history*, which is what `:comments` shows - the conversation with
+  the pushes, closes and merges interleaved - and the one word that picks it
+  out from `d`, `p` and `c`, which are also readings of the item (`i` for
+  *item* would not); import moved to `I`, uppercase because it fetches, the
+  way `R` does. In the worktree list `i` went to `h` too, so the lowercase
+  letter means one thing everywhere: from there it goes to the row's item,
+  in whatever reading the browser was in, not to the thread. `w` stays the
+  order: neither inbox binds it, and the only better letters, `s` and `o`,
+  are snooze and open. And the checkout question's `w` is *where*, not
+  *back*: `t` on an item whose rules picked a copy asks straight away, so
+  the chooser `w` opens is one the reader may never have seen, and `b` or
+  backspace would name a place they were not. No `]` "done and next": `e`
+  in the base list takes the row out, and the cursor is already on the next.
 
 ## Conventions
 
