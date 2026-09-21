@@ -8,8 +8,9 @@ the TODO line goes.
 
 Last full pass: **2026-09-21**, VS Code Remote-SSH from a Mac (xterm.js),
 with Terminal.app and a tmux of the user's own for the title and width
-checks; bundled tmux 3.5.1 client and server. Findings that were not passes
-are in TODO.md, and the two wording fixes went in with the same commit.
+checks; bundled tmux 3.5.1 client and server. What the pass turned up was
+fixed the same day, in the commits after the one that added this file;
+what remains is in TODO.md under *Unverified*.
 
 ## 1. Key bytes
 
@@ -187,12 +188,13 @@ and `git branch -D` afterwards.
   complaint first on the status row.
 
 *2026-09-21*: all pass; the fork's `@{u}` was `origin/<branch>`. Found on
-the way, in TODO: the report after `y` lands on the browser's status row,
-which the pane covers; a worktree on a same-named branch of *another* PR is
-taken by name rather than asked about; the question's `git status` wants
-ahead/behind, the lease's answer and the head's subject. The lease line now
-names the `git config` that fixes it, and the box wraps its notes instead
-of cutting them at 72 columns.
+the way and fixed the same day: the report after `y` landed on the
+browser's status row, which the pane covers (now on the pane's footer too);
+a worktree on a same-named branch of *another* fork's PR was taken by name
+(now refused when git and the item disagree about whose it is); the
+question's `git status` wanted the head, ahead/behind and the lease's
+answer (now there); the lease line names the `git config` that fixes it,
+and the box wraps its notes. The next pass should see each of those.
 
 ## 10. The `pull/N/head` refspec
 

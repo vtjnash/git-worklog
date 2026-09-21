@@ -942,9 +942,9 @@ Each of the following returns success and the wrong answer:
   key so the layout can hit-test it and `j`/`k` can walk it, a third stop
   on `tab` that every composer beside the diff then has to step over, and
   at the end of it two more GitHub mutations for assignee and reviewer. The
-  fields that can change from here already have keys - `L`, `s`, `v` - and
-  the three that cannot (`deadline`, `blocked`, `track`) want one key
-  and a picker, the way `'` opens views, not a cursor on the pane.
+  fields that can change from here have keys - `L`, `s`, `v`, and `;` for
+  `deadline`, `blocked` and `track`, one key and a picker the way `'`
+  opens views - not a cursor on the pane.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
   in the user's rc; the agent in a `T` pane and the editor in a `v` pane
