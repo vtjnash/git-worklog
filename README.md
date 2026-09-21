@@ -112,7 +112,7 @@ GitHub.**
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
-| `;` | set the deadline, what it is blocked on, or the tracking level - a picker of the three, then a line for the value; empty clears |
+| `;` | set a field - a picker: the tracking level (`normal` ↔ `loose`, this machine), then the milestone, an assignee, a reviewer, which reach GitHub; the last two toggle, as `L` does |
 | `z` | undo the last local action, and go back to the row it was on |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |
@@ -220,8 +220,6 @@ wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
 wl dismiss julia#62452                  loose, and read
 wl archive julia#62452                  file it away; again to take it back out
 wl note    julia#62452 "..."
-wl deadline julia#62452 2026-09-30
-wl blocked julia#62452 JuliaLang/julia#62396
 wl clear   julia#62452
 wl watching                             repos you watch, and which are polled
 wl repos [--prune]                      pinned checkouts
@@ -303,7 +301,7 @@ to the 256-colour cube.
 | `config.toml`, `config.user.toml`, `themes/` | you | hand-edited; the shared half, the template for yours, the colours |
 | `cli/claude-settings.json` | you | what `T` hands `claude` as `--settings`: the hooks that ring the pane when a turn ends. Only ever read |
 | `data/config.toml` | you | your half: login, theme, the repos you poll and pin. Seeded from the template on the first launch and never written again. Tracked |
-| `data/local.toml` | you and the program | one block per item: your note, snooze, deadline, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
+| `data/local.toml` | you and the program | one block per item: your note, snooze, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/view.toml` | the browser | where it was when it last closed - the filter, the item, which view of it - read back at the next launch; `` ` `` is the way back to the firehose from there. Written whole on the way out; ignored. Delete it to open on the firehose |

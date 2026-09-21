@@ -412,7 +412,8 @@ is why the merge composer cycles with `^x`.
 
 **A capital reaches GitHub; lowercase does not.** The line is *remote*, not
 *writes something* - `e` and `s` write `local.toml`. `z` may undo the
-lowercase set and must never offer to undo a capital.
+lowercase set and must never offer to undo a capital. The one exception is
+`;`, whose picker says on its note which rows reach GitHub.
 
 **A composer is drawn beside what it is about**, in the same split `t` and
 `T` use, wherever the screen has 150 columns; the machinery was never about a
@@ -949,9 +950,12 @@ Each of the following returns success and the wrong answer:
   key so the layout can hit-test it and `j`/`k` can walk it, a third stop
   on `tab` that every composer beside the diff then has to step over, and
   at the end of it two more GitHub mutations for assignee and reviewer. The
-  fields that can change from here have keys - `L`, `s`, `v`, and `;` for
-  `deadline`, `blocked` and `track`, one key and a picker the way `'`
-  opens views - not a cursor on the pane.
+  fields that can change from here have keys - `L`, `s`, `v`, and `;`,
+  one key and a picker the way `'` opens views - not a cursor on the pane.
+  `;` is the one lowercase key with GitHub behind it: `track` is its first
+  row and this machine's, and the milestone, the assignee and the reviewer
+  are the rest, since a capital each is three keys the footer has no room
+  for. The picker's note says which is which, and `z` undoes only the first.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
   in the user's rc; the agent in a `T` pane and the editor in a `v` pane

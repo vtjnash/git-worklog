@@ -205,63 +205,88 @@ end
     end
 end
 
-@testset "; sets the deadline, what it is blocked on, and the tracking" begin
-    # The three fields that were `wl deadline`, `wl blocked` and `wl track`
-    # alone: a picker of the three, then the line each had. Each write lands
-    # on the row at once and is one undo.
+@testset "; is a picker of the fields, local first" begin
+    # The tracking level, which was `wl track` alone, then the three GitHub
+    # fields. The first flips and is one undo; each of the rest opens a list
+    # of its own, and none of those is on the undo stack.
     st = mkstate(); st.filters = W.everything(); W.refilter!(st)
     ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
     it = st.items[st.sel]
+    @test !W.islocal(it)
     keept = W.LOCAL[]; W.LOCAL[] = fresh_local()
+    keepdir = W.CACHE_DIR[]; W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
     try
         W.handle!(st, Int(';'), ctrl)
         ch = last(ctrl.stack)
-        @test ch isa W.ChooseView && ch.numbered && length(ch.options) == 3
-        @test occursin("deadline  none", ch.options[1][1])
-        @test occursin(string("track     ", it.track), ch.options[3][1])
+        @test ch isa W.ChooseView && ch.numbered
+        @test [o[2] for o in ch.options] == (it.is_pr ? [:track, :milestone, :assignee, :reviewer] :
+                                                       [:track, :milestone, :assignee])
+        @test occursin(string("track      ", it.track), ch.options[1][1])
+        @test occursin("GitHub", ch.note) && occursin("z does not undo", ch.note)
         pop!(ctrl.stack)
-        # The deadline asks, refuses what is not a date, and takes one.
-        ch.onpick(:deadline)
-        pv = pop!(ctrl.stack); @test pv isa W.PromptView
-        pv.onsubmit("soon")
-        @test startswith(st.status, "bad date")
-        @test W.get_field(it.url, "deadline") === nothing
-        pv.onsubmit("2026-09-30")
-        @test st.status == "deadline 2026-09-30"
-        @test W.get_field(it.url, "deadline") == "2026-09-30"
-        @test st.all[findfirst(x -> x.url == it.url, st.all)].deadline == "2026-09-30"
-        W.handle!(st, Int('z'), ctrl)
-        @test occursin("undid: deadline", st.status)
-        @test W.get_field(it.url, "deadline") === nothing
-        @test isempty(st.all[findfirst(x -> x.url == it.url, st.all)].deadline)
-        # Blocked on: a comma list, stripped; empty clears.
-        ch.onpick(:blocked)
-        pv = pop!(ctrl.stack)
-        pv.onsubmit("JuliaLang/julia#1, o/r#2 ")
-        @test st.status == "blocked on JuliaLang/julia#1, o/r#2"
-        @test W.get_field(it.url, "blocked_on") == "[\"JuliaLang/julia#1\", \"o/r#2\"]"
-        @test st.all[findfirst(x -> x.url == it.url, st.all)].blocked_on == ["JuliaLang/julia#1", "o/r#2"]
-        W.handle!(st, Int(';'), ctrl)
-        @test occursin("blocked   JuliaLang/julia#1, o/r#2", last(ctrl.stack).options[2][1])
-        pop!(ctrl.stack)
-        ch.onpick(:blocked)
-        pv = pop!(ctrl.stack); pv.onsubmit("")
-        @test st.status == "blocked cleared" && W.get_field(it.url, "blocked_on") === nothing
-        # And the undo of the clearing puts the list back as a list.
-        W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "blocked_on") == "[\"JuliaLang/julia#1\", \"o/r#2\"]"
-        W.handle!(st, Int('z'), ctrl)
-        @test W.get_field(it.url, "blocked_on") === nothing
-        # Track flips, and flips back under z.
+        # Track flips, lands on the row, and flips back under z.
         was = it.track
+        other = was == "loose" ? "normal" : "loose"
         ch.onpick(:track)
-        @test st.status == string("tracking ", was == "loose" ? "normal" : "loose")
-        @test W.get_field(it.url, "track") == (was == "loose" ? "normal" : "loose")
+        @test st.status == string("tracking ", other)
+        @test W.get_field(it.url, "track") == other
+        @test st.all[findfirst(x -> x.url == it.url, st.all)].track == other
         W.handle!(st, Int('z'), ctrl)
+        @test occursin("undid: track", st.status)
         @test W.get_field(it.url, "track") === nothing
         @test st.all[findfirst(x -> x.url == it.url, st.all)].track == was
+        # The milestone list is the repository's open ones, off the cache
+        # here, with the one it is on marked and a `none` row after them.
+        mt = isempty(it.milestone) ? "1.14" : it.milestone
+        W.cache_put(string("milestones:", it.repo),
+                    [Dict("number" => 3, "title" => "1.13", "due" => "2026-10-01"),
+                     Dict("number" => 4, "title" => mt, "due" => "")])
+        ch.onpick(:milestone)
+        mv = pop!(ctrl.stack)
+        @test mv isa W.ChooseView && !mv.numbered
+        @test [o[2] for o in mv.options] == [3, 4, nothing]
+        @test startswith(mv.options[1][1], "[ ] 1.13") && occursin("2026-10-01", mv.options[1][1])
+        @test startswith(mv.options[2][1], isempty(it.milestone) ? "[ ] " : "[x] ")
+        @test mv.options[3][1] == string(isempty(it.milestone) ? "[x] " : "[ ] ", "none")
+        # Picking what it already is writes nothing and says so.
+        mv.onpick(isempty(it.milestone) ? nothing : 4)
+        @test startswith(st.status, "already")
+        # The assignee list: the ones it has marked, you and the author in
+        # it, and a row that asks for anybody else.
+        ch.onpick(:assignee)
+        av = pop!(ctrl.stack)
+        @test av isa W.ChooseView
+        logins = [o[2] for o in av.options]
+        @test logins[end] === :other
+        @test W.login() in logins && it.author in logins
+        @test all(l in it.assignees for l in logins[1:length(it.assignees)])
+        @test all(startswith(o[1], l in it.assignees ? "[x] " : "[ ] ")
+                  for (o, l) in zip(av.options, logins) if l isa String)
+        av.onpick(:other)
+        pv = pop!(ctrl.stack)
+        @test pv isa W.PromptView
+        # The reviewers are read from the metadata fetch, and are not set
+        # until it has landed.
+        if it.is_pr
+            ch.onpick(:reviewer)
+            @test length(ctrl.stack) == 1
+            @test occursin("not loaded", st.status)
+            st.metakey = it.url
+            st.meta = (requested = ["carol"], teams = ["core"], assignees = String[],
+                       pending = "", fork = "", default = "",
+                       reviews = [(login = "dave", state = "APPROVED", at = "")])
+            ch.onpick(:reviewer)
+            rv = pop!(ctrl.stack)
+            logins = [o[2] for o in rv.options]
+            @test logins[1:2] == ["@core", "carol"] && "dave" in logins
+            @test !(it.author in logins) && logins[end] === :other
+            @test startswith(rv.options[1][1], "[x] ") && startswith(rv.options[3][1], "[ ] ")
+            st.metakey = ""; st.meta = nothing
+        end
+        @test isempty(st.undos)
     finally
         W.LOCAL[] = keept
+        W.CACHE_DIR[] = keepdir
     end
 end
 

@@ -1584,6 +1584,59 @@ HTTP_escape(s::AbstractString) =
          string(c) : string("%", uppercase(string(UInt8(c), base = 16, pad = 2)))
          for c in String(s))
 
+"""The open milestones of a repository: `(number, title, due)` rows, the due
+date cut to its day or empty. An hour in the cache: the list changes when a
+release is cut, and a picker opened twice in an afternoon should not pay
+for it twice."""
+function milestones(repo::AbstractString; ttl = 3600.0)
+    key = string("milestones:", repo)
+    hit = cache_get(key, ttl)
+    rows = hit === nothing ?
+        [OrderedDict{String,Any}("number" => m["number"], "title" => m["title"],
+                                 "due" => first(String(something(get(m, "due_on", nothing), "")), 10))
+         for m in api_paged("/repos/$repo/milestones"; params = Dict{String,Any}("state" => "open"))] :
+        hit[1]
+    hit === nothing && cache_put(key, rows)
+    [(number = Int(m["number"]), title = String(m["title"]), due = String(get(m, "due", "")))
+     for m in rows]
+end
+
+"""Put the issue or pull request on a milestone, by number; `nothing` takes it
+off whichever it is on."""
+function set_milestone(url::AbstractString, number::Union{Nothing,Int})
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
+                        auth = auth(), params = Dict("milestone" => number))
+        _invalidate(url)
+    end
+end
+
+"""Assign one login to the issue or pull request, or take them off it. The
+same endpoint either way; the verb is the difference."""
+function toggle_assignee(url::AbstractString, who::AbstractString, add::Bool)
+    r, n = _repo_num(url)
+    _write() do
+        f = add ? GitHub.gh_post_json : GitHub.gh_delete
+        f(GitHub.DEFAULT_API, "/repos/$r/issues/$n/assignees";
+          auth = auth(), params = Dict("assignees" => [String(who)]))
+        _invalidate(url)
+    end
+end
+
+"""Ask one login - or, with `team`, one team by slug - to review the pull
+request, or withdraw the request. A review already given is not a request,
+and withdrawing does not remove it."""
+function toggle_reviewer(url::AbstractString, who::AbstractString, add::Bool; team::Bool = false)
+    r, n = _repo_num(url)
+    _write() do
+        f = add ? GitHub.gh_post_json : GitHub.gh_delete
+        f(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/requested_reviewers";
+          auth = auth(), params = Dict((team ? "team_reviewers" : "reviewers") => [String(who)]))
+        _invalidate(url)
+    end
+end
+
 # --- merging ----------------------------------------------------------------
 #
 # The end of the loop `A` and `L` stop one step short of: a review that ends in

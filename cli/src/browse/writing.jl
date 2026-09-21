@@ -917,76 +917,161 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end
 
-"""`;`: the three local fields that were `wl deadline`, `wl blocked` and `wl
-track` alone - a picker of the three, the way `'` picks a view, then the line
-prompt each already had, with what is set now in it. Not a cursor on the
-pane (DESIGN's decisions). Numbered, as the views are and for the same
-reason: the same three rows in the same order, reached by memory.
+"""`;`: what is set on the item - a picker of the fields, the way `'` picks a
+view, then what each needs: a flip, a list, or a line. Not a cursor on the
+pane (DESIGN's decisions). Numbered, as the views are and for the same reason:
+the same rows in the same order, reached by memory.
 
-`track` has two values, so its row flips it rather than asking. The other
-two prompt, and an empty answer clears. Each write is one undo, as a note is.
+The first row is this machine: `track`, which was `wl track` alone, so setting
+it meant leaving the browser for a shell and coming back to a row that had not
+heard. Two levels, so it flips rather than asks, and is one undo, as a note is.
+
+The rest reach GitHub - the milestone, who it is assigned to, who is asked to
+review it - and are the one place a lowercase key does: the field is the
+row, and a capital per field is three more keys the footer has no room for.
+The note says so, and `z` never offers to undo them, as it never undoes `L`.
+An adopted branch has nothing on GitHub to set, so it gets the first row alone.
 """
 function field_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
     other = it.track == "loose" ? "normal" : "loose"
-    opts = Tuple{String,Any}[
-        (string("deadline  ", isempty(it.deadline) ? "none" : it.deadline), :deadline),
-        (string("blocked   ", isempty(it.blocked_on) ? "none" : join(it.blocked_on, ", ")), :blocked),
-        (string("track     ", it.track, " \u2192 ", other), :track)]
-    push_view!(ctrl, ChooseView(string("Set on ", it.ref), it.title, opts,
-        which -> begin
-            if which === :track
-                st.status = set_local_field!(st, it, "track", other, at)
-            elseif which === :deadline
-                push_view!(ctrl, PromptView(string("Deadline for ", it.ref),
-                    "a date like 2026-09-30 \u00b7 empty clears it",
-                    b -> (st.status = set_local_field!(st, it, "deadline", strip(b), at));
-                    initial = it.deadline))
-            else
-                push_view!(ctrl, PromptView(string("Blocked on, for ", it.ref),
-                    "refs, comma separated: JuliaLang/julia#62396 \u00b7 empty clears it",
-                    b -> (st.status = set_local_field!(st, it, "blocked_on", strip(b), at));
-                    initial = join(it.blocked_on, ", ")))
-            end
+    opts = Tuple{String,Any}[(string("track      ", it.track, " \u2192 ", other), :track)]
+    remote = !islocal(it)
+    if remote
+        # The metadata fetch is the fresher word on who is assigned and who
+        # was asked; the row carries what the lane said, which is good enough
+        # for the label while the fetch is still in the air.
+        m = st.metakey == it.url ? st.meta : nothing
+        who = m === nothing ? it.assignees : m.assignees
+        push!(opts, (string("milestone  ", isempty(it.milestone) ? "none" : it.milestone), :milestone))
+        push!(opts, (string("assignee   ", isempty(who) ? "none" : join(who, ", ")), :assignee))
+        if it.is_pr
+            asked = m === nothing ? nothing : vcat(m.requested, "@" .* m.teams)
+            push!(opts, (string("reviewer   ", asked === nothing ? "loading\u2026" :
+                                isempty(asked) ? "none" : join(asked, ", ")), :reviewer))
+        end
+    end
+    push_view!(ctrl, ChooseView(string("Set on ", it.ref),
+        remote ? "1 writes this machine; the rest reach GitHub, and z does not undo them" :
+                 it.title,
+        opts, which -> begin
+            which === :track     ? (st.status = set_track!(st, it, other, at)) :
+            which === :milestone ? milestone_action(st, ctrl, it) :
+            which === :assignee  ? assignee_action(st, ctrl, it) :
+                                   reviewer_action(st, ctrl, it)
         end; numbered = true))
 end
 
-"""Write one of `deadline`, `blocked_on` or `track` for the item, as `wl
-<field>` writes it, with its undo; the row is rewritten in place so the pane
-says it before the next refresh does. `v` is what was typed - empty clears -
-or, for `track`, the level. A deadline that is not a date is refused rather
-than written, as `wl deadline` refuses it.
-"""
-function set_local_field!(st::BState, it::Item, field::AbstractString, v, at::DateTime)
-    val = if field == "blocked_on"
-        bs = String[strip(x) for x in split(String(v), ',') if !isempty(strip(x))]
-        isempty(bs) ? nothing : bs
-    else
-        isempty(v) ? nothing : String(v)
-    end
-    if field == "deadline" && val !== nothing && tryparse(Date, val) === nothing
-        return string("bad date '", val, "' - a deadline is a date like 2026-09-30")
-    end
-    field == "track" && !(val in TRACK) && return string("track must be one of: ", join(TRACK, ", "))
-    # As written: `get_field` answers with the text, which for the list is
-    # its TOML, and putting that back as a string would write a string.
-    prev = get_field(it.url, field)
-    prev !== nothing && field == "blocked_on" && startswith(prev, "[") &&
-        (prev = try; String.(TOML.parse("v = " * prev)["v"]); catch; nothing; end)
+"""Write the tracking level, as `wl track` writes it, with its undo; the row is
+rewritten in place so the pane says it before the next refresh does."""
+function set_track!(st::BState, it::Item, val::AbstractString, at::DateTime)
+    prev = get_field(it.url, "track")
     prevtouch = touched_at(it.url)
-    set_fields(it.url, [field => val], at)
-    now = field == "blocked_on" ? with(it; blocked_on = something(val, String[])) :
-          field == "deadline"   ? with(it; deadline = something(val, "")) :
-                                  with(it; track = String(val))
-    replace_item!(st, now)
-    push!(st.undos, Undo(string(field == "blocked_on" ? "blocked" : field, " ", it.ref), it.url,
-                         () -> begin
-        set_fields(it.url, [field => prev])
+    set_fields(it.url, ["track" => val], at)
+    replace_item!(st, with(it; track = String(val)))
+    push!(st.undos, Undo(string("track ", it.ref), it.url, () -> begin
+        set_fields(it.url, ["track" => prev])
         set_touched(it.url, prevtouch)
         replace_item!(st, it)
     end))
-    val === nothing ? string(field == "blocked_on" ? "blocked" : field, " cleared") :
-    field == "blocked_on" ? string("blocked on ", join(val, ", ")) :
-    field == "deadline" ? string("deadline ", val) : string("tracking ", val)
+    string("tracking ", val)
+end
+
+"""The milestone: one of the repository's open ones, or none. The one it is on
+now is marked when it is among them; a closed milestone is on the row above
+and nowhere in this list, and picking `none` is how to leave it."""
+function milestone_action(st::BState, ctrl::Controller, it::Item)
+    ms = try
+        Events.milestones(it.repo)
+    catch e
+        st.status = string("could not list the milestones: ", first(sprint(showerror, e), 120))
+        return
+    end
+    mark(on) = on ? "[x] " : "[ ] "
+    # No colour on a row: the picker styles the whole row for the cursor.
+    opts = Tuple{String,Any}[(string(mark(m.title == it.milestone), m.title,
+                                     isempty(m.due) ? "" : string("  ", m.due)),
+                              m.number) for m in ms]
+    push!(opts, (string(mark(isempty(it.milestone)), "none"), nothing))
+    push_view!(ctrl, ChooseView(string("Milestone \u00b7 ", it.ref), "\u21b5 puts it on one; none takes it off", opts,
+        n -> begin
+            picked = n === nothing ? nothing : ms[findfirst(m -> m.number == n, ms)]
+            title = picked === nothing ? "" : picked.title
+            title == it.milestone && (st.status = string("already ", isempty(title) ? "on no milestone" : title); return)
+            r = Events.set_milestone(it.url, n)
+            isempty(r) || (st.status = r; return)
+            touch!(it.url)
+            replace_item!(st, with(it; milestone = title,
+                                   milestone_due = picked === nothing ? "" : picked.due))
+            st.status = picked === nothing ? "milestone cleared" : string("milestone ", title)
+        end))
+end
+
+"""Every login the list knows, for a picker of people: the ones `have` first,
+then yourself, then the author axis, which is everyone who opened something
+here. A row at the end for a login that is none of these, which asks."""
+function people(st::BState, have::Vector{String}, extra::Vector{String} = String[])
+    rest = filter(a -> !startswith(a, "@"), st.authors)
+    all_ = unique(vcat(have, extra, login(), rest))
+    filter!(!isempty, all_)
+    sort(all_; by = l -> (!(l in have), l))
+end
+
+"""Who it is assigned to: toggle one, as a label is toggled. The people the
+list knows are the candidates, and the last row asks for one it does not."""
+function assignee_action(st::BState, ctrl::Controller, it::Item)
+    m = st.metakey == it.url ? st.meta : nothing
+    have = m === nothing ? it.assignees : m.assignees
+    opts = Tuple{String,Any}[(string(l in have ? "[x] " : "[ ] ", l), l)
+                             for l in people(st, have, [it.author])]
+    push!(opts, ("    someone else\u2026", :other))
+    go(who) = begin
+        on = who in have
+        r = Events.toggle_assignee(it.url, who, !on)
+        isempty(r) || (st.status = r; return)
+        touch!(it.url)
+        now = on ? filter(!=(who), have) : sort(vcat(have, who))
+        replace_item!(st, with(it; assignees = now))
+        # Still this item's: the cursor may have moved while the list was up.
+        st.metakey == it.url && st.meta !== nothing && (st.meta = merge(st.meta, (assignees = now,)))
+        st.status = string(on ? "unassigned " : "assigned ", who)
+    end
+    push_view!(ctrl, ChooseView(string("Assignee \u00b7 ", it.ref), "\u21b5 toggles one", opts,
+        l -> l === :other ?
+            push_view!(ctrl, PromptView(string("Assign ", it.ref, " to"), "a login",
+                                        b -> go(String(strip(b))))) :
+            go(String(l))))
+end
+
+"""Who is asked to review it: toggle one request, or a team's as `@slug`. The
+people who have already reviewed are candidates too - asking again is how a
+re-review is requested - and the author never is, since GitHub refuses that.
+Needs the metadata fetch, which is where the requests are read from."""
+function reviewer_action(st::BState, ctrl::Controller, it::Item)
+    it.is_pr || (st.status = "not a pull request"; return)
+    m = st.metakey == it.url ? st.meta : nothing
+    m === nothing && (st.status = "the reviewers have not loaded yet"; return)
+    have = vcat(m.requested, "@" .* m.teams)
+    cands = filter(!=(it.author), people(st, have, [r.login for r in m.reviews]))
+    opts = Tuple{String,Any}[(string(l in have ? "[x] " : "[ ] ", l), l) for l in cands]
+    push!(opts, ("    someone else\u2026", :other))
+    go(who) = begin
+        on = who in have
+        team = startswith(who, "@")
+        r = Events.toggle_reviewer(it.url, lstrip(who, '@'), !on; team = team)
+        isempty(r) || (st.status = r; return)
+        touch!(it.url)
+        now = on ? filter(!=(who), have) : vcat(have, who)
+        st.metakey == it.url && st.meta !== nothing &&
+            (st.meta = merge(st.meta, (requested = filter(x -> !startswith(x, "@"), now),
+                                       teams = String[lstrip(x, '@') for x in now if startswith(x, "@")])))
+        st.status = string(on ? "withdrew the request to " : "asked ", who,
+                           on ? "" : " to review")
+    end
+    push_view!(ctrl, ChooseView(string("Reviewer \u00b7 ", it.ref), "\u21b5 toggles one; @slug is a team", opts,
+        l -> l === :other ?
+            push_view!(ctrl, PromptView(string("Ask to review ", it.ref), "a login, or @slug for a team",
+                                        b -> go(String(strip(b))))) :
+            go(String(l))))
 end
 
 """Toggle one label, chosen from this item's own plus every label seen."""

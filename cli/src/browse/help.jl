@@ -43,7 +43,7 @@ const HELP = Union{String,Tuple{String,String}}[
     ("s", "snooze: 3d, 2w, 6mo, a date; wakes then, or when it moves, whichever is first"),
     ("x", "file it away, and back; a filed item that moves is unread again"),
     ("v  o", "edit the note in \$VISUAL/\$EDITOR · open the checkout in VS Code; on a diff line, that diff at that line"),
-    (";", "set the deadline, what it is blocked on, or the tracking level; empty clears"),
+    (";", "set a field: the tracking level (this machine); the milestone, an assignee, a reviewer (GitHub)"),
     ("z", "undo the last local action"),
     ("u  R  I", "refresh everything in the background · reload this item · import an item by url; it lands unread"),
     ("t  T  \"", "a shell · an agent on the item's worktree · the worktree list; h there goes to a row's item"),

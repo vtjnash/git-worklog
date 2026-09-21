@@ -35,9 +35,7 @@ localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # imported - tagged by nothing, and still fetched by url every run. It sits here
 # beside `adopted` for the same reason that one does: the field is the record,
 # and the command that makes it is a convenience over the field.
-const FIELDS = ["adopted", "blocked_on", "deadline", "imported",
-                "note", "snooze", "track"]
-const ALIAS = Dict("blocked" => "blocked_on")
+const FIELDS = ["adopted", "imported", "note", "snooze", "track"]
 # Two, and there were four: see `TRACK_KEYS` for what `close` and `background`
 # were and why neither was worth keeping.
 const TRACK = ("normal", "loose")

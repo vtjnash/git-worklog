@@ -586,8 +586,6 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         kv("snoozed", ls <= marks.now ? string("woke ", when_str(ls, at)) :
                       string("until ", when_str(ls, at), "  ", THEME.dim, "cleared", THEME.reset))
     end
-    kv("deadline", it.deadline)
-    isempty(it.blocked_on) || kv("blocked", join(it.blocked_on, ", "))
     if !isempty(it.note)
         push!(out, string(THEME.dim, "note", THEME.reset))
         for l in awrap(it.note, max(8, w - 2))

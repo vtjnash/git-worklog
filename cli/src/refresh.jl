@@ -574,8 +574,6 @@ function apply_state!(r, st, cfg, at::DateTime)
     r["review"] = review_owed(r)
     r["track"] = resolve_track(st, r)
     r["note"] = get(st, "note", nothing)
-    r["deadline"] = get(st, "deadline", nothing)
-    r["blocked_on"] = get(st, "blocked_on", String[])
     r
 end
 
@@ -800,7 +798,7 @@ involved(reason) = Events.involved_reason(reason)
 
 """Read the item blocks of `local.toml`.
 
-Dates written unquoted (`deadline = 2026-09-30`) come back as `Date`; everything
+Dates written unquoted (`adopted = 2026-09-04`) come back as `Date`; everything
 downstream compares and prints them as ISO strings, so flatten them here. The
 Python raised `TypeError` out of `json.dumps` on the same input.
 """
@@ -821,7 +819,7 @@ end
 """An adopted branch whose pull request has arrived hands it what was written.
 
 The branch was the item while there was nothing else to be: a `local:` row
-carrying the note, the deadline, the track, whatever was said about the work.
+carrying the note, the track, whatever was said about the work.
 Once the pull request exists it is the item, and everything the branch row
 carried is about it - so those move to its block, the branch stops being
 adopted, and the row that was in the list under one name is in it under the
@@ -846,7 +844,7 @@ function adopt_pull_requests!(items, state, login::AbstractString)
         byb[localparts(u)] = u
     end
     isempty(byb) && return String[]
-    carried = ("blocked_on", "deadline", "note", "snooze", "track", "touched")
+    carried = ("note", "snooze", "track", "touched")
     ups = Pair{String,Vector{Pair{String,Any}}}[]
     out = String[]
     for (url, r) in items

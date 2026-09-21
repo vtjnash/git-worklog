@@ -26,8 +26,6 @@ Work dashboard.
   wl note    julia#62452 "rebase after #62396 lands"
   wl archive julia#62452                  file it away; again to take it back out
   wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
-  wl deadline julia#62452 2026-09-30
-  wl blocked julia#62452 JuliaLang/julia#62396
   wl clear   julia#62452
 
 Anywhere a ref is taken, `-` means "read them from stdin, one per line" - so a
@@ -293,7 +291,6 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
     length(args) > 1 || die(USAGE)
     urls = refs(args[2])
     url = first(urls)
-    cmd = get(ALIAS, cmd, cmd)
 
     if cmd == "show"
         st = load_state()
@@ -392,8 +389,6 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
                     "or a date like 2026-09-15. \"Until it moves\" is `wl done`, " *
                     "and \"forever\" is `wl archive`.")
         end
-    elseif cmd == "blocked_on"
-        value = String.(split(value, ","))
     end
     for u in urls
         # A snooze is remembered beside itself, as `s` remembers it.

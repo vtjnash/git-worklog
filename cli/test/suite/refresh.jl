@@ -2243,8 +2243,7 @@ end
         lu = W.localurl("o/r", "jn/fix")
         pu = "https://github.com/o/r/pull/7"
         W.set_fields(lu, ["adopted" => "2026-09-10", "note" => "half done",
-                          "deadline" => "2026-09-20", "track" => "loose",
-                          "blocked_on" => ["o/r#3"]], W.DateTime(2026, 9, 11, 9))
+                          "track" => "loose"], W.DateTime(2026, 9, 11, 9))
         W.set_done(lu, "2026-09-11T09:00:00Z")
         # The pull request already has a note of its own, which stays.
         W.set_fields(pu, ["note" => "on the PR"], W.DateTime(2026, 9, 12, 9))
@@ -2264,13 +2263,12 @@ end
         # Moved, not copied: the branch keeps only what was not about the work
         # - its done mark - and is no longer adopted, so it is no longer a row.
         @test W.get_field(lu, "adopted") === nothing && W.get_field(lu, "note") === nothing
-        @test W.get_field(lu, "deadline") === nothing && W.get_field(lu, "track") === nothing
+        @test W.get_field(lu, "track") === nothing
         @test W.done_at(lu) == "2026-09-11T09:00:00Z"
         @test !(lu in W.adopted_urls())
         # What the pull request lacked it has; what it had it keeps.
         @test W.get_field(pu, "note") == "on the PR"
-        @test W.get_field(pu, "deadline") == "2026-09-20" && W.get_field(pu, "track") == "loose"
-        @test W.get_field(pu, "blocked_on") == "[\"o/r#3\"]"
+        @test W.get_field(pu, "track") == "loose"
         # The interaction clock is the later of the two, not this run's.
         @test W.touched_at(pu) == "2026-09-12T09:00:00Z"
         # And `state` in hand says the same, for the rows derived after it.

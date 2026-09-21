@@ -173,7 +173,7 @@ function sample_facts()
          "title": "a pull request with a reasonably long title",
          "type": "PullRequest", "author": "vtjnash", "state": "OPEN",
          "lane": "review", "track": "normal",
-         "labels": ["bug", "domain:ci"], "blocked_on": [],
+         "labels": ["bug", "domain:ci"],
          "branch": "jn/topic", "ci": "SUCCESS", "mergeable": "MERGEABLE",
          "unresolved": 2, "review_decision": "REVIEW_REQUIRED",
          "milestone": "1.13", "milestone_due": "2026-10-01T00:00:00Z",
@@ -186,7 +186,7 @@ function sample_facts()
          "url": "https://github.com/o/r/issues/2", "repo": "o/r", "number": 2,
          "title": "an issue", "type": "Issue", "author": "someone",
          "lane": "mentioned_issue", "labels": [],
-         "note": null, "deadline": null, "milestone": null,
+         "note": null, "milestone": null,
          "updated": "2026-08-20T09:30:00Z"
        }
      },

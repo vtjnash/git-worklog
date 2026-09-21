@@ -107,8 +107,6 @@ Base.@kwdef struct Item
                            # thing that tells a merge you have to be told about
                            # from one you did yourself.
     draft::Bool = false
-    deadline::String = ""
-    blocked_on::Vector{String} = String[]
     web::String = ""       # where this is on github.com when `url` is not there:
                            # an adopted branch's `url` is its `local:` key, and
                            # this is its compare page, where the pull request
@@ -183,8 +181,6 @@ function item_of(r)
             ready = nz(jget(r, :ready), ""),
             review = nz(jget(r, :review), ""),
             draft = nz(jget(r, :draft), false),
-            deadline = nz(jget(r, :deadline), ""),
-            blocked_on = String[String(b) for b in jget(r, :blocked_on, ())],
             fetched = String(nz(jget(r, :fetched_at), "")))
 end
 
@@ -396,7 +392,6 @@ function local_item(url::AbstractString, b = nothing)
          lane = "local",
          track = nz(get_field(url, "track"), "normal"),
          note = nz(get_field(url, "note"), ""),
-         deadline = nz(get_field(url, "deadline"), ""),
          act = b === nothing ? "" : b.at,
          # A branch whose commits are all in the base has landed, however it got
          # there. That is what makes it archivable - and, until the notice has
