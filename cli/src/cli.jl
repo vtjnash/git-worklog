@@ -229,16 +229,30 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
     end
     if cmd == "thread"
         length(args) > 1 || die(USAGE)
-        body, cs = Events.thread(resolve(args[2]);
-                                 limit = length(args) > 2 ? parse(Int, args[3]) : 12)
+        body, cs, cms, sts = Events.thread(resolve(args[2]);
+                                           limit = length(args) > 2 ? parse(Int, args[3]) : 12)
+        # `comments` as it always was, and beside it the pushes and the
+        # state changes the browser draws among them - as `activity`, the one
+        # list in the order it happened, each entry saying which it is.
+        who(c) = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
+        entry(e) = e.kind === :comment ?
+            ["kind" => "comment", "at" => e.at, "who" => who(e.c),
+             "body" => something(get(e.c, "body", nothing), "")] :
+            e.kind === :push ?
+            ["kind" => "push", "at" => e.at, "who" => get(e.c[end], "by", ""),
+             "commits" => [["oid" => c["oid"], "at" => c["at"], "by" => get(c, "by", ""),
+                            "headline" => c["headline"]] for c in e.c]] :
+            ["kind" => "state", "at" => e.at, "who" => get(e.c, "by", ""),
+             "state" => e.c["kind"],
+             (String(k) => v for (k, v) in e.c if k in ("closer", "reason", "into", "oid"))...]
         print(json_dumps([
             "title" => body["title"],
             "body" => something(get(body, "body", nothing), ""),
             "state" => body["state"],
-            "user" => get(something(get(body, "user", nothing), Dict{String,Any}()), "login", nothing),
-            "comments" => [["at" => c["created_at"],
-                            "who" => get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing),
-                            "body" => something(get(c, "body", nothing), "")] for c in cs]]))
+            "user" => who(body),
+            "comments" => [["at" => c["created_at"], "who" => who(c),
+                            "body" => something(get(c, "body", nothing), "")] for c in cs],
+            "activity" => [entry(e) for e in activity_list(cs, cms, sts)]]))
         return 0
     end
     if cmd == "read"
@@ -287,14 +301,27 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         haskey(st, url) && println(json_dumps(st[url]; indent = 1, sortkeys = true))
         # Bodies are never stored; this is a live read of the thread, which is
         # the part the notification emails were carrying.
-        body, cs = try
+        body, cs, cms, sts = try
             Events.thread(url)
         catch e
             die("could not fetch thread: " * sprint(showerror, e))
         end
         title = body["title"]
         print("\n$title\n", "-"^min(length(title), 78), "\n\n")
-        for c in cs
+        # The same list the browser draws: the pushes and the state changes
+        # among the comments, in the order it happened, worded as the pane's
+        # headers are (`src`, what `y` copies off one).
+        for e in activity_list(cs, cms, sts)
+            if e.kind !== :comment
+                nd = e.kind === :push ? push_node(e.c, url) : state_node(e.c, url)
+                print("  ", nd.meta["src"], "\n")
+                for l in split(nd.raw, '\n'; keepempty = false)
+                    print("    ", l, "\n")
+                end
+                println()
+                continue
+            end
+            c = e.c
             who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
             print("  ", replace(first(c["created_at"], 16), "T" => " "), "  ", pyrepr(who), "\n")
             # Rendered, not cut at 600 characters: the same markdown path the

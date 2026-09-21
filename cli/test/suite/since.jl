@@ -301,6 +301,20 @@ end
     # lands below the rule rather than straddling it.
     @test g[1].at == "2" && g[end].at == "8"
     @test isempty(W.group_pushes([]))
+
+    # The whole list, as the browser draws it and `wl show` prints it: a
+    # push before the first comment is outside the window and left out, a
+    # state change before it is not; a push and a comment the same second
+    # are push first, a comment and a close the same second comment first.
+    cm(at) = Dict{String,Any}("oid" => "x", "at" => at, "headline" => "h", "by" => "a")
+    st(at, k) = Dict{String,Any}("kind" => k, "at" => at, "by" => "b")
+    evs = W.activity_list([Dict{String,Any}("created_at" => "3"), Dict{String,Any}("created_at" => "6")],
+                          [cm("1"), cm("3"), cm("5")], [st("2", "closed"), st("6", "reopened")])
+    @test [(e.kind, e.at) for e in evs] ==
+          [(:state, "2"), (:push, "3"), (:comment, "3"), (:push, "5"), (:comment, "6"), (:state, "6")]
+    @test isempty(W.activity_list([], [], []))
+    # With no comments at all, every push is inside the window.
+    @test [e.kind for e in W.activity_list([], [cm("1"), cm("2")], [])] == [:push]
 end
 
 @testset "a range-diff is one node per commit" begin

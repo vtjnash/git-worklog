@@ -314,6 +314,42 @@ function group_pushes(evs)
     out
 end
 
+"""The activity list: comments, pushes and state changes in the order they
+happened, which is one sequence and was being read as two. "They replied,
+then pushed, then replied" is the shape of most review conversations, and
+the pushes were a field on the item while the replies were the pane.
+
+Only the pushes that fall inside the window the comments are shown for - the
+thread is the last thirty of those - so a branch with two hundred commits
+does not arrive above the first thing anybody said. The state changes are
+all shown, wherever they fall: there are a handful at most, and a close from
+before the window is the one thing a reader of the last thirty comments most
+needs told.
+
+A commit and a comment stamped the same second: the commit first, because
+the reply is about the push in that case and never the other way round. A
+comment and a close the same second: the comment first, since "closing as
+fixed by #N" is what the close button with a comment produces, in that
+order. Consecutive pushes are one entry ([`group_pushes`](@ref)).
+
+Each entry is `(kind, at, c)`: `:comment` with the comment, `:push` with the
+run of commits, `:state` with the event. What the browser draws and what
+`wl show` and `wl thread` print, so the three agree on what happened.
+"""
+function activity_list(cs, cms, sts)
+    from = isempty(cs) ? "" : String(first(cs)["created_at"])
+    evs = Any[(kind = :comment, at = String(c["created_at"]), c = c) for c in cs]
+    for c in cms
+        t = String(c["at"])
+        (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
+    end
+    for e in sts
+        push!(evs, (kind = :state, at = String(e["at"]), c = e))
+    end
+    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :comment ? 1 : 2))
+    group_pushes(evs)
+end
+
 """The thread pane of an adopted branch, which has no thread.
 
 Nothing about it is on GitHub, so there is nothing to ask for - and asking,
@@ -367,34 +403,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
                     String(nz(get(body, "html_url", nothing), it.url)), true)
         ns[1].meta["at"] = String(nz(get(body, "created_at", nothing), ""))
     end
-    # The activity list: comments and pushes in the order they happened, which
-    # is one sequence and was being read as two. "They replied, then pushed,
-    # then replied" is the shape of most review conversations, and the pushes
-    # were a field on the item while the replies were the pane.
-    #
-    # Only the pushes that fall inside the window the comments are shown for -
-    # the thread is the last thirty of those - so a branch with two hundred
-    # commits does not arrive above the first thing anybody said.
-    #
-    # The state changes are all shown, wherever they fall: there are a handful
-    # at most, and a close from before the window is the one thing a reader
-    # of the last thirty comments most needs told.
-    from = isempty(cs) ? "" : String(first(cs)["created_at"])
-    evs = Any[(kind = :comment, at = String(c["created_at"]), c = c) for c in cs]
-    for c in cms
-        t = String(c["at"])
-        (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
-    end
-    for e in sts
-        push!(evs, (kind = :state, at = String(e["at"]), c = e))
-    end
-    # A commit and a comment stamped the same second: the commit first, because
-    # the reply is about the push in that case and never the other way round.
-    # A comment and a close the same second: the comment first, since "closing
-    # as fixed by #N" is what the close button with a comment produces, in
-    # that order.
-    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :comment ? 1 : 2))
-    evs = group_pushes(evs)
+    evs = activity_list(cs, cms, sts)
     # Where the new part starts, and how much of it there is. Nothing at all for
     # an item never marked read: the whole thread is new then, and a rule above
     # the first line of it says nothing.

@@ -203,8 +203,10 @@ wl refresh [--backlog] [--caught-up]    re-fetch; --backlog imports the polled r
                                         open lists, read; --caught-up stops waiting
                                         on a late notification
 wl import  <url>...                     follow items no lane returns, unread
-wl show    julia#62891                  state and the thread, non-interactive
-wl thread  julia#62891 [n]              JSON of a thread's recent comments
+wl show    julia#62891                  state and the thread - comments, pushes, closes and
+                                        merges in order - non-interactive
+wl thread  julia#62891 [n]              JSON of the same: `comments`, and `activity` with the
+                                        pushes and state changes among them
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
 wl log                                  what the last refresh run from the browser said
 wl read    julia#62891                  mark read (or: read all)
