@@ -366,6 +366,24 @@ function enter_session(target::AbstractString, branch::AbstractString,
     said * gone_suffix(fw.gone)
 end
 
+"""What `t` and `T` have to say, put where it can be read.
+
+The browser's status row, as every key reports - and the pane's own footer
+when a pane is on top, because the report that matters most arrives just as
+the pane covers the row it used to land on: `started …`, `checked out …`,
+`could not check out …`, and the `no live ssh agent` suffix, all of which
+are about the session that has just opened. The footer holds it the way it
+holds `^]?`, until the next prefix command. A report with no pane on top -
+a chooser, a refusal - reads off the browser's row as before.
+"""
+function report_session!(st, ctrl, r)
+    s = r isa String ? r : ""
+    st.status = s
+    v = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    v isa PaneView && !isempty(s) && (v.child.status = s)
+    nothing
+end
+
 """The same, for an item: its worktree is where its session lives.
 
 `item_worktree` answers where when it can, and this goes there without a word.

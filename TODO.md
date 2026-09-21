@@ -234,12 +234,6 @@ here until they are run, then there. Found on the way and not yet done:
       right, as does xterm.js. Either `displaysize` answers one more than it
       draws, or a full row followed by a newline wraps where xterm.js defers
       the wrap; `frame_bytes` is the place to look.
-- [ ] **The report after `y` lands where the pane covers it.** `say` writes
-      the browser's status row (`keys.jl:399`) and the pane view is pushed
-      over it, so `checked out <branch> · …` and `could not check out …` are
-      read only after `^]q`, if the next key has not cleared them. The pane
-      has a status row of its own (`v.child.status`); the session's opening
-      report belongs on it.
 - [ ] **A worktree on a same-named branch of another pull request is taken
       by name.** Two fork pull requests with `master` as head: the second
       found the first's `pr<N>/master` worktree, or a copy on the name,

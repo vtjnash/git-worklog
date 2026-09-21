@@ -1130,8 +1130,16 @@ end
             # because a session is keyed by where it is and not by what asked.
             n = length(W.mux_list())
             W.open_terminal(pr, ctrl)
-            pop!(ctrl.stack)
             @test length(W.mux_list()) == n
+            # What `t` reports lands on the pane's footer as well as the
+            # browser's row: the pane covers the row as the report arrives.
+            pv = last(ctrl.stack)
+            W.report_session!(st2, ctrl, "started here \u00b7 no live ssh agent")
+            @test pv isa W.PaneView && pv.child.status == "started here \u00b7 no live ssh agent"
+            @test st2.status == "started here \u00b7 no live ssh agent"
+            pop!(ctrl.stack)
+            W.report_session!(st2, ctrl, :needs_repo)
+            @test isempty(st2.status)
 
             # `K` ends what is running on the row, and nothing else.
             W.handle!(v5, Int('K'), ctrl)

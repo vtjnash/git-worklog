@@ -396,13 +396,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # to that arrives long after this call has returned. Both routes
         # report through the same line. `st.all` is for the second question:
         # which item's branch a copy has been reused for.
-        say = rr -> (st.status = rr isa String ? rr : "")
+        say = rr -> report_session!(st, ctrl, rr)
         retry_term = () -> say(open_terminal(it, ctrl, say; items = st.all))
         r = open_terminal(it, ctrl, say; items = st.all)
         r === :needs_repo ? needs_repo(retry_term) : say(r)
         return :ok
     elseif k == Int('T')
-        say = rr -> (st.status = rr isa String ? rr : "")
+        say = rr -> report_session!(st, ctrl, rr)
         retry_agent = () -> say(open_agent(it, ctrl, say; items = st.all))
         r = open_agent(it, ctrl, say; items = st.all)
         r === :needs_repo ? needs_repo(retry_agent) : say(r)
