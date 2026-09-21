@@ -15,7 +15,7 @@ each of them is exactly right:
    unfiled, open or closed. "Moved" means somebody else did something since
    you read it - the wake table - never something you did yourself, and never
    `updated_at`. That is why every key on a row is a time or a sha of an
-   event by somebody else, why `s` and `x` are the read stamp with one thing
+   event by somebody else, why `s` and `x` are the done stamp with one thing
    added, and why the stamps are GitHub's own event times.
 2. **My work** (`'` `2`): the open work, whose tags - `edits`, `ready`,
    `review`, `second` - have to be right without a clock saying so. That is
@@ -24,14 +24,14 @@ each of them is exactly right:
 3. **The backlog** (`'` `3`): the standing open list, read ones too. That is
    why nothing ever leaves the corpus, why a row with no stamp is read by
    construction up to the day its source was named - in every lane, one
-   `since` per source, raised together by `wl read --consolidate` - and why
+   `since` per source, raised together by `wl done --consolidate` - and why
    `filed` is a separate mark - it is the one thing the backlog leaves out.
 
-There is one seen bit: the read stamp against the item's last movement
+There is one seen bit: the done stamp against the item's last movement
 (`moved_of`), which is what every mark stamps and `seen_of` reads - and one
 tmux holds for it, the bell an agent rings on its `T` pane, unread while it
 stands and cleared by looking or by any mark. The inbox is a clock, never an
-answer; `wl unread`, `wl read all` and the browser are one list,
+answer; `wl unread`, `wl done all` and the browser are one list,
 `unread_items`.
 
 A view names a filter, one axis per question; it is never a lane, and no

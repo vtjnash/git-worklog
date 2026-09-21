@@ -148,15 +148,15 @@ end
         try
             here = st.all[1]
             n0 = length(st.all)
-            prevread = W.read_at(here.url)
+            prevread = W.done_at(here.url)
             msg = W.import_url!(st, here.url, at)
             @test occursin("already here", msg) && occursin(here.ref, msg)
             @test length(st.all) == n0                      # not twice
-            @test W.read_at(here.url) === nothing           # unread again
+            @test W.done_at(here.url) === nothing           # unread again
             @test haskey(W.Events.load_inbox()["items"], here.url)
             @test W.get_field(here.url, "imported") == string(W.Date(at))
             # And the undo takes back all three writes an import makes: the
-            # line in state.toml, the row in the inbox, and the read stamp that
+            # line in state.toml, the row in the inbox, and the done stamp that
             # was cleared to put it in the unread lane. The row is the one that
             # outlived the undo before - nothing would ever have cleared it,
             # since the repo an import is made for is by definition one no poll
@@ -166,19 +166,19 @@ end
             @test length(st.all) == n0
             @test W.get_field(here.url, "imported") === nothing
             @test !haskey(W.Events.load_inbox()["items"], here.url)
-            @test W.read_at(here.url) == prevread
+            @test W.done_at(here.url) == prevread
 
             # A row a *poll* wrote is not an import's to remove. Importing
             # something already in the inbox leaves the richer entry alone -
             # `overwrite = false` - and so does taking that import back.
             poll = st.all[2]
             W.Events.inbox_add!([W.inbox_row(poll, at)])
-            W.set_read(poll.url, W.stamp(at))
+            W.set_done(poll.url, W.stamp(at))
             W.import_url!(st, poll.url, at)
-            @test W.read_at(poll.url) === nothing        # it went unread
+            @test W.done_at(poll.url) === nothing        # it went unread
             W.handle!(st, Int('z'), ctrl)
             @test haskey(W.Events.load_inbox()["items"], poll.url)
-            @test W.read_at(poll.url) == W.stamp(at)
+            @test W.done_at(poll.url) == W.stamp(at)
         finally
             W.FETCHED[] = keepi
         end
@@ -397,16 +397,16 @@ end
     before = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     try
         st.nodes = W.Node[]
-        W.set_read(it.url, nothing); st.read = W.field_marks(W.load_marks(), "read")
+        W.set_done(it.url, nothing); st.done = W.field_marks(W.load_marks(), "done")
         ctrl = W.Controller()
         W.handle!(st, Int('e'), ctrl, then)
-        @test W.read_at(it.url) == W.moved_of(it)
-        @test W.read_at(it.url) != "2000-01-02T03:04:05Z"
+        @test W.done_at(it.url) == W.moved_of(it)
+        @test W.done_at(it.url) != "2000-01-02T03:04:05Z"
         # Left to itself a keystroke is its own operation, and the mark is the
         # same: it does not depend on the clock at all.
         W.handle!(st, Int('e'), ctrl)          # unread again
         W.handle!(st, Int('e'), ctrl)          # and read
-        @test W.read_at(it.url) == W.moved_of(it)
+        @test W.done_at(it.url) == W.moved_of(it)
     finally
         isempty(before) ? rm(W.localfile(); force = true) :
                           write(W.localfile(), before)

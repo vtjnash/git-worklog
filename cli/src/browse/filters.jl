@@ -22,7 +22,7 @@
 #         on when nothing has been asked, so the screen cannot be emptied by
 #         accident. Unchecking it is how one of the other three is asked for
 #         *alone*, and the only way there is.
-#       - **done** - the read stamp against `moved_at` and against the snooze's
+#       - **done** - the done stamp against `moved_at` and against the snooze's
 #         wake time, and **nothing overrides it**: an item that moves is unread
 #         again whether it is snoozed, filed, yours or a stranger's. A review
 #         request, a mention and a reply all land here, which is why none of
@@ -95,6 +95,12 @@ unread again, not a place to be.
 The three readings the values come from are `seen_of`, `filed_of` and `over_of`
 - what merged is the control over them, not the facts.
 """
+# The mark is *done*, the GitHub inbox's and Gmail's word for a thread put
+# away that comes back when it moves; *unread* stays the word for the fact -
+# an item moved since your mark: the bold row, `why  unread:`, `wl unread` -
+# and in this program those are the same two states, so the base box is the
+# not-done half. The TOML keys follow the labels, and so does the stamp in
+# `local.toml`, `done`, and `wl done`.
 const SHOW = [(:base, "not done, open"), (:done, "done"),
               (:filed, "filed away"), (:closed, "closed or merged")]
 
@@ -295,7 +301,7 @@ something changes; this is a way of naming all of them at once, made per
 `refilter!` and thrown away with it.
 """
 Base.@kwdef struct Marks
-    read::Dict{String,String} = EMPTY_TOUCHED
+    done::Dict{String,String} = EMPTY_TOUCHED
     sources::Dict{String,String} = EMPTY_TOUCHED   # source label -> the day it was
                                                     # named: the floor a row with no
                                                     # stamp is read up to; see `seen_of`
@@ -310,14 +316,14 @@ Base.@kwdef struct Marks
                                     # looking: tmux's bell, `rang_urls`
 end
 Marks(st, at::DateTime = utcnow()) =
-    Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes, stamp(at),
+    Marks(st.done, st.sources, st.touched, st.archived, st.drafts, st.wakes, stamp(at),
           st.rang)
 
 """Has this item changed since you last looked at it?
 
-    seen_of(it, marks) -> :unread | :read
+    seen_of(it, marks) -> :unread | :done
 
-The read stamp against `moved_at`, and **nothing overrides it**. Not a snooze,
+The done stamp against `moved_at`, and **nothing overrides it**. Not a snooze,
 not a filing, not whose it is: movement makes a thing unread, because unread is
 not a claim about wanting to see something - it is a claim about whether it has
 changed since you last did.
@@ -331,7 +337,7 @@ not, which is what `track` is for and what it did not used to reach. An item no
 refresh has seen - a row the activity poll alone knows about - has no
 wake table to compare, and there `updated` is the only answer anybody has.
 `moved_of` is that rule, and it is the rule every mark stamps by, so what is
-compared here is what `e`, `s`, `x` and `wl read` wrote.
+compared here is what `e`, `s`, `x` and `wl done` wrote.
 
 **And a snooze is a second reason, beside the table.** A snooze is a wake
 time; once it has passed it is as if the item moved then, and it is unread
@@ -365,7 +371,7 @@ the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
     it.url in m.rang && return :unread
-    at = get(m.read, it.url, nothing)
+    at = get(m.done, it.url, nothing)
     # Nothing said about it: it is read up to the day its source was named,
     # whatever the lane - day zero reads zero - and unread if the source has
     # no block. An empty stamp is something said - unread - and is earlier
@@ -378,7 +384,7 @@ function seen_of(it::Item, m::Marks = Marks())
     moved = something(moved_of(it), "")
     wake = get(m.wake, it.url, nothing)
     wake !== nothing && wake <= m.now && wake > moved && (moved = wake)
-    at < moved ? :unread : :read
+    at < moved ? :unread : :done
 end
 
 """Have you filed this away?
@@ -388,7 +394,7 @@ end
 The `archived` mark. Filed is read - `x` stamps both - with one difference:
 a read item that moves comes back on its own, and a filed one that moves is
 unread too but comes back only when the `filed` box is on. That difference is
-the whole reason it is a mark of its own and not a read stamp: it is what
+the whole reason it is a mark of its own and not a done stamp: it is what
 lets the backlog - read work and unread work together - leave out the work you
 gave up on.
 """
@@ -439,9 +445,9 @@ is how the row differs, and the box for it has to be on".
 **`done` is a question about unfiled work only**, which is the one thing here
 that is not symmetric and is the point of the whole axis. Filing something
 stamps it read - see `archive!` - so a `filed` box that also insisted on the
-read stamp would have shown nothing at all, and the reader would have had a
+done stamp would have shown nothing at all, and the reader would have had a
 control that did not work rather than a list. What you filed is what you filed,
-read or not; the read stamp is how the *pile* gets shorter, and the filed mark
+read or not; the done stamp is how the *pile* gets shorter, and the filed mark
 is how the backlog gets shorter without the pile changing.
 
 Closed is asked of every row, since nothing about closing an item says whether
@@ -811,6 +817,12 @@ function apply_view!(st, d)
     # the day `mine` was removed: the built-in "red CI, mine" went on naming it
     # and went on returning the right twelve rows, because every `needs-edits`
     # item happened to be yours. `config.toml` writes these by hand.
+    #
+    # And no alias for a spelling that has been retired. `show` was `base`,
+    # `read`, `filed`, `done` until 2026-09-21, when the boxes were renamed
+    # and `done` moved from the closed-or-merged box to the read one: a view
+    # from before, read quietly under the new names, would show a different
+    # list than it says, so it is reported here like a misspelt one.
     for (key, values, set) in (("show", SHOW, f.show), ("tag", TAGS, f.tags))
         haskey(d, key) || continue
         # Named means named *whole*, the base box included - a view that says
@@ -1129,7 +1141,7 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     m = load_marks()
     st.touched = field_marks(m, "touched")
     st.drafts = field_marks(m, "draft")
-    st.read = field_marks(m, "read")
+    st.done = field_marks(m, "done")
     st.sources = source_since()
     st.archived = archived_map()
     st.wakes = wake_map()

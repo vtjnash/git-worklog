@@ -1077,7 +1077,9 @@ function make_worktree!(v::WorktreeView, r::BranchRow, ctrl, at::AbstractString)
 end
 
 """Go to the item on this row, which means leaving: the list underneath is
-where an item is shown."""
+where an item is shown - in whatever reading it was in, not the thread. `h`,
+the browser's thread key, so the lowercase letter means one thing everywhere;
+it was `i` until `i` became `I`, import."""
 function goto_item(v::WorktreeView, it::Union{Nothing,Item})
     if it === nothing
         v.status = "no pull request on this branch"

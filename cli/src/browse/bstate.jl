@@ -93,7 +93,7 @@ Base.@kwdef mutable struct BState <: View
     touched::Dict{String,String} = Dict{String,String}()   # the interaction
                                     # clock, read when something changes rather
                                     # than per frame
-    read::Dict{String,String} = Dict{String,String}()      # url -> what it has
+    done::Dict{String,String} = Dict{String,String}()      # url -> what it has
                                     # been seen up to: the seen bit over the
                                     # whole corpus, read by `seen_of`, which is
                                     # the one answer to "is it unread" - the
@@ -224,7 +224,7 @@ function BState(all::Vector{Item}, title)
     st = BState(; all = collect(all), title = String(title),
                   touched = field_marks(m, "touched"), archived = archived_map(),
                   wakes = wake_map(), snoozes = field_marks(m, "last_snooze"),
-                  drafts = field_marks(m, "draft"), read = field_marks(m, "read"),
+                  drafts = field_marks(m, "draft"), done = field_marks(m, "done"),
                   sources = source_since(),
                   factsat = mtime(fetchedfile()),
                   refreshed = String(something(fetched("fetched_at"), "")),

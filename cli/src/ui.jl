@@ -40,7 +40,7 @@ Base.@kwdef struct Item
                            # `their_head`, `review_at`, `ci_failed`... - or
                            # `new` on first sight. The last movement; the ones
                            # before it are read off the keys below against the
-                           # read stamp (`moved_words`). Empty on a light row,
+                           # done stamp (`moved_words`). Empty on a light row,
                            # and on a row from before the refresh kept it
     # The wake table's own keys, as the refresh left them: each is the time
     # somebody else last did the thing, or "" - `head_at` with `head_by`
@@ -457,7 +457,7 @@ yours somewhere that is not - so there has to be a way to say "unread again"
 without a request and without inventing a second row for it.
 
 `act` is what the item last moved at, which is what the unread lane compares
-against a read stamp. Anything else would either hide it at once or never let it
+against a done stamp. Anything else would either hide it at once or never let it
 leave.
 """
 inbox_row(it::Item, at::DateTime = utcnow()) = OrderedDict{String,Any}(
@@ -647,11 +647,11 @@ end
 
 """Every unread row, as items, newest movement first: `seen_of` over the
 corpus and the light rows, which is the one answer to "what is unread" -
-`wl unread` prints it, `wl read all` marks it, and the browser's base list
+`wl unread` prints it, `wl done all` marks it, and the browser's base list
 is the same rows through the same `seen_of`, with the adopted branches and
 the imports it fetched beside them. Less the filed ones, as the base list
 is: a filed row that moved is unread in the `filed` box and nowhere else
-(`show_ok`), and `wl read all` stamping it would read the one signal that
+(`show_ok`), and `wl done all` stamping it would read the one signal that
 box keeps. Not the inbox listing: the inbox is a clock (`Events.poll`), and
 a row it holds may be read. `rows` is the inbox, polled first by the
 callers that want it fresh.
@@ -670,7 +670,7 @@ end
 "The marks off `local.toml` as `wl unread` reads them, at `at`. (`Marks` is
 the browser's, defined after this file; both callers are at run time.)"
 unread_marks(at::DateTime) =
-    Marks(read = load_read(), sources = source_since(), wake = wake_map(),
+    Marks(done = load_done(), sources = source_since(), wake = wake_map(),
           archived = archived_map(), now = stamp(at), rang = rang_urls())
 
 "The corpus and the light rows, as items: what the seen bit is asked over."
@@ -682,8 +682,8 @@ end
 """
     consolidate!(at; dry_run) -> (; since, raised, dropped)
 
-`wl read --consolidate`: raise every source's `since` to the newest point
-the read stamps allow, and drop the stamps the floor then answers for - so
+`wl done --consolidate`: raise every source's `since` to the newest point
+the done stamps allow, and drop the stamps the floor then answers for - so
 that `seen_of` answers the same for every row before and after, which is
 the test, and `local.toml` says one line per source where it said one per
 row. Over the corpus and the light rows:
@@ -692,7 +692,7 @@ row. Over the corpus and the light rows:
 the movement, and `seen_of` agreeing - that is below the oldest movement of
 any unread row with *no* stamp, light rows included: such a row is unread
 because it is past its floor, and raising the floor over it would read it.
-A row unread against its own stamp bounds nothing and keeps it; `read = ""`
+A row unread against its own stamp bounds nothing and keeps it; `done = ""`
 is a statement and does the same; a row with a `snooze` or an `archived`
 mark is skipped, since a hand-typed span counts from the stamp (`wake_of`)
 and the refresh reads either with no stamp as put away by hand and stamps
@@ -702,8 +702,8 @@ movement on record - a synthetic one - has nothing to say. Then every
 `source:` block gets `max(since, since′)` - **together, and never lowered**,
 so a row whose lane changes (a backlog issue that `assigned` claims) cannot
 flip by falling under a different floor, and a source named later keeps its
-later day - and `read` is dropped on every read row whose movement is at or
-under its source's new floor. `read` only: `read_head` stays, since the head you last
+later day - and `done` is dropped on every read row whose movement is at or
+under its source's new floor. `done` only: `done_head` stays, since the head you last
 saw is still the head you last saw and `p` reads it alone.
 
 Explicit and dry-run first; the refresh can call it once it has been
@@ -712,9 +712,9 @@ watched. Answers what it did, or would do.
 function consolidate!(at::DateTime; dry_run::Bool = false,
                       rows = values(Events.load_inbox()["items"]))
     items = corpus_items(rows)
-    raw = field_maps(("read", "snooze", "archived"))
+    raw = field_maps(("done", "snooze", "archived"))
     sources = source_since()
-    m = Marks(read = load_read(), sources = sources, wake = wake_map(), now = stamp(at))
+    m = Marks(done = load_done(), sources = sources, wake = wake_map(), now = stamp(at))
     oldest = nothing                    # of the stampless unread rows
     reads = Tuple{String,Item}[]        # the movement of every read, stamped row
     for it in items
@@ -722,11 +722,11 @@ function consolidate!(at::DateTime; dry_run::Bool = false,
         moved === nothing && continue
         r = get(raw, it.url, nothing)
         held_by(r) && continue
-        stampraw = r === nothing ? nothing : get(r, "read", nothing)
+        stampraw = r === nothing ? nothing : get(r, "done", nothing)
         seen = seen_of(it, m)
         if stampraw === nothing
             seen === :unread && (oldest === nothing || moved < oldest) && (oldest = moved)
-        elseif !isempty(stampraw) && seen === :read
+        elseif !isempty(stampraw) && seen === :done
             push!(reads, (moved, it))
         end
     end
@@ -743,7 +743,7 @@ function consolidate!(at::DateTime; dry_run::Bool = false,
     if !dry_run
         isempty(raised) || set_blocks!([string("source:", l) => ["since" => s]
                                         for (l, s) in raised])
-        isempty(dropped) || set_blocks!([u => ["read" => nothing] for u in dropped])
+        isempty(dropped) || set_blocks!([u => ["done" => nothing] for u in dropped])
     end
     (; since, raised, dropped)
 end
@@ -784,8 +784,8 @@ end
 
 """Is the bundle `b` from before the inbox's clock for its row `u` - fetched
 before the newest thing the poll saw? Then the inbox row is the newer of the
-two, and the one a mark stamps by (`mark_read_moved`) as well as the one
-shown (`inbox_items`), or `wl read all` would stamp under what `wl unread`
+two, and the one a mark stamps by (`mark_done_moved`) as well as the one
+shown (`inbox_items`), or `wl done all` would stamp under what `wl unread`
 listed against."""
 before_inbox(b, u) =
     String(nz(jget(b, :fetched_at), "")) < String(nz(get(u, "updated", nothing), ""))

@@ -34,8 +34,8 @@
         # item is read the moment it is snoozed, and unread again the moment
         # anything on it moves.
         W.apply_snooze!(st, it, "3d", DateTime(2024, 1, 1))
-        @test W.read_at(it.url) == it.moved_at
-        @test W.seen_of(it, W.Marks(st)) === :read
+        @test W.done_at(it.url) == it.moved_at
+        @test W.seen_of(it, W.Marks(st)) === :done
         moved = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
                          title = it.title, moved_at = "2099-01-01T00:00:00Z")
         @test W.seen_of(moved, W.Marks(st)) === :unread
@@ -48,7 +48,7 @@ end
     # Three kinds of row, one rule. A corpus row has `moved_at`; a light row -
     # one only the inbox holds - has `updated` and nothing else; a synthetic
     # one has neither and gets `at`, the one place a clock is the answer.
-    # `wl read`, `wl snooze` and `wl archive` go through `mark_read_moved`,
+    # `wl done`, `wl snooze` and `wl archive` go through `mark_done_moved`,
     # which has no thread on screen and reads the rows itself; `e`, `s` and
     # `x` read the `Item`. Each stamp is read against `seen_of` afterwards,
     # which is the whole test.
@@ -70,14 +70,14 @@ end
                                           "updated" => "2026-09-12T00:00:00Z")
         W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}(cu => corpus),
                                         "inbox" => Dict{String,Any}("items" => Dict{String,Any}(lu => light))))
-        @test W.mark_read_moved([cu, lu, su], at) == 3
-        @test W.read_at(cu) == "2026-09-10T00:00:00Z"      # `moved_at`, not `updated`
-        @test W.read_at(lu) == "2026-09-12T00:00:00Z"      # the light row's movement
-        @test W.read_at(su) == "2026-09-16T12:00:00Z"      # nothing to stamp but now
-        m = W.Marks(read = W.load_read(), now = W.stamp(at))
+        @test W.mark_done_moved([cu, lu, su], at) == 3
+        @test W.done_at(cu) == "2026-09-10T00:00:00Z"      # `moved_at`, not `updated`
+        @test W.done_at(lu) == "2026-09-12T00:00:00Z"      # the light row's movement
+        @test W.done_at(su) == "2026-09-16T12:00:00Z"      # nothing to stamp but now
+        m = W.Marks(done = W.load_done(), now = W.stamp(at))
         its = [W.item_of(W.fetched("items")[Symbol(cu)]), W.poll_item(light),
                W.Item(url = su, ref = "r#branch", repo = "o/r", number = 0, title = "s")]
-        @test all(it -> W.seen_of(it, m) === :read, its)
+        @test all(it -> W.seen_of(it, m) === :done, its)
         # And the browser's keys write the same stamp off the `Item`.
         write(W.LOCAL[], "")
         ctrl = W.Controller()
@@ -87,13 +87,13 @@ end
             st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
             st.nodes = W.Node[]
             W.handle!(st, Int('e'), ctrl, at)
-            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
+            @test W.done_at(it.url) == something(W.moved_of(it), W.stamp(at))
             W.handle!(st, Int('e'), ctrl, at)                 # unread
             W.apply_snooze!(st, it, "3d", at)
-            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
-            W.apply_snooze!(st, it, nothing, at); W.set_read(it.url, nothing)
+            @test W.done_at(it.url) == something(W.moved_of(it), W.stamp(at))
+            W.apply_snooze!(st, it, nothing, at); W.set_done(it.url, nothing)
             W.archive!(st, it, at)
-            @test W.read_at(it.url) == something(W.moved_of(it), W.stamp(at))
+            @test W.done_at(it.url) == something(W.moved_of(it), W.stamp(at))
         end
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
@@ -148,7 +148,7 @@ end
 
 @testset "what the clock does not count" begin
     keep = W.LOCAL[]
-    # The read stamps are in here too now, so redirecting the file is the whole
+    # The done stamps are in here too now, so redirecting the file is the whole
     # of what this testset has to put back: `e` below writes one.
     W.LOCAL[] = fresh_local()
     try
@@ -351,38 +351,38 @@ end
         # Falling asleep takes the item out of the unread lane: "not now" and
         # "unread" are the same answer twice, and the row leaves in the session
         # the key was pressed in rather than at the next refresh.
-        was = W.read_at(it.url)
+        was = W.done_at(it.url)
         @test startswith(W.apply_snooze!(st, it, "3d", now), "snoozed until ")
-        @test W.read_at(it.url) !== nothing
+        @test W.done_at(it.url) !== nothing
         # It is read, and tagged: a snooze is not a place to be. Read on the
         # test's clock, not the wall's: the snooze was written against `now`
         # and wakes three days after it, which the calendar reached.
-        @test W.seen_of(it, W.Marks(st, now)) === :read
+        @test W.seen_of(it, W.Marks(st, now)) === :done
         @test !W.filed_of(it, W.Marks(st, now))
         @test :snoozed in W.tags_of(it, W.Marks(st, now))
         # Undone with the snooze, since one key press did both.
         W.handle!(st, Int('z'), ctrl)
-        @test W.read_at(it.url) == was
+        @test W.done_at(it.url) == was
         # Clearing one says nothing about whether it has been read - and
         # leaves the wake it had on record, `last_snooze`, so the pane can
         # still say there was one.
         W.apply_snooze!(st, it, "3d", now)
         @test W.get_field(it.url, "last_snooze") == W.get_field(it.url, "snooze")
         @test W.apply_snooze!(st, it, nothing, now) == "snooze cleared"
-        @test W.read_at(it.url) !== nothing
+        @test W.done_at(it.url) !== nothing
         @test W.get_field(it.url, "last_snooze") == "2026-09-15T12:00:00Z"
 
         # **And the wake is the clock's to notice, not a refresh's.** A snooze
         # set to run out an hour ago has run out: the item is unread, and no
         # longer tagged, without anybody having written anything.
         W.apply_snooze!(st, it, "3d", now)
-        W.set_read(it.url, "2026-09-12T12:00:00Z")
-        m = W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts, st.wakes,
+        W.set_done(it.url, "2026-09-12T12:00:00Z")
+        m = W.Marks(st.done, st.sources, st.touched, st.archived, st.drafts, st.wakes,
                     "2026-09-15T13:00:00Z", st.rang)
         @test W.seen_of(it, m) === :unread
         @test !(:snoozed in W.tags_of(it, m))
-        @test W.seen_of(it, W.Marks(st.read, st.sources, st.touched, st.archived, st.drafts,
-                                    st.wakes, "2026-09-15T11:00:00Z", st.rang)) === :read
+        @test W.seen_of(it, W.Marks(st.done, st.sources, st.touched, st.archived, st.drafts,
+                                    st.wakes, "2026-09-15T11:00:00Z", st.rang)) === :done
 
         # Every write is undoable, back to nothing at all.
         for _ in 1:length(st.undos); W.handle!(st, Int('z'), ctrl); end

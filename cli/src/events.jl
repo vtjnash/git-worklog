@@ -2,7 +2,7 @@
 #
 # Email's real value here is one bit per thread: have you seen it. Everything
 # else it carries - titles, bodies, who spoke - GitHub can answer live, so none
-# of it is stored. The only persisted state is the read stamp in `local.toml`:
+# of it is stored. The only persisted state is the done stamp in `local.toml`:
 # per item, the timestamp you have seen up to. That is precisely the bit an
 # inbox was providing and the one thing that cannot be re-derived from GitHub -
 # and it is a fact about the whole corpus, which is why it lives there and not
@@ -26,7 +26,7 @@ import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
-using ..Worklog: load_read, mark_unread, nz, report, warning
+using ..Worklog: load_done, mark_unread, nz, report, warning
 import ..Worklog
 
 struct ApiError <: Exception
@@ -578,7 +578,7 @@ its delivery time as `updated` over the poll's event time, the two clocks
 this docstring's last paragraph is about.
 
 What the thread contributes is `updated`, `lane` and `reason`. `unread`
-and `last_read_at` are never read: the cursor is ours and the read stamp is
+and `last_read_at` are never read: the cursor is ours and the done stamp is
 ours, and adopting GitHub's would undo the property the whole lane exists for.
 
 **`updated` is the subject's clock once the subject has been fetched**, and
@@ -1115,7 +1115,7 @@ back if some is wanted.
 source has said moved, with GitHub's time for the newest thing it saw, until
 the refresh has asked about the url and the row is read; whether a row is
 *unread* is `seen_of`'s to say, over the corpus and these rows alike. This
-used to be named for the unread list and prune on the read stamp, which was
+used to be named for the unread list and prune on the done stamp, which was
 one of three answers to the question. The sources are `sources`, the loop is
 `sync!`.
 """
@@ -1141,7 +1141,7 @@ end
 The activity lane only watches the repos in `config.toml`, and an imported item
 is imported *because* its repo is not one of them - so no poll will ever put it
 in front of you. This is the hand-delivery: the same entry a poll would have
-written, and the read stamp cleared, so it arrives in the unread lane and leaves
+written, and the done stamp cleared, so it arrives in the unread lane and leaves
 it the same way everything else does.
 
 Deliberately not a cursor: nothing is advanced and nothing is claimed to have
@@ -1164,7 +1164,7 @@ function inbox_add!(rows; overwrite::Bool = true)
         u in urls || push!(urls, u)
     end
     save_inbox(inbox)
-    mark_unread(urls)          # a read stamp from last time would hide it again
+    mark_unread(urls)          # a done stamp from last time would hide it again
     length(urls)
 end
 
@@ -1175,7 +1175,7 @@ in_inbox(url::AbstractString) = haskey(load_inbox()["items"], String(url))
 
 An import that is undone has to undo both halves of the hand-delivery, and the
 row is the half that outlives the session: `imported` goes back out of
-`local.toml` and the read stamp is put back, but an entry left in `fetched.json`
+`local.toml` and the done stamp is put back, but an entry left in `fetched.json`
 keeps the item in the unread lane for as long as it stays there - there is no
 poll that would ever clear it, because the reason the item was imported is that
 no poll covers its repo.

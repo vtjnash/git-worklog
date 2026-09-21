@@ -14,8 +14,8 @@ Work dashboard.
   wl unread                               JSON of the unread list
   wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
-  wl read    julia#62891                  mark a thread seen (or: read all)
-  wl read    --consolidate [--dry-run]    raise every source's floor, drop the stamps it answers for
+  wl done    julia#62891                  mark a thread done (or: done all)
+  wl done    --consolidate [--dry-run]    raise every source's floor, drop the stamps it answers for
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
   wl log                                  what the last refresh run from the browser said
@@ -155,14 +155,14 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)
     end
     if cmd == "unread"
-        # With a ref it is the inverse of `read`; bare it is the JSON dump,
+        # With a ref it is the inverse of `done`; bare it is the JSON dump,
         # which is how anything outside this program asks what is unread:
         # the clocks polled, then `seen_of` over the corpus and the light
         # rows - the one answer, the browser's too.
         if length(args) > 1
             for u in refs(args[2])
-                println(mark_unread([u]) == 0 ? "was not marked read $u" :
-                        "marked unread $u")
+                println(mark_unread([u]) == 0 ? "was not done $u" :
+                        "not done $u")
             end
             return 0
         end
@@ -255,7 +255,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             "activity" => [entry(e) for e in activity_list(cs, cms, sts)]]))
         return 0
     end
-    if cmd == "read"
+    if cmd == "done"
         arg = length(args) > 1 ? args[2] : "all"
         if arg == "--consolidate"
             dry = "--dry-run" in args
@@ -269,23 +269,23 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             for (l, s) in sort!(collect(c.raised))
                 println(would, "raise  source:", l, "  since = ", s)
             end
-            println(would, "drop   ", length(c.dropped), " read stamp",
+            println(would, "drop   ", length(c.dropped), " done stamp",
                     length(c.dropped) == 1 ? "" : "s", " the floor answers for")
             dry && println("(dry run; nothing written)")
             return 0
         end
         if arg == "all"
-            # The same list `wl unread` prints, so a second `read all` finds
+            # The same list `wl unread` prints, so a second `done all` finds
             # nothing by construction: every row it stamps is stamped at the
             # movement `seen_of` compares against.
             cfg = config()
             rows = poll(cfg, cfg["login"], at; verbose = false)
             urls = [it.url for it in unread_items(at, rows)]
-            println("marked $(mark_read_moved(urls, at; fold = true)) threads read")
+            println("done: $(mark_done_moved(urls, at; fold = true)) threads")
         else
             for u in refs(arg)
-                mark_read_moved([u], at; fold = true)
-                println("marked read $u")
+                mark_done_moved([u], at; fold = true)
+                println("done $u")
             end
         end
         return 0
@@ -346,7 +346,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
                 # courtesy a snooze pays. It goes unread again the moment it
                 # moves, which is what the attention axis is for and is not
                 # what this decides; the mark is what holds it out of view.
-                mark_read_moved([u], at)
+                mark_done_moved([u], at)
                 println("archived $u")
             end
         end
@@ -359,7 +359,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # happens to it.
         for u in urls
             set_fields(u, ["track" => "loose"])
-            mark_read_moved([u], at; fold = true)
+            mark_done_moved([u], at; fold = true)
             println("dismissed $u (returns only on a review, reply, push or close)")
         end
         return 0
@@ -389,7 +389,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             value = wake_of(value, stamp(at))
             value === nothing &&
                 die("bad snooze value '$value'. Use a span like 3d/2w/6mo/1y, " *
-                    "or a date like 2026-09-15. \"Until it moves\" is `wl read`, " *
+                    "or a date like 2026-09-15. \"Until it moves\" is `wl done`, " *
                     "and \"forever\" is `wl archive`.")
         end
     elseif cmd == "blocked_on"
@@ -403,7 +403,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # Putting something to sleep is the end of looking at it. It goes unread
         # again the moment it moves, or the moment the wake comes - which is
         # why this is a stamp and not a claim about wanting to see it.
-        cmd == "snooze" && value !== nothing && mark_read_moved([u], at)
+        cmd == "snooze" && value !== nothing && mark_done_moved([u], at)
     end
     0
 end

@@ -385,6 +385,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end
         return :ok
     elseif k == Int('o')
+        # Open, in VS Code. It was `e` until `e` became done (2026-09-21).
         at = edit_target(st, iw)
         retry_edit = () -> (rr = open_editor(it, at; mode = st.mode, items = st.all);
                             st.status = rr isa String ? rr : "")
@@ -422,6 +423,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         st.status = msg
         return :ok
     elseif k == Int('w')
+        # `w` for *when*: three of the four orders are one. Left where it was
+        # when the keys moved to match the inboxes, since neither GitHub's nor
+        # Gmail's binds it and the better letters, `s` and `o`, are snooze
+        # and open.
         i = findfirst(x -> x[1] === st.sort, SORTS)
         st.sort = SORTS[mod1(something(i, 1) + 1, length(SORTS))][1]
         refilter!(st)
@@ -447,6 +452,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # Lowercase shows you something, uppercase changes something. `c` was the
     # composer and `C` the checks pane, which had it exactly backwards.
     if k == Int('d');     st.mode = :diff
+    # `h` for *history*: the conversation with the pushes, closes and merges
+    # in it, which is the one word that picks this out from the three below -
+    # they are readings of the item too, so `i` would not have. It was `o`
+    # until `o` became open.
     elseif k == Int('h'); st.mode = :comments
     # The fourth reading of an item, and the only one that is about *you*: the
     # other three are what it is, what it changes and whether it builds, and
@@ -478,7 +487,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif k == Int('M'); merge_action(st, ctrl, it)
     elseif k == Int('L'); label_action(st, ctrl, it)
     elseif k == Int('e')
-        # Done, the word and the key GitHub's inbox and Gmail use. A toggle:
+        # Done, the word and the key GitHub's inbox and Gmail use, so the
+        # hand that lives there finds it here; it was `r` until 2026-09-21.
+        # The other state is *not done*, not *undone*: `z` is undo, and a
+        # state named after the verb the next key over performs reads as its
+        # result. No "done and next" (`]`) beside it: in the base list this
+        # takes the row out, and the cursor is already on the next. A toggle:
         # on something unread it marks it done, on something done it
         # puts it back. `u` used to be the unconditional half of this and is
         # now the whole refresh - two presses of a toggle reach either state,
@@ -497,7 +511,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # Without a thread on screen it is the movement alone, which is what
         # `s` and `x` write too; see `moved_of`.
         fi = findfirst(n -> haskey(n.meta, "seen_up_to"), st.nodes)
-        prev, prevhead = mark_at(it.url, "read"), mark_at(it.url, "read_head")   # raw
+        prev, prevhead = mark_at(it.url, "done"), mark_at(it.url, "done_head")   # raw
         # A snooze that has run out is over once the row is read: it goes
         # with the stamp, or the stamp - the movement, under the wake -
         # would leave the row unread. See `woken_by`.
@@ -524,7 +538,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # either way.
             held = haskey(st.archived, it.url) || (haskey(st.wakes, it.url) && !woke)
             held || (upto = folded(upto, floor_of(it, st.sources)))
-            set_read_mark(it.url, upto, it.head; fold = true)
+            set_done_mark(it.url, upto, it.head; fold = true)
             woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
         else
             mark_unread([it.url])
@@ -535,7 +549,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), it.url, () -> begin
             # Raw, and with `fold`: a folded mark is no stamp and a head, and
             # that is what goes back, not the head dropped with the stamp.
-            set_read_mark(it.url, prev, prevhead; fold = true)
+            set_done_mark(it.url, prev, prevhead; fold = true)
             # The clock goes back after the snooze: `set_fields` stamps it.
             woke && (set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast]);
                      set_touched(it.url, prevtouch))

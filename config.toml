@@ -57,7 +57,7 @@ second_look_days = 2
 # token allows, your GitHub notifications - and a row is fetched by url the
 # first time a thread names you, and again only when a clock says it moved.
 # Nothing leaves: the dashboard is the index of everything that was ever in
-# front of you, read or unread - the `read` and `filed` boxes hold the read and
+# front of you, done or not - the `done` and `filed` boxes hold the done and
 # the filed - and a finished pull request of yours stays, as does the mention
 # on a years-old closed issue, which arrives the same way as one on an open one.
 # Until 2026-09-13 there were nine more lanes here - three for what had recently

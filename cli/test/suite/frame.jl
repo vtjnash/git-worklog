@@ -609,7 +609,7 @@ end
     st.sel = 2                              # so the cursor is on neither below
     unread, read_ = st.items[3], st.items[4]
     # Unread is what `seen_of` says: no stamp, or one from before it moved.
-    st.read = Dict(read_.url => "2099-01-01T00:00:00Z")
+    st.done = Dict(read_.url => "2099-01-01T00:00:00Z")
     f = W.render(st, 150, 40)
     lines = split(f, "\n")
     # Inside the list pane and nowhere else. The frame is drawn bold, the detail

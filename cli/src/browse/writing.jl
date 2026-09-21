@@ -751,7 +751,7 @@ Done, rejected or merged work should be able to leave without being deleted:
 the note and everything else written about it stay in `local.toml`, and the
 `filed` box is where it can still be found.
 
-**It is a mark, and it is read.** Filing stamps `archived` and `read` both, so
+**It is a mark, and it is read.** Filing stamps `archived` and `done` both, so
 an archived item is a read one in every way but one: a read item that moves
 comes back into the base on its own, and a filed one that moves is unread but
 comes back only when the `filed` box is on. That one difference is what the
@@ -766,7 +766,7 @@ function archive!(st::BState, it::Item, at::DateTime)
     was = haskey(st.archived, it.url)
     prev = get_field(it.url, "archived")
     prevtouch = touched_at(it.url)
-    prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
+    prevread = mark_at(it.url, "done")       # raw: an undo puts back what was said
     woke = !was && woken_by(it.url, st.wakes, at)
     prevsnooze = woke ? get_field(it.url, "snooze") : nothing
     prevlast = woke ? get_field(it.url, "last_snooze") : nothing
@@ -779,7 +779,7 @@ function archive!(st::BState, it::Item, at::DateTime)
         # by definition and GitHub's time by construction. See `moved_of`.
         # A snooze that has run out goes with it, or the stamp - under the
         # wake - would leave the filed row unread; see `woken_by`.
-        set_read(it.url, something(moved_of(it), stamp(at)))
+        set_done(it.url, something(moved_of(it), stamp(at)))
         woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
     end
     # The agent's bell goes with the stamp, as the woken snooze does.
@@ -788,7 +788,7 @@ function archive!(st::BState, it::Item, at::DateTime)
         set_archived(it.url, prev)
         woke && set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
-        set_read(it.url, prevread)
+        set_done(it.url, prevread)
         agent_ring!(rang)
     end))
     refilter!(st)
@@ -883,7 +883,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     prev = get_field(it.url, "snooze")
     prevlast = get_field(it.url, "last_snooze")
     prevtouch = touched_at(it.url)
-    prevread = mark_at(it.url, "read")       # raw: an undo puts back what was said
+    prevread = mark_at(it.url, "done")       # raw: an undo puts back what was said
     # The wake is remembered beside the snooze, and outlives it: `last_snooze`
     # is what the pane reads once the snooze has gone, to say there was one.
     # Clearing a snooze by hand leaves it, for the same reason.
@@ -894,11 +894,11 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # leave the unread lane in the session where the key was pressed.
     #
     # Only on the way in. Clearing a snooze is not a claim about whether you
-    # have read the thing; it takes the wake away and leaves the read stamp.
+    # have read the thing; it takes the wake away and leaves the done stamp.
     # And the agent's bell with the stamp, as the woken snooze goes.
     rang = val === nothing ? String[] : agent_seen!(it.url)
     if val !== nothing
-        set_read(it.url, something(moved_of(it), stamp(at)))
+        set_done(it.url, something(moved_of(it), stamp(at)))
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
@@ -907,7 +907,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     push!(st.undos, Undo(string("snooze ", it.ref), it.url, () -> begin
         set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
-        set_read(it.url, prevread)
+        set_done(it.url, prevread)
         agent_ring!(rang)
     end))
     # The seen axis is over the stamp just written and the `snoozed` tag over

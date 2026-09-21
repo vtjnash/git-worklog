@@ -104,7 +104,7 @@ function diff_refs(it::Item, target::AbstractString, mode::Symbol)
         isempty(ref) || isempty(head) ? ref :
             let mb = merge_base(target, ref, head); isempty(mb) ? ref : mb end
     else
-        something(read_head(it.url), "")
+        something(done_head(it.url), "")
     end
     (left, isempty(left) ? "" : right)
 end
@@ -618,6 +618,10 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
         string("Check out ", pr, " in ", name, "?"), notes,
         ["yY" => () -> say(checkout_session!(it, target, wbranch, pr, ctrl, kind, mkcmd)),
          "nN" => () -> say(session_in!(it, target, wbranch, ctrl, kind, mkcmd)),
+         # `w` is *where*, not back: `t` on an item whose rules picked a copy
+         # asks this straight away, so the chooser it opens may be one the
+         # reader has never seen, and `b` or backspace would name a place they
+         # were not. Backspace would also read as cancel beside "esc cancels".
          "wW" => () -> say(ask_checkout(it, ctrl, kind, mkcmd, say; items, pr))];
         hint = "y checks it out \u00b7 n goes in as it is \u00b7 w another place \u00b7 esc cancels"))
     ""

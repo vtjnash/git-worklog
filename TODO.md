@@ -54,7 +54,7 @@ endpoint that marks a thread unread:
       | local (`seen_of`) | remote | do |
       |---|---|---|
       | read | not done | `DELETE /notifications/threads/{id}` |
-      | unread, no `snooze`, `read` not `""` | done | `set_read(url, moved_of(it))`, folded under the floor |
+      | unread, no `snooze`, `done` not `""` | done | `set_done(url, moved_of(it))`, folded under the floor |
       | unread said (`read == ""`) | done | un-done, if an endpoint exists |
       | asleep | not done | `PATCH` read: listed on the phone, not bold, bold again when it moves - the nearest thing to Saved |
       | agree | | nothing |
@@ -114,11 +114,9 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       status line is one row, and a rebase that stops is not one row. The
       worktree list (`"`) is the other candidate, since a checkout is a fact
       about a worktree and not about an item.
-- [ ] **A word for *filed away*.** The read mark is now *done* and its key
-      `e`, the thread `h`, VS Code `o`, import `I` (DESIGN, decisions,
-      2026-09-21). Still open: `x` puts a thing out of the backlog as well
-      as out of the inbox, and comes back when it moves like `done` does -
-      neither "filed away" nor "done" says the difference.
+- [ ] **A word for *filed away*.** `x` puts a thing out of the backlog as
+      well as out of the inbox, and it comes back when it moves the way a
+      done one does - neither "filed away" nor "done" says the difference.
 - [ ] **Undo in the composer** - scoped 2026-09-17, **deferred**: `⌥e` is
       the answer for anything past a paragraph, and this is the first thing
       past one. Weak for the `^w` you did not mean; do it when that bites.
@@ -219,7 +217,7 @@ The writes, all tried against GitHub by 2026-09-18 and none wrong so far:
       (2026-09-17): a `LEFT` thread numbered against the base.
 
 The corpus:
-- [ ] `wl refresh` calling `consolidate!` on its own, once `wl read
+- [ ] `wl refresh` calling `consolidate!` on its own, once `wl done
       --consolidate` has been watched for a while - it was shipped explicit
       and dry-run first (2026-09-16). Nothing else about it is open.
 - [ ] `refresh_` parses `fetched.json` three times - `fetched("items")` at

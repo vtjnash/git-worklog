@@ -41,7 +41,7 @@
         @test st.items[st.sel].url == hidden.url
     finally
         W.set_fields(hidden.url, ["snooze" => nothing])
-        W.set_read(hidden.url, nothing)
+        W.set_done(hidden.url, nothing)
     end
     # A filed one is hidden by the filed box, and the widen has to be measured
     # against the marks the list itself was built with.
@@ -55,7 +55,7 @@
         @test st.items[st.sel].url == away.url
     finally
         W.set_archived(away.url, nothing)
-        W.set_read(away.url, nothing)
+        W.set_done(away.url, nothing)
     end
 
     st = mkstate()

@@ -275,7 +275,7 @@ end
 
 """The rule the new part of a thread begins under.
 
-Drawn from the read stamp alone, which is the whole of what it needs: `e` marks
+Drawn from the done stamp alone, which is the whole of what it needs: `e` marks
 the thread read up to the moment it was *fetched*, so everything written before
 that stamp was on screen and everything written after it was not. There is no
 second record of where you had got to, because a second record is a second
@@ -405,9 +405,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     end
     evs = activity_list(cs, cms, sts)
     # Where the new part starts, and how much of it there is. Nothing at all for
-    # an item never marked read: the whole thread is new then, and a rule above
+    # an item never marked done: the whole thread is new then, and a rule above
     # the first line of it says nothing.
-    seen = read_at(it.url)
+    seen = done_at(it.url)
     mk = seen === nothing ? nothing : findfirst(e -> e.at > seen, evs)
     mark = mk === nothing ? 0 : mk
     for (k, e) in enumerate(evs)
@@ -845,9 +845,9 @@ end
 # does, and what you came back for is the rebase.
 #
 # It needs two commits and a checkout. The new head rides in on the item
-# (`headRefOid`, selected by every lane); the old one is `read_head`, written by
+# (`headRefOid`, selected by every lane); the old one is `done_head`, written by
 # `e` and by nothing else. An item that has neither has no view here and says
-# so - that is the honest answer for a pull request nobody has marked read yet,
+# so - that is the honest answer for a pull request nobody has marked done yet,
 # and it becomes a real one the first time `e` is pressed on it.
 
 """One line's worth of `git range-diff`, coloured by which range it is in.
@@ -960,7 +960,7 @@ or an error, because each of them is a different thing to do about it: press
 """
 function pushed_nodes(it::Item)
     it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
-    old = read_head(it.url)
+    old = done_head(it.url)
     old === nothing &&
         return [Node("nothing to compare against yet",
                      "This view is the diff between the head commit you last " *

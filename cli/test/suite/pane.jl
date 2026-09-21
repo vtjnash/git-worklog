@@ -295,11 +295,11 @@ end
             # takes it out of that.
             st.filters = W.everything(); W.refilter!(st)
             it = st.items[st.sel]
-            was = W.read_at(it.url)
+            was = W.done_at(it.url)
             W.handle!(v, Int('e'), ctrl)           # the browser's read toggle
-            @test W.read_at(it.url) != was
+            @test W.done_at(it.url) != was
             W.handle!(v, Int('e'), ctrl)           # put it back
-            @test W.read_at(it.url) == was
+            @test W.done_at(it.url) == was
             # `K` is the pane's, so from here it is the browser's - and the
             # browser does not bind it, so nothing happens and nothing dies.
             @test W.handle!(v, Int('K'), ctrl) === :ok

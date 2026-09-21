@@ -396,11 +396,11 @@ end
     # no stamp, or a stamp from before it moved - and nothing else: a row
     # under its source's floor is read by construction, new or not.
     seen = W.with(done; moved_at = "2026-09-01T00:00:00Z", state_at = "2026-09-01T00:00:00Z")
-    st.read = Dict(seen.url => "2026-09-02T00:00:00Z")
-    @test occursin("why       read", says(seen)) && occursin("state     merged", says(seen))
-    st.read = Dict(seen.url => "2026-08-31T00:00:00Z")
+    st.done = Dict(seen.url => "2026-09-02T00:00:00Z")
+    @test occursin("why       done", says(seen)) && occursin("state     merged", says(seen))
+    st.done = Dict(seen.url => "2026-08-31T00:00:00Z")
     @test occursin("unread: merged", says(seen))
-    st.read = Dict{String,String}()
+    st.done = Dict{String,String}()
     st.sources = Dict("nowhere" => "2026-09-02T00:00:00Z")
-    @test occursin("why       read", says(W.with(seen; new = true)))
+    @test occursin("why       done", says(W.with(seen; new = true)))
 end

@@ -2,10 +2,10 @@
 #
 # Six facts, in the item's own block of `local.toml`:
 #
-#     read · read_head · touched · archived · draft · last_snooze
+#     done · done_head · touched · archived · draft · last_snooze
 #
-#   * `read`        the timestamp you have seen this item up to
-#   * `read_head`   the head commit it stood at when you saw it
+#   * `done`        the timestamp you have seen this item up to
+#   * `done_head`   the head commit it stood at when you saw it
 #   * `touched`     when you last *did* something to it
 #   * `archived`    when you filed it away - read, and held out of every view
 #                   that does not ask for the filed ones
@@ -36,7 +36,7 @@
 # worth a history. `facts.json` and `bulk.json` are the other way round and are
 # ignored there.
 #
-# **The read stamp is the seen bit, and it is a fact about the corpus.** Whether
+# **The done stamp is the seen bit, and it is a fact about the corpus.** Whether
 # an item is unread is a question to ask of the item and this file, not
 # membership in `fetched.json` - which is the poll's own record of what moved in
 # the repos it watches, bounded by a lookback window, and answers a narrower
@@ -52,17 +52,17 @@
 # screen, every comment written after it was not, and "new since you last
 # looked" is a comparison the file already supports. That is why there is no
 # key here recording which comment you had got to: it would be a second copy of
-# an answer `read` already gives, and one that could disagree with it.
+# an answer `done` already gives, and one that could disagree with it.
 #
 # For the diff it does not. A rebase is invisible to a timestamp - the question
 # is not "when did the branch move" but "what did they change in it", and that
-# is a diff between two commits. So the mark carries `read_head`: the sha this
+# is a diff between two commits. So the mark carries `done_head`: the sha this
 # item stood at when the stamp was made. `p` takes a range-diff between it and
-# the head now, and an item with no `read_head` simply has no such view to show
-# - which is the honest state for one marked read before this existed.
+# the head now, and an item with no `done_head` simply has no such view to show
+# - which is the honest state for one marked done before this existed.
 #
 # Only `e` writes it, because only `e` means "I have looked at this". The other
-# things that stamp `read` - a snooze, an archive, `wl read` over the whole
+# things that stamp `done` - a snooze, an archive, `wl done` over the whole
 # lane - are saying "not now", and they know when you decided that and nothing
 # at all about what you were looking at. They leave the sha alone rather than
 # writing a wrong one or clearing a right one, so it goes on meaning the head
@@ -96,7 +96,7 @@ words about the same item: one place to look, one file to write, and no
 precedence to keep in step between a "what I decided" file and a "what I did"
 one.
 """
-const MARK_FIELDS = ("archived", "draft", "last_snooze", "read", "read_head", "touched")
+const MARK_FIELDS = ("archived", "draft", "last_snooze", "done", "done_head", "touched")
 
 load_marks() = field_maps(MARK_FIELDS)
 
@@ -130,7 +130,7 @@ set_mark!(url::AbstractString, field::AbstractString,
 
 """Set one field on many items at once, and answer how many were named.
 
-Once, not once per url: `wl read` stamps every unread thread at a stroke, and a
+Once, not once per url: `wl done` stamps every unread thread at a stroke, and a
 refresh that puts twenty items to sleep should rewrite this file once.
 """
 function set_marks!(urls, field::AbstractString, at::AbstractString)
@@ -141,7 +141,7 @@ end
 
 # --- the seen bit ------------------------------------------------------------
 #
-# **Two layers, and the file's is on top.** A read stamp on an item's block is
+# **Two layers, and the file's is on top.** A done stamp on an item's block is
 # something you did. Beneath it is the *floor*: the day the row's source was
 # named, one block per source, `["source:JuliaLang/julia"] since = ...`. A
 # row with no stamp is read up to that day by construction and unread the
@@ -157,9 +157,9 @@ end
 # source with no block answers nothing, and such a row is unread.
 #
 # **`since` is how far a source is read by construction** - the day it was
-# named, to begin with, and a consolidation point after that: `wl read
+# named, to begin with, and a consolidation point after that: `wl done
 # --consolidate` raises every source's `since` together to the newest point
-# the read stamps allow and drops the stamps the floor then answers for
+# the done stamps allow and drops the stamps the floor then answers for
 # (`consolidate!`), so the file says one line per source where it said one
 # per row. Never lowered. A fact about what you did, in the file that holds
 # those; and it rebuilds exactly, since a row's mark is recomputed from
@@ -170,7 +170,7 @@ end
 # for a backlog row only, and 1915 rows of the other lanes - retired ones,
 # and `mine` back to 2021 - were unread with nothing to read.
 #
-# And **unread is sayable**: `read = ""` is a key present with nothing in it,
+# And **unread is sayable**: `done = ""` is a key present with nothing in it,
 # which `get_field` tells from an absent one, and it is what `e` writes to put
 # a row back - under the floor as under a stamp, "" is earlier than any
 # movement. An absent key means nothing has been said, and the floor answers;
@@ -240,27 +240,27 @@ rather than folds, and `consolidate!` leaves the stamp alone?"""
 held_by(r) = r !== nothing && (haskey(r, "snooze") || haskey(r, "archived"))
 
 "Every seen-up-to timestamp: `url -> ISO8601`."
-load_read() = load_field("read")
+load_done() = load_field("done")
 
 """The seen-up-to timestamp for one item, or `nothing` if it is unread - never
 read, or said to be. The raw key, which tells the two apart, is
-`mark_at(url, "read")`, and is what an undo puts back."""
-read_at(url::AbstractString) = (v = mark_at(url, "read"); truthy(v) ? v : nothing)
+`mark_at(url, "done")`, and is what an undo puts back."""
+done_at(url::AbstractString) = (v = mark_at(url, "done"); truthy(v) ? v : nothing)
 
-"""The head commit this item stood at when it was marked read, or `nothing`.
+"""The head commit this item stood at when it was marked done, or `nothing`.
 
 Empty as well as absent answers `nothing`: an issue has no head to record and a
 row the activity poll wrote has no sha to record one from, so "" is what a mark
 made on either of them carries, and neither is a commit to diff against.
 """
-function read_head(url::AbstractString)
-    h = mark_at(url, "read_head")
+function done_head(url::AbstractString)
+    h = mark_at(url, "done_head")
     (h === nothing || isempty(h)) ? nothing : h
 end
 
 "Set, or with `nothing` clear, one item's seen-up-to timestamp."
-set_read(url::AbstractString, at::Union{Nothing,AbstractString}) =
-    set_mark!(url, "read", at)
+set_done(url::AbstractString, at::Union{Nothing,AbstractString}) =
+    set_mark!(url, "done", at)
 
 """Set both halves of one item's read mark at once, or with `nothing` clear both.
 
@@ -272,28 +272,28 @@ stamp of `nothing` is the floor answering rather than unread (`folded`), and
 the head is kept: you did look, and the head you saw is still the head you
 saw.
 """
-function set_read_mark(url::AbstractString, at::Union{Nothing,AbstractString},
+function set_done_mark(url::AbstractString, at::Union{Nothing,AbstractString},
                        head::Union{Nothing,AbstractString} = nothing; fold::Bool = false)
     h = ((at === nothing && !fold) || head === nothing || isempty(head)) ? nothing : String(head)
-    set_blocks!([String(url) => ["read" => at === nothing ? nothing : String(at),
-                                 "read_head" => h]])
+    set_blocks!([String(url) => ["done" => at === nothing ? nothing : String(at),
+                                 "done_head" => h]])
     nothing
 end
 
 """Forget the read marks on these items, making them unread again.
 
 An item counts as unread when it moved more recently than its stamp here, so
-dropping the key restores it. Both halves go: a `read_head` outliving the stamp
+dropping the key restores it. Both halves go: a `done_head` outliving the stamp
 it was made with is a commit nothing is measured from any more.
 """
 function mark_unread(urls)
-    have = field_map("read")
+    have = field_map("done")
     us = unique(String(u) for u in urls)
     named = [u for u in us if truthy(get(have, u, nothing))]   # a stamp, not "" already
     # Said, not unsaid: an empty stamp is unread whatever the floor for the
     # row would have answered, where a dropped key would hand the question
     # back to it. See the head of this section.
-    isempty(us) || set_blocks!([u => ["read" => "", "read_head" => nothing]
+    isempty(us) || set_blocks!([u => ["done" => "", "done_head" => nothing]
                                 for u in us])
     length(named)
 end
@@ -306,7 +306,7 @@ Answers how many."""
 function mark_woken(woke)
     ups = OrderedDict{String,Any}()
     for (u, w) in woke
-        ups[String(u)] = ["read" => "", "snooze" => nothing, "last_snooze" => String(w)]
+        ups[String(u)] = ["done" => "", "snooze" => nothing, "last_snooze" => String(w)]
     end
     isempty(ups) || set_blocks!(collect(ups))
     length(ups)
@@ -329,12 +329,12 @@ woken_by(url::AbstractString, wakes::AbstractDict, at::DateTime) =
 
 """Record that these items have been seen up to `at`.
 
-The stamp only. This is `wl read` over the whole unread lane and the refresh
+The stamp only. This is `wl done` over the whole unread lane and the refresh
 putting a batch to sleep - neither of which knows what you were looking at, so
-neither writes `read_head`, and an item that carries one from the last time you
+neither writes `done_head`, and an item that carries one from the last time you
 actually opened it keeps it.
 """
-mark_read(urls, at::DateTime) = set_marks!(urls, "read", stamp(at))
+mark_done(urls, at::DateTime) = set_marks!(urls, "done", stamp(at))
 
 """The last movement on record for a row, or `nothing`: `moved_at`, else
 `updated` for a light row that has no wake table - what the poll saw is the
@@ -343,8 +343,8 @@ synthetic row, an adopted branch or an import no refresh has caught up with.
 
     moved_of(it::Item); moved_of(row)      # a corpus row, or an inbox row
 
-**The one thing a read stamp is ever compared against**, and so the one thing
-every mark writes. `seen_of` reads it; `e`, `s`, `x`, `wl read`, `wl snooze`
+**The one thing a done stamp is ever compared against**, and so the one thing
+every mark writes. `seen_of` reads it; `e`, `s`, `x`, `wl done`, `wl snooze`
 and `wl archive` stamp it. Stamping the movement rather than a clock is read
 by definition, and it is GitHub's time by construction, so a local clock
 minutes out cannot leave a just-snoozed item unread (behind) or swallow the
@@ -353,7 +353,7 @@ back unread, which is right: you put away what you knew about. There used to
 be three answers to "is it unread" - the poll pruning on `updated`, the marks
 stamping `moved_at`, the browser comparing against `moved_at` - and a row
 whose `updated` was past its `moved_at` (a push, a label, your own comment)
-could not be marked read by anything. Nothing compares a stamp against
+could not be marked done by anything. Nothing compares a stamp against
 `updated` any more.
 """
 moved_of(moved_at, updated) =
@@ -368,7 +368,7 @@ rget(r, k::AbstractString) = jget(r, Symbol(k))
 
 """Mark each url read up to its own last movement - `moved_of` over the row
 the corpus or the inbox has for it, `at` for a synthetic row that has neither
-- and answer how many. The shell's `wl snooze`, `wl archive` and `wl read`,
+- and answer how many. The shell's `wl snooze`, `wl archive` and `wl done`,
 which have no thread on screen to have read up to. The inbox as well as the
 corpus so that a light row gets the stamp `e` in the browser would give it,
 and the bundle over the file's row for the same reason `loaditems` takes it:
@@ -379,7 +379,7 @@ and a stamp off the older bundle would leave it listed. With `fold`, a plain
 read mark: a row whose movement is under its source's floor has its key
 dropped rather than stamped, see `folded`; a snooze and an archive stamp
 regardless, and so does a row carrying either (`held_by`)."""
-function mark_read_moved(urls, at::DateTime; fold::Bool = false)
+function mark_done_moved(urls, at::DateTime; fold::Bool = false)
     items = something(fetched("items"), (;))
     inbox = Events.load_inbox()["items"]
     sources = source_since()
@@ -399,8 +399,8 @@ function mark_read_moved(urls, at::DateTime; fold::Bool = false)
                            String(nz(rget(r, "repo"), "")), sources))
     end
     # A snooze that has run out goes with the stamp; see `woken_by`.
-    set_blocks!([u => woken_by(u, wakes, at) ? vcat(["read" => upto(u)], end_snooze(wakes[u])) :
-                      ["read" => upto(u)] for u in us])
+    set_blocks!([u => woken_by(u, wakes, at) ? vcat(["done" => upto(u)], end_snooze(wakes[u])) :
+                      ["done" => upto(u)] for u in us])
     # And an agent's bell, for the same reason: `wl unread` lists it against
     # the bell, and a stamp that left the bell standing would leave it listed.
     # One listing for the lot, since each silence is a process of its own.
@@ -471,15 +471,15 @@ archived_map() = field_map("archived")
 
 """Every item with a wake time, as `url -> stamp`, resolved.
 
-A span typed by hand is counted from the read stamp beside it, which is what
+A span typed by hand is counted from the done stamp beside it, which is what
 `wl snooze` and `s` wrote it from too. Whether the wake has *passed* is not
 decided here: `seen_of` asks that of a clock, per frame, so that a snooze
 running out needs no refresh to be noticed.
 """
 function wake_map()
     out = Dict{String,String}()
-    for (u, r) in field_maps(("snooze", "read"))
-        w = wake_of(get(r, "snooze", nothing), get(r, "read", nothing))
+    for (u, r) in field_maps(("snooze", "done"))
+        w = wake_of(get(r, "snooze", nothing), get(r, "done", nothing))
         w === nothing || (out[u] = w)
     end
     out

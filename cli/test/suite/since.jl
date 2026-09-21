@@ -7,26 +7,26 @@
     W.LOCAL[] = fresh_local()
     try
         u = "https://github.com/o/r/pull/1"
-        @test W.read_at(u) === nothing && W.read_head(u) === nothing
+        @test W.done_at(u) === nothing && W.done_head(u) === nothing
 
-        W.set_read_mark(u, "2026-09-01T00:00:00Z", "abc123")
-        @test W.read_at(u) == "2026-09-01T00:00:00Z"
-        @test W.read_head(u) == "abc123"
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", "abc123")
+        @test W.done_at(u) == "2026-09-01T00:00:00Z"
+        @test W.done_head(u) == "abc123"
 
-        # `wl read` over the whole lane knows when you looked and nothing about
+        # `wl done` over the whole lane knows when you looked and nothing about
         # what at, so it leaves the sha standing rather than writing a wrong one.
-        W.mark_read([u], W.utcnow())
-        @test W.read_head(u) == "abc123" && W.read_at(u) > "2026-09-01"
+        W.mark_done([u], W.utcnow())
+        @test W.done_head(u) == "abc123" && W.done_at(u) > "2026-09-01"
 
         # An item with no head to record - an issue, a row the poll wrote -
         # records none rather than a blank key that `p` would try to diff.
-        W.set_read_mark(u, "2026-09-02T00:00:00Z", "")
-        @test W.read_at(u) == "2026-09-02T00:00:00Z" && W.read_head(u) === nothing
+        W.set_done_mark(u, "2026-09-02T00:00:00Z", "")
+        @test W.done_at(u) == "2026-09-02T00:00:00Z" && W.done_head(u) === nothing
 
         # Going unread forgets both halves: you are no longer anywhere in it.
-        W.set_read_mark(u, "2026-09-03T00:00:00Z", "def456")
+        W.set_done_mark(u, "2026-09-03T00:00:00Z", "def456")
         @test W.mark_unread([u]) == 1
-        @test W.read_at(u) === nothing && W.read_head(u) === nothing
+        @test W.done_at(u) === nothing && W.done_head(u) === nothing
         @test W.mark_unread([u]) == 0       # and says so the second time
     finally
         W.LOCAL[] = keep
@@ -54,16 +54,16 @@ end
         st.nodes[1].meta["seen_up_to"] = "2026-09-05T00:00:00Z"
 
         W.handle!(st, Int('e'), ctrl)
-        @test W.read_at(it.url) == "2026-09-05T00:00:00Z"
-        @test W.read_head(it.url) == "cafef00dcafef00d"
+        @test W.done_at(it.url) == "2026-09-05T00:00:00Z"
+        @test W.done_head(it.url) == "cafef00dcafef00d"
 
         # Unread clears the sha with the stamp, and undo puts both back.
         W.handle!(st, Int('e'), ctrl)
-        @test W.read_at(it.url) === nothing && W.read_head(it.url) === nothing
+        @test W.done_at(it.url) === nothing && W.done_head(it.url) === nothing
         W.handle!(st, Int('z'), ctrl)
-        @test W.read_head(it.url) == "cafef00dcafef00d"
+        @test W.done_head(it.url) == "cafef00dcafef00d"
         W.handle!(st, Int('z'), ctrl)
-        @test W.read_at(it.url) === nothing && W.read_head(it.url) === nothing
+        @test W.done_at(it.url) === nothing && W.done_head(it.url) === nothing
 
         # An item the lanes never gave a sha to records none and is otherwise
         # exactly as it was.
@@ -76,7 +76,7 @@ end
         st2.loaded = string(plain.url, ":", st2.mode)
         st2.metakey = plain.url
         W.handle!(st2, Int('e'), ctrl)
-        @test W.read_at(plain.url) !== nothing && W.read_head(plain.url) === nothing
+        @test W.done_at(plain.url) !== nothing && W.done_head(plain.url) === nothing
     finally
         W.LOCAL[] = keep
     end
@@ -155,7 +155,7 @@ end
 
         # Read up to the second comment, and the rule lands above what came
         # after it - the push included, which is the point of one list.
-        W.set_read_mark(u, "2026-09-03T12:00:00Z", "9999999999")
+        W.set_done_mark(u, "2026-09-03T12:00:00Z", "9999999999")
         ns = W.comment_nodes(it, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
         @test i !== nothing
@@ -169,7 +169,7 @@ end
         @test !any(h -> occursin("bob  2026-09-03", h), after)
 
         # And a thread read past the end of it has no rule either.
-        W.set_read_mark(u, "2026-09-09T00:00:00Z", "9999999999")
+        W.set_done_mark(u, "2026-09-09T00:00:00Z", "9999999999")
         @test !any(n -> get(n.meta, "newmark", false) === true,
                    W.comment_nodes(it, W.utcnow()))
 
@@ -248,7 +248,7 @@ end
         # The merge is the newest thing shown, so it is what `e` reads up to.
         @test ns[1].meta["seen_up_to"] == "2026-09-06T12:00:00Z"
         # Read before the merge, and the rule lands above it alone.
-        W.set_read_mark(u, "2026-09-05T12:00:00Z", "9999999999")
+        W.set_done_mark(u, "2026-09-05T12:00:00Z", "9999999999")
         ns = W.comment_nodes(it, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
         @test i !== nothing && occursin("1 entry", W.astrip(ns[i].header))
@@ -404,7 +404,7 @@ end
 
         u = "https://github.com/o/r/pull/4"
         it = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t")
-        # Never marked read, so there is no old head and the pane says which
+        # Never marked done, so there is no old head and the pane says which
         # key makes one.
         ns = W.pushed_nodes(it)
         @test occursin("nothing to compare", ns[1].header) && occursin("`e`", ns[1].raw)
@@ -446,7 +446,7 @@ end
         rebased = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
                          head = newh, base = "master")
 
-        W.set_read_mark(u, "2026-09-01T00:00:00Z", old)
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", old)
         # No checkout pinned yet: the pane names both commits and says how to
         # pin one, because nothing else in the program can answer this.
         ns = W.pushed_nodes(rebased)
@@ -485,7 +485,7 @@ end
         write(joinpath(main, "f.txt"), string(lines("TWOO"), "\nTHREE"))
         W.git(main, "commit", "--quiet", "-am", "add a line")
         ahead = strip(W.git(main, "rev-parse", "HEAD"))
-        W.set_read_mark(u, "2026-09-01T00:00:00Z", newh)
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", newh)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master"))
         @test occursin("1 commit added", W.astrip(ns[1].header))
@@ -493,7 +493,7 @@ end
 
         # Standing where you left it is a sentence too, and points at `h` for
         # the half of "what changed" that is not the branch.
-        W.set_read_mark(u, "2026-09-01T00:00:00Z", ahead)
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", ahead)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master"))
         @test occursin("nothing pushed", ns[1].header) && occursin("`h`", ns[1].raw)

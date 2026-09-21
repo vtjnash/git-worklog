@@ -293,7 +293,7 @@ words - `pushed`, `comment`, `reviewed`, `review requested`, `assigned`,
 `merged`/`closed`/`reopened`, `CI failed`, `new`, `woke`, `updated` - or
 nothing for an adopted branch, which no clock moves.
 
-Read off the item against the read stamp - the same stamp `seen_of` compares,
+Read off the item against the done stamp - the same stamp `seen_of` compares,
 so the words are the unread - and not off a record: the wake table's keys are
 each the time somebody else last did the thing, and every one past the stamp
 is a thing that happened since you looked. Computed here, per frame, so `e`
@@ -321,7 +321,7 @@ end
 "The words off the wake table alone; `moved_words` puts the agent's in front."
 function table_words(it::Item, m::Marks)
     islocal(it) && return String[]
-    stamp = get(m.read, it.url, nothing)
+    stamp = get(m.done, it.url, nothing)
     stamp === nothing && (stamp = floor_of(it, m.sources))
     # Never in front of you at all: everything on it is new, and one word
     # says so.
@@ -566,7 +566,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # item, which the pane says above - the lane, the author, the branch.
     seen, words = seen_of(it, marks), moved_words(it, marks)
     kv("why", seen === :unread ?
-              (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) : "read")
+              (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) : "done")
     # By the command's own word, and the command's name, since there is no
     # key for it. What the level means is the command's help; said here it
     # wrapped the row on every item.

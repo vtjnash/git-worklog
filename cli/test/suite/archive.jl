@@ -52,21 +52,21 @@
         # a snooze is. It is *not* an answer about whether the thing has moved:
         # if it does, it is unread again and still filed - two axes, and no
         # precedence between them.
-        @test W.read_at(it.url) !== nothing
+        @test W.done_at(it.url) !== nothing
         @test W.filed_of(it, W.Marks(st))
-        @test W.seen_of(it, W.Marks(st)) === :read
+        @test W.seen_of(it, W.Marks(st)) === :done
         # And undoing it puts the stamp back to whatever was there, which for
         # something never read is nothing at all - the same shape every other
         # undo of a mark has.
         W.handle!(st, Int('z'), ctrl)
         @test W.get_field(it.url, "archived") === nothing
-        @test W.read_at(it.url) === nothing
+        @test W.done_at(it.url) === nothing
         # Back in, from the list it came out of: the filed list is empty now,
         # and `x` acts on the row under the cursor.
         n(awake)
         st.sel = findfirst(x -> x.url == it.url, st.items)
         W.handle!(st, Int('x'), ctrl)
-        @test W.read_at(it.url) !== nothing
+        @test W.done_at(it.url) !== nothing
         n(filed)
         @test [x.url for x in st.items if W.filed_of(x, W.Marks(st))] == [it.url]
 
@@ -134,7 +134,7 @@
                                 if occursin("state", x) || occursin("why", x)], " "))
         # Merged and not yet looked at is news - a merge you did not do is
         # exactly the thing to be told about, so it stays in the unread lane.
-        # Unread is `seen_of`: no read stamp, or one from before it moved;
+        # Unread is `seen_of`: no done stamp, or one from before it moved;
         # the `why` row says so, and the state row says the state and no
         # more - the filing is `x`, named in the footer, not offered on
         # every closed row.
@@ -142,7 +142,7 @@
         @test occursin("state     merged", says()) && !occursin("archives", says())
         # Read, and it is still nothing but the state; filing is never done
         # silently.
-        W.set_read(l.url, "2026-12-31T00:00:00Z"); st.read = W.field_marks(W.load_marks(), "read")
+        W.set_done(l.url, "2026-12-31T00:00:00Z"); st.done = W.field_marks(W.load_marks(), "done")
         @test occursin("state     merged", says()) && !occursin("archives", says())
         @test W.get_field(l.url, "snooze") === nothing
 

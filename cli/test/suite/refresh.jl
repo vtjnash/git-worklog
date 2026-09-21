@@ -27,8 +27,8 @@
     W.LOCAL[] = joinpath(d, "local.toml")
     try
         u = "https://github.com/o/r/issues/3"
-        W.mark_read([u], W.utcnow())          # read from some earlier life
-        @test W.read_at(u) !== nothing
+        W.mark_done([u], W.utcnow())          # read from some earlier life
+        @test W.done_at(u) !== nothing
         n = W.Events.inbox_add!([Dict{String,Any}(
             "url" => u, "repo" => "o/r", "number" => 3, "title" => "t",
             "is_pr" => false, "state" => "open", "author" => "a",
@@ -44,7 +44,7 @@
         rich["comments"] = 12
         inbox = W.Events.load_inbox(); inbox["items"][u] = rich
         W.Events.save_inbox(inbox)
-        W.mark_read([u], W.utcnow())
+        W.mark_done([u], W.utcnow())
         thin = Dict{String,Any}("url" => u, "repo" => "o/r", "number" => 3,
                                 "title" => "t", "is_pr" => false, "state" => "open",
                                 "author" => "a", "updated" => "2026-09-03T00:00:00Z",
@@ -52,12 +52,12 @@
         @test W.Events.inbox_add!([thin]; overwrite = false) == 1
         @test length(W.Events.load_inbox()["items"]) == 1
         @test W.Events.load_inbox()["items"][u]["comments"] == 12   # the poll's
-        @test W.read_at(u) === nothing                       # still unread
+        @test W.done_at(u) === nothing                       # still unread
         # And overwriting is what a caller that knows better asks for.
         W.Events.inbox_add!([thin])
         @test W.Events.load_inbox()["items"][u]["comments"] == 0
-        # The read stamp is cleared, or it would hide the thing just delivered.
-        @test W.read_at(u) === nothing
+        # The done stamp is cleared, or it would hide the thing just delivered.
+        @test W.done_at(u) === nothing
         # Nothing is claimed to have been polled: no cursor moves.
         @test isempty(W.Events.load_inbox()["cursors"])
     finally
@@ -474,13 +474,13 @@ end
     still = W.kept_row(J(pushed))
     W.derive!(still, J(pushed), Dict{String,Any}(), cfg, at)
     @test still["moved_at"] == "2026-09-12T09:00:00Z" && still["moved_by"] == "their_head"
-    # A hand-typed snooze with no read stamp is reported for stamping, once
+    # A hand-typed snooze with no done stamp is reported for stamping, once
     # for all of them, by the caller.
     W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-20"), cfg, at)
     @test kept["slept"] == true && kept["woken"] == false
     # And one whose wake has passed is reported for writing down as unread,
     # the snooze gone, the same way.
-    W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-01", "read" => "2026-09-10T10:00:00Z"), cfg, at)
+    W.derive!(kept, J(row), Dict{String,Any}("snooze" => "2026-09-01", "done" => "2026-09-10T10:00:00Z"), cfg, at)
     @test kept["slept"] == false && kept["woken"] == true
 end
 
@@ -488,8 +488,8 @@ end
     # The browser shows a row unread from the moment its wake passes, per
     # frame; but every mark stamps the last movement, which is under the
     # wake, so a snooze left standing would keep the row unread whatever was
-    # pressed. So the refresh writes a woken row down - `read = ""`, the
-    # snooze gone, the head kept - and `e`, `x` and `wl read` on one the
+    # pressed. So the refresh writes a woken row down - `done = ""`, the
+    # snooze gone, the head kept - and `e`, `x` and `wl done` on one the
     # refresh has not reached drop the snooze with the stamp they write.
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
@@ -505,11 +505,11 @@ end
             "moved_at" => "2026-09-01T00:00:00Z", "fetched_at" => "2026-09-02T00:00:00Z",
             "track" => "normal", "ref" => "r#7")
         W.save_fetched(Dict{String,Any}("items" => Dict(u => row)))
-        W.set_read_mark(u, "2026-09-01T00:00:00Z", "cafe")
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", "cafe")
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"])
         it = W.item_of(W.fetched("items")[Symbol(u)])
-        m(at) = W.Marks(read = W.load_read(), wake = W.wake_map(), now = W.stamp(at))
-        @test W.seen_of(it, m(W.DateTime(2026, 9, 4))) === :read
+        m(at) = W.Marks(done = W.load_done(), wake = W.wake_map(), now = W.stamp(at))
+        @test W.seen_of(it, m(W.DateTime(2026, 9, 4))) === :done
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread     # woken
         # The refresh writes it down.
         srch(q) = (Any[], 4, 0)
@@ -521,14 +521,14 @@ end
                         open_list = (a...; kw...) -> []) == 0
         summary = last(filter(!isempty, split(String(take!(said)), "\n")))
         @test occursin(r"^  \d+ items, \d+ changes, \d+ rate-limit points$", summary)
-        @test W.mark_at(u, "read") == "" && W.get_field(u, "snooze") === nothing
-        @test W.read_head(u) == "cafe"                         # still where you were
+        @test W.mark_at(u, "done") == "" && W.get_field(u, "snooze") === nothing
+        @test W.done_head(u) == "cafe"                         # still where you were
         @test W.seen_of(it, m(W.DateTime(2026, 9, 10))) === :unread
         # And the wake is remembered, so the pane can say what woke it.
         @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
         # `e` on a woken row the refresh has not reached: read, the snooze
         # gone; `z` puts it back, and the row is unread again for the wake.
-        W.set_read(u, "2026-09-01T00:00:00Z")
+        W.set_done(u, "2026-09-01T00:00:00Z")
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"])
         st = W.BState([it], "t"); st.filters = W.everything(); W.refilter!(st)
         st.sel = 1; st.loaded = string(u, ":", st.mode); st.metakey = u; st.nodes = W.Node[]
@@ -538,7 +538,7 @@ end
         W.handle!(st, Int('e'), ctrl, now)
         @test st.status == "done" && W.get_field(u, "snooze") === nothing
         @test W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
-        @test W.seen_of(it, W.Marks(st, now)) === :read
+        @test W.seen_of(it, W.Marks(st, now)) === :done
         W.handle!(st, Int('z'), ctrl, now)
         @test W.get_field(u, "snooze") == "2026-09-05T00:00:00Z"
         @test W.get_field(u, "last_snooze") === nothing
@@ -561,7 +561,7 @@ end
             join(strip.(ls[i:j]), " ")
         end
         @test occursin("woke 2026-09-05", snoozeline(it))              # woken, snooze still on file
-        W.mark_read_moved([u], now)                                    # `wl read`: ends it, remembers it
+        W.mark_done_moved([u], now)                                    # `wl done`: ends it, remembers it
         @test W.get_field(u, "snooze") === nothing && W.get_field(u, "last_snooze") == "2026-09-05T00:00:00Z"
         @test occursin("woke 2026-09-05", snoozeline(it))              # woken, snooze gone
         W.set_fields(u, ["snooze" => "2026-09-20T00:00:00Z", "last_snooze" => "2026-09-20T00:00:00Z"])
@@ -579,16 +579,16 @@ end
         W.handle!(st, Int('e'), ctrl, now)                    # read
         @test W.get_field(u, "snooze") == "2026-09-20T00:00:00Z"
         # `x` on a woken row files it read, and undo restores the snooze.
-        W.set_read(u, "2026-09-01T00:00:00Z")
+        W.set_done(u, "2026-09-01T00:00:00Z")
         W.set_fields(u, ["snooze" => "2026-09-05T00:00:00Z"]); W.refilter!(st)
         W.archive!(st, it, now)
-        @test W.get_field(u, "snooze") === nothing && W.seen_of(it, W.Marks(st, now)) === :read
+        @test W.get_field(u, "snooze") === nothing && W.seen_of(it, W.Marks(st, now)) === :done
         W.handle!(st, Int('z'), ctrl, now)
         @test W.get_field(u, "snooze") == "2026-09-05T00:00:00Z" && W.get_field(u, "archived") === nothing
-        # And `wl read`, which reads the wake map itself.
-        @test W.mark_read_moved([u], now) == 1
-        @test W.get_field(u, "snooze") === nothing && W.read_at(u) == it.moved_at
-        @test W.seen_of(it, m(now)) === :read
+        # And `wl done`, which reads the wake map itself.
+        @test W.mark_done_moved([u], now) == 1
+        @test W.get_field(u, "snooze") === nothing && W.done_at(u) == it.moved_at
+        @test W.seen_of(it, m(now)) === :done
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end
@@ -776,8 +776,8 @@ end
         try
             W.cache_put(W.bundle_key(U(8)), row(8; lane = "notifications",
                         fetched_at = "2026-09-13T18:00:00Z"))
-            W.set_read(U(8), "2026-09-13T18:30:00Z")
-            W.set_read(U(9), "2026-09-13T18:30:00Z")
+            W.set_done(U(8), "2026-09-13T18:30:00Z")
+            W.set_done(U(9), "2026-09-13T18:30:00Z")
             asked = String[]
             light9(cfg, login, at) = [Dict{String,Any}("url" => U(9), "lane" => "activity",
                                                         "updated" => "2026-09-13T18:20:00Z")]
@@ -786,11 +786,11 @@ end
             its = W.fetched("items")
             @test haskey(its, Symbol(U(8))) && its[Symbol(U(8))].lane == "notifications"
             @test U(9) in asked
-            # And a read stamp past the bundle is a clock too: `e` from the
+            # And a done stamp past the bundle is a clock too: `e` from the
             # list on a row whose inbox entry the poll then dropped. 2 is over
             # and would not be asked for any other reason.
             @test !(U(2) in asked)
-            W.set_read(U(2), "2026-09-13T23:00:00Z")
+            W.set_done(U(2), "2026-09-13T23:00:00Z")
             asked = String[]
             @test W.refresh(String[], W.DateTime(2026, 9, 13, 21); search = srch,
                             fetch_url_map = byurl, poll = (a...) -> Any[], open_list = (a...; kw...) -> []) == 0
@@ -967,22 +967,22 @@ end
         @test W.floor_of("backlog", "o/other", Dict("o/*" => "x")) == "x"      # the glob answers
         @test W.floor_of("backlog", "o/r", Dict("o/*" => "x", "o/r" => "y")) == "y"  # named outright wins
         @test W.floor_of("backlog", "p/q", W.source_since()) === nothing
-        @test W.read_at(u1) === nothing                      # nothing said
+        @test W.done_at(u1) === nothing                      # nothing said
         it = W.item_of(its[Symbol(u1)])
-        m() = W.Marks(read = W.load_read(), sources = W.source_since(), now = "2026-09-13T12:00:00Z")
-        @test W.seen_of(it, m()) === :read                   # read, by construction
+        m() = W.Marks(done = W.load_done(), sources = W.source_since(), now = "2026-09-13T12:00:00Z")
+        @test W.seen_of(it, m()) === :done                   # read, by construction
         # Moved past the day it was named, it is unread like any other row;
         # read for real, the stamp is on top; said unread by hand, it stays
         # unread whatever the baseline answers - and an undo puts back what
         # was said, not what the baseline would have said.
         later = W.with(it; moved_at = "2026-09-13T00:00:00Z")
         @test W.seen_of(later, m()) === :unread
-        W.set_read(u1, "2026-09-14T00:00:00Z")
-        @test W.read_at(u1) == "2026-09-14T00:00:00Z" && W.seen_of(later, m()) === :read
+        W.set_done(u1, "2026-09-14T00:00:00Z")
+        @test W.done_at(u1) == "2026-09-14T00:00:00Z" && W.seen_of(later, m()) === :done
         @test W.mark_unread([u1]) == 1
-        @test W.read_at(u1) === nothing && W.mark_at(u1, "read") == ""
+        @test W.done_at(u1) === nothing && W.mark_at(u1, "done") == ""
         @test W.seen_of(it, m()) === :unread                 # said, so the baseline does not answer
-        @test W.seen_of(W.with(it; lane = "mine"), W.Marks(read = W.load_read(), now = "x")) === :unread
+        @test W.seen_of(W.with(it; lane = "mine"), W.Marks(done = W.load_done(), now = "x")) === :unread
         # **The floor answers in every lane**, and a lane is a source: a row
         # of a lane with no `source:` block is unread, and read up to the
         # day the lane was named once it has one - however it got there.
@@ -997,47 +997,47 @@ end
         @test W.floor_of("backlog", "p/q", W.source_since()) === nothing
         W.name_source!("notifications", "2026-09-10T00:00:00Z")
         W.name_source!("mine", "2026-09-12T00:00:00Z")
-        @test W.seen_of(W.with(it2; lane = "notifications"), m()) === :read
-        @test W.seen_of(W.with(it2; lane = "mine"), m()) === :read
-        @test W.seen_of(W.with(it2; lane = "activity"), m()) === :read       # the repo's block
+        @test W.seen_of(W.with(it2; lane = "notifications"), m()) === :done
+        @test W.seen_of(W.with(it2; lane = "mine"), m()) === :done
+        @test W.seen_of(W.with(it2; lane = "activity"), m()) === :done       # the repo's block
         @test W.seen_of(W.with(it2; lane = "firehose"), m()) === :unread     # still no block
         # Moved past the lane's day, unread; said unread, unread whatever the
-        # floor says - `read = ""` beats it in every lane, as in the backlog.
+        # floor says - `done = ""` beats it in every lane, as in the backlog.
         @test W.seen_of(W.with(it2; lane = "mine", moved_at = "2026-09-13T00:00:00Z"), m()) === :unread
         @test W.seen_of(W.with(it2; lane = "notifications", moved_at = "2026-09-11T00:00:00Z"), m()) === :unread
         W.mark_unread([u2])
         @test W.seen_of(W.with(it2; lane = "mine"), m()) === :unread
         # And a plain read mark on a row the floor already answers for folds
         # the key away rather than stamping it: the block says nothing again,
-        # and `seen_of` answers the same. `wl read` and `e` alike; a snooze
+        # and `seen_of` answers the same. `wl done` and `e` alike; a snooze
         # and an archive keep their stamp, since the refresh reads either
         # with no stamp as put away by hand.
         @test W.folded("2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z") === nothing
         @test W.folded("2026-09-11T00:00:00Z", "2026-09-10T00:00:00Z") == "2026-09-11T00:00:00Z"
         @test W.folded("2026-09-01T00:00:00Z", nothing) == "2026-09-01T00:00:00Z"
-        @test W.mark_read_moved([u2], W.DateTime(2026, 9, 13, 12); fold = true) == 1
-        @test W.mark_at(u2, "read") === nothing && W.seen_of(it2, m()) === :read
-        W.mark_read_moved([u2], W.DateTime(2026, 9, 13, 12))
-        @test W.mark_at(u2, "read") == it2.moved_at
+        @test W.mark_done_moved([u2], W.DateTime(2026, 9, 13, 12); fold = true) == 1
+        @test W.mark_at(u2, "done") === nothing && W.seen_of(it2, m()) === :done
+        W.mark_done_moved([u2], W.DateTime(2026, 9, 13, 12))
+        @test W.mark_at(u2, "done") == it2.moved_at
         W.mark_unread([u1])
         ctrl = W.Controller()
         st = W.BState([it], "t"); st.filters = W.everything(); W.refilter!(st)
         st.sel = 1; st.loaded = string(it.url, ":", st.mode); st.metakey = it.url
         st.nodes = W.Node[]
         W.handle!(st, Int('e'), ctrl, W.DateTime(2026, 9, 13, 12))
-        @test st.status == "done" && W.mark_at(u1, "read") === nothing
-        @test W.seen_of(it, W.Marks(st)) === :read
+        @test st.status == "done" && W.mark_at(u1, "done") === nothing
+        @test W.seen_of(it, W.Marks(st)) === :done
         W.handle!(st, Int('z'), ctrl)
-        @test W.mark_at(u1, "read") == ""
+        @test W.mark_at(u1, "done") == ""
         W.apply_snooze!(st, it, "3d", W.DateTime(2026, 9, 13, 12))
-        @test W.mark_at(u1, "read") == it.moved_at
+        @test W.mark_at(u1, "done") == it.moved_at
         W.apply_snooze!(st, it, nothing, W.DateTime(2026, 9, 13, 12))
         W.mark_unread([u1])                                  # said unread, as above
         # A second import leaves rows the corpus has alone, and adds none.
         @test W.refresh(["--backlog"], W.DateTime(2026, 9, 13, 13); search = srch,
                         fetch_url_map = u -> W.OrderedDict{String,Any}(), poll = (a...) -> Any[],
                         open_list = (cfge, login; only = nothing, spent = Ref(0)) -> rows) == 0
-        @test W.fetched("items")[Symbol(u1)].new == false && W.mark_at(u1, "read") == ""
+        @test W.fetched("items")[Symbol(u1)].new == false && W.mark_at(u1, "done") == ""
         # Without the flag, only a source not yet named is asked for its
         # list: every source has been, above, so none is - and a fresh file,
         # every one. The record is local.toml, not fetched.json, so losing
@@ -1083,9 +1083,9 @@ end
         @test read(W.LOCAL[], String) == before                    # nothing to name
         # So the rows are read by construction, whatever their lane, and
         # unread once they move past the day.
-        m2 = W.Marks(read = W.load_read(), sources = W.source_since(), now = "2026-09-13T18:00:00Z")
+        m2 = W.Marks(done = W.load_done(), sources = W.source_since(), now = "2026-09-13T18:00:00Z")
         mine = W.item_of(W.fetched("items")[Symbol("https://github.com/o/r/pull/20")])
-        @test mine.lane == "mine" && W.seen_of(mine, m2) === :read
+        @test mine.lane == "mine" && W.seen_of(mine, m2) === :done
         @test W.seen_of(W.with(mine; moved_at = "2026-09-13T17:00:00Z"), m2) === :unread
         # And the notifications source names itself where its cursor starts.
         E = W.Events
@@ -1127,7 +1127,7 @@ end
     try
         # 1 is read and consumed; 2 is consumed and unread; 3 has moved past
         # its bundle, is asked, and is not answered; 4 is a light row; 5 is
-        # the 366: moved_at under a read stamp nothing could write while the
+        # the 366: moved_at under a done stamp nothing could write while the
         # inbox pruned on `updated`.
         W.save_fetched(Dict{String,Any}("items" => Dict(
             U(1) => row(1), U(2) => row(2), U(3) => row(3),
@@ -1142,7 +1142,7 @@ end
         # The lane named before any of them moved, so that no stamp means
         # unread here rather than read by construction.
         W.name_source!("mine", "2026-09-01T00:00:00Z")
-        W.set_read(U(1), "2026-09-10T00:00:00Z")
+        W.set_done(U(1), "2026-09-10T00:00:00Z")
         asked = String[]
         byurl(urls) = (append!(asked, urls);
                        W.OrderedDict{String,Any}(u => u == U(4) ? node(u, 4) : nothing for u in urls))
@@ -1157,12 +1157,12 @@ end
         @test U(3) in left && U(3) in asked        # asked, unanswered: kept, asked again
         @test U(4) in left && !(U(4) in asked)     # light: nobody asked, nothing to consume
         @test U(5) in left                         # unread, as it stands
-        # `wl read` on the light row promotes it - asked by url, in the
+        # `wl done` on the light row promotes it - asked by url, in the
         # corpus from here - and once asked and read it leaves; and the 366
         # leave the same way, which nothing could make them do before.
-        W.set_read(U(4), "2026-09-11T00:00:00Z")           # `e` from the list
-        @test W.dispatch(["read", U(5)], W.DateTime(2026, 9, 13, 13)) == 0
-        @test W.read_at(U(5)) == "2026-09-10T00:00:00Z"    # `moved_at`, under `updated`
+        W.set_done(U(4), "2026-09-11T00:00:00Z")           # `e` from the list
+        @test W.dispatch(["done", U(5)], W.DateTime(2026, 9, 13, 13)) == 0
+        @test W.done_at(U(5)) == "2026-09-10T00:00:00Z"    # `moved_at`, under `updated`
         asked = String[]
         @test run(W.DateTime(2026, 9, 13, 14)) == 0
         left = Set(keys(W.Events.load_inbox()["items"]))
@@ -1178,11 +1178,11 @@ end
     end
 end
 
-@testset "wl unread and wl read all are seen_of over the corpus and the light rows" begin
+@testset "wl unread and wl done all are seen_of over the corpus and the light rows" begin
     # 2026-09-16, as a fixture: "mark everything read" took three passes and
     # 2277 stamps because the unread list was the inbox listing, pruned on
     # `updated <= read`, while the marks stamped `moved_at`. One list now,
-    # `unread_items`, and one `read all` over it finds nothing the second
+    # `unread_items`, and one `done all` over it finds nothing the second
     # time by construction.
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
@@ -1210,9 +1210,9 @@ end
         inbox = W.Events.load_inbox(); inbox["items"][U(4)] = light; W.Events.save_inbox(inbox)
         W.name_source!("mine", "2026-09-01T00:00:00Z")
         W.name_source!("o/r", "2026-09-12T00:00:00Z")
-        W.set_read(U(5), "2026-09-09T00:00:00Z")                          # woken below
+        W.set_done(U(5), "2026-09-09T00:00:00Z")                          # woken below
         W.set_fields(U(5), ["snooze" => "2026-09-11T00:00:00Z"])
-        W.set_read(U(6), "2026-09-10T00:00:00Z")                          # read
+        W.set_done(U(6), "2026-09-10T00:00:00Z")                          # read
         polled(a...; kw...) = collect(values(W.Events.load_inbox()["items"]))
         @test [it.url for it in W.unread_items(at)] == [U(4), U(1), U(5), U(2)]  # newest movement first
         # The JSON dump is that list.
@@ -1226,15 +1226,15 @@ end
         @test js[1].lane == "activity" && js[2].moved_at == "2026-09-10T00:00:00Z"
         @test js[2].updated == "2026-09-15T00:00:00Z" && js[2].state == "open"
         # One pass reads everything; the stamps are the movements.
-        @test occursin("marked 4 threads read", said(["read"], at))
-        @test W.read_at(U(1)) == "2026-09-10T00:00:00Z"        # moved_at, under updated
-        @test W.read_at(U(2)) == "2026-09-08T00:00:00Z"
-        @test W.read_at(U(4)) == "2026-09-14T00:00:00Z"        # the light row's clock
-        @test W.read_at(U(5)) == "2026-09-09T00:00:00Z" && W.get_field(U(5), "snooze") === nothing
-        @test W.mark_at(U(3), "read") === nothing              # never touched: the floor answers
+        @test occursin("done: 4 threads", said(["done"], at))
+        @test W.done_at(U(1)) == "2026-09-10T00:00:00Z"        # moved_at, under updated
+        @test W.done_at(U(2)) == "2026-09-08T00:00:00Z"
+        @test W.done_at(U(4)) == "2026-09-14T00:00:00Z"        # the light row's clock
+        @test W.done_at(U(5)) == "2026-09-09T00:00:00Z" && W.get_field(U(5), "snooze") === nothing
+        @test W.mark_at(U(3), "done") === nothing              # never touched: the floor answers
         @test isempty(W.unread_items(at))
         # And the second pass finds nothing, by construction.
-        @test occursin("marked 0 threads read", said(["read"], at + W.Minute(1)))
+        @test occursin("done: 0 threads", said(["done"], at + W.Minute(1)))
         # With nothing fetched at all the list is what the inbox says, and
         # not an error.
         rm(W.FETCHED[])
@@ -1247,13 +1247,13 @@ end
 @testset "a filed row keeps its stamp, and a light row is stamped by the inbox's clock" begin
     # Three ways a mark and the list disagreed on 2026-09-17. A filed row
     # that moved is unread in the `filed` box and nowhere else, so `wl
-    # unread` leaves it out and `wl read all` does not read it; a plain read
+    # unread` leaves it out and `wl done all` does not read it; a plain read
     # mark on a filed row stamps rather than folds, and `--consolidate`
     # leaves the stamp alone, since the refresh reads a filed row with no
     # stamp as put away by hand and stamps it at its own clock - over the
     # movement. And a light row with a cached bundle from before the inbox's
     # clock is stamped by the clock, which is what `wl unread` listed it
-    # against, or `wl read all` would find it again.
+    # against, or `wl done all` would find it again.
     keepi, keepm, keepdir = W.FETCHED[], W.LOCAL[], W.CACHE_DIR[]
     d = mktempdir()
     W.FETCHED[] = joinpath(d, "fetched.json")
@@ -1286,25 +1286,25 @@ end
         W.Events.save_inbox(inbox)
         W.cache_put(W.bundle_key(U(4)), row(4; lane = "activity", moved_at = day(12),
                                                updated = day(12), fetched_at = day(12)))
-        W.set_read(U(1), day(10)); W.set_archived(U(1), day(10))
-        W.set_read(U(2), day(9)); W.set_archived(U(2), day(9))
-        W.set_read(U(3), day(9))
+        W.set_done(U(1), day(10)); W.set_archived(U(1), day(10))
+        W.set_done(U(2), day(9)); W.set_archived(U(2), day(9))
+        W.set_done(U(3), day(9))
         # Unread in the filed box, and not on the list.
-        m = W.Marks(read = W.load_read(), sources = W.source_since(), now = W.stamp(at))
+        m = W.Marks(done = W.load_done(), sources = W.source_since(), now = W.stamp(at))
         @test W.seen_of(only(it for it in W.corpus_items() if it.url == U(1)), m) === :unread
         @test [it.url for it in W.unread_items(at)] == [U(4)]
         # The light row is stamped by the inbox's clock, and the list is empty.
-        @test W.mark_read_moved([U(4)], at; fold = true) == 1
-        @test W.read_at(U(4)) == day(14)
+        @test W.mark_done_moved([U(4)], at; fold = true) == 1
+        @test W.done_at(U(4)) == day(14)
         @test isempty(W.unread_items(at))
         # A plain read mark on the filed rows stamps; on the plain one it folds.
-        @test W.mark_read_moved([U(1), U(2), U(3)], at; fold = true) == 3
-        @test W.read_at(U(1)) == day(14) && W.read_at(U(2)) == day(9)
-        @test W.mark_at(U(3), "read") === nothing
+        @test W.mark_done_moved([U(1), U(2), U(3)], at; fold = true) == 3
+        @test W.done_at(U(1)) == day(14) && W.done_at(U(2)) == day(9)
+        @test W.mark_at(U(3), "done") === nothing
         # And consolidating leaves the filed stamps alone.
         c = W.consolidate!(at)
         @test !(U(1) in c.dropped) && !(U(2) in c.dropped)
-        @test W.read_at(U(1)) == day(14) && W.read_at(U(2)) == day(9)
+        @test W.done_at(U(1)) == day(14) && W.done_at(U(2)) == day(9)
         # `e` in the browser: the same on a filed row, and `z` after a folded
         # `e` puts back the head the fold kept, not the head the unread
         # dropped. The list is one row and every box on, so it stays under
@@ -1313,36 +1313,36 @@ end
         st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(3))]); head = "cafe")], "t")
         st.filters = W.everything(); W.refilter!(st)
         st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
-        W.set_read(U(3), "")                           # said unread, under the floor
-        st.read = W.field_marks(W.load_marks(), "read")
+        W.set_done(U(3), "")                           # said unread, under the floor
+        st.done = W.field_marks(W.load_marks(), "done")
         W.handle!(st, Int('e'), ctrl, at)              # folds: no stamp, the head kept
-        @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
+        @test W.mark_at(U(3), "done") === nothing && W.done_head(U(3)) == "cafe"
         W.handle!(st, Int('e'), ctrl, at)              # unread: both go
-        @test W.mark_at(U(3), "read") == "" && W.read_head(U(3)) === nothing
+        @test W.mark_at(U(3), "done") == "" && W.done_head(U(3)) === nothing
         W.handle!(st, Int('z'), ctrl, at)
-        @test W.mark_at(U(3), "read") === nothing && W.read_head(U(3)) == "cafe"
+        @test W.mark_at(U(3), "done") === nothing && W.done_head(U(3)) == "cafe"
         st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(2))]); head = "beef")], "t")
         st.filters = W.everything(); W.refilter!(st)
         st.nodes = W.Node[]; st.loaded = string(U(2), ":", st.mode)
-        W.set_read(U(2), ""); st.read = W.field_marks(W.load_marks(), "read")
+        W.set_done(U(2), ""); st.done = W.field_marks(W.load_marks(), "done")
         W.handle!(st, Int('e'), ctrl, at)              # filed: stamped, not folded
-        @test W.read_at(U(2)) == day(9) && W.read_head(U(2)) == "beef"
+        @test W.done_at(U(2)) == day(9) && W.done_head(U(2)) == "beef"
         # And on a snoozed row that moved under its wake: the span counts
         # from the stamp, so a fold would have been the end of the snooze.
-        W.set_read(U(3), day(8)); W.set_fields(U(3), ["snooze" => "30d"])
+        W.set_done(U(3), day(8)); W.set_fields(U(3), ["snooze" => "30d"])
         st = W.BState([W.with(W.item_of(W.fetched("items")[Symbol(U(3))]); head = "cafe")], "t")
         st.filters = W.everything(); W.refilter!(st)
         st.nodes = W.Node[]; st.loaded = string(U(3), ":", st.mode)
         @test W.seen_of(st.items[1], W.Marks(st)) === :unread
         W.handle!(st, Int('e'), ctrl, at)
-        @test W.read_at(U(3)) == day(9) && W.get_field(U(3), "snooze") == "30d"
+        @test W.done_at(U(3)) == day(9) && W.get_field(U(3), "snooze") == "30d"
         @test haskey(W.wake_map(), U(3))
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.CACHE_DIR[] = keepdir
     end
 end
 
-@testset "wl read --consolidate raises the floors together and never lowers them" begin
+@testset "wl done --consolidate raises the floors together and never lowers them" begin
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
     W.FETCHED[] = joinpath(d, "fetched.json")
@@ -1361,7 +1361,7 @@ end
         "lane" => "activity")
     day(n) = "2026-09-$(lpad(n, 2, '0'))T00:00:00Z"
     at = W.DateTime(2026, 9, 16, 12)
-    mk() = W.Marks(read = W.load_read(), sources = W.source_since(), wake = W.wake_map(),
+    mk() = W.Marks(done = W.load_done(), sources = W.source_since(), wake = W.wake_map(),
                    now = W.stamp(at))
     answers() = Dict(it.url => W.seen_of(it, mk()) for it in W.corpus_items())
     try
@@ -1385,15 +1385,15 @@ end
         inbox["items"][U(11)] = light(11, day(13))              # stampless, unread
         W.Events.save_inbox(inbox)
         for (n, when) in ((1, day(4)), (2, day(8)), (3, day(11)), (4, day(14)), (10, day(10)))
-            W.set_read(U(n), when)
+            W.set_done(U(n), when)
         end
-        W.set_read_mark(U(2), day(8), "cafe")
-        W.set_read(U(6), day(8))
+        W.set_done_mark(U(2), day(8), "cafe")
+        W.set_done(U(6), day(8))
         W.mark_unread([U(7)])
-        W.set_read(U(8), day(7)); W.set_fields(U(8), ["snooze" => day(30)])
+        W.set_done(U(8), day(7)); W.set_fields(U(8), ["snooze" => day(30)])
         before = answers()
-        @test before[U(5)] === :unread && before[U(9)] === :read && before[U(11)] === :unread
-        @test before[U(6)] === :unread && before[U(7)] === :unread && before[U(8)] === :read
+        @test before[U(5)] === :unread && before[U(9)] === :done && before[U(11)] === :unread
+        @test before[U(6)] === :unread && before[U(7)] === :unread && before[U(8)] === :done
         # Dry run: says what it would do and writes nothing.
         file = read(W.LOCAL[], String)
         c = W.consolidate!(at; dry_run = true)
@@ -1406,13 +1406,13 @@ end
         c = W.consolidate!(at)
         @test W.source_since() == Dict("mine" => day(11), "o/r" => day(11))
         @test answers() == before
-        @test W.mark_at(U(1), "read") === nothing && W.mark_at(U(3), "read") === nothing
-        @test W.mark_at(U(10), "read") === nothing
-        @test W.mark_at(U(2), "read") === nothing && W.read_head(U(2)) == "cafe"   # the head stays
-        @test W.read_at(U(4)) == day(14)               # past the floor: kept
-        @test W.read_at(U(6)) == day(8)                # unread against its stamp: kept
-        @test W.mark_at(U(7), "read") == ""            # a statement: kept
-        @test W.read_at(U(8)) == day(7)                # snoozed: kept
+        @test W.mark_at(U(1), "done") === nothing && W.mark_at(U(3), "done") === nothing
+        @test W.mark_at(U(10), "done") === nothing
+        @test W.mark_at(U(2), "done") === nothing && W.done_head(U(2)) == "cafe"   # the head stays
+        @test W.done_at(U(4)) == day(14)               # past the floor: kept
+        @test W.done_at(U(6)) == day(8)                # unread against its stamp: kept
+        @test W.mark_at(U(7), "done") == ""            # a statement: kept
+        @test W.done_at(U(8)) == day(7)                # snoozed: kept
         # Again: nothing to do, and nothing lowered.
         c = W.consolidate!(at)
         @test isempty(c.raised) && isempty(c.dropped)
@@ -1420,14 +1420,14 @@ end
         # A light row pins the floor as a corpus row does: read the light
         # row 11 and the bound moves to the 14th; drop 5's claim on it
         # first, and the newest read movement under 13 is 11 still.
-        W.set_read(U(5), day(12))
+        W.set_done(U(5), day(12))
         c = W.consolidate!(at; dry_run = true)
         @test c.since == day(12)
-        W.set_read(U(11), day(13))
+        W.set_done(U(11), day(13))
         c = W.consolidate!(at)
         @test c.since == day(14) && W.source_since()["mine"] == day(14)
-        @test answers() == merge(before, Dict(U(5) => :read, U(11) => :read))
-        @test W.mark_at(U(4), "read") === nothing && W.mark_at(U(11), "read") === nothing
+        @test answers() == merge(before, Dict(U(5) => :done, U(11) => :done))
+        @test W.mark_at(U(4), "done") === nothing && W.mark_at(U(11), "done") === nothing
         # The 2026-09-16 file: thousands of blocks each carrying one stamp
         # fold to the source lines, and the rows that have to keep one.
         write(W.LOCAL[], "")
@@ -1436,16 +1436,16 @@ end
         many[U(5000)] = row(5000; moved_at = day(15))     # moved past the floor: said unread
         many[U(5001)] = row(5001; moved_at = day(15))     # and read past it
         W.save_fetched(Dict{String,Any}("items" => many))
-        W.set_marks!(collect(keys(many)), "read", "2026-09-16T15:41:54Z")
+        W.set_marks!(collect(keys(many)), "done", "2026-09-16T15:41:54Z")
         W.mark_unread([U(5000)])
-        @test count(l -> startswith(l, "read = "), readlines(W.LOCAL[])) == 2279
+        @test count(l -> startswith(l, "done = "), readlines(W.LOCAL[])) == 2279
         before = answers()
         c = W.consolidate!(at)
         @test c.since == day(15) && c.raised == Dict("mine" => day(15))
         @test length(c.dropped) == 2278
         @test answers() == before
         ls = readlines(W.LOCAL[])
-        @test count(l -> startswith(l, "read = "), ls) == 1       # the one statement
+        @test count(l -> startswith(l, "done = "), ls) == 1       # the one statement
         @test count(l -> startswith(l, "[\""), ls) == 2          # the source, and that row
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
@@ -1884,7 +1884,7 @@ end
     # had passed. A row that was in front of you and that no lane returns is
     # carried: kept as it was until a clock says it moved, then asked by url.
     # And since 2026-09-14 it is kept *for good*, read or not - the corpus is
-    # the index of everything that was ever in front of you, the `read` and
+    # the index of everything that was ever in front of you, the `done` and
     # `filed` boxes are what hold the read and the filed, and a snooze on a
     # row that had left would be a wake with nothing to wake. It used to be
     # let go once read, which was right while the closed lanes and the bulk
@@ -1982,7 +1982,7 @@ end
     # costs nothing and catching it costs an unread item with nothing new in it.
     # It falls out the same way rather than being asked for - what the rule is
     # really protecting is that `moved_at` only goes forward, since an item
-    # unread since an 11:00 CI failure would otherwise be marked read by a
+    # unread since an 11:00 CI failure would otherwise be marked done by a
     # deletion at 09:00, losing the change nobody looked at rather than the
     # comment nobody can.
     @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T08:30:00Z",
@@ -2055,7 +2055,7 @@ end
 
 @testset "why says what moved, a word each" begin
     # The stamp says when, the bold says that; neither says what. The pane
-    # reads the wake table's keys off the item against the read stamp - so
+    # reads the wake table's keys off the item against the done stamp - so
     # every movement since you looked is a word, newest first, with no
     # refresh between - and the refresh's own answer for the last one, which
     # is the one a key cannot always date. Under `local`, with the reason
@@ -2069,7 +2069,7 @@ end
                          state_at = "", kw...)
     at = W.ts("2026-09-13T00:00:00Z")
     marks(read; wake = nothing, rang = false) =
-        W.Marks(read = read === nothing ? Dict{String,String}() : Dict(mk().url => read),
+        W.Marks(done = read === nothing ? Dict{String,String}() : Dict(mk().url => read),
                 wake = wake === nothing ? Dict{String,String}() : Dict(mk().url => wake),
                 now = W.stamp(at), rang = rang ? Set([mk().url]) : Set{String}())
     read = marks("2026-09-12T08:00:00Z")
@@ -2131,16 +2131,16 @@ end
                         W.Marks(now = W.stamp(at), rang = Set(["local:o/r/wip"]))) == ["agent"]
     # On the pane: under `local`, unread with the words, read without.
     it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z")
-    st.read = Dict{String,String}(); st.sources = Dict{String,String}()
+    st.done = Dict{String,String}(); st.sources = Dict{String,String}()
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       unread: new\n", plain)
-    st.read = Dict(it.url => "2026-09-12T08:00:00Z")
+    st.done = Dict(it.url => "2026-09-12T08:00:00Z")
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       unread: reviewed, comment\n", plain)
     @test first(findfirst("local", plain)) < first(findfirst("why  ", plain))
-    st.read = Dict(it.url => "2026-09-12T10:00:00Z")
+    st.done = Dict(it.url => "2026-09-12T10:00:00Z")
     plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
-    @test occursin("why       read\n", plain)
+    @test occursin("why       done\n", plain)
     @test !occursin("unread", plain)
     # And `wl unread` says the same words to an outside reader, against the
     # same marks.
@@ -2156,7 +2156,7 @@ end
     @test occursin("\nedits\n", plain) && occursin("\nready\n", plain)
     @test !occursin("changes requested\n", plain) && !occursin("approved and green", plain)
     @test occursin("reply     mentioned you 2d ago; last word is theirs", plain)
-    @test occursin("why       read\n", plain)
+    @test occursin("why       done\n", plain)
     @test endswith(plain, "track     normal  wl track")
 end
 
@@ -2245,7 +2245,7 @@ end
         W.set_fields(lu, ["adopted" => "2026-09-10", "note" => "half done",
                           "deadline" => "2026-09-20", "track" => "loose",
                           "blocked_on" => ["o/r#3"]], W.DateTime(2026, 9, 11, 9))
-        W.set_read(lu, "2026-09-11T09:00:00Z")
+        W.set_done(lu, "2026-09-11T09:00:00Z")
         # The pull request already has a note of its own, which stays.
         W.set_fields(pu, ["note" => "on the PR"], W.DateTime(2026, 9, 12, 9))
         # A second adopted branch with no pull request, and a stranger's pull
@@ -2265,7 +2265,7 @@ end
         # - its read mark - and is no longer adopted, so it is no longer a row.
         @test W.get_field(lu, "adopted") === nothing && W.get_field(lu, "note") === nothing
         @test W.get_field(lu, "deadline") === nothing && W.get_field(lu, "track") === nothing
-        @test W.read_at(lu) == "2026-09-11T09:00:00Z"
+        @test W.done_at(lu) == "2026-09-11T09:00:00Z"
         @test !(lu in W.adopted_urls())
         # What the pull request lacked it has; what it had it keeps.
         @test W.get_field(pu, "note") == "on the PR"

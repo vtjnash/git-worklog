@@ -39,7 +39,7 @@ them lack is a record of what *you* decided, and the facts a decision needs -
   label, merge.
 - **Hosts a shell or an agent** in a tmux pane beside the thread, per worktree.
 - **Nothing leaves.** Everything that was ever in front of you stays in the
-  corpus; `read` and `filed` are marks, not deletions.
+  corpus; `done` and `filed` are marks, not deletions.
 
 ## Running it
 
@@ -175,7 +175,7 @@ hook and a permission-prompt hook that ring the terminal bell, which tmux
 keeps as the window's bell flag until somebody looks. It is only that one bit
 - stopped or asking, not which - and it lives in the tmux server with the
 session, so nothing has to be running to catch it. Looking (`T`) clears it,
-and so does every mark - `e`, `s`, `x`, `wl read` - the way a mark ends a
+and so does every mark - `e`, `s`, `x`, `wl done` - the way a mark ends a
 woken snooze; `z` rings it back. The browser lists the sessions every two
 seconds for it while it is up.
 
@@ -210,8 +210,8 @@ wl thread  julia#62891 [n]              JSON of the same: `comments`, and `activ
                                         pushes and state changes among them
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
 wl log                                  what the last refresh run from the browser said
-wl read    julia#62891                  mark read (or: read all)
-wl read    --consolidate [--dry-run]    fold the read stamps into the sources' floors
+wl done    julia#62891                  mark done (or: done all)
+wl done    --consolidate [--dry-run]    fold the done stamps into the sources' floors
 wl track   julia#62452 loose            normal | loose - what counts as it moving
 wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
 wl dismiss julia#62452                  loose, and read
@@ -231,9 +231,9 @@ Wherever a ref is taken, `-` reads them from stdin, one per line:
 every light row the clocks know that has moved since you read it, or that no
 stamp and no floor answers for, less the ones filed away - newest movement
 first, each with `why`: the same words the pane's row says for what moved;
-`wl read all` marks that same list, so a second pass finds nothing. A
+`wl done all` marks that same list, so a second pass finds nothing. A
 row with no stamp is read up to the day its source was named (`since` in the
-`source:` blocks of `local.toml`); `wl read --consolidate` raises every
+`source:` blocks of `local.toml`); `wl done --consolidate` raises every
 source's `since` as far as the stamps allow and drops the stamps the floor
 then answers for, without changing what any row answers. `--dry-run` says
 what it would do.

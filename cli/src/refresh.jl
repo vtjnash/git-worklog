@@ -382,7 +382,7 @@ written down as though it were.
 
 What the line is really protecting is that `moved_at` **only ever goes forward**.
 It is a high-water mark: an item unread since a CI change at 11:00 that took a
-comment deletion at 09:00 would be marked read again, and what that loses is not
+comment deletion at 09:00 would be marked done again, and what that loses is not
 the deleted comment - it is the CI change nobody ever looked at.
 
 First sight has no old row and is not this: it is `activity_at`, what GitHub
@@ -661,7 +661,7 @@ rather than a hold that the table has to get past - so every shape is a time:
 
   * `3d`, `2w`, `6mo` - wake after that long. Counted from when it was set:
     `wl snooze` and `s` write the resolved time, and a span typed by hand into
-    `local.toml` is counted from the read stamp beside it.
+    `local.toml` is counted from the done stamp beside it.
   * `2026-09-15` - wake on that date; `2026-09-15T20:00:00Z` - at that moment.
     The second is what the first two are written as.
 
@@ -941,7 +941,7 @@ place they could drift.
 itself, for one the refresh kept without asking GitHub again, in which case
 nothing moves and only what depends on `at` (the second look) and on
 `local.toml` is re-derived. Returns the row; `r["slept"]` says whether it
-has a snooze or an archive but no read stamp, which the refresh stamps once
+has a snooze or an archive but no done stamp, which the refresh stamps once
 for all of them, and `r["woken"]` whether its snooze has run out, which the
 refresh writes down as unread once for all of them.
 """
@@ -959,31 +959,31 @@ function derive!(r, old, st, cfg, at::DateTime)
     # two things. It carries the resolved wake on the row for the second
     # look, since an item you have said "not now" about is not one to be
     # reminded of; and it stamps read an item that has a snooze or an archive
-    # but no read stamp - a value typed into the file by hand, which is what
+    # but no done stamp - a value typed into the file by hand, which is what
     # `apply_snooze!` and `wl snooze` do on the way in and the only thing that
     # used to need an arming. Without it the item would be unread and hidden
     # by nothing, and "not now" would have said nothing at all.
-    read_ = get(st, "read", nothing)
+    read_ = get(st, "done", nothing)
     r["wake"] = wake_of(get(st, "snooze", nothing), read_)
     held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
            truthy(get(st, "archived", nothing))
     r["slept"] = held && !truthy(read_)
     # And the other end of a snooze: a wake that has passed is written down
-    # - `read = ""`, the snooze gone - so that **unread implies no snooze**.
+    # - `done = ""`, the snooze gone - so that **unread implies no snooze**.
     # The browser shows the row unread from the moment the wake passes,
     # `seen_of` reading the wake per frame; this is the file catching up,
     # and what lets a read mark take afterwards: every mark stamps the last
     # movement, which is under the wake, so a snooze left standing would
     # keep the row unread whatever was pressed. Said unread rather than
     # left to the stamp, since the stamp is the movement the snooze was
-    # made at and would read as read; `read_head` stays, because you are
+    # made at and would read as read; `done_head` stays, because you are
     # still where you were in it.
     r["woken"] = r["wake"] !== nothing && woken(r["wake"], at)
     # After `reply`, which `in_pile` reads and the pile is not a to-do
     # list, and after the snooze, for the reason above.
     r["second_look"] = held ? "" : second_look(r, at, second_days)
     # **When this program last saw a change you asked to be told about** -
-    # what the seen axis compares your read stamp against.
+    # what the seen axis compares your done stamp against.
     #
     # Not `updated`, which is wrong in both directions: GitHub does not move
     # it when a check run finishes (julia#62841 was stamped 20:55:52 and its
@@ -1000,7 +1000,7 @@ function derive!(r, old, st, cfg, at::DateTime)
     # **And this is the only threshold there is.** A snooze used to compare
     # a hash armed when you said "not now" and wake when it differed, which
     # was this rule reached a second way and kept in step with it by hand -
-    # `WOKE`, `snooze_fp`, `snooze_at`, a `mark_read` on falling asleep and
+    # `WOKE`, `snooze_fp`, `snooze_at`, a `mark_done` on falling asleep and
     # an `inbox_add!` on waking. A snooze is a wake *time* now, read beside
     # this mark by `seen_of`, and there is nothing to keep in step.
     #
@@ -1127,10 +1127,10 @@ the notifications source saw; `fetched_at` is GitHub's time for when the
 bundle was asked. Both GitHub's, so they compare - where the row's own
 `updated` does not: a thread's `updated_at` is the *delivery* time, 2 to 46
 seconds after the subject's `updatedAt` for the same event, and comparing the
-two read 35 unmoved rows as moved. And the **read stamp**, `read`: `e` on a
+two read 35 unmoved rows as moved. And the **done stamp**, `done`: `e` on a
 row in the list writes it up to the newest movement the list knew of, which
 for a light row is the inbox's clock, and with a thread on screen the newest
-event in it, fetched fresher than any bundle - so a read stamp past the
+event in it, fetched fresher than any bundle - so a done stamp past the
 bundle is evidence that something was seen the bundle does not have. A row
 from before there was a `fetched_at` is stale, once.
 """
@@ -1436,7 +1436,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     #
     # **Nothing leaves.** The corpus is the index of everything that was ever
     # in front of you, read or unread, and a row in it is kept for good: read
-    # rows are what the `read` box holds, filed ones the `filed` box, and a
+    # rows are what the `done` box holds, filed ones the `filed` box, and a
     # snooze on a row that then left would be a wake with nothing to wake.
     # It used to prune a carried row once it was read - which was right while
     # the closed lanes and the bulk searches re-returned anything that moved,
@@ -1461,7 +1461,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         lane = String(nz(jget(old, :lane), "carried"))
         push!(carried, url)
         if stale_by(get(inbox, url, nothing), old,
-                    get(get(state, url, Dict{String,Any}()), "read", nothing)) ||
+                    get(get(state, url, Dict{String,Any}()), "done", nothing)) ||
            (!covered(url, cfge) && !isover(old) && !in_pile(old))
             ask[url] = lane
         else
@@ -1519,7 +1519,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
             # the redirect. Then the row lives under its new name from here,
             # with the old row as what it replaces, and the old name goes:
             # no clock will ever say it again. What `local.toml` holds under
-            # the old name - a note, a read stamp - stays under it. And when
+            # the old name - a note, a done stamp - stays under it. And when
             # the new name is here already - a lane returned it, or it was
             # asked for itself - that row is the row, and the old name only
             # goes. A kept row under an old name that is never asked again
@@ -1571,7 +1571,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     end
 
     # **Every source names itself on first sight**, and a lane is a source:
-    # a row with no read stamp is read up to the day its source was named
+    # a row with no done stamp is read up to the day its source was named
     # (`floor_of`), so a lane first seen today - the three configured ones on
     # the first run, the retired ones once, for their rows from before there
     # was a floor - reads as zero unread rather than as every row it ever
@@ -1626,8 +1626,8 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
 
     # Once, after the loop: this rewrites a file, and a refresh that finds
     # twenty hand-typed snoozes should not rewrite `local.toml` twenty times.
-    isempty(slept) || @printf(report(), "  %-16s %4d marked read, having been put away by hand\n",
-                              "snooze", mark_read(slept, at))
+    isempty(slept) || @printf(report(), "  %-16s %4d marked done, having been put away by hand\n",
+                              "snooze", mark_done(slept, at))
     isempty(woke) || @printf(report(), "  %-16s %4d woke: unread, and the snooze is gone\n",
                              "snooze", mark_woken(woke))
 
@@ -1645,7 +1645,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # push, a label, your own comment: 366 of 5553 rows on the day.
     yield()
     inbox_ = Events.load_inbox()
-    marks = Marks(read = load_read(), sources = source_since(), wake = wake_map(),
+    marks = Marks(done = load_done(), sources = source_since(), wake = wake_map(),
                   now = stamp(at))
     yield()
     dropped = String[]
@@ -1654,7 +1654,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         r = get(items, url, nothing)
         r === nothing && continue
         String(nz(get(e, "updated", nothing), "")) <= String(r["fetched_at"]) || continue
-        seen_of(item_of(JSON3.read(json_dumps(r))), marks) === :read || continue
+        seen_of(item_of(JSON3.read(json_dumps(r))), marks) === :done || continue
         push!(dropped, url)
     end
     for u in dropped

@@ -619,10 +619,10 @@ end
             @test first(W.mux_start(n, wt, "sleep 120"))
             @test W.mux_tag!(n; worktree = wt, kind = :agent, item = it.ref, url = it.url)
             # Read, and quiet: nothing to say.
-            W.mark_read_moved([it.url], now)
+            W.mark_done_moved([it.url], now)
             @test isempty(W.rang_urls())
             W.refilter!(st)
-            @test W.seen_of(it, W.Marks(st, now)) === :read
+            @test W.seen_of(it, W.Marks(st, now)) === :done
             # It rings. The listing says which item, `refilter!` takes it, and
             # the row is unread with `agent` as the first word of why.
             @test W.mux_ring!(n); sleep(0.2)
@@ -638,14 +638,14 @@ end
             @test W.handle!(st, Int('e'), ctrl, now) === :ok
             @test st.status == "done"
             @test isempty(W.rang_urls())
-            @test W.seen_of(it, W.Marks(st, now)) === :read
+            @test W.seen_of(it, W.Marks(st, now)) === :done
             # `z` puts the bell back with the stamp.
             W.handle!(st, Int('z'), ctrl); sleep(0.2)
             @test W.rang_urls() == Set([it.url])
             W.refilter!(st)
             @test W.seen_of(it, W.Marks(st, now)) === :unread
-            # The shell's marks go through `mark_read_moved`, and clear it too.
-            @test W.mark_read_moved([it.url], now) == 1
+            # The shell's marks go through `mark_done_moved`, and clear it too.
+            @test W.mark_done_moved([it.url], now) == 1
             @test isempty(W.rang_urls())
             W.refilter!(st)
             @test isempty(st.rang)

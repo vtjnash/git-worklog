@@ -56,19 +56,19 @@
                            st.items)
         @test W.seen_of(st.items[st.sel], W.Marks(st)) === :unread
         it = st.items[st.sel]
-        prev = W.read_at(it.url)
+        prev = W.done_at(it.url)
         # `e` toggles against the stamp, which is the axis and the one answer
         # to "is it unread" - there is no second set beside it any more.
         @test W.seen_of(it, W.Marks(st)) === :unread
         W.handle!(st, Int('e'), ctrl)
         @test st.status == "done"
-        @test W.read_at(it.url) !== nothing
-        @test W.seen_of(it, W.Marks(st)) === :read
+        @test W.done_at(it.url) !== nothing
+        @test W.seen_of(it, W.Marks(st)) === :done
         W.handle!(st, Int('e'), ctrl)                   # ...and back again
         @test st.status == "not done" && W.seen_of(it, W.Marks(st)) === :unread
-        @test W.read_at(it.url) === nothing
+        @test W.done_at(it.url) === nothing
         W.handle!(st, Int('z'), ctrl); W.handle!(st, Int('z'), ctrl)
-        @test W.read_at(it.url) == prev          # exactly what was there
+        @test W.done_at(it.url) == prev          # exactly what was there
         @test marks() == before          # byte for byte
 
         # Read is stamped to what the thread showed, or to the last movement
@@ -77,12 +77,12 @@
         st.nodes = [W.Node("h", "b", :md, true)]
         st.nodes[1].meta["seen_up_to"] = "2099-01-02T03:04:05Z"
         W.handle!(st, Int('e'), ctrl)
-        @test W.read_at(it.url) == "2099-01-02T03:04:05Z"
+        @test W.done_at(it.url) == "2099-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes[1].meta["seen_up_to"] = "2020-01-02T03:04:05Z"
         W.handle!(st, Int('e'), ctrl)
-        @test W.read_at(it.url) == W.moved_of(it)
-        @test W.read_at(it.url) > "2020-01-02T03:04:05Z"
+        @test W.done_at(it.url) == W.moved_of(it)
+        @test W.done_at(it.url) > "2020-01-02T03:04:05Z"
         W.handle!(st, Int('z'), ctrl)
         st.nodes = W.Node[]
 
@@ -206,7 +206,7 @@ end
     @test W.parse_snooze("") === nothing
 
     # Resolved against the moment it is counted from - what `wl snooze` and
-    # `s` write, and what a span typed by hand is counted from the read stamp
+    # `s` write, and what a span typed by hand is counted from the done stamp
     # beside it as.
     @test W.wake_of("2w", W.stamp(now)) == "2026-09-26T12:00:00Z"
     @test W.wake_of("2026-09-15", W.stamp(now)) == "2026-09-15T00:00:00Z"
@@ -237,12 +237,12 @@ end
     # unread item would otherwise say nothing at all.
     now = W.ts("2026-09-12T12:00:00Z")
     st(; kw...) = Dict{String,Any}(String(k) => v for (k, v) in kw)
-    held(s) = (w = W.wake_of(get(s, "snooze", nothing), get(s, "read", nothing));
+    held(s) = (w = W.wake_of(get(s, "snooze", nothing), get(s, "done", nothing));
                (w !== nothing && !W.woken(w, now)) || W.truthy(get(s, "archived", nothing)))
     @test held(st(snooze = "2026-09-20T00:00:00Z"))
     @test !held(st(snooze = "2026-09-10T00:00:00Z"))
-    @test held(st(snooze = "3d", read = "2026-09-11T00:00:00Z"))
-    @test !held(st(snooze = "3d", read = "2026-09-01T00:00:00Z"))
+    @test held(st(snooze = "3d", done = "2026-09-11T00:00:00Z"))
+    @test !held(st(snooze = "3d", done = "2026-09-01T00:00:00Z"))
     @test !held(st(snooze = "3d"))                    # nothing to count from
     @test held(st(archived = "2026-09-01T00:00:00Z"))
     @test !held(st(snooze = "on-change"))             # not a snooze at all

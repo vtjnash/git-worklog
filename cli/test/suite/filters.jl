@@ -116,7 +116,7 @@ end
                          updated = "2026-09-02T00:00:00Z", kw...)
     it = mk()
     now = "2026-09-10T12:00:00Z"
-    seen(at; kw...) = W.Marks(; read = Dict(it.url => at), now = now, kw...)
+    seen(at; kw...) = W.Marks(; done = Dict(it.url => at), now = now, kw...)
     filed = W.Marks(archived = Dict(it.url => "2026-09-03T00:00:00Z"), now = now)
 
     # Seen: the stamp against `updated`. No stamp at all is unread - never
@@ -124,26 +124,26 @@ end
     # "have you seen what it says now".
     @test W.seen_of(it) === :unread
     @test W.seen_of(it, seen("2026-09-01T00:00:00Z")) === :unread
-    @test W.seen_of(it, seen("2026-09-02T00:00:00Z")) === :read
-    @test W.seen_of(it, seen("2026-09-09T00:00:00Z")) === :read
+    @test W.seen_of(it, seen("2026-09-02T00:00:00Z")) === :done
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z")) === :done
     # A synthetic item - an adopted branch, an import no refresh has caught up
     # with - has no `updated` at all, and a stamp on one is the only thing
     # anybody has said about whether it has been seen.
     @test W.seen_of(mk(updated = "")) === :unread
-    @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :read
+    @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z")) === :done
 
     # **A snooze is a second reason to be unread, beside the wake table.** It
     # is a wake time: before it comes the item is read as it was stamped, and
     # once it has come it is as if the item moved then. Asked of the clock per
     # frame, so no refresh has to notice.
     wake(w) = Dict(it.url => w)
-    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-20T00:00:00Z"))) === :read
+    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-20T00:00:00Z"))) === :done
     @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z"))) === :unread
     # Read again after it woke, and it is read: the wake is a moment, not a bit.
-    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z"))) === :read
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; wake = wake("2026-09-08T00:00:00Z"))) === :done
     # And a wake that comes before the item last moved adds nothing.
-    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-01T00:00:00Z"))) === :read
-    # No read stamp is unread whatever the wake says.
+    @test W.seen_of(it, seen("2026-09-05T00:00:00Z"; wake = wake("2026-09-01T00:00:00Z"))) === :done
+    # No done stamp is unread whatever the wake says.
     @test W.seen_of(it, W.Marks(wake = wake("2026-09-20T00:00:00Z"), now = now)) === :unread
 
     # **An agent that rang on it is a third.** tmux's bell on its `T` pane,
@@ -151,7 +151,7 @@ end
     # it is unread whatever the stamp says - the bell has no time to compare
     # and needs none - until looking, or any mark, clears it.
     @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; rang = Set([it.url]))) === :unread
-    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; rang = Set(["https://github.com/o/r/pull/2"]))) === :read
+    @test W.seen_of(it, seen("2026-09-09T00:00:00Z"; rang = Set(["https://github.com/o/r/pull/2"]))) === :done
     @test W.seen_of(mk(updated = ""), seen("2026-09-01T00:00:00Z"; rang = Set([it.url]))) === :unread
 
     # **Nothing overrides it.** Filing is an answer to "do I want to see this";
@@ -160,7 +160,7 @@ end
     # `filed` box is what decides whether that is in front of you.
     @test W.seen_of(it, filed) === :unread
     @test W.seen_of(it, W.Marks(archived = Dict(it.url => "x"),
-                                read = Dict(it.url => "2026-09-09T00:00:00Z"))) === :read
+                                done = Dict(it.url => "2026-09-09T00:00:00Z"))) === :done
 
     # Filed: the mark, and nothing else. A snooze is not a place to be.
     @test !W.filed_of(it)
@@ -446,19 +446,19 @@ end
         five = [it.url for it in first(st.items, 5)]
         # Everything else read, in one write: the axis is the stamp against
         # `updated`, so this is what having looked at the rest amounts to.
-        W.mark_read([it.url for it in st.all if !(it.url in five)], W.utcnow())
+        W.mark_done([it.url for it in st.all if !(it.url in five)], W.utcnow())
         W.refilter!(st; keeprow = false)
         @test length(st.items) == 5 && st.sel == 1
         st.sel = 3
         gone = st.items[3].url
-        W.mark_read([gone], W.utcnow())     # what `e` does before it refilters
+        W.mark_done([gone], W.utcnow())     # what `e` does before it refilters
         W.refilter!(st)
         @test length(st.items) == 4
         @test st.sel == 3 && st.items[3].url != gone
         # Clamped, so the last row of a selection leaving lands on the new last
         # row rather than off the end of it.
         st.sel = 4
-        W.mark_read([st.items[4].url], W.utcnow())
+        W.mark_done([st.items[4].url], W.utcnow())
         W.refilter!(st)
         @test st.sel == length(st.items) == 3
     finally

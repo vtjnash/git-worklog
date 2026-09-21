@@ -12,7 +12,7 @@
 #     ["repo:o/r"]                        where that repo is checked out
 #
 # Inside an item's block, your fields and the marks sit together - `note` and
-# `snooze` beside `read` and `touched` - because they are one answer to "what
+# `snooze` beside `done` and `touched` - because they are one answer to "what
 # is recorded about this item" and were three files pretending to be three
 # questions.
 #
@@ -27,9 +27,9 @@
 const LOCAL = Ref("")
 localfile() = isempty(LOCAL[]) ? datapath("local.toml") : LOCAL[]
 # `archive` is not one of them: it is a mark - `archived`, when you filed it -
-# written by `x` and `wl archive` the way `read` is written by `e`, and it
+# written by `x` and `wl archive` the way `done` is written by `e`, and it
 # lives with the marks. `snooze` is one of them, and is a wake time: `wl snooze`
-# writes it resolved, and one typed here as a span counts from the read stamp.
+# writes it resolved, and one typed here as a span counts from the done stamp.
 # `imported` is, and was not: it is written by `wl import` and by the browser,
 # so leaving it out meant `wl clear` cleared the other seven and left the item
 # imported - tagged by nothing, and still fetched by url every run. It sits here
@@ -96,7 +96,7 @@ fmt(v) = json_dumps(v)
 
     set_blocks!([url => ["note" => "x", "snooze" => nothing], other => [...]])
 
-One pass and one write, which is what a mark needs: `wl read` stamps 852 items
+One pass and one write, which is what a mark needs: `wl done` stamps 852 items
 at once and a write per item would be a rewrite of the whole file per item.
 
 A block that is not there is appended; a block left with no keys at all is
@@ -183,7 +183,7 @@ end
 
 """Every block's values for the named keys, in one pass over the file.
 
-    field_maps(("read", "touched")) -> key -> field -> value
+    field_maps(("done", "touched")) -> key -> field -> value
 
 `get_field` re-reads and re-scans for a single lookup, which is right for one
 and quadratic for a question about every item - and the browser asks for five of

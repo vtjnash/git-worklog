@@ -119,13 +119,13 @@ were each cut and timed: within noise. Rate-limit cost is flat at 4 a page.
 ## Marks: read, snooze, archive are one rule
 
 **An item is unread when it has moved since you read it.** "Moved" is the
-wake table below. The other two marks are the read stamp with one thing added.
+wake table below. The other two marks are the done stamp with one thing added.
 
-**One seen bit.** The read stamp is compared against one thing, the item's
+**One seen bit.** The done stamp is compared against one thing, the item's
 last movement - `moved_of`: `moved_at`, else `updated` for a light row that
 has no wake table, else nothing - and every mark stamps that same thing:
-`e` (taking the max with the thread's `seen_up_to`), `s`, `x`, `wl read`,
-`wl snooze`, `wl archive`. Nothing compares a read stamp against `updated`.
+`e` (taking the max with the thread's `seen_up_to`), `s`, `x`, `wl done`,
+`wl snooze`, `wl archive`. Nothing compares a done stamp against `updated`.
 There used to be three answers to "is it unread" - the poll pruning its
 inbox on `updated <= read`, the marks stamping `moved_at`, the browser
 comparing against `moved_at` - and on 2026-09-16 "mark everything read" took
@@ -147,11 +147,11 @@ Until 2026-09-16 the floor answered for backlog rows only, and 1915 rows of
 the other lanes - retired ones, and `mine` back to 2021 - were unread with
 nothing to read. `read = ""` still beats the floor; and a plain read mark
 on a row the floor already answers for drops the key rather than stamping
-it (`folded`), keeping `read_head`. `s` and `x` keep stamping, since the
+it (`folded`), keeping `done_head`. `s` and `x` keep stamping, since the
 refresh reads a snooze or an archive with no stamp as put away by hand.
 
 **`since` is a consolidation point, raised together and never lowered.**
-`wl read --consolidate [--dry-run]` raises every source's `since` to the
+`wl done --consolidate [--dry-run]` raises every source's `since` to the
 newest movement among the read rows that is below the oldest movement of
 any stampless unread row - light rows included - and drops the stamps the
 new floor answers for, so `seen_of` answers the same for every row before
@@ -172,7 +172,7 @@ the change line and nothing else.
 read from then, and comes back at the wake time **or the moment it moves,
 whichever is first** - a second reason to be unread beside the wake table, not
 a hold against it. Waking is `seen_of` comparing `max(moved_at, wake)` against
-the read stamp per frame: no write, no arbiter, no refresh, so two windows on
+the done stamp per frame: no write, no arbiter, no refresh, so two windows on
 one dashboard cannot disagree. There is no `on-change` (that is `e`) and no
 `forever` (that is `x`).
 
@@ -180,7 +180,7 @@ one dashboard cannot disagree. There is no `on-change` (that is `e`) and no
 last movement, which is under the wake, so a snooze left standing would keep
 the row unread whatever was pressed - `e` said "done" and the row
 stayed bold. So the refresh writes a woken row down (`read = ""`, the snooze
-dropped, `read_head` kept), and `e`, `x` and `wl read` on one the refresh has
+dropped, `done_head` kept), and `e`, `x` and `wl done` on one the refresh has
 not reached drop the snooze with the stamp they write; `z` puts it back. A
 snooze still to come is left alone by all of them. What ends keeps a trace:
 `last_snooze` is the wake of the last snooze put on a row, written where a
@@ -206,13 +206,13 @@ whatever was pressed; `z` rings it back (`agent_ring!`). Read per
 a control client about the pane it is on and nothing else.
 
 **An archive is a read mark that filters separately.** `x` stamps `archived`
-and `read`. An archived item that moves is unread again - filing is not an
+and `done`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
 list that does not name the `filed` box. That one asymmetry is why it is a
 mark of its own: the backlog is `base + done`, and leaves the filed work out.
 
-Only `e` writes `read_head`, the sha the read was made at, because only `e`
-knows what you were looking at; `s`, `x` and `wl read` stamp "not now" and
+Only `e` writes `done_head`, the sha the read was made at, because only `e`
+knows what you were looking at; `s`, `x` and `wl done` stamp "not now" and
 leave it alone.
 
 ## Movement: the wake table
@@ -266,7 +266,7 @@ The rules behind the table, each of which cost a bug:
   follows), a team being asked (the token cannot see it).
 - **What moved since you read is read off the keys, per frame.** The
   pane's `why` row lists, newest first, every key of the wake table whose
-  time is past the read stamp - the same stamp `seen_of` compares, so the
+  time is past the done stamp - the same stamp `seen_of` compares, so the
   words are the unread - `unread: pushed, comment`, `reviewed`, `review
   requested`, `assigned`, `merged`, `new`, `woke` for a snooze that ran
   out, and `agent` in front of them all for a bell standing on the item's
@@ -304,10 +304,10 @@ refresh that first saw it differ. Dating a comment by the poll made a comment
 read at 10:00 come back unread when the 11:00 refresh first saw it.
 
 **Nothing stamps the observation clock.** Proposed 2026-09-16 and rejected:
-a mark advanced to *the observation*, with `wl read` stamping *now*. Two
+a mark advanced to *the observation*, with `wl done` stamping *now*. Two
 counterexamples, each of which loses or re-shows a comment:
 
-- `wl read` at now, `moved_stamp` unchanged: `read = 10:00`; a comment dated
+- `wl done` at now, `moved_stamp` unchanged: `done = 10:00`; a comment dated
   09:30, delivered late and learned at 11:00, on a row whose mark was 08:00
   is dated 09:30 (`m > high`), and `09:30 < 10:00` reads it - lost. Stamped
   with `moved_at` (08:00), as it is, it is unread.
@@ -465,7 +465,7 @@ Three things answer it, all read off the mark `e` leaves:
   commits`, a close that names what closed it (`by julia#63266`). One
   GraphQL request - `commits(last: 30)` and `timelineItems` - beside the
   REST reads, in the thread's own cache entry.
-- **`p` diffs `read_head` against the head now.** Only added to (old head
+- **`p` diffs `done_head` against the head now.** Only added to (old head
   still in history, base unmoved): plain `git diff`. Otherwise `git
   range-diff`, **measured from the base branch on each side** - `old...new`
   measures from where the heads meet, so a two-commit branch rebased over ten
@@ -904,7 +904,7 @@ Each of the following returns success and the wrong answer:
 - **Newest first**, no fifth sort, no ceiling on the second look.
 - **Read by construction is a fact about the source**, one line per
   source, not a stamp per row - in every lane, and raised together by
-  `wl read --consolidate`, never per source and never lowered.
+  `wl done --consolidate`, never per source and never lowered.
 - **Nothing stamps the observation clock.** Every mark stamps the movement,
   GitHub's time; see "Time" for the two counterexamples, written down so
   it is not tried again.
@@ -968,36 +968,17 @@ Each of the following returns success and the wrong answer:
   terminal has) as `--openExternal`; each drops the other's option and
   opens a file named after the url, so the path the `code` link resolves to
   picks the spelling, and the scheme with it. The refs it sends are local
-  answers (`base_ref`, `merge_base`, `read_head`), never a fetch: a key press
+  answers (`base_ref`, `merge_base`, `done_head`), never a fetch: a key press
   does not wait on the network, and a base that is only ever too old is the
   trade.
 - **The mark is called done, and the key is `e`** (2026-09-21). What the
-  program stamps is what the GitHub inbox and Gmail call done - a thread put
-  away that comes back when it moves - and both bind it to `e`, so the hand
-  that lives in those inboxes finds it here. The word for the other state
-  is *not done*, not *undone*: `z` undoes, and a state named after a verb
-  the next key over performs reads as its result. *Unread* stays the word
-  for the fact - an item moved since your mark; the bold row, `why  unread:`,
-  `wl unread` - and *done* is the act; in this program the two states are
-  the same two, so the base box says `not done, open` and the next says
-  `done`. The `show` keys in a view's TOML followed: `read` is `done`, and
-  the closed-or-merged box that was `done` is `closed`. A view written with
-  the old names is reported when applied, not read as the new ones: `done`
-  meant the other box, and a quiet alias would have shown a different list.
-  The keys `e` displaced: VS Code moved to `o`, *open*; the thread moved to
-  `h`, *history*, which is what `:comments` shows - the conversation with
-  the pushes, closes and merges interleaved - and the one word that picks it
-  out from `d`, `p` and `c`, which are also readings of the item (`i` for
-  *item* would not); import moved to `I`, uppercase because it fetches, the
-  way `R` does. In the worktree list `i` went to `h` too, so the lowercase
-  letter means one thing everywhere: from there it goes to the row's item,
-  in whatever reading the browser was in, not to the thread. `w` stays the
-  order: neither inbox binds it, and the only better letters, `s` and `o`,
-  are snooze and open. And the checkout question's `w` is *where*, not
-  *back*: `t` on an item whose rules picked a copy asks straight away, so
-  the chooser `w` opens is one the reader may never have seen, and `b` or
-  backspace would name a place they were not. No `]` "done and next": `e`
-  in the base list takes the row out, and the cursor is already on the next.
+  program stamps is what the GitHub inbox and Gmail call done, and both
+  bind it to `e`, so the word and the key match them; the other state is
+  *not done*, and *unread* stays the word for the fact of having moved.
+  Which keys `e` displaced and where each went - `o` open, `h` history,
+  `I` import, `h` in the worktree list, `w` kept - is said beside each
+  binding in `keys.jl`, `paneview.jl` and `sessions.jl`; the boxes and
+  their TOML keys beside `SHOW` and `apply_view!` in `filters.jl`.
 
 ## Conventions
 

@@ -448,7 +448,7 @@ Fetched once and kept: the point of pinning a checkout is that expanding
 context afterwards costs nothing.
 
 **A head that was force-pushed away is still fetchable, and that was measured
-rather than assumed.** The worry was that `read_head` names a commit reachable
+rather than assumed.** The worry was that `done_head` names a commit reachable
 from no ref once the branch has been rewritten over it, so there would be
 nothing to diff against. GitHub serves it anyway: three orphaned heads taken
 from `HeadRefForcePushedEvent` on FedeClaudi/Term.jl - from 2026-09-02,

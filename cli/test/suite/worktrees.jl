@@ -1315,7 +1315,7 @@ end
                                  "&path=", W.urlenc(joinpath(side, "a.txt")),
                                  "&line=1&left=", first_)
             # Under `p`, the head you last read.
-            W.set_read_mark(mine.url, "2026-09-01T00:00:00Z", first_)
+            W.set_done_mark(mine.url, "2026-09-01T00:00:00Z", first_)
             r = W.open_editor(mine, ("a.txt", 1); mode = :pushed)
             @test occursin("the diff of", r) && endswith(args()[2], "&left=" * first_)
             # A checkout that is not on the branch has the wrong file in its
