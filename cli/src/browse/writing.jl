@@ -917,6 +917,78 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end
 
+"""`;`: the three local fields that were `wl deadline`, `wl blocked` and `wl
+track` alone - a picker of the three, the way `'` picks a view, then the line
+prompt each already had, with what is set now in it. Not a cursor on the
+pane (DESIGN's decisions). Numbered, as the views are and for the same
+reason: the same three rows in the same order, reached by memory.
+
+`track` has two values, so its row flips it rather than asking. The other
+two prompt, and an empty answer clears. Each write is one undo, as a note is.
+"""
+function field_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
+    other = it.track == "loose" ? "normal" : "loose"
+    opts = Tuple{String,Any}[
+        (string("deadline  ", isempty(it.deadline) ? "none" : it.deadline), :deadline),
+        (string("blocked   ", isempty(it.blocked_on) ? "none" : join(it.blocked_on, ", ")), :blocked),
+        (string("track     ", it.track, " \u2192 ", other), :track)]
+    push_view!(ctrl, ChooseView(string("Set on ", it.ref), it.title, opts,
+        which -> begin
+            if which === :track
+                st.status = set_local_field!(st, it, "track", other, at)
+            elseif which === :deadline
+                push_view!(ctrl, PromptView(string("Deadline for ", it.ref),
+                    "a date like 2026-09-30 \u00b7 empty clears it",
+                    b -> (st.status = set_local_field!(st, it, "deadline", strip(b), at));
+                    initial = it.deadline))
+            else
+                push_view!(ctrl, PromptView(string("Blocked on, for ", it.ref),
+                    "refs, comma separated: JuliaLang/julia#62396 \u00b7 empty clears it",
+                    b -> (st.status = set_local_field!(st, it, "blocked_on", strip(b), at));
+                    initial = join(it.blocked_on, ", ")))
+            end
+        end; numbered = true))
+end
+
+"""Write one of `deadline`, `blocked_on` or `track` for the item, as `wl
+<field>` writes it, with its undo; the row is rewritten in place so the pane
+says it before the next refresh does. `v` is what was typed - empty clears -
+or, for `track`, the level. A deadline that is not a date is refused rather
+than written, as `wl deadline` refuses it.
+"""
+function set_local_field!(st::BState, it::Item, field::AbstractString, v, at::DateTime)
+    val = if field == "blocked_on"
+        bs = String[strip(x) for x in split(String(v), ',') if !isempty(strip(x))]
+        isempty(bs) ? nothing : bs
+    else
+        isempty(v) ? nothing : String(v)
+    end
+    if field == "deadline" && val !== nothing && tryparse(Date, val) === nothing
+        return string("bad date '", val, "' - a deadline is a date like 2026-09-30")
+    end
+    field == "track" && !(val in TRACK) && return string("track must be one of: ", join(TRACK, ", "))
+    # As written: `get_field` answers with the text, which for the list is
+    # its TOML, and putting that back as a string would write a string.
+    prev = get_field(it.url, field)
+    prev !== nothing && field == "blocked_on" && startswith(prev, "[") &&
+        (prev = try; String.(TOML.parse("v = " * prev)["v"]); catch; nothing; end)
+    prevtouch = touched_at(it.url)
+    set_fields(it.url, [field => val], at)
+    now = field == "blocked_on" ? with(it; blocked_on = something(val, String[])) :
+          field == "deadline"   ? with(it; deadline = something(val, "")) :
+                                  with(it; track = String(val))
+    replace_item!(st, now)
+    push!(st.undos, Undo(string(field == "blocked_on" ? "blocked" : field, " ", it.ref), it.url,
+                         () -> begin
+        set_fields(it.url, [field => prev])
+        set_touched(it.url, prevtouch)
+        replace_item!(st, it)
+    end))
+    val === nothing ? string(field == "blocked_on" ? "blocked" : field, " cleared") :
+    field == "blocked_on" ? string("blocked on ", join(val, ", ")) :
+    field == "deadline" ? string("deadline ", val) : string("tracking ", val)
+end
+
 """Toggle one label, chosen from this item's own plus every label seen."""
 function label_action(st::BState, ctrl::Controller, it::Item)
     have = Set(it.labels)

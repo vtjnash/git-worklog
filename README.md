@@ -112,6 +112,7 @@ GitHub.**
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `e` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
+| `;` | set the deadline, what it is blocked on, or the tracking level - a picker of the three, then a line for the value; empty clears |
 | `z` | undo the last local action, and go back to the row it was on |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |

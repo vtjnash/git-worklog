@@ -205,6 +205,66 @@ end
     end
 end
 
+@testset "; sets the deadline, what it is blocked on, and the tracking" begin
+    # The three fields that were `wl deadline`, `wl blocked` and `wl track`
+    # alone: a picker of the three, then the line each had. Each write lands
+    # on the row at once and is one undo.
+    st = mkstate(); st.filters = W.everything(); W.refilter!(st)
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    it = st.items[st.sel]
+    keept = W.LOCAL[]; W.LOCAL[] = fresh_local()
+    try
+        W.handle!(st, Int(';'), ctrl)
+        ch = last(ctrl.stack)
+        @test ch isa W.ChooseView && ch.numbered && length(ch.options) == 3
+        @test occursin("deadline  none", ch.options[1][1])
+        @test occursin(string("track     ", it.track), ch.options[3][1])
+        pop!(ctrl.stack)
+        # The deadline asks, refuses what is not a date, and takes one.
+        ch.onpick(:deadline)
+        pv = pop!(ctrl.stack); @test pv isa W.PromptView
+        pv.onsubmit("soon")
+        @test startswith(st.status, "bad date")
+        @test W.get_field(it.url, "deadline") === nothing
+        pv.onsubmit("2026-09-30")
+        @test st.status == "deadline 2026-09-30"
+        @test W.get_field(it.url, "deadline") == "2026-09-30"
+        @test st.all[findfirst(x -> x.url == it.url, st.all)].deadline == "2026-09-30"
+        W.handle!(st, Int('z'), ctrl)
+        @test occursin("undid: deadline", st.status)
+        @test W.get_field(it.url, "deadline") === nothing
+        @test isempty(st.all[findfirst(x -> x.url == it.url, st.all)].deadline)
+        # Blocked on: a comma list, stripped; empty clears.
+        ch.onpick(:blocked)
+        pv = pop!(ctrl.stack)
+        pv.onsubmit("JuliaLang/julia#1, o/r#2 ")
+        @test st.status == "blocked on JuliaLang/julia#1, o/r#2"
+        @test W.get_field(it.url, "blocked_on") == "[\"JuliaLang/julia#1\", \"o/r#2\"]"
+        @test st.all[findfirst(x -> x.url == it.url, st.all)].blocked_on == ["JuliaLang/julia#1", "o/r#2"]
+        W.handle!(st, Int(';'), ctrl)
+        @test occursin("blocked   JuliaLang/julia#1, o/r#2", last(ctrl.stack).options[2][1])
+        pop!(ctrl.stack)
+        ch.onpick(:blocked)
+        pv = pop!(ctrl.stack); pv.onsubmit("")
+        @test st.status == "blocked cleared" && W.get_field(it.url, "blocked_on") === nothing
+        # And the undo of the clearing puts the list back as a list.
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "blocked_on") == "[\"JuliaLang/julia#1\", \"o/r#2\"]"
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "blocked_on") === nothing
+        # Track flips, and flips back under z.
+        was = it.track
+        ch.onpick(:track)
+        @test st.status == string("tracking ", was == "loose" ? "normal" : "loose")
+        @test W.get_field(it.url, "track") == (was == "loose" ? "normal" : "loose")
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "track") === nothing
+        @test st.all[findfirst(x -> x.url == it.url, st.all)].track == was
+    finally
+        W.LOCAL[] = keept
+    end
+end
+
 @testset "s asks how long for" begin
     # `s` used to write on-change and say nothing. "Until it moves" is what `r`
     # does - a snooze is a wake *time* beside the wake table, not a hold

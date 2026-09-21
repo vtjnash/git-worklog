@@ -237,11 +237,7 @@ here until they are run, then there. Found on the way and not yet done:
 Reviewing and writing:
 - [ ] `C` on an issue comment writes a new comment rather than replying
       (matches GitHub; surprises).
-- [ ] `deadline`, `blocked` and `track` are `wl set`/`wl track` only;
-      the browser wants one key opening a picker of the three, the way `'`
-      opens views, then the line prompt each already has. Not a cursor on
-      the pane (DESIGN's decisions). Also not there: opening the check under
-      the eye.
+- [ ] Not in the browser: opening the check under the eye.
 
 The writes, all tried against GitHub by 2026-09-18 and none wrong so far:
 - [ ] `C` on a deleted line - the one write that landed after the trial

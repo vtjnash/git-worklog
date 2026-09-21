@@ -410,6 +410,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif k == Int('v')
         st.status = edit_note(st, it, ctrl)
         return :ok
+    elseif k == Int(';')
+        field_action(st, ctrl, it, at)
+        return :ok
     elseif k == Int('x')
         # Its own return, because archiving refilters and the selection can move
         # - and `load_nodes!` would put "loading …" over what this has to say.
