@@ -895,6 +895,21 @@ end
     W.handle!(v4, Int('5'), ctrl)
     @test v4.query == "5"
 
+    # A click on a row moves the cursor there, a double click picks it, the
+    # wheel moves it, and a click outside the box cancels - read off where
+    # the last render put the rows, since the box is centred.
+    got[] = 0; ten.onpick = x -> (got[] = x); ten.sel = 1
+    ls = split(W.astrip(W.render(ten, 160, 50)), "\n")
+    r7 = findfirst(l -> occursin("7  row 7", l), ls)
+    @test r7 !== nothing && r7 in ten.orows && r7 == first(ten.orows) + 6
+    click(y, at) = W.onmouse!(ten, W.MouseEvent(:press, 0, 60, y, 0), ctrl, at)
+    @test click(r7, 100.0) === :ok && ten.sel == 7 && got[] == 0
+    @test click(r7, 100.2) === :pop && got[] == 7           # the second press picks
+    @test click(last(ten.orows) + 1, 200.0) === :ok && ten.sel == 7     # the foot row
+    @test W.onmouse!(ten, W.MouseEvent(:wheelup, 0, 60, r7, 0), ctrl, 300.0) === :ok
+    @test ten.sel == 4
+    @test click(first(ten.boxrows) - 1, 400.0) === :pop     # outside the box
+
     # Writing one down is a paste, not a write: config.toml is the user's file.
     # What it prints parses back into the filter it came from, which is the only
     # property worth having of it.

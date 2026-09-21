@@ -189,7 +189,8 @@ against the merge base under `d` and against the head you last read under
 `p`. Without the extension `e` opens the file at the line and says so.
 
 **The mouse** selects rows (drag), moves the cursor (click), folds (click a
-marker), scrolls the pane under it. A click on a url copies it; a double click
+marker), scrolls the pane under it; in the pickers - `'`, the checkout
+chooser, `"` - a click moves the cursor to the row and a double click is `↵`. A click on a url copies it; a double click
 copies the word under the pointer, or the item's url in the list; the `⧉` at
 the right of every header copies that block.
 

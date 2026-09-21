@@ -466,13 +466,28 @@ end
         @test W.handle!(v2, Int('i'), ctrl) === :ok
         @test occursin("no pull request", v2.status)
 
+        # A click lands on the row under it - the border and the column
+        # header are the two rows above the first - and the wheel moves the
+        # cursor; a double click is `↵`, which from the branches lens is
+        # the branch's worktree.
+        v2.bsel = 1
+        bi = findfirst(b -> b.name == "homeless", v2.brows)
+        @test W.onmouse!(v2, W.MouseEvent(:press, 0, 10, 2 + bi, 0), ctrl, 100.0) === :ok
+        @test v2.bsel == bi
+        @test W.onmouse!(v2, W.MouseEvent(:press, 0, 10, 2 + bi, 0), ctrl, 100.2) === :ok
+        @test v2.mode === :worktrees && v2.rows[v2.sel].name == "made"
+        @test W.onmouse!(v2, W.MouseEvent(:wheeldown, 0, 10, 5, 0), ctrl, 200.0) === :ok
+        @test v2.sel == min(length(v2.rows), findfirst(r -> r.name == "made", v2.rows) + 3)
+        @test W.onmouse!(v2, W.MouseEvent(:press, 0, 10, 1, 0), ctrl, 300.0) === :ok  # the border
+
         # Newest tip first, across every repo at once.
         ats = [b.at for b in v.brows]
         @test issorted(ats; rev = true)
 
         # An empty list still renders and says which one is empty.
         e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
-                           1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing)
+                           1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing,
+                           (0.0, 0, 0))
         ls = split(W.render(e, 80, 24), "\n")
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))

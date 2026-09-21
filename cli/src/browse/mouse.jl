@@ -155,3 +155,32 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
     end
     :ok
 end
+
+# --- the pickers ------------------------------------------------------------
+#
+# A click on a row of a picker moves the cursor there and a double click picks
+# it, which is `↵` - the two gestures the item list answers, for the views
+# list (`'`), the checkout chooser under `t`/`T` and the worktree list (`"`).
+# The wheel moves the cursor, for the reason it does in the list. Nothing else
+# on them is a control; a click outside a chooser's box cancels it, which is
+# what a click outside a box means everywhere.
+
+"Is this press the second half of a double click on `last`?"
+doubled(last::Tuple{Float64,Int,Int}, ev::MouseEvent, at::Float64) =
+    at - last[1] <= DOUBLECLICK[] && ev.y == last[3] && abs(ev.x - last[2]) <= 1
+
+function onmouse!(v::ChooseView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
+    opts = shown(v)
+    if ev.kind === :wheelup || ev.kind === :wheeldown
+        v.sel = clamp(v.sel + (ev.kind === :wheelup ? -3 : 3), 1, max(1, length(opts)))
+        return :ok
+    end
+    ev.kind === :press || return :ok
+    dbl = doubled(v.lastclick, ev, at)
+    v.lastclick = (at, ev.x, ev.y)
+    ev.y in v.boxrows || return :pop
+    i = ev.y - first(v.orows) + v.top
+    (ev.y in v.orows && 1 <= i <= length(opts)) || return :ok
+    v.sel = i
+    dbl ? handle!(v, 13, ctrl) : :ok
+end

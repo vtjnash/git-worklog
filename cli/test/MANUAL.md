@@ -89,9 +89,10 @@ OSC 8 through it needs 3.4.
   frame's title row and borders stay put, `q` returns to the prompt.
 
 *2026-09-21*: all pass in VS Code; copy fails in Terminal.app as expected.
-Found on the way: Terminal.app draws the frame one column too wide - the
-right border is off every row - unless `wl` runs under tmux; xterm.js draws
-it right. In TODO.
+Found on the way: Terminal.app drew the frame with the right border off
+every row unless `wl` ran under tmux - the erase after a full row, taken
+from the pending-wrap cell - fixed the same day (`frame_bytes`) and seen
+right in Terminal.app after.
 
 ## 5. The composer, the editor, and leaving
 

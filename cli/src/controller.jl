@@ -876,9 +876,13 @@ mutable struct ChooseView <: View
     top::Int
     onpick::Any                           # (value) -> Nothing; not called on cancel
     numbered::Bool                        # are the first ten on keys of their own?
+    boxrows::UnitRange{Int}               # where the last render put the box, and
+    orows::UnitRange{Int}                 # the option rows in it, for the mouse
+    lastclick::Tuple{Float64,Int,Int}
 end
 ChooseView(title, note, options, onpick; numbered::Bool = false) =
-    ChooseView(String(title), String(note), options, "", 1, 1, onpick, numbered)
+    ChooseView(String(title), String(note), options, "", 1, 1, onpick, numbered,
+               1:0, 1:0, (0.0, 0, 0))
 
 """The key that picks row `i` straight off, or `' '` for a row past the tenth.
 
@@ -925,6 +929,12 @@ function render(v::ChooseView, w::Int, h::Int)
     push!(out, b.foot())
     push!(out, b.hint(v.numbered ? "0-9 picks · ↑/↓ move · ↵ pick · esc cancel" :
                                    "↑/↓ move · ↵ pick · esc cancel"))
+    # Where the rows land, for a click: `centred` puts the box in the middle,
+    # and the options start after the head, the note and the query row.
+    blank = max(0, (h - length(out)) ÷ 2)
+    v.boxrows = (blank + 1):(blank + length(out))
+    orow = blank + 3 + (isempty(v.note) ? 0 : 1)
+    v.orows = orow:(orow + bh - 1)
     centred(out, w, h)
 end
 

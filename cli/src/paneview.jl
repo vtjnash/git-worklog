@@ -674,6 +674,7 @@ mutable struct WorktreeView <: View
     onitem::Any                     # (Item) -> String, supplied by the browser
     onadopt::Any                    # (repo, branch, take::Bool) -> String
     source::Any                     # () -> Vector{Item}, re-read on every reload
+    lastclick::Tuple{Float64,Int,Int}
 end
 
 """Open the list, without having walked a single tree yet.
@@ -688,7 +689,7 @@ function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing,
     rows, brows = place_rows(items; withdirty = false)
     v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1,
                      isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
-                     nothing, wake, onitem, onadopt, source)
+                     nothing, wake, onitem, onadopt, source, (0.0, 0, 0))
     dirty_pass!(v)
     v
 end
@@ -931,6 +932,32 @@ function render(v::WorktreeView, w::Int, h::Int)
         push!(rows, "")
     end
     join([apad(x, w) for x in rows[1:h]], "\n")
+end
+
+"""A click moves the cursor to the row and a double click is `↵`; the wheel
+moves the cursor. The worktree list's half of what `mouse.jl` says of the
+pickers, here because the view is."""
+function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
+    h, w = displaysize(stdout)
+    branches = v.mode === :branches
+    n = branches ? length(v.brows) : length(v.rows)
+    if ev.kind === :wheelup || ev.kind === :wheeldown
+        d = ev.kind === :wheelup ? -3 : 3
+        branches ? (v.bsel = clamp(v.bsel + d, 1, max(1, n))) :
+                   (v.sel = clamp(v.sel + d, 1, max(1, n)))
+        return :ok
+    end
+    ev.kind === :press || return :ok
+    dbl = doubled(v.lastclick, ev, at)
+    v.lastclick = (at, ev.x, ev.y)
+    # The same window `render` drew: the border, then the column header, then
+    # the rows from `top`.
+    _, top, win = listwindow(n, branches ? v.bsel : v.sel, branches ? v.btop : v.top,
+                             max(1, h - 5))
+    i = ev.y - 3 + top
+    i in win || return :ok
+    branches ? (v.bsel = i) : (v.sel = i)
+    dbl ? handle!(v, 13, ctrl) : :ok
 end
 
 "Open a session of `kind` on the row, which may have no item at all."
