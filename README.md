@@ -130,10 +130,13 @@ to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Ad
 your own in `data/config.toml`; the last entry under `'` copies the current filter
 as the TOML that would name it.
 
-**The filter pane** (`f`): `show` is four boxes that each *add* rows - `not done,
-open` · `done` · `filed away` · `closed or merged` - so the number by each is
-what checking it would bring in; in a view's TOML they are `base`, `done`,
-`filed`, `closed`. The first and last are on when nothing has been asked. The other axes narrow: tag, kind, lane, repo, label, author.
+**The filter pane** (`f`): `show` is three boxes that each *add* rows - `not
+done` · `done` · `filed away` - and `state` is two more - `open` · `closed or
+merged`; a row is under one box on each, and is in when both are checked, so
+the number by a box is what checking it would bring in. Not done and both
+states are on when nothing has been asked; in a view's TOML they are
+`show = ["not-done", "done", "filed"]` and `state = ["open", "closed"]`. The
+other axes narrow: tag, kind, lane, repo, label, author.
 The repo, label and author axes list what is applied and put the rest
 behind a picker row; `[filters] pinned_repos` in `data/config.toml` names repos
 listed first regardless, a name or `owner/*`.

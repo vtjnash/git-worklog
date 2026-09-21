@@ -73,9 +73,9 @@
         # My work is the open work - read or not, and never the closed rows,
         # which the default `show` would have brought in beside the unread.
         mine = vs[findfirst(v -> occursin("my work", v[1]), vs)][2]
-        @test sort(mine["show"]) == ["base", "done"]
+        @test sort(mine["show"]) == ["done", "not-done"] && mine["state"] == ["open"]
         W.apply_view!(st, mine)
-        @test st.filters.show == Set([:base, :done])
+        @test st.filters.show == Set([W.NOT_DONE, :done]) && st.filters.state == Set([:open])
         @test st.filters.authors == Set([W.AUTHOR_ME])
         st.filters = W.everything(); W.refilter!(st)
         @test any(v -> occursin("notification firehose", v[1]), vs)

@@ -18,24 +18,26 @@
         # them zero and the comparison vacuous.
         count(it -> W.matches(p, it, W.Marks(st)), st.all)
     end
-    # The disposition boxes are not a tally of values but a delta: what each one
-    # is holding in, or would bring in. So the slow way to say it is the two
-    # filters either side of the box, counted whole.
-    brute_show(f, v) = begin
+    # The two disposition axes only add, so the number beside a box is what it
+    # is holding in, or would bring in. The slow way to say it is the two
+    # filters either side of the box, counted whole - and since a row has one
+    # value on each axis, that is also its plain tally against the other axes.
+    brute_box(f, axis, v) = begin
         on, off = deepcopy(f), deepcopy(f)
-        push!(on.show, v); delete!(off.show, v)
+        push!(W.sym_set(on, axis), v); delete!(W.sym_set(off, axis), v)
         count(it -> W.matches(on, it, W.Marks(st)) &&
                     !W.matches(off, it, W.Marks(st)), st.all)
     end
-    configs = [W.Filters(show = Set([:base])),   # the base box alone
+    configs = [W.Filters(state = Set([:open])),  # the open half of the dashboard
                W.DEFAULT_FILTERS(),              # and with the closed ones: what it opens on
-               W.everything(),                   # and all four boxes on
+               W.everything(),                   # and every box on
                W.Filters(show = Set{Symbol}()),  # and none of them: no rows
-               W.Filters(show = Set([:base, :done])),
+               W.Filters(state = Set{Symbol}()), # on either axis
+               W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open])),
                W.Filters(show = Set([:done])),   # the done ones instead
                W.Filters(show = Set([:done, :filed])),
                W.Filters(show = Set([:done]), tags = Set([:snoozed])),
-               W.Filters(show = Set([:closed])),
+               W.Filters(state = Set([:closed])),
                W.Filters(tags = Set([:second])),
                W.Filters(tags = Set([:second, :touched, :drafts])),
                W.Filters(lanes = Set(["review"])),
@@ -46,13 +48,16 @@
                W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
                W.Filters(authors = Set([W.AUTHOR_ME])),
                W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
-               W.Filters(show = Set([:done, :closed]), kind = :pr,
+               W.Filters(show = Set([:done]), state = Set([:closed]), kind = :pr,
                          authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
         n = W.axis_counts(st)
         for (k, _) in W.SHOW
-            @test get(n.shows, k, 0) == brute_show(f, k)
+            @test get(n.shows, k, 0) == brute_box(f, :show, k)
+        end
+        for (k, _) in W.STATE
+            @test get(n.states, k, 0) == brute_box(f, :state, k)
         end
         for (k, _) in W.TAGS
             @test get(n.tags, k, 0) == brute(f, :tag, k)
@@ -190,44 +195,40 @@ end
     # unread, which is the seen axis's to say.
     @test W.tags_of(it, W.Marks(wake = wake("2026-09-08T00:00:00Z"), now = now)) == Symbol[]
 
-    # The three readings still partition the corpus, which is what the merged
-    # axis is built out of: one answer each, per row, however it is shown.
+    # The three readings still partition the corpus, and so do the two axes
+    # built out of them: one answer each, per row, however it is shown.
     st = mkstate()
     st.filters = W.everything(); W.refilter!(st)
     m = W.Marks(st)
-    for reading in (x -> W.seen_of(x, m), x -> W.filed_of(x, m), W.over_of)
+    for reading in (x -> W.seen_of(x, m), x -> W.filed_of(x, m), W.over_of,
+                    x -> W.disp_of(W.seen_of(x, m), W.filed_of(x, m)))
         @test sum(count(x -> reading(x) === v, st.items)
                   for v in Set(reading(x) for x in st.items)) == length(st.items)
     end
-    # And the four boxes cover the corpus between them: every row answers to at
-    # least one, so all four on is everything and taking any one off can only
-    # lose rows. Three of them can only ever lose rows the base did not have -
-    # and the fourth *is* the base, which is the one that can drop below the
-    # open half of the list the browser opens on, and drops to exactly the
-    # rest of the corpus.
-    base = length(W.apply_filters(W.Filters(show = Set([:base])), st.all, m))
-    @test 0 < base < length(st.all)
+    # And the boxes cover the corpus between them: every row answers to exactly
+    # one on each axis, so every box on is everything and taking one off loses
+    # exactly its rows.
     @test length(W.apply_filters(W.everything(), st.all, m)) == length(st.all)
-    for (k, _) in W.SHOW
-        f = W.everything(); delete!(f.show, k)
-        n = length(W.apply_filters(f, st.all, m))
-        @test n <= length(st.all)
-        @test k === :base ? n == length(st.all) - base : n >= base
+    for (axis, values) in ((:show, W.SHOW), (:state, W.STATE)), (k, _) in values
+        f = W.everything(); delete!(W.sym_set(f, axis), k)
+        alone = W.everything(); intersect!(W.sym_set(alone, axis), [k])
+        @test length(W.apply_filters(f, st.all, m)) + length(W.apply_filters(alone, st.all, m)) ==
+              length(st.all)
     end
 end
 
-@testset "one axis that only adds, and a base you have to mean to take off" begin
+@testset "two axes that only add, and a dashboard you have to mean to take off" begin
     st = mkstate()
     st.filters = W.Filters(); W.refilter!(st)
     opens = length(st.items)
-    # Bare is the base box and the closed one, which is what the browser opens
-    # on: unread, awake and unfiled, open or closed, with nothing narrowing it.
-    # `c` goes here too - the list this program is for is what a filter says
-    # when it has been asked nothing, rather than one of the things it can be
-    # asked for.
+    # Bare is the not-done box with both states, which is what the browser
+    # opens on: unread, awake and unfiled, open or closed, with nothing
+    # narrowing it. `c` goes here too - the list this program is for is what a
+    # filter says when it has been asked nothing, rather than one of the things
+    # it can be asked for.
     @test W.isdefault(st.filters)
     @test W.isdefault(W.DEFAULT_FILTERS())
-    @test st.filters.show == W.SHOW_DEFAULT
+    @test st.filters.show == W.SHOW_DEFAULT && st.filters.state == W.STATE_DEFAULT
     @test occursin("unread", W.filter_summary(st.filters))
     @test all(x -> W.seen_of(x, W.Marks(st)) === :unread &&
                    !W.filed_of(x, W.Marks(st)), st.items)
@@ -235,9 +236,9 @@ end
     # pull request nobody has read is on the list the browser opens on.
     @test any(x -> W.over_of(x) === :closed, st.items)
 
-    # The base alone is the open half of that, and is what the other boxes
-    # are measured against.
-    st.filters = W.Filters(show = Set([:base])); W.refilter!(st)
+    # Open only is the open half of that, and is what the other boxes are
+    # measured against below.
+    st.filters = W.Filters(state = Set([:open])); W.refilter!(st)
     base = length(st.items)
     @test 0 < base < opens
     @test occursin("open only", W.filter_summary(st.filters))
@@ -245,142 +246,159 @@ end
                    !W.filed_of(x, W.Marks(st)) &&
                    W.over_of(x) === :open, st.items)
 
-    # Each box brings its own kind of row beside the base, and no box can take
-    # another one's rows away: that is the whole of what "only adds" means.
+    # Each box brings its own kind of row beside the others, and no box can
+    # take another one's rows away: that is the whole of what "only adds"
+    # means. A row has one value per axis, so what a box brings is a plain
+    # count, the same beside the dashboard as on its own.
     counts = Dict{Symbol,Int}()
     for (k, _) in W.SHOW
-        k === :base && continue
-        st.filters = W.Filters(show = Set([:base, k])); W.refilter!(st)
+        k === W.NOT_DONE && continue
+        st.filters = W.Filters(show = Set([W.NOT_DONE, k]), state = Set([:open])); W.refilter!(st)
         counts[k] = length(st.items) - base
         @test length(st.items) >= base
     end
     # And what the closed box adds is exactly the distance between the open
     # half and what the browser opens on.
+    st.filters = W.Filters(state = Set([:closed])); W.refilter!(st)
+    counts[:closed] = length(st.items)
     @test opens == base + counts[:closed]
-    # Two of them is at least the union of what each brings, and more where a
-    # row needed both - a closed item you have read is held out twice.
-    st.filters = W.Filters(show = Set([:base, :done, :closed])); W.refilter!(st)
+    # The two axes are asked separately: a done row that is closed is in when
+    # both its boxes are on and out when either is, so the open done rows and
+    # the closed not-done rows are what the two boxes add on their own, and
+    # the corner is what they add together.
+    st.filters = W.Filters(show = Set([W.NOT_DONE, :done])); W.refilter!(st)
     @test length(st.items) >= base + counts[:done] + counts[:closed]
-    # The backlog is the base with the done ones beside it and no `closed`, and
-    # that is the one place the two boxes the browser opens with come apart: a
-    # closed thing that moved is in the firehose and is not in the backlog,
-    # because it is news and it is not work.
-    st.filters = W.Filters(show = Set([:base, :done])); W.refilter!(st)
+    # The backlog is not done and done, open only, and that is the one place
+    # it and the dashboard come apart: a closed thing that moved is in the
+    # firehose and is not in the backlog, because it is news and it is not
+    # work.
+    st.filters = W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open])); W.refilter!(st)
     @test length(st.items) == base + counts[:done]
     @test all(x -> W.over_of(x) === :open, st.items)
-    # All four is the corpus, and the corpus is the only thing that is.
+    # Every box is the corpus, and the corpus is the only thing that is.
     st.filters = W.everything(); W.refilter!(st)
     @test length(st.items) == length(st.all)
 
-    # Taking the base off is how one of the other three is asked for *alone* -
-    # the closed ones instead of today's work rather than beside it. It is the
-    # one question the axis could not be asked while the base was a floor, and
-    # it takes a deliberate press to ask: nothing clears to here.
+    # Taking not done off is how one of the other two is asked for *alone* -
+    # the filed ones instead of today's work rather than beside it. It takes a
+    # deliberate press to ask: nothing clears to here.
     #
-    # A box alone holds exactly what it adds beside the base, which is the same
-    # rows either way - the base is what it is *added to*, not a condition on
-    # what it brings - and none of what it holds is base work.
+    # A box alone holds exactly what it adds beside the dashboard, which is
+    # the same rows either way, and none of what it holds is dashboard work.
     for (k, _) in W.SHOW
-        k === :base && continue
-        st.filters = W.Filters(show = Set([k])); W.refilter!(st)
+        k === W.NOT_DONE && continue
+        st.filters = W.Filters(show = Set([k]), state = Set([:open])); W.refilter!(st)
         @test length(st.items) == counts[k]
         @test !any(x -> W.seen_of(x, W.Marks(st)) === :unread &&
-                        !W.filed_of(x, W.Marks(st)) &&
-                        W.over_of(x) === :open, st.items)
+                        !W.filed_of(x, W.Marks(st)), st.items)
     end
-    # The one of the three this dashboard has rows for today, said in full.
-    st.filters = W.Filters(show = Set([:closed])); W.refilter!(st)
+    # The same on the other axis, said in full.
+    st.filters = W.Filters(state = Set([:closed])); W.refilter!(st)
     @test 0 < length(st.items) < length(st.all)
     @test all(x -> W.over_of(x) === :closed, st.items)
-    @test occursin("only closed or merged", W.filter_summary(st.filters))
-    # The base box holds exactly the base list in, so taking it off the corpus
-    # leaves the rest of the corpus and nothing else.
-    nobase = W.everything(); delete!(nobase.show, :base)
+    @test occursin("closed only", W.filter_summary(st.filters))
+    # Not done holds exactly its rows in, so taking it off the corpus leaves
+    # the rest of the corpus and nothing else.
+    nobase = W.everything(); delete!(nobase.show, W.NOT_DONE)
     st.filters = nobase; W.refilter!(st)
-    @test length(st.items) == length(st.all) - base
-    # And every box off is an empty list. That is the honest reading of an axis
-    # that adds rather than narrows, and not a case to special-case: an empty
-    # set of things to show is no things.
-    st.filters = W.Filters(show = Set{Symbol}()); W.refilter!(st)
-    @test isempty(st.items)
-    @test occursin("nothing shown", W.filter_summary(st.filters))
+    @test length(st.items) == length(st.all) - base - counts[:closed]
+    # And every box off, on either axis, is an empty list. That is the honest
+    # reading of an axis that adds rather than narrows, and not a case to
+    # special-case: an empty set of things to show is no things.
+    for f in (W.Filters(show = Set{Symbol}()), W.Filters(state = Set{Symbol}()))
+        st.filters = f; W.refilter!(st)
+        @test isempty(st.items)
+        @test occursin("nothing shown", W.filter_summary(st.filters))
+    end
 
     # Toggled by the same key that toggles every other axis, and off again.
     st.filters = W.Filters(); W.refilter!(st)
     st.lmode = :filters
     rows = W.filter_rows(st)
     @test [r[2] for r in rows if r[1] === :show] == [String(k) for (k, _) in W.SHOW]
-    # The base leads the axis as a row like the other three, checked, with the
+    @test [r[2] for r in rows if r[1] === :state] == [String(k) for (k, _) in W.STATE]
+    # Not done leads its axis as a row like the other two, checked, with the
     # number it is holding in beside it - which is what unchecking it would cost.
     brow = first(r for r in rows if r[1] === :show)
-    @test brow[2] == "base"
-    @test occursin("[x] ", brow[3]) && occursin(string(base), brow[3])
+    @test brow[2] == "not-done"
+    @test occursin("[x] ", brow[3]) && occursin(string(opens), brow[3])
     # And the closed box is checked too, holding in its share of the opening list.
-    drow = first(r for r in rows if r[1] === :show && r[2] == "closed")
+    drow = first(r for r in rows if r[1] === :state && r[2] == "closed")
     @test occursin("[x] ", drow[3]) && occursin(string(counts[:closed]), drow[3])
     st.frow = findfirst(r -> r[1] === :show && r[2] == "filed", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:base, :closed, :filed])
+    @test st.filters.show == Set([W.NOT_DONE, :filed])
     @test length(st.items) >= opens + counts[:filed]
     @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "filed"))
     @test W.toggle_filter!(st)
     @test st.filters.show == W.SHOW_DEFAULT && length(st.items) == opens
     # Including the closed box: off, the list is the open half and says so.
-    st.frow = findfirst(r -> r[1] === :show && r[2] == "closed", W.filter_rows(st))
+    st.frow = findfirst(r -> r[1] === :state && r[2] == "closed", W.filter_rows(st))
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:base]) && length(st.items) == base
+    @test st.filters.state == Set([:open]) && length(st.items) == base
     @test !W.isdefault(st.filters)
     @test occursin("open only", W.filter_summary(st.filters))
     @test W.toggle_filter!(st)
     @test W.isdefault(st.filters)
-    # Including the base itself, which is one of the two rows here whose being
+    # Including not done itself, which is the one row here whose being
     # checked is a default rather than a choice - and `c` is what puts it back.
-    st.frow = findfirst(r -> r[1] === :show && r[2] == "base", W.filter_rows(st))
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "not-done", W.filter_rows(st))
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:closed]) && length(st.items) == counts[:closed]
+    @test st.filters.show == Set{Symbol}() && isempty(st.items)
     @test !W.isdefault(st.filters)
 
     # What the browser opens on says itself, and what has been added to it says
-    # that instead - the base is true of almost every screen there is, so naming
-    # it on each one is a phrase the reader stops seeing. Off, it is the most
-    # important thing on the screen and is said first.
+    # that instead - not done is true of almost every screen there is, so
+    # naming it on each one is a phrase the reader stops seeing. Off, it is
+    # the most important thing on the screen and is said first.
     @test occursin("unread", W.filter_summary(W.DEFAULT_FILTERS()))
     @test occursin("also done+filed away",
-                   W.filter_summary(W.Filters(show = Set([:base, :done, :filed, :closed]))))
-    # `done` is on by default and is as quiet as the base while it is; what
-    # gets said is its absence, since the open half is the narrower list.
+                   W.filter_summary(W.Filters(show = Set([W.NOT_DONE, :done, :filed]))))
+    # Both states are on by default and as quiet as not done while they are;
+    # what gets said is an absence, since the open half is the narrower list.
     @test occursin("also done+filed away · open only",
-                   W.filter_summary(W.Filters(show = Set([:base, :done, :filed]))))
-    @test !occursin("closed", W.filter_summary(W.Filters(show = Set([:base, :closed]))))
+                   W.filter_summary(W.Filters(show = Set([W.NOT_DONE, :done, :filed]),
+                                              state = Set([:open]))))
+    @test !occursin("closed", W.filter_summary(W.DEFAULT_FILTERS()))
     @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
     @test occursin("nothing shown", W.filter_summary(W.Filters(show = Set{Symbol}())))
     # And it writes itself as a view, in the axis's own order. The default is
     # left out of the TOML while it is what is on, because that is what a view
     # naming no `show` gets anyway - and `show = []` is written, because an
     # empty axis is a real filter here rather than an unasked question. The
-    # base with `done` off is not the default and is written whole.
-    @test occursin("show = [\"base\", \"done\", \"filed\"]",
-                   W.view_toml(W.Filters(show = Set([:filed, :done, :base])), :latest, "x"))
-    @test occursin("show = [\"base\"]",
-                   W.view_toml(W.Filters(show = Set([:base])), :latest, "x"))
+    # same for `state`.
+    @test occursin("show = [\"not-done\", \"done\", \"filed\"]",
+                   W.view_toml(W.Filters(show = Set([:filed, :done, W.NOT_DONE])), :latest, "x"))
+    @test occursin("state = [\"open\"]",
+                   W.view_toml(W.Filters(state = Set([:open])), :latest, "x"))
     @test occursin("show = [\"done\", \"filed\"]",
                    W.view_toml(W.Filters(show = Set([:filed, :done])), :latest, "x"))
     @test occursin("show = []", W.view_toml(W.Filters(show = Set{Symbol}()), :latest, "x"))
+    @test occursin("state = []", W.view_toml(W.Filters(state = Set{Symbol}()), :latest, "x"))
     @test !occursin("show", W.view_toml(W.DEFAULT_FILTERS(), :latest, "x"))
+    @test !occursin("state", W.view_toml(W.DEFAULT_FILTERS(), :latest, "x"))
     # A view names the axes, and a misspelt value is said rather than ignored.
     @test occursin("only done", W.apply_view!(st, Dict("show" => ["done"])))
     @test st.filters.show == Set([:done])
-    # Named means named *whole*: a view that wants the base beside what it adds
-    # says so, and one that names no `show` at all keeps the default.
-    @test occursin("also done", W.apply_view!(st, Dict("show" => ["base", "done"])))
-    @test st.filters.show == Set([:base, :done])
+    # Named means named *whole*: a view that wants the dashboard beside what it
+    # adds says so, and one that names no `show` at all keeps the default.
+    @test occursin("also done", W.apply_view!(st, Dict("show" => ["not-done", "done"])))
+    @test st.filters.show == Set([W.NOT_DONE, :done])
+    @test occursin("open only", W.apply_view!(st, Dict("state" => ["open"])))
+    @test st.filters.show == W.SHOW_DEFAULT && st.filters.state == Set([:open])
     @test W.apply_view!(st, Dict("kind" => "pr")) isa String
-    @test st.filters.show == W.SHOW_DEFAULT
+    @test st.filters.show == W.SHOW_DEFAULT && st.filters.state == W.STATE_DEFAULT
     @test occursin("no show", W.apply_view!(st, Dict("show" => "raed")))
     @test occursin("no show", W.apply_view!(st, Dict("show" => ["done", "asleep"])))
-    # So is an axis that is not one either, which the three keys this one
-    # replaced would otherwise have become: a view still spelling `sleep` would
-    # have gone on being applied and meant something else.
+    # The retired spellings are misspellings now, not aliases: `base` and
+    # `closed` meant boxes on this axis and would otherwise show a different
+    # list than the view says.
+    @test occursin("no show 'base'", W.apply_view!(st, Dict("show" => ["base", "done"])))
+    @test occursin("no show 'closed'", W.apply_view!(st, Dict("show" => ["closed"])))
+    @test occursin("no state", W.apply_view!(st, Dict("state" => ["merged"])))
+    # So is an axis that is not one either, which the keys this one replaced
+    # would otherwise have become: a view still spelling `sleep` would have
+    # gone on being applied and meant something else.
     @test occursin("no axis 'sleep'", W.apply_view!(st, Dict("sleep" => ["awake"])))
     @test occursin("no axis 'seen'", W.apply_view!(st, Dict("seen" => ["unread"])))
     @test W.isdefault(st.filters)
@@ -392,7 +410,7 @@ end
     # back at launch - the filter and its order, the item under the cursor and
     # which of its views was up.
     st = mkstate()
-    W.apply_view!(st, Dict("show" => ["base", "done"], "kind" => "pr",
+    W.apply_view!(st, Dict("show" => ["not-done", "done"], "state" => ["open"], "kind" => "pr",
                            "repo" => ["JuliaLang/julia"], "sort" => "touched"))
     @test length(st.items) >= 2
     st.sel = 2; st.mode = :diff
@@ -663,8 +681,8 @@ end
     ctrl = W.Controller()
     rows = W.filter_rows(st)
     g = W.filter_groups(rows)
-    # reset, then show, tag, kind, category, repo, label, author
-    @test length(g) == 8
+    # reset, then show, state, tag, kind, lane, repo, label, author
+    @test length(g) == 9
     @test rows[1][1] === :reset && g[1] == 1    # the way out leads the pane
     @test all(r -> rows[r][1] !== :head, g)     # each lands on something pickable
 
@@ -813,9 +831,9 @@ end
     # open list with the done ones beside it, and nothing else - by url.
     W.apply_view!(st, Dict("author" => [W.AUTHOR_ME]))
     @test st.sort === :latest
-    W.apply_view!(st, Dict("show" => ["base", "done"]))
+    W.apply_view!(st, Dict("show" => ["not-done", "done"], "state" => ["open"]))
     @test st.sort === :name
-    W.apply_view!(st, Dict("show" => ["base", "done"], "tag" => ["second"]))
+    W.apply_view!(st, Dict("show" => ["not-done", "done"], "state" => ["open"], "tag" => ["second"]))
     @test st.sort === :moved            # a tag makes it a question, not a list
     # And the three built-in views land in the three orders without naming
     # them - which is what makes a view that does name one worth reading.
@@ -945,14 +963,14 @@ end
     @test W.lane_sort(W.Filters()) === :moved
     @test W.lane_sort(W.DEFAULT_FILTERS()) === :moved
     @test W.lane_sort(W.Filters(authors = Set([W.AUTHOR_ME]))) === :latest
-    @test W.lane_sort(W.Filters(show = Set([:base, :done]))) === :name
+    @test W.lane_sort(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open]))) === :name
     # The clock is the order of the clock *alone*: crossed with anything else it
     # is one axis of several and has no claim on how the list is read.
     @test W.lane_sort(W.Filters(tags = Set([:touched, :drafts]))) === :moved
     # And a tag on the backlog makes it a question rather than a list.
-    @test W.lane_sort(W.Filters(show = Set([:base, :done]), tags = Set([:second]))) === :moved
+    @test W.lane_sort(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open]), tags = Set([:second]))) === :moved
     # Yours outranks the backlog: my work names both, and is your work.
-    @test W.lane_sort(W.Filters(show = Set([:base, :done]), authors = Set([W.AUTHOR_ME]))) === :latest
+    @test W.lane_sort(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open]), authors = Set([W.AUTHOR_ME]))) === :latest
 
     st = mkstate()
     pick(axis, name) = (st.frow = findfirst(r -> r[1] === axis && r[2] == name,
@@ -986,8 +1004,8 @@ end
     # saved backlog by url, and one put by `w` into another order keeps it.
     @test !any(startswith("sort"), W.view_lines(W.Filters(), :moved))
     @test "sort = \"name\"" in W.view_lines(W.Filters(), :name)
-    @test !any(startswith("sort"), W.view_lines(W.Filters(show = Set([:base, :done])), :name))
-    @test "sort = \"moved\"" in W.view_lines(W.Filters(show = Set([:base, :done])), :moved)
+    @test !any(startswith("sort"), W.view_lines(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open])), :name))
+    @test "sort = \"moved\"" in W.view_lines(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open])), :moved)
 end
 
 @testset "the order is held while the list is read" begin

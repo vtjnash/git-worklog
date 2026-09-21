@@ -209,7 +209,7 @@ a control client about the pane it is on and nothing else.
 and `done`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
 list that does not name the `filed` box. That one asymmetry is why it is a
-mark of its own: the backlog is `base + done`, and leaves the filed work out.
+mark of its own: the backlog is not done and done, open, and leaves the filed work out.
 
 Only `e` writes `done_head`, the sha the read was made at, because only `e`
 knows what you were looking at; `s`, `x` and `wl done` stamp "not now" and
@@ -364,15 +364,22 @@ label), `issue` (`kind`), `stale` and `needs-nudge` (the second look says
 
 ## The browser's model
 
-**`show` is one axis that only adds.** Four boxes - `not done, open` · `done` ·
-`filed away` · `closed or merged` - each brings its own kind of row beside the
-others, and none can take another's away. The first and last are checked when
+**`show` and `state` are two axes that only add, asked separately.** `show`
+is three boxes - `not done` · `done` · `filed away` - and `state` two - `open`
+· `closed or merged`; a row has one value on each (`disp_of`, `over_of`;
+filed wins over the stamp, since filing stamps done), and is in when both
+are checked. Each box brings its own kind of row beside the others and takes
+none away, so the number beside it is a plain count against the other axes,
+the same whether it is on or off. Not done and both states are checked when
 nothing has been asked, so the screen cannot be emptied by accident, and `c`
-lands there rather than on the corpus. The number beside each is a delta:
-what checking it would bring, or unchecking it would take. `done` is asked of
-unfiled work only, because filing stamps done - a box that insisted on both
-would do nothing (`show_ok`). Three axes that could each be turned off were
-merged into this one because turning one off was never what anybody wanted.
+lands there rather than on the corpus. Three narrowing axes (`seen`, `sleep`,
+`state`) were merged into one adding axis on 2026-09-13 because a view naming
+one of them silently lost the dashboard; that axis then carried `closed` as
+a box a closed row needed *as well as* its own, and `base` as one cell, so
+two of its four boxes meant something different from the other two and every
+count was a with-minus-without. Split again on 2026-09-21 into two adding
+axes, which keeps what the merge was for - a view names an axis whole, empty
+is empty, `c` is the default - and makes the boxes one kind each.
 
 **A view names an axis whole.** `show = ["filed"]` is the filed work alone;
 naming no `show` keeps the default. An unknown axis or value is reported, not

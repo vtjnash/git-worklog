@@ -98,7 +98,7 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # copies the TOML for whatever filter you are looking at, to paste into
 # `data/config.toml`; the browser never writes that file.
 #
-# The axes: `show` (base, done, filed, closed), `tag` (reply, review, edits,
+# The axes: `show` (not-done, done, filed), `state` (open, closed), `tag` (reply, review, edits,
 # ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
 # `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
@@ -109,17 +109,19 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # implies: the three built-in views each open in the order made for them,
 # and `w` cycles from there.
 #
-# `show` is the one that only ever adds: each value brings a kind of row in
-# beside the others, and none of them takes another's rows away. `base` is the
-# not-done, unfiled and open work this dashboard is for, and `closed` is the
-# closed rows; a view that names no `show` at all gets both - unread and unfiled,
-# open or closed, which is the notification list and is what the firehose is,
-# so it names nothing. A view that does name `show` names the whole of it,
-# `base` included: `show = ["base", "done"]` is the open work with the done
-# ones beside it and no closed row at all - the backlog - and `show = ["filed"]`
-# is the filed work on its own. An axis or a value that is not one of the above is
-# reported when the view is applied rather than ignored - `seen`, `sleep` and
-# `state` were three axes here until they merged, and a view still naming one
+# `show` and `state` only ever add: each value brings a kind of row in beside
+# the others, and none of them takes another's rows away. A row is under one
+# value of each - `not-done` is the unfiled work that moved since you looked,
+# `done` the rest of the unfiled work, `filed` what you put away with `x`;
+# `open` or `closed` is GitHub's state - and is in when both are checked. A
+# view that names neither gets not-done, open or closed, which is the
+# notification list and is what the firehose is, so it names nothing. A view
+# that does name one names the whole of it: `show = ["not-done", "done"]` with
+# `state = ["open"]` is the open work with the done ones beside it and no
+# closed row at all - the backlog - and `show = ["filed"]` is the filed work
+# on its own. An axis or a value that is not one of the above is reported when
+# the view is applied rather than ignored - `seen` and `sleep` were axes here
+# once, `base` and `closed` values of `show`, and a view still naming one
 # would otherwise go on being applied and mean something else.
 #
 # [views."subtyping, quiet"]

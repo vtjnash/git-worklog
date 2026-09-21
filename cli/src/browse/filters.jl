@@ -12,29 +12,30 @@
 # first, which adds rather than narrows and where empty is therefore the empty
 # list. What each one asks, and what the answers cost:
 #
-#   * **show** - the three dispositions, merged into one axis that only ever
-#     adds. Four boxes, and no box can take another one's rows away. Three
-#     separate axes said the same thing and let you turn the dashboard off with
-#     them - `seen: read` alone hid everything that had moved, which is the one
-#     list nobody wants - and all but one of the built-in views had to spell
-#     `sleep = awake` to avoid it. What each value means:
-#       - **not done, open** - the open half of the dashboard, and a box that is
-#         on when nothing has been asked, so the screen cannot be emptied by
-#         accident. Unchecking it is how one of the other three is asked for
-#         *alone*, and the only way there is.
-#       - **done** - the done stamp against `moved_at` and against the snooze's
-#         wake time, and **nothing overrides it**: an item that moves is unread
-#         again whether it is snoozed, filed, yours or a stranger's. A review
-#         request, a mention and a reply all land here, which is why none of
-#         them needs a lane.
+#   * **show** - what you have done with it, one value per row of three, and
+#     an axis that only ever adds: a box brings its kind of row in beside the
+#     others and takes none away. Empty is therefore the empty list, and the
+#     box on when nothing has been asked is the first:
+#       - **not done** - the done stamp against `moved_at` and against the
+#         snooze's wake time says it moved since, and **nothing overrides
+#         it**: an item that moves is unread again whether it is snoozed,
+#         yours or a stranger's. A review request, a mention and a reply all
+#         land here, which is why none of them needs a lane.
+#       - **done** - the stamp is at or past the last movement.
 #       - **filed away** - your decision, and the only thing here GitHub cannot
-#         see. A mark, `x` writes it. Read, and held out of every view that
-#         does not name this box - which is what lets the backlog leave it out.
-#       - **closed or merged** - GitHub's `OPEN` against `CLOSED`/`MERGED`.
-#         On by default beside the base, since a closed thing that moved is
-#         news; a view that wants the open work alone names `show` without it.
-#     There was a fifth, **snoozed**, and it was not a disposition: a snoozed
-#     item is a read one with a wake time, so it is a tag now.
+#         see. A mark, `x` writes it, and it wins over the stamp: a filed row
+#         is filed whether or not it has moved since, and held out of every
+#         view that does not name this box - which is what lets the backlog
+#         leave it out.
+#     There was a fourth, **snoozed**, and it was not a disposition: a snoozed
+#     item is a done one with a wake time, so it is a tag now.
+#   * **state** - GitHub's `OPEN` against `CLOSED`/`MERGED`, two boxes, both
+#     on when nothing has been asked: a closed thing that moved is news. A
+#     view that wants the open work alone names `state = ["open"]`. The two
+#     axes are asked separately and a row has to pass both, which is what
+#     makes each box's count a plain total against the other rather than a
+#     delta that moved as its neighbours were toggled - `closed` used to be a
+#     box on the `show` axis that a closed row needed *as well as* its own.
 #   * **tag** - the things worth asking that are not any of the above, and
 #     several can be true of one row: a question waiting on you (`reply
 #     owed`), a review you were asked for (`review owed`), a pull request that
@@ -57,64 +58,65 @@
 # be a tag; tags compose and a bucket could not. The one thing it gave that
 # the tags do not is a single word for a row, and nothing was reading it.
 
-"""What to show: four boxes over the three dispositions, and two of them are the
-dashboard itself.
+"""What to show: three boxes, one per disposition, and the first is the
+dashboard.
 
 One axis, and it only ever adds - checking a box brings a kind of row *in
 beside* whatever is already there, and no box takes another one's rows away.
-`base` is the unread, unfiled and open work this program is for, and it is on
-when nothing has been asked: `c`, a fresh `Filters` and a view that names no
-`show` all leave it checked, so the screen cannot be emptied by accident.
-Unchecking it is how the other three are asked for *alone* - the filed work on
-its own rather than beside today's, which is the one question this axis could
-not be asked while the base was a floor with no control at all. Unchecking
-every box is an empty list: an empty set of things to show is no things, which
-is the honest reading of an axis that adds rather than narrows.
+Every row has exactly one of the three values (`disp_of`), so a box's count is
+its rows and nothing else's. `not done` is the unfiled work that moved since
+you looked, which is what this program is for, and it is on when nothing has
+been asked: `c`, a fresh `Filters` and a view that names no `show` all leave it
+checked, so the screen cannot be emptied by accident. Unchecking it is how the
+other two are asked for *alone* - the filed work on its own rather than beside
+today's. Unchecking every box is an empty list: an empty set of things to show
+is no things, which is the honest reading of an axis that adds rather than
+narrows.
 
-**`closed` is on by default too**, since 2026-09-13, and that is what makes the
-dashboard a notification list rather than a work list. A closed item that
+Open against closed is a second axis, `STATE`, asked of the same row on its
+own: the dashboard is not-done rows open *or* closed, since a closed item that
 moved - your pull request merged, a closed issue somebody commented on, a
-mention on a thread that was settled years ago - is unread like anything
-else, and until then it was held out of the one list that is about *today*
-and shown only to whoever thought to check the box. What `closed` adds beside
-the base is exactly those: closed *and* unread *and* unfiled, since a closed
-row you have done needs `done` as well, and one you filed needs `filed`. So
-the dashboard is `base + closed` - unread and unfiled, open or closed - and a
-view that wants the open work alone, done ones included, names
-`show = ["base", "done"]` and gets no closed row at all: the backlog is open
-work, and a closed thing is news, not backlog. Unchecking `closed` on the
-dashboard is how the closed news is put away for the moment.
+mention on a thread that was settled years ago - is unread like anything else,
+and the backlog is not-done and done rows, open only, because a closed thing
+is news and not work. Until 2026-09-21 `closed` was a fourth box on this axis
+that a closed row needed *as well as* its own, and `base` was one cell - not
+done *and* open - so two of the four boxes meant something different from the
+other two, and the number beside each was a delta that moved as its
+neighbours were toggled.
 
-`filed` brings what it names whether or not it has been read - see `show_ok`,
-which is where the one asymmetry in this axis is written down. "Show me what I
-put down for now" is a different question from "show me what I gave up on",
-and it is the `snoozed` tag over the `done` box rather than a box of its own:
-a snooze is a done mark with a wake time, and the wake is a reason to be
-unread again, not a place to be.
+`filed` wins over the stamp - see `disp_of`. "Show me what I put down for
+now" is a different question from "show me what I gave up on", and it is the
+`snoozed` tag over the `done` box rather than a box of its own: a snooze is a
+done mark with a wake time, and the wake is a reason to be unread again, not a
+place to be.
 
-The three readings the values come from are `seen_of`, `filed_of` and `over_of`
-- what merged is the control over them, not the facts.
+The readings the values come from are `seen_of`, `filed_of` and `over_of` -
+what is here is the control over them, not the facts.
+
+The mark is *done*, the GitHub inbox's and Gmail's word for a thread put
+away that comes back when it moves; *unread* stays the word for the fact -
+an item moved since your mark: the bold row, `why  unread:`, `wl unread` -
+and in this program those are the same two states. The TOML keys follow the
+labels, and so does the stamp in `local.toml`, `done`, and `wl done`.
 """
-# The mark is *done*, the GitHub inbox's and Gmail's word for a thread put
-# away that comes back when it moves; *unread* stays the word for the fact -
-# an item moved since your mark: the bold row, `why  unread:`, `wl unread` -
-# and in this program those are the same two states, so the base box is the
-# not-done half. The TOML keys follow the labels, and so does the stamp in
-# `local.toml`, `done`, and `wl done`.
-const SHOW = [(:base, "not done, open"), (:done, "done"),
-              (:filed, "filed away"), (:closed, "closed or merged")]
+const NOT_DONE = Symbol("not-done")
+const SHOW = [(NOT_DONE, "not done"), (:done, "done"), (:filed, "filed away")]
+
+"The other axis a row is in or out on: open, or closed and merged. See `SHOW`."
+const STATE = [(:open, "open"), (:closed, "closed or merged")]
 
 """The boxes that are on when nothing has been asked; see `isdefault` and `c`.
 
-The base and the closed ones - the dashboard is unread and unfiled work,
-whatever its state - and not the base alone, which is the *open* half of it
-and the floor the backlog stands on; see `SHOW`.
+Not done, open or closed - the dashboard is the unfiled work that moved,
+whatever its state - and not the open half alone, which is the floor the
+backlog stands on; see `SHOW`.
 
-Compared against, never pushed into - the `Filters` default below writes the set
-out again rather than naming this, because a shared mutable default would make
-one item's `show` every item's.
+Compared against, never pushed into - the `Filters` default below writes the
+sets out again rather than naming these, because a shared mutable default would
+make one item's `show` every item's.
 """
-const SHOW_DEFAULT = Set([:base, :closed])
+const SHOW_DEFAULT = Set([NOT_DONE])
+const STATE_DEFAULT = Set([:open, :closed])
 
 """The questions that are not an axis of their own.
 
@@ -203,15 +205,16 @@ Your own work is the author axis naming you, and it reads by the later of the
 two clocks: what you did to it counts for as much as what happened to it.
 
 The backlog is the open list with the done ones beside it and nothing else -
-`show` exactly `base` and `done`, no tag - and it is a standing list rather
-than news, so it reads in the order the file is written in, by url.
+`show` exactly not done and done, `state` open, no tag - and it is a standing
+list rather than news, so it reads in the order the file is written in, by url.
 
 Everything else is what moved, newest first, which is the order an inbox has
 and the answer use gave to the question this table used to leave open.
 """
 lane_sort(f) = f.tags == Set([:touched]) ? :touched :
                AUTHOR_ME in f.authors ? :latest :
-               f.show == Set([:base, :done]) && isempty(f.tags) ? :name : :moved
+               f.show == Set([NOT_DONE, :done]) && f.state == Set([:open]) &&
+                   isempty(f.tags) ? :name : :moved
 
 # Whose it is, as two values of the author axis that are not logins.
 #
@@ -225,14 +228,15 @@ const AUTHOR_ME = "@me"
 const AUTHOR_OTHERS = "@anyone-else"
 
 Base.@kwdef mutable struct Filters
-    show::Set{Symbol} = Set([:base, :closed]) # which kinds of row to show, of the
-                                           # four there are; base and done
-                                           # together are the dashboard and are
-                                           # what an unasked question answers.
-                                           # Empty shows nothing. Written out
-                                           # rather than `SHOW_DEFAULT`, which
-                                           # would be one set shared by every
-                                           # filter. `SHOW`
+    show::Set{Symbol} = Set([NOT_DONE])    # which kinds of row to show, of the
+                                           # three there are; not done is the
+                                           # dashboard and is what an unasked
+                                           # question answers. Empty shows
+                                           # nothing. Written out rather than
+                                           # `SHOW_DEFAULT`, which would be one
+                                           # set shared by every filter. `SHOW`
+    state::Set{Symbol} = Set([:open, :closed]) # and of the two states; both,
+                                           # unasked. Empty shows nothing. `STATE`
     tags::Set{Symbol} = Set{Symbol}()      # empty means no restriction; `TAGS`
     lanes::Set{String} = Set{String}()     # empty means every lane
     repos::Set{String} = Set{String}()     # empty means every repo
@@ -250,15 +254,15 @@ request, a mention, a reply, a push, a merge - which is the one list that is
 about *today*. Awake because "I do not want to see this" is a decision you made
 and honouring it by default is the whole of what it means.
 
-A bare `Filters`, because `show` defaults to the base box and the closed one:
-this list is what the program is, so it is what a filter says when it has been
-asked nothing. `c` clears the filters *to* it, the other two `SHOW` boxes are
-how the rest of the corpus comes back, and unchecking the base itself is how
-one of them is asked for alone.
+A bare `Filters`, because `show` defaults to the not-done box and `state` to
+both of its: this list is what the program is, so it is what a filter says when
+it has been asked nothing. `c` clears the filters *to* it, the other two `SHOW`
+boxes are how the rest of the corpus comes back, and unchecking not done itself
+is how one of them is asked for alone.
 """
 DEFAULT_FILTERS() = Filters()
 
-"""Every row there is: all five boxes on.
+"""Every row there is: every box on, on both axes.
 
 The corpus, which used to be what a bare `Filters` meant. Two places need it -
 a jump to one item by number and a jump to the item a worktree belongs to -
@@ -275,12 +279,12 @@ time all reach the same place, and the row that offers to clear it should say
 so in all four.
 
 `c` clears to where the browser opens rather than to the corpus: every axis
-empty, and `show` back to the base box and the closed one, which is what an
+empty, `show` back to the not-done box and `state` to both, which is what an
 unasked question answers here. `\`` is the way back to what you had, and the
 other two `SHOW` boxes are the way back out to the corpus.
 """
 isdefault(f::Filters) =
-    f.show == SHOW_DEFAULT && isempty(f.tags) &&
+    f.show == SHOW_DEFAULT && f.state == STATE_DEFAULT && isempty(f.tags) &&
     f.kind === :both && isempty(f.lanes) && isempty(f.repos) &&
     isempty(f.labels) && isempty(f.authors)
 
@@ -433,45 +437,38 @@ function tags_of(it::Item, m::Marks = Marks())
     out
 end
 
-"""Is a row in, on the merged disposition axis?
+"""Which `SHOW` box a row is under: filed wins, else the stamp.
 
-    show_ok(show, seen, filed, over) -> Bool
+    disp_of(seen, filed) -> :not-done | :done | :filed
 
-A row is in where `show` names **every way in which it is not base work** - and
-a row that deviates in no way at all is base work, which is in where `:base` is
-named. So the three clauses below are one rule read three times: each says "this
-is how the row differs, and the box for it has to be on".
-
-**`done` is a question about unfiled work only**, which is the one thing here
-that is not symmetric and is the point of the whole axis. Filing something
-stamps it read - see `archive!` - so a `filed` box that also insisted on the
-done stamp would have shown nothing at all, and the reader would have had a
-control that did not work rather than a list. What you filed is what you filed,
-read or not; the done stamp is how the *pile* gets shorter, and the filed mark
-is how the backlog gets shorter without the pile changing.
-
-Closed is asked of every row, since nothing about closing an item says whether
-it has been looked at. So a row can be held out twice - a closed pull request
-you read last week needs both `done` and `closed` - which is what makes the count
-beside a box a delta rather than a total: see `axis_counts`.
-
-The base clause is last and is the only one that is about the *absence* of a
-deviation: a read one, a filed one and a closed one each answer to their own
-box whether or not the base is on, which is what makes "the filed ones alone" a
-question this axis can be asked. Unchecking every box shows nothing, and that is
-the honest reading of it rather than a case to special-case.
-
-Monotone in `show` by construction, and `axis_counts` relies on it: adding a
-value can only ever bring rows in.
+Filing stamps done - see `archive!` - so a `filed` box that also asked the
+stamp would have shown nothing at all, and the reader would have had a control
+that did not work rather than a list. What you filed is what you filed, moved
+since or not; the done stamp is how the *pile* gets shorter, and the filed mark
+is how the backlog gets shorter without the pile changing. So a filed row is
+under `filed` whatever its stamp says, and the other two boxes are asked of
+unfiled rows only.
 """
-show_ok(show::Set{Symbol}, sn::Symbol, fd::Bool, ov::Symbol) =
-    (fd ? :filed in show : (sn === :unread || :done in show)) &&
-    (ov === :open || :closed in show) &&
-    (:base in show || !(!fd && sn === :unread && ov === :open))
+disp_of(sn::Symbol, fd::Bool) = fd ? :filed : sn === :unread ? NOT_DONE : :done
+
+"""Is a row in, on the two disposition axes?
+
+    show_ok(show, state, seen, filed, over) -> Bool
+
+Two memberships: the row's `SHOW` value is checked, and its `STATE` value is.
+Each axis is a set of the values it lets through and a row has exactly one
+value on each, so adding a box can only ever bring rows in, and `axis_counts`
+relies on that: the number beside a box is its rows that pass the *other*
+axis, the same number whether it is on or off. Unchecking every box on either
+axis shows nothing, and that is the honest reading of it rather than a case to
+special-case.
+"""
+show_ok(show::Set{Symbol}, state::Set{Symbol}, sn::Symbol, fd::Bool, ov::Symbol) =
+    disp_of(sn, fd) in show && ov in state
 
 "The same, asked of an item."
 shown(f::Filters, it::Item, m::Marks = Marks()) =
-    show_ok(f.show, seen_of(it, m), filed_of(it, m), over_of(it))
+    show_ok(f.show, f.state, seen_of(it, m), filed_of(it, m), over_of(it))
 
 """The timestamp a sorted list is ordered by, under one of three readings of
 when.
@@ -585,41 +582,36 @@ function matches(f::Filters, it::Item, m::Marks = Marks())
 end
 
 """
-    axis_counts(st) -> (; shows, tags, kinds, lanes, repos, labels, authors)
+    axis_counts(st) -> (; shows, states, tags, kinds, lanes, repos, labels, authors)
 
 How many items each filter value would select, in one pass over the items.
 
 Every count is against the *other* axes only - a category shows what selecting
 it would add, not a total that ignores the rest of the filter - so there is one
-predicate per axis over the same item, seven of them, and computing them together
+predicate per axis over the same item, eight of them, and computing them together
 is what makes this one pass instead of one per row. It was a pass per row: 93 rows
 over 2050 items came to 190,650 `matches` calls per build and two builds per
 keystroke, which made the filter pane the only part of the UI with visible lag -
 128ms a frame against 0.7ms for the item list.
 
-`shows` is the one that is not a tally of values, because its five are not
-alternatives: it is what each box is *worth* - the rows it alone is holding in,
-or would bring in. A closed item you have read needs both boxes and is counted
-under neither until one of them is on, which is the honest answer to "what does
-pressing this do". The base box is counted the same way, so the number beside it
-is what unchecking it would cost.
+`shows` and `states` are tallies like the rest, since a row has one value on
+each: the number beside a box is its rows that pass every other axis, which is
+what checking it would bring or unchecking it would take - the same number
+either way. They were not, while closed was a box on `show` that a closed row
+needed as well as its own: each box was then worth a with-minus-without.
 """
 function axis_counts(st)
     f, m = st.filters, Marks(st)
-    shows = Dict{Symbol,Int}(); tagn = Dict{Symbol,Int}()
+    shows = Dict{Symbol,Int}(); states = Dict{Symbol,Int}(); tagn = Dict{Symbol,Int}()
     kinds = Dict{Symbol,Int}(); lanes = Dict{String,Int}()
     repos = Dict{String,Int}(); labels = Dict{String,Int}()
     authors = Dict{String,Int}()
     bump!(d, k) = d[k] = get(d, k, 0) + 1
-    # One set per value, built once rather than per row: the count for a box is
-    # what it changes, which is the difference between the filter with it on and
-    # the same filter with it off.
-    with = Dict(k => union(f.show, [k]) for (k, _) in SHOW)
-    without = Dict(k => setdiff(f.show, [k]) for (k, _) in SHOW)
     for it in st.all
         sn, sl, ov, tg = seen_of(it, m), filed_of(it, m), over_of(it), tags_of(it, m)
+        dp = disp_of(sn, sl)
         # Every axis, answered once, in the order the pane draws them.
-        ok = (show_ok(f.show, sn, sl, ov),
+        ok = (dp in f.show, ov in f.state,
               isempty(f.tags) || any(in(f.tags), tg),
               kind_ok(f.kind, it), author_ok(f.authors, it),
               isempty(f.lanes) || it.lane in f.lanes,
@@ -632,40 +624,34 @@ function axis_counts(st)
         # per axis per row.
         nfail = count(!, ok)
         others(i) = nfail == 0 || (nfail == 1 && !ok[i])
-        if others(1)
-            for (k, _) in SHOW
-                # On or off, the number beside a box is the same number: the
-                # rows that are in with it and out without it.
-                (show_ok(with[k], sn, sl, ov) && !show_ok(without[k], sn, sl, ov)) &&
-                    bump!(shows, k)
-            end
-        end
-        if others(2)
+        others(1) && bump!(shows, dp)
+        others(2) && bump!(states, ov)
+        if others(3)
             for t in tg
                 bump!(tagn, t)
             end
         end
-        if others(3)
+        if others(4)
             for (k, _) in KINDS
                 kind_ok(k, it) && bump!(kinds, k)
             end
         end
-        if others(4)
+        if others(5)
             # One item counts towards its own author *and* towards whichever of
             # the two predicates it answers, since picking either would bring it.
             isempty(it.author) || bump!(authors, it.author)
             author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
             author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
         end
-        others(5) && bump!(lanes, it.lane)
-        others(6) && bump!(repos, it.repo)
-        if others(7)
+        others(6) && bump!(lanes, it.lane)
+        others(7) && bump!(repos, it.repo)
+        if others(8)
             for l in it.labels
                 bump!(labels, l)
             end
         end
     end
-    (; shows, tags = tagn, kinds, lanes, repos, labels, authors)
+    (; shows, states, tags = tagn, kinds, lanes, repos, labels, authors)
 end
 
 apply_filters(f, all, m::Marks = Marks()) = [it for it in all if matches(f, it, m)]
@@ -726,8 +712,9 @@ axis_set(f::Filters, axis::Symbol) =
     axis === :lane ? f.lanes : axis === :repo ? f.repos :
     axis === :label ? f.labels : f.authors
 
-"The same, for the two axes whose values are symbols rather than names."
-sym_set(f::Filters, axis::Symbol) = axis === :show ? f.show : f.tags
+"The same, for the three axes whose values are symbols rather than names."
+sym_set(f::Filters, axis::Symbol) =
+    axis === :show ? f.show : axis === :state ? f.state : f.tags
 
 "How a value of `axis` is written in the pane. Only the author axis has any."
 axis_label(axis::Symbol, v::AbstractString) =
@@ -760,17 +747,19 @@ const VIEWS = [
     ("notification firehose — unread, open or closed", Dict{String,Any}()),
     # The two modes that are left. Which work is yours is the author axis; what
     # has moved is the base. One axis per question, and neither of them a lane.
-    # This one is the *open* work, read or not: it names `show` the way the
-    # backlog does, because left to the default it was the base and the closed
-    # rows - your merged pull requests standing in for the ones you have read
-    # and are still carrying, which is the opposite of what the view is for.
+    # This one is the *open* work, done or not: it names `show` and `state` the
+    # way the backlog does, because left to the default it was the not-done
+    # rows open or closed - your merged pull requests standing in for the ones
+    # you have done and are still carrying, which is the opposite of what the
+    # view is for.
     ("my work — mine, open, done ones too",
-                       Dict("author" => [AUTHOR_ME], "show" => ["base", "done"])),
-    # The backlog. It names `show` and leaves `closed` out of it, which is the
-    # one place the two boxes the dashboard opens with come apart: a closed
-    # thing that moved is news and belongs in the firehose, and it is not
-    # work and does not belong here.
-    ("open items — the backlog, done ones too", Dict("show" => ["base", "done"])),
+                       Dict("author" => [AUTHOR_ME], "show" => ["not-done", "done"],
+                            "state" => ["open"])),
+    # The backlog. It names `state` open only, which is the one place it and
+    # the dashboard come apart: a closed thing that moved is news and belongs
+    # in the firehose, and it is not work and does not belong here.
+    ("open items — the backlog, done ones too",
+                       Dict("show" => ["not-done", "done"], "state" => ["open"])),
     ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
@@ -781,15 +770,15 @@ const VIEWS = [
     # state. See `TAGS`.
     ("unanswered — unread, reply owed", Dict("tag" => ["reply"])),
     ("snoozed — put down for a while", Dict("show" => ["done"], "tag" => ["snoozed"])),
-    # The corpus, which no longer has a keystroke of its own: it is the base
-    # with the three things it leaves out added back to it, and it names all
-    # four because a view that names the axis names the whole of it.
+    # The corpus, which no longer has a keystroke of its own: it is the
+    # dashboard with the two things it leaves out added back to it, and it
+    # names all three because a view that names the axis names the whole of it.
     ("everything — done, filed and closed too",
-                       Dict("show" => ["base", "done", "filed", "closed"])),
+                       Dict("show" => ["not-done", "done", "filed"])),
 ]
 
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
-const VIEW_KEYS = ("show", "tag", "kind", "lane", "repo", "label", "author", "sort")
+const VIEW_KEYS = ("show", "state", "tag", "kind", "lane", "repo", "label", "author", "sort")
 
 "Every view: the built-in ones, then whatever `[views]` in the config adds or replaces."
 function views(cfg = config())
@@ -819,14 +808,16 @@ function apply_view!(st, d)
     # item happened to be yours. `config.toml` writes these by hand.
     #
     # And no alias for a spelling that has been retired. `show` was `base`,
-    # `read`, `filed`, `done` until 2026-09-21, when the boxes were renamed
-    # and `done` moved from the closed-or-merged box to the read one: a view
-    # from before, read quietly under the new names, would show a different
-    # list than it says, so it is reported here like a misspelt one.
-    for (key, values, set) in (("show", SHOW, f.show), ("tag", TAGS, f.tags))
+    # `read`, `filed`, `done` until 2026-09-21, when the boxes were renamed,
+    # `done` moved from the closed-or-merged box to the read one, and open
+    # against closed became `state`: a view from before, read quietly under
+    # the new names, would show a different list than it says, so it is
+    # reported here like a misspelt one.
+    for (key, values, set) in (("show", SHOW, f.show), ("state", STATE, f.state),
+                               ("tag", TAGS, f.tags))
         haskey(d, key) || continue
-        # Named means named *whole*, the base box included - a view that says
-        # `show` says which of the five are checked, and one that says nothing
+        # Named means named *whole*, the not-done box included - a view that says
+        # `show` says which of its boxes are checked, and one that says nothing
         # keeps the default the fresh `Filters` above already has. Emptying
         # first is what makes "the filed ones alone" nameable, and it is the
         # same rule as every other axis: a name means one list, from anywhere.
@@ -840,8 +831,8 @@ function apply_view!(st, d)
     end
     # And an axis that is not one of them is said too, for the same reason a
     # value that is not one of the axis's is: an unknown key filters nothing, so
-    # a view that names one quietly shows more than it says. `seen`, `sleep` and
-    # `state` were three keys here until the dispositions merged, and a
+    # a view that names one quietly shows more than it says. `seen` and
+    # `sleep` were keys here until the dispositions merged, and a
     # `config.toml` still spelling them would otherwise go on working and mean
     # something else.
     for key in keys(d)
@@ -891,9 +882,10 @@ view_toml(f::Filters, order::Symbol, name::AbstractString = "a name") =
 function view_lines(f::Filters, order::Symbol)
     lines = String[]
     # Written unless it is what a view that names no `show` would get anyway -
-    # which is the base box and the closed one, not the empty set: `show = []`
-    # is a real filter here, and one that has to survive being written down.
+    # which is the not-done box, not the empty set: `show = []` is a real
+    # filter here, and one that has to survive being written down.
     for (key, values, set, quiet) in (("show", SHOW, f.show, SHOW_DEFAULT),
+                                      ("state", STATE, f.state, STATE_DEFAULT),
                                       ("tag", TAGS, f.tags, Set{Symbol}()))
         set == quiet && continue
         # In the axis's own order rather than the set's, so the same filter
@@ -915,8 +907,8 @@ function view_lines(f::Filters, order::Symbol)
     lines
 end
 
-"""Rows for the filter pane: the way out, what to show, the tags, the kind
-radio, then four more checkbox axes.
+"""Rows for the filter pane: the way out, what to show and in which state, the
+tags, the kind radio, then four more checkbox axes.
 
 Counts are computed against the other axes only, so a category shows how many
 items selecting it would actually add rather than a total that ignores the rest
@@ -931,19 +923,20 @@ function filter_rows(st)
     # the pane is the one place the cursor can reach without reading anything.
     push!(rows, (:reset, "", string("  ↺ clear every filter",
                                     isdefault(f) ? "" : "  (c)")))
-    # The two axes that are about the item and you rather than about what it is,
-    # and neither is a partition: a row can carry all three tags or none, and
-    # `show` is five kinds of row that are each in or out on their own. The
-    # number beside a box is what checking it would bring, or what unchecking it
-    # would take away - the same number either way, which is the only one worth
-    # printing next to a control.
+    # The three axes that are about the item and you rather than about what it
+    # is. `show` and `state` partition the rows - one value each - and the tags
+    # do not: a row can carry all three or none. The number beside a box is
+    # what checking it would bring, or what unchecking it would take away - the
+    # same number either way, which is the only one worth printing next to a
+    # control.
     #
-    # The base leads its axis and is a box like the other four, so the count
+    # Not done leads its axis and is a box like the other two, so the count
     # beside it says what the dashboard is currently worth and the cursor can
     # take it off. It is the one box whose being on is the default rather than a
     # choice, which is what `c` puts back.
     for (axis, label, values, tally, sel) in
             ((:show, "show", SHOW, n.shows, f.show),
+             (:state, "state", STATE, n.states, f.state),
              (:tag, "tag", TAGS, n.tags, f.tags))
         push!(rows, (:head, "", label))
         for (k, name) in values
@@ -1056,7 +1049,7 @@ function toggle_filter!(st, ctrl = nothing)
     rows = filter_rows(st)
     st.frow = clamp(st.frow, 1, length(rows))
     (axis, val, _) = rows[st.frow]
-    if axis in (:show, :tag)
+    if axis in (:show, :state, :tag)
         set, v = sym_set(st.filters, axis), Symbol(val)
         v in set ? delete!(set, v) : push!(set, v)
         # A selection brings its order with it. `w` is still the override, and
@@ -1184,25 +1177,28 @@ end
 "One-line summary of what is applied, for the frame title."
 function filter_summary(f, order::Symbol = lane_sort(f))
     parts = String[]
-    # The base is not named while it is on, on the argument the sort key makes a
-    # few lines down: it is true of almost every screen there is, so saying it
+    # Not done is not named while it is on, on the argument the sort key makes
+    # a few lines down: it is true of almost every screen there is, so saying it
     # on each one is a phrase the reader stops seeing. What is worth saying is
     # what has been added to it - and where nothing else is applied either, the
-    # base is the whole answer and is said at the end. `closed` is on by default
-    # beside it and is as unremarkable while it is; what is said about it is
-    # its *absence*, since a dashboard without its closed rows is a narrower
+    # dashboard is the whole answer and is said at the end. Both states are on
+    # by default and as unremarkable while they are; what is said about them is
+    # an *absence*, since a dashboard without its closed rows is a narrower
     # list than the one the browser opens on, and "open only" is what it is.
     #
-    # Off, the base is the most important thing on the screen and is said
+    # Off, not done is the most important thing on the screen and is said
     # first: a list with the dashboard taken out of it looks like a list that
     # has lost rows, and "only" is the word that stops it reading as a bug.
-    if :base in f.show
-        rest = [last(x) for x in SHOW if !(first(x) in SHOW_DEFAULT) && first(x) in f.show]
+    if NOT_DONE in f.show
+        rest = [last(x) for x in SHOW if first(x) !== NOT_DONE && first(x) in f.show]
         isempty(rest) || push!(parts, string("also ", join(rest, "+")))
-        :closed in f.show || push!(parts, "open only")
     else
-        rest = [last(x) for x in SHOW if first(x) !== :base && first(x) in f.show]
+        rest = [last(x) for x in SHOW if first(x) in f.show]
         push!(parts, isempty(rest) ? "nothing shown" : string("only ", join(rest, "+")))
+    end
+    if f.state != STATE_DEFAULT
+        push!(parts, isempty(f.state) ? "nothing shown" :
+                     :open in f.state ? "open only" : "closed only")
     end
     isempty(f.tags) ||
         push!(parts, join([last(x) for x in TAGS if first(x) in f.tags], "+"))

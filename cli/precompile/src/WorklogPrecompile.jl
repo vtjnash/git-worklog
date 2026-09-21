@@ -211,7 +211,7 @@ end
                     Worklog.render(st, w, h)
                 end
                 Worklog.refilter!(st)
-                Worklog.apply_view!(st, Dict("show" => ["base", "done"]))
+                Worklog.apply_view!(st, Dict("show" => ["not-done", "done"], "state" => ["open"]))
                 Worklog.apply_view!(st, Dict("show" => ["snoozed"], "kind" => "pr"))
                 Worklog.filter_summary(st.filters, st.sort)
                 Worklog.view_toml(st.filters, st.sort, "a name")
