@@ -2157,7 +2157,7 @@ end
     @test !occursin("changes requested\n", plain) && !occursin("approved and green", plain)
     @test occursin("reply     mentioned you 2d ago; last word is theirs", plain)
     @test occursin("why       done\n", plain)
-    @test endswith(plain, "track     normal  wl track")
+    @test endswith(plain, "track     normal")
 end
 
 @testset "your own keystrokes are not news" begin

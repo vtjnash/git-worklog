@@ -735,13 +735,17 @@ end
 
     line = W.astrip(W.render(st, 200, 40))
     # Every key the list and the detail bind should be findable in the footer.
-    for k in ("? help", "f filters", "d diff", "h thread", "c checks", "l log", "y copy",
-              "/ search", "n/N node", "j/k line", "space/b page",
-              "q quit", "tab pane", "C comment", "A review", "M merge", "L labels",
+    for k in ("? help", "f filters", "d diff", "h thread", "c checks", "y copy",
+              "/ search/jump", "n/N node", "j/k line", "space/b page",
+              "C comment", "A review", "M merge", "L labels",
               "e done/not done", "u update all", "R reload", "s snooze", "z undo",
-              "v note", "o code", "\u21e7j/k select",
-              "t term", "T agent", "\" worktrees", "m mouse")
+              "v note", "o code", "t term", "T agent", "\" worktrees", "m mouse")
         @test occursin(k, line)
+    end
+    # Nor `q`, `tab`, `l` and `\u21e7j/k`: the help says them, `l` is offered on
+    # the failing job's own row, and the columns were wanted.
+    for k in ("q quit", "tab pane", "l log", "\u21e7j/k")
+        @test !occursin(k, line)
     end
     # Except `I`, which is the one key whose control is on screen already: the
     # import row leads the list, permanently, and says what it does. A second
@@ -755,7 +759,7 @@ end
     # The navigation runs at the end, so a narrow screen keeps what is worth
     # reading rather than cutting it first.
     @test findfirst("d diff", line)[1] < findfirst("j/k line", line)[1]
-    @test findfirst("/ search", line)[1] < findfirst("space/b page", line)[1]
+    @test findfirst("/ search/jump", line)[1] < findfirst("space/b page", line)[1]
 end
 
 @testset "labels are a filter axis" begin

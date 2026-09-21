@@ -233,24 +233,25 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # what changes something. The status keeps the bottom row, where it has
     # always been and where the eye already goes for it.
     # Worst-first is the wrong order for a line that gets cut on a narrow
-    # screen: `j/k` and `q` are the keys nobody needs told, so the navigation
-    # runs at the end and what is worth reading is at the front. `?` is at the
-    # very front, because it is the key that names the rest, and it took
-    # `g/G`'s place under the rule below: the help says it.
+    # screen: `j/k` is the key nobody needs told, so the navigation runs at
+    # the end and what is worth reading is at the front. `?` is at the very
+    # front, because it is the key that names the rest, and it took `g/G`'s
+    # place under the rule below: the help says it. `q`, `tab`, `l` and
+    # `⇧j/k` are not here for the same reason - the help says them, `l`
+    # is offered on the failing job's own row, and the columns were wanted.
     # What is applied is on the title bar, and was here too. One copy: the axes
     # are sets now, so the summary is as long as the selection rather than one
     # word, and this row was already being cut at 200 columns with `M` on it.
     keys1 = string("? help \u00b7 f filters \u00b7 \' views \u00b7 w sort \u00b7 ",
-                   "d diff \u00b7 h thread \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 l log \u00b7 ",
-                   "y copy \u00b7 / search \u00b7 ",
+                   "d diff \u00b7 h thread \u00b7 p pushed \u00b7 c checks \u00b7 [/] context \u00b7 ",
+                   "y copy \u00b7 / search/jump \u00b7 ",
                    # What `\u21b5` does depends on where the cursor is, and a
                    # footer that names only one of the three is why the row at
                    # the top of the list needed explaining twice.
                    st.focus === :detail ? "\u21b5 fold \u00b7 " :
                    st.sel == 0 ? "\u21b5 import \u00b7 " : "\u21b5 read \u00b7 ",
                    "n/N node \u00b7 ",
-                   "j/k line \u00b7 space/b page \u00b7 ",
-                   "q quit \u00b7 tab pane")
+                   "j/k line \u00b7 space/b page")
     nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
     # `I import` is not in here, and is the only key that is not: its control is
     # the row at the top of the list, permanently on screen and saying what it
@@ -259,19 +260,13 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     keys2 = string("C comment \u00b7 A review", nb, " \u00b7 M merge \u00b7 L labels \u00b7 e done/not done \u00b7 u update all \u00b7 R reload \u00b7 s snooze \u00b7 ",
                    "z undo", isempty(st.undos) ? "" : string("(", length(st.undos), ")"),
                    " \u00b7 v note \u00b7 x archive \u00b7 o code \u00b7 t term \u00b7 T agent \u00b7 \" worktrees \u00b7 ",
-                   # Beside the mouse, which is the other half of it: a
-                   # selection is made with either and copied with `y`. The
-                   # first row is full - it was cut at 200 columns with this on
-                   # it - and this row had the space.
-                   #
-                   # It no longer has: with `M` on it this row is 194 columns
-                   # and everything past `t term` is cut below 160. Both rows
-                   # are now over budget, so the next key added has to take
-                   # somebody's place rather than be appended - and what it
-                   # should take is decided by row one's rule, which is that
-                   # the keys nobody needs told run at the end.
-                   "\u21e7j/k select \u00b7 m mouse ",
-                   st.mouse ? "on" : "off")
+                   # With `M` on it this row was 194 columns and everything
+                   # past `t term` was cut below 160. Both rows are over
+                   # budget, so the next key added has to take somebody's place
+                   # rather than be appended - and what it should take is
+                   # decided by row one's rule, which is that the keys nobody
+                   # needs told run at the end.
+                   "m mouse ", st.mouse ? "on" : "off")
     # A logged error, or a theme that did not load, outranks both: it is
     # standing, and stays until the file naming it is deleted or the line is
     # fixed.

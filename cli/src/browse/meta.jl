@@ -567,10 +567,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     seen, words = seen_of(it, marks), moved_words(it, marks)
     kv("why", seen === :unread ?
               (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) : "done")
-    # By the command's own word, and the command's name, since there is no
-    # key for it. What the level means is the command's help; said here it
-    # wrapped the row on every item.
-    kv("track", string(it.track, "  ", THEME.dim, "wl track", THEME.reset))
+    # By the command's own word. What the level means is the command's help;
+    # said here it wrapped the row on every item, and `;` is the key for it.
+    kv("track", it.track)
     # When it wakes, while it is asleep; once the snooze has gone, that
     # there was one, and whether it woke or was cleared by hand
     # (`last_snooze`, which outlives the snooze) - the one place the wake's

@@ -256,11 +256,11 @@ end
     plain = W.astrip(join(lines, "\n"))
     # Everything cheap comes from facts.json and is there before any fetch.
     # The written-down block is headed by the file it is in, and the level is
-    # named by the command's word, with what it means and how to change it.
+    # named by the command's word; `;` is how it changes, so no command is named.
     @test occursin("local", plain)
     @test !occursin("tracking", plain) && !occursin("level", plain)
     @test occursin(string("track     ", it.track), plain)
-    @test occursin("wl track", plain)
+    @test !occursin("wl track", plain)
     # Which search claimed it is a fact and sits with the facts - above the
     # written-down block, not inside it. Why it is in front of you is under
     # `local`, with the marks.
