@@ -735,7 +735,7 @@ end
                 @test cv.title == "Fast-forward ff in main-ff?"
                 @test cv.notes[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
                 @test cv.notes[end - 1] == "y runs git merge --ff-only there"
-                @test cv.notes[end] == "push.useForceIfIncludes is not set \u00b7 any fetch moves origin/ff, which is all --force-with-lease checks"
+                @test cv.notes[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 @test isempty(asked())
                 W.git(main, "config", "push.useForceIfIncludes", "true")
                 # `n` goes in as it is, and the place is looked at: the agent
@@ -932,14 +932,14 @@ end
                                  repo = pr.repo, number = 43, title = "leased", branch = "lease",
                                  head = ltip)
                 W.git(main, "config", "push.useForceIfIncludes", "false")
-                @test occursin("any fetch moves origin/lease", W.lease_note(main, pr.repo, "lease"))
+                @test occursin("fetches move origin/lease", W.lease_note(main, pr.repo, "lease"))
                 @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Check out lease in main?"
                 @test occursin("gh pr checkout 43", cv.notes[end - 1])
-                @test cv.notes[end] == "push.useForceIfIncludes is not set \u00b7 any fetch moves origin/lease, which is all --force-with-lease checks"
+                @test cv.notes[end] == "fetches move origin/lease, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 for (w, h) in ((80, 24), (165, 50))
                     ls = split(W.render(cv, w, h), "\n")
                     @test length(ls) == h && all(W.awidth(l) == w for l in ls)

@@ -608,8 +608,8 @@ function lease_note(path, repo::AbstractString, branch::AbstractString)
     end
     v == "true" && return ""
     r = remote_for(path, repo)
-    string("push.useForceIfIncludes is not set \u00b7 any fetch moves ", r, "/", branch,
-           ", which is all --force-with-lease checks")
+    string("fetches move ", r, "/", branch, ", which breaks --force-with-lease \u00b7 " *
+           "git config --global push.useForceIfIncludes true fixes it")
 end
 
 "How many commits `b` has that `a` does not, and 0 when git will not say."

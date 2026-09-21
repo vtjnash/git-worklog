@@ -978,8 +978,10 @@ ConfirmView(title, notes, onyes; kw...) =
 function render(v::ConfirmView, w::Int, h::Int)
     b = dialogbox(w; width = 76)
     out = [b.head(v.title)]
-    for n in v.notes
-        push!(out, b.row(n, THEME.dim))
+    # A note is prose - the lease line, why a branch is behind - and prose
+    # that outgrows the box is wrapped, not cut at the width.
+    for n in v.notes, l in awrap(n, b.iw)
+        push!(out, b.row(l, THEME.dim))
     end
     push!(out, b.foot())
     push!(out, b.hint(v.hint))
