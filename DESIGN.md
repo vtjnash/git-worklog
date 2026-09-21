@@ -953,9 +953,10 @@ Each of the following returns success and the wrong answer:
   fields that can change from here have keys - `L`, `s`, `v`, and `;`,
   one key and a picker the way `'` opens views - not a cursor on the pane.
   `;` is the one lowercase key with GitHub behind it: `track` is its first
-  row and this machine's, and the milestone, the assignee and the reviewer
-  are the rest, since a capital each is three keys the footer has no room
-  for. The picker's note says which is which, and `z` undoes only the first.
+  row and this machine's, and the milestone, the assignee, the reviewer,
+  the state and the title are the rest, since a capital each is five keys
+  the footer has no room for. The picker's note says which is which, and
+  `z` undoes only the first. Closing and reopening ask, as `M` does.
 - **A pane's environment is paths that do not move, not a passthrough.**
   Only a shell could re-read the session environment, and only with a hook
   in the user's rc; the agent in a `T` pane and the editor in a `v` pane

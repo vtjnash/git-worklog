@@ -219,8 +219,10 @@ end
         W.handle!(st, Int(';'), ctrl)
         ch = last(ctrl.stack)
         @test ch isa W.ChooseView && ch.numbered
-        @test [o[2] for o in ch.options] == (it.is_pr ? [:track, :milestone, :assignee, :reviewer] :
-                                                       [:track, :milestone, :assignee])
+        @test [o[2] for o in ch.options] ==
+            vcat([:track, :milestone, :assignee], it.is_pr ? [:reviewer] : [],
+                 it.state == "MERGED" ? [] : [:state], [:title])
+        @test occursin(string("title      ", it.title), ch.options[end][1])
         @test occursin(string("track      ", it.track), ch.options[1][1])
         @test occursin("GitHub", ch.note) && occursin("z does not undo", ch.note)
         pop!(ctrl.stack)
@@ -283,6 +285,43 @@ end
             @test startswith(rv.options[1][1], "[x] ") && startswith(rv.options[3][1], "[ ] ")
             st.metakey = ""; st.meta = nothing
         end
+        # The title asks with the current one in the line; the same answer,
+        # or none, writes nothing.
+        ch.onpick(:title)
+        tv = pop!(ctrl.stack)
+        @test tv isa W.PromptView && W.text(tv) == it.title
+        st.status = ""
+        tv.onsubmit(it.title)
+        @test st.status == ""
+        # The state offers the moves from where it is - on whichever rows
+        # have them, since the one under the cursor here is merged and has
+        # none. Closing and reopening ask first, and the question's y is the
+        # write; the draft flip does not ask.
+        op = findfirst(x -> x.state == "OPEN" && x.is_pr && !W.islocal(x), st.items)
+        if op !== nothing
+            pr = st.items[op]
+            W.state_action(st, ctrl, pr)
+            sv = pop!(ctrl.stack)
+            @test sv isa W.ChooseView
+            @test [o[2] for o in sv.options] == [pr.draft ? :ready : :draft, :close]
+            sv.onpick(:close)
+            cv = pop!(ctrl.stack)
+            @test cv isa W.ConfirmView && startswith(cv.title, string("Close ", pr.ref))
+            @test pr.title in cv.notes && any(occursin("unmerged", n) for n in cv.notes)
+        end
+        oi = findfirst(x -> x.state == "OPEN" && !x.is_pr, st.items)
+        if oi !== nothing
+            is = st.items[oi]
+            W.state_action(st, ctrl, is)     # one move goes straight to the question
+            cv = pop!(ctrl.stack)
+            @test cv isa W.ConfirmView && startswith(cv.title, string("Close ", is.ref))
+        end
+        W.state_action(st, ctrl, W.with(it; state = "CLOSED"))
+        cv = pop!(ctrl.stack)
+        @test cv isa W.ConfirmView && startswith(cv.title, string("Reopen ", it.ref))
+        st.status = ""
+        W.state_action(st, ctrl, W.with(it; state = "MERGED"))
+        @test length(ctrl.stack) == 1 && occursin("is merged", st.status)
         @test isempty(st.undos)
     finally
         W.LOCAL[] = keept

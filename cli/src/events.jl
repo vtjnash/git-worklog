@@ -1624,6 +1624,44 @@ function toggle_assignee(url::AbstractString, who::AbstractString, add::Bool)
     end
 end
 
+"""Retitle the issue or pull request."""
+function set_title(url::AbstractString, title::AbstractString)
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
+                        auth = auth(), params = Dict("title" => String(title)))
+        _invalidate(url)
+    end
+end
+
+"""Close the issue or pull request, or reopen it. The issues endpoint takes
+both kinds, and a pull request closed this way is closed unmerged."""
+function set_open(url::AbstractString, open::Bool)
+    r, n = _repo_num(url)
+    _write() do
+        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
+                        auth = auth(), params = Dict("state" => open ? "open" : "closed"))
+        _invalidate(url)
+    end
+end
+
+"""Convert the pull request to a draft, or mark it ready for review. Both are
+mutations and nothing else, so this is GraphQL, and it needs the node id,
+which one small query answers - not `merge_state`, which asks for the text
+of every merge operation to answer the same question."""
+function set_draft(url::AbstractString, draft::Bool)
+    _write() do
+        d = gh_graphql("query(\$u: URI!) { resource(url: \$u) { ... on PullRequest { id } } }";
+                       vars = Dict{String,Any}("u" => String(url)))
+        r = get(d, :resource, nothing)
+        (r === nothing || get(r, :id, nothing) === nothing) && error("not a pull request")
+        m = draft ? "convertPullRequestToDraft" : "markPullRequestReadyForReview"
+        gh_graphql("mutation(\$id: ID!) { $m(input: {pullRequestId: \$id}) { clientMutationId } }";
+                   vars = Dict{String,Any}("id" => String(r.id)))
+        _invalidate(url)
+    end
+end
+
 """Ask one login - or, with `team`, one team by slug - to review the pull
 request, or withdraw the request. A review already given is not a request,
 and withdrawing does not remove it."""

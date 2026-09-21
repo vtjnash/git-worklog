@@ -927,7 +927,7 @@ it meant leaving the browser for a shell and coming back to a row that had not
 heard. Two levels, so it flips rather than asks, and is one undo, as a note is.
 
 The rest reach GitHub - the milestone, who it is assigned to, who is asked to
-review it - and are the one place a lowercase key does: the field is the
+review it, its state, its title - and are the one place a lowercase key does: the field is the
 row, and a capital per field is three more keys the footer has no room for.
 The note says so, and `z` never offers to undo them, as it never undoes `L`.
 An adopted branch has nothing on GitHub to set, so it gets the first row alone.
@@ -949,6 +949,10 @@ function field_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
             push!(opts, (string("reviewer   ", asked === nothing ? "loading\u2026" :
                                 isempty(asked) ? "none" : join(asked, ", ")), :reviewer))
         end
+        # A merged pull request has no state left to set.
+        it.state == "MERGED" ||
+            push!(opts, (string("state      ", it.draft ? "draft" : lowercase(it.state)), :state))
+        push!(opts, (string("title      ", it.title), :title))
     end
     push_view!(ctrl, ChooseView(string("Set on ", it.ref),
         remote ? "1 writes this machine; the rest reach GitHub, and z does not undo them" :
@@ -957,7 +961,9 @@ function field_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
             which === :track     ? (st.status = set_track!(st, it, other, at)) :
             which === :milestone ? milestone_action(st, ctrl, it) :
             which === :assignee  ? assignee_action(st, ctrl, it) :
-                                   reviewer_action(st, ctrl, it)
+            which === :reviewer  ? reviewer_action(st, ctrl, it) :
+            which === :state     ? state_action(st, ctrl, it) :
+                                   title_action(st, ctrl, it)
         end; numbered = true))
 end
 
@@ -974,6 +980,61 @@ function set_track!(st::BState, it::Item, val::AbstractString, at::DateTime)
         replace_item!(st, it)
     end))
     string("tracking ", val)
+end
+
+"""The moves the state allows from where it is: a draft can be marked ready
+and a ready pull request made a draft, either open one closed, a closed one
+reopened. One move goes straight to it; two are a list. Closing and
+reopening ask first, the way `M` asks: `;` then a digit then `\u21b5` is the
+reflex the question exists to interrupt, and the item is somebody else's
+as often as not. The draft flip does not ask - it is reversible from the
+same row, and tells nobody but the reviewers.
+"""
+function state_action(st::BState, ctrl::Controller, it::Item)
+    moves = Tuple{String,Any}[]
+    if it.state == "OPEN"
+        it.is_pr && push!(moves, it.draft ? ("ready for review", :ready) : ("convert to draft", :draft))
+        push!(moves, ("close", :close))
+    elseif it.state == "CLOSED"
+        push!(moves, ("reopen", :reopen))
+    end
+    isempty(moves) && (st.status = string(it.ref, " is ", lowercase(it.state)); return)
+    go(which) = begin
+        if which === :ready || which === :draft
+            r = Events.set_draft(it.url, which === :draft)
+            isempty(r) || (st.status = r; return)
+            touch!(it.url)
+            replace_item!(st, with(it; draft = which === :draft))
+            st.status = which === :draft ? "now a draft" : "marked ready for review"
+        else
+            open = which === :reopen
+            push_view!(ctrl, ConfirmView(string(open ? "Reopen " : "Close ", it.ref, "?"),
+                [it.title, open ? "" : it.is_pr ? "Closed unmerged; M is the merge." : ""],
+                () -> begin
+                    r = Events.set_open(it.url, open)
+                    isempty(r) || (st.status = r; return)
+                    touch!(it.url)
+                    replace_item!(st, with(it; state = open ? "OPEN" : "CLOSED"))
+                    st.status = string(open ? "reopened " : "closed ", it.ref)
+                end))
+        end
+    end
+    length(moves) == 1 ? go(moves[1][2]) :
+        push_view!(ctrl, ChooseView(string("State \u00b7 ", it.ref), it.title, moves, go))
+end
+
+"""The title, in a line with the current one in it."""
+function title_action(st::BState, ctrl::Controller, it::Item)
+    push_view!(ctrl, PromptView(string("Title of ", it.ref), "\u21b5 writes it; empty is a cancel",
+        b -> begin
+            t = String(strip(b))
+            (isempty(t) || t == it.title) && return
+            r = Events.set_title(it.url, t)
+            isempty(r) || (st.status = r; return)
+            touch!(it.url)
+            replace_item!(st, with(it; title = t))
+            st.status = string("retitled ", it.ref)
+        end; initial = it.title))
 end
 
 """The milestone: one of the repository's open ones, or none. The one it is on
