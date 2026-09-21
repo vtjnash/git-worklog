@@ -240,6 +240,25 @@ function render(v::SideView, w::Int, h::Int)
           for i in 1:h], "\n")
 end
 
+"""The mouse over the reading side, beside a composer.
+
+The browser gets it against the geometry the detail was drawn at - the left
+column, whole height - and not against `layout`, which is where the detail
+would have been alone: measured that way a click landed on some other row,
+and a mark or a url under the pointer was not the one clicked.
+
+The keys stay where they are. A click on the thread moves the cursor, folds
+a comment, copies a url, drags a selection - all of it visible - and none of
+it is a reason to take the caret out of a half-written comment; there is no
+click that would give it back, only `tab`.
+"""
+function onmouse!(v::SideView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
+    h, w = displaysize(stdout)
+    lw, _ = split_box(w)
+    (lw == 0 || ev.x > lw) && return :ok
+    onmouse!(v.beside, ev, ctrl, at; L = beside_layout(lw, h))
+end
+
 """A fetch landing for what is drawn beside the dialog is worth a redraw.
 
 The composer itself has nothing to wake for - it holds text and nothing else -
@@ -434,6 +453,22 @@ and the wheel it did not - is `TermIFrame`'s.
 """
 retarget_mouse(v::PaneView, bytes::Vector{UInt8}, w::Int, h::Int) =
     retarget_mouse(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h))
+
+"""The mouse over the thread beside the child, while the thread has the keys.
+
+Decoded, like the keys, only on the reading side: with the child focused the
+input is raw and `retarget_mouse` is what sees a report, moving it into the
+child's box and dropping one outside it. Here the browser gets it, against the
+left column it was drawn in rather than `layout`'s idea of where the detail
+would have been alone - see the `SideView` method.
+"""
+function onmouse!(v::PaneView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
+    v.beside === nothing && return :ok
+    h, w = displaysize(stdout)
+    lw = first(split_box(w))
+    (lw == 0 || ev.x > lw) && return :ok
+    onmouse!(v.beside, ev, ctrl, at; L = beside_layout(lw, h))
+end
 
 """Bytes as typed, straight through to the child.
 

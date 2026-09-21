@@ -23,10 +23,17 @@ next keystroke.
 event, because a double click is two presses close together in time and the
 terminal reports each of them as if it were alone. Handed in, so that a test can
 make one without waiting for it.
+
+`L` is where the panes are, and it is the geometry of the frame that was
+*drawn*: `layout`'s when the browser is on its own, and `beside_layout`'s when
+the detail is the left column beside a hosted pane or a composer, which is
+what those views hand in. A click only maps to the row under it against the
+wrapping the reader is looking at - the same rule `st.diw` holds for the keys.
 """
-function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
+function onmouse!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time();
+                  L = nothing)
     before = curl(st)
-    r = onmouse_at!(st, ev, ctrl, at)
+    r = onmouse_at!(st, ev, ctrl, at; L)
     if curl(st) != before
         rearm_batch!(st, before)
         batch_prompt!(st, ctrl, curl(st))
@@ -55,9 +62,12 @@ function doubled!(st::BState, ev::MouseEvent, at::Float64)
     at - t <= DOUBLECLICK[] && ev.y == y && abs(ev.x - x) <= 1
 end
 
-function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
-    h, w = displaysize(stdout)
-    L = layout(w, h, st.nmeta)
+function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time();
+                     L = nothing)
+    if L === nothing
+        h, w = displaysize(stdout)
+        L = layout(w, h, st.nmeta)
+    end
     p = hitpane(L, ev.x, ev.y)
     p === nothing && return :ok
     (which, row, col) = p

@@ -241,6 +241,62 @@ end
     @test st.nrow == findfirst(r -> r.node == 2, wide)
 end
 
+@testset "the mouse beside a composer is measured against the left column" begin
+    # A click on the thread beside `C` went nowhere: `SideView` had no mouse
+    # handler. And the browser's own measured against `layout`, which is where
+    # the detail would have been alone - a column further right, wrapped
+    # wider - so beside a pane a click would have landed on some other row.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    st = mkstate()
+    long = repeat("a long sentence that has to wrap several times over ", 6)
+    st.nodes = [W.Node("alice  2026-09-01   first", long, :md, true),
+                W.Node("bob  2026-09-02   second", long, :md, true)]
+    st.metakey = st.items[st.sel].url
+    st.focus = :detail
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    ed = W.EditorView("Comment on julia#1", "", identity)
+    v = W.SideView(ed, st, :inner)
+    W.render(v, 170, 40)
+    lw, _ = W.split_box(170)
+    @test st.diw == lw - 4
+    B = W.beside_layout(lw, 40)
+    narrow = W.rows(st.nodes, B.riw)
+    hdr2 = findfirst(r -> r.node == 2 && r.header && r.part == 0, narrow)
+    # A press on bob's header row, at the left column's geometry: the cursor
+    # lands on it - and nowhere near where `layout` would have put the row.
+    press(x, y) = W.onmouse!(v, W.MouseEvent(:press, 0, x, y, 0), ctrl)
+    st.ntop = 1
+    press(B.rx + 10, B.ry + st.hdr + hdr2)
+    @test st.nrow == hdr2
+    @test hdr2 != findfirst(r -> r.node == 2 && r.header && r.part == 0,
+                            W.rows(st.nodes, W.layout(170, 40, st.nmeta).riw))
+    # Column 1-2 of it is the fold marker.
+    press(B.rx + 2, B.ry + st.hdr + hdr2)
+    @test !st.nodes[2].open
+    press(B.rx + 2, B.ry + st.hdr + hdr2)
+    @test st.nodes[2].open
+    # The keys stay with the composer.
+    @test v.focus === :inner
+    # A drag over the last two rows selects them, at this width.
+    W.render(v, 170, 40)
+    n = length(narrow)
+    top = st.ntop
+    W.onmouse!(v, W.MouseEvent(:press, 0, B.rx + 10, B.ry + (n - 1 + st.hdr - top + 1), 0), ctrl)
+    W.onmouse!(v, W.MouseEvent(:drag, 0, B.rx + 10, B.ry + (n + st.hdr - top + 1), 0), ctrl)
+    @test W.selrange(st) == (n - 1, n)
+    # Past the column is the composer's side, and the browser never sees it.
+    before = (st.nrow, W.selrange(st))
+    W.onmouse!(v, W.MouseEvent(:press, 0, lw + 5, 5, 0), ctrl)
+    @test (st.nrow, W.selrange(st)) == before
+    # Beside a hosted pane on the reading side, the same forwarding.
+    pv = W.PaneView(W.IFrame("n", "sh"), st, :read)
+    W.render(pv, 170, 40)
+    W.clearsel!(st)
+    W.onmouse!(pv, W.MouseEvent(:press, 0, B.rx + 10, B.ry + st.hdr + hdr2 - st.ntop + 1, 0), ctrl)
+    @test st.nrow == hdr2
+    pop!(ctrl.stack)
+end
+
 @testset "a place replaces a place; a dialog stacks on one" begin
     # `t` from `"` used to leave four views between the shell and the dashboard,
     # so getting back out was ^]tab, esc, esc, ^]tab, esc. Two terminals - or a

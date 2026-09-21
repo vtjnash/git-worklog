@@ -437,7 +437,11 @@ records the width and page it was drawn at, and every key that indexes rows
 reads that. The indices already held - the cursor, the drag's two ends - are
 carried across by `rewrap!` when the width changes: back to the node and
 written line each stood on, forward to a row at the new width. Without it a
-selection made in the browser lit other rows beside `C`.
+selection made in the browser lit other rows beside `C`. The mouse is the
+same rule from the other end: `onmouse!` is handed the geometry of the frame
+that was drawn - `layout`'s alone, `beside_layout`'s as the left column - and
+the two side-by-side views forward what lands on the reading side; the keys
+stay where they were, since nothing but `tab` would give them back.
 
 **A resize is an event, not a tick.** SIGWINCH reaches the loop through
 libuv's `uv_signal_t` (`watch_winch!`) as a `ResizeEvent`, and the frame is
@@ -599,7 +603,8 @@ No TTY, so the UI is tested by construction:
 - `render(view, w, h)` is pure; `handle!(view, key, ctrl, at)` returns an
   action; `readevent(io)` is a pure function of a byte stream, driven from an
   `IOBuffer`; `onmouse!` takes screen coordinates after a render, since the
-  map goes through `layout` and `st.hdr`. Strip SGR and OSC 8 before measuring.
+  map goes through `layout` (or `beside_layout`) and `st.hdr`. Strip SGR and
+  OSC 8 before measuring.
 - **Every path the program writes through is redirected at the top of the
   run** - `LOCAL`, `FETCHED`, `CACHE_DIR` - and the rule is that all of them
   go, not that each leak is fixed as found. A testset that repoints `LOCAL`

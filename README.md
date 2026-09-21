@@ -196,7 +196,9 @@ against the merge base under `d` and against the head you last read under
 marker), scrolls the pane under it; in the pickers - `'`, the checkout
 chooser, `"` - a click moves the cursor to the row and a double click is `↵`. A click on a url copies it; a double click
 copies the word under the pointer, or the item's url in the list; the `⧉` at
-the right of every header copies that block.
+the right of every header copies that block. Beside a composer or a hosted
+pane the thread takes the same clicks, and the keys stay where they were -
+`tab` is what moves them.
 
 ## Commands
 

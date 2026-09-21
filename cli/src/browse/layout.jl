@@ -84,6 +84,23 @@ function layout(w::Int, h::Int, nmeta::Int = 0)
 end
 
 """
+    beside_layout(lw, h) -> NamedTuple
+
+The geometry of the detail pane drawn as the left column beside a hosted pane
+or a composer: `lw` columns and the full height, starting at the top left,
+with no list and no metadata pane. The same shape `layout` gives, so `hitpane`
+and the mouse handler read either; the two absent panes are zero wide, which
+is a rectangle nothing lands in.
+"""
+beside_layout(lw::Int, h::Int) =
+    (side = true,
+     lw = 0, lh = 0, lx = 1, ly = 1,
+     mw = 0, mh = 0, mx = 1, my = 1,
+     rw = lw, rh = h, rx = 1, ry = 1,
+     liw = 0, miw = 0, riw = lw - 4,
+     page = max(1, h - 3), lpage = 1)
+
+"""
     hitpane(L, x, y) -> (pane, row, col) or nothing
 
 Turn a screen position into a pane and a position inside its content area.
