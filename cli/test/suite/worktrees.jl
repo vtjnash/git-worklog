@@ -734,6 +734,12 @@ end
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Fast-forward ff in main-ff?"
                 @test cv.notes[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
+                # The status between: the head the copy is on, and where the
+                # branch stands to its upstream - behind, and never having had
+                # the tip, which is a force push refused.
+                @test cv.notes[2] == string("head  ", first(f1, 7), " ff one")
+                @test cv.notes[3] == "1 behind origin/ff \u00b7 a force push would be refused: origin/ff has commits ff never had"
+                @test cv.notes[4] == "clean"
                 @test cv.notes[end - 1] == "y runs git merge --ff-only there"
                 @test cv.notes[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 @test isempty(asked())
@@ -770,6 +776,12 @@ end
                 @test occursin("fast-forwarded ff", string(said[])) && occursin("started", string(said[]))
                 @test strip(W.git(dest7, "rev-parse", "ff")) == f2
                 drop!(top())
+                # Level with the upstream, the standing row is not there; and
+                # a branch rewound off the tip is one a force push would pass.
+                @test W.status_preview(dest7) == [string("head  ", first(f2, 7), " ff two"), "clean"]
+                W.git(dest7, "reset", "--quiet", "--hard", f1)
+                @test W.status_preview(dest7)[2] == "1 behind origin/ff \u00b7 a force push would pass: ff had origin/ff's tip and moved off it"
+                W.git(dest7, "reset", "--quiet", "--hard", f2)
                 # And nothing more to ask, with or without a session there.
                 for r in W.mux_list()
                     W.wtkey(r.worktree) == W.wtkey(dest7) && W.mux_kill(r.name)

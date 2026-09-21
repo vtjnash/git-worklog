@@ -342,21 +342,64 @@ function add_worktree_pr!(path::AbstractString, url::AbstractString, at::Abstrac
 end
 
 """What `git status` says about `path`, short, for a question about switching
-it: the changed files, up to `limit` of them and a count of the rest, or
-`clean`. Untracked files are left out for `changes`'s reason - a build tree is
-full of them - and a status that cannot be read is one row saying why.
+it or moving its branch: the head commit, how the branch stands to its
+upstream, and the changed files - up to `limit` of them and a count of the
+rest, or `clean`. Untracked files are left out for `changes`'s reason - a
+build tree is full of them - and a status that cannot be read is one row
+saying why.
+
+The head is `<sha> <subject>`: which commit the copy is on is the question's
+subject as much as which branch, and a branch name says nothing about it.
+The standing is git's own `## <branch>...<upstream> [ahead n, behind m]`,
+turned round to read - and when the branch is behind, whether a force push
+from here would go: `--force-if-includes` refuses a push when the upstream's
+tip was never in the branch's history, which is [`branch_included`](@ref)
+asked the way the push asks it. Said only when there is something to say:
+a branch level with its upstream, or ahead of it alone, pushes without a
+force at all.
 """
 function status_preview(path::AbstractString; limit::Int = 8)
     out = try
-        git(path, "--no-optional-locks", "status", "--short", "--untracked-files=no")
+        git(path, "--no-optional-locks", "status", "--short", "--branch",
+            "--untracked-files=no")
     catch e
         e isa GitError || rethrow()
         return [string("git status: ", oneline(e.msg))]
     end
     ls = String[String(l) for l in split(out, '\n'; keepempty = false)]
-    isempty(ls) && return ["clean"]
-    length(ls) <= limit && return ls
-    vcat(ls[1:limit], [string("\u2026 and ", length(ls) - limit, " more")])
+    head = try
+        strip(git(path, "log", "-1", "--format=%h %s"))
+    catch
+        ""
+    end
+    rows = isempty(head) ? String[] : [string("head  ", oneline(head))]
+    if !isempty(ls) && startswith(ls[1], "## ")
+        standing = branch_standing(path, popfirst!(ls)[4:end])
+        isempty(standing) || push!(rows, standing)
+    end
+    isempty(ls) && return push!(rows, "clean")
+    length(ls) <= limit && return vcat(rows, ls)
+    vcat(rows, ls[1:limit], [string("\u2026 and ", length(ls) - limit, " more")])
+end
+
+"""The branch row of `git status --branch`, `<b>...<u> [ahead n, behind m]`,
+read into one line about where the branch stands - or `""` when it stands
+nowhere in particular: no upstream, or level with it."""
+function branch_standing(path, line::AbstractString)
+    m = match(r"^(\S+?)\.\.\.(\S+)(?: \[(.*)\])?$", line)
+    m === nothing && return ""
+    branch, up, counts = m[1], m[2], something(m[3], "")
+    ahead = (x = match(r"ahead (\d+)", counts)) === nothing ? 0 : parse(Int, x[1])
+    behind = (x = match(r"behind (\d+)", counts)) === nothing ? 0 : parse(Int, x[1])
+    (ahead == 0 && behind == 0) && return ""
+    parts = String[]
+    ahead > 0 && push!(parts, string(ahead, " ahead"))
+    behind > 0 && push!(parts, string(behind, " behind"))
+    s = string(join(parts, ", "), " ", up)
+    behind == 0 && return s
+    string(s, " \u00b7 ", branch_included(path, branch, up) ?
+           string("a force push would pass: ", branch, " had ", up, "'s tip and moved off it") :
+           string("a force push would be refused: ", up, " has commits ", branch, " never had"))
 end
 
 

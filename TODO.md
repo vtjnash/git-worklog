@@ -240,10 +240,6 @@ here until they are run, then there. Found on the way and not yet done:
       through rule 1 and went in, rather than asking. The branch name alone
       does not name a pull request when it is a fork's; the match wants the
       remote or the pull request the worktree was checked out for.
-- [ ] **The checkout question's `git status` wants more**: ahead/behind
-      against the upstream, what `--force-if-includes` would say of a push
-      from here, and the head commit's subject, since the branch and its
-      state is what the question is about.
 - [ ] A list row two high, for the titles the one row cuts at about half.
       Usually enough of the title shows; sometimes not.
 
