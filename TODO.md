@@ -212,15 +212,10 @@ Reviewing and writing:
       (matches GitHub; surprises).
 - [ ] Not in the browser: opening the check under the eye.
 
-The writes, all tried against GitHub by 2026-09-18 and none wrong so far:
+The writes, all tried against GitHub by 2026-09-18 - and the rows under `;`
+on 2026-09-21 - and none wrong so far:
 - [ ] `C` on a deleted line - the one write that landed after the trial
       (2026-09-17): a `LEFT` thread numbered against the base.
-- [ ] The five under `;` (2026-09-21): the milestone, the title and the
-      state (`PATCH issues/n`), an assignee (`POST`/`DELETE
-      issues/n/assignees`), a reviewer (`POST`/`DELETE
-      pulls/n/requested_reviewers`, `team_reviewers` for a team), the draft
-      flip (`convertPullRequestToDraft`, `markPullRequestReadyForReview`).
-      Written blind: the sandbox token cannot write.
 
 The corpus:
 - [ ] `wl refresh` calling `consolidate!` on its own, once `wl done
