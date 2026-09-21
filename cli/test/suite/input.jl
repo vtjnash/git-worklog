@@ -211,4 +211,17 @@ end
     # The title goes after the frame and before the caret, inside the hold.
     t = String(W.frame_bytes("x", "\e]2;wl o/r#1\e\\", (1, 1)))
     @test occursin("\e[J\e]2;wl o/r#1\e\\\e[1;1H\e[?25h", t)
+    # A row that filled its width gets no erase after it: the cursor is in
+    # the pending-wrap state, which Terminal.app keeps on the last column,
+    # and an erase from there took the border off. A short row keeps its
+    # erase, and a short last row the final one.
+    f = String(W.frame_bytes("ab\ncd", "", nothing; w = 2))
+    @test occursin("\e[Hab\ncd\e[?2026l", f) && !occursin("\e[K", f) && !occursin("\e[J", f)
+    f = String(W.frame_bytes("ab\nc", "", nothing; w = 2))
+    @test occursin("\e[Hab\nc\e[J", f)
+    f = String(W.frame_bytes("a\ncd", "", nothing; w = 2))
+    @test occursin("\e[Ha\e[K\ncd\e[?2026l", f)
+    # Measured as drawn: an SGR is no column.
+    f = String(W.frame_bytes("\e[1mab\e[0m\ncd", "", nothing; w = 2))
+    @test !occursin("\e[K", f)
 end

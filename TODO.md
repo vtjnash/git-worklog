@@ -229,11 +229,10 @@ Everything listed here was run on 2026-09-21 and is written up, with its
 steps and what passing looks like, in `cli/test/MANUAL.md`. New items go
 here until they are run, then there. Found on the way and not yet done:
 
-- [ ] **Terminal.app draws the frame one column too wide**: the right border
-      is off every row, so the width and not a glyph. Under tmux it draws
-      right, as does xterm.js. Either `displaysize` answers one more than it
-      draws, or a full row followed by a newline wraps where xterm.js defers
-      the wrap; `frame_bytes` is the place to look.
+- [ ] **Terminal.app's right border**, fixed 2026-09-21 by not erasing after
+      a full row (`frame_bytes`), on the reasoning that its erase from the
+      pending-wrap position takes the last column; not yet seen in
+      Terminal.app. MANUAL.md test 4 is where to look.
 - [ ] A list row two high, for the titles the one row cuts at about half.
       Usually enough of the title shows; sometimes not.
 

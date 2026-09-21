@@ -789,6 +789,12 @@ Each of the following returns success and the wrong answer:
   `TTY` is unbuffered, so `print` with three arguments was three writes,
   and the cursor shown at the end of one frame was at the top left for
   the start of the next.
+- **No erase after a row that filled its width.** The last column written
+  leaves the cursor pending a wrap, and terminals disagree where that is:
+  xterm.js counts it past the last column and an `\e[K` there erases
+  nothing; Terminal.app keeps it on the last column and the erase took the
+  right border off every row (2026-09-21), under tmux only not, since the
+  server owns the cells. A full row gets a bare newline.
 - **A hyperlink is not somewhere to write another one.** `linkify` runs on
   the finished frame; a url inside a comment header's OSC 8 payload
   terminated it early and the row came out 224 columns wide. It cuts the

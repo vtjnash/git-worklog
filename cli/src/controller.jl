@@ -624,13 +624,32 @@ Three things about the write, none of them about what is in the frame:
     terminal otherwise: a pty is four kilobytes on Linux, so a frame is
     several reads however it was written.
 
-`\e[K` on every row and `\e[J` at the end rather than a clear first: a clear
-is a blank frame the terminal may draw, which is a flicker on every key.
+`\e[K` after a row and `\e[J` after the last rather than a clear first: a
+clear is a blank frame the terminal may draw, which is a flicker on every
+key. **But not after a row that filled its width.** Writing the last column
+leaves the cursor in the pending-wrap state, and terminals disagree about
+where that is: xterm.js counts it past the last column, so an erase from
+there touches nothing, and Terminal.app keeps it *on* the last column, so
+the erase took the right border off every row and `\e[J` the corner - the
+frame drawn one column too wide there and nowhere else, since under tmux
+the server owns the cells. A row that is `w` wide has nothing to its right
+to erase, so no erase is sent; a shorter one - which the contract says
+never comes, and `safe_render`'s padding sees to - keeps its `\e[K`.
+`w` is the frame's width; `0` measures nothing and erases after every row.
 """
 function frame_bytes(frame::AbstractString, title::AbstractString,
-                     cur::Union{Nothing,Tuple{Int,Int}})
+                     cur::Union{Nothing,Tuple{Int,Int}}; w::Int = 0)
     io = IOBuffer()
-    print(io, "\e[?2026h\e[?25l\e[H", replace(frame, "\n" => "\e[K\n"), "\e[J", title)
+    print(io, "\e[?2026h\e[?25l\e[H")
+    rows = split(frame, '\n')
+    full = false
+    for (i, r) in enumerate(rows)
+        full = w > 0 && awidth(r) >= w
+        print(io, r)
+        i == length(rows) && break
+        print(io, full ? "\n" : "\e[K\n")
+    end
+    print(io, full ? "" : "\e[J", title)
     cur === nothing || print(io, "\e[", cur[1], ";", cur[2], "H\e[?25h")
     print(io, "\e[?2026l")
     take!(io)
@@ -708,7 +727,7 @@ function run!(ctrl::Controller, root::View)
                     logerror!(e, catch_backtrace(), "viewcursor")
                     nothing
                 end
-                write(stdout, frame_bytes(safe_render(v, w, h), title, cur))
+                write(stdout, frame_bytes(safe_render(v, w, h), title, cur; w))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
