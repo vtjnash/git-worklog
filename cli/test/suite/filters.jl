@@ -31,22 +31,22 @@
                W.DEFAULT_FILTERS(),              # and with the closed ones: what it opens on
                W.everything(),                   # and all four boxes on
                W.Filters(show = Set{Symbol}()),  # and none of them: no rows
-               W.Filters(show = Set([:base, :read])),
-               W.Filters(show = Set([:read])),   # the read ones instead
-               W.Filters(show = Set([:read, :filed])),
-               W.Filters(show = Set([:read]), tags = Set([:snoozed])),
-               W.Filters(show = Set([:done])),
+               W.Filters(show = Set([:base, :done])),
+               W.Filters(show = Set([:done])),   # the done ones instead
+               W.Filters(show = Set([:done, :filed])),
+               W.Filters(show = Set([:done]), tags = Set([:snoozed])),
+               W.Filters(show = Set([:closed])),
                W.Filters(tags = Set([:second])),
                W.Filters(tags = Set([:second, :touched, :drafts])),
                W.Filters(lanes = Set(["review"])),
-               W.Filters(repos = Set(["JuliaLang/julia"]), show = Set([:read])),
+               W.Filters(repos = Set(["JuliaLang/julia"]), show = Set([:done])),
                W.Filters(lanes = Set(["assigned"]), repos = Set(["JuliaLang/julia"]),
                          labels = Set(["docs"])),
                W.Filters(kind = :issue),
                W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
                W.Filters(authors = Set([W.AUTHOR_ME])),
                W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
-               W.Filters(show = Set([:read, :done]), kind = :pr,
+               W.Filters(show = Set([:done, :closed]), kind = :pr,
                          authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
@@ -174,8 +174,8 @@ end
     # Over: GitHub's, and empty reads as open.
     @test W.over_of(it) === :open
     @test W.over_of(mk(state = "OPEN")) === :open
-    @test W.over_of(mk(state = "MERGED")) === :done
-    @test W.over_of(mk(state = "CLOSED")) === :done
+    @test W.over_of(mk(state = "MERGED")) === :closed
+    @test W.over_of(mk(state = "CLOSED")) === :closed
 
     # Tags: several at once, or none, which is why they are not an axis of the
     # kind above.
@@ -233,7 +233,7 @@ end
                    !W.filed_of(x, W.Marks(st)), st.items)
     # A closed thing that moved is news, and it opens with the rest: a merged
     # pull request nobody has read is on the list the browser opens on.
-    @test any(x -> W.over_of(x) === :done, st.items)
+    @test any(x -> W.over_of(x) === :closed, st.items)
 
     # The base alone is the open half of that, and is what the other boxes
     # are measured against.
@@ -256,17 +256,17 @@ end
     end
     # And what the closed box adds is exactly the distance between the open
     # half and what the browser opens on.
-    @test opens == base + counts[:done]
+    @test opens == base + counts[:closed]
     # Two of them is at least the union of what each brings, and more where a
     # row needed both - a closed item you have read is held out twice.
-    st.filters = W.Filters(show = Set([:base, :read, :done])); W.refilter!(st)
-    @test length(st.items) >= base + counts[:read] + counts[:done]
-    # The backlog is the base with the read ones beside it and no `done`, and
+    st.filters = W.Filters(show = Set([:base, :done, :closed])); W.refilter!(st)
+    @test length(st.items) >= base + counts[:done] + counts[:closed]
+    # The backlog is the base with the done ones beside it and no `closed`, and
     # that is the one place the two boxes the browser opens with come apart: a
     # closed thing that moved is in the firehose and is not in the backlog,
     # because it is news and it is not work.
-    st.filters = W.Filters(show = Set([:base, :read])); W.refilter!(st)
-    @test length(st.items) == base + counts[:read]
+    st.filters = W.Filters(show = Set([:base, :done])); W.refilter!(st)
+    @test length(st.items) == base + counts[:done]
     @test all(x -> W.over_of(x) === :open, st.items)
     # All four is the corpus, and the corpus is the only thing that is.
     st.filters = W.everything(); W.refilter!(st)
@@ -289,9 +289,9 @@ end
                         W.over_of(x) === :open, st.items)
     end
     # The one of the three this dashboard has rows for today, said in full.
-    st.filters = W.Filters(show = Set([:done])); W.refilter!(st)
+    st.filters = W.Filters(show = Set([:closed])); W.refilter!(st)
     @test 0 < length(st.items) < length(st.all)
-    @test all(x -> W.over_of(x) === :done, st.items)
+    @test all(x -> W.over_of(x) === :closed, st.items)
     @test occursin("only closed or merged", W.filter_summary(st.filters))
     # The base box holds exactly the base list in, so taking it off the corpus
     # leaves the rest of the corpus and nothing else.
@@ -316,17 +316,17 @@ end
     @test brow[2] == "base"
     @test occursin("[x] ", brow[3]) && occursin(string(base), brow[3])
     # And the closed box is checked too, holding in its share of the opening list.
-    drow = first(r for r in rows if r[1] === :show && r[2] == "done")
-    @test occursin("[x] ", drow[3]) && occursin(string(counts[:done]), drow[3])
+    drow = first(r for r in rows if r[1] === :show && r[2] == "closed")
+    @test occursin("[x] ", drow[3]) && occursin(string(counts[:closed]), drow[3])
     st.frow = findfirst(r -> r[1] === :show && r[2] == "filed", rows)
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:base, :done, :filed])
+    @test st.filters.show == Set([:base, :closed, :filed])
     @test length(st.items) >= opens + counts[:filed]
     @test occursin("[x] ", first(r[3] for r in W.filter_rows(st) if r[2] == "filed"))
     @test W.toggle_filter!(st)
     @test st.filters.show == W.SHOW_DEFAULT && length(st.items) == opens
     # Including the closed box: off, the list is the open half and says so.
-    st.frow = findfirst(r -> r[1] === :show && r[2] == "done", W.filter_rows(st))
+    st.frow = findfirst(r -> r[1] === :show && r[2] == "closed", W.filter_rows(st))
     @test W.toggle_filter!(st)
     @test st.filters.show == Set([:base]) && length(st.items) == base
     @test !W.isdefault(st.filters)
@@ -337,7 +337,7 @@ end
     # checked is a default rather than a choice - and `c` is what puts it back.
     st.frow = findfirst(r -> r[1] === :show && r[2] == "base", W.filter_rows(st))
     @test W.toggle_filter!(st)
-    @test st.filters.show == Set([:done]) && length(st.items) == counts[:done]
+    @test st.filters.show == Set([:closed]) && length(st.items) == counts[:closed]
     @test !W.isdefault(st.filters)
 
     # What the browser opens on says itself, and what has been added to it says
@@ -346,12 +346,12 @@ end
     # important thing on the screen and is said first.
     @test occursin("unread", W.filter_summary(W.DEFAULT_FILTERS()))
     @test occursin("also done+filed away",
-                   W.filter_summary(W.Filters(show = Set([:base, :read, :filed, :done]))))
+                   W.filter_summary(W.Filters(show = Set([:base, :done, :filed, :closed]))))
     # `done` is on by default and is as quiet as the base while it is; what
     # gets said is its absence, since the open half is the narrower list.
     @test occursin("also done+filed away · open only",
-                   W.filter_summary(W.Filters(show = Set([:base, :read, :filed]))))
-    @test !occursin("closed", W.filter_summary(W.Filters(show = Set([:base, :done]))))
+                   W.filter_summary(W.Filters(show = Set([:base, :done, :filed]))))
+    @test !occursin("closed", W.filter_summary(W.Filters(show = Set([:base, :closed]))))
     @test occursin("only filed away", W.filter_summary(W.Filters(show = Set([:filed]))))
     @test occursin("nothing shown", W.filter_summary(W.Filters(show = Set{Symbol}())))
     # And it writes itself as a view, in the axis's own order. The default is
@@ -359,25 +359,25 @@ end
     # naming no `show` gets anyway - and `show = []` is written, because an
     # empty axis is a real filter here rather than an unasked question. The
     # base with `done` off is not the default and is written whole.
-    @test occursin("show = [\"base\", \"read\", \"filed\"]",
-                   W.view_toml(W.Filters(show = Set([:filed, :read, :base])), :latest, "x"))
+    @test occursin("show = [\"base\", \"done\", \"filed\"]",
+                   W.view_toml(W.Filters(show = Set([:filed, :done, :base])), :latest, "x"))
     @test occursin("show = [\"base\"]",
                    W.view_toml(W.Filters(show = Set([:base])), :latest, "x"))
-    @test occursin("show = [\"read\", \"filed\"]",
-                   W.view_toml(W.Filters(show = Set([:filed, :read])), :latest, "x"))
+    @test occursin("show = [\"done\", \"filed\"]",
+                   W.view_toml(W.Filters(show = Set([:filed, :done])), :latest, "x"))
     @test occursin("show = []", W.view_toml(W.Filters(show = Set{Symbol}()), :latest, "x"))
     @test !occursin("show", W.view_toml(W.DEFAULT_FILTERS(), :latest, "x"))
     # A view names the axes, and a misspelt value is said rather than ignored.
-    @test occursin("only done", W.apply_view!(st, Dict("show" => ["read"])))
-    @test st.filters.show == Set([:read])
+    @test occursin("only done", W.apply_view!(st, Dict("show" => ["done"])))
+    @test st.filters.show == Set([:done])
     # Named means named *whole*: a view that wants the base beside what it adds
     # says so, and one that names no `show` at all keeps the default.
-    @test occursin("also done", W.apply_view!(st, Dict("show" => ["base", "read"])))
-    @test st.filters.show == Set([:base, :read])
+    @test occursin("also done", W.apply_view!(st, Dict("show" => ["base", "done"])))
+    @test st.filters.show == Set([:base, :done])
     @test W.apply_view!(st, Dict("kind" => "pr")) isa String
     @test st.filters.show == W.SHOW_DEFAULT
     @test occursin("no show", W.apply_view!(st, Dict("show" => "raed")))
-    @test occursin("no show", W.apply_view!(st, Dict("show" => ["read", "asleep"])))
+    @test occursin("no show", W.apply_view!(st, Dict("show" => ["done", "asleep"])))
     # So is an axis that is not one either, which the three keys this one
     # replaced would otherwise have become: a view still spelling `sleep` would
     # have gone on being applied and meant something else.
@@ -392,7 +392,7 @@ end
     # back at launch - the filter and its order, the item under the cursor and
     # which of its views was up.
     st = mkstate()
-    W.apply_view!(st, Dict("show" => ["base", "read"], "kind" => "pr",
+    W.apply_view!(st, Dict("show" => ["base", "done"], "kind" => "pr",
                            "repo" => ["JuliaLang/julia"], "sort" => "touched"))
     @test length(st.items) >= 2
     st.sel = 2; st.mode = :diff
@@ -794,9 +794,9 @@ end
     # view of nothing.
     @test st.filters.show == W.SHOW_DEFAULT
     # A single value is as good as a list of one, on every axis.
-    W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "show" => "read"))
+    W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "show" => "done"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
-    @test st.filters.show == Set([:read])
+    @test st.filters.show == Set([:done])
 
     # The sort is an axis like the rest: a view that names one sets it, and a
     # view that names none puts it back to the order its selection opens in -
@@ -805,17 +805,17 @@ end
     # and an order carried over from the list you were in is not that.
     W.apply_view!(st, Dict("sort" => "name"))
     @test st.sort === :name
-    W.apply_view!(st, Dict("show" => ["read"]))
+    W.apply_view!(st, Dict("show" => ["done"]))
     @test st.sort === :moved
     W.apply_view!(st, Dict("tag" => ["touched"]))
     @test st.sort === :touched          # the selection that *is* the clock
     # Your own work reads by the later of the two clocks, and the backlog - the
-    # open list with the read ones beside it, and nothing else - by url.
+    # open list with the done ones beside it, and nothing else - by url.
     W.apply_view!(st, Dict("author" => [W.AUTHOR_ME]))
     @test st.sort === :latest
-    W.apply_view!(st, Dict("show" => ["base", "read"]))
+    W.apply_view!(st, Dict("show" => ["base", "done"]))
     @test st.sort === :name
-    W.apply_view!(st, Dict("show" => ["base", "read"], "tag" => ["second"]))
+    W.apply_view!(st, Dict("show" => ["base", "done"], "tag" => ["second"]))
     @test st.sort === :moved            # a tag makes it a question, not a list
     # And the three built-in views land in the three orders without naming
     # them - which is what makes a view that does name one worth reading.
@@ -937,7 +937,7 @@ end
     # clock - carrying it is having acted on something - so arriving in it
     # sorted by anything else asks the reader to press `w` to see what they came
     # for. Your own work reads by the later of the two clocks, and the backlog
-    # - the open list with the read ones beside it, and nothing else - by url.
+    # - the open list with the done ones beside it, and nothing else - by url.
     # Every other selection reads by when it moved, which is the order every
     # other inbox opens in and the answer use gave to the question this used to
     # leave open.
@@ -945,14 +945,14 @@ end
     @test W.lane_sort(W.Filters()) === :moved
     @test W.lane_sort(W.DEFAULT_FILTERS()) === :moved
     @test W.lane_sort(W.Filters(authors = Set([W.AUTHOR_ME]))) === :latest
-    @test W.lane_sort(W.Filters(show = Set([:base, :read]))) === :name
+    @test W.lane_sort(W.Filters(show = Set([:base, :done]))) === :name
     # The clock is the order of the clock *alone*: crossed with anything else it
     # is one axis of several and has no claim on how the list is read.
     @test W.lane_sort(W.Filters(tags = Set([:touched, :drafts]))) === :moved
     # And a tag on the backlog makes it a question rather than a list.
-    @test W.lane_sort(W.Filters(show = Set([:base, :read]), tags = Set([:second]))) === :moved
+    @test W.lane_sort(W.Filters(show = Set([:base, :done]), tags = Set([:second]))) === :moved
     # Yours outranks the backlog: my work names both, and is your work.
-    @test W.lane_sort(W.Filters(show = Set([:base, :read]), authors = Set([W.AUTHOR_ME]))) === :latest
+    @test W.lane_sort(W.Filters(show = Set([:base, :done]), authors = Set([W.AUTHOR_ME]))) === :latest
 
     st = mkstate()
     pick(axis, name) = (st.frow = findfirst(r -> r[1] === axis && r[2] == name,
@@ -964,7 +964,7 @@ end
     # `w` overrides, and the override lasts until the selection changes - which
     # is the only rule here that can be said in one sentence.
     st.sort = :name
-    pick(:show, "read"); @test st.sort === :moved
+    pick(:show, "done"); @test st.sort === :moved
 
     # A view naming the clock gets its order too, since it is clearing every
     # axis it does not name and the order is one of them.
@@ -986,8 +986,8 @@ end
     # saved backlog by url, and one put by `w` into another order keeps it.
     @test !any(startswith("sort"), W.view_lines(W.Filters(), :moved))
     @test "sort = \"name\"" in W.view_lines(W.Filters(), :name)
-    @test !any(startswith("sort"), W.view_lines(W.Filters(show = Set([:base, :read])), :name))
-    @test "sort = \"moved\"" in W.view_lines(W.Filters(show = Set([:base, :read])), :moved)
+    @test !any(startswith("sort"), W.view_lines(W.Filters(show = Set([:base, :done])), :name))
+    @test "sort = \"moved\"" in W.view_lines(W.Filters(show = Set([:base, :done])), :moved)
 end
 
 @testset "the order is held while the list is read" begin

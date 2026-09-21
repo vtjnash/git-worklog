@@ -118,9 +118,7 @@ then the push works by hand: `gh api --paginate /notifications --jq '.[].id'
       `e`, the thread `h`, VS Code `o`, import `I` (DESIGN, decisions,
       2026-09-21). Still open: `x` puts a thing out of the backlog as well
       as out of the inbox, and comes back when it moves like `done` does -
-      neither "filed away" nor "done" says the difference. Also open, and
-      only if it ever bites: the `show` keys in a view's TOML are still
-      `read` and `done`, where `done` is the closed-or-merged box.
+      neither "filed away" nor "done" says the difference.
 - [ ] **Undo in the composer** - scoped 2026-09-17, **deferred**: `⌥e` is
       the answer for anything past a paragraph, and this is the first thing
       past one. Weak for the `^w` you did not mean; do it when that bites.

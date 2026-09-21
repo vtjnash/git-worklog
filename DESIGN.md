@@ -45,7 +45,7 @@ from inside `data/` answers with the data repo.**
 The corpus is the index of everything that was ever in front of you, read or
 unread. **Nothing leaves it.** A row is re-asked only when a clock says it
 moved; otherwise it is kept as it was, derived against itself, so nothing
-about it moves. The `read` and `filed` boxes hold the read and the filed; the
+about it moves. The `done` and `filed` boxes hold the done and the filed; the
 merge you never looked at stays a merge you never looked at, a day or a
 season later.
 
@@ -209,7 +209,7 @@ a control client about the pane it is on and nothing else.
 and `read`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
 list that does not name the `filed` box. That one asymmetry is why it is a
-mark of its own: the backlog is `base + read`, and leaves the filed work out.
+mark of its own: the backlog is `base + done`, and leaves the filed work out.
 
 Only `e` writes `read_head`, the sha the read was made at, because only `e`
 knows what you were looking at; `s`, `x` and `wl read` stamp "not now" and
@@ -369,7 +369,7 @@ label), `issue` (`kind`), `stale` and `needs-nudge` (the second look says
 others, and none can take another's away. The first and last are checked when
 nothing has been asked, so the screen cannot be emptied by accident, and `c`
 lands there rather than on the corpus. The number beside each is a delta:
-what checking it would bring, or unchecking it would take. `read` is asked of
+what checking it would bring, or unchecking it would take. `done` is asked of
 unfiled work only, because filing stamps read - a box that insisted on both
 would do nothing (`show_ok`). Three axes that could each be turned off were
 merged into this one because turning one off was never what anybody wanted.
@@ -979,10 +979,11 @@ Each of the following returns success and the wrong answer:
   the next key over performs reads as its result. *Unread* stays the word
   for the fact - an item moved since your mark; the bold row, `why  unread:`,
   `wl unread` - and *done* is the act; in this program the two states are
-  the same two, so the base box says `not done, open` and the `read` box
-  says `done`. The TOML keys under `show` are not renamed: `read` is the
-  done box and `done` is the closed-or-merged one, and a rename would
-  break every view written before it.
+  the same two, so the base box says `not done, open` and the next says
+  `done`. The `show` keys in a view's TOML followed: `read` is `done`, and
+  the closed-or-merged box that was `done` is `closed`. A view written with
+  the old names is reported when applied, not read as the new ones: `done`
+  meant the other box, and a quiet alias would have shown a different list.
   The keys `e` displaced: VS Code moved to `o`, *open*; the thread moved to
   `h`, *history*, which is what `:comments` shows - the conversation with
   the pushes, closes and merges interleaved - and the one word that picks it

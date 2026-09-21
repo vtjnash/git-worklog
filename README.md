@@ -132,9 +132,8 @@ as the TOML that would name it.
 
 **The filter pane** (`f`): `show` is four boxes that each *add* rows - `not done,
 open` · `done` · `filed away` · `closed or merged` - so the number by each is
-what checking it would bring in. (In a view's TOML the four are still `base`,
-`read`, `filed`, `done` - and `done` there is the closed-or-merged box.) The
-first and last are on when nothing has been asked. The other axes narrow: tag, kind, lane, repo, label, author.
+what checking it would bring in; in a view's TOML they are `base`, `done`,
+`filed`, `closed`. The first and last are on when nothing has been asked. The other axes narrow: tag, kind, lane, repo, label, author.
 The repo, label and author axes list what is applied and put the rest
 behind a picker row; `[filters] pinned_repos` in `data/config.toml` names repos
 listed first regardless, a name or `owner/*`.

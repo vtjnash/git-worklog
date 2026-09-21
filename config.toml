@@ -98,7 +98,7 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # copies the TOML for whatever filter you are looking at, to paste into
 # `data/config.toml`; the browser never writes that file.
 #
-# The axes: `show` (base, read, filed, done), `tag` (reply, review, edits,
+# The axes: `show` (base, done, filed, closed), `tag` (reply, review, edits,
 # ready, second, touched, drafts, snoozed), `kind`, `lane`, `repo`, `label`,
 # `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
@@ -111,11 +111,11 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 #
 # `show` is the one that only ever adds: each value brings a kind of row in
 # beside the others, and none of them takes another's rows away. `base` is the
-# unread, unfiled and open work this dashboard is for, and `done` is the closed
-# rows; a view that names no `show` at all gets both - unread and unfiled,
+# not-done, unfiled and open work this dashboard is for, and `closed` is the
+# closed rows; a view that names no `show` at all gets both - unread and unfiled,
 # open or closed, which is the notification list and is what the firehose is,
 # so it names nothing. A view that does name `show` names the whole of it,
-# `base` included: `show = ["base", "read"]` is the open work with the read
+# `base` included: `show = ["base", "done"]` is the open work with the done
 # ones beside it and no closed row at all - the backlog - and `show = ["filed"]`
 # is the filed work on its own. An axis or a value that is not one of the above is
 # reported when the view is applied rather than ignored - `seen`, `sleep` and

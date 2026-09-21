@@ -22,7 +22,7 @@
 #         on when nothing has been asked, so the screen cannot be emptied by
 #         accident. Unchecking it is how one of the other three is asked for
 #         *alone*, and the only way there is.
-#       - **done** (`read` in TOML) - the read stamp against `moved_at` and against the snooze's
+#       - **done** - the read stamp against `moved_at` and against the snooze's
 #         wake time, and **nothing overrides it**: an item that moves is unread
 #         again whether it is snoozed, filed, yours or a stranger's. A review
 #         request, a mention and a reply all land here, which is why none of
@@ -71,32 +71,32 @@ not be asked while the base was a floor with no control at all. Unchecking
 every box is an empty list: an empty set of things to show is no things, which
 is the honest reading of an axis that adds rather than narrows.
 
-**`done` is on by default too**, since 2026-09-13, and that is what makes the
+**`closed` is on by default too**, since 2026-09-13, and that is what makes the
 dashboard a notification list rather than a work list. A closed item that
 moved - your pull request merged, a closed issue somebody commented on, a
 mention on a thread that was settled years ago - is unread like anything
 else, and until then it was held out of the one list that is about *today*
-and shown only to whoever thought to check the box. What `done` adds beside
+and shown only to whoever thought to check the box. What `closed` adds beside
 the base is exactly those: closed *and* unread *and* unfiled, since a closed
-row you have read needs `read` as well, and one you filed needs `filed`. So
-the dashboard is `base + done` - unread and unfiled, open or closed - and a
-view that wants the open work alone, read ones included, names
-`show = ["base", "read"]` and gets no closed row at all: the backlog is open
-work, and a closed thing is news, not backlog. Unchecking `done` on the
+row you have done needs `done` as well, and one you filed needs `filed`. So
+the dashboard is `base + closed` - unread and unfiled, open or closed - and a
+view that wants the open work alone, done ones included, names
+`show = ["base", "done"]` and gets no closed row at all: the backlog is open
+work, and a closed thing is news, not backlog. Unchecking `closed` on the
 dashboard is how the closed news is put away for the moment.
 
 `filed` brings what it names whether or not it has been read - see `show_ok`,
 which is where the one asymmetry in this axis is written down. "Show me what I
 put down for now" is a different question from "show me what I gave up on",
-and it is the `snoozed` tag over the `read` box rather than a box of its own:
+and it is the `snoozed` tag over the `done` box rather than a box of its own:
 a snooze is a read mark with a wake time, and the wake is a reason to be
 unread again, not a place to be.
 
 The three readings the values come from are `seen_of`, `filed_of` and `over_of`
 - what merged is the control over them, not the facts.
 """
-const SHOW = [(:base, "not done, open"), (:read, "done"),
-              (:filed, "filed away"), (:done, "closed or merged")]
+const SHOW = [(:base, "not done, open"), (:done, "done"),
+              (:filed, "filed away"), (:closed, "closed or merged")]
 
 """The boxes that are on when nothing has been asked; see `isdefault` and `c`.
 
@@ -108,7 +108,7 @@ Compared against, never pushed into - the `Filters` default below writes the set
 out again rather than naming this, because a shared mutable default would make
 one item's `show` every item's.
 """
-const SHOW_DEFAULT = Set([:base, :done])
+const SHOW_DEFAULT = Set([:base, :closed])
 
 """The questions that are not an axis of their own.
 
@@ -197,7 +197,7 @@ Your own work is the author axis naming you, and it reads by the later of the
 two clocks: what you did to it counts for as much as what happened to it.
 
 The backlog is the open list with the read ones beside it and nothing else -
-`show` exactly `base` and `read`, no tag - and it is a standing list rather
+`show` exactly `base` and `done`, no tag - and it is a standing list rather
 than news, so it reads in the order the file is written in, by url.
 
 Everything else is what moved, newest first, which is the order an inbox has
@@ -205,7 +205,7 @@ and the answer use gave to the question this table used to leave open.
 """
 lane_sort(f) = f.tags == Set([:touched]) ? :touched :
                AUTHOR_ME in f.authors ? :latest :
-               f.show == Set([:base, :read]) && isempty(f.tags) ? :name : :moved
+               f.show == Set([:base, :done]) && isempty(f.tags) ? :name : :moved
 
 # Whose it is, as two values of the author axis that are not logins.
 #
@@ -219,7 +219,7 @@ const AUTHOR_ME = "@me"
 const AUTHOR_OTHERS = "@anyone-else"
 
 Base.@kwdef mutable struct Filters
-    show::Set{Symbol} = Set([:base, :done]) # which kinds of row to show, of the
+    show::Set{Symbol} = Set([:base, :closed]) # which kinds of row to show, of the
                                            # four there are; base and done
                                            # together are the dashboard and are
                                            # what an unasked question answers.
@@ -407,7 +407,7 @@ function asleep(it::Item, m::Marks = Marks())
 end
 
 "Is it finished? Empty reads as open, which is what a synthetic item is."
-over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :done : :open
+over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :closed : :open
 
 """The tags an item carries, of the eight there are.
 
@@ -436,7 +436,7 @@ a row that deviates in no way at all is base work, which is in where `:base` is
 named. So the three clauses below are one rule read three times: each says "this
 is how the row differs, and the box for it has to be on".
 
-**`read` is a question about unfiled work only**, which is the one thing here
+**`done` is a question about unfiled work only**, which is the one thing here
 that is not symmetric and is the point of the whole axis. Filing something
 stamps it read - see `archive!` - so a `filed` box that also insisted on the
 read stamp would have shown nothing at all, and the reader would have had a
@@ -446,7 +446,7 @@ is how the backlog gets shorter without the pile changing.
 
 Closed is asked of every row, since nothing about closing an item says whether
 it has been looked at. So a row can be held out twice - a closed pull request
-you read last week needs both `read` and `done` - which is what makes the count
+you read last week needs both `done` and `closed` - which is what makes the count
 beside a box a delta rather than a total: see `axis_counts`.
 
 The base clause is last and is the only one that is about the *absence* of a
@@ -459,8 +459,8 @@ Monotone in `show` by construction, and `axis_counts` relies on it: adding a
 value can only ever bring rows in.
 """
 show_ok(show::Set{Symbol}, sn::Symbol, fd::Bool, ov::Symbol) =
-    (fd ? :filed in show : (sn === :unread || :read in show)) &&
-    (ov === :open || :done in show) &&
+    (fd ? :filed in show : (sn === :unread || :done in show)) &&
+    (ov === :open || :closed in show) &&
     (:base in show || !(!fd && sn === :unread && ov === :open))
 
 "The same, asked of an item."
@@ -759,12 +759,12 @@ const VIEWS = [
     # rows - your merged pull requests standing in for the ones you have read
     # and are still carrying, which is the opposite of what the view is for.
     ("my work — mine, open, done ones too",
-                       Dict("author" => [AUTHOR_ME], "show" => ["base", "read"])),
-    # The backlog. It names `show` and leaves `done` out of it, which is the
+                       Dict("author" => [AUTHOR_ME], "show" => ["base", "done"])),
+    # The backlog. It names `show` and leaves `closed` out of it, which is the
     # one place the two boxes the dashboard opens with come apart: a closed
     # thing that moved is news and belongs in the firehose, and it is not
     # work and does not belong here.
-    ("open items — the backlog, done ones too", Dict("show" => ["base", "read"])),
+    ("open items — the backlog, done ones too", Dict("show" => ["base", "done"])),
     ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
     ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
@@ -774,12 +774,12 @@ const VIEWS = [
     # default `show` has the closed news, and the tag does not care about
     # state. See `TAGS`.
     ("unanswered — unread, reply owed", Dict("tag" => ["reply"])),
-    ("snoozed — put down for a while", Dict("show" => ["read"], "tag" => ["snoozed"])),
+    ("snoozed — put down for a while", Dict("show" => ["done"], "tag" => ["snoozed"])),
     # The corpus, which no longer has a keystroke of its own: it is the base
     # with the three things it leaves out added back to it, and it names all
     # four because a view that names the axis names the whole of it.
     ("everything — done, filed and closed too",
-                       Dict("show" => ["base", "read", "filed", "done"])),
+                       Dict("show" => ["base", "done", "filed", "closed"])),
 ]
 
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
@@ -1176,7 +1176,7 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     # few lines down: it is true of almost every screen there is, so saying it
     # on each one is a phrase the reader stops seeing. What is worth saying is
     # what has been added to it - and where nothing else is applied either, the
-    # base is the whole answer and is said at the end. `done` is on by default
+    # base is the whole answer and is said at the end. `closed` is on by default
     # beside it and is as unremarkable while it is; what is said about it is
     # its *absence*, since a dashboard without its closed rows is a narrower
     # list than the one the browser opens on, and "open only" is what it is.
@@ -1187,7 +1187,7 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     if :base in f.show
         rest = [last(x) for x in SHOW if !(first(x) in SHOW_DEFAULT) && first(x) in f.show]
         isempty(rest) || push!(parts, string("also ", join(rest, "+")))
-        :done in f.show || push!(parts, "open only")
+        :closed in f.show || push!(parts, "open only")
     else
         rest = [last(x) for x in SHOW if first(x) !== :base && first(x) in f.show]
         push!(parts, isempty(rest) ? "nothing shown" : string("only ", join(rest, "+")))

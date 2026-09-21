@@ -11,7 +11,7 @@
         # today's awake work, open or closed; that plus what has been filed; the
         # filed work on its own, which is what taking the base off asks for; and
         # everything.
-        awake, filed = W.Filters(), W.Filters(show = Set([:base, :done, :filed]))
+        awake, filed = W.Filters(), W.Filters(show = Set([:base, :closed, :filed]))
         only, all_ = W.Filters(show = Set([:filed])), W.everything()
         n(f) = (st.filters = deepcopy(f); W.refilter!(st); length(st.items))
         # Filed work is what the one in the middle adds, so the count of it is
