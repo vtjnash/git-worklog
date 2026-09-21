@@ -225,67 +225,33 @@ primitives under other names and `tmux_jll` covers three platforms.
 
 ## Unverified - needs a real terminal
 
-Written, compiled, state transitions driven through `handle!`; not exercised
-through a TTY. Strike through rather than delete when one answers.
+Everything listed here was run on 2026-09-21 and is written up, with its
+steps and what passing looks like, in `cli/test/MANUAL.md`. New items go
+here until they are run, then there. Found on the way and not yet done:
 
-- [ ] **SIGWINCH**, end to end. `watch_winch!` hears it through libuv and
-      the loop redraws on the `ResizeEvent` (2026-09-16; the suite raises
-      the signal at itself and sees the event). Unseen: a real terminal
-      narrowed and widened with a thread, and with a hosted pane - whose
-      child is told its new box in `onresize!` - and a pty that does not
-      send the signal, where the frame stays the old shape until a key, as
-      it always did. The Windows half is `displaysize` at the next key
-      alone; there is no signal.
-- [ ] Arrow, page and Shift-Tab bytes from this terminal; which spelling of
-      Alt it sends (on a Mac, Option may compose instead).
-- [ ] `^s` in the composer: raw mode should clear IXON.
-- [ ] Raw mode restoration on abnormal exit.
-- [ ] The title: `wl JuliaLang/julia#1` on the tab and the tmux pane,
-      following the selection and staying through a dialog about it; the
-      old title back on exit where the terminal keeps a title stack (`CSI
-      22 t` / `CSI 23 t`), the last one until the next prompt where it does
-      not.
-- [ ] OSC 8 links and the OSC 52 copy end to end. The bundled client is
-      3.5.1, but an older server already on the socket renders `capture-pane`
-      (OSC 8 needs 3.4), and OSC 52 is opt-in in some terminals. Whether the
-      title-bar row settles copy-mode scrolling.
-- [ ] `⌥e`/`^o` launching `$EDITOR` from inside the browser; `e` (`code` is
-      not on the sandbox's `PATH`).
-- [ ] The forwards, across a reconnect: a pane opened from one VS Code
-      window, the window reconnected (new `vscode-ssh-auth-sock-*` and
-      `vscode-ipc-*.sock`, the old files left behind), then `git push` and
-      `code <file>` in the old pane after a fresh `wl` from the new
-      connection has re-pointed the links; and the `no live ssh agent`
-      suffix from a pane key in a `wl` whose own login has reconnected
-      under it. The re-pointing and the handover are tested on listeners
-      of our own and the bundled tmux; a real forwarded agent has not been
-      connected to.
-- [ ] `u` end to end: the browser staying live through the refresh's walk
-      over the corpus (a ~100 ms hitch at the write is expected; a hang is
-      not), and the status line off the report when it lands.
-- [ ] `p` against a rebase whose base moved, network and arithmetic at once:
-      needs a checkout of a repository whose base moves.
-- [ ] `y` on the checkout question against GitHub itself: `gh pr checkout
-      <url>` in a copy of julia on master, a fork's branch into a fresh
-      detached worktree (`add_worktree_pr!`), a fork's pull request named
-      like a branch here (`pr_branch_here` says the name is taken, and gh
-      makes `pr<N>/<branch>` instead of fetching into the one in the way -
-      whether the upstream it sets on that branch is the fork's), one of
-      your own branches that moved on the remote (the project's copy says it
-      is yours, after one fetch that brings `refs/remotes/origin/<branch>`
-      up to date), the lease line on the question with
-      `push.useForceIfIncludes` unset and its absence with it set, a branch
-      two remotes carry (made from the
-      project's by name), the fast-forward offer on a branch a push from
-      another machine left behind (and no offer on one you rewound yourself,
-      which its reflog knows), and the refusal with a changed file in the
-      way, which is to open the shell anyway with gh's words on the status
-      line. The suite drives all of it through a `gh` of its own.
-- [ ] The `pull/N/head` refspec in `ensure_commit!` - the bare sha answered
-      every time.
-- [ ] Whether owning the mouse is the right trade, or `m` is reached for
-      constantly. Whether 150 columns is the right split threshold.
-- [ ] Whether any lane wants an order of its own (`lane_sort` is one line).
+- [ ] **Terminal.app draws the frame one column too wide**: the right border
+      is off every row, so the width and not a glyph. Under tmux it draws
+      right, as does xterm.js. Either `displaysize` answers one more than it
+      draws, or a full row followed by a newline wraps where xterm.js defers
+      the wrap; `frame_bytes` is the place to look.
+- [ ] **The report after `y` lands where the pane covers it.** `say` writes
+      the browser's status row (`keys.jl:399`) and the pane view is pushed
+      over it, so `checked out <branch> · …` and `could not check out …` are
+      read only after `^]q`, if the next key has not cleared them. The pane
+      has a status row of its own (`v.child.status`); the session's opening
+      report belongs on it.
+- [ ] **A worktree on a same-named branch of another pull request is taken
+      by name.** Two fork pull requests with `master` as head: the second
+      found the first's `pr<N>/master` worktree, or a copy on the name,
+      through rule 1 and went in, rather than asking. The branch name alone
+      does not name a pull request when it is a fork's; the match wants the
+      remote or the pull request the worktree was checked out for.
+- [ ] **The checkout question's `git status` wants more**: ahead/behind
+      against the upstream, what `--force-if-includes` would say of a push
+      from here, and the head commit's subject, since the branch and its
+      state is what the question is about.
+- [ ] A list row two high, for the titles the one row cuts at about half.
+      Usually enough of the title shows; sometimes not.
 
 ## Known gaps
 
@@ -353,17 +319,3 @@ Panes:
 - [ ] `^]t`/`^]T` from a pane forward to the pane; `t`/`T` from the reading
       side go to the list. Both defensible; nothing on screen says they
       differ. Left alone.
-- [ ] **`session ended` over an empty frame** (2026-09-02 scripted; since
-      then when a child goes to the alternate screen, and sometimes under
-      `git log`, with nothing said about why). Explained 2026-09-17 and
-      fixed by construction, unverified in a terminal: the control-mode
-      reader raised a wake per `%output` line into a 64-slot queue while the
-      loop it fed was blocked on a `capture-pane` reply only that reader
-      could deliver; a burst past 64 lines - an alternate-screen clear, a
-      pager filling - blocked the reader, the ask timed out at 5s, the
-      client was marked dead, and `mux_capture` dropped the reason. The
-      2026-09-02 test that cleared the theory measured 11 of 64 at rest,
-      not a burst. `wake!` now queues one wake at a time, and a dead client
-      says why on the status. To see: a pane running `less` on a long file,
-      `git log`, and an editor opening, with the status row watched for
-      `session ended:`.

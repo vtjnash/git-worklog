@@ -611,6 +611,10 @@ No TTY, so the UI is tested by construction:
 - Time is an argument: a test says when now is by passing it.
 - `--project=cli`, never the wrapper. `latency.jl` builds the image and spawns
   cold processes and is deliberately not in the suite.
+- What none of this reaches - the terminal's own bytes and title, a resize,
+  the clipboard, a pane through a reconnect, `gh` against GitHub - is
+  `cli/test/MANUAL.md`: steps, what passing looks like, and when each last
+  did. A TODO item under *Unverified* moves there once it has been run.
 
 Harness:
 

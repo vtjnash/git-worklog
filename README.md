@@ -73,7 +73,9 @@ has been closed once, wherever it was closed; unread rows are bold, and the
 whole list is quieter while `tab` has put the keys on the reading pane. Reading
 an item, or putting it away, takes it out of that list, and it comes back
 when it moves. The terminal's title follows the cursor - `wl
-JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on;
+JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on
+(VS Code's tab shows it with `terminal.integrated.tabs.title` set to
+`${sequence}`);
 the title bar and the detail pane's header say what the number is of, between
 it and the title - `issue`, `pull request`, `draft pull request`, `merged
 pull request`, `closed issue`; the title bar's right-hand end says when the
@@ -100,7 +102,7 @@ GitHub.**
 | key | |
 |---|---|
 | `?` | this table, on screen |
-| `j`/`k` `g`/`G` `space`/`b` | move; `tab` moves the keyboard between panes |
+| `j`/`k` `g`/`G` `space`/`b` | move, and the arrow, Home/End and page keys likewise; `tab` moves the keyboard between panes |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
 | `o` `d` `p` `c` | the thread, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks |
 | `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
@@ -330,5 +332,6 @@ julia --project=TermIFrame.jl TermIFrame.jl/test/runtests.jl
 
 The suite runs on a committed fixture and on a fresh clone. It never writes
 your `local.toml` or cache; it does delete `data/errors.log` and, when there
-is one, reads `data/fetched.json` for one sweep. See DESIGN.md for how it is built, and TODO.md for what is
-open.
+is one, reads `data/fetched.json` for one sweep. What needs a terminal, a tmux of
+your own or GitHub is in `cli/test/MANUAL.md`, with when it last passed. See
+DESIGN.md for how the suite is built, and TODO.md for what is open.
