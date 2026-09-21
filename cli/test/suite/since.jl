@@ -1,8 +1,8 @@
-# Showing *what* changed, not just that something did: the read mark as a
+# Showing *what* changed, not just that something did: the done mark as a
 # record of where you were, the rule the thread opens under, and the diff
 # between the head you saw and the head now.
 
-@testset "the read mark carries the head it was made at" begin
+@testset "the done mark carries the head it was made at" begin
     keep = W.LOCAL[]
     W.LOCAL[] = fresh_local()
     try

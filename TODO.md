@@ -27,7 +27,7 @@ April 2026). Saved has no API of any kind (community#39606). Retention is
 three months and a day: `all=true` answered back to 2026-06-15T00:01:52Z,
 1970 threads in 40 pages; `all=false` is exactly the unread set, 327 in 7.
 
-**Not doing**: pulling on `unread: false`, which would mark read here
+**Not doing**: pulling on `unread: false`, which would mark done here
 everything ever clicked there; the website with a session cookie, which is
 the whole login in a file over HTML with no contract; the mobile GraphQL,
 which is not ours and was taken away once already. REST or nothing.

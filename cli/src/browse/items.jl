@@ -107,7 +107,7 @@ function import_url!(st::BState, raw::AbstractString, at::DateTime)
         was === nothing && drop_item!(st, u)
     end))
     r = select_item!(st, it)
-    string(was === nothing ? "imported " : "already here, marked unread: ", it.ref,
+    string(was === nothing ? "imported " : "already here, unread again: ", it.ref,
            r isa String && !isempty(r) ? string(" \u00b7 ", r) : "",
            was === nothing ? " \u00b7 no events lane: its repo is not watched" : "")
 end

@@ -433,7 +433,7 @@ end
 end
 
 @testset "when a row leaves, the cursor stays where it was" begin
-    # `e` in the base list takes the row it marks read out of it, and a
+    # `e` in the base list takes the row it marks done out of it, and a
     # cursor thrown to the top by that turns reading an inbox into: r, scroll
     # back down, r, scroll back down. The url it was on is gone, so the fallback
     # is the row - whatever moved up into the place being read.

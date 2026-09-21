@@ -751,7 +751,7 @@ Done, rejected or merged work should be able to leave without being deleted:
 the note and everything else written about it stay in `local.toml`, and the
 `filed` box is where it can still be found.
 
-**It is a mark, and it is read.** Filing stamps `archived` and `done` both, so
+**It is a mark, and it is done.** Filing stamps `archived` and `done` both, so
 an archived item is a read one in every way but one: a read item that moves
 comes back into the base on its own, and a filed one that moves is unread but
 comes back only when the `filed` box is on. That one difference is what the

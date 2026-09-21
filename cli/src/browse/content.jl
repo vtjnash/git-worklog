@@ -276,7 +276,7 @@ end
 """The rule the new part of a thread begins under.
 
 Drawn from the done stamp alone, which is the whole of what it needs: `e` marks
-the thread read up to the moment it was *fetched*, so everything written before
+the thread done up to the moment it was *fetched*, so everything written before
 that stamp was on screen and everything written after it was not. There is no
 second record of where you had got to, because a second record is a second
 answer that can disagree with this one.
@@ -297,7 +297,7 @@ end
 """Consecutive pushes folded into one entry, keeping everything else in place.
 
 The run is stamped at its *last* commit, so a push that is half older than the
-read mark still lands wholly below the rule. That is the safe direction: it
+done mark still lands wholly below the rule. That is the safe direction: it
 shows a commit you had already seen among the new ones, where the other way
 round hides one you have not.
 """
@@ -952,7 +952,7 @@ function rangediff_nodes(txt::AbstractString)
     ns
 end
 
-"""What has been pushed to this branch since the read mark was made.
+"""What has been pushed to this branch since the done mark was made.
 
 Every way this can have nothing to show is a sentence rather than an empty pane
 or an error, because each of them is a different thing to do about it: press

@@ -184,14 +184,14 @@ include_forks = true
 # How far back a source starts the *first* time it is seen. 0 is inbox zero:
 # turning one on brings nothing with it, and everything after that is caught by
 # the cursor. Only ever used once per source; after that the `source:` blocks in
-# `data/local.toml` say where each one has been read up to.
+# `data/local.toml` say where each one has been done up to.
 #
 # 0 since 2026-09-14, as policy: the unread side starts at now. It was 30
 # while the corpus was rebuilt from nothing, and a month of a repository's
 # traffic arriving unread at once is not what naming it should mean. What the
 # dashboard remembers is the corpus, which nothing leaves; and what a repository
 # named here brings with it is its **open list** - every open issue and pull
-# request, as `backlog` rows, read by construction and unread the moment one
+# request, as `backlog` rows, done by construction and unread the moment one
 # next moves - on its first sight, and for every repository here on
 # `wl refresh --backlog`. The backlog view is that standing list; the dashboard
 # is only what moved.

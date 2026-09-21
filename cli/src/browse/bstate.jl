@@ -107,7 +107,7 @@ Base.@kwdef mutable struct BState <: View
                                     # view that does not ask for the filed
     sources::Dict{String,String} = Dict{String,String}()   # source label -> the
                                     # day it was named: the floor a row with no
-                                    # stamp is read up to; see `seen_of`
+                                    # stamp is done up to; see `seen_of`
     snoozes::Dict{String,String} = Dict{String,String}()   # url -> the wake of
                                     # the last snooze put on it, kept after it;
                                     # the pane says what brought the row back

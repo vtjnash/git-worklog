@@ -89,7 +89,7 @@ end
 
 """Ask before quitting, because `q` ends the whole program from one key press.
 
-Nothing written is lost - notes, snoozes, the archive and the read marks all go
+Nothing written is lost - notes, snoozes, the archive and the done marks all go
 to disk as they are made, and a draft review lives on GitHub. What a stray `q`
 costs is the session it was typed into: the fetch that filled the list, where
 you were in it, and the panes on the screen. That is small enough that a modal
@@ -546,7 +546,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # And the agent's bell, which is the same kind of thing as the woken
         # snooze: a reason to be unread that the stamp cannot answer.
         rang = seen ? agent_seen!(it.url) : String[]
-        push!(st.undos, Undo(string(seen ? "read " : "unread ", it.ref), it.url, () -> begin
+        push!(st.undos, Undo(string(seen ? "done " : "not done ", it.ref), it.url, () -> begin
             # Raw, and with `fold`: a folded mark is no stamp and a head, and
             # that is what goes back, not the head dropped with the stamp.
             set_done_mark(it.url, prev, prevhead; fold = true)

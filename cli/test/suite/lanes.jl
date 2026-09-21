@@ -394,7 +394,7 @@ end
     @test occursin("unread: new", says(W.with(done; new = true)))
     # Read past its last movement: something to file. Unread is `seen_of` -
     # no stamp, or a stamp from before it moved - and nothing else: a row
-    # under its source's floor is read by construction, new or not.
+    # under its source's floor is done by construction, new or not.
     seen = W.with(done; moved_at = "2026-09-01T00:00:00Z", state_at = "2026-09-01T00:00:00Z")
     st.done = Dict(seen.url => "2026-09-02T00:00:00Z")
     @test occursin("why       done", says(seen)) && occursin("state     merged", says(seen))

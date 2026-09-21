@@ -37,14 +37,14 @@
     W.handle!(empty, Int('z'), ctrl)
     @test empty.status == "nothing to undo"
 
-    # r/u against the marks file, put back afterwards either way - and "put
+    # `e` against the marks file, put back afterwards either way - and "put
     # back" includes the file not existing yet, which is what a dashboard that
     # has never been read has.
     marks() = isfile(W.localfile()) ? read(W.localfile(), String) : ""
     before = marks()
     try
         # Everything, so the row stays under the cursor: in the list the browser
-        # opens on - unread, awake and open - `e` takes the row it marks read
+        # opens on - unread, awake and open - `e` takes the row it marks done
         # out of the list, which is the behaviour the filter suite tests. The
         # cursor goes to an unread row, since a toggle needs somewhere to start.
         st = mkstate()
@@ -232,7 +232,7 @@ end
 @testset "what the refresh does with a snooze, which is almost nothing" begin
     # Nothing arms and nothing wakes: the browser reads the wake off
     # `local.toml` per frame. What the refresh does is carry the resolved wake
-    # on the row - for `wl next`, and for the second look - and stamp read an
+    # on the row - for `wl next`, and for the second look - and stamp done an
     # item that was put away by hand and never read, since "not now" on an
     # unread item would otherwise say nothing at all.
     now = W.ts("2026-09-12T12:00:00Z")

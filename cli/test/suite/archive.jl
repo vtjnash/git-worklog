@@ -48,7 +48,7 @@
         lines = replace(W.astrip(join(W.meta_lines(st, it, 50), " ")), r"\s+" => " ")
         @test occursin("archived", lines) && occursin("takes it back out", lines)
 
-        # Filing it is the end of looking at it, so it is stamped read the way
+        # Filing it is the end of looking at it, so it is stamped done the way
         # a snooze is. It is *not* an answer about whether the thing has moved:
         # if it does, it is unread again and still filed - two axes, and no
         # precedence between them.

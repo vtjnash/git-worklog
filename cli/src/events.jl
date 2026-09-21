@@ -298,7 +298,7 @@ function walk_updated(page, since::AbstractString; per_page::Int = 100, max_page
     floor_ = String(since)
     pages = 0
     # A walk that runs out of pages has seen everything up to its floor and
-    # nothing past it - in ascending order the floor is the newest stamp read
+    # nothing past it - in ascending order the floor is the newest stamp done
     # - so the bound it answers with is the floor and not the walk's start:
     # a cursor at the start would step past every unread row beyond the cut,
     # for good. Until 2026-09-14 the cursor was the newest row seen, which
@@ -886,7 +886,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             server === nothing && (server = now())
             cursors[label] = stamp(server - backfill)
             # The one source that is not a repository names itself here,
-            # where its cursor starts: a thread with no stamp is read up to
+            # where its cursor starts: a thread with no stamp is done up to
             # this day by construction, and the backfill, if any, is unread.
             # The repositories are named when their lists are imported.
             label == "notifications" && Worklog.name_source!(label, cursors[label])

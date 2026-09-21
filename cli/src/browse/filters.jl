@@ -89,7 +89,7 @@ dashboard is how the closed news is put away for the moment.
 which is where the one asymmetry in this axis is written down. "Show me what I
 put down for now" is a different question from "show me what I gave up on",
 and it is the `snoozed` tag over the `done` box rather than a box of its own:
-a snooze is a read mark with a wake time, and the wake is a reason to be
+a snooze is a done mark with a wake time, and the wake is a reason to be
 unread again, not a place to be.
 
 The three readings the values come from are `seen_of`, `filed_of` and `over_of`
@@ -202,7 +202,7 @@ anything else asks the reader to press `w` to see the thing they came for.
 Your own work is the author axis naming you, and it reads by the later of the
 two clocks: what you did to it counts for as much as what happened to it.
 
-The backlog is the open list with the read ones beside it and nothing else -
+The backlog is the open list with the done ones beside it and nothing else -
 `show` exactly `base` and `done`, no tag - and it is a standing list rather
 than news, so it reads in the order the file is written in, by url.
 
@@ -304,7 +304,7 @@ Base.@kwdef struct Marks
     done::Dict{String,String} = EMPTY_TOUCHED
     sources::Dict{String,String} = EMPTY_TOUCHED   # source label -> the day it was
                                                     # named: the floor a row with no
-                                                    # stamp is read up to; see `seen_of`
+                                                    # stamp is done up to; see `seen_of`
     touched::Dict{String,String} = EMPTY_TOUCHED
     archived::Dict{String,String} = EMPTY_TOUCHED
     drafts::Dict{String,String} = EMPTY_TOUCHED
@@ -372,7 +372,7 @@ the browser would have to rewrite every row it touched.
 function seen_of(it::Item, m::Marks = Marks())
     it.url in m.rang && return :unread
     at = get(m.done, it.url, nothing)
-    # Nothing said about it: it is read up to the day its source was named,
+    # Nothing said about it: it is done up to the day its source was named,
     # whatever the lane - day zero reads zero - and unread if the source has
     # no block. An empty stamp is something said - unread - and is earlier
     # than any movement below.
@@ -1165,7 +1165,7 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     i = findfirst(x -> x.url == keep, st.items)
     # Stay on the same item when possible, and failing that on the same *row* -
     # whatever moved up into the place being read. `e` in the unread lane is the
-    # case: the row it marks read leaves the lane it is in, and a cursor thrown
+    # case: the row it marks done leaves the lane it is in, and a cursor thrown
     # to the top of the list by that turns reading an inbox into `e`, scroll
     # back down, `e`, scroll back down.
     #

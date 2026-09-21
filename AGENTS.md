@@ -21,7 +21,7 @@ each of them is exactly right:
    `review`, `second` - have to be right without a clock saying so. That is
    why the three lanes are fetched whole every refresh and everything else
    only by url when a clock says it moved.
-3. **The backlog** (`'` `3`): the standing open list, read ones too. That is
+3. **The backlog** (`'` `3`): the standing open list, done ones too. That is
    why nothing ever leaves the corpus, why a row with no stamp is read by
    construction up to the day its source was named - in every lane, one
    `since` per source, raised together by `wl done --consolidate` - and why

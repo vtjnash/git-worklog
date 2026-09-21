@@ -165,7 +165,7 @@ end
         end
         @test all(W.touched_at(x.url) === nothing for x in st.items)
 
-        # Nor is read/unread, which is the end of looking rather than the start
+        # Nor is done/not done, which is the end of looking rather than the start
         # of doing, and is one of the four boxes already. Everything, so the row
         # stays under the cursor: reading something takes it out of what the
         # browser opens on, which is what moved.

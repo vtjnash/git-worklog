@@ -173,7 +173,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # and hashed as true-or-absent so that the day it shipped did not read
         # as every row moving. The timeline has the time: the newest
         # `ReviewRequestedEvent` naming you, and as a stamp it compares against
-        # the read mark directly. Not the withdrawal: being let off is the end
+        # the done mark directly. Not the withdrawal: being let off is the end
         # of a claim on your attention and not a claim on it, and it used to
         # wake the item on the theory that `e` was waiting to hear it - decided
         # otherwise on 2026-09-12.
@@ -958,7 +958,7 @@ function derive!(r, old, st, cfg, at::DateTime)
     # second reason beside the wake table. What this run does with them is
     # two things. It carries the resolved wake on the row for the second
     # look, since an item you have said "not now" about is not one to be
-    # reminded of; and it stamps read an item that has a snooze or an archive
+    # reminded of; and it stamps done an item that has a snooze or an archive
     # but no done stamp - a value typed into the file by hand, which is what
     # `apply_snooze!` and `wl snooze` do on the way in and the only thing that
     # used to need an arming. Without it the item would be unread and hidden
@@ -972,7 +972,7 @@ function derive!(r, old, st, cfg, at::DateTime)
     # - `done = ""`, the snooze gone - so that **unread implies no snooze**.
     # The browser shows the row unread from the moment the wake passes,
     # `seen_of` reading the wake per frame; this is the file catching up,
-    # and what lets a read mark take afterwards: every mark stamps the last
+    # and what lets a done mark take afterwards: every mark stamps the last
     # movement, which is under the wake, so a snooze left standing would
     # keep the row unread whatever was pressed. Said unread rather than
     # left to the stamp, since the stamp is the movement the snooze was
@@ -1223,7 +1223,7 @@ end
 unread side starts at zero - `backfill_days`, and a clock brings in only what
 moves from then on - and this is the other half of that policy: the open
 issues and pull requests of every repository under `[events]` are in the
-corpus from the start, as `backlog` rows, read by construction up to the day
+corpus from the start, as `backlog` rows, done by construction up to the day
 the source was named (`source_since`, `floor_of`; the `source:` blocks in
 `local.toml`), so the backlog view is the standing list and the dashboard is
 not. Unread the moment one next moves, like any carried row; filled in by url
@@ -1311,7 +1311,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     now_() = stamp(at + Millisecond(round(Int, (time_ns() - t0) ÷ 1_000_000)))
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
-    # no clock of its own against the read mark, a read mark on a hand-typed
+    # no clock of its own against the done mark, a done mark on a hand-typed
     # snooze against the next comment, a bundle's `fetched_at` against the
     # inbox's clock - so the instant it is all measured from is GitHub's, off
     # a `Date` header, and not the local clock plus a correction. One request,
@@ -1388,7 +1388,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # view rather than a month of its traffic into the dashboard. First sight
     # is the `source:` block missing from `local.toml`, where the day it was
     # named is written and stays: the floor every row of that source is
-    # read up to, and the one fact a rebuild of `fetched.json` needs and
+    # done up to, and the one fact a rebuild of `fetched.json` needs and
     # could not get from GitHub. Rows the corpus has already are left alone.
     explicit_, owners_, _ = Events.event_sources(get(cfge, "repos", String[]))
     sources = vcat(explicit_, [string(o, "/*") for o in owners_])
@@ -1410,7 +1410,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
             push!(backlog, u)
         end
         spent += pts[]
-        @printf(report(), "  %-9s %4d rows new to the corpus, read by construction\n",
+        @printf(report(), "  %-9s %4d rows new to the corpus, done by construction\n",
                 "backlog", length(backlog))
     end
 
@@ -1435,12 +1435,12 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     #     returns it.
     #
     # **Nothing leaves.** The corpus is the index of everything that was ever
-    # in front of you, read or unread, and a row in it is kept for good: read
+    # in front of you, done or not, and a row in it is kept for good: read
     # rows are what the `done` box holds, filed ones the `filed` box, and a
     # snooze on a row that then left would be a wake with nothing to wake.
     # It used to prune a carried row once it was read - which was right while
     # the closed lanes and the bulk searches re-returned anything that moved,
-    # and wrong the day they went: a read row that then moved came back with
+    # and wrong the day they went: a done row that then moved came back with
     # its carried keys gone, or oscillated between the clock bringing it in
     # and the prune letting it go. The rows of the nine retired lanes stay
     # too, as they were; `in_pile` knows their names.
@@ -1571,7 +1571,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     end
 
     # **Every source names itself on first sight**, and a lane is a source:
-    # a row with no done stamp is read up to the day its source was named
+    # a row with no done stamp is done up to the day its source was named
     # (`floor_of`), so a lane first seen today - the three configured ones on
     # the first run, the retired ones once, for their rows from before there
     # was a floor - reads as zero unread rather than as every row it ever
@@ -1585,7 +1585,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         for l in fresh
             name_source!(l, f)
         end
-        isempty(fresh) || @printf(report(), "  %-9s %d source(s) named, read up to today: %s\n",
+        isempty(fresh) || @printf(report(), "  %-9s %d source(s) named, done up to today: %s\n",
                                   "sources", length(fresh), join(fresh, ", "))
     end
 
@@ -1660,7 +1660,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     for u in dropped
         delete!(inbox_["items"], u)
     end
-    isempty(dropped) || @printf(report(), "  %-16s %4d rows asked about and read, dropped\n",
+    isempty(dropped) || @printf(report(), "  %-16s %4d rows asked about and done, dropped\n",
                                 "inbox", length(dropped))
     # And a row under a name GitHub answered with another name for: asked,
     # and no clock will ever say the old name again - the row it made lives

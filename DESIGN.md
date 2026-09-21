@@ -74,7 +74,7 @@ notifications - is asked by url every refresh while it is open (`covered`).
 
 **The backlog** is the whole open list of every repository under `[events]`,
 imported the day it is named (and for all of them on `--backlog`). Backlog
-rows are read by construction up to that day - the `source:` block in
+rows are done by construction up to that day - the `source:` block in
 `local.toml` says which day, one line per repository rather than a stamp per
 row - and unread the moment one next moves. `backfill_days = 0` is policy:
 the unread side starts at now. The same floor answers in every lane; see
@@ -136,7 +136,7 @@ list, `seen_of` over the corpus and the light rows, and `wl unread`, `wl
 read all` and the browser's base list are on it.
 
 **The floor answers for a missing stamp, in every lane.** A row with no
-stamp is read up to the day its *source* was named - `floor_of`, off the
+stamp is done up to the day its *source* was named - `floor_of`, off the
 `source:` block - and unread if the source has no block. The source is what
 fetched the row (`source_of`): the repository, then the glob over its owner,
 for a `backlog` or `activity` row; `notifications` by itself; any other lane
@@ -145,14 +145,14 @@ when their lists are imported, `notifications` where its cursor is first
 written, a lane the first time a corpus row carries it. Day zero reads zero.
 Until 2026-09-16 the floor answered for backlog rows only, and 1915 rows of
 the other lanes - retired ones, and `mine` back to 2021 - were unread with
-nothing to read. `read = ""` still beats the floor; and a plain read mark
+nothing to read. `read = ""` still beats the floor; and a plain done mark
 on a row the floor already answers for drops the key rather than stamping
 it (`folded`), keeping `done_head`. `s` and `x` keep stamping, since the
 refresh reads a snooze or an archive with no stamp as put away by hand.
 
 **`since` is a consolidation point, raised together and never lowered.**
 `wl done --consolidate [--dry-run]` raises every source's `since` to the
-newest movement among the read rows that is below the oldest movement of
+newest movement among the done rows that is below the oldest movement of
 any stampless unread row - light rows included - and drops the stamps the
 new floor answers for, so `seen_of` answers the same for every row before
 and after. Together, so a row whose lane changes cannot flip by falling
@@ -205,7 +205,7 @@ whatever was pressed; `z` rings it back (`agent_ring!`). Read per
 `SESSIONS_EVERY` while the browser is up (`watch_sessions!`), since tmux tells
 a control client about the pane it is on and nothing else.
 
-**An archive is a read mark that filters separately.** `x` stamps `archived`
+**An archive is a done mark that filters separately.** `x` stamps `archived`
 and `done`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
 list that does not name the `filed` box. That one asymmetry is why it is a
@@ -355,7 +355,7 @@ pile (`in_pile`: a clock lane with no `reply` owed):
 | `review` | asked, and not reviewed since their last push |
 | `reply` | mentioned within `reply_days` and the last comment is not yours - open or closed. Deliberately narrow: plain `commented:` never qualifies, because where you are effectively the maintainer that is forty items a week |
 | `second` | the author acted - opened it, or commented - and nobody has answered with a comment or a review for `second_look_days` *working* days. A push is not an action. Never on the pile, never on finished work. On by default because asking for it would defeat it: the failure it catches is work that goes quiet without anybody deciding it should |
-| `snoozed` | a wake time still to come - a tag over read rows, not a box |
+| `snoozed` | a wake time still to come - a tag over done rows, not a box |
 | `touched`, `drafts` | marks |
 
 What the bucket had that none of these is: `draft` (a field), `blocked` (a
@@ -370,7 +370,7 @@ others, and none can take another's away. The first and last are checked when
 nothing has been asked, so the screen cannot be emptied by accident, and `c`
 lands there rather than on the corpus. The number beside each is a delta:
 what checking it would bring, or unchecking it would take. `done` is asked of
-unfiled work only, because filing stamps read - a box that insisted on both
+unfiled work only, because filing stamps done - a box that insisted on both
 would do nothing (`show_ok`). Three axes that could each be turned off were
 merged into this one because turning one off was never what anybody wanted.
 
@@ -456,7 +456,7 @@ refresh landing asks for the same (`resort`).
 
 Three things answer it, all read off the mark `e` leaves:
 
-- **The thread opens on a rule.** `e` marks read up to the newest event it
+- **The thread opens on a rule.** `e` marks done up to the newest event it
   showed, so everything before the stamp was on screen. Nothing records
   *which* comment you got to: a second answer can disagree with the first.
 - **The thread is one activity list**: commits and the changes of state -
@@ -902,7 +902,7 @@ Each of the following returns success and the wrong answer:
 - **No bucket**, and no `wl next`: the tags it handed out were the marks the
   browser writes one row at a time, where the row can be read first.
 - **Newest first**, no fifth sort, no ceiling on the second look.
-- **Read by construction is a fact about the source**, one line per
+- **Done by construction is a fact about the source**, one line per
   source, not a stamp per row - in every lane, and raised together by
   `wl done --consolidate`, never per source and never lowered.
 - **Nothing stamps the observation clock.** Every mark stamps the movement,

@@ -90,7 +90,7 @@ Base.@kwdef struct Item
     head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
                            # a push happened; this says what it pushed, which is
                            # the other end of the range-diff `p` takes against
-                           # the head the read mark was made at. Empty on an
+                           # the head the done mark was made at. Empty on an
                            # issue, and on a synthetic row that never saw a lane
     secondlook::String = "" # why this wants looking at again, empty when it does
                             # not. Derived every refresh and never stored: it is
@@ -702,7 +702,7 @@ movement on record - a synthetic one - has nothing to say. Then every
 `source:` block gets `max(since, since′)` - **together, and never lowered**,
 so a row whose lane changes (a backlog issue that `assigned` claims) cannot
 flip by falling under a different floor, and a source named later keeps its
-later day - and `done` is dropped on every read row whose movement is at or
+later day - and `done` is dropped on every done row whose movement is at or
 under its source's new floor. `done` only: `done_head` stays, since the head you last
 saw is still the head you last saw and `p` reads it alone.
 

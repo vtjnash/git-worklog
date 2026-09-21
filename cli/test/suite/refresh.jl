@@ -912,7 +912,7 @@ end
         (page(floor_, k), W.DateTime(2026, 9, 2))
     end
     @test length(rows) == 199                           # row 5 is at the end now
-    @test st[] == W.DateTime(2026, 9, 1, 0, 1, 40)     # the newest stamp read
+    @test st[] == W.DateTime(2026, 9, 1, 0, 1, 40)     # the newest stamp done
     # And one that ends on a short page keeps the start it was given.
     st = Ref{Any}(nothing)
     W.Events.walk_updated("2026-09-01T00:00:00Z"; started = st) do floor_, k
@@ -921,7 +921,7 @@ end
     @test st[] == W.DateTime(2026, 9, 2)
 end
 
-@testset "the open list is the backlog, read by construction, unread when it moves" begin
+@testset "the open list is the backlog, done by construction, unread when it moves" begin
     keepi, keepm = W.FETCHED[], W.LOCAL[]
     d = mktempdir()
     W.FETCHED[] = joinpath(d, "fetched.json")
@@ -945,7 +945,7 @@ end
         # Imported once, the rows are in the corpus, `new`, and read by
         # construction: the day the source was named is on record in
         # local.toml - one block per source, the one fact a rebuild could
-        # not get from GitHub - and a backlog row is read up to it.
+        # not get from GitHub - and a backlog row is done up to it.
         W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}()))
         rows = [W.backlog_row(rest(1), "vtjnash"), W.backlog_row(rest(2; pr = true), "vtjnash")]
         srch(q) = (Any[], 4, 0)
@@ -984,7 +984,7 @@ end
         @test W.seen_of(it, m()) === :unread                 # said, so the baseline does not answer
         @test W.seen_of(W.with(it; lane = "mine"), W.Marks(done = W.load_done(), now = "x")) === :unread
         # **The floor answers in every lane**, and a lane is a source: a row
-        # of a lane with no `source:` block is unread, and read up to the
+        # of a lane with no `source:` block is unread, and done up to the
         # day the lane was named once it has one - however it got there.
         it2 = W.item_of(its[Symbol(u2)])
         for lane in ("notifications", "mine", "imported", "firehose", "carried")
@@ -1007,7 +1007,7 @@ end
         @test W.seen_of(W.with(it2; lane = "notifications", moved_at = "2026-09-11T00:00:00Z"), m()) === :unread
         W.mark_unread([u2])
         @test W.seen_of(W.with(it2; lane = "mine"), m()) === :unread
-        # And a plain read mark on a row the floor already answers for folds
+        # And a plain done mark on a row the floor already answers for folds
         # the key away rather than stamping it: the block says nothing again,
         # and `seen_of` answers the same. `wl done` and `e` alike; a snooze
         # and an archive keep their stamp, since the refresh reads either
@@ -1081,7 +1081,7 @@ end
         before = read(W.LOCAL[], String)
         run(W.DateTime(2026, 9, 13, 17))
         @test read(W.LOCAL[], String) == before                    # nothing to name
-        # So the rows are read by construction, whatever their lane, and
+        # So the rows are done by construction, whatever their lane, and
         # unread once they move past the day.
         m2 = W.Marks(done = W.load_done(), sources = W.source_since(), now = "2026-09-13T18:00:00Z")
         mine = W.item_of(W.fetched("items")[Symbol("https://github.com/o/r/pull/20")])
@@ -1140,7 +1140,7 @@ end
         inbox["items"][U(5)] = light(5, "2026-09-11T00:00:00Z")
         W.Events.save_inbox(inbox)
         # The lane named before any of them moved, so that no stamp means
-        # unread here rather than read by construction.
+        # unread here rather than done by construction.
         W.name_source!("mine", "2026-09-01T00:00:00Z")
         W.set_done(U(1), "2026-09-10T00:00:00Z")
         asked = String[]
@@ -1297,7 +1297,7 @@ end
         @test W.mark_done_moved([U(4)], at; fold = true) == 1
         @test W.done_at(U(4)) == day(14)
         @test isempty(W.unread_items(at))
-        # A plain read mark on the filed rows stamps; on the plain one it folds.
+        # A plain done mark on the filed rows stamps; on the plain one it folds.
         @test W.mark_done_moved([U(1), U(2), U(3)], at; fold = true) == 3
         @test W.done_at(U(1)) == day(14) && W.done_at(U(2)) == day(9)
         @test W.mark_at(U(3), "done") === nothing
@@ -1885,7 +1885,7 @@ end
     # carried: kept as it was until a clock says it moved, then asked by url.
     # And since 2026-09-14 it is kept *for good*, read or not - the corpus is
     # the index of everything that was ever in front of you, the `done` and
-    # `filed` boxes are what hold the read and the filed, and a snooze on a
+    # `filed` boxes are what hold the done and the filed, and a snooze on a
     # row that had left would be a wake with nothing to wake. It used to be
     # let go once read, which was right while the closed lanes and the bulk
     # searches re-returned whatever moved, and wrong the day they went.
@@ -2262,7 +2262,7 @@ end
         state = W.load_state()
         @test W.adopt_pull_requests!(items, state, "me") == ["r#7"]
         # Moved, not copied: the branch keeps only what was not about the work
-        # - its read mark - and is no longer adopted, so it is no longer a row.
+        # - its done mark - and is no longer adopted, so it is no longer a row.
         @test W.get_field(lu, "adopted") === nothing && W.get_field(lu, "note") === nothing
         @test W.get_field(lu, "deadline") === nothing && W.get_field(lu, "track") === nothing
         @test W.done_at(lu) == "2026-09-11T09:00:00Z"

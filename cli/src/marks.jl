@@ -22,7 +22,7 @@
 # the wake table. There were two more here - `snooze_fp`, the hash an
 # "until it moves" snooze was armed against or `WOKE` once it had, and
 # `snooze_at`, when the arming happened - and they went on 2026-09-12: a
-# snooze that wakes on movement is a read mark, and a wake time needs no arming.
+# snooze that wakes on movement is a done mark, and a wake time needs no arming.
 #
 # These were four files - `read.json`, `touched.json`, `snooze.json` and
 # `drafts.json` - which is four read-modify-writes where there should be one,
@@ -42,7 +42,7 @@
 # the repos it watches, bounded by a lookback window, and answers a narrower
 # question than the one most of the program asks.
 #
-# **The read mark is a record of where you were, not only of when.** Saying an
+# **The done mark is a record of where you were, not only of when.** Saying an
 # item has changed is not the same as saying *what* changed, and the difference
 # is what you are handed when you open it: the whole thread and the whole diff,
 # with the new part somewhere in them.
@@ -144,7 +144,7 @@ end
 # **Two layers, and the file's is on top.** A done stamp on an item's block is
 # something you did. Beneath it is the *floor*: the day the row's source was
 # named, one block per source, `["source:JuliaLang/julia"] since = ...`. A
-# row with no stamp is read up to that day by construction and unread the
+# row with no stamp is done up to that day by construction and unread the
 # moment it next moves past it - **in every lane**: the open list of a
 # repository imported whole for the backlog view, and equally a pull request
 # of yours from 2021 that a lane returned on the first run and no clock ever
@@ -156,7 +156,7 @@ end
 # first time a corpus row carries it (`name_source!`, from the refresh). A
 # source with no block answers nothing, and such a row is unread.
 #
-# **`since` is how far a source is read by construction** - the day it was
+# **`since` is how far a source is done by construction** - the day it was
 # named, to begin with, and a consolidation point after that: `wl done
 # --consolidate` raises every source's `since` together to the newest point
 # the done stamps allow and drops the stamps the floor then answers for
@@ -218,7 +218,7 @@ repository, else the glob over its owner, for a row the repository's own
 list or poll fetched (`backlog`, `activity`) - a repository named outright
 beats the glob, being the more deliberate of the two; `notifications` by
 itself; any other lane by its name. The label whether or not a block exists
-for it, so that what is named and what is read are the same question."""
+for it, so that what is named and what is done are the same question."""
 function source_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict)
     lane in ("backlog", "activity") || return String(lane)
     haskey(sources, String(repo)) && return String(repo)
@@ -226,16 +226,16 @@ function source_of(lane::AbstractString, repo::AbstractString, sources::Abstract
     haskey(sources, g) ? g : String(repo)
 end
 
-"The day the row's source was named, or `nothing`: what a row with no stamp is read up to."
+"The day the row's source was named, or `nothing`: what a row with no stamp is done up to."
 floor_of(lane::AbstractString, repo::AbstractString, sources::AbstractDict) =
     get(sources, source_of(lane, repo, sources), nothing)
 
-"""What a plain read mark writes: `upto`, or `nothing` - the key dropped - when
+"""What a plain done mark writes: `upto`, or `nothing` - the key dropped - when
 the floor already answers for a movement that early."""
 folded(upto::AbstractString, floor) = (floor !== nothing && upto <= floor) ? nothing : upto
 
 """Does the block hold a snooze or an archive - `url -> field -> value` for
-the one url, as `field_maps` answers - so that a plain read mark stamps
+the one url, as `field_maps` answers - so that a plain done mark stamps
 rather than folds, and `consolidate!` leaves the stamp alone?"""
 held_by(r) = r !== nothing && (haskey(r, "snooze") || haskey(r, "archived"))
 
@@ -262,7 +262,7 @@ end
 set_done(url::AbstractString, at::Union{Nothing,AbstractString}) =
     set_mark!(url, "done", at)
 
-"""Set both halves of one item's read mark at once, or with `nothing` clear both.
+"""Set both halves of one item's done mark at once, or with `nothing` clear both.
 
 The pair is written in one pass because it is one fact - where you were - and
 the two halves disagreeing is the only way `p` can show a diff from somewhere
@@ -280,7 +280,7 @@ function set_done_mark(url::AbstractString, at::Union{Nothing,AbstractString},
     nothing
 end
 
-"""Forget the read marks on these items, making them unread again.
+"""Forget the done marks on these items, making them unread again.
 
 An item counts as unread when it moved more recently than its stamp here, so
 dropping the key restores it. Both halves go: a `done_head` outliving the stamp
@@ -362,21 +362,21 @@ moved_of(::Nothing) = nothing
 moved_of(r) = moved_of(rget(r, "moved_at"), rget(r, "updated"))
 
 """One key of a row, or `nothing`: an inbox row is keyed by `String`, a corpus
-row read back from `fetched.json` by `Symbol`, and the marks read both."""
+row read back from `fetched.json` by `Symbol`, and the marks done both."""
 rget(r::AbstractDict{String}, k::AbstractString) = get(r, k, nothing)
 rget(r, k::AbstractString) = jget(r, Symbol(k))
 
-"""Mark each url read up to its own last movement - `moved_of` over the row
+"""Mark each url done up to its own last movement - `moved_of` over the row
 the corpus or the inbox has for it, `at` for a synthetic row that has neither
 - and answer how many. The shell's `wl snooze`, `wl archive` and `wl done`,
-which have no thread on screen to have read up to. The inbox as well as the
+which have no thread on screen to have done up to. The inbox as well as the
 corpus so that a light row gets the stamp `e` in the browser would give it,
 and the bundle over the file's row for the same reason `loaditems` takes it:
 it is the newer of the two - and for a light row, one the corpus has no row
 for, the inbox's row over a bundle from before the inbox's clock for it, the
 way `inbox_items` shows it: `wl unread` lists such a row against `updated`,
 and a stamp off the older bundle would leave it listed. With `fold`, a plain
-read mark: a row whose movement is under its source's floor has its key
+done mark: a row whose movement is under its source's floor has its key
 dropped rather than stamped, see `folded`; a snooze and an archive stamp
 regardless, and so does a row carrying either (`held_by`)."""
 function mark_done_moved(urls, at::DateTime; fold::Bool = false)
@@ -464,7 +464,7 @@ undraft!(url::AbstractString) = set_draft(url, nothing)
 
 """Every item filed away, as `url -> when`.
 
-The `archived` mark. Filed is read that no view shows unless asked: see
+The `archived` mark. Filed is done that no view shows unless asked: see
 `show_ok`.
 """
 archived_map() = field_map("archived")

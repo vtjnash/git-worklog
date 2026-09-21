@@ -599,7 +599,7 @@ end
     @test W.hunk_text(st, 1, 80, 4, 4) == ["\tgcc -O2 a.c"]     # row 1 is the header
 end
 
-@testset "the list says what has been read" begin
+@testset "the list says what is done" begin
     # Weight is the only thing on a row that can say this without costing a
     # column, and the list is two thousand rows of things somebody may or may
     # not have looked at. Unread is bold, read is plain, and the whole list was

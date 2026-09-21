@@ -232,7 +232,7 @@ every light row the clocks know that has moved since you read it, or that no
 stamp and no floor answers for, less the ones filed away - newest movement
 first, each with `why`: the same words the pane's row says for what moved;
 `wl done all` marks that same list, so a second pass finds nothing. A
-row with no stamp is read up to the day its source was named (`since` in the
+row with no stamp is done up to the day its source was named (`since` in the
 `source:` blocks of `local.toml`); `wl done --consolidate` raises every
 source's `since` as far as the stamps allow and drops the stamps the floor
 then answers for, without changing what any row answers. `--dry-run` says
