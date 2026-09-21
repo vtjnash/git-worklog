@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "t=$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"/dev/$t\" ] && printf '\\a' > \"/dev/$t\"; exit 0"
+            "command": "f=/proc/$PPID/fd/1; [ -c \"$f\" ] || f=/dev/$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"$f\" ] && printf '\\a' > \"$f\"; exit 0"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "t=$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"/dev/$t\" ] && printf '\\a' > \"/dev/$t\"; exit 0"
+            "command": "f=/proc/$PPID/fd/1; [ -c \"$f\" ] || f=/dev/$(ps -o tty= -p \"$PPID\" | tr -d ' '); [ -c \"$f\" ] && printf '\\a' > \"$f\"; exit 0"
           }
         ]
       }

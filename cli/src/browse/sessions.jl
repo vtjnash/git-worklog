@@ -950,10 +950,15 @@ the channel.
 
 The hook runs under `/bin/sh` in a session of its own, with no controlling
 terminal - `/dev/tty` is `No such device or address` (measured, 2.1.277) - so
-it asks `ps` for its parent's, which is `claude`'s, which is the pane's.
-`ps -o tty= -p` is the one spelling BSD and procps share; `pts/1` and
-`ttys001` are both under `/dev`, and `?`/`??` for none is not a character
-device, so a headless run rings nowhere and says nothing.
+it rings its parent's stdout, which is `claude`'s, which is the pane's:
+`/proc/\$PPID/fd/1`, a link that resolves to the open file whatever `/dev`
+says. That last part is the point: a sandboxed `claude` has a `/dev/pts` of
+its own, in which the pane's pty from outside has no name - `ps -o tty=`
+answers `?` for it (seen 2026-09-21) - but the file descriptor it inherited
+still reaches it. Where there is no `/proc` (macOS) it asks `ps` instead:
+`ps -o tty= -p` is the one spelling BSD and procps share, `ttys001` is under
+`/dev`, and `?`/`??` for none is not a character device, so a headless run
+rings nowhere and says nothing.
 
 A file, so what it says can be read and diffed, handed over as a string
 ([`agent_settings`](@ref)); beside the code and not in `data/`, because it

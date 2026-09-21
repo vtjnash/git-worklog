@@ -790,8 +790,11 @@ Each of the following returns success and the wrong answer:
   since the marks are keyed by url.
   The hook runs under `/bin/sh` in a session of its own with no controlling
   terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
-  rings `/dev/$(ps -o tty= -p $PPID)`, its parent being `claude` and
-  `claude`'s tty the pane's - the one spelling BSD and procps `ps` share.
+  rings `/proc/$PPID/fd/1`, its parent being `claude` and `claude`'s stdout
+  the pane's pty - by descriptor, since a sandboxed `claude` has its own
+  `/dev/pts` in which that pty has no name and `ps -o tty=` says `?`
+  (2026-09-21) - and `/dev/$(ps -o tty= -p $PPID)` where there is no
+  `/proc`, the one `ps` spelling BSD and procps share.
   `preferredNotifChannel` would do the same ring, but `auto` resolves to
   nothing under tmux and the idle delay behind it is a global setting.
 
