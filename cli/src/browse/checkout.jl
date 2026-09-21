@@ -109,21 +109,37 @@ function branch_carrier(ix, repo::AbstractString, w)
     (it === nothing || carrier_refused(it, w)) ? nothing : it
 end
 
-"""The one refusal in matching a checkout to an item by its branch: the main
-checkout is not a stranger's.
+"""The refusals in matching a checkout to an item by its branch: the main
+checkout is not a stranger's, and a branch tracking one repository is not a
+pull request from another.
 
-A pull request is matched to a checkout by branch name alone, which is all
-`headRefName` gives, and on the *primary* checkout that is a collision
-waiting to happen: it sits on `master`, and somebody's fork opens a pull
-request from their own `master` about twice a week. Yours is at least
-plausibly the work in there; a stranger's is not. Shared by the worktree
-list, rule 1 and rule 2 of [`item_worktree`](@ref), so no two of them
-disagree about whose a copy is - each place it was missing from had its own
-wrong answer: the list filing the main checkout under their number, rule 1
-opening it for them without a word, rule 2 taking it for a copy reused by
-them and asking on every press.
+A pull request is matched to a checkout by branch name, and a name is not
+enough on its own. On the *primary* checkout it is a collision waiting to
+happen: it sits on `master`, and somebody's fork opens a pull request from
+their own `master` about twice a week. Yours is at least plausibly the work
+in there; a stranger's is not. And any worktree on a branch that `gh pr
+checkout` made for one fork's pull request is named after that fork's
+branch, which is the name the next fork's is also under - two pull requests
+from two forks' `master` were one worktree by the name, and `t` on the
+second went into the first's without a word. Git knows whose the branch
+is: `branch.<b>.remote` is the remote, or the fork's url, that gh set it to
+track ([`branch_tracks`](@ref)); the item knows whose it wants (`head_repo`,
+from the lanes). When both say and they differ, the copy is not this pull
+request's. When either does not - a branch made by hand, a row from before
+the field - the name is all there is, as before.
+
+Shared by the worktree list, rule 1 and rule 2 of [`item_worktree`](@ref),
+so no two of them disagree about whose a copy is - each place it was missing
+from had its own wrong answer: the list filing the main checkout under their
+number, rule 1 opening it for them without a word, rule 2 taking it for a
+copy reused by them and asking on every press.
 """
-carrier_refused(it::Item, w) = w.main && !author_ok(Set([AUTHOR_ME]), it)
+function carrier_refused(it::Item, w)
+    w.main && !author_ok(Set([AUTHOR_ME]), it) && return true
+    (isempty(it.head_repo) || isempty(w.branch)) && return false
+    tracks = branch_tracks(w.path, w.branch)
+    !isempty(tracks) && lowercase(tracks) != lowercase(it.head_repo)
+end
 
 """The *other* item whose branch the checkout `w` is on, or `nothing`.
 

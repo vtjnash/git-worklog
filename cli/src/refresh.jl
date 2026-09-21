@@ -130,6 +130,12 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         mine_reviews = [r for r in reviews
                         if jget(jget(r, :author), :login) == login && jget(r, :submittedAt) !== nothing]
         rec["branch"] = something(jget(n, :headRefName), "")
+        # And whose repository that branch is in: a fork's pull request from
+        # its `master` is named the same as the project's, and as every
+        # other fork's, so the name alone does not say which local branch is
+        # this pull request's - `carrier_refused` reads this against what
+        # the branch tracks. Null when the fork has been deleted.
+        rec["head_repo"] = something(jget(jget(n, :headRepository), :nameWithOwner), "")
         # The head *sha*, and not only the date it was made. `head_at` says a
         # push happened; only the sha says what it pushed, which is what a diff
         # against the head you last saw has to be taken between. It is a scalar

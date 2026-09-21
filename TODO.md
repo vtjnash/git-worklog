@@ -234,12 +234,6 @@ here until they are run, then there. Found on the way and not yet done:
       right, as does xterm.js. Either `displaysize` answers one more than it
       draws, or a full row followed by a newline wraps where xterm.js defers
       the wrap; `frame_bytes` is the place to look.
-- [ ] **A worktree on a same-named branch of another pull request is taken
-      by name.** Two fork pull requests with `master` as head: the second
-      found the first's `pr<N>/master` worktree, or a copy on the name,
-      through rule 1 and went in, rather than asking. The branch name alone
-      does not name a pull request when it is a fork's; the match wants the
-      remote or the pull request the worktree was checked out for.
 - [ ] A list row two high, for the titles the one row cuts at about half.
       Usually enough of the title shows; sometimes not.
 

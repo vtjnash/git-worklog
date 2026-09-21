@@ -1186,6 +1186,55 @@ end
     end
 end
 
+@testset "a branch is a pull request's by whose it is, not by its name alone" begin
+    # Two forks each open a pull request from their `master`, and `gh pr
+    # checkout` on the first made a worktree on a branch by that name,
+    # tracking the first fork's url. The second is not that worktree's,
+    # whatever the name says - git knows whose the branch is, the item knows
+    # whose it wants, and the two are read against each other.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    W.git(main, "commit", "--quiet", "--allow-empty", "-m", "first")
+    W.git(main, "remote", "add", "origin", "https://github.com/o/wt.git")
+    side = joinpath(root, "side")
+    W.git(main, "worktree", "add", "--quiet", "-b", "theirs", side)
+    W.git(side, "config", "branch.theirs.remote", "https://github.com/alice/wt.git")
+    W.git(side, "config", "branch.theirs.merge", "refs/heads/theirs")
+    @test W.branch_tracks(main, "theirs") == "alice/wt"
+    @test W.branch_tracks(main, "master") == ""            # nothing set
+    W.git(main, "config", "branch.master.remote", "origin")
+    W.git(main, "config", "branch.master.merge", "refs/heads/master")
+    @test W.branch_tracks(main, "master") == "o/wt"        # a remote's name
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
+    try
+        W.register_repo!("o/wt", main)
+        alice = W.Item(url = "https://example.invalid/o/wt/pull/50", ref = "wt#50",
+                       repo = "o/wt", number = 50, title = "alice's", branch = "theirs",
+                       head_repo = "alice/wt", author = "alice")
+        bob = W.with(alice; url = "https://example.invalid/o/wt/pull/51", ref = "wt#51",
+                     number = 51, title = "bob's", head_repo = "bob/wt", author = "bob")
+        old = W.with(alice; url = "https://example.invalid/o/wt/pull/52", ref = "wt#52",
+                     number = 52, title = "from before the field", head_repo = "")
+        ws = W.worktrees(main)
+        w = ws[findfirst(x -> x.branch == "theirs", ws)]
+        @test !W.carrier_refused(alice, w)
+        @test W.carrier_refused(bob, w)
+        @test !W.carrier_refused(old, w)     # the name is all there is, as before
+        # Rule 1 finds alice's place and not bob's; bob's is the guess, asked.
+        r = W.item_worktree(alice)
+        @test W.wtkey(r.path) == W.wtkey(side) && !r.ask
+        r = W.item_worktree(bob)
+        @test W.wtkey(r.path) == W.wtkey(main) && r.ask
+        # And the worktree list files the copy under alice's number alone.
+        ix = W.branch_index([bob, alice])
+        @test W.branch_carrier(ix, "o/wt", w) === nothing || W.branch_carrier(ix, "o/wt", w).ref == "wt#50"
+    finally
+        W.LOCAL[] = keept
+    end
+end
+
 @testset "e opens the checkout, and a diff line in it" begin
     pr = fixture_item("yours, open, with a branch and labels")
     root = mktempdir(); main = joinpath(root, "main"); mkpath(main)

@@ -77,6 +77,10 @@ Base.@kwdef struct Item
                            # thing to be.
     branch::String = ""    # the pull request's head branch, from the lanes:
                            # what joins an item to a local checkout
+    head_repo::String = "" # and the repository it is in - the project's, or
+                           # a fork's - since the name joins by itself only
+                           # when nobody else has a branch called that.
+                           # Empty on a row from before the field existed
     base::String = ""      # the branch it is to be merged into. With `head`
                            # it is what makes "what was pushed since I looked"
                            # answerable: the merge base against it is what
@@ -168,6 +172,7 @@ function item_of(r)
             review_decision = nz(jget(r, :review_decision), ""),
             state = nz(jget(r, :state), ""),
             branch = nz(jget(r, :branch), ""),
+            head_repo = nz(jget(r, :head_repo), ""),
             head = nz(jget(r, :head_sha), ""),
             base = nz(jget(r, :base), ""),
             base_sha = nz(jget(r, :base_sha), ""),

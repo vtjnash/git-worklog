@@ -29,6 +29,7 @@ Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
 const PR_FIELDS = "\n" * """
       url number title isDraft createdAt updatedAt state
       headRefName headRefOid baseRefName baseRefOid
+      headRepository { nameWithOwner }
       mergedBy { login }
       repository { nameWithOwner }
       author { login }

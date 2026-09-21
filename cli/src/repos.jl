@@ -108,6 +108,23 @@ function remote_repos(path)
     out
 end
 
+"""The repository the local `branch` tracks, as `owner/repo`, or `""` when git
+does not say. `branch.<b>.remote` is a remote's name, looked up in
+[`remote_repos`](@ref), or the url itself, which is what `gh pr checkout`
+writes for a fork's branch when the fork is no remote here."""
+function branch_tracks(path, branch::AbstractString)
+    r = try
+        strip(git(path, "config", "--get", string("branch.", branch, ".remote")))
+    catch
+        ""
+    end
+    isempty(r) && return ""
+    rs = try remote_repos(path) catch; Dict{String,String}() end
+    haskey(rs, r) && return rs[r]
+    m = match(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", r)
+    m === nothing ? "" : string(m[1], "/", m[2])
+end
+
 "Path pinned to `name`, or nothing. Entries pointing at vanished folders are ignored."
 function repo_path(name::AbstractString)
     d = get(load_repos(), String(name), nothing)
