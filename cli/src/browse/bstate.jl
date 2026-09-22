@@ -160,6 +160,9 @@ Base.@kwdef mutable struct BState <: View
     sessions::Vector{NamedTuple} = NamedTuple[]  # live multiplexer sessions, as
                                           # of the last metadata fetch; asking
                                           # costs a process, and `render` is pure
+    taken::Vector{NamedTuple} = NamedTuple[]  # of those, the other items' in the
+                                          # copy `t`/`T` would open in - which
+                                          # they take over (`item_place`)
     anchor::Int = 0        # row a drag started on
     lastclick::Tuple{Float64,Int,Int} = (0.0, 0, 0)   # when and where the last
                            # press landed, which is all a double click is: the

@@ -374,35 +374,27 @@ end
                 @test r isa String && occursin("back in", r)
                 @test top() isa W.PaneView && said[] === nothing
                 drop!(top())
-                # The agent is asked too: the shell's `n` was the shell's
-                # answer, and the agent is a session of its own - and its
-                # `n` holds for it from then on.
-                said[] = nothing
-                @test W.enter_session(pr, ctrl, :agent, sleep120, say; items = known) == ""
-                cv = top(); @test cv isa W.ConfirmView
-                @test cv.title == string("Check out ", pr.branch, " in main?")
-                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
-                @test top() isa W.PaneView && occursin("started", string(said[]))
-                @test isempty(asked())
-                drop!(top())
+                # Nor is an agent there: the question was about the place,
+                # and the shell's `n` answered it for the agent too - the two
+                # share the copy, and an answer for one alone would have it
+                # moved from under the other.
                 said[] = nothing
                 r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
-                @test r isa String && occursin("back in", r) && said[] === nothing
+                @test r isa String && occursin("started", r)
+                @test top() isa W.PaneView && said[] === nothing
+                @test isempty(asked())
                 drop!(top())
-                # And a shell that has gone took its answer with it: the next
-                # `t` is placed by the agent still standing there (rule 2),
-                # and asked again, since there is no shell whose `n` it was.
+                # And a shell that has gone did not take the answer with it:
+                # the agent still standing there places the next `t` (rule 2)
+                # and holds the answer for it.
                 for r in W.mux_list()
                     (r.item == pr.ref && r.kind == "shell" &&
                      W.wtkey(r.worktree) == W.wtkey(main)) && W.mux_kill(r.name)
                 end
-                @test W.item_worktree(pr; items = known).ask == false
+                @test !W.item_worktree(pr; items = known).ask
                 said[] = nothing
-                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
-                cv = top(); @test cv isa W.ConfirmView
-                @test cv.title == string("Check out ", pr.branch, " in main?")
-                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
-                @test top() isa W.PaneView && occursin("started", string(said[]))
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("started", r) && said[] === nothing
                 drop!(top())
 
                 # The copy is reused: a `gh pr checkout` in that shell put
@@ -519,10 +511,10 @@ end
                 W.git(main, "checkout", "--quiet", "--detach", "master")
                 @test !W.item_worktree(issue; items = known).ask
                 # Back on the branch, and the shell is pr's again for the
-                # moves below.
+                # moves below - taken back from the issue, and said so.
                 W.git(main, "checkout", "--quiet", pr.branch)
                 r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
-                @test r isa String && occursin("back in", r)
+                @test r isa String && occursin(string("took over ", issue.ref, "'s shell"), r)
                 drop!(top())
 
                 # Taking the session over for another item asks the same
@@ -535,12 +527,22 @@ end
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                # And whose sessions are in there, since `y` or `n` takes
+                # the shell over: pr's agent and shell both, the shell named
+                # as the one going.
+                @test cv.notes[2] == string(pr.ref, "'s agent and ", pr.ref, "'s shell are running here",
+                                            " \u00b7 going in takes the shell over")
                 touch(fail); said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView
                 @test startswith(string(said[]), string("could not check out ", pr2.branch))
                 @test occursin("local changes", string(said[]))
-                @test occursin("was on " * pr.ref, string(said[]))
+                @test occursin(string("took over ", pr.ref, "'s shell in main"), string(said[]))
+                @test occursin(string(pr2.ref, "'s now"), string(said[]))
+                # And the pane says whose it was, for as long as this entry
+                # lasts: the report goes when the next key does, the title
+                # does not.
+                @test occursin(string("was ", pr.ref, "'s"), top().child.title)
                 @test first(W.worktrees(main)).branch == pr.branch
                 @test any(r -> r.item == pr2.ref, W.mux_list())
                 drop!(top())
@@ -557,9 +559,16 @@ end
                               if W.wtkey(r.worktree) == W.wtkey(main) && r.kind == "shell"]
                 said[] = nothing
                 r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
-                @test r isa String && occursin("back in", r) && occursin("was on " * pr2.ref, r)
+                @test r isa String && occursin(string("took over ", pr2.ref, "'s shell"), r)
                 @test top() isa W.PaneView && said[] === nothing
+                @test occursin(string("was ", pr2.ref, "'s"), top().child.title)
                 @test shell_of() == [pr.ref]
+                # Going back to what is now its own is a plain return, and the
+                # title has no takeover on it.
+                drop!(top())
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r)
+                @test !occursin("was ", top().child.title)
                 @test any(r -> r.item == pr.ref && r.kind == "agent", W.mux_list())
                 drop!(top())
                 # pr2 takes it, and this time the checkout lands.
@@ -766,9 +775,8 @@ end
                 @test cv.notes[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 @test isempty(asked())
                 W.git(main, "config", "push.useForceIfIncludes", "true")
-                # `n` goes in as it is, and the shell has its answer: going
-                # back is not asked. The agent one key later is a session of
-                # its own, and is.
+                # `n` goes in as it is, and the place is looked at: the agent
+                # one key later is not asked, nor is going back.
                 said[] = nothing
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("started", string(said[]))
@@ -780,10 +788,8 @@ end
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() isa W.BState
                 said[] = nothing
-                @test W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known) == ""
-                cv = top(); @test cv isa W.ConfirmView && cv.title == "Fast-forward ff in main-ff?"
-                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
-                @test top() isa W.PaneView && occursin("started", string(said[]))
+                r = W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known)
+                @test r isa String && occursin("started", r) && top() isa W.PaneView
                 drop!(top())
                 r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
                 @test r isa String && occursin("back in", r)

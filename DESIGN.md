@@ -740,6 +740,17 @@ Do not simplify any of these away.
 - **`git worktree list --porcelain` leads with a bare repository**, as a
   `worktree` line with `bare` under it and no `HEAD`. It is not a checkout;
   `worktrees` drops it, and then no row is `main`.
+- **A session is keyed by its worktree and kind, so `t` and `T` take one
+  over from another item, and the takeover has to be loud.** `T` on an item
+  whose `running` block was empty landed in another item's agent in the
+  copy rule 1 chose, said `back in … · was on wt#9` on a status row that
+  the next key cleared, and read as the item's own (2026-09-22). Now the
+  item pane lists the other item's sessions in the copy the key would open
+  (`taken_in`, off `item_place`), the checkout and fast-forward questions
+  say whose is there, the report leads with `took over`, and the pane's
+  title carries `was wt#9's` for the visit. The place-held answer stays:
+  the shell and the agent share the copy, and an answer per kind would
+  have it moved from under the other.
 - **An agent's commits are in your name.** `mine_on_branch` is not a
   signal that a branch is your hand's; a branch an agent made in a copy
   passed it, and re-entering the pane adopted it. No automatic adoption

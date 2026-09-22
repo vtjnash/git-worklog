@@ -102,13 +102,14 @@ function start_meta!(st::BState, it::Item, how::Symbol)
         try
             # An adopted branch has nothing on GitHub to ask about, and its
             # `local:` url is not one the request could be made of anyway.
+            rows = mux_list()
             (meta = islocal(it) ? nothing :
                         Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep),
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
-             sessions = mux_list())
+             sessions = rows, taken = taken_in(it, item_place(it; items = st.all), rows))
         catch e
-            (meta = nothing, checks = nothing, sessions = String[],
+            (meta = nothing, checks = nothing, sessions = String[], taken = NamedTuple[],
              err = first(sprint(showerror, e), 120))
         finally
             st.wake === nothing || st.wake()
@@ -239,6 +240,7 @@ function collect_meta!(st::BState)
             (st.metastale = true)
     end
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
+    hasproperty(r, :taken) && (st.taken = r.taken)
     # A draft left on this pull request by an earlier session, which nothing
     # here would otherwise know about. This is also the only thing that ever
     # contradicts the `drafts` lane: the mark is written by this program as it
@@ -599,14 +601,24 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # and it redraws per frame.
     # The bell is the agent's: it rang at the end of a turn or at a question,
     # with nobody looking, and `T` is what clears it.
+    # And, beside them, what is running in the copy `t` or `T` would open in
+    # that is some other item's (`taken_in`): the key takes it over, and an
+    # empty `running` read as nothing running when another item's agent was
+    # in the very copy `T` was about to land in (2026-09-22).
     live = [r for r in st.sessions if r.item == it.ref]
-    if !isempty(live)
+    if !isempty(live) || !isempty(st.taken)
         push!(out, string(THEME.dim, "running", THEME.reset))
         for r in sort(live; by = x -> x.kind)
             push!(out, string("  ", r.kind != "agent" ? "shell  t to open" :
                               r.bell ? string("agent  ", THEME.waiting, "waiting on you",
                                               THEME.reset, " · T to see") :
                               "agent  T to watch"))
+        end
+        for r in sort(st.taken; by = x -> x.kind)
+            k = r.kind == "agent" ? "agent" : "shell"
+            push!(out, string("  ", k, "  ", THEME.waiting, r.item, "'s", THEME.reset,
+                              ", in this item's copy · ", k == "agent" ? "T" : "t",
+                              " takes it over"))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))

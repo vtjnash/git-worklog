@@ -701,6 +701,29 @@ end
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
+    # Another item's session in the copy this item would open in is said,
+    # with the key that takes it over: an empty `running` read as nothing
+    # running when an agent was there on another item, and `T` landed in it.
+    # `taken_in` is the fetch's; the pane draws what it was handed.
+    theirs = row(:agent, "someone/else#1")
+    @test isempty(W.taken_in(tasked, "", [theirs]))
+    @test W.taken_in(tasked, "/tmp/x", [theirs, row(:shell, tasked.ref)]) == [theirs]
+    @test isempty(W.taken_in(tasked, "/tmp/x", [row(:shell, "")]))   # untagged: nobody's
+    st.taken = [theirs]
+    lines = join(W.meta_lines(st, tasked, 40), "\n")
+    @test occursin("running", lines) && occursin("someone/else#1's", lines)
+    @test occursin("T takes it over", lines)
+    st.taken = [row(:shell, "someone/else#1")]
+    @test occursin("t takes it over", join(W.meta_lines(st, tasked, 40), "\n"))
+    st.taken = NamedTuple[]
+    # And the line the questions carry for it, kind-aware.
+    @test W.taken_note(tasked, "/tmp/x", :agent, [theirs]) ==
+          "someone/else#1's agent is running here \u00b7 going in takes the agent over"
+    @test W.taken_note(tasked, "/tmp/x", :shell, [theirs]) ==
+          "someone/else#1's agent is running here"
+    @test W.taken_note(tasked, "/tmp/x", :shell, [theirs, row(:shell, "a/b#2")]) ==
+          "a/b#2's shell and someone/else#1's agent are running here \u00b7 going in takes the shell over"
+    @test W.taken_note(tasked, "/tmp/x", :shell, [row(:shell, tasked.ref)]) == ""
 end
 
 @testset "an agent's bell is a seen bit" begin

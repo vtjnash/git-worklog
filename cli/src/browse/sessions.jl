@@ -351,17 +351,25 @@ function enter_session(target::AbstractString, branch::AbstractString,
          r.name != name && (found === nothing || r.name != found.name)) || continue
         mux_tag!(r.name; branch = on)
     end
-    v = pane_view(name, title, ctrl)
+    # Taken over: the session was another item's, and is this one's from
+    # here on - theirs has nothing running now. Not a refusal, the session
+    # is yours to redirect, but the conversation in it is about something
+    # else until you say otherwise, and it has to be said where it stays
+    # in view: a `T` on an item whose `running` block was empty landed in
+    # another item's agent and read as its own (2026-09-22). So the pane's
+    # title carries whose it was for as long as this entry lasts, and the
+    # report leads with it.
+    taken = found !== nothing && !isempty(found.item) && !isempty(ref) && found.item != ref
+    v = pane_view(name, taken ? string(title, "  \u00b7 was ", found.item, "'s") : title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
     push_place!(ctrl, v)
     said = if found === nothing
         string("started ", name)
-    elseif !isempty(found.item) && !isempty(ref) && found.item != ref
-        # Not a refusal - the session is yours to redirect - but the
-        # conversation in it is about something else until you say otherwise.
-        string("back in ", basename(rstrip(String(target), '/')),
-               " \u00b7 was on ", found.item)
+    elseif taken
+        string("took over ", found.item, "'s ", kind === :agent ? "agent" : "shell",
+               " in ", basename(rstrip(String(target), '/')), " \u00b7 it is ",
+               isempty(ref) ? "untagged" : string(ref, "'s")," now")
     else
         string("back in ", name)
     end
@@ -423,16 +431,17 @@ follows as well as its name, so a copy on gh's `<owner>/master` is on the
 pull request from `master`) the session is about to open on the wrong branch
 ([`checkout_offer`](@ref)). The second, when the branch is the right one, is
 whether it is behind where the item is ([`update_offer`](@ref)). Both are
-asked exactly when the place is new to *this kind of session* of the item's:
-no shell of the item's running there yet for `t`, no agent for `T`, or a copy
-`picked` by hand from the chooser or typed as a path. Going back to a session
-that is there is not - it was looked at when that opened, and `n` there was
-an answer, not a thing to say again on every `^]q`. The answer goes with the
-session it was given for, though, not with the place: a shell that has exited
-took its `n` with it, and the next `t` asks again even with the item's agent
-still running beside it (a closed `t` that was not asked again, 2026-09-22);
-and the agent's own opening was its own question. An answer is about the
-place *as it was*, too: a copy that has since moved off the branch it was
+asked exactly when the place is new to the item: nothing of the item's
+running there yet, or a copy `picked` by hand from the chooser or typed as a
+path. Going back to a copy where the item already has a session is not - it
+was looked at when that opened, and `n` there was an answer, not a thing to
+say again on every `^]q`, or for the other kind: the shell and the agent
+share the one copy, and an answer that held for one and not the other would
+have the copy moved from under the one still running. (Considered per kind
+once, 2026-09-22, for a `t` that "was not asked again" - which turned out to
+be a copy in use by another item's agent, taken over without enough of a
+word; the word is what changed, below.) An answer is about the place *as it
+was*, though: a copy that has since moved off the branch it was
 answered on - parked at `master` or detached to mark it free, or checked out
 on another item's branch - is not the item's place any more (rule 2's
 exceptions), so the next `t` goes back through the chooser and both looks,
@@ -492,7 +501,7 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
     on_branch(it, w, tr) || return nothing
     if !picked && !isempty(it.ref)
         rows === nothing && (rows = mux_list())
-        any(r -> session_of(r, it, w.path, kind), rows) && return nothing
+        any(r -> session_of(r, it, w.path), rows) && return nothing
     end
     # The branch as it is named *here*, which is the pull request's under
     # gh's name or ours as often as under its own; every git question below
@@ -528,9 +537,11 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
                       r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
     end
     lease = lease_note(target, it.repo, b)
+    rows === nothing && (rows = mux_list())
+    theirs = taken_note(it, target, kind, rows)
     notes = vcat([string(b, " is ", lag.behind, " commit", lag.behind == 1 ? "" : "s",
                          " behind ", at, ", pushed from somewhere else")],
-                 status_preview(target),
+                 isempty(theirs) ? String[] : [theirs], status_preview(target),
                  [string("y runs git merge --ff-only there")],
                  isempty(lease) ? String[] : [lease])
     push_view!(ctrl, ConfirmView(
@@ -541,13 +552,25 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
     ""
 end
 
-"""Whether the mux row `r` is a session of the item's, of this `kind`, in the
-copy at `path` - the one that says a question about opening this kind of
-session there has been answered ([`item_session!`](@ref)). An untagged
-session is a shell, as `mux_list`'s readers all take it."""
-session_of(r, it::Item, path, kind::Symbol) =
-    r.item == it.ref && wtkey(r.worktree) == wtkey(path) &&
-    (isempty(r.kind) ? "shell" : r.kind) == String(kind)
+"""One line for a question about opening a session in the copy at `target`:
+whose sessions are running there already, when they are another item's
+(`taken_in`), and that going in takes the one of this `kind` over. Or `""`,
+with nothing of anybody else's there."""
+function taken_note(it::Item, target::AbstractString, kind::Symbol, rows)
+    theirs = taken_in(it, target, rows)
+    isempty(theirs) && return ""
+    k = kind === :agent ? "agent" : "shell"
+    parts = [string(r.item, "'s ", r.kind == "agent" ? "agent" : "shell")
+             for r in sort(theirs; by = x -> (x.item, x.kind))]
+    string(join(parts, " and "), length(parts) == 1 ? " is" : " are", " running here",
+           any(r -> (r.kind == "agent" ? "agent" : "shell") == k, theirs) ?
+               string(" \u00b7 going in takes the ", k, " over") : "")
+end
+
+"""Whether the mux row `r` is a session of the item's in the copy at `path`,
+of either kind - the one that says the questions about opening a session
+there have been answered ([`item_session!`](@ref))."""
+session_of(r, it::Item, path) = r.item == it.ref && wtkey(r.worktree) == wtkey(path)
 
 """`y` to the question above: fast-forward `branch` in `target` to `tip`, then
 open the session there. A merge that fails - a changed file in the way - still
@@ -627,7 +650,7 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
     on_branch(it, w, tr) && return nothing
     if !picked && !isempty(it.ref)
         rows === nothing && (rows = mux_list())
-        any(r -> session_of(r, it, target, kind), rows) && return nothing
+        any(r -> session_of(r, it, target), rows) && return nothing
     end
     name = basename(rstrip(target, '/'))
     owner = branch_owner(it, w, branch_index(items), tr)
@@ -635,7 +658,9 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
          string(name, " is on ", wbranch,
                 owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
     lease = it.is_pr ? lease_note(target, it.repo, pr) : ""
-    notes = vcat([on], status_preview(target),
+    rows === nothing && (rows = mux_list())
+    theirs = taken_note(it, target, kind, rows)
+    notes = vcat([on], isempty(theirs) ? String[] : [theirs], status_preview(target),
                  [string("y runs ", it.is_pr ? string("gh pr checkout ", it.number) :
                                               string("git checkout ", pr), " there")],
                  isempty(lease) ? String[] : [lease])

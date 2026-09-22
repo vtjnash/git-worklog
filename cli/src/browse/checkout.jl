@@ -98,6 +98,23 @@ function item_worktree(it::Item; items = Item[])
     (path = repo, branch = branch, ask = true, main = true, pr = branch, rows = rows)
 end
 
+"""The copy `t` and `T` would open in without a question, or `""` when they
+would ask: the first two rules of [`item_worktree`](@ref), for a caller that
+wants to say what is running there before the key is pressed."""
+function item_place(it::Item; items = Item[])
+    r = item_worktree(it; items)
+    (r.path === nothing || r.ask) ? "" : String(r.path)
+end
+
+"""The sessions in the copy at `place` that are other items' - the ones a
+`t` or `T` on this item takes over, and re-points at it, so that theirs has
+nothing running afterwards. Empty for no place. Not an untagged shell, which
+is nobody's to take."""
+taken_in(it::Item, place::AbstractString, rows) =
+    isempty(place) ? NamedTuple[] :
+    NamedTuple[r for r in rows if !isempty(r.item) && r.item != it.ref &&
+               !isempty(r.worktree) && wtkey(r.worktree) == wtkey(place)]
+
 """The checkout to work in for an item, and the branch it is for.
 
 The same answer without the flag, for the callers that have nowhere to ask
