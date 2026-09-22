@@ -136,6 +136,18 @@ filtered as wanted.
       A fenced block is a node with its own header and fold state, so a
       three-line snippet gets the same furniture as a file.
 
+- [ ] **A clipboard cut short is held until the pane says more.** *Decide:
+      whether to drop a carry thirty seconds after its last byte, or leave it.*
+      `passthrough` keeps an unfinished OSC 52 across `%output` lines, with
+      no bound: a child that stops mid-sequence just stops, and the tail is
+      only as large as what it wrote. What a `\e]52;` the child never
+      terminates costs is that its head goes out in front of the pane's next
+      copy, the two as one sequence; a terminal ends an OSC at the escape, so
+      the next copy still lands, with a stray one before it. Nothing has done
+      that; if something does, a cutoff of thirty seconds since the last byte
+      seen is the shape, so a slow copy is not cut and a dead one does not
+      stand. Not a size: a real copy can be any size.
+
 ## The composer
 
 - [ ] **Undo in the composer.** *After the `^w` you did not mean bites.*

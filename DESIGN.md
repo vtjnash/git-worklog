@@ -750,7 +750,14 @@ Each of the following returns success and the wrong answer:
   no bearing; ask `mouse_any_flag` and translate the coordinates.
 - `capture-pane` reads cells, so a sequence that paints none - OSC 52 - is
   lost from the grid. It does arrive in `%output`; `passthrough` relays that
-  one and nothing else.
+  one and nothing else. **And an `%output` line is a cut, not a sequence**:
+  the stream is split at a few kilobytes wherever it happens to be (a 4K copy
+  arrived as 2730 and 1268, 2026-09-22), so a clipboard of a few paragraphs
+  straddles it. Read stateless, the head had no terminator and the tail no
+  introducer, and the copy was lost whole - and only *sometimes*, because
+  claude inside tmux writes it twice, raw and again in a DCS passthrough,
+  and a cut through one copy spared the other. `passthrough` keeps the
+  unfinished tail per pane and reads the next line as its continuation.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
 - **The control-mode reader must never be made to wait on the loop.** It
   delivers the replies the loop blocks on, and it raises a wake per

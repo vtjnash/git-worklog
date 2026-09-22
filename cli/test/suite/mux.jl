@@ -91,13 +91,27 @@ end
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh")
         got = String[]
-        c = W.mux_open(n; onoutput = (_, b) -> append!(got, W.passthrough(b)))
+        carry = Ref("")
+        c = W.mux_open(n; onoutput = (_, b) -> append!(got, W.passthrough(carry, b)))
         @test c !== nothing
         sleep(1.0)
         W.mux_keys(c, codeunits("printf '\\033]52;c;d29ya2xvZyBjb3BpZWQ=\\007'\r"))
         sleep(1.5)
         @test length(got) == 1          # the emitted one, not the echoed text
         @test occursin("d29ya2xvZyBjb3BpZWQ=", got[1])
+        # And one longer than an `%output` line: tmux cuts the stream at a few
+        # kilobytes, and a copy of a few paragraphs was lost whole - it arrived
+        # as a head with no terminator and a tail with no introducer, and the
+        # relay kept neither. From a script, since a typed line stops at 4K.
+        empty!(got)
+        b64 = "QUJD"^4000
+        mktempdir() do dir
+            f = joinpath(dir, "copy.sh")
+            write(f, "printf '\\033]52;c;$(b64)\\007'\n")
+            W.mux_keys(c, codeunits("sh $f\r"))
+            sleep(2.0)
+        end
+        @test got == ["\e]52;c;" * b64 * "\a"]
         W.mux_close(c)
         W.mux_kill(n)
     end
