@@ -10,9 +10,12 @@ guess rather than an answer.
 Three questions in order, and only the last one is a guess:
 
 1. **A worktree already on the pull request's branch.** That is the copy the
-   work is in, and no other answer can beat it - with the one refusal the
-   worktree list makes too ([`carrier_refused`](@ref)): the main checkout on
-   `master` is not a stranger's fork's `master` by the name alone.
+   work is in, and no other answer can beat it. Whether a copy is on it is
+   [`on_branch`](@ref)'s one answer, the worktree list's too: by name, with
+   the refusal that the main checkout on `master` is not a stranger's fork's
+   `master` ([`carrier_refused`](@ref)) - or by what git says the branch
+   follows, since the pull request's branch is here as often under another
+   name (`<owner>/master`, gh's; `pr<N>/<branch>`, ours) as under its own.
 2. **A session already tagged with this item.** `mux_list` rows carry the item
    they were opened on and the worktree they are in, so a session says where
    the work is happening whatever branch happens to be checked out there - and
@@ -57,10 +60,14 @@ function item_worktree(it::Item; items = Item[])
     branch = pr_branch(it)
     ws = worktrees(repo)
     rows = nothing
+    # What each branch here follows, read once for every worktree of the
+    # repository: rule 1 and rule 2 both ask whose a copy's branch is, and
+    # the name alone does not say (`on_branch`).
+    tr = Tracking(repo)
     if !isempty(branch)
         for w in ws
-            (w.branch == branch && !carrier_refused(it, w)) &&
-                return (path = w.path, branch = branch, ask = false, main = w.main,
+            on_branch(it, w, tr) &&
+                return (path = w.path, branch = w.branch, ask = false, main = w.main,
                         pr = branch, rows = rows)
         end
     end
@@ -73,7 +80,7 @@ function item_worktree(it::Item; items = Item[])
         for r in mine
             w = get(here, wtkey(r.worktree), nothing)
             w === nothing && continue
-            (ix !== nothing && branch_owner(it, w, ix) !== nothing) && continue
+            (ix !== nothing && branch_owner(it, w, ix, tr) !== nothing) && continue
             # Moved if *any* session of the item's here was last entered on
             # some other branch: an answer is written on all of them, so one
             # that still disagrees is one from before the copy moved. The tag
@@ -101,12 +108,116 @@ function item_checkout(it::Item; items = Item[])
     (r.path, r.branch)
 end
 
+"""Items by the branch they are the pull request for, three ways.
+
+The join the survey is for: `facts.json` carries `headRefName`, a local branch
+knows its repo from the checkout it was found in, and between them a worktree
+row can say which pull request is the work in it.
+
+`byname` is `(repo, branch)`, keyed by both halves because branch names are
+not distinctive - every one of these repos has a `master`, and several have
+the same topic branch name pushed from different forks. `bynumber` is
+`(repo, number)`, for a branch that tracks `refs/pull/N/head`; `byhead` is
+`(repo, lowercase(head_repo), branch)`, for one that tracks a fork's copy of
+a name that several forks have ([`branch_carrier`](@ref) reads both).
+"""
+struct BranchIndex
+    byname::Dict{Tuple{String,String},Item}
+    bynumber::Dict{Tuple{String,Int},Item}
+    byhead::Dict{Tuple{String,String,String},Item}
+end
+
+Base.isempty(ix::BranchIndex) = isempty(ix.byname)
+
+function branch_index(items)
+    d = Dict{Tuple{String,String},Item}()
+    n = Dict{Tuple{String,Int},Item}()
+    h = Dict{Tuple{String,String,String},Item}()
+    for it in items
+        isempty(it.branch) && continue
+        it.is_pr || islocal(it) || continue
+        k = (it.repo, it.branch)
+        prev = get(d, k, nothing)
+        # A pull request wins over an adopted branch of the same name: a branch
+        # adopted before it had one should show the pull request once it does.
+        # Between two pull requests the newer wins, since a reused branch name
+        # should not be shadowed by an older closed one.
+        better = prev === nothing || (it.is_pr && !prev.is_pr) ||
+                 (it.is_pr == prev.is_pr && it.number > prev.number)
+        better && (d[k] = it)
+        it.is_pr || continue
+        n[(it.repo, it.number)] = it
+        isempty(it.head_repo) && continue
+        hk = (it.repo, lowercase(it.head_repo), it.branch)
+        hp = get(h, hk, nothing)
+        (hp === nothing || it.number > hp.number) && (h[hk] = it)
+    end
+    BranchIndex(d, n, h)
+end
+
 """The item whose branch a checkout `w` is on - a row of `worktrees`, or
-anything with its `branch` and `main` - read off a [`branch_index`](@ref)
-with [`carrier_refused`](@ref)'s one refusal, or `nothing`."""
-function branch_carrier(ix, repo::AbstractString, w)
-    it = get(ix, (String(repo), String(w.branch)), nothing)
-    (it === nothing || carrier_refused(it, w)) ? nothing : it
+anything with its `path`, `branch` and `main` - or `nothing`.
+
+The other direction of [`on_branch`](@ref), and it ends in it, so that the
+list and the key never disagree about whose a copy is: the candidates come
+off a [`branch_index`](@ref) - by the branch's name, and with `tr`, the
+[`Tracking`](@ref) of its repository, by what the branch follows, a pull
+request's `refs/pull/N/head` or a head `refs/heads/<name>` in whichever
+repository it tracks - and the one that `on_branch` says yes to is the
+answer. Without `tr` the name is all there is, as before.
+"""
+function branch_carrier(ix::BranchIndex, repo::AbstractString, w, tr = nothing)
+    b = String(w.branch)
+    isempty(b) && return nothing
+    repo = String(repo)
+    it = get(ix.byname, (repo, b), nothing)
+    (it !== nothing && on_branch(it, w, tr)) && return it
+    tr === nothing && return nothing
+    r, ref = follows(tr, b)
+    m = match(r"^refs/pull/(\d+)/head$", ref)
+    it = if m !== nothing
+        get(ix.bynumber, (repo, parse(Int, m[1])), nothing)
+    else
+        m = match(r"^refs/heads/(.+)$", ref)
+        m === nothing && return nothing
+        # The fork's copy of the name when the branch says whose it is, and
+        # the name's best pull request when it does not, or the item has no
+        # word on whose it wants (a row from before `head_repo`).
+        head = String(m[1])
+        o = isempty(r) ? nothing : get(ix.byhead, (repo, lowercase(r), head), nothing)
+        o === nothing ? get(ix.byname, (repo, head), nothing) : o
+    end
+    (it !== nothing && on_branch(it, w, tr)) ? it : nothing
+end
+
+"""Whether the checkout `w` - a row of `worktrees`, or anything with its
+`path`, `branch` and `main` - is on the item's branch.
+
+Two ways to be, and one answer for every caller that asks - rule 1 of
+[`item_worktree`](@ref), [`branch_carrier`](@ref) for the worktree list,
+and the two looks before a session opens (`checkout_offer`, `update_offer`),
+which used to compare the names and so offered `gh pr checkout master` in a
+copy already on `<owner>/master`. By name first, with
+[`carrier_refused`](@ref)'s refusal; and failing that by what git says the
+branch follows ([`Tracking`](@ref)): `refs/pull/N/head` is this pull request
+by number, and `refs/heads/<head>` in the head's repository is its branch
+under another name - gh's `<owner>/master`, our `pr<N>/<branch>`, or one
+made by hand with `--track`. A branch that tracks the project's copy of a
+name is not a fork's pull request from that name, so the repository has to
+agree when both sides say which; either side silent, the ref is enough. An
+adopted branch is its name and nothing else - the name is its identity.
+`tr` is the checkout's repository's record, or `nothing` for the name alone.
+"""
+function on_branch(it::Item, w, tr = nothing)
+    b = String(w.branch)
+    isempty(b) && return false
+    b == it.branch && return !carrier_refused(it, w, tr)
+    (tr === nothing || !it.is_pr) && return false
+    r, ref = follows(tr, b)
+    ref == string("refs/pull/", it.number, "/head") &&
+        return isempty(r) || lowercase(r) == lowercase(it.repo)
+    (isempty(it.branch) || ref != "refs/heads/" * it.branch) && return false
+    isempty(r) || isempty(it.head_repo) || lowercase(r) == lowercase(it.head_repo)
 end
 
 """The refusals in matching a checkout to an item by its branch: the main
@@ -132,12 +243,14 @@ Shared by the worktree list, rule 1 and rule 2 of [`item_worktree`](@ref),
 so no two of them disagree about whose a copy is - each place it was missing
 from had its own wrong answer: the list filing the main checkout under their
 number, rule 1 opening it for them without a word, rule 2 taking it for a
-copy reused by them and asking on every press.
+copy reused by them and asking on every press. `tr` is the repository's
+[`Tracking`](@ref) when the caller has read it, and saves the two `git`
+calls a lone `branch_tracks` costs.
 """
-function carrier_refused(it::Item, w)
+function carrier_refused(it::Item, w, tr = nothing)
     w.main && !author_ok(Set([AUTHOR_ME]), it) && return true
     (isempty(it.head_repo) || isempty(w.branch)) && return false
-    tracks = branch_tracks(w.path, w.branch)
+    tracks = tr === nothing ? branch_tracks(w.path, w.branch) : first(follows(tr, w.branch))
     !isempty(tracks) && lowercase(tracks) != lowercase(it.head_repo)
 end
 
@@ -152,9 +265,9 @@ press is not the price of a look, and the index is built once by the caller
 rather than once per session it looks at. An empty index sees nothing, which
 is the old answer.
 """
-function branch_owner(it::Item, w, ix)
+function branch_owner(it::Item, w, ix::BranchIndex, tr = nothing)
     (isempty(w.branch) || isempty(ix)) && return nothing
-    o = branch_carrier(ix, it.repo, w)
+    o = branch_carrier(ix, it.repo, w, tr)
     (o === nothing || o.url == it.url) ? nothing : o
 end
 
@@ -176,32 +289,4 @@ function pr_branch(it::Item)
     catch
         ""
     end
-end
-
-"""Items by the branch they are the pull request for, as `(repo, branch)`.
-
-The join the survey is for: `facts.json` carries `headRefName`, a local branch
-knows its repo from the checkout it was found in, and between them a worktree
-row can say which pull request is the work in it.
-
-Keyed by both halves because branch names are not distinctive - every one of
-these repos has a `master`, and several have the same topic branch name pushed
-from different forks.
-"""
-function branch_index(items)
-    d = Dict{Tuple{String,String},Item}()
-    for it in items
-        isempty(it.branch) && continue
-        it.is_pr || islocal(it) || continue
-        k = (it.repo, it.branch)
-        prev = get(d, k, nothing)
-        # A pull request wins over an adopted branch of the same name: a branch
-        # adopted before it had one should show the pull request once it does.
-        # Between two pull requests the newer wins, since a reused branch name
-        # should not be shadowed by an older closed one.
-        better = prev === nothing || (it.is_pr && !prev.is_pr) ||
-                 (it.is_pr == prev.is_pr && it.number > prev.number)
-        better && (d[k] = it)
-    end
-    d
 end

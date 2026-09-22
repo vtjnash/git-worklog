@@ -49,6 +49,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       Usually enough of the title shows; sometimes not. The one ask from the
       terminal pass (MANUAL.md §12).
 
+- [ ] **Discussions, releases, commit comments.** *Decide: whether to open them
+      at all.*
+      The notifications source sees each arrive and skips it, counted. Nothing
+      here can open one.
+
 ## Reading
 
 - [ ] **Hunk context expands against the head.** `[`/`]` widen a hunk from the
@@ -61,6 +66,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 - [ ] **A search match on a url footnote is marked loosely.** The footnote row
       shows an elided form of the url, so the match is placed against text that
       is not what was searched.
+
+- [ ] **A short fenced block reads as a labelled block.** *Decide: whether a
+      short snippet should be part of the sentence instead.*
+      A fenced block is a node with its own header and fold state, so a
+      three-line snippet gets the same furniture as a file.
 
 ## Unverified - needs a real terminal
 

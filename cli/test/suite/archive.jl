@@ -272,7 +272,7 @@ end
         # The tip's subject is its title, and it joins the branch list.
         @test it.ref == "main#mine" && it.title == "my work"
         @test it.lane == "local" && !it.is_pr && it.branch == "mine"
-        @test W.branch_index(st.all)[("o/main", "mine")].url == u
+        @test W.branch_index(st.all).byname[("o/main", "mine")].url == u
         # The row it came from now carries it, so `a` reads as a toggle.
         @test v.brows[findfirst(b -> b.name == "mine", v.brows)].item !== nothing
 
@@ -326,6 +326,49 @@ end
             v.sel = findfirst(r -> r.name == "wt-mine", v.rows)
             W.worktree_reload!(v)
             @test v.rows[v.sel].item !== nothing
+            # Not an agent's work, though: it commits in your name, so a
+            # branch it made passes the guard, and was adopted on the next
+            # look at its pane. `T` on the row adopts nothing, and neither
+            # does `t` while the agent is in the copy.
+            g("worktree", "add", "--quiet", "-b", "agentwork", joinpath(root, "wt-agent"), "mine")
+            cfg = read(W.USER_CONFIG[], String)
+            write(W.USER_CONFIG[], string(cfg, "\n[agent]\ncommand = \"sleep 120\"\n"))
+            try
+                W.worktree_reload!(v)
+                v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
+                @test v.rows[v.sel].item === nothing
+                W.handle!(v, Int('T'), ctrl)
+                @test last(ctrl.stack) isa W.PaneView; pop!(ctrl.stack)
+                @test W.get_field(W.localurl("o/main", "agentwork"), "adopted") === nothing
+                v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
+                W.handle!(v, Int('t'), ctrl)
+                @test last(ctrl.stack) isa W.PaneView; pop!(ctrl.stack)
+                @test W.get_field(W.localurl("o/main", "agentwork"), "adopted") === nothing
+                # A copy whose sessions were opened on an item is that item's,
+                # whatever the branch in it is called - an agent names the
+                # branch it makes, and gh names a fork's `master` - so the row
+                # carries it, `h` goes to it, and there is nothing to adopt.
+                @test W.goto_item(v, v.rows[v.sel].item) === :ok
+                @test v.status == "no pull request on this branch"
+                for r in W.mux_list()
+                    W.wtkey(r.worktree) == W.wtkey(joinpath(root, "wt-agent")) &&
+                        W.mux_tag!(r.name; item = pr.ref, url = pr.url)
+                end
+                W.worktree_reload!(v)
+                v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
+                @test v.rows[v.sel].item !== nothing && v.rows[v.sel].item.url == pr.url
+                @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
+                for r in W.mux_list()
+                    W.wtkey(r.worktree) == W.wtkey(joinpath(root, "wt-agent")) && W.mux_kill(r.name)
+                end
+                W.worktree_reload!(v)
+                v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
+                @test v.rows[v.sel].item === nothing
+            finally
+                write(W.USER_CONFIG[], cfg)
+            end
+            g("worktree", "remove", "--force", joinpath(root, "wt-agent"))
+            g("branch", "--quiet", "-D", "agentwork")
             for br in ("mine", "theirs")
                 g("worktree", "remove", "--force", joinpath(root, "wt-" * br))
                 W.set_fields(W.localurl("o/main", br), ["adopted" => nothing])

@@ -129,13 +129,6 @@ filtered as wanted.
       comes back when it moves the way a done one does - neither "filed away"
       nor "done" says the difference.
 
-## Reading
-
-- [ ] **A short fenced block reads as a labelled block.** *Decide: whether a
-      short snippet should be part of the sentence instead.*
-      A fenced block is a node with its own header and fold state, so a
-      three-line snippet gets the same furniture as a file.
-
 - [ ] **A clipboard cut short is held until the pane says more.** *Decide:
       whether to drop a carry thirty seconds after its last byte, or leave it.*
       `passthrough` keeps an unfinished OSC 52 across `%output` lines, with
@@ -223,11 +216,6 @@ filtered as wanted.
       `fetched("items")` at the top, `Events.load_inbox()` for the drop,
       `load_fetched()` for the write - about 60 ms of its 450. One read held for
       the run would do; the write is the larger half of it and stays.
-
-- [ ] **Discussions, releases, commit comments.** *Decide: whether to open them
-      at all.*
-      The notifications source sees each arrive and skips it, counted. Nothing
-      here can open one.
 
 - [ ] **What "mine" means.** *Decide: whether a pull request you pushed to, or
       that carries you in `Co-authored-by`, is yours; neither costed.*

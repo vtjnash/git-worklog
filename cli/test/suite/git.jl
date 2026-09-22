@@ -168,13 +168,23 @@ end
     items = [mk(1, "a/b", "topic"), mk(2, "c/d", "topic"), mk(3, "a/b", "")]
     ix = W.branch_index(items)
     # Keyed by repo as well as name: every one of these repos has a `master`.
-    @test ix[("a/b", "topic")].number == 1
-    @test ix[("c/d", "topic")].number == 2
-    @test length(ix) == 2                      # the one with no branch is out
+    @test ix.byname[("a/b", "topic")].number == 1
+    @test ix.byname[("c/d", "topic")].number == 2
+    @test length(ix.byname) == 2               # the one with no branch is out
+    # And by number, for a branch that tracks `refs/pull/N/head`; the one
+    # with no branch is out of that too, having nothing to be checked out as.
+    @test ix.bynumber[("a/b", 1)].number == 1 && !haskey(ix.bynumber, ("a/b", 3))
     # A reused name resolves to the newer pull request, not to whichever was
     # seen first.
     ix2 = W.branch_index([mk(9, "a/b", "topic"), mk(4, "a/b", "topic")])
-    @test ix2[("a/b", "topic")].number == 9
+    @test ix2.byname[("a/b", "topic")].number == 9
+    # By whose the head is, when the row says: two forks' `master` are two
+    # keys, and the name alone is the newer.
+    ix3 = W.branch_index([W.with(mk(5, "a/b", "master"); head_repo = "x/b"),
+                          W.with(mk(6, "a/b", "master"); head_repo = "y/b")])
+    @test ix3.byhead[("a/b", "x/b", "master")].number == 5
+    @test ix3.byhead[("a/b", "y/b", "master")].number == 6
+    @test ix3.byname[("a/b", "master")].number == 6
     @test W.branch_index([W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1,
                                  title = "t", branch = "x", is_pr = false)] ) |> isempty
 

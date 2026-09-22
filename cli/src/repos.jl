@@ -108,22 +108,77 @@ function remote_repos(path)
     out
 end
 
-"""The repository the local `branch` tracks, as `owner/repo`, or `""` when git
-does not say. `branch.<b>.remote` is a remote's name, looked up in
-[`remote_repos`](@ref), or the url itself, which is what `gh pr checkout`
-writes for a fork's branch when the fork is no remote here."""
-function branch_tracks(path, branch::AbstractString)
-    r = try
-        strip(git(path, "config", "--get", string("branch.", branch, ".remote")))
+"""What every local branch of one repository was set up to follow, read once.
+
+`branch.<b>.remote` and `branch.<b>.merge` are git's own record of where a
+branch came from, and they outlast the name: `gh pr checkout` names a fork's
+`master` `<owner>/master` to keep off the project's, and this program names a
+branch whose name is taken `pr<N>/<branch>` (`checkout_session!`,
+`make_checkout!`), so the name a pull request's branch has here is not always
+the name the pull request has for it. What gh writes is the fork's url (or
+its remote's name, when the fork is a remote here) and `refs/heads/<head>` -
+or, when the fork cannot be pushed to, the project's remote and
+`refs/pull/N/head`. Either says whose the branch is, and the second says
+which pull request outright. That record is the join `on_branch` and
+`branch_carrier` read when the name does not answer.
+
+One `git config --get-regexp` and one `git remote -v` for the whole
+repository, rather than two calls per branch: the branch list has hundreds
+of rows, and per-row shelling is what this file exists to avoid. Shared by
+every worktree of the repository, since the config is the common directory's.
+`branches` maps a name to `(remote, merge)` as written; `remotes` a remote's
+name to `owner/repo`. A repository that cannot be read is an empty record,
+which says nothing about anything, as before there was one.
+"""
+struct Tracking
+    branches::Dict{String,Tuple{String,String}}
+    remotes::Dict{String,String}
+end
+
+function Tracking(path::AbstractString)
+    bs = Dict{String,Tuple{String,String}}()
+    out = try
+        git(path, "config", "--get-regexp", "^branch\\..*\\.(remote|merge)\$")
     catch
-        ""
+        ""                              # exit 1 is "nothing matched"
     end
-    isempty(r) && return ""
+    for l in split(out, '\n'; keepempty = false)
+        m = match(r"^branch\.(.+)\.(remote|merge) (.*)$", l)
+        m === nothing && continue
+        r, mg = get(bs, m[1], ("", ""))
+        bs[String(m[1])] = m[2] == "remote" ? (String(m[3]), mg) : (r, String(m[3]))
+    end
     rs = try remote_repos(path) catch; Dict{String,String}() end
-    haskey(rs, r) && return rs[r]
+    Tracking(bs, rs)
+end
+
+"An empty record: nothing known about any branch."
+Tracking() = Tracking(Dict{String,Tuple{String,String}}(), Dict{String,String}())
+
+"""`owner/repo` for what `branch.<b>.remote` holds: a remote's name, looked up
+in the record, or a url - what `gh pr checkout` writes for a fork that is no
+remote here - read for the repository it names. `""` when it is neither."""
+function tracked_repo(t::Tracking, r::AbstractString)
+    isempty(r) && return ""
+    haskey(t.remotes, r) && return t.remotes[r]
     m = match(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", r)
     m === nothing ? "" : string(m[1], "/", m[2])
 end
+
+"""What the local `branch` follows, as `(repo, ref)`: the repository its
+remote is - `""` when git does not say, or the remote is not on GitHub - and
+the ref there, `refs/heads/<name>` or `refs/pull/N/head`, or `""`."""
+function follows(t::Tracking, branch::AbstractString)
+    r, m = get(t.branches, String(branch), ("", ""))
+    (tracked_repo(t, r), m)
+end
+
+"""The repository the local `branch` tracks, as `owner/repo`, or `""` when git
+does not say. `branch.<b>.remote` is a remote's name, looked up in
+[`remote_repos`](@ref), or the url itself, which is what `gh pr checkout`
+writes for a fork's branch when the fork is no remote here. The one-branch
+form of [`Tracking`](@ref), for a caller with one question."""
+branch_tracks(path, branch::AbstractString) = first(follows(Tracking(path), branch))
 
 "Path pinned to `name`, or nothing. Entries pointing at vanished folders are ignored."
 function repo_path(name::AbstractString)
@@ -187,22 +242,36 @@ real state for a worktree, and one the survey has to show rather than skip -
 unless the head is only detached for the length of a rebase or bisect, in which
 case it is the branch that is coming back (`returning_branch`). `main` marks
 the primary checkout, which git always lists first.
+
+A bare repository is listed first too, as `bare`, and is no worktree at all:
+nothing is checked out in it and nothing can be, so it is not a place to
+offer a shell (it was, as `(detached)  main`, 2026-09-22). It is left out,
+and then no row is `main` - the linked worktrees of a bare repository are
+siblings, none of them the one the others were made from - which makes
+`main_worktree` the first of them and `worktree_dest` a path beside it
+rather than beside `name.git`.
 """
 function worktrees(path::AbstractString)
     out = NamedTuple{(:path, :branch, :head, :main),Tuple{String,String,String,Bool}}[]
-    cur, br, hd, prunable = "", "", "", false
-    flush!() = (!isempty(cur) && !prunable &&
-                push!(out, (path = cur, branch = isempty(br) ? returning_branch(cur) : br,
-                            head = hd, main = isempty(out))))
+    cur, br, hd, prunable, bare, lead = "", "", "", false, false, true
+    function flush!()
+        isempty(cur) && return
+        (prunable || bare) ||
+            push!(out, (path = cur, branch = isempty(br) ? returning_branch(cur) : br,
+                        head = hd, main = lead))
+        lead = false
+    end
     for l in split(git(path, "worktree", "list", "--porcelain"), "\n")
         if startswith(l, "worktree ")
-            flush!(); cur = String(l[10:end]); br = ""; hd = ""; prunable = false
+            flush!(); cur = String(l[10:end]); br = ""; hd = ""; prunable = false; bare = false
         elseif startswith(l, "branch ")
             br = replace(String(l[8:end]), "refs/heads/" => "")
         elseif startswith(l, "HEAD ")
             hd = String(l[6:end])
         elseif startswith(l, "prunable")
             prunable = true
+        elseif l == "bare"
+            bare = true
         end
     end
     flush!()

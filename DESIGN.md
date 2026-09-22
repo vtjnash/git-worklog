@@ -722,6 +722,34 @@ Do not simplify any of these away.
   connect_to_peer` loses both. `escape_source` escapes them outside code.
   Filed, with a fix, as JuliaLang/julia#63081 (open).
 
+### git
+
+- **A pull request's branch is not here under the pull request's name, as
+  often as not.** `gh pr checkout` names a fork's `master` `<owner>/master`
+  to keep off the project's; `checkout_session!` and `make_checkout!` name a
+  taken name `pr<N>/<branch>`. Joined by name, such a copy was nobody's:
+  `"` filed it under no item and `h` there said `no pull request on this
+  branch` beside the agent working on it; `t` on the pull request offered
+  the chooser with the agent's copy in it; and `t` in the copy adopted the
+  branch as work of its own, whereupon `branch_owner` said the copy was
+  that item's and the pull request's `t` asked on every press
+  (2026-09-22). Git knows: `branch.<b>.remote` and `branch.<b>.merge` are
+  the fork's url and `refs/heads/<head>`, or the project's remote and
+  `refs/pull/N/head`. `Tracking` reads them once per repository;
+  `on_branch` is the one predicate, and `branch_carrier` ends in it.
+- **`git worktree list --porcelain` leads with a bare repository**, as a
+  `worktree` line with `bare` under it and no `HEAD`. It is not a checkout;
+  `worktrees` drops it, and then no row is `main`.
+- **An agent's commits are in your name.** `mine_on_branch` is not a
+  signal that a branch is your hand's; a branch an agent made in a copy
+  passed it, and re-entering the pane adopted it. No automatic adoption
+  where an agent is.
+- **The project's copy of a name is not a fork's pull request from it.**
+  `pr_branch_here` said `:local` for a fork's `master` because the local
+  `master` tracks `origin/master`, and `git worktree add` then refused with
+  `master is already checked out`. The upstream and remote-tracking rules
+  hold only for a pull request from the project (`head_repo`).
+
 ### tmux
 
 The binary is `tmux_jll`'s (3.5.1), or whatever `WORKLOG_TMUX` names; `PATH`

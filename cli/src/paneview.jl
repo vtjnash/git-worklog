@@ -595,7 +595,8 @@ struct WorktreeRow
     at::String                      # its branch's tip date
     main::Bool
     orphan::Bool
-    item::Union{Nothing,Item}       # the pull request its branch belongs to
+    item::Union{Nothing,Item}       # the pull request its branch belongs to,
+                                    # or the item its sessions were opened on
     sessions::Vector{SessionRow}
 end
 
@@ -640,10 +641,14 @@ list nothing on the way up.
 """
 function place_rows(items::Vector{Item}; withdirty::Bool = true)
     ix = branch_index(items)
+    byurl = Dict(it.url => it for it in items)
     # Keyed by the worktree each session is running in, which is the row it is
     # about to be filed under - and by `wtkey`, since tmux was told one spelling
-    # of that path and git reports another.
+    # of that path and git reports another. `on` is what the sessions there
+    # were opened on, agents first: the item a copy is about when its branch
+    # names none.
     live = Dict{String,Vector{SessionRow}}()
+    on = Dict{String,Vector{Tuple{String,String}}}()
     for r in mux_list()
         k = isempty(r.worktree) ? "" : wtkey(r.worktree)
         # tmux hands a tag back as the string it was set with, and an untagged
@@ -651,18 +656,32 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
         # otherwise.
         kind = Symbol(isempty(r.kind) ? "shell" : r.kind)
         push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached, r.bell))
+        isempty(r.url) || push!(get!(on, k, Tuple{String,String}[]), (String(kind), r.url))
     end
     ws, bs = survey(; withdirty = withdirty)
     rows = WorktreeRow[]
     # Which item a checkout carries is `branch_carrier`'s to say - the same
     # answer `t` reads when it asks whether a copy has been reused, refusal
-    # included - so the list and the key never disagree about a row.
+    # included - so the list and the key never disagree about a row. Failing
+    # the branch, the sessions: an agent opened on an issue is working in
+    # this copy on that issue, whatever it named the branch it made, and a
+    # shell opened on a pull request whose branch gh named otherwise is on
+    # that pull request - which is what `h` goes to, and what says the branch
+    # is not a stranger's to adopt. The branch's word first when both speak.
+    trs = Dict{String,Tracking}()
+    tracking(w) = get!(() -> Tracking(w.path), trs, w.repo)
     for w in ws
         k = wtkey(w.path)
+        it = branch_carrier(ix, w.repo, w, tracking(w))
+        if it === nothing
+            for (_, u) in sort(get(on, k, Tuple{String,String}[]))
+                it = get(byurl, u, nothing)
+                it === nothing || break
+            end
+        end
         push!(rows, WorktreeRow(w.repo, w.path, basename(rstrip(w.path, '/')), w.branch,
                                 w.staged, w.unstaged, w.ahead, w.behind, w.at, w.main, false,
-                                branch_carrier(ix, w.repo, w),
-                                sort!(pop!(live, k, SessionRow[]); by = r -> r.kind)))
+                                it, sort!(pop!(live, k, SessionRow[]); by = r -> r.kind)))
     end
     # By repo and then by name, which is an order that does not move under you.
     # The primary checkout leads its repo: it is the one every other worktree of
@@ -674,8 +693,17 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
         push!(rows, WorktreeRow("", k, basename(rstrip(k, '/')), "", false, false, 0, 0,
                                 "", false, true, nothing, sort!(ss; by = r -> r.kind)))
     end
+    # A branch row's item the same way as a worktree's, less the sessions: a
+    # branch has no place for one to run in. `main` is false for the
+    # refusal's sake - a branch is not the main checkout, whatever has it out.
     brows = [BranchRow(b.repo, b.name, b.at, b.ahead, b.behind, b.gone, b.upstream,
-                       b.worktree, get(ix, (b.repo, b.name), nothing)) for b in bs]
+                       b.worktree,
+                       branch_carrier(ix, b.repo, (path = "", branch = b.name, main = false),
+                                      get!(trs, b.repo) do
+                                          p = repo_path(b.repo)
+                                          p === nothing ? Tracking() : Tracking(p)
+                                      end))
+             for b in bs]
     # Newest tip first, across every repo at once: what this list is for is
     # finding work, and the most recent commit is the best guess at where it
     # was. It is also what `git branch --sort=-committerdate` shows, which is
@@ -1020,8 +1048,14 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     r.item === nothing || touch!(r.item.url)
     # Working in something is a deliberate enough act to claim it - but only
     # your own work. `gh pr checkout` leaves other people's branches in your
-    # checkout, and opening a terminal in one must not quietly take it.
+    # checkout, and opening a terminal in one must not quietly take it. Nor
+    # is an agent's work yours by its commits: it writes them in your name,
+    # so a branch it made passes `mine_on_branch` and was adopted on the
+    # next look at the pane (`issue-61397`, 2026-09-22). With an agent in the
+    # copy, or being opened, the branch is the agent's item's - on the row
+    # when the agent was opened on one - or nobody's until `a` says.
     if r.item === nothing && !isempty(r.branch) && v.onadopt !== nothing &&
+       kind !== :agent && !any(s -> s.kind === :agent, r.sessions) &&
        get_field(localurl(r.repo, r.branch), "adopted") === nothing &&
        mine_on_branch(r.path, r.branch, git_ids(r.path, login()))
         took = v.onadopt(r.repo, r.branch, true)

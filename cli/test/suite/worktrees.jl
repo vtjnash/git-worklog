@@ -374,13 +374,35 @@ end
                 @test r isa String && occursin("back in", r)
                 @test top() isa W.PaneView && said[] === nothing
                 drop!(top())
-                # Nor is an agent there: the question was about the place,
-                # and the shell's `n` answered it for the agent too.
+                # The agent is asked too: the shell's `n` was the shell's
+                # answer, and the agent is a session of its own - and its
+                # `n` holds for it from then on.
+                said[] = nothing
+                @test W.enter_session(pr, ctrl, :agent, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == string("Check out ", pr.branch, " in main?")
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("started", string(said[]))
+                @test isempty(asked())
+                drop!(top())
                 said[] = nothing
                 r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
-                @test r isa String && occursin("started", r)
-                @test top() isa W.PaneView && said[] === nothing
-                @test isempty(asked())
+                @test r isa String && occursin("back in", r) && said[] === nothing
+                drop!(top())
+                # And a shell that has gone took its answer with it: the next
+                # `t` is placed by the agent still standing there (rule 2),
+                # and asked again, since there is no shell whose `n` it was.
+                for r in W.mux_list()
+                    (r.item == pr.ref && r.kind == "shell" &&
+                     W.wtkey(r.worktree) == W.wtkey(main)) && W.mux_kill(r.name)
+                end
+                @test W.item_worktree(pr; items = known).ask == false
+                said[] = nothing
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView
+                @test cv.title == string("Check out ", pr.branch, " in main?")
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("started", string(said[]))
                 drop!(top())
 
                 # The copy is reused: a `gh pr checkout` in that shell put
@@ -744,8 +766,9 @@ end
                 @test cv.notes[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 @test isempty(asked())
                 W.git(main, "config", "push.useForceIfIncludes", "true")
-                # `n` goes in as it is, and the place is looked at: the agent
-                # one key later is not asked, nor is going back.
+                # `n` goes in as it is, and the shell has its answer: going
+                # back is not asked. The agent one key later is a session of
+                # its own, and is.
                 said[] = nothing
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("started", string(said[]))
@@ -757,8 +780,10 @@ end
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() isa W.BState
                 said[] = nothing
-                r = W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known)
-                @test r isa String && occursin("started", r) && top() isa W.PaneView
+                @test W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known) == ""
+                cv = top(); @test cv isa W.ConfirmView && cv.title == "Fast-forward ff in main-ff?"
+                @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView && occursin("started", string(said[]))
                 drop!(top())
                 r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
                 @test r isa String && occursin("back in", r)
@@ -1228,11 +1253,161 @@ end
         r = W.item_worktree(bob)
         @test W.wtkey(r.path) == W.wtkey(main) && r.ask
         # And the worktree list files the copy under alice's number alone.
+        # By the name, bob's newer pull request is the name's and is refused,
+        # so there is nothing; by what the branch follows, it is alice's.
         ix = W.branch_index([bob, alice])
-        @test W.branch_carrier(ix, "o/wt", w) === nothing || W.branch_carrier(ix, "o/wt", w).ref == "wt#50"
+        @test W.branch_carrier(ix, "o/wt", w) === nothing
+        tr = W.Tracking(main)
+        @test W.follows(tr, "theirs") == ("alice/wt", "refs/heads/theirs")
+        @test W.follows(tr, "master") == ("o/wt", "refs/heads/master")
+        @test W.follows(tr, "nowhere") == ("", "")
+        @test W.branch_carrier(ix, "o/wt", w, tr) === alice
+        @test W.on_branch(alice, w, tr) && !W.on_branch(bob, w, tr) && W.on_branch(old, w, tr)
     finally
         W.LOCAL[] = keept
     end
+end
+
+@testset "a pull request's branch under another name" begin
+    # gh names a fork's `master` `<owner>/master` here, to keep off the
+    # project's, and this program names a taken name `pr<N>/<branch>`; either
+    # way the pull request's branch is here under a name the pull request
+    # does not have, and the join has to read what the branch follows.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "config", "user.email", "t@example.com")
+    W.git(main, "config", "user.name", "t")
+    W.git(main, "commit", "--quiet", "--allow-empty", "-m", "first")
+    W.git(main, "remote", "add", "origin", "https://github.com/o/wt.git")
+    W.git(main, "config", "branch.master.remote", "origin")
+    W.git(main, "config", "branch.master.merge", "refs/heads/master")
+    # Alice's pull request from her fork's `master`, as gh checks it out when
+    # the fork can be pushed to; Bob's from his, as gh checks it out when it
+    # cannot - the project's remote and the pull ref; Carol's, under our own
+    # name for a taken one, tracking her fork.
+    alice = joinpath(root, "alice")
+    W.git(main, "worktree", "add", "--quiet", "-b", "alice/master", alice)
+    W.git(main, "config", "branch.alice/master.remote", "https://github.com/alice/wt.git")
+    W.git(main, "config", "branch.alice/master.merge", "refs/heads/master")
+    bob = joinpath(root, "bob")
+    W.git(main, "worktree", "add", "--quiet", "-b", "bob/master", bob)
+    W.git(main, "config", "branch.bob/master.remote", "origin")
+    W.git(main, "config", "branch.bob/master.merge", "refs/pull/61/head")
+    carol = joinpath(root, "carol")
+    W.git(main, "worktree", "add", "--quiet", "-b", "pr62/master", carol)
+    W.git(main, "config", "branch.pr62/master.remote", "https://github.com/carol/wt.git")
+    W.git(main, "config", "branch.pr62/master.merge", "refs/heads/master")
+    A = W.Item(url = "https://example.invalid/o/wt/pull/60", ref = "wt#60", repo = "o/wt",
+               number = 60, title = "alice's", branch = "master", head_repo = "alice/wt",
+               author = "alice")
+    B = W.with(A; url = "https://example.invalid/o/wt/pull/61", ref = "wt#61", number = 61,
+               title = "bob's", head_repo = "bob/wt", author = "bob")
+    C = W.with(A; url = "https://example.invalid/o/wt/pull/62", ref = "wt#62", number = 62,
+               title = "carol's", head_repo = "carol/wt", author = "carol")
+    D = W.with(A; url = "https://example.invalid/o/wt/pull/63", ref = "wt#63", number = 63,
+               title = "dan's", head_repo = "dan/wt", author = "dan")
+    prs = [A, B, C, D]
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
+    try
+        W.register_repo!("o/wt", main)
+        ws = W.worktrees(main)
+        at(name) = ws[findfirst(x -> W.wtkey(x.path) == W.wtkey(name), ws)]
+        tr = W.Tracking(main)
+        # Each copy is on its own pull request's branch and nobody else's;
+        # the main checkout, on the project's `master`, is none of theirs.
+        @test W.on_branch(A, at(alice), tr) && !W.on_branch(B, at(alice), tr)
+        @test W.on_branch(B, at(bob), tr) && !W.on_branch(A, at(bob), tr)
+        @test W.on_branch(C, at(carol), tr) && !W.on_branch(D, at(carol), tr)
+        @test all(!W.on_branch(x, at(main), tr) for x in prs)
+        # By the name alone none of them is anybody's, which is what it was.
+        @test all(!W.on_branch(x, at(alice), nothing) for x in prs)
+        ix = W.branch_index(prs)
+        @test W.branch_carrier(ix, "o/wt", at(alice), tr) === A
+        @test W.branch_carrier(ix, "o/wt", at(bob), tr) === B
+        @test W.branch_carrier(ix, "o/wt", at(carol), tr) === C
+        @test W.branch_carrier(ix, "o/wt", at(main), tr) === nothing
+        @test W.branch_carrier(ix, "o/wt", at(alice)) === nothing
+        # Reused for nobody: the copy on alice's branch is alice's, not
+        # another item's, so rule 2 would not give it up.
+        @test W.branch_owner(A, at(alice), ix, tr) === nothing
+        @test W.branch_owner(D, at(alice), ix, tr) === A
+        # Rule 1 finds each its copy - and none of them the main checkout;
+        # dan's, which is here nowhere, is the guess and is asked.
+        for (x, p) in ((A, alice), (B, bob), (C, carol))
+            r = W.item_worktree(x; items = prs)
+            @test W.wtkey(r.path) == W.wtkey(p) && !r.ask && r.pr == "master"
+            @test r.branch == at(p).branch
+        end
+        @test W.item_worktree(D; items = prs).ask
+        # The worktree list files each under its pull request, list or key
+        # alike, and the branch list the same.
+        rows = W.worktree_rows(prs)
+        item(name) = rows[findfirst(r -> W.wtkey(r.path) == W.wtkey(name), rows)].item
+        @test item(alice) === A && item(bob) === B && item(carol) === C && item(main) === nothing
+        _, brows = W.place_rows(prs; withdirty = false)
+        bitem(name) = brows[findfirst(r -> r.name == name, brows)].item
+        @test bitem("alice/master") === A && bitem("bob/master") === B &&
+              bitem("pr62/master") === C && bitem("master") === nothing
+        # Nothing to ask before a session opens in a copy that is on the
+        # branch, under whatever name - the question was `gh pr checkout
+        # master` in a copy already on `alice/master`.
+        ctrl = W.Controller(); ctrl.running = true
+        push!(ctrl.stack, W.BState(W.loaditems(), "worklog"))
+        say = _ -> nothing
+        if W.mux_bin() !== nothing
+            @test W.checkout_offer(A, at(alice), "master", ctrl, :shell, (_, _) -> "sleep 120", say;
+                                   picked = true, items = prs) === nothing
+            @test W.checkout_offer(B, at(alice), "master", ctrl, :shell, (_, _) -> "sleep 120", say;
+                                   picked = true, items = prs) == ""
+            cv = last(ctrl.stack); @test cv isa W.ConfirmView
+            @test cv.notes[1] == "alice is on alice/master \u00b7 wt#60's"
+            W.pop_view!(ctrl, cv)
+        end
+        # A fork's `master` is not the project's: the name is here, on the
+        # main checkout, and it is `:taken` for a fork's pull request from
+        # it - not `:local` for tracking `origin/master`, which had `git
+        # worktree add master` refused for `master is already checked out`.
+        # One from the project's own `master` would be the project's copy.
+        @test W.pr_branch_here(main, D, "master") === :taken
+        @test W.pr_branch_here(main, W.with(D; head_repo = "o/wt"), "master") === :local
+        # A fork's name that is here on no branch is `:none` - gh's to make -
+        # not `:remote` off the project's copy of the name.
+        W.git(main, "update-ref", "refs/remotes/origin/theirs", "HEAD")
+        @test W.pr_branch_here(main, W.with(D; branch = "theirs"), "theirs") === :none
+        @test W.pr_branch_here(main, W.with(D; branch = "theirs", head_repo = "o/wt"),
+                               "theirs") === :remote
+        # And a local branch that tracks the fork is the fork's pull
+        # request's, by its own declaration.
+        @test W.pr_branch_here(main, A, "alice/master") === :local
+    finally
+        W.LOCAL[] = keept
+    end
+end
+
+@testset "a bare repository is no place to work" begin
+    # `worktree list` leads with the bare repository, and it was a row - a
+    # `(detached)  main` copy with nothing checked out in it, offered by the
+    # chooser. It is no worktree, and with it gone none of the linked ones
+    # is `main`: they are siblings, and a new one goes beside the first.
+    root = mktempdir(); bare = joinpath(root, "r.git")
+    W.git(root, "init", "--quiet", "--bare", "--initial-branch=master", bare)
+    one = joinpath(root, "one")
+    W.git(bare, "worktree", "add", "--quiet", "--orphan", "-b", "master", one)
+    W.git(one, "config", "user.email", "t@example.com")
+    W.git(one, "config", "user.name", "t")
+    W.git(one, "commit", "--quiet", "--allow-empty", "-m", "first")
+    two = joinpath(root, "two")
+    W.git(one, "worktree", "add", "--quiet", "-b", "side", two)
+    for from in (bare, one, two)
+        ws = W.worktrees(from)
+        @test [W.wtkey(w.path) for w in ws] == [W.wtkey(one), W.wtkey(two)]
+        @test [w.branch for w in ws] == ["master", "side"]
+        @test !any(w -> w.main, ws)
+    end
+    @test W.wtkey(W.main_worktree(two)) == W.wtkey(one)
+    @test W.worktree_dest(two, "x/y") == joinpath(root, "one-x-y")
+    # And the primary checkout is still `main` where there is one.
+    @test first(W.worktrees(".")).main
 end
 
 @testset "e opens the checkout, and a diff line in it" begin
