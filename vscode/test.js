@@ -23,9 +23,15 @@ const repo = {
         { uri: Uri.file('/w/to.jl'), originalUri: Uri.file('/w/from.jl'), status: 3 },
     ]),
 };
+// A repository open in the window that the checkout `/outer/co` is inside of,
+// and which has none of its commits: what `getRepository` answers for it.
+const outer = { rootUri: Uri.file('/outer'),
+                getCommit: async r => { throw { stderr: `fatal: bad revision '${r}'\n` }; } };
 const git = {
-    getRepository: u => u.fsPath === '/w' || u.fsPath.startsWith('/w/') ? repo : null,
-    openRepository: async u => (calls.push(['openRepository', u.fsPath]), repo),
+    getRepository: u => u.fsPath === '/w' || u.fsPath.startsWith('/w/') ? repo :
+                        u.fsPath.startsWith('/outer') ? outer : null,
+    openRepository: async u => (calls.push(['openRepository', u.fsPath]),
+                                u.fsPath === '/outer/co' ? { ...repo, rootUri: Uri.file('/outer/co') } : repo),
     toGitUri: (u, ref) => new Uri('git', `${u.fsPath}?${ref}`),
 };
 const vscode = {
@@ -95,14 +101,25 @@ const ext = require('./extension.js');
         ['/w/gone.jl', '/w/gone.jl?deadbeef', undefined],
         ['/w/to.jl', '/w/from.jl?deadbeef', `/w/to.jl?${commits.c0ffee12.hash}`],
     ]);
-    // One that changes nothing, one with no parent, and one not there: said.
+    // A checkout inside another open repository is opened for itself, not
+    // asked of the one around it.
+    await ext.handleUri(uri('/commit', 'root=/outer/co&sha=c0ffee12'));
+    assert.deepStrictEqual(calls.shift(), ['openRepository', '/outer/co']);
+    assert.strictEqual(calls.shift()[0], 'diffBetween');
+    assert.strictEqual(calls.shift()[0], 'vscode.changes');
+    // One that changes nothing, one with no parent, and one not there: said,
+    // with what git said.
     await ext.handleUri(uri('/commit', 'root=/w&sha=ba5eba11'));
     calls.shift();
     assert.deepStrictEqual(calls.shift(), ['info', 'worklog: ba5eba11 empty changes no files']);
     await ext.handleUri(uri('/commit', 'root=/w&sha=abad1dea'));
     assert.deepStrictEqual(calls.shift(), ['error', 'worklog: abad1dea is a root commit, with nothing to diff against']);
     await ext.handleUri(uri('/commit', 'root=/w&sha=0123456789'));
-    assert.deepStrictEqual(calls.shift(), ['error', 'worklog: no commit 0123456789 in /w']);
+    assert.deepStrictEqual(calls.shift(), ['error', 'worklog: no commit 0123456789 in /w: bad']);
+    outer.rootUri = Uri.file('/outer/co');      // as if it were the checkout
+    await ext.handleUri(uri('/commit', 'root=/outer/co&sha=c0ffee12'));
+    assert.deepStrictEqual(calls.shift(), ['error',
+        "worklog: no commit c0ffee12 in /outer/co: fatal: bad revision 'c0ffee12'"]);
     await ext.handleUri(uri('/commit', 'root=/w'));
     assert.deepStrictEqual(calls.shift(), ['error', 'worklog: no sha']);
 

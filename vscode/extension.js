@@ -59,7 +59,7 @@ async function diff(q) {
         selection: line > 0 ? new vscode.Range(line - 1, 0, line - 1, 0) : undefined,
     };
     const git = await gitApi();
-    const repo = git && await repositoryFor(git, fileUri, q.get('root'));
+    const repo = git && await repositoryFor(git, q.get('root'), fileUri);
     let missing = !left ? 'no ref to diff against' : !git ? 'no git extension' :
                   !repo ? 'not in a git repository VS Code can see' : '';
     if (!missing) {
@@ -89,11 +89,12 @@ async function commit(q) {
     if (!root) throw new Error('no root');
     const git = await gitApi();
     if (!git) throw new Error('no git extension');
-    const rootUri = vscode.Uri.file(root);
-    const repo = await repositoryFor(git, rootUri, root);
+    const repo = await repositoryFor(git, root);
     if (!repo) throw new Error(`${root} is not a git repository VS Code can see`);
     let c;
-    try { c = await repo.getCommit(sha); } catch { throw new Error(`no commit ${short(sha)} in ${root}`); }
+    try { c = await repo.getCommit(sha); } catch (e) {
+        throw new Error(`no commit ${short(sha)} in ${repo.rootUri.fsPath}: ${gitError(e)}`);
+    }
     const title = `${short(c.hash)} ${c.message.split('\n')[0]}`;
     const parent = c.parents[0];
     if (!parent) throw new Error(`${short(c.hash)} is a root commit, with nothing to diff against`);
@@ -119,13 +120,28 @@ async function gitApi() {
     return exports.getAPI(1);
 }
 
-// The repository the file is in: the one already open for it, else the one
-// `wl` names, opened here without adding it to the workspace - so a diff in a
-// window on some other folder still resolves its `git:` side.
-async function repositoryFor(git, fileUri, root) {
-    return git.getRepository(fileUri) ||
-        (root ? await git.openRepository(vscode.Uri.file(root)) : null);
+// The repository `wl` names, and not merely one the path is inside:
+// `getRepository` answers with the deepest repository *open in the window*
+// that contains the path, so a checkout that is not open itself but sits
+// inside one that is - a worktree under another project, a home directory
+// kept in git - was asked of the outer one, which has none of its commits.
+// Opened here when it is not open, without adding it to the workspace, so a
+// window on some other folder still resolves its `git:` side. Without a root,
+// the file's own.
+async function repositoryFor(git, root, fileUri) {
+    if (!root) return fileUri ? git.getRepository(fileUri) : null;
+    const rootUri = vscode.Uri.file(root);
+    const open = git.getRepository(rootUri);
+    if (open && samePath(open.rootUri.fsPath, root)) return open;
+    return await git.openRepository(rootUri);
 }
+
+const samePath = (a, b) => path.resolve(a) === path.resolve(b);
+
+// What git said, which is the only thing that tells a missing object from a
+// repository that could not be read: the git extension rejects with its own
+// error, whose `stderr` is git's.
+const gitError = e => ((e && (e.stderr || e.message)) || String(e)).trim().split('\n')[0];
 
 async function hasCommit(repo, ref) {
     try { await repo.getCommit(ref); return true; } catch { return false; }

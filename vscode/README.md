@@ -28,7 +28,7 @@ when the checkout lacks it.
 
 ```
 vscode/package.sh                                  # writes vscode/worklog-<version>.vsix
-code --install-extension vscode/worklog-0.2.0.vsix
+code --install-extension vscode/worklog-0.2.1.vsix
 ```
 
 It is a workspace extension: under Remote-SSH, `code` in the remote terminal
