@@ -58,7 +58,7 @@ userpath(p::AbstractString) = isempty(p) ? String(p) : expanduser(String(p))
 function load_repos()
     isfile(localfile()) || return Dict{String,Any}()
     raw = try
-        TOML.parsefile(localfile())
+        parse_local()
     catch
         return Dict{String,Any}()
     end

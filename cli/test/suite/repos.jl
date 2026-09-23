@@ -94,3 +94,30 @@ end
         W.LOCAL[] = keepr
     end
 end
+
+@testset "an emoji in a note does not unpin every checkout" begin
+    # JSON spells an emoji as a surrogate pair and TOML refuses surrogates, so
+    # one in any field made the file unparseable - and `load_repos`, which is
+    # the one reader that parses it, answered "nothing pinned" for every repo:
+    # `t` asked for the checkout again on every item, forever.
+    @test W.fmt("a 😀 é \"q\" \\ \n") == "\"a \\U0001f600 \\u00e9 \\\"q\\\" \\\\ \\n\""
+    @test W.fmt(["😀"]) == "[\"\\U0001f600\"]"
+    root = mktempdir()
+    keepr = W.LOCAL[]
+    W.LOCAL[] = joinpath(root, "local.toml")
+    try
+        write(W.LOCAL[], "[\"repo:o/r\"]\nworktree = \"$root\"\n")
+        W.set_blocks!(["https://x/1" => ["note" => "done 🎉"]])
+        @test W.repo_path("o/r") == root
+        @test W.parse_local()["https://x/1"]["note"] == "done 🎉"
+        # And a file written before the fix is read as it was meant: the pair
+        # is one character, and an escaped backslash ahead of `u` is text.
+        write(W.LOCAL[], "[\"repo:o/r\"]\nworktree = \"$root\"\n\n" *
+                         "[\"https://x/1\"]\nnote = \"\\ud83c\\udf89 \\\\ud83c\\\\udf89\"\n")
+        @test W.repo_path("o/r") == root
+        @test W.parse_local()["https://x/1"]["note"] == "🎉 \\ud83c\\udf89"
+        @test W.load_state()["https://x/1"]["note"] == "🎉 \\ud83c\\udf89"
+    finally
+        W.LOCAL[] = keepr
+    end
+end

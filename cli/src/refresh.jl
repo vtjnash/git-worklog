@@ -808,7 +808,7 @@ function load_state()
     # file through the redirect for as long as it has been here.
     p = localfile()
     isfile(p) || return Dict{String,Any}()
-    raw = TOML.parse(read(p, String))
+    raw = parse_local(p)
     # Item blocks only. The file's other inhabitants are keyed by what they are
     # - `repo:o/r` - and a refresh has no business reading them.
     Dict{String,Any}(u => Dict{String,Any}(

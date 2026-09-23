@@ -87,8 +87,44 @@ function block_span(lines, url)
     (i, j)
 end
 
-fmt(v::AbstractVector) = "[" * join((json_dumps(x) for x in v), ", ") * "]"
+fmt(v::AbstractVector) = "[" * join((fmt(x) for x in v), ", ") * "]"
 fmt(v) = json_dumps(v)
+
+"""A string as TOML spells it: JSON's escapes, which the two share, except
+above the Basic Multilingual Plane. JSON writes an emoji as a surrogate pair,
+`\\ud83d\\ude00`, and TOML refuses surrogates outright - so one emoji in a note
+made the whole file unparseable, and `load_repos`, which parses it, forgot
+every pinned checkout at once (2026-09-23). TOML's own `\\U0001f600` instead,
+which keeps the file ASCII as it has always been."""
+function fmt(s::AbstractString)
+    io = IOBuffer()
+    print(io, '"')
+    for c in s
+        u = UInt32(c)
+        u > 0xffff ? print(io, "\\U", string(u, base = 16, pad = 8)) :
+                     print(io, chop(json_dumps(string(c)); head = 1, tail = 1))
+    end
+    print(io, '"')
+    String(take!(io))
+end
+
+"""The file's text as TOML will take it, and parsed.
+
+Surrogate pairs written before `fmt` knew better are rewritten as the one
+escape they stand for - an even run of backslashes ahead of one is escaped
+backslashes, and the `u` after it is text. Nothing is written back: the next
+write of that field spells it the new way.
+"""
+function parse_local(p::AbstractString = localfile())
+    t = replace(read(p, String),
+                r"(?<!\\)((?:\\\\)*)\\u(d[89ab][0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})"i => s -> begin
+                    m = match(r"^((?:\\\\)*)\\u(....)\\u(....)$", s)
+                    hi, lo = parse(UInt32, m[2]; base = 16), parse(UInt32, m[3]; base = 16)
+                    u = 0x10000 + ((hi - 0xd800) << 10) + (lo - 0xdc00)
+                    string(m[1], "\\U", string(u, base = 16, pad = 8))
+                end)
+    TOML.parse(t)
+end
 
 """Apply named-key updates to any number of blocks, in one pass over the file.
 
