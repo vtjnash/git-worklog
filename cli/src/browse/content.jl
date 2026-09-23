@@ -372,6 +372,15 @@ function local_nodes(it::Item)
     ns
 end
 
+"""Read the thread from GitHub and put it in the cache under `thread_key`, the
+shape `comment_nodes` reads back. Its own function so the prefetch fills the
+very entry the pane will look for."""
+function fetch_thread!(url::AbstractString)
+    body, cs, cms, sts = Events.thread(url; limit = 30)
+    cache_put(thread_key(url), (body = body, comments = cs, commits = cms, events = sts))
+    (body, cs, cms, sts)
+end
+
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
     local body, cs, cms, sts
@@ -380,8 +389,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         key = thread_key(it.url)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
-            body, cs, cms, sts = Events.thread(it.url; limit = 30)
-            cache_put(key, (body = body, comments = cs, commits = cms, events = sts))
+            body, cs, cms, sts = fetch_thread!(it.url)
         else
             body, cs = hit[1].body, hit[1].comments
             # Absent on an entry written before the pushes, and then the state

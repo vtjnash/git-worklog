@@ -63,6 +63,8 @@ let d = mktempdir()
     W.VIEWFILE[] = joinpath(d, "view.toml")
     write(W.LOCAL[], "")
     W.CACHE_DIR[] = joinpath(d, "cache")
+    # And no `wl prefetch` left running behind each refresh the suite makes.
+    W.PREFETCH_BEHIND[] = false
     # And the socket links, which would otherwise be re-pointed under
     # `/run/user` by a test of the re-pointing.
     W.RUN_DIR[] = joinpath(d, "run")

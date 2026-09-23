@@ -64,7 +64,11 @@ cli/bin/wl                    # the browser
 `cli/bin/refresh` is `cli/bin/wl refresh`. The first `wl` after any change
 under `cli/src` rebuilds a precompile image (~22s); after that a launch is
 about a second. Nothing runs on a cadence of its own: `u` inside the browser,
-or `wl refresh`, is the only thing that fetches.
+or `wl refresh`, is the only thing that fetches. Each refresh then starts
+`wl prefetch` detached, which caches the thread and the diff of every unread
+item that has none yet, so the browser has them the moment the cursor lands:
+four at a time, a few minutes for a first run over ~500 unread, a second for
+one that finds them all there. `data/cache/prefetch.log` says what it did.
 
 ## The browser
 
@@ -218,6 +222,8 @@ wl thread  julia#62891 [n]              JSON of the same: `comments`, and `activ
                                         pushes and state changes among them
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
 wl log                                  what the last refresh run from the browser said
+wl prefetch                             cache the thread and diff of every unread item that
+                                        has none (any age counts); runs by itself after a refresh
 wl done    julia#62891                  mark done (or: done all)
 wl done    --consolidate [--dry-run]    fold the done stamps into the sources' floors
 wl track   julia#62452 loose            normal | loose - what counts as it moving
@@ -308,7 +314,7 @@ to the 256-colour cube.
 | `data/config.toml` | you | your half: login, theme, the repos you poll and pin. Seeded from the template on the first launch and never written again. Tracked |
 | `data/local.toml` | you and the program | one block per item: your note, snooze, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
-| `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
+| `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser, `wl prefetch` | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/view.toml` | the browser | where it was when it last closed - the filter, the item, which view of it - read back at the next launch; `` ` `` is the way back to the firehose from there. Written whole on the way out; ignored. Delete it to open on the firehose |
 | `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
 | `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Yours alone (`0700`, set at every launch); gone with the last login, like what they point at |

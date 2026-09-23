@@ -566,7 +566,10 @@ function refresh_all!(st::BState)
     refreshing() && return "already refreshing"
     fetching("refresh") do
         said = try
-            run_refresh!()
+            s = run_refresh!()
+            # Behind it, in a process of its own; see `prefetch.jl`.
+            prefetch_behind()
+            s
         catch e
             # Logged, so the footer stands until it is read; the report has
             # everything the refresh said up to the throw.

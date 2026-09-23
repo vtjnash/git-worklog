@@ -2363,3 +2363,38 @@ end
         W.LOCAL[] = keepm
     end
 end
+
+@testset "the unread list is prefetched: what is missing, and only that" begin
+    mk(n; is_pr = true) = W.Item(url = "https://example.invalid/o/r/pull/$n", ref = "r#$n",
+                                 repo = "o/r", number = n, title = "t", is_pr = is_pr)
+    its = [mk(1), mk(2), mk(3; is_pr = false),
+           W.Item(url = "local:o/r#b", ref = "b", repo = "o/r", number = 0, title = "b", lane = "local")]
+    # One already cached, however old: presence is the whole test.
+    W.cache_put(W.thread_key(its[2].url), (body = Dict(), comments = [], commits = [], events = []))
+    asked = String[]
+    diffed = String[]
+    r = W.prefetch_items(its; thread = u -> push!(asked, u),
+                         diff = it -> (push!(diffed, it.url); it.number == 1 ? :fetched : :cached))
+    # The two with no thread, not the cached one, and nothing for the local branch.
+    @test asked == [its[1].url, its[3].url]
+    # A diff only for the pull requests.
+    @test diffed == [its[1].url, its[2].url]
+    @test r == (threads = 2, diffs = 1, cached = 2, failed = 0)
+    # A failure is counted and said, and the rest go on.
+    r = W.prefetch_items(its[1:1]; thread = u -> error("down"), diff = it -> :fetched)
+    @test r.failed == 1 && r.diffs == 1
+    # The diff: gh's copy is fetched once and then only found.
+    calls = Ref(0)
+    run = args -> (calls[] += 1; (0, "diff --git a/x b/x\n", ""))
+    @test W.prefetch_diff(its[1]; run = run) === :fetched
+    @test W.prefetch_diff(its[1]; run = run) === :cached
+    @test calls[] == 1
+    # `wl prefetch` over a given list runs it under the lock, and a second
+    # one while the lock is held says so and does nothing.
+    @test W.prefetch(; items = W.Item[]) == 0
+    W.FileWatching.Pidfile.mkpidlock(W.prefetchlock()) do
+        out = IOBuffer()
+        W.reporting(() -> W.prefetch(; items = its), out)
+        @test occursin("already running", String(take!(out)))
+    end
+end

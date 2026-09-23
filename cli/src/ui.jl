@@ -655,7 +655,7 @@ function ui(args = String[], at::DateTime = utcnow())
         # Its own operation, and its own start: a refresh takes half a minute
         # and the browser that follows must not be measured against the moment
         # before it began.
-        refresh(String[])
+        refresh(String[]) == 0 && prefetch_behind()
         at = utcnow()
     end
     # From here on this process is the browser, and the browser reports

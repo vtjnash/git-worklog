@@ -19,6 +19,8 @@ Work dashboard.
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
   wl log                                  what the last refresh run from the browser said
+  wl prefetch                             cache the thread and diff of every unread item
+                                          that has none; runs by itself after a refresh
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 loose           normal | loose - what counts as it moving
   wl dismiss julia#62452                  loose, and read: back only when it moves
@@ -146,8 +148,11 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # the poll expected, and ask narrowly again. See `Events.expect!`.
         "--caught-up" in args &&
             println(stderr, "  notifications: ", Events.caught_up!(), " awaited, dropped; the ask is narrow again")
-        return refresh(args[2:end])
+        code = refresh(args[2:end])
+        code == 0 && prefetch_behind()
+        return code
     end
+    cmd == "prefetch" && return prefetch(at)
     if cmd == "import"
         length(args) > 1 || die(USAGE)
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)

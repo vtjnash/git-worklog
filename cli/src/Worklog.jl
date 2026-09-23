@@ -132,6 +132,7 @@ include("browse/checkout.jl")     # which local checkout an item's work is in
 include("browse/items.jl")        # imported items and adopted branches
 include("browse/sessions.jl")     # the editor, the note, and hosted programs
 include("browse/checks.jl")       # CI
+include("prefetch.jl")             # threads and diffs for the unread, behind a refresh
 include("paneview.jl")
 include("cli.jl")
 
