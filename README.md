@@ -65,8 +65,9 @@ cli/bin/wl                    # the browser
 under `cli/src` rebuilds a precompile image (~22s); after that a launch is
 about a second. Nothing runs on a cadence of its own: `u` inside the browser,
 or `wl refresh`, is the only thing that fetches. Each refresh then starts
-`wl prefetch` detached, which caches the thread and the diff of every unread
-item that has none yet, so the browser has them the moment the cursor lands:
+`wl prefetch` detached, which caches the thread of every unread item that has
+none yet, so the browser has it the moment the cursor lands - and, for a pull
+request in a pinned checkout, fetches what its diff needs into the checkout:
 four at a time, a few minutes for a first run over ~500 unread, a second for
 one that finds them all there. `data/cache/prefetch.log` says what it did.
 
@@ -222,8 +223,9 @@ wl thread  julia#62891 [n]              JSON of the same: `comments`, and `activ
                                         pushes and state changes among them
 wl unread  [julia#62891]                JSON of the unread list / mark one unread
 wl log                                  what the last refresh run from the browser said
-wl prefetch                             cache the thread and diff of every unread item that
-                                        has none (any age counts); runs by itself after a refresh
+wl prefetch                             cache the thread of every unread item that has none
+                                        (any age counts), and fetch its diff into a pinned
+                                        checkout; runs by itself after a refresh
 wl done    julia#62891                  mark done (or: done all)
 wl done    --consolidate [--dry-run]    fold the done stamps into the sources' floors
 wl track   julia#62452 loose            normal | loose - what counts as it moving

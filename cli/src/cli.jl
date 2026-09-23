@@ -19,8 +19,9 @@ Work dashboard.
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
   wl log                                  what the last refresh run from the browser said
-  wl prefetch                             cache the thread and diff of every unread item
-                                          that has none; runs by itself after a refresh
+  wl prefetch                             cache the thread of every unread item that has
+                                          none, and its diff in a pinned checkout; runs by
+                                          itself after a refresh
   wl repos [--prune]                      pinned checkouts; --prune forgets gone ones
   wl track   julia#62452 loose           normal | loose - what counts as it moving
   wl dismiss julia#62452                  loose, and read: back only when it moves

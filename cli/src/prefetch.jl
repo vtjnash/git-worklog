@@ -4,8 +4,9 @@
 # and holds the cursor a quarter of a second before it asks (`LOAD_AFTER`), so
 # going down the unread list is a pause and a "loading …" per row. Everything
 # on that list is known when a refresh ends: it is `unread_items`, the same
-# list `wl unread` prints. This asks for each row's thread and diff then,
-# behind the refresh, so the pane has them the moment the cursor lands.
+# list `wl unread` prints. This asks for each row's thread then, behind the
+# refresh, so the pane has it the moment the cursor lands - and the diff where
+# a pinned checkout can keep it; gh's copy is not fetched ahead.
 #
 # **Presence, not freshness.** An entry already in the cache is left alone
 # however old it is, as long as it is inside `CACHE_KEEP`: the pane shows it at
@@ -32,8 +33,8 @@ const PREFETCH_BEHIND = Ref(true)
 """
     prefetch_items(items; thread, diff, ntasks) -> (; threads, diffs, cached, failed)
 
-Put a thread and, for a pull request, a diff in the cache for each of `items`
-that has none. In the order given - `unread_items` is newest movement first,
+Put a thread in the cache for each of `items` that has none, and for a pull
+request in a pinned checkout bring its diff's objects in (`prefetch_diff`). In the order given - `unread_items` is newest movement first,
 so what you will read first is warm first - and `ntasks` at a time: a thread
 is several REST reads one after another, three to eight seconds of waiting,
 and five hundred of them one by one was half an hour on the first run. Four,
@@ -61,8 +62,7 @@ function prefetch_items(items; thread = fetch_thread!, diff = prefetch_diff, nta
         end
         if it.is_pr
             try
-                got = diff(it)
-                got === :fetched ? (diffs += 1) : (cached += 1)
+                diff(it) === :fetched && (diffs += 1)
             catch e
                 failed += 1
                 @printf(warning(), "  %-24s diff: %s\n", it.ref, first(sprint(showerror, e), 200))
@@ -81,20 +81,18 @@ function prefetch_items(items; thread = fetch_thread!, diff = prefetch_diff, nta
     (; threads, diffs, cached, failed)
 end
 
-"""The diff `diff_nodes` would show, made ready: `:local` when a pinned
-checkout answers it - `pr_diff` fetches the objects it lacks, once, which is
-the slow part - `:cached` when gh's copy is already in the cache, and
-`:fetched` when it was not and now is."""
-function prefetch_diff(it::Item; run = gh_run)
+"""The diff made ready where there is somewhere to keep it: a pinned checkout,
+where `pr_diff` fetches the objects it lacks, once - the slow part - and git is
+the cache from then on. `:fetched` then, and `:none` for a repository with no
+checkout: gh's copy is not fetched ahead. It is one request whenever it is
+looked at either way, and pinning a checkout is how you say you want this
+repository's diffs kept."""
+function prefetch_diff(it::Item)
     repo = repo_path(it.repo)
-    head = repo === nothing ? it.head : head_sha(it)
-    if repo !== nothing && !isempty(head) &&
-       pr_diff(repo, it.repo, it.number, it.base, it.base_sha, head) !== nothing
-        return :local
-    end
-    cache_has(diff_key(it)) && return :cached
-    cache_put(diff_key(it), fetch_diff(it; run = run))
-    :fetched
+    repo === nothing && return :none
+    head = head_sha(it)
+    isempty(head) && return :none
+    pr_diff(repo, it.repo, it.number, it.base, it.base_sha, head) === nothing ? :none : :fetched
 end
 
 """`wl prefetch`: the unread list, warmed. Returns the exit code; `0` also when
@@ -106,8 +104,8 @@ function prefetch(at::DateTime = utcnow(); items = nothing)
         its = something(items, unread_items(at))
         t0 = time()
         r = prefetch_items(its)
-        @printf(report(), "prefetched %d unread: %d threads, %d diffs fetched, %d already there%s (%.0fs)\n",
-                length(its), r.threads, r.diffs, r.cached,
+        @printf(report(), "prefetched %d unread: %d threads fetched, %d already there, %d diffs in checkouts%s (%.0fs)\n",
+                length(its), r.threads, r.cached, r.diffs,
                 r.failed == 0 ? "" : ", $(r.failed) failed", time() - t0)
         true
     end

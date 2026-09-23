@@ -2374,21 +2374,19 @@ end
     asked = String[]
     diffed = String[]
     r = W.prefetch_items(its; thread = u -> push!(asked, u),
-                         diff = it -> (push!(diffed, it.url); it.number == 1 ? :fetched : :cached))
+                         diff = it -> (push!(diffed, it.url); it.number == 1 ? :fetched : :none))
     # The two with no thread, not the cached one, and nothing for the local branch.
     @test asked == [its[1].url, its[3].url]
     # A diff only for the pull requests.
     @test diffed == [its[1].url, its[2].url]
-    @test r == (threads = 2, diffs = 1, cached = 2, failed = 0)
+    @test r == (threads = 2, diffs = 1, cached = 1, failed = 0)
     # A failure is counted and said, and the rest go on.
     r = W.prefetch_items(its[1:1]; thread = u -> error("down"), diff = it -> :fetched)
     @test r.failed == 1 && r.diffs == 1
-    # The diff: gh's copy is fetched once and then only found.
-    calls = Ref(0)
-    run = args -> (calls[] += 1; (0, "diff --git a/x b/x\n", ""))
-    @test W.prefetch_diff(its[1]; run = run) === :fetched
-    @test W.prefetch_diff(its[1]; run = run) === :cached
-    @test calls[] == 1
+    # With no checkout pinned there is nothing to keep a diff in, and gh is
+    # not asked: nothing lands under the gh copy's key.
+    @test W.prefetch_diff(its[1]) === :none
+    @test !W.cache_has(W.diff_key(its[1]))
     # `wl prefetch` over a given list runs it under the lock, and a second
     # one while the lock is held says so and does nothing.
     @test W.prefetch(; items = W.Item[]) == 0

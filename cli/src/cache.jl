@@ -58,8 +58,9 @@ what apply them.
 | review draft (`review:`) | `review_state` | 60s           | = fresh      | dropped, blocks  | on a write, not a move |
 | forks, head sha         | `owner_forks`, `head_sha` | 1 day | = fresh    | dropped, blocks  | no    |
 
-`wl prefetch` writes the `thread:` and `diff:` rows ahead of the pane, for
-every unread item that has no entry inside keep; see `prefetch.jl`.
+`wl prefetch` writes the `thread:` row ahead of the pane, for every unread
+item that has no entry inside keep, and brings a checkout's diff objects in;
+never gh's `diff:`. See `prefetch.jl`.
 
 The last three rows are the plain fresh-or-miss cache `cache_get` is with one
 number: read on a keypress that writes, or inside the checks pane's own fetch,
