@@ -144,7 +144,9 @@ listed first regardless, a name or `owner/*`.
 **Reviewing**: drag over a diff (or `⇧j`/`⇧k`), then `C` comments on that
 range - under `d`, or under `p` on its right side, which is the head now;
 `^r` in the composer drops in a suggestion block. Comments accumulate in
-a draft review on GitHub; `A` sends it, and leaving the item asks whether to.
+a draft review on GitHub, pinned to the commit the diff was read at; `A`
+sends it, and leaving the item asks whether to. Once the branch has moved
+under an open draft, the next `C` says to send the draft first.
 Existing review threads hang off the hunk they point into, resolved ones
 folded, and the line each is on carries `💬` in the margin, over the border.
 A control character in a diff is drawn as `^[`, `^G`, `^M` rather than sent

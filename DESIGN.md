@@ -695,6 +695,13 @@ Do not simplify any of these away.
     part, not the news.
 14. An `issueCount` of 0 beside 100 nodes has happened: a successful response
     can still be wrong.
+15. A review thread's `line` is resolved against a commit, and the commit
+    `addPullRequestReview` takes by default is the head *when it is posted* -
+    the head the diff was read at only until somebody pushes. So a new draft
+    is pinned with `commitOID` to the head the checkout diffed to;
+    `addPullRequestReviewThread` has no such field and inherits the draft's,
+    so a thread numbered against another commit is refused, and the draft is
+    sent first. A diff gh served names no commit and takes the default.
 
 ### Term.jl (v2.2, pinned)
 

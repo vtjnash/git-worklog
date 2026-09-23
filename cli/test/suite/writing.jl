@@ -298,6 +298,63 @@ end
     @test W.compose_target(st, iw) == (:item, nothing)
 end
 
+@testset "a line comment is pinned to the commit its number came from" begin
+    # `line: 11` means line 11 of *some* commit, and GitHub's default for
+    # which is the head at the moment of posting - the head the diff was read
+    # at only until somebody pushes. So the hunks carry the commit the checkout
+    # diffed to, the target carries it off the hunk, and a new draft is pinned
+    # to it outright.
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    u = st.items[st.sel].url
+    ns = W.hunk_nodes("diff --git a/a.jl b/a.jl\n@@ -40,2 +10,2 @@\n ctx\n-gone\n+added",
+                      string(u, "/files"); head = "a" ^ 40)
+    @test ns[1].meta["head"] == "a" ^ 40
+    # gh's copy names no commit, and neither does the target then.
+    @test W.hunk_nodes("diff --git a/a.jl b/a.jl\n@@ -1 +1 @@\n-x\n+y", u)[1].meta["head"] == ""
+    st.nodes = ns; st.mode = :diff
+    st.loaded = string(u, ":", st.mode)
+    iw = W.layout(160, 50, st.nmeta).riw
+    st.nrow = 4
+    t = W.compose_target(st, iw)
+    @test t[1] === :line && t[2].head == "a" ^ 40
+
+    sent = Any[]
+    fake(q; vars) = (push!(sent, (q, vars));
+                     (; addPullRequestReview = (; pullRequestReview = (; id = "PRR_new"))))
+    none(url) = (id = "PR_x", review = "", n = 0, head = "")
+    (stt, err) = W.Events.add_review_thread(u, "a.jl", 11, "RIGHT", "hm"; head = "a" ^ 40,
+                                            state = none, graphql = fake)
+    @test err == "" && stt.review == "PRR_new" && stt.head == "a" ^ 40
+    @test occursin("commitOID: \$commit", sent[1][1]) && sent[1][2]["commit"] == "a" ^ 40
+    # Without a commit, nothing is sent for it: GitHub's default, as before.
+    empty!(sent)
+    W.Events.add_review_thread(u, "a.jl", 11, "RIGHT", "hm"; state = none, graphql = fake)
+    @test !haskey(sent[1][2], "commit")
+
+    # A draft already open is pinned to whatever it started on, and the
+    # mutation that appends to it cannot say otherwise - so a thread numbered
+    # against another commit is refused, with the way out: send the draft,
+    # then comment on the head now.
+    held(url) = (id = "PR_x", review = "PRR_y", n = 2, head = "a" ^ 40)
+    empty!(sent)
+    (stt, err) = W.Events.add_review_thread(u, "a.jl", 11, "RIGHT", "hm"; head = "b" ^ 40,
+                                            state = held, graphql = fake)
+    @test stt === nothing && isempty(sent)
+    @test occursin("draft review (2) is on aaaaaaaa", err) &&
+          occursin("head is now bbbbbbbb", err) && occursin("A sends", err)
+    # The same commit, or one side not knowing its commit, appends as before.
+    fake2(q; vars) = (push!(sent, (q, vars)); (; addPullRequestReviewThread = (; thread = (; id = "T"))))
+    (stt, err) = W.Events.add_review_thread(u, "a.jl", 11, "RIGHT", "hm"; head = "a" ^ 40,
+                                            state = held, graphql = fake2)
+    @test err == "" && stt.n == 3 && stt.head == "a" ^ 40
+    unpinned(url) = (id = "PR_x", review = "PRR_y", n = 2, head = "")
+    (stt, err) = W.Events.add_review_thread(u, "a.jl", 11, "RIGHT", "hm"; head = "b" ^ 40,
+                                            state = unpinned, graphql = fake2)
+    @test err == "" && stt.n == 3 && stt.head == ""
+    W.cache_drop(string("review:", u))
+end
+
 @testset "[ and ] stop where the next hunk starts" begin
     keep = W.LOCAL[]
     W.LOCAL[] = fresh_local()

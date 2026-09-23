@@ -157,8 +157,10 @@ function compose_target(st::BState, iw::Int)
             # suggestion is the commonest kind there is, so standing on a line
             # is enough to fill `^r` in. Nothing on the old side: GitHub does
             # not apply a suggestion to a line that is no longer there.
+            # And the commit the number is against, which the thread is pinned
+            # to - see `add_review_thread` for what a number without one is.
             return (:line, (file = n.meta["file"], line = b[1], side = b[2],
-                            start = first_,
+                            start = first_, head = get(n.meta, "head", ""),
                             text = b[2] == "LEFT" ? String[] :
                                    hunk_text(st, i, iw,
                                              first_ === nothing ? hi : lo, hi)))
@@ -251,7 +253,8 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
          b -> begin
              (stt, err) = Events.add_review_thread(it.url, target.file, target.line,
                                                    target.side, b;
-                                                   start_line = target.start)
+                                                   start_line = target.start,
+                                                   head = target.head)
              stt === nothing && return err
              st.batch = mkbatch(it.url, it.ref, stt.review, stt.n)
              # The lane, which outlives this session and this browser: written

@@ -5,6 +5,12 @@ they are is in DESIGN.md; what is blocked or undecided is in LATER.md. An item
 leaves by being done - or, under *Unverified*, by being run in a real terminal,
 when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
+## Next
+
+- [ ] Search in dh pane should use Regex matcher and remember the query string last used
+- [ ] after snooze or opening the program, the list updates to the new item, but the viewer pane stays behind (or blank)
+- [ ] add background coloring to comments and node headers in a diff view (in 256 mode schemes) -- github uses blues to mark where there are separate regions within a diff and grays to mark new files
+
 ## Upstream
 
 - [ ] **Bump Term to v2.2.1 and take out the workarounds it retires.** v2.2.1
@@ -45,20 +51,12 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## The list
 
-- [ ] **A list row two high.** For the titles the one row cuts at about half.
-      Usually enough of the title shows; sometimes not. The one ask from the
-      terminal pass (MANUAL.md §12).
-
 - [ ] **Discussions, releases, commit comments.** *Decide: whether to open them
       at all.*
       The notifications source sees each arrive and skips it, counted. Nothing
       here can open one.
 
 ## Reading
-
-- [ ] **Hunk context expands against the head.** `[`/`]` widen a hunk from the
-      post-change file, so the context around a `-` line is not the file that
-      line was in.
 
 - [ ] **A code span Term wrapped across two lines loses its background.** The
       second line gets a dim backtick and no background.

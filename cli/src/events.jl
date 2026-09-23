@@ -1415,7 +1415,9 @@ end
 # `addPullRequestReview` with `threads` and no `event` creates the draft,
 # `addPullRequestReviewThread` appends to it, `submitPullRequestReview` sends it.
 
-"""The pull request's node id, and the pending review of yours on it if any.
+"""The pull request's node id, and the pending review of yours on it if any -
+with the commit the draft is pinned to, since every thread added to it is
+numbered against that commit and nothing else.
 
 One query for both, because the id is what a mutation needs and the review is
 what the browser needs to show. `nothing` when the url is not a pull request.
@@ -1432,27 +1434,30 @@ function review_state(url::AbstractString; ttl = 60.0)
     d = gh_graphql(
         "query(\$u: URI!, \$me: String!) { resource(url: \$u) { ... on PullRequest " *
         "{ id reviews(states: PENDING, first: 1, author: \$me) " *
-        "{ nodes { id comments { totalCount } } } } } }";
+        "{ nodes { id comments { totalCount } commit { oid } } } } } }";
         vars = Dict{String,Any}("u" => String(url), "me" => Worklog.login()))
     r = get(d, :resource, nothing)
     (r === nothing || get(r, :id, nothing) === nothing) && return nothing
     ns = get(get(r, :reviews, (; nodes = ())), :nodes, ())
+    c = isempty(ns) ? nothing : get(ns[1], :commit, nothing)
     v = OrderedDict{String,Any}("id" => String(r.id),
                                 "review" => isempty(ns) ? "" : String(ns[1].id),
-                                "n" => isempty(ns) ? 0 : ns[1].comments.totalCount)
+                                "n" => isempty(ns) ? 0 : ns[1].comments.totalCount,
+                                "head" => c === nothing ? "" : String(c.oid))
     cache_put(key, v)
     _review_shape(v)
 end
 
+# `head` with a default: an entry written before the field was asked for.
 _review_shape(v) = (id = String(v["id"]), review = String(v["review"]),
-                    n = Int(v["n"]))
+                    n = Int(v["n"]), head = String(get(v, "head", "")))
 
 "Remember what a mutation just made true, so the next frame does not ask."
-function _review_put(url, id, review, n)
+function _review_put(url, id, review, n, head)
     cache_put(string("review:", url),
               OrderedDict{String,Any}("id" => String(id), "review" => String(review),
-                                      "n" => Int(n)))
-    (id = String(id), review = String(review), n = Int(n))
+                                      "n" => Int(n), "head" => String(head)))
+    (id = String(id), review = String(review), n = Int(n), head = String(head))
 end
 
 """Add one thread to your pending review, starting one if there is none.
@@ -1460,18 +1465,39 @@ end
 Returns `(state, "")` or `(nothing, error)`. `start_line` makes it a range, the
 same way it does for a comment posted on its own.
 
+`head` is the commit the line number was read against - the head the diff on
+screen was computed at, when that is known. A line number is nothing without
+it: GitHub resolves `line` against a commit, and the commit it takes by default
+is the pull request's head *at the moment of posting*, which is the head the
+diff was read at only until somebody pushes. So a new draft is pinned to `head`
+outright, through `commitOID`. A draft already open is pinned to whatever it
+started on and the mutation that appends to it has no say, so when that is a
+different commit from `head` the thread is refused rather than misplaced: the
+draft is sent as it stands, with `A`, and the next comment starts one on the
+head now. An empty `head` - a diff gh served, which is at the head now for as
+long as gh's copy is fresh - leaves both to GitHub's default, as before.
+
 The two mutations differ only in which id they carry, so which one runs is
-decided by whether a draft is already open rather than by the caller.
+decided by whether a draft is already open rather than by the caller. `state`
+and `graphql` are parameters so the suite can drive the refusal without a
+token.
 """
 function add_review_thread(url::AbstractString, path::AbstractString, line::Integer,
                            side::AbstractString, body::AbstractString;
-                           start_line = nothing)
+                           start_line = nothing, head::AbstractString = "",
+                           state = review_state, graphql = gh_graphql)
     stt = try
-        review_state(url)
+        state(url)
     catch e
         return (nothing, first(sprint(showerror, e), 200))
     end
     stt === nothing && return (nothing, "not a pull request")
+    if !isempty(stt.review) && !isempty(head) && !isempty(stt.head) && stt.head != head
+        return (nothing,
+                string("the draft review (", stt.n, ") is on ", first(stt.head, 8),
+                       " and the head is now ", first(head, 8),
+                       " - A sends the draft as it stands; the next comment starts one on the head now"))
+    end
     vars = Dict{String,Any}("path" => String(path), "body" => String(body),
                             "line" => Int(line), "side" => String(side))
     start_line === nothing || Int(start_line) >= Int(line) ||
@@ -1479,25 +1505,30 @@ function add_review_thread(url::AbstractString, path::AbstractString, line::Inte
     try
         if isempty(stt.review)
             vars["pr"] = stt.id
-            d = gh_graphql(
-                "mutation(\$pr: ID!, \$path: String!, \$body: String!, \$line: Int!, " *
+            isempty(head) || (vars["commit"] = String(head))
+            d = graphql(
+                "mutation(\$pr: ID!, \$commit: GitObjectID, \$path: String!, " *
+                "\$body: String!, \$line: Int!, " *
                 "\$side: DiffSide!, \$startLine: Int, \$startSide: DiffSide) " *
-                "{ addPullRequestReview(input: {pullRequestId: \$pr, threads: " *
-                "[{path: \$path, body: \$body, line: \$line, side: \$side, " *
+                "{ addPullRequestReview(input: {pullRequestId: \$pr, commitOID: \$commit, " *
+                "threads: [{path: \$path, body: \$body, line: \$line, side: \$side, " *
                 "startLine: \$startLine, startSide: \$startSide}]}) " *
                 "{ pullRequestReview { id } } }"; vars = vars)
             rid = d.addPullRequestReview.pullRequestReview.id
-            return (_review_put(url, stt.id, rid, 1), "")
+            return (_review_put(url, stt.id, rid, 1, head), "")
         else
             vars["rev"] = stt.review
-            gh_graphql(
+            graphql(
                 "mutation(\$rev: ID!, \$path: String!, \$body: String!, \$line: Int!, " *
                 "\$side: DiffSide!, \$startLine: Int, \$startSide: DiffSide) " *
                 "{ addPullRequestReviewThread(input: {pullRequestReviewId: \$rev, " *
                 "path: \$path, body: \$body, line: \$line, side: \$side, " *
                 "startLine: \$startLine, startSide: \$startSide}) " *
                 "{ thread { id } } }"; vars = vars)
-            return (_review_put(url, stt.id, stt.review, stt.n + 1), "")
+            # The draft's commit stays what the query said, empty included: a
+            # draft nothing here pinned is on a head nobody has named, and
+            # guessing `head` for it would refuse the next thread for nothing.
+            return (_review_put(url, stt.id, stt.review, stt.n + 1, stt.head), "")
         end
     catch e
         (nothing, first(sprint(showerror, e), 300))

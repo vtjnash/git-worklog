@@ -101,6 +101,10 @@ filtered as wanted.
       the arithmetic of four ranges in step. Honest version: rows that belong to
       a node without being its body, which changes what a `Row` is.
 
+- [ ] **A list row two high.** For the titles the one row cuts at about half.
+      Usually enough of the title shows; sometimes not. The one ask from the
+      terminal pass (MANUAL.md §12).
+
 - [ ] **Quick actions on the checkout.** *Decide: where they live, which case
       they are, and how a stopped rebase reports.*
       Whether the browser should run the git and `gh` commands that today mean

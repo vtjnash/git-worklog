@@ -516,6 +516,10 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
     stale = false
+    # The commit the hunks are numbered against, for a comment to be pinned
+    # to: the head the checkout diffed to, and unknown for gh's copy, which
+    # is at the head now for as long as it is fresh - as GitHub's default is.
+    at_head = ""
     txt = try
         repo = repo_path(it.repo)
         # `head_sha` asks gh for a head the lanes did not supply, which is
@@ -525,6 +529,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
                  pr_diff(repo, it.repo, it.number, it.base, it.base_sha, head)
         if local_ !== nothing
             push!(DIFFED, string(it.url, "@", head))
+            at_head = head
             local_
         else
             key = diff_key(it)
@@ -540,7 +545,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
         return [failednode("no diff (not a PR, or gh failed)",
                            first(sprint(showerror, e), 200))]
     end
-    ns = hunk_nodes(txt, string(it.url, "/files"))
+    ns = hunk_nodes(txt, string(it.url, "/files"); head = at_head)
     isempty(ns) && return [Node("empty diff", "", :plain, true)]
     out = place_comments(ns, it)
     stale && !isempty(out) && (out[1].meta["stale"] = true)
@@ -548,14 +553,16 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
 end
 
 """Unified diff text as one node per hunk, carrying the ranges that `[`/`]` and
-`place_comments` measure against.
+`place_comments` measure against, and `head`, the commit the new side is
+numbered against, for `add_review_thread` to pin a comment to - empty when
+the text came from gh and the commit is not known.
 
 Its own function because there are two diffs in this program now: the pull
 request's whole change, and what has been pushed to it since you last looked.
 They differ in where the text comes from and in nothing else, and a second
 parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
 """
-function hunk_nodes(txt::AbstractString, url::AbstractString)
+function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractString = "")
     txt, ctl = inert(txt)
     ns, file, buf, hdr = Node[], "", String[], ""
     pending_range, pending_old = (0, 0), (0, 0)
@@ -575,6 +582,7 @@ function hunk_nodes(txt::AbstractString, url::AbstractString)
         n.meta["up"] = 0
         n.meta["down"] = 0
         n.meta["url"] = String(url)
+        n.meta["head"] = String(head)
         push!(ns, n)
     end
     for l in split(txt, "\n")
@@ -1041,7 +1049,8 @@ function pushed_nodes(it::Item)
                               "rather than rows in the list.")), :md, false)
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
     lead.meta["url"] = string(it.url, "/files")
-    ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files")) : rangediff_nodes(txt)
+    ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files"); head = new) :
+                          rangediff_nodes(txt)
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
     ns
