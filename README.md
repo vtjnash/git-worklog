@@ -117,7 +117,7 @@ GitHub.**
 | `e` | done ↔ not done: the same key, and the same word, as the GitHub inbox and Gmail. A done item that moves is not done again |
 | `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
-| `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on |
+| `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on; on a commit in a push or a range-diff, that commit |
 | `;` | set a field - a picker: the tracking level (`normal` ↔ `loose`, this machine), then the milestone, an assignee, a reviewer, the state (draft ↔ ready; close and reopen, which ask first), the title - which reach GitHub; assignee and reviewer toggle, as `L` does |
 | `z` | undo the last local action, and go back to the row it was on |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
@@ -198,7 +198,16 @@ it goes through a small extension of our own, `vscode/`: build it with
 the terminal that reaches the VS Code you use - under Remote-SSH that is the
 remote one), and `o` on a diff line then opens the diff editor at that line,
 against the merge base under `d` and against the head you last read under
-`p`. Without the extension `o` opens the file at the line and says so.
+`p`. Without the extension `o` opens the file at the line and says so. On a
+commit in a list of them - a row of `↑ pushed N commits` in the thread, or a
+pair of a range-diff under `p` - `o` opens that commit, every file it changed
+against its first parent in one editor; that too is the extension's, and
+without it `o` opens the checkout and says so.
+
+**References are links**, as GitHub draws them: in the thread and under `p`,
+`#123`, `owner/repo#123`, a sha and `owner/repo@sha` are hyperlinks to the
+issue or the commit. A sha is seven to forty hex digits with a digit and a
+letter both - GitHub asks whether the commit exists, and this cannot.
 
 **The mouse** selects rows (drag), moves the cursor (click), folds (click a
 marker), scrolls the pane under it; in the pickers - `'`, the checkout

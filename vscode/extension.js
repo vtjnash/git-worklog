@@ -6,7 +6,7 @@
 // input with `options: { pinned: true }` and nothing else). And there is no
 // `code --command`: the remote CLI's socket carries `open`, `openExternal`,
 // `status` and `extensionManagement`, so the only way in is a URI handler,
-// which is an extension. This is that extension, kept to the one verb.
+// which is an extension. This is that extension, with two verbs.
 //
 // `vscode://vtjnash.worklog/diff?root=<checkout>&path=<file>&line=<n>
 //                                &left=<ref>[&right=<ref>]`
@@ -17,6 +17,14 @@
 // under `d` and the head you last read under `p`. A ref the checkout does not
 // have is said, and the file opens at the line by itself rather than the
 // editor showing an error page: a fallback that still lands somewhere.
+//
+// `vscode://vtjnash.worklog/commit?root=<checkout>&sha=<sha>`
+//
+// opens every file the commit changed, against its first parent, in one
+// multi-file diff editor - GitHub's page for the commit, and what `o` on a row
+// of a list of commits in `wl` asks for. First parent, as GitHub measures a
+// merge. `wl` has fetched the commit when the checkout lacked it; one that is
+// still missing is an error, since there is no file to fall back to.
 //
 // `extensionKind: workspace`, so under Remote-SSH this runs where the checkout
 // is and the git extension can read it. The git API is reached lazily: the
@@ -32,6 +40,7 @@ function activate(context) {
 async function handleUri(uri) {
     try {
         if (uri.path === '/diff') return await diff(new URLSearchParams(uri.query));
+        if (uri.path === '/commit') return await commit(new URLSearchParams(uri.query));
         vscode.window.showErrorMessage(`worklog: nothing called ${uri.path}`);
     } catch (e) {
         vscode.window.showErrorMessage(`worklog: ${e.message || e}`);
@@ -67,6 +76,37 @@ async function diff(q) {
     return vscode.commands.executeCommand('vscode.diff',
         git.toGitUri(fileUri, left), right ? git.toGitUri(fileUri, right) : fileUri,
         title, options);
+}
+
+// The git extension's `Status` values that mean a side is missing: a file the
+// commit added has no left, one it deleted no right.
+const INDEX_ADDED = 1, DELETED = 6;
+
+async function commit(q) {
+    const sha = q.get('sha');
+    const root = q.get('root');
+    if (!sha) throw new Error('no sha');
+    if (!root) throw new Error('no root');
+    const git = await gitApi();
+    if (!git) throw new Error('no git extension');
+    const rootUri = vscode.Uri.file(root);
+    const repo = await repositoryFor(git, rootUri, root);
+    if (!repo) throw new Error(`${root} is not a git repository VS Code can see`);
+    let c;
+    try { c = await repo.getCommit(sha); } catch { throw new Error(`no commit ${short(sha)} in ${root}`); }
+    const title = `${short(c.hash)} ${c.message.split('\n')[0]}`;
+    const parent = c.parents[0];
+    if (!parent) throw new Error(`${short(c.hash)} is a root commit, with nothing to diff against`);
+    const changes = await repo.diffBetween(parent, c.hash);
+    if (!changes.length) {
+        vscode.window.showInformationMessage(`worklog: ${title} changes no files`);
+        return;
+    }
+    return vscode.commands.executeCommand('vscode.changes', title, changes.map(ch => [
+        ch.uri,
+        ch.status === INDEX_ADDED ? undefined : git.toGitUri(ch.originalUri, parent),
+        ch.status === DELETED ? undefined : git.toGitUri(ch.uri, c.hash),
+    ]));
 }
 
 // A sha is shortened; a branch name is itself.

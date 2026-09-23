@@ -386,6 +386,15 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     elseif k == Int('o')
         # Open, in VS Code. It was `e` until `e` became done (2026-09-21).
+        # On a commit in a list of them, that commit.
+        sha = commit_target(st, iw)
+        if sha !== nothing
+            retry_commit = () -> (rr = open_commit(it, sha; items = st.all);
+                                  st.status = rr isa String ? rr : "")
+            r = open_commit(it, sha; items = st.all)
+            r === :needs_repo ? needs_repo(retry_commit) : (st.status = r isa String ? r : "")
+            return :ok
+        end
         at = edit_target(st, iw)
         retry_edit = () -> (rr = open_editor(it, at; mode = st.mode, items = st.all);
                             st.status = rr isa String ? rr : "")

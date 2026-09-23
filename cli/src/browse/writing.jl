@@ -75,6 +75,27 @@ function edit_target(st::BState, iw::Int)
     at === nothing ? nothing : (String(n.meta["file"]), at.new)
 end
 
+"""The commit `o` opens, where the cursor row is one of a list of them: a row
+of a push in the thread, or a pair of a range-diff anywhere on it - and
+`nothing` everywhere else, where `o` is the checkout.
+
+A push's body is a row per commit, and the row counted back to its commit
+the way `hunk_line_at` counts a diff's: first rows of a written line only.
+"""
+function commit_target(st::BState, iw::Int)
+    st.mode in (:comments, :pushed) || return nothing
+    rs = rows(st.nodes, iw)
+    isempty(rs) && return nothing
+    j = clamp(st.nrow, 1, length(rs))
+    i = rs[j].node
+    n = st.nodes[i]
+    haskey(n.meta, "sha") && return String(n.meta["sha"])
+    oids = get(n.meta, "oids", nothing)
+    (oids === nothing || rs[j].header) && return nothing
+    k = count(r -> r.node == i && !r.header && r.part == 0, view(rs, 1:j))
+    1 <= k <= length(oids) ? String(oids[k]) : nothing
+end
+
 """The rows of hunk `i` a comment is about: the selection, or the cursor row.
 
 Dragging over a hunk already selects rows - it is how `y` copies several - so a

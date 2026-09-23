@@ -1,8 +1,8 @@
 {
   "name": "worklog",
   "displayName": "worklog",
-  "description": "What `wl` asks of VS Code that its command line cannot: a diff at a line.",
-  "version": "0.1.0",
+  "description": "What `wl` asks of VS Code that its command line cannot: a diff at a line, and a commit.",
+  "version": "0.2.0",
   "publisher": "vtjnash",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/vtjnash/git-worklog" },

@@ -92,6 +92,75 @@ end
     for l in split(f, "\n"); @test W.awidth(l) == 150; end
 end
 
+@testset "a reference is a link, the way GitHub draws it" begin
+    repo = "JuliaLang/julia"
+    iss(n, r = repo) = string("https://github.com/", r, "/issues/", n)
+    com(s, r = repo) = string("https://github.com/", r, "/commit/", s)
+    targets(s) = [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", s)]
+    al(s) = W.autolink(s, repo)
+
+    @test targets(al("fixed by #52011, see also #7")) == [iss(52011), iss(7)]
+    @test targets(al("in JuliaLang/Pkg.jl#4001 too")) == [iss(4001, "JuliaLang/Pkg.jl")]
+    @test targets(al("reverted in 3f2a9c1 and a3f2a9c1d")) == [com("3f2a9c1"), com("a3f2a9c1d")]
+    @test targets(al("JuliaLang/Pkg.jl@0ab12cd")) == [com("0ab12cd", "JuliaLang/Pkg.jl")]
+    # What looks like one and is not: a number, a word, a colour, an entity, a
+    # run too short, a tag with more after it, a path, and a url - whose
+    # sha is `linkify`'s to link along with the rest of it.
+    for s in ("1234567 defaced deadbeef", "#ffaa00ff &#123; abc12", "#12abc",
+              "src/0ab12cd4.jl", "x-0ab12cd4",
+              "https://github.com/JuliaLang/julia/commit/0ab12cd4 and https://x.invalid/#12")
+        @test targets(al(s)) == []
+    end
+    # The text is the same text, and the columns the same columns.
+    row = string(W.THEME.dim, "0ab12cd4  2026-09-01T10:00  fix #12", W.THEME.reset)
+    @test W.astrip(al(row)) == W.astrip(row)
+    @test W.awidth(al(row)) == W.awidth(row)
+    @test targets(al(row)) == [com("0ab12cd4"), iss(12)]
+    # Nothing inside a link already there, and nothing at all without a
+    # repository to point into.
+    made = W.osc8("https://x.invalid/a", "see #12")
+    @test al(made) == made
+    @test W.autolink("fix #12", "") == "fix #12"
+
+    # On a node: the thread's prose and its lists of commits, never a diff,
+    # and only once the node knows its repository.
+    md = W.Node("h", "fixed by #52011", :md, true)
+    @test targets(join(W.nodelines(md, 80))) == []
+    md = W.Node("h", "fixed by #52011", :md, true); md.meta["repo"] = repo
+    @test targets(join(W.nodelines(md, 80))) == [iss(52011)]
+    df = W.Node("h", "+x = 0ab12cd4 # 12", :diff, true); df.meta["repo"] = repo
+    @test targets(join(W.nodelines(df, 80))) == []
+
+    # `o` on a row of a push is that commit; on its header, or anywhere else
+    # in the thread, it is not one.
+    oids = ["0ab12cd4" * "0"^32, "1bc23de5" * "0"^32]
+    run_ = [Dict("oid" => o, "at" => "2026-09-01T10:00:00Z", "by" => "alice",
+                 "headline" => "commit $i") for (i, o) in enumerate(oids)]
+    pn = W.push_node(run_, "https://github.com/JuliaLang/julia/pull/1")
+    pn.meta["repo"] = repo
+    @test pn.meta["oids"] == reverse(oids)              # drawn newest first
+    @test targets(join(W.nodelines(pn, 80))) == [com("1bc23de5"), com("0ab12cd4")]
+    st = mkstate()
+    st.nodes = [W.Node("alice", "said #3", :md, true), pn]
+    rs = W.rows(st.nodes, 80)
+    at(pred) = findfirst(pred, rs)
+    st.nrow = at(r -> r.node == 2 && r.header)
+    @test W.commit_target(st, 80) === nothing
+    st.nrow = at(r -> r.node == 2 && !r.header)
+    @test W.commit_target(st, 80) == oids[2]
+    st.nrow += 1
+    @test W.commit_target(st, 80) == oids[1]
+    st.nrow = at(r -> r.node == 1 && !r.header)
+    @test W.commit_target(st, 80) === nothing
+    # A pair of a range-diff is one commit, from anywhere on it; and under `d`
+    # the rows are a diff and `o` is the line.
+    rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n")
+    st.mode = :pushed; st.nodes = rd; st.nrow = 1
+    @test W.commit_target(st, 80) == "bbbbbbb"
+    st.mode = :diff
+    @test W.commit_target(st, 80) === nothing
+end
+
 @testset "a click on a url copies it" begin
     # Owning the mouse is what makes this possible: a link can be acted on here
     # rather than handed to a terminal that may or may not know what an OSC 8

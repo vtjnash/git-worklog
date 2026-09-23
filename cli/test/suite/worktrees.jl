@@ -1482,6 +1482,11 @@ end
             r = W.open_editor(nobase, ("a.txt", 1); mode = :diff)
             @test occursin("a.txt:1", r) && !occursin("extension", r)
             @test W.urlenc("a b&c/é~") == "a%20b%26c%2F%C3%A9~"
+            # A commit from a list of them has no spelling without it: the
+            # checkout, and the status says why.
+            r = W.open_commit(mine, first_)
+            @test occursin("no worklog extension", r)
+            @test args() == [side]
 
             # With it: a url to the extension. Under `d` the left side is the
             # merge base with the base branch, and the right side is the
@@ -1525,6 +1530,16 @@ end
             # there was opened for.
             @test W.diff_refs(mine, side, :diff) == (first_, "")
             @test W.diff_refs(real, side, :diff) == (first_, pushed)
+            # A commit, with the extension: its other verb, and the sha whole.
+            r = W.open_commit(mine, pushed)
+            @test r == string("opened ", first(pushed, 8), " in ", side, " (", pr.branch, ")")
+            @test args() == ["--open-url", string("vscode://vtjnash.worklog/commit?root=",
+                                                  W.urlenc(side), "&sha=", pushed)]
+            # One the checkout lacks and nothing can fetch is said, not sent.
+            rm(log)
+            r = W.open_commit(mine, "f"^40)
+            @test occursin("no commit ffffffff", r)
+            @test (sleep(0.2); !isfile(log))
             # Under `h` there is no diff, and the line is just a line.
             r = W.open_editor(mine, ("a.txt", 1); mode = :comments)
             @test args()[1] == "--goto"

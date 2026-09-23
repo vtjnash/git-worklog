@@ -8,9 +8,23 @@ class Uri { constructor(s, p) { this.scheme = s; this.fsPath = p; this.path = p;
             static file(p) { return new Uri('file', p); } }
 class Range { constructor(a, b, c, d) { this.start = [a, b]; this.end = [c, d]; } }
 const have = new Set(['deadbeef', 'refs/remotes/origin/master']);
-const repo = { rootUri: Uri.file('/w'), getCommit: async r => { if (!have.has(r)) throw new Error('bad'); } };
+const commits = {
+    c0ffee12: { hash: 'c0ffee1200000000000000000000000000000000', message: 'fix the thing\n\nbody', parents: ['deadbeef'] },
+    abad1dea: { hash: 'abad1dea', message: 'first', parents: [] },
+    ba5eba11: { hash: 'ba5eba11', message: 'empty', parents: ['deadbeef'] },
+};
+const repo = {
+    rootUri: Uri.file('/w'),
+    getCommit: async r => { if (commits[r]) return commits[r]; if (!have.has(r)) throw new Error('bad'); },
+    diffBetween: async (a, b) => (calls.push(['diffBetween', a, b]), b === 'ba5eba11' ? [] : [
+        { uri: Uri.file('/w/m.jl'), originalUri: Uri.file('/w/m.jl'), status: 5 },
+        { uri: Uri.file('/w/new.jl'), originalUri: Uri.file('/w/new.jl'), status: 1 },
+        { uri: Uri.file('/w/gone.jl'), originalUri: Uri.file('/w/gone.jl'), status: 6 },
+        { uri: Uri.file('/w/to.jl'), originalUri: Uri.file('/w/from.jl'), status: 3 },
+    ]),
+};
 const git = {
-    getRepository: u => u.fsPath.startsWith('/w/') ? repo : null,
+    getRepository: u => u.fsPath === '/w' || u.fsPath.startsWith('/w/') ? repo : null,
     openRepository: async u => (calls.push(['openRepository', u.fsPath]), repo),
     toGitUri: (u, ref) => new Uri('git', `${u.fsPath}?${ref}`),
 };
@@ -19,6 +33,7 @@ const vscode = {
     window: { registerUriHandler: h => (calls.push(['register']), { dispose() {} }),
               showWarningMessage: m => calls.push(['warn', m]),
               showErrorMessage: m => calls.push(['error', m]),
+              showInformationMessage: m => calls.push(['info', m]),
               showTextDocument: (u, o) => calls.push(['show', u.fsPath, o.selection && o.selection.start[0]]) },
     commands: { executeCommand: (c, ...a) => calls.push([c, ...a]) },
     extensions: { getExtension: id => id === 'vscode.git' ? { isActive: true, exports: { getAPI: () => git } } : null },
@@ -64,6 +79,32 @@ const ext = require('./extension.js');
     await ext.handleUri(uri('/diff', 'root=/w&path=/w/a.jl&line=2'));
     assert.strictEqual(calls.shift()[0], 'warn');
     assert.deepStrictEqual(calls.shift(), ['show', '/w/a.jl', 1]);
+
+    // A commit: every file it changed against its first parent, in one
+    // editor - no left for an addition, no right for a deletion, and a
+    // rename from where it was.
+    await ext.handleUri(uri('/commit', 'root=/w&sha=c0ffee12'));
+    assert.deepStrictEqual(calls.shift(), ['diffBetween', 'deadbeef', commits.c0ffee12.hash]);
+    c = calls.shift();
+    assert.strictEqual(c[0], 'vscode.changes');
+    assert.strictEqual(c[1], 'c0ffee12 fix the thing');
+    const side = u => u && u.path;
+    assert.deepStrictEqual(c[2].map(r => r.map(side)), [
+        ['/w/m.jl', '/w/m.jl?deadbeef', `/w/m.jl?${commits.c0ffee12.hash}`],
+        ['/w/new.jl', undefined, `/w/new.jl?${commits.c0ffee12.hash}`],
+        ['/w/gone.jl', '/w/gone.jl?deadbeef', undefined],
+        ['/w/to.jl', '/w/from.jl?deadbeef', `/w/to.jl?${commits.c0ffee12.hash}`],
+    ]);
+    // One that changes nothing, one with no parent, and one not there: said.
+    await ext.handleUri(uri('/commit', 'root=/w&sha=ba5eba11'));
+    calls.shift();
+    assert.deepStrictEqual(calls.shift(), ['info', 'worklog: ba5eba11 empty changes no files']);
+    await ext.handleUri(uri('/commit', 'root=/w&sha=abad1dea'));
+    assert.deepStrictEqual(calls.shift(), ['error', 'worklog: abad1dea is a root commit, with nothing to diff against']);
+    await ext.handleUri(uri('/commit', 'root=/w&sha=0123456789'));
+    assert.deepStrictEqual(calls.shift(), ['error', 'worklog: no commit 0123456789 in /w']);
+    await ext.handleUri(uri('/commit', 'root=/w'));
+    assert.deepStrictEqual(calls.shift(), ['error', 'worklog: no sha']);
 
     // Anything else is an error, not silence.
     await ext.handleUri(uri('/frobnicate', ''));

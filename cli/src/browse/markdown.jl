@@ -341,6 +341,90 @@ link silently becomes plain text.
 osc8(url, text) = string("\e]8;;", url, "\e\\", THEME.link, text, THEME.link_off,
                          "\e]8;;\e\\")
 
+"""What GitHub links in prose without being asked: `#123`, `owner/repo#123`,
+a sha, `owner/repo@sha`. One pattern, so one pass cannot read its own output.
+
+A sha is seven to forty hex digits standing alone. GitHub links one only when
+the commit exists, which cannot be asked here, so it has to have a digit and
+a letter both: `1234567` is a number and `defaced` a word, and neither is a
+commit anybody wrote down. Not after `/`, `@`, `#`, `.`, `-` or `&`, which is
+where a sha sits inside a path, a url, a colour or an entity rather than in
+the prose.
+"""
+const AUTOREF = r"(?<![\w/@.#&-])(?:([A-Za-z0-9][\w.-]*/[\w.-]+)(?:#(\d+)|@([0-9a-f]{7,40}))|#(\d+)|([0-9a-f]{7,40}))(?![\w-])"
+
+"Every escape, unanchored: what `autolink` cuts a row on."
+const ANYESC = r"\e\[[0-9;]*[A-Za-z]|\e\][^\e]*\e[\\]"
+
+"A url written out, left for `linkify`: a sha inside one is part of its path."
+const BAREURL = r"https?://[^\s\e]+"
+
+"""The url GitHub would give a reference `AUTOREF` matched, in `repo` unless
+it names its own - or `nothing` for a hex run that is not a sha."""
+function autoref_url(m::RegexMatch, repo::AbstractString)
+    own, num, osha, lnum, lsha = m.captures
+    sha = something(osha, lsha, "")
+    !isempty(sha) && !(occursin(r"[0-9]", sha) && occursin(r"[a-f]", sha)) && return nothing
+    where = something(own, repo)
+    isempty(sha) ? string("https://github.com/", where, "/issues/", something(num, lnum)) :
+                   string("https://github.com/", where, "/commit/", sha)
+end
+
+"""
+    autolink(row, repo) -> String
+
+A drawn row with its `#123`s and shas made hyperlinks, the way GitHub draws the
+same prose - a list of commits, "fixed by #52011", "reverted in 3f2a9c1".
+
+Made on the row after it is wrapped, like the footnotes and for the same
+reason: `nodelines` is where the text and the repository it is about are both
+in hand, and a pane hosted beside the thread never reaches `linkify`. Per row,
+because a link cannot cross a row - the border and the padding would carry
+it - and a reference wrapped in half is one that was not linked. Matched on
+text, which `linkify` is warned off: but a reference is the whole of its own
+display form, so two targets cannot share one.
+
+Nothing inside a hyperlink already there, and nothing inside a url, which is
+`linkify`'s to make whole. `repo` empty is a node that is not about a
+repository's prose - a CI log, whose hex runs are tree hashes - and is left
+alone.
+"""
+function autolink(row::AbstractString, repo::AbstractString)
+    isempty(repo) && return String(row)
+    occursin(r"[#0-9]", row) || return String(row)
+    io, at, inlink = IOBuffer(), firstindex(row), false
+    function refs(seg)
+        k = firstindex(seg)
+        for u in eachmatch(BAREURL, seg)
+            text(SubString(seg, k, prevind(seg, u.offset)))
+            write(io, u.match)
+            k = u.offset + ncodeunits(u.match)
+        end
+        text(SubString(seg, k))
+    end
+    function text(s)
+        k = firstindex(s)
+        for m in eachmatch(AUTOREF, s)
+            u = autoref_url(m, repo)
+            u === nothing && continue
+            write(io, SubString(s, k, prevind(s, m.offset)), osc8(u, m.match))
+            k = m.offset + ncodeunits(m.match)
+        end
+        write(io, SubString(s, k))
+    end
+    for m in eachmatch(ANYESC, row)
+        seg = SubString(row, at, prevind(row, m.offset))
+        inlink ? write(io, seg) : refs(seg)
+        write(io, m.match)
+        startswith(m.match, "\e]8;;") &&
+            (inlink = ncodeunits(m.match) > ncodeunits("\e]8;;\e\\"))
+        at = m.offset + ncodeunits(m.match)
+    end
+    seg = SubString(row, at)
+    inlink ? write(io, seg) : refs(seg)
+    String(take!(io))
+end
+
 """Protect text from the two markup layers that would eat it.
 
 **Underscores inside words.** Julia's `Markdown` opens emphasis on an underscore
@@ -654,12 +738,16 @@ function nodelines(n::Node, w::Int)
     # Every row records the written line behind it, and whether it is the first
     # row of it. Both wraps - Term's and ours - are ours to undo when copying;
     # neither is something the reader chose.
+    #
+    # The references in it are links, row by row, once the rows are final:
+    # prose and plain text, never a diff, whose lines are code.
+    repo = n.kind === :diff ? "" : String(get(n.meta, "repo", ""))
     out, srcs = String[], Tuple{Int,String}[]
     for (idx, l) in enumerate(lines)
         (first_of, src) = srcline[idx]
         ws = awidth(l) <= w ? [l] : awrap(l, w)
         for (j, x) in enumerate(ws)
-            push!(out, x)
+            push!(out, autolink(x, repo))
             push!(srcs, (first_of && j == 1 ? 0 : 1, src))
         end
     end

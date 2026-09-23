@@ -17,7 +17,7 @@ cat > "$tmp/extension.vsixmanifest" <<MANIFEST
   <Metadata>
     <Identity Language="en-US" Id="worklog" Version="$version" Publisher="vtjnash"/>
     <DisplayName>worklog</DisplayName>
-    <Description xml:space="preserve">What wl asks of VS Code that its command line cannot: a diff at a line.</Description>
+    <Description xml:space="preserve">What wl asks of VS Code that its command line cannot: a diff at a line, and a commit.</Description>
     <Categories>Other</Categories>
     <Properties>
       <Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.90.0"/>

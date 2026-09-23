@@ -224,6 +224,9 @@ function push_node(run, url::AbstractString)
     # the thread to point at.
     nd.meta["url"] = string(url, "/commits")
     nd.meta["push"] = n
+    # The whole sha behind each row of the body, in the order drawn: the rows
+    # show eight characters, and `o` on one opens that commit.
+    nd.meta["oids"] = [String(c["oid"]) for c in Iterators.reverse(run)]
     nd.meta["at"] = String(run[end]["at"])
     nd
 end
@@ -986,6 +989,8 @@ function rangediff_nodes(txt::AbstractString)
                         THEME.dim, first(sha, 8), THEME.reset, "  ", m[6]),
                  "", :plain, first(m[3]) != '=')
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", m[6])
+        # What `o` opens, anywhere on the node: the pair is one commit.
+        n.meta["sha"] = String(sha)
         n.meta["byline"] = string(col, rpad(what, 10), THEME.reset,
                                   THEME.dim, first(sha, 8), THEME.reset)
         push!(ns, n)
@@ -1108,10 +1113,24 @@ function failednode(header::AbstractString, body::AbstractString)
     n
 end
 
-mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false) =
-    mode === :comments ? comment_nodes(it, at; fresh = fresh) :
-    mode === :diff     ? diff_nodes(it; fresh = fresh) :
-    mode === :pushed   ? pushed_nodes(it) : check_nodes(it; fresh = fresh)
+"""What `mode` shows for `it`, as nodes.
+
+The thread and what was pushed are about the item's repository, and say so on
+each node, which is what makes a `#123` or a sha in them a link to it
+(`autolink`). The diff is code and the checks are logs, whose hex runs are
+tree hashes and build ids, and neither is told.
+"""
+function mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false)
+    ns = mode === :comments ? comment_nodes(it, at; fresh = fresh) :
+         mode === :diff     ? diff_nodes(it; fresh = fresh) :
+         mode === :pushed   ? pushed_nodes(it) : check_nodes(it; fresh = fresh)
+    if mode in (:comments, :pushed) && !isempty(it.repo)
+        for n in ns
+            n.meta["repo"] = it.repo
+        end
+    end
+    ns
+end
 
 """Is there a cached copy of what `mode` shows for `it` - anything at all to put
 up without a request? The pushed view reads a local checkout and has nothing to

@@ -1039,9 +1039,10 @@ Each of the following returns success and the wrong answer:
   only `open`, `openExternal`, `status` and `extensionManagement`, and
   `command:` urls are honoured inside VS Code's own markdown alone. The only
   way to ask for anything else is a `vscode://<publisher>.<name>/...` url,
-  which is routed to that extension - so `vscode/` is one, with one verb,
-  and `o` on a diff line hands it the url when `--list-extensions` says it
-  is there, and is `--goto` when it is not. The desktop CLI takes the url
+  which is routed to that extension - so `vscode/` is one, with two verbs:
+  `o` on a diff line hands it `diff` when `--list-extensions` says it is
+  there, and is `--goto` when it is not; `o` on a commit in a list of them
+  hands it `commit`, and is the checkout when it is not. The desktop CLI takes the url
   as `--open-url` and the server's (`bin/remote-cli/code`, what a Remote-SSH
   terminal has) as `--openExternal`; each drops the other's option and
   opens a file named after the url, so the path the `code` link resolves to

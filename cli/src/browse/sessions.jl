@@ -29,14 +29,9 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
                      mode::Symbol = :comments, items = Item[])
     target, branch = item_checkout(it; items)
     target === nothing && return :needs_repo
-    # The same `code` and the same socket a pane is handed, for the same
-    # reason: this process's own are only as fresh as its launch, and a
-    # reconnect since then left them pointing at nothing.
     fw = forwards!()
-    "VS Code" in fw.gone && return "no live VS Code to open it in"
-    code = joinpath(rundir(), "bin", "code")
-    (islink(code) && !("code" in fw.gone)) || (code = something(Sys.which("code"), ""))
-    isempty(code) && return "`code` is not on PATH"
+    code, why = code_cli(fw)
+    isempty(code) && return why
     where = string(target, isempty(branch) ? "" : string(" (", branch, ")"))
     cmd, said = `$code $target`, string("opened ", where)
     if at !== nothing
@@ -60,13 +55,68 @@ function open_editor(it::Item, at::Union{Nothing,Tuple{String,Int}} = nothing;
             said = string("opened ", where, " \u00b7 no ", file, " in it")
         end
     end
+    launch_code(cmd, fw, said)
+end
+
+"""The `code` to run and, when there is none, why: `(path, "")` or `("", why)`.
+
+The same `code` and the same socket a pane is handed, for the same reason:
+this process's own are only as fresh as its launch, and a reconnect since then
+left them pointing at nothing.
+"""
+function code_cli(fw)
+    "VS Code" in fw.gone && return ("", "no live VS Code to open it in")
+    code = joinpath(rundir(), "bin", "code")
+    (islink(code) && !("code" in fw.gone)) || (code = something(Sys.which("code"), ""))
+    isempty(code) ? ("", "`code` is not on PATH") : (code, "")
+end
+
+"Run `cmd` - a `code` command line - without waiting on it, and say `said`."
+function launch_code(cmd::Cmd, fw, said::AbstractString)
     try
         run(pipeline(addenv(cmd, fw.env...); stdout = devnull, stderr = devnull);
             wait = false)
     catch e
         return "could not launch code: " * first(sprint(showerror, e), 80)
     end
-    said
+    String(said)
+end
+
+"""Open commit `sha` of this item's checkout in VS Code: every file it
+changed, against its first parent, in one editor - what GitHub's page for
+the commit is. `o` on a commit in a list of them, a push in the thread or a
+pair of a range-diff.
+
+`code`'s command line has no way to say it, so it is the `worklog`
+extension's second verb, `vscode://vtjnash.worklog/commit?root=&sha=`.
+Without the extension the checkout opens, and the status says what is
+missing - the same fallback as a diff line's.
+
+A commit the checkout lacks is fetched, the one round trip, as `o` on a diff
+line fetches the head: the commits in a push are the pull request's own, and
+by the pull request's ref or by sha is where they are.
+"""
+function open_commit(it::Item, sha::AbstractString; items = Item[])
+    target, branch = item_checkout(it; items)
+    target === nothing && return :needs_repo
+    fw = forwards!()
+    code, why = code_cli(fw)
+    isempty(code) && return why
+    where = string(target, isempty(branch) ? "" : string(" (", branch, ")"))
+    short = first(sha, 8)
+    if !has_worklog_ext(code, fw.env)
+        return launch_code(`$code $target`, fw,
+                           string("opened ", where, " \u00b7 no worklog extension in VS Code for ",
+                                  short, ", see vscode/"))
+    end
+    have = have_commit(target, sha) ||
+           (it.number > 0 && ensure_commit!(target, sha, it.number;
+                                            remote = remote_for(target, it.repo)))
+    have || return string("no commit ", short, " in ", target, ", and it could not be fetched")
+    scheme, flag = code_kind(code)
+    url = string(scheme, "://vtjnash.worklog/commit?root=", urlenc(target),
+                 "&sha=", urlenc(sha))
+    launch_code(`$code $flag $url`, fw, string("opened ", short, " in ", where))
 end
 
 """The two sides of the diff `o` opens, as refs `git` in `target` resolves:
