@@ -29,10 +29,11 @@ them lack is a record of what *you* decided, and the facts a decision needs -
   exclusive: `edits` (changes requested, unresolved threads, red CI, or the
   `status: waiting for PR author` label),
   `ready` (approved and green), `review` (asked, and not reviewed since their
-  last push), `reply` (mentioned recently, last word theirs), `second` (the
-  author acted and nobody has answered for two working days - "waiting on an
-  answer" in the filter pane, and the `waiting on me` / `waiting on them`
-  views).
+  last push), `reply` (mentioned recently, last word theirs), `mentioned`
+  (you were ever named on it, by a notification or an `@you` in a thread you
+  opened - kept after GitHub's reason has moved on), `second` (the author
+  acted and nobody has answered for two working days - "waiting on an answer"
+  in the filter pane, and the `waiting on me` / `waiting on them` views).
 - **Shows *what* changed**: the thread opens on the first comment you have not
   seen, and `p` is the diff or `range-diff` since the head you last read.
 - **Writes back**: comment, review (a draft held on GitHub until you send it),

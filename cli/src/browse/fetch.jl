@@ -387,7 +387,27 @@ function collect_pending!(st::BState)
     end
     clearsel!(st)          # either way, it indexed rows that are gone
     arm_refresh!(st)
+    note_mention!(st, st.loaded, ns)
     true
+end
+
+"""A thread that has just landed and names you latches `mentioned` on its item,
+on screen and on disk - once: an item already carrying it is left as it is,
+whatever this thread says. After everything else in `collect_pending!`, since
+`replace_item!` refilters and the row may leave the list under the cursor."""
+function note_mention!(st::BState, key::AbstractString, ns)
+    isempty(ns) && return false
+    why = get(ns[1].meta, "mentioned", "")
+    isempty(why) && return false
+    url = String(rsplit(key, ':'; limit = 2)[1])
+    i = findfirst(x -> x.url == url, st.all)
+    (i === nothing || !isempty(st.all[i].mentioned)) && return false
+    try
+        latch_mention!(url, why)
+    catch e
+        logerror!(e, catch_backtrace(), "mentioned")
+    end
+    replace_item!(st, with(st.all[i]; mentioned = String(why)))
 end
 
 # --- the other windows ------------------------------------------------------

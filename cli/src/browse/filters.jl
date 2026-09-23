@@ -135,10 +135,15 @@ same shape: `review` is a request you have not answered, `edits` is a verdict
 or a red run on a pull request, `ready` is approved and green, and a view
 names whichever it means beside whichever author it means.
 
+`mentioned` is the wide one `reply` is carved out of: named, ever, however
+long ago and whoever spoke last - a latch on the row, not the notification's
+reason, which moves on with the next comment; see `Events.mention_words`.
+
 `snoozed` is a wake time that has not come yet. One that has is not a tag any
 more, it is the item being unread - see `seen_of`.
 """
-const TAGS = [(:reply, "reply owed"), (:review, "review owed"), (:edits, "needs edits"),
+const TAGS = [(:reply, "reply owed"), (:mentioned, "mentioned"),
+              (:review, "review owed"), (:edits, "needs edits"),
               # Named for what it is for and not for what it does: "second
               # look" was the rule's own name, and "who is waiting on me" did
               # not find it by reading. The two views that read it are
@@ -419,7 +424,7 @@ end
 "Is it finished? Empty reads as open, which is what a synthetic item is."
 over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :closed : :open
 
-"""The tags an item carries, of the eight there are.
+"""The tags an item carries, of the nine there are.
 
 Unlike the axes, several can be true at once, so this answers with a set and the
 axis behaves like labels: any tag you pick brings the row.
@@ -427,6 +432,7 @@ axis behaves like labels: any tag you pick brings the row.
 function tags_of(it::Item, m::Marks = Marks())
     out = Symbol[]
     isempty(it.reply) || push!(out, :reply)
+    isempty(it.mentioned) || push!(out, :mentioned)
     isempty(it.review) || push!(out, :review)
     isempty(it.edits) || push!(out, :edits)
     isempty(it.ready) || push!(out, :ready)

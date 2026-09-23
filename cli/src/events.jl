@@ -626,6 +626,32 @@ the repository being watched. Shared with the refresh, whose `involved` is
 this: what is brought into the corpus with its bundle on first sight."""
 involved_reason(reason) = !(reason in (nothing, "", "subscribed"))
 
+"""Why this row counts as a mention of you, or `""`: GitHub's `reason` saying
+you, or a team you are in, were named.
+
+**A latch, not a reading of the reason.** The `reason` is the thread's latest
+notification's, so a comment after the mention turns it into `comment`. That
+row was still a mention - the GitHub app's own "mentioned" list forgets it,
+and this does not. So the sentence is written onto the row the first time it
+is true (`latch_mention!`) and carried from then on: by the merge in `sync!`
+here, and by `thread_facts!` and `derive!` in the refresh. A thread the browser
+has read can set it too, off an `@you` in the comments (`thread_mention`)."""
+function mention_words(row)
+    reason = get(row, "reason", nothing)
+    reason in ("mention", "team_mention") || return ""
+    when = first(String(nz(get(row, "notified", nothing), nz(get(row, "updated", nothing), ""))), 10)
+    string(reason == "mention" ? "notified: named you" : "notified: named your team",
+           isempty(when) ? "" : string(", ", when))
+end
+
+"Set `mentioned` on an inbox row from its reason, unless it is already set."
+function latch_mention!(row)
+    isempty(String(nz(get(row, "mentioned", nothing), ""))) || return row
+    why = mention_words(row)
+    isempty(why) || (row["mentioned"] = why)
+    row
+end
+
 """How far behind its cursor each kind of source is asked from; see `sync!`.
 
 Five minutes for REST since 2026-09-14, from one: the cursor became the
@@ -924,7 +950,9 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             old = get(items, url, nothing)
             witness && label != "notifications" &&
                 expect!(inbox, url, old, row, at, watching, login)
-            items[url] = old === nothing ? row : merge!(old, row)
+            # A `mentioned` already on the row is kept: the incoming one has
+            # none, so the merge leaves it, and a reason that says so now sets it.
+            items[url] = latch_mention!(old === nothing ? row : merge!(old, row))
             got += 1
         end
         skipped == 0 || @printf(report(), "    %-24s %d not an issue or pull request, skipped\n",

@@ -98,6 +98,10 @@ Base.@kwdef struct Item
     reply::String = ""     # why a reply is owed, empty when none is. The same
                            # shape, and a fact about the thread rather than
                            # about its state: a closed one can owe one too
+    mentioned::String = "" # how you were named on it, empty if you never were.
+                           # A latch: set once, off a notification's reason or
+                           # an `@you` in a thread you loaded, and kept after
+                           # the reason has moved on - see `Events.mention_words`
     edits::String = ""     # why it wants edits - changes requested, threads,
                            # red CI, the label - empty when it does not
     ready::String = ""     # approved and green, empty otherwise
@@ -177,6 +181,7 @@ function item_of(r)
             merged_by = nz(jget(r, :merged_by), ""),
             secondlook = nz(jget(r, :second_look), ""),
             reply = nz(jget(r, :reply), ""),
+            mentioned = nz(jget(r, :mentioned), ""),
             edits = nz(jget(r, :edits), ""),
             ready = nz(jget(r, :ready), ""),
             review = nz(jget(r, :review), ""),
@@ -269,11 +274,56 @@ function fetch_bundle(it::Item)
         reason = e === nothing ? nothing : get(e, "reason", nothing)
     end
     truthy(reason) && (r["reason"] = String(reason))
+    carry_mention!(r, get(Events.load_inbox()["items"], it.url, nothing))
     r["fetched_at"] = stamp(at)
     derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
     pop!(r, "slept", nothing); pop!(r, "woken", nothing)
     cache_put(bundle_key(it.url), r)
     item_of(JSON3.read(json_dumps(r)))
+end
+
+"""
+    latch_mention!(url, why)
+
+Write down that a thread read in the browser names you: `mentioned = why` on
+the row in `fetched.json`'s `items`, on its inbox row, and on its cached
+bundle - wherever the url has one, since those are the three rows `loaditems`
+and `poll_item` read an `Item` off, and the refresh carries it from the first
+two (`carry_mention!`, `mentioned_of`). Each is a re-read and one key written
+where it is not set already,
+the same read-modify-write `set_mark!` makes; once per item, since the caller
+asks only while the item has none.
+
+The one write the browser makes to `items`, against the rule in `fetch_bundle`
+that it makes none. It can lose to a refresh that read the file before and
+writes after, and the loss is harmless: the thread is scanned every time it
+is shown, cached or not, so the next look writes it again.
+"""
+function latch_mention!(url::AbstractString, why::AbstractString)
+    d = load_fetched()
+    its = get(d, "items", nothing)
+    if its !== nothing && haskey(its, Symbol(url)) &&
+       isempty(String(nz(jget(its[Symbol(url)], :mentioned), "")))
+        new = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(its))
+        row = kept_row(its[Symbol(url)])
+        row["mentioned"] = String(why)
+        new[String(url)] = row
+        d["items"] = new
+        save_fetched(d)
+    end
+    ib = Events.load_inbox()
+    e = get(ib["items"], String(url), nothing)
+    if e !== nothing && isempty(String(nz(get(e, "mentioned", nothing), "")))
+        e["mentioned"] = String(why)
+        Events.save_inbox(ib)
+    end
+    b = bundle_of(url)
+    if b !== nothing && isempty(String(nz(jget(b, :mentioned), "")))
+        row = kept_row(b)
+        row["mentioned"] = String(why)
+        cache_put(bundle_key(url), row)
+    end
+    nothing
 end
 
 """Every item in the last snapshot, as `Item`s.
@@ -486,6 +536,7 @@ poll_item(u) = Item(
     moved_at = String(nz(get(u, "updated", nothing), "")),
     labels = String[String(l) for l in get(u, "labels", ())],
     state = uppercase(String(nz(get(u, "state", nothing), "open"))),
+    mentioned = String(nz(get(u, "mentioned", nothing), Events.mention_words(u))),
     is_pr = get(u, "is_pr", true))
 
 """Imports that `facts.json` has not caught up with, fetched now.

@@ -529,6 +529,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         kv("reply", string(THEME.waiting, it.reply, THEME.reset))
     isempty(it.review) ||
         kv("review", string(THEME.waiting, it.review, THEME.reset))
+    # Only where `reply` is not already saying you were named.
+    isempty(it.mentioned) || !isempty(it.reply) || kv("mentioned", it.mentioned)
     isempty(it.edits) || push!(out, string(THEME.waiting, "edits", THEME.reset))
     isempty(it.ready) || push!(out, string(THEME.waiting, "ready", THEME.reset))
     isempty(it.secondlook) ||

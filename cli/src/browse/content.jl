@@ -469,7 +469,34 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
+    # For `collect_pending!` to latch onto the item; see `latch_mention!`.
+    why = thread_mention(body, cs, login())
+    isempty(why) || (out[1].meta["mentioned"] = why)
     out
+end
+
+"""Does `txt` name `me` - an `@me` GitHub would link? Not inside code, fenced
+or inline, and not the tail of an address or another name (`a@me`, `@me-x`)."""
+function names_you(txt::AbstractString, me::AbstractString)
+    isempty(me) && return false
+    t = replace(txt, r"```.*?(```|\z)"s => " ", r"`[^`\n]*`" => " ")
+    occursin(Regex(string("(?<![\\w@/.`-])@", "\\Q", me, "\\E", "(?![\\w-])"), "i"), t)
+end
+
+"""The first place in a thread somebody other than you wrote `@you`, as the
+sentence `mentioned` carries, or `""`. The opening post first, then the
+comments in the order they came; only what was loaded, which is the newest
+thirty. Your own team is not looked for: which teams you are in is not a thing
+this program knows."""
+function thread_mention(body, cs, me::AbstractString)
+    for c in Iterators.flatten(((body,), cs))
+        who = String(nz(get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing), ""))
+        lowercase(who) == lowercase(me) && continue
+        names_you(String(nz(get(c, "body", nothing), "")), me) || continue
+        when = first(String(nz(get(c, "created_at", nothing), "")), 10)
+        return string("@", me, " by ", isempty(who) ? "?" : who, isempty(when) ? "" : string(", ", when))
+    end
+    ""
 end
 
 """The pull request's diff as `gh pr diff` answers it, or a `FetchError`.

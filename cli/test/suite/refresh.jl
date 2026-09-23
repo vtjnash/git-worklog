@@ -1684,6 +1684,84 @@ end
     @test isempty(st.filters.lanes)
 end
 
+@testset "mentioned is a latch, not the notification's reason" begin
+    E = W.Events
+    J(d) = W.JSON3.read(W.json_dumps(d))
+    # GitHub's reason says so, for you or a team you are in, and nothing else does.
+    @test E.mention_words(Dict("reason" => "mention", "notified" => "2026-09-20T01:02:03Z")) ==
+          "notified: named you, 2026-09-20"
+    @test startswith(E.mention_words(Dict("reason" => "team_mention")), "notified: named your team")
+    for reason in ("comment", "author", "subscribed", nothing)
+        @test E.mention_words(Dict("reason" => reason)) == ""
+    end
+    # The inbox row latches it on the merge, and a later thread whose reason
+    # has moved on to `comment` is merged over it without taking it away.
+    row = E.latch_mention!(Dict{String,Any}("reason" => "mention", "updated" => "2026-09-20T00:00:00Z"))
+    @test row["mentioned"] == "notified: named you, 2026-09-20"
+    row = E.latch_mention!(merge!(row, Dict{String,Any}("reason" => "comment")))
+    @test row["reason"] == "comment" && row["mentioned"] == "notified: named you, 2026-09-20"
+    # And the refresh: off the reason on first sight, off the row it replaces
+    # once the reason has moved on, off the inbox row for one built afresh.
+    r = Dict{String,Any}("reason" => "mention", "updated" => "2026-09-01T00:00:00Z")
+    @test W.mentioned_of(r, nothing) == "notified: named you, 2026-09-01"
+    later = Dict{String,Any}("reason" => "comment")
+    @test W.mentioned_of(later, J(Dict("mentioned" => "@me by bob, 2026-08-01"))) ==
+          "@me by bob, 2026-08-01"
+    @test W.mentioned_of(later, nothing) == ""
+    fresh = W.thread_facts!(Dict{String,Any}("url" => "u"),
+                            Dict{String,Any}("reason" => "comment", "mentioned" => "it was"))
+    @test fresh["reason"] == "comment" && W.mentioned_of(fresh, nothing) == "it was"
+
+    # A thread you have loaded names you when somebody else wrote `@you`
+    # outside code; yours, an address, a longer name and a code span do not.
+    @test W.names_you("thoughts, @Me?", "me")
+    for t in ("a@me.org", "@me-bot", "@meh", "`@me`", "```\n@me\n```", "o/@me")
+        @test !W.names_you(t, "me")
+    end
+    body = Dict("user" => Dict("login" => "me"), "body" => "cc @me")
+    cs = [Dict("user" => Dict("login" => "alice"), "body" => "no", "created_at" => "2026-09-01T00:00:00Z"),
+          Dict("user" => Dict("login" => "bob"), "body" => "@me look", "created_at" => "2026-09-02T00:00:00Z")]
+    @test W.thread_mention(body, cs, "me") == "@me by bob, 2026-09-02"
+    @test W.thread_mention(body, cs[1:1], "me") == ""
+
+    # A tag, and the row says it.
+    it = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
+                mentioned = "@me by bob, 2026-09-02")
+    @test any(x -> x[1] === :mentioned, W.TAGS)
+    @test :mentioned in W.tags_of(it) && !(:mentioned in W.tags_of(W.with(it; mentioned = "")))
+    row = W.kept_row(first(values(W.fetched("items"))))
+    row["mentioned"] = "yes"
+    @test W.item_of(J(row)).mentioned == "yes"
+    @test W.poll_item(Dict{String,Any}("url" => "u", "repo" => "a/b", "number" => 1,
+                                      "title" => "t", "reason" => "mention")).mentioned != ""
+
+    # And what the browser read is written down, on the file's row and the
+    # inbox's, and put on the row on screen - once.
+    keep = W.FETCHED[]
+    W.FETCHED[] = joinpath(mktempdir(), "fetched.json")
+    try
+        u = "https://example.invalid/o/r/issues/1"
+        W.save_fetched(Dict("items" => Dict(u => Dict("url" => u, "title" => "t")),
+                            "inbox" => Dict("items" => Dict(u => Dict("url" => u)))))
+        W.latch_mention!(u, "@me by bob, 2026-09-02")
+        @test W.fetched("items")[Symbol(u)].mentioned == "@me by bob, 2026-09-02"
+        @test W.fetched("items")[Symbol(u)].title == "t"
+        @test E.load_inbox()["items"][u]["mentioned"] == "@me by bob, 2026-09-02"
+        st = W.BState([W.Item(url = u, ref = "r#1", repo = "o/r", number = 1, title = "t")], "t")
+        ns = [W.Node("x", "", :plain, true)]
+        ns[1].meta["mentioned"] = "@me by carol, 2026-09-03"
+        @test W.note_mention!(st, string(u, ":comments"), ns)
+        @test st.all[1].mentioned == "@me by carol, 2026-09-03"
+        # Already latched: the first answer stands, on screen and on disk.
+        @test W.fetched("items")[Symbol(u)].mentioned == "@me by bob, 2026-09-02"
+        ns[1].meta["mentioned"] = "@me by dave, 2026-09-04"
+        @test !W.note_mention!(st, string(u, ":comments"), ns)
+        @test st.all[1].mentioned == "@me by carol, 2026-09-03"
+    finally
+        W.FETCHED[] = keep
+    end
+end
+
 @testset "mergeability is asked of one pull request, when it is looked at" begin
     # `mergeable` is what GitHub computes lazily, and asking is what makes it
     # compute: a lane page that named it took 20-33s on four runs in twelve

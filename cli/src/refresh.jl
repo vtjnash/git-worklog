@@ -949,6 +949,7 @@ function derive!(r, old, st, cfg, at::DateTime)
     r["their_head"] = their_head(r, old, login)
     r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
     r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
+    r["mentioned"] = mentioned_of(r, old)
     apply_state!(r, st, cfg, at)
     # **A snooze is a wake time, and an archive is a mark.** Neither is a
     # decision this run makes: the browser reads both off `local.toml` and
@@ -1113,7 +1114,29 @@ function thread_facts!(r, inbox_row, old = nothing)
     v = inbox_row === nothing ? nothing : get(inbox_row, "reason", nothing)
     truthy(v) || (v = jget(old, :reason))
     truthy(v) && (r["reason"] = String(v))
+    carry_mention!(r, inbox_row, old)
+end
+
+"""The `mentioned` latch, onto a row built afresh: off the inbox row, which may
+have latched it off a reason that has moved on since, or off the row being
+replaced. `derive!` then sets it from this row's own reason if neither had it;
+see `Events.mention_words`."""
+function carry_mention!(r, inbox_row, old = nothing)
+    v = inbox_row === nothing ? nothing : get(inbox_row, "mentioned", nothing)
+    truthy(v) || (v = jget(old, :mentioned))
+    truthy(v) && (r["mentioned"] = String(v))
     r
+end
+
+"""Whether you were ever named on this, as a sentence, or `""`: what the row
+already carries, else what the row it replaces did, else its reason now. Never
+unset once set - the whole of what makes it a different fact from `reason`."""
+function mentioned_of(r, old)
+    v = String(nz(get(r, "mentioned", nothing), ""))
+    isempty(v) || return v
+    v = String(nz(jget(old, :mentioned), ""))
+    isempty(v) || return v
+    Events.mention_words(r)
 end
 
 """

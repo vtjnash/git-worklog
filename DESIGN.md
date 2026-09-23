@@ -354,6 +354,7 @@ pile (`in_pile`: a clock lane with no `reply` owed):
 | `ready` | approved, green, not a draft |
 | `review` | asked, and not reviewed since their last push |
 | `reply` | mentioned within `reply_days` and the last comment is not yours - open or closed. Deliberately narrow: plain `commented:` never qualifies, because where you are effectively the maintainer that is forty items a week |
+| `mentioned` | you were ever named on it: a notification whose reason was `mention` or `team_mention`, or an `@you` by somebody else in a thread the browser loaded. A **latch** on the row in `fetched.json` (`items` and the inbox), never unset, because GitHub's reason is the latest notification's and a comment after the mention turns it into `comment`. The wide list `reply` is the narrow, recent slice of |
 | `second` | the author acted - opened it, or commented - and nobody has answered with a comment or a review for `second_look_days` *working* days. A push is not an action. Never on the pile, never on finished work. On by default because asking for it would defeat it: the failure it catches is work that goes quiet without anybody deciding it should |
 | `snoozed` | a wake time still to come - a tag over done rows, not a box |
 | `touched`, `drafts` | marks |
