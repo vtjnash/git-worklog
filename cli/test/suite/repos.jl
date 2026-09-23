@@ -121,3 +121,54 @@ end
         W.LOCAL[] = keepr
     end
 end
+
+@testset "a checkout that is some other repository is asked about twice" begin
+    # One checkout was pinned for two unrelated repositories, with a warning
+    # after the fact nobody saw, and every worktree of it was listed twice. A
+    # path whose remotes do not name the repository is asked about again, and
+    # kept only when entered again - forks and mirrors are still allowed.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+    W.git(main, "remote", "add", "origin", "https://github.com/some/other.git")
+    # `o` opens VS Code once the pin is made; a `code` ahead of the real one
+    # that does nothing keeps that from being a window.
+    bin = mktempdir(); write(joinpath(bin, "code"), "#!/bin/sh\n"); chmod(joinpath(bin, "code"), 0o755)
+    path = string(bin, ":", ENV["PATH"])
+    # And `forwards!` records that `code` as the one to hand on, so it does
+    # that somewhere of its own rather than where the forwards tests look.
+    keepr, keeprun = W.LOCAL[], W.RUN_DIR[]
+    W.RUN_DIR[] = mktempdir()
+    W.LOCAL[] = joinpath(root, "local.toml"); write(W.LOCAL[], "")
+    try
+        st = mkstate(); ctrl = W.Controller()
+        it = st.items[st.sel]
+        withenv("PATH" => path) do
+            W.handle!(st, Int('o'), ctrl)
+            pv = last(ctrl.stack)
+            @test pv isa W.PromptView && occursin(it.repo, pv.title)
+            # And it says what answering does, and where it is kept.
+            @test occursin("from now on", pv.note) && occursin("local.toml", pv.note)
+            pv.onsubmit(main)
+            pv2 = last(ctrl.stack)
+            @test pv2 !== pv && W.text(pv2) == main
+            @test occursin("some/other", pv2.note) && occursin("anyway", pv2.note)
+            @test W.repo_path(it.repo) === nothing
+            pv2.onsubmit(main)
+            @test last(ctrl.stack) === pv2          # nothing more was asked
+            @test W.repo_path(it.repo) == main
+        end
+        # One whose remote is the repository is kept at once.
+        W.save_repo!(it.repo, nothing)
+        W.git(main, "remote", "set-url", "origin", string("git@github.com:", it.repo, ".git"))
+        empty!(ctrl.stack)
+        withenv("PATH" => path) do
+            W.handle!(st, Int('o'), ctrl)
+            pv = last(ctrl.stack)
+            pv.onsubmit(main)
+            @test last(ctrl.stack) === pv
+            @test W.repo_path(it.repo) == main
+        end
+    finally
+        W.LOCAL[], W.RUN_DIR[] = keepr, keeprun
+    end
+end

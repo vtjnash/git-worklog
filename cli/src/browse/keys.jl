@@ -356,11 +356,32 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
 
     # Context expansion and the editor both need a local checkout. Ask for it the
     # first time it is actually needed, rather than as up-front configuration.
-    needs_repo(action) = push_view!(ctrl, PromptView(
+    #
+    # What is typed is kept for good - one path per repository, for every item
+    # of it from then on - so the prompt says so, and says where. And a path
+    # whose remotes do not name the repository is asked about once more before
+    # it is kept: forks and mirrors are legitimate, but so is a slip, and one
+    # checkout pinned for two unrelated repositories (2026-09-23) was every
+    # worktree of it listed twice, with a warning after the fact nobody read.
+    # The same path entered again is the answer.
+    needs_repo(action; seed = "", note = "", anyway = "") = push_view!(ctrl, PromptView(
         "Local checkout for $(it.repo)",
-        "Path to a clone or worktree. It is resolved to the main .git, so any " *
-        "worktree of the repository will do.",
+        isempty(note) ?
+            string("Path to a clone or worktree of ", it.repo, ". Recorded in ",
+                   contractuser(localfile()), " as this repository's checkout, for ",
+                   "every item of it from now on. Any worktree of it will do.") : note,
         p -> begin
+            full = abspath(expanduser(String(p)))
+            rs = try remote_names(full) catch; nothing end
+            if rs !== nothing && full != anyway &&
+               !any(r -> lowercase(r) == lowercase(it.repo), rs)
+                needs_repo(action; seed = p, anyway = full,
+                           note = string(full, " is not ", it.repo, ": ",
+                                         isempty(rs) ? "it has no GitHub remote" :
+                                         string("its remotes are ", join(rs, ", ")),
+                                         ". Enter again to pin it anyway."))
+                return
+            end
             try
                 r = register_repo!(it.repo, p)
                 st.status = string("pinned ", it.repo, " -> ", r.path,
@@ -369,7 +390,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             catch e
                 st.status = "could not pin: " * first(sprint(showerror, e), 80)
             end
-        end))
+        end; initial = seed))
 
     if k in (Int('['), Int(']')) && st.mode in (:diff, :pushed)
         i = curnode(st, iw)

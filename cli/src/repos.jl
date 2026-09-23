@@ -54,6 +54,10 @@ you are standing.
 """
 userpath(p::AbstractString) = isempty(p) ? String(p) : expanduser(String(p))
 
+"The other way: a path under the home directory as `~/...`, for showing."
+contractuser(p::AbstractString) =
+    (h = rstrip(homedir(), '/'); startswith(p, h * "/") ? "~" * p[length(h)+1:end] : String(p))
+
 "Every pinned repo: `owner/name -> {gitdir, worktree, remotes}`."
 function load_repos()
     isfile(localfile()) || return Dict{String,Any}()
@@ -232,7 +236,7 @@ function register_repo!(name::AbstractString, path::AbstractString)
     rs = try remote_names(p) catch; String[] end
     save_repo!(name, Dict("worktree" => p, "gitdir" => gd,
                           "remotes" => join(rs, ",")))
-    (path = p, gitdir = gd, matched = String(name) in rs)
+    (path = p, gitdir = gd, matched = any(r -> lowercase(r) == lowercase(name), rs))
 end
 
 """Worktrees of this repo, skipping ones git calls prunable.
