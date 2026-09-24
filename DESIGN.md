@@ -517,7 +517,16 @@ last line of the child that ran the refresh then.
   A fact about the whole list that stands - when it was last fetched - is
   at the right-hand end of the title bar (`refresh_stamp`), absolute and
   relative like every other stamp, and `refreshing …` there while `u`'s
-  refresh runs; the row still says what the refresh did when it lands.
+  refresh runs; the row still says what the refresh did when it lands. The
+  same for one pane: when what the thread pane and the metadata pane show was
+  read - a cached copy's write time, not when it went up - is on each one's
+  bottom border (`load_stamp`), `loading …` until it is and `· reloading …`
+  while a re-read runs under it. It used to be "loading …" in this row, which
+  every key that moved the cursor and had something to say about it had to
+  write *after* the load or lose, and a load that landed cleared whatever the
+  key had said. On the border it takes no row, so neither pane changes height
+  as a load comes and goes, and this row is cleared by the next key and by
+  nothing else.
 - **Standing** notes stay until dealt with: `errors.log`, written by
   `logerror!` for exceptions and read as the footer's warning until the file
   is deleted; a source the poll cannot get an answer from, off the inbox's

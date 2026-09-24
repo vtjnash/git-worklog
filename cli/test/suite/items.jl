@@ -313,11 +313,13 @@ end
     @test W.collect_pending!(st2)
     @test st2.nodes[1].header == "cached"          # the cached copy stayed up
     @test st2.nrow == 5 && st2.ntop == 3
-    @test occursin("cached copy", st2.status)
+    # Said on the pane's border, beside when the copy on screen was read.
+    @test st2.reloadfailed
     st2.quiet = true; st2.pendkey = "k"
     st2.pending = fin(@async [W.Node("re-read", "b", :plain, true)])
     @test W.collect_pending!(st2)
     @test st2.nodes[1].header == "re-read" && st2.nrow == 5 && st2.ntop == 3
+    @test !st2.reloadfailed && st2.loadedat > 0
     st2.quiet = false; st2.pendkey = "k"
     st2.pending = fin(@async [W.Node("asked for", "b", :plain, true)])
     @test W.collect_pending!(st2)
@@ -439,7 +441,9 @@ end
         W.load_nodes!(st)
         @test st.selurl == it.url && st.selat > 0
         @test st.pendkey == key && st.pending === nothing
-        @test occursin("loading", st.status)
+        # On the pane's border, and not in the status, which is the keys'.
+        @test W.pane_stamp(st, W.utcnow()) == "loading \u2026"
+        @test !occursin("loading", st.status)
         @test W.holding(st, key)
         # Again, a moment later, still inside the dwell: nothing changes.
         W.load_nodes!(st)

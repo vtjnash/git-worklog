@@ -78,6 +78,10 @@ key.
 """
 function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     before = curl(st)
+    # What the last key said lasts until the next one, and no longer: nothing
+    # but a key writes here, so nothing else is left to clear it. A load that
+    # lands says so on the pane's border (`pane_stamp`), not here.
+    st.status = ""
     r = handle_key!(st, k, ctrl, at)
     r === :quit && (quit_prompt!(st, ctrl); return :ok)
     if curl(st) != before
@@ -310,9 +314,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             st.filters = st.prev
             st.prev = was
             refilter!(st; keeprow = false)
-            # After the loads, not before: `load_nodes!` writes "loading …" over
-            # whatever is there, and a message about a jump the user just made
-            # is exactly what it would write over.
             load_nodes!(st); load_meta!(st)
             st.status = string("back to [", filter_summary(st.filters, st.sort), "]")
             return :ok
@@ -446,12 +447,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         field_action(st, ctrl, it, at)
         return :ok
     elseif k == Int('x')
-        # Its own return, because archiving refilters and the selection can move
-        # - and `load_nodes!` would put "loading …" over what this has to say.
-        msg = archive!(st, it, at)
-        load_nodes!(st); load_meta!(st)
-        st.status = msg
-        return :ok
+        st.status = archive!(st, it, at)
     elseif k == Int('w')
         # `w` for *when*: three of the four orders are one. Left where it was
         # when the keys moved to match the inboxes, since neither GitHub's nor
@@ -587,22 +583,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end))
         # The list is what the axes say it is, so a row that has just stopped
         # answering one of them leaves - which for `e` in the base list is the
-        # whole of reading an inbox. Its own return for the same reason `x`
-        # has one: the selection moves when the row goes, and `load_nodes!`
-        # would put "loading …" over what this has to say.
+        # whole of reading an inbox.
         refilter!(st)
-        msg = seen ? "done" : "not done"
-        load_nodes!(st); load_meta!(st)
-        st.status = msg
-        return :ok
+        st.status = seen ? "done" : "not done"
     elseif k == Int('s')
         snooze_action(st, ctrl, it, at)
     elseif k == Int('R')
-        # Its own return: `load_nodes!` below would find the key unchanged and
-        # do nothing, but `st.status` is what this key is for and the message
-        # should not be at the mercy of what runs after it.
         st.status = refresh_item!(st)
-        return :ok
     end
     load_nodes!(st)
     load_meta!(st)

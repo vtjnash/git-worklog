@@ -388,6 +388,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
     local body, cs, cms, sts
     stale = false
+    asof = nothing          # when a cached copy was read; `loadedat`
     try
         key = thread_key(it.url)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
@@ -402,6 +403,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             cms = something(jget(hit[1], :commits), ())
             sts = something(jget(hit[1], :events), ())
             stale = hit[2] > CACHE_FRESH[]
+            asof = time() - hit[2]
         end
     catch e
         return [failednode("could not load thread", first(sprint(showerror, e), 200))]
@@ -480,6 +482,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
+    asof === nothing || (out[1].meta["asof"] = asof)
     # For `collect_pending!` to latch onto the item; see `latch_mention!`.
     why = thread_mention(body, cs, login())
     isempty(why) || (out[1].meta["mentioned"] = why)
@@ -554,6 +557,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
     stale = false
+    asof = nothing
     # The commit the hunks are numbered against, for a comment to be pinned
     # to: the head the checkout diffed to, and unknown for gh's copy, which
     # is at the head now for as long as it is fresh - as GitHub's default is.
@@ -576,6 +580,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
                 cache_put(key, fetch_diff(it; run = run))
             else
                 stale = hit[2] > CACHE_FRESH[]
+                asof = time() - hit[2]
                 String(hit[1])
             end
         end
@@ -587,6 +592,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     isempty(ns) && return [Node("empty diff", "", :plain, true)]
     out = place_comments(ns, it)
     stale && !isempty(out) && (out[1].meta["stale"] = true)
+    asof === nothing || isempty(out) || (out[1].meta["asof"] = asof)
     out
 end
 

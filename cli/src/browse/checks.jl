@@ -61,5 +61,7 @@ function check_nodes(it::Item; fresh::Bool = false)
     end
     isempty(ns) && push!(ns, Node("no checks reported", "", :plain, true))
     stale && (ns[1].meta["stale"] = true)
+    age = cache_age(checks_key(it.repo, it.number))
+    isfinite(age) && (ns[1].meta["asof"] = time() - age)
     ns
 end

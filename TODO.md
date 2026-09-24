@@ -82,5 +82,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       wake on start and on every dialog closing); hunk headers are blue, a new
       file's grey and a review comment's darker in the two `-256` themes, and
       the cursor still shows on each; `tz = "America/New_York"` draws EDT in
-      summer and EST in winter, in the thread and in `wl` alike. Look, write it
-      up in `cli/test/MANUAL.md`, and this item goes.
+      summer and EST in winter, in the thread and in `wl` alike; the `loaded
+      14:02` stamp on the thread's and the metadata's bottom borders reads
+      against the border in both themes, and says `reloading …` under a stale
+      copy. Look, write it up in `cli/test/MANUAL.md`, and this item goes.

@@ -58,6 +58,10 @@ Base.@kwdef mutable struct BState <: View
     pendkey::String = ""                     # never blocks
     quiet::Bool = false             # the fetch in flight is a background
                                     # re-read: what is on screen stays there
+    loadedat::Float64 = 0.0         # when what the pane shows was read from
+                                    # GitHub or git - a cached copy's write
+                                    # time, not when it went up. 0 for nothing
+    reloadfailed::Bool = false      # the quiet re-read of it did not land
     refreshkey::String = ""         # the loaded key a stale entry wants re-read,
     refreshat::Float64 = 0.0        # and the second it becomes due
     metastale::Bool = false         # the metadata on screen came from an old
@@ -151,6 +155,7 @@ Base.@kwdef mutable struct BState <: View
                                 # fetch that fails is not asked again every
                                 # second the row stays on screen
     metakey::String = ""
+    metaat::Float64 = 0.0       # `loadedat` for the metadata pane
     # The pending review, if there is one, and which item it belongs to. Held
     # rather than asked for per frame, and kept after the cursor moves away -
     # that is the whole point of it: a draft you have walked off is the one that

@@ -912,3 +912,38 @@ end
     rs = W.rows([n], 60)
     @test any(r -> r.src == "+a = 10", rs)
 end
+
+@testset "a pane says when it was loaded on its border, not in the status" begin
+    now = W.DateTime(2026, 9, 24, 15, 0)
+    t = W.datetime2unix(W.DateTime(2026, 9, 24, 14, 2))
+    @test W.load_stamp(t, now) == "loaded 14:02"
+    @test W.load_stamp(t, now; reloading = true) == "loaded 14:02 \u00b7 reloading \u2026"
+    @test W.load_stamp(t, now; failed = true) == "loaded 14:02 \u00b7 re-read failed"
+    @test W.load_stamp(0.0, now; loading = true) == "loading \u2026"
+    @test W.load_stamp(0.0, now) == ""
+    # Another day says which.
+    @test W.load_stamp(t - 86400, now) == "loaded 2026-09-23 14:02"
+
+    # Into the bottom border, right-aligned, and the box keeps its size.
+    box = W.TermIFrame.bordered(["a"], 40, 4, "t", false)
+    was = W.awidth.(box)
+    W.footer!(box, "loaded 14:02")
+    @test W.awidth.(box) == was
+    @test endswith(W.astrip(box[end]), "─ loaded 14:02 ─╯")
+    @test startswith(W.astrip(box[end]), "╰─")
+    # A label that does not fit leaves the border alone.
+    tiny = W.TermIFrame.bordered(["a"], 10, 3, "t", false)
+    @test W.footer!(copy(tiny), "loaded 2026-09-23 14:02") == tiny
+
+    # In the frame: the thread landed from a copy made at `t`, and a key that
+    # has something to say is not written over by a load it started.
+    st = mkstate()
+    st.nodes = [W.Node("someone  2026-09-02", "text", :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.loadedat = t
+    @test occursin("loaded 14:02", W.astrip(W.render_frame(st, 160, 50, now)))
+    st.quiet = true; st.pendkey = st.loaded
+    @test occursin("reloading", W.astrip(W.render_frame(st, 160, 50, now)))
+    ls = split(W.render_frame(st, 160, 50, now), "\n")
+    @test length(ls) == 50 && all(W.awidth(l) == 160 for l in ls)
+end

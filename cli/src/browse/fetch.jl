@@ -190,7 +190,9 @@ function load_nodes!(st::BState)
     # The pane empties and says "loading …" whether the fetch starts now or
     # after the dwell: what is held is the request, not the frame. The old
     # nodes belong to the item the cursor has left and are not left standing
-    # under a title that is somebody else's.
+    # under a title that is somebody else's. Said on the pane's own border
+    # (`pane_stamp`) and not in the status, which is the keys' - a load
+    # started by the key that also had something to say wrote over it.
     if st.pendkey != key
         place!(st, key)        # while the nodes going away are still here to read
         st.nodes = Node[]
@@ -198,7 +200,8 @@ function load_nodes!(st::BState)
         st.pending = nothing
         st.pendkey = key
         st.quiet = false
-        st.status = "loading " * it.ref * "…"
+        st.loadedat = 0.0
+        st.reloadfailed = false
     end
     held!(st, mode_cached(mode, it)) && return
     # Taken here rather than inside the task: a moment before the fetch begins
@@ -365,14 +368,19 @@ function collect_pending!(st::BState)
     st.loaded = st.pendkey
     st.pending = nothing
     st.pendkey = ""
-    if quiet && !isempty(ns) && get(ns[1].meta, "failed", false) === true
+    failed = !isempty(ns) && get(ns[1].meta, "failed", false) === true
+    if quiet && failed
         # A refresh nobody asked for must not take the thread away from someone
         # reading it. The cached copy stayed on screen and stays there; only the
-        # status says the re-read did not land.
-        st.status = "could not re-read \u00b7 showing the cached copy"
+        # stamp on the border says the re-read did not land.
+        st.reloadfailed = true
         return true
     end
     st.nodes = ns
+    # As of when it was read, which for a cached copy is when the copy was
+    # made: a thread from the cache is as old as the entry, not as the frame.
+    st.loadedat = failed ? 0.0 : isempty(ns) ? time() : Float64(get(ns[1].meta, "asof", time()))
+    st.reloadfailed = false
     # The cursor is only moved by a load the reader asked for, and it is moved
     # to wherever they were in this thread the last time they were in it - the
     # top of it only the first time. A refresh under them keeps their place
@@ -383,7 +391,6 @@ function collect_pending!(st::BState)
         st.nrow, st.ntop = get(st.place, st.loaded) do
             openrow(st)
         end
-        st.status = ""
     end
     clearsel!(st)          # either way, it indexed rows that are gone
     arm_refresh!(st)

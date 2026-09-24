@@ -101,8 +101,72 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                         string("  ", THEME.bold, sr[2] - sr[1] + 1, " selected",
                                THEME.reset))
 
-    bordered([r.text for r in rvis], rw, rh, rtitle, focused;
-             gutter = [r.gutter for r in rvis])
+    footer!(bordered([r.text for r in rvis], rw, rh, rtitle, focused;
+                     gutter = [r.gutter for r in rvis]),
+            pane_stamp(st, at))
+end
+
+"""When what a pane shows was read, said on its bottom border: `loaded 14:02`,
+`loading …` until it has been, and `· reloading …` while a re-read runs under
+it. On the border because the border is there anyway - a row of its own would
+make the pane a row taller or shorter as a load came and went - and not in the
+status, which is what the keys say and was written over by every load one of
+them started.
+
+`at` is a unix time, 0 for nothing to say. The day is left out when it is today
+where you are, which is the case a stamp is mostly read in.
+"""
+function load_stamp(at::Float64, now::DateTime; loading::Bool = false,
+                    reloading::Bool = false, failed::Bool = false)
+    loading && return "loading \u2026"
+    at > 0 || return ""
+    t = unix2datetime(at)
+    day = local_str(t)
+    when = first(day, 10) == first(local_str(now), 10) ? last(day, 5) : day
+    string("loaded ", when, reloading ? " \u00b7 reloading \u2026" :
+                            failed ? " \u00b7 re-read failed" : "")
+end
+
+"The detail pane's stamp: the thread, the diff or the checks, as `load_stamp`."
+function pane_stamp(st::BState, at::DateTime)
+    (st.sel == 0 || isempty(st.items)) && return ""
+    key = string(st.items[clamp(st.sel, 1, length(st.items))].url, ":", st.mode)
+    load_stamp(st.loaded == key ? st.loadedat : 0.0, at;
+               loading = st.pendkey == key && !st.quiet,
+               reloading = st.quiet && st.pendkey == key,
+               failed = st.reloadfailed)
+end
+
+"The metadata pane's stamp, the same way."
+function meta_stamp(st::BState, it::Union{Nothing,Item}, at::DateTime)
+    it === nothing && return ""
+    mine = st.metakey == it.url
+    landed = mine && st.metaat > 0
+    load_stamp(landed ? st.metaat : 0.0, at;
+               loading = !landed && meta_waiting(st, it),
+               reloading = landed &&
+                           (st.metapending !== nothing || st.bundlepending !== nothing ||
+                            # The merge's first answer is the row saying
+                            # "loading…", not a re-read.
+                            (st.mergepending !== nothing && st.merge !== nothing)))
+end
+
+"""Write `label` into the bottom border of a box `bordered` drew, at the right
+end - the mirror of the title at the top left. The border's own colour is lifted
+off the row rather than asked for again, so it is whatever weight the box was
+drawn in; a label that does not fit leaves the border as it was."""
+function footer!(box::Vector{String}, label::AbstractString)
+    (isempty(label) || isempty(box)) && return box
+    l = box[end]
+    cs = collect(astrip(l))
+    lw = awidth(label)
+    n = length(cs) - 5 - lw
+    n >= 1 || return box
+    on = match(r"^(?:\e\[[0-9;]*m)*", l).match
+    off = match(r"(?:\e\[[0-9;]*m)*$", l).match
+    box[end] = string(on, cs[1], string(cs[2])^n, " ", off, THEME.dim, label, THEME.reset,
+                      on, " ", cs[2], cs[end], off)
+    box
 end
 
 """What the number is of, said beside it: `issue`, `pull request`, `draft
@@ -234,9 +298,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     end
 
     left = bordered([r.text for r in lvis], lw, lh, ltitle, st.focus === :list)
-    L.mh > 0 && append!(left, bordered(first(mlines, L.mh - 2), lw, L.mh,
+    L.mh > 0 && append!(left, footer!(bordered(first(mlines, L.mh - 2), lw, L.mh,
                                    it === nothing ? "meta" : string("meta  ", it.ref),
-                                   false))
+                                   false), meta_stamp(st, it, at)))
     right = detail_pane(st, it, rw, rh, st.focus === :detail, at)
 
     # The footnote rows link themselves, in `nodelines`. What is left for

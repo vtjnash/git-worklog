@@ -231,10 +231,6 @@ function select_item!(st::BState, it::Item)
     # than arriving a moment later.
     load_nodes!(st)
     load_meta!(st)
-    # After the loads and not before, which is the same rule `\`` follows:
-    # `load_nodes!` writes "loading …" over whatever is there, and a message
-    # about the jump the user just made is exactly what it would write over.
-    # It said "went to …" and nobody ever saw it.
     st.status = string("went to ", it.ref,
                        cleared ? " · cleared the filter to show it, ` goes back" : "")
     ""
@@ -939,8 +935,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # either.
     refilter!(st)
     # The row can have left, and the cursor moved to the next one, from inside
-    # a dialog: no `handle!` is about to finish and load it. Before the message
-    # and not after, as `x` does, since `load_nodes!` says "loading …".
+    # a dialog: no `handle!` is about to finish and load it.
     load_nodes!(st); load_meta!(st)
     val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end

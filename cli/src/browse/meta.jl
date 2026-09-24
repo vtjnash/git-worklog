@@ -43,6 +43,7 @@ function load_meta!(st::BState; fresh::Bool = false)
     st.metapending = nothing
     st.mergepending = nothing
     st.metastale = false
+    st.metaat = 0.0
     st.bundletried = ""      # once per selection, and this is a new one
     !fresh && held!(st, meta_cached(it)) && return
     st.metakey = it.url
@@ -230,6 +231,13 @@ function collect_meta!(st::BState)
         st.checks = r.checks
         i = findfirst(x -> x.url == st.metakey, st.all)
         it = i === nothing ? nothing : st.all[i]
+        # As of the older of the two entries it was read from: a cached copy is
+        # as old as the entry, and the stamp says what is on screen.
+        st.metaat = hasproperty(r, :err) ? 0.0 :
+            it === nothing || islocal(it) ? time() :
+            time() - min(max(cache_age(Events.meta_key(it.url)),
+                             it.is_pr ? cache_age(checks_key(it.repo, it.number)) : 0.0),
+                         time())
         # Old enough to want re-reading behind what just went up. Not off a
         # failure, for the reason above; and either half is enough, since the
         # re-read asks only for what is actually old.
