@@ -660,6 +660,9 @@ items = Worklog.loaditems()
 st = Worklog.BState(items, "worklog")
 ctrl = Worklog.Controller(); ctrl.running = true
 st.wake = () -> Worklog.wake!(ctrl)
+# The first load is held for the dwell: its wake is settled, which starts the
+# fetch, and the second wake is the fetch landing.
+Worklog.settle!(st); take!(ctrl.events); Worklog.onwake!(st)
 Worklog.settle!(st); take!(ctrl.events); Worklog.onwake!(st)
 ```
 
