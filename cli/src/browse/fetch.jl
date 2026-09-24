@@ -287,17 +287,21 @@ two thousand items to answer a question about one.
 The metadata is asked for by clearing the key that decides whether it needs
 asking for, and started here rather than left to the caller so that the
 `load_meta!` in `settle!` finds it already in flight.
+
+Says nothing when it starts, which it used to ("re-reading …"): the borders
+say it, `reloading …` under the thread and `loading …` in the metadata, and
+go when the answer lands - a status stayed until the next key, long after.
 """
 function refresh_item!(st::BState)
     (isempty(st.items) || st.sel == 0) && return "nothing selected to re-read"
     it = st.items[clamp(st.sel, 1, length(st.items))]
     st.metakey = ""; st.metapending = nothing; st.mergepending = nothing
     load_meta!(st; fresh = true)
-    # Refuses while something is already in flight, and the message is the same
-    # either way: a read of this item is on its way, and a second one behind it
-    # would answer with what the first is already going to say.
+    # Refuses while something is already in flight, which is the same answer:
+    # a read of this item is on its way, and a second one behind it would
+    # answer with what the first is already going to say.
     refresh_nodes!(st)
-    string("re-reading ", it.ref, "…")
+    ""
 end
 
 """Arm the debounce for what went up stale - the nodes, the metadata, or both.

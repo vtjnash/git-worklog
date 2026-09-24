@@ -427,13 +427,13 @@ end
     it = st.items[st.sel]
     # The metadata is asked for again by clearing the key that decides whether
     # it needs asking for, and this starts it rather than leaving it to the
-    # `load_meta!` at the end of the key loop. The cursor has been on the item
+    # `load_meta!` in `settle!`. The cursor has been on the item
     # a while - past the dwell that holds a load of an uncached item.
     st.selurl = it.url; st.selat = 0.0
     W.load_meta!(st)
     @test st.metakey == it.url
-    msg = W.refresh_item!(st)
-    @test occursin("re-reading", msg) && occursin(it.ref, msg)
+    # Said on the borders, not in the status, where it outstayed the read.
+    @test W.refresh_item!(st) == ""
     @test st.metakey == it.url && st.metapending !== nothing
     # It is in the footer, because a key nobody can find is a key nobody uses.
     @test occursin("R reload", W.astrip(W.render(st, 150, 40)))
