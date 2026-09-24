@@ -227,3 +227,41 @@ Not pass/fail; asked once the program has been lived in.
 
 *2026-09-21*: the mouse trade holds, 150 holds, `w` is enough. One ask, in
 TODO: a list row two high for the longer titles, which are cut at about half.
+
+## 13. `C` on a deleted line, against GitHub
+
+In `d` on a pull request of yours, a `-` line; `C`, a comment, `^s`. Pass:
+the thread lands on GitHub on the left side at that line of the base -
+a `LEFT` thread, numbered against the base, not the head - and shows in the
+diff under the line it was written on.
+
+*2026-09-24*: pass.
+
+## 14. The pane, the diff's headers, the worktree list and `tz`
+
+- **the pane follows**: the first item's pane is there at startup, and it
+  follows a snooze, a `;` answer and `h` from the worktree list; what `x`,
+  `e` and `z` say stays until the next key.
+- **the loaded stamp**: `loaded 14:02` on the thread's and the metadata's
+  bottom borders reads against the border in both themes, and says
+  `reloading …` over a stale copy.
+- **the diff's headers**: in the two `-256` themes, hunk headers are blue, a
+  new file's grey and a review comment's darker, and the cursor still shows
+  on each.
+- **`"`**: `tab` goes worktrees → active → branches, and the `+ new
+  worktree` row makes one by click and by `↵`.
+- **`tz`**: `tz = "America/New_York"` draws EDT in summer and EST in
+  winter, in the thread and in `wl` alike.
+
+*2026-09-24*: all pass.
+
+## 15. Adopting a branch made in a shell
+
+`t` on a pull request; in the shell, `git switch -c <new>`. Then `"` and
+`a` on that worktree's row, with the shell still running. Pass: `adopted
+<repo>#<new>` - not `… is a pull request already` - and the key line of
+both lists names `a adopt`; `a` again releases it. From the shell, `wl
+adopt` does the same for the branch checked out there, and says `released`
+the second time.
+
+*2026-09-24*: pass.

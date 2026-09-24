@@ -73,21 +73,4 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified - needs a real terminal
 
-- [x] **`C` on a deleted line, against GitHub.** The one write that landed after
-      the trial of 2026-09-17: a `LEFT` thread numbered against the base. Every
-      other write was tried against GitHub by 2026-09-18, and the rows under `;`
-      on 2026-09-21; none wrong so far. Run it, write it up in
-      `cli/test/MANUAL.md`, and this item goes.
-
-- [x] **The pane, the diff's headers, the worktree list and `tz`, on a real
-      screen.** The pane loads the first item at startup and follows a snooze,
-      a `;` answer and `h` from the worktree list (`settle!`, after every
-      event); `x`, `e` and `z` keep what they said until the next key. The
-      `loaded 14:02` stamp on the thread's and the metadata's bottom borders
-      reads against the border in both themes, and says `reloading …` under a
-      stale copy. Hunk headers are blue, a new file's grey and a review
-      comment's darker in the two `-256` themes, and the cursor still shows on
-      each. In `"`, `tab` goes worktrees → active → branches, and the `+ new
-      worktree` row makes one by click and by `↵`. `tz = "America/New_York"`
-      draws EDT in summer and EST in winter, in the thread and in `wl` alike.
-      Look, write it up in `cli/test/MANUAL.md`, and this item goes.
+Nothing at present.
