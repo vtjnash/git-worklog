@@ -474,6 +474,13 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # on a row read by construction, which the list called unread all the same.
     seen = done_upto(it)
     me = login()
+    # And nothing for a thread opened since, by somebody else: the floor is
+    # older than all of it, the opening post included, which is drawn first
+    # and is no entry for the rule to go above. Under it the rule stood over
+    # the first push - its commits dated before the opening, so older than
+    # the post above it (libuv#5295).
+    opened = String(nz(get(body, "created_at", nothing), ""))
+    seen !== nothing && opened > seen && (isempty(me) || who0 != me) && (seen = nothing)
     mk = seen === nothing ? nothing :
          findfirst(e -> e.at > seen && (isempty(me) || entry_by(e) != me), evs)
     mark = mk === nothing ? 0 : mk

@@ -202,6 +202,28 @@ end
         ns = W.comment_nodes(backlog, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
         @test i !== nothing && occursin("2 entries", W.astrip(ns[i].header))
+        # Unless it was opened past the floor, by somebody else: all of it is
+        # new, the opening post drawn first included, and a rule under that
+        # post said the post was read (libuv#5295). Opened by you, the rule
+        # still waits for somebody else's entry.
+        hit = W.cache_get("thread:" * u, 1e9)[1]
+        body0 = Dict{String,Any}(String(k) => v for (k, v) in pairs(hit.body))
+        opened(by) = W.cache_put("thread:" * u, (
+            body = merge(body0, Dict{String,Any}("created_at" => "2026-09-04T00:00:00Z",
+                                                 "user" => Dict{String,Any}("login" => by))),
+            comments = hit.comments, commits = hit.commits))
+        opened("bob")
+        @test !any(n -> get(n.meta, "newmark", false) === true,
+                   W.comment_nodes(backlog, W.utcnow()))
+        keeplogin = W.LOGIN[]
+        try
+            W.LOGIN[] = "bob"
+            @test any(n -> get(n.meta, "newmark", false) === true,
+                      W.comment_nodes(backlog, W.utcnow()))
+        finally
+            W.LOGIN[] = keeplogin
+        end
+        opened(something(get(get(body0, "user", Dict()), "login", nothing), "ann"))
         # An empty stamp is unread said out loud, and the floor does not answer
         # over it: the whole thread is new.
         W.set_done(u, "")
