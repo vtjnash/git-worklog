@@ -429,7 +429,8 @@ end
     @test fresh.mode === :diff
     @test startswith(fresh.status, "where you were: [")
     # `` ` `` is the way back to the firehose from what it restored.
-    @test W.isdefault(fresh.prev)
+    W.note_place!(fresh)
+    @test W.isdefault(last(fresh.back).filters)
 
     # An item that is no longer in the list leaves the cursor at the top of
     # the list it is not in; a mode that is not one stays as it was.
@@ -650,14 +651,15 @@ end
     rows = W.filter_rows(st)
     @test rows[1][1] === :reset
     @test occursin("clear every filter", W.astrip(W.render(st, 160, 50)))
-    # Nothing to clear, so the row says only what it is - and refuses, rather
-    # than spending the one `\`` slot on a move that changed nothing.
+    # Nothing to clear, so the row says only what it is - and refuses.
     st.frow = 1
     @test W.toggle_filter!(st, ctrl) === false
-    @test st.prev === nothing
 
     st.filters.labels = Set(["docs"]); st.filters.kind = :issue
     W.refilter!(st)
+    # Seen from the list, the way a settle would before `f` gave the keys to
+    # the pane.
+    st.lmode = :items; W.note_place!(st); st.lmode = :filters
     @test !W.isdefault(st.filters)
     # Once there is something to clear, the row names the key that also does it.
     @test occursin("(c)", W.filter_rows(st)[1][3])
@@ -666,9 +668,9 @@ end
     @test W.isdefault(st.filters)
     # The same jump `c` makes, remembered the same way: `\`` from the item list
     # goes back to whatever was applied before, which is what makes clearing
-    # safe to try.
-    @test st.prev !== nothing
-    @test st.prev.labels == Set(["docs"]) && st.prev.kind === :issue
+    # safe to try. Nothing is kept while the pane has the keys; the list it
+    # was opened over is still where the reader is until they leave it.
+    @test isempty(st.back) || last(st.back).filters.labels != Set(["docs"])
     st.lmode = :items
     W.handle!(st, Int('`'), ctrl)
     @test st.filters.labels == Set(["docs"]) && st.filters.kind === :issue
@@ -856,22 +858,23 @@ end
     # And the first view is the whole of what the browser opens on, sort
     # included.
     st.sort = :touched; st.filters.labels = Set(["docs"])
+    W.refilter!(st); W.note_place!(st)      # seen, as the settle after a key would
     W.apply_view!(st, last(first(W.views(Dict{String,Any}()))))
     @test W.isdefault(st.filters)
     @test isempty(st.filters.labels) && st.sort === :moved
 
-    # `\`` is the way back out, and back in again: one slot, which is the depth
-    # the move actually has.
+    # `\`` is the way back out, and `~` back in again.
     was = W.filter_summary(st.filters, st.sort)
     W.handle!(st, Int('`'), ctrl)
     @test W.filter_summary(st.filters, st.sort) != was
     @test occursin("back to", st.status)
-    W.handle!(st, Int('`'), ctrl)
+    W.handle!(st, Int('~'), ctrl)
     @test W.filter_summary(st.filters, st.sort) == was
+    @test occursin("forward to", st.status)
     # With nothing to go back to it says so rather than doing nothing.
-    st.prev = nothing
+    empty!(st.back)
     W.handle!(st, Int('`'), ctrl)
-    @test occursin("no filter to go back to", st.status)
+    @test occursin("nowhere to go back to", st.status)
 
     # `\'` opens the list, and picking one applies it.
     @test occursin("' views", W.astrip(W.render(st, 160, 50)))

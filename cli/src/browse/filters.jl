@@ -269,10 +269,10 @@ DEFAULT_FILTERS() = Filters()
 
 """Every row there is: every box on, on both axes.
 
-The corpus, which used to be what a bare `Filters` meant. Two places need it -
-a jump to one item by number and a jump to the item a worktree belongs to -
-because there the row being hidden is exactly the row asked for, and one view
-offers it by name.
+The corpus, which used to be what a bare `Filters` meant, and which one view
+offers by name. The two jumps that cleared the filters to it - by number, and
+to the item a worktree belongs to - bring their row as the guest instead
+(`refilter!`).
 """
 everything() = Filters(show = Set(k for (k, _) in SHOW))
 
@@ -854,7 +854,6 @@ function apply_view!(st, d)
             push!(set, String(x))
         end
     end
-    st.prev = st.filters                # `\`` is the way back out
     st.filters = f
     # Cleared like every other axis when the view names none, and for the same
     # reason: a name has to mean the same list from wherever it is pressed, and
@@ -1065,10 +1064,9 @@ function toggle_filter!(st, ctrl = nothing)
     elseif axis === :kind
         st.filters.kind = Symbol(val)
     elseif axis === :reset
-        # The same jump `c` makes, remembered the same way: `\`` goes back to
-        # whatever was applied before, which is what makes clearing safe to try.
+        # The same jump `c` makes: `\`` goes back to whatever was applied
+        # before, which is what makes clearing safe to try.
         isdefault(st.filters) && return false
-        st.prev = st.filters
         st.filters = Filters()
     elseif axis === :pick
         ctrl === nothing && return false
@@ -1296,6 +1294,9 @@ function restore_view!(st)
     end
     v = get(d, "view", nothing)
     v isa AbstractDict || return false
+    # The list it opens on without a file is the first spot back from the
+    # one restored: `\`` is the way to the firehose from wherever you were.
+    note_place!(st)
     said = apply_view!(st, v)
     at = get(d, "at", Dict{String,Any}())
     i = findfirst(x -> x.url == String(get(at, "item", "")), st.items)

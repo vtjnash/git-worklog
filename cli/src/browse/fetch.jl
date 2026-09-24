@@ -357,6 +357,7 @@ at all. Both loaders are idempotent, so an event that moved nothing starts
 nothing. True when the pane or the metadata was let go of for a new load.
 """
 function settle!(st::BState)
+    note_place!(st)
     before = (st.pendkey, st.loaded, st.metakey, st.meta === nothing)
     load_nodes!(st)
     load_meta!(st)

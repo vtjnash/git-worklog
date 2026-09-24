@@ -238,7 +238,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             end
         elseif k in (13, 10);           toggle_filter!(st, ctrl)
         elseif k == Int('c')
-            st.prev = st.filters        # clearing is a jump like any other
             st.filters = Filters(); refilter!(st; keeprow = false)
         end
     elseif st.focus === :list
@@ -311,16 +310,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     if k == Int('\'') && st.lmode !== :filters
         view_action(st, ctrl)
         return :ok
-    elseif k == Int('`') && st.lmode !== :filters
-        if st.prev === nothing
-            st.status = "no filter to go back to"
-        else
-            was = st.filters
-            st.filters = st.prev
-            st.prev = was
-            refilter!(st; keeprow = false)
-            st.status = string("back to [", filter_summary(st.filters, st.sort), "]")
-        end
+    elseif k in (Int('`'), Int('~')) && st.lmode !== :filters
+        # Back and forward through where the reader has been - the lists and
+        # the rows looked at in them, not only the filters (`note_place!`).
+        # `~` because it is the shifted `\`` on the keyboards this was written
+        # on, which is the pair a way back and a way forward want to be.
+        st.status = step_place!(st, k == Int('`') ? -1 : 1)
         return :ok
     end
     # Above the guard as well, and an empty list is exactly when `z` is wanted:

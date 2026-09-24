@@ -127,6 +127,7 @@ include("browse/keys.jl")         # `handle_key!`
 include("browse/help.jl")         # `?`
 include("browse/mouse.jl")        # `onmouse!`
 include("browse/search.jl")       # `/`
+include("browse/history.jl")      # `\`` and `~`: where the reader has been
 include("browse/writing.jl")      # comments, reviews, labels, snoozes, archive
 include("browse/checkout.jl")     # which local checkout an item's work is in
 include("browse/items.jl")        # imported items and adopted branches

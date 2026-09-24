@@ -482,8 +482,21 @@ a number typed into `/` and `esc` back to a draft go to one item, and when
 the filters hide it the row is shown anyway as the *guest* (`st.guest`),
 where the sort puts it and marked `+`, until another list is asked for. It
 used to clear the filters, which answered one row by throwing away the list
-being read, and `` ` `` to get the list back lost the row. One slot, like
-`prev`; a row the filters come to show is no longer a guest.
+being read, and `` ` `` to get the list back lost the row. One slot; a row
+the filters come to show is no longer a guest.
+
+**`` ` `` and `~` walk where you have been, rows and lists both.** Back and
+forward stacks of *spots* - a list (filters, sort, list search) and the row in
+it - kept by `note_place!` in `settle!`, so no key has to say it moved: every
+list left, the row a jump left and the row it went to, and a row the cursor
+rested on for the pane's dwell (`LOAD_AFTER`). Not every row `j` passed, or
+`` ` `` would be a slower `k`; not each character of a query or each box
+toggled in the filter pane, which are seen as one move when they end. A jump
+or a new list empties the forward stack; wandering off the row `` ` `` went
+back to does not. Going back to a row the filters now hide - the one `e` just
+took out of the unread list - brings it as the guest. It replaced `prev`, one
+slot of filters that `` ` `` swapped with the current ones (2026-09-24), which
+could go back to a list but not to the item you were reading in it.
 
 ## Showing what changed
 

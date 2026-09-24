@@ -19,6 +19,22 @@ struct Undo
 end
 Undo(what::AbstractString, undo) = Undo(String(what), "", undo)
 
+"""Where the reader was: a list, and the row in it. What `\`` and `~` step
+through (`note_place!`, `step_place!`).
+
+The list as the axes, the sort and the list search - what `orderkey` is
+written from, and `key` is that string, which is how two spots are told to be
+the same list. `url` is the row, `""` for the import row or an empty list. The
+filters are a copy: the filter pane toggles the live ones in place.
+"""
+struct Spot
+    filters::Filters
+    sort::Symbol
+    search::String
+    key::String
+    url::String
+end
+
 """The browser's whole state.
 
 Keyword-constructed, with defaults: it has more than fifty fields, and the
@@ -77,14 +93,21 @@ Base.@kwdef mutable struct BState <: View
                                     # moved, awake and open. Bare, because that
                                     # is the one `show` box a filter has when it
                                     # has been asked nothing - `c` goes here too
-    prev::Union{Nothing,Filters} = nothing   # one slot deep, for `\``: diving
-                                             # into a view and getting back out
-                                             # is the move, and `z` is for
-                                             # actions rather than for looking
+    back::Vector{Spot} = Spot[]     # where the reader has been, newest last:
+                                    # `\`` steps back through it, and `~`
+                                    # forward through `fwd`; `z` is for actions
+                                    # rather than for looking. See `note_place!`
+    fwd::Vector{Spot} = Spot[]
+    here::Union{Nothing,Spot} = nothing   # the spot as the last settle saw it,
+    hereat::Float64 = 0.0           # since when, and whether it was arrived at
+    herejump::Bool = false          # by a jump - which is kept on leaving it
+    jumped::Bool = false            # whatever the dwell. `jumped` is the move
+                                    # being made now, set by the jump, taken by
+                                    # the next settle
     guest::String = ""              # a row a jump went to that the filters
                                     # hide, shown where the sort puts it until
                                     # the list is asked for again; one slot, the
-                                    # way `prev` is. See `refilter!`
+                                    # way `here` is. See `refilter!`
     lanes::Vector{String} = String[]
     repos::Vector{String} = String[]
     pinned::Vector{String} = String[]    # `[filters] pinned_repos`, as written:

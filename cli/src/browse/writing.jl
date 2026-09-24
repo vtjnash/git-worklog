@@ -221,6 +221,7 @@ function select_item!(st::BState, it::Item)
     end
     st.sel = i
     st.focus = :list
+    st.jumped = true        # a place `\`` comes back to, and leaves from
     # `window` re-aims the scroll around the cursor, so `top` is left alone,
     # and the pane follows it in `settle!`, after the other view's event.
     st.status = string("went to ", it.ref,

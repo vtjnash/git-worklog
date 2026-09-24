@@ -131,7 +131,7 @@ function commit_search!(st::BState, w::Int)
     hidden = !any(it -> it.url == target, apply_filters(st.filters, st.all, Marks(st)))
     refilter!(st; guest = hidden ? target : nothing)
     j = findfirst(it -> it.url == target, st.items)
-    j === nothing || (st.sel = j)
+    j === nothing || (st.sel = j; st.jumped = true)
     st.status = string("jumped to ", ref)
 end
 
