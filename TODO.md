@@ -9,6 +9,8 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 - [ ] Search in dh pane should use Regex matcher and remember the query string last used
 - [ ] should we support emoji :robot: in github markdown parsing?
+- [ ] undo restores the "new since you last looked" cursor, but not the done_head that drives p, which feels confusingly out of sync
+- [ ] avoid report as new issues and PRs that I opened
 
 ## Upstream
 
@@ -71,13 +73,13 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified - needs a real terminal
 
-- [ ] **`C` on a deleted line, against GitHub.** The one write that landed after
+- [x] **`C` on a deleted line, against GitHub.** The one write that landed after
       the trial of 2026-09-17: a `LEFT` thread numbered against the base. Every
       other write was tried against GitHub by 2026-09-18, and the rows under `;`
       on 2026-09-21; none wrong so far. Run it, write it up in
       `cli/test/MANUAL.md`, and this item goes.
 
-- [ ] **The pane, the diff's headers, the worktree list and `tz`, on a real
+- [x] **The pane, the diff's headers, the worktree list and `tz`, on a real
       screen.** The pane loads the first item at startup and follows a snooze,
       a `;` answer and `h` from the worktree list (`settle!`, after every
       event); `x`, `e` and `z` keep what they said until the next key. The
