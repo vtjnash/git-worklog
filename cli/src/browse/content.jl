@@ -276,6 +276,39 @@ function state_node(e, url::AbstractString)
     nd
 end
 
+"""A submitted review, as nodes: the verdict, who and when on the header, and
+its words under it the way a comment's are - or nothing under it, for the
+approval that says nothing else, which is a header like a state change.
+
+Approved is settled and changes requested blocked, the colours the verdict has
+on the row; a comment review is plain, since it is a comment; a dismissed one
+is dim - GitHub keeps no record of what it had said.
+"""
+function review_node(e, url::AbstractString)
+    state = String(nz(get(e, "state", nothing), ""))
+    (col, word) = state == "approved" ? (THEME.settled, "\u2713 approved") :
+                  state == "changes_requested" ? (THEME.blocked, "\u2717 changes requested") :
+                  state == "dismissed" ? (THEME.dim, "review dismissed") :
+                                         ("", "reviewed")
+    by = String(nz(get(e, "by", nothing), ""))
+    who = isempty(by) ? "" : string(by, "  ")
+    when = when_str(String(e["at"]))
+    hd = string(col, word, THEME.reset, "  ", THEME.dim, who, when, THEME.reset)
+    txt = strip(String(nz(get(e, "body", nothing), "")))
+    link = String(nz(get(e, "url", nothing), ""))
+    link = isempty(link) ? String(url) : link
+    ns = isempty(txt) ? [Node(hd, "", :plain, true)] : body_nodes(hd, txt, link, true)
+    if !isempty(txt)
+        lead = isempty(strip(ns[1].raw)) && length(ns) > 1 ? ns[2].header : ns[1].raw
+        ns[1].header = string(hd, "   ", strip(first(replace(lead, r"\s+" => " "), 58)))
+        ns[1].meta["byline"] = hd
+    end
+    ns[1].meta["src"] = string(word, "  ", who, when)
+    ns[1].meta["url"] = link
+    ns[1].meta["at"] = String(e["at"])
+    ns
+end
+
 """The rule the new part of a thread begins under.
 
 Drawn from the done stamp alone, which is the whole of what it needs: `e` marks
@@ -322,6 +355,9 @@ happened, which is one sequence and was being read as two. "They replied,
 then pushed, then replied" is the shape of most review conversations, and
 the pushes were a field on the item while the replies were the pane.
 
+A review is a comment for this purpose: it is said in the thread, it sorts
+among the comments, and it is shown inside the same window the pushes are.
+
 Only the pushes that fall inside the window the comments are shown for - the
 thread is the last thirty of those - so a branch with two hundred commits
 does not arrive above the first thing anybody said. The state changes are
@@ -336,7 +372,7 @@ fixed by #N" is what the close button with a comment produces, in that
 order. Consecutive pushes are one entry ([`group_pushes`](@ref)).
 
 Each entry is `(kind, at, c)`: `:comment` with the comment, `:push` with the
-run of commits, `:state` with the event. What the browser draws and what
+run of commits, `:state` with the event, `:review` with the review. What the browser draws and what
 `wl show` and `wl thread` print, so the three agree on what happened.
 """
 function activity_list(cs, cms, sts)
@@ -347,9 +383,14 @@ function activity_list(cs, cms, sts)
         (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
     end
     for e in sts
-        push!(evs, (kind = :state, at = String(e["at"]), c = e))
+        t = String(e["at"])
+        if get(e, "kind", "") == "review"
+            (isempty(from) || t >= from) && push!(evs, (kind = :review, at = t, c = e))
+        else
+            push!(evs, (kind = :state, at = t, c = e))
+        end
     end
-    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :comment ? 1 : 2))
+    sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :state ? 2 : 1))
     group_pushes(evs)
 end
 
@@ -431,6 +472,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         elseif e.kind === :state
             push!(ns, state_node(e.c, it.url))
             continue
+        elseif e.kind === :review
+            append!(ns, review_node(e.c, it.url))
+            continue
         end
         c = e.c
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
@@ -466,14 +510,14 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         append!(ns, made)
     end
     # **What this thread shows you up to**, which is what `e` marks the item
-    # seen up to: the newest event on screen - a comment, a review comment, a
-    # push, a close or a merge, the body's own last edit - and no clock at
+    # seen up to: the newest event on screen - a comment, a review or a review
+    # comment, a push, a close or a merge, the body's own last edit - and no clock at
     # all, this machine's or GitHub's. A comment that landed while the reads
     # were in flight is either here, and seen, or not here, and newer than
     # this - unread at the next refresh, as it should be. A cached thread
     # stamps the same, since the newest thing in it is the newest thing in
     # it. `e` takes the max of this and `moved_at`, for the movements a
-    # thread does not show: an approval with no comment, a CI edge.
+    # thread does not show: a CI edge, a review request.
     seen = maximum(Iterators.flatten((
                (String(nz(get(c, "created_at", nothing), "")) for c in cs),
                (String(nz(get(c, "at", nothing), "")) for c in cms),

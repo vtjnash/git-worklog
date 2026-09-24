@@ -245,6 +245,20 @@ end
         drawn = [W.astrip(r.text) for r in W.rows(ns, 100; at = W.ts("2026-09-07T12:00:00Z"))]
         @test any(l -> occursin("merged", l) && occursin("into master", l) &&
                        occursin("1d ago", l), drawn)
+        # A review among them: an approval with nothing said is a header
+        # alone, one with words carries them the way a comment does.
+        ok = W.review_node(ev("review", "eve", "2026-09-05T11:00:00Z"; state = "approved",
+                              body = "", url = "https://github.com/o/r/pull/9#pullrequestreview-1"), u)
+        @test length(ok) == 1 && isempty(ok[1].raw) && ok[1].open
+        @test occursin("approved", W.astrip(ok[1].header)) && occursin("eve", W.astrip(ok[1].header))
+        @test occursin(W.THEME.settled, ok[1].header)
+        @test ok[1].meta["url"] == "https://github.com/o/r/pull/9#pullrequestreview-1"
+        no = W.review_node(ev("review", "fay", "2026-09-05T11:00:00Z"; state = "changes_requested",
+                              body = "please add a test", url = ""), u)
+        @test occursin("changes requested", W.astrip(no[1].header)) &&
+              occursin("please add a test", W.astrip(no[1].header))
+        @test occursin("please add a test", no[1].raw) && no[1].meta["url"] == u
+        @test occursin(W.THEME.blocked, no[1].header)
         # The merge is the newest thing shown, so it is what `e` reads up to.
         @test ns[1].meta["seen_up_to"] == "2026-09-06T12:00:00Z"
         # Read before the merge, and the rule lands above it alone.
@@ -284,6 +298,15 @@ end
     @test evs[1]["closer"] == "o/r#5" && evs[1]["reason"] == "not planned"
     @test evs[2]["by"] == ""
     @test evs[3]["closer"] == "abc1234" && evs[3]["reason"] == "duplicate"
+    # Reviews are events too, from their own connection: libuv#5291, one
+    # approval with no words and one with some. A comment review with no body
+    # is only the wrapper for its line comments, and is left out.
+    rv = W.JSON3.read("""{"resource":{"commits":{"nodes":[]},"timelineItems":{"nodes":[]},"reviews":{"nodes":[{"author":{"login":"vtjnash"},"state":"APPROVED","submittedAt":"2026-09-23T16:32:33Z","body":"","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-1"},{"author":{"login":"x"},"state":"COMMENTED","submittedAt":"2026-09-23T17:00:00Z","body":"","url":"u"},{"author":{"login":"bnoordhuis"},"state":"APPROVED","submittedAt":"2026-09-23T19:58:02Z","body":"LGTM and doesn't really need a test","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-2"}]}}}""")
+    _, evs = W.Events.activity_of(rv, "https://github.com/libuv/libuv/pull/5291")
+    @test [(e["kind"], e["by"], e["state"]) for e in evs] ==
+          [("review", "vtjnash", "approved"), ("review", "bnoordhuis", "approved")]
+    @test evs[2]["body"] == "LGTM and doesn't really need a test"
+    @test evs[2]["url"] == "https://github.com/libuv/libuv/pull/5291#pullrequestreview-2"
     # Nothing at all - `resource` null, as for a url GitHub cannot find - is
     # two empty lists, not an error.
     @test W.Events.activity_of(W.JSON3.read("""{"resource":null}"""),
@@ -313,6 +336,11 @@ end
     @test [(e.kind, e.at) for e in evs] ==
           [(:state, "2"), (:push, "3"), (:comment, "3"), (:push, "5"), (:comment, "6"), (:state, "6")]
     @test isempty(W.activity_list([], [], []))
+    # A review sorts as a comment does, and inside the same window a push is.
+    rev(at) = Dict{String,Any}("kind" => "review", "at" => at, "by" => "r", "state" => "approved")
+    evs = W.activity_list([Dict{String,Any}("created_at" => "3")], [cm("3")],
+                          [rev("1"), rev("3"), st("3", "closed")])
+    @test [(e.kind, e.at) for e in evs] == [(:push, "3"), (:comment, "3"), (:review, "3"), (:state, "3")]
     # With no comments at all, every push is inside the window.
     @test [e.kind for e in W.activity_list([], [cm("1"), cm("2")], [])] == [:push]
 end

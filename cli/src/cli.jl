@@ -242,6 +242,9 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         entry(e) = e.kind === :comment ?
             ["kind" => "comment", "at" => e.at, "who" => who(e.c),
              "body" => something(get(e.c, "body", nothing), "")] :
+            e.kind === :review ?
+            ["kind" => "review", "at" => e.at, "who" => get(e.c, "by", ""),
+             "state" => get(e.c, "state", ""), "body" => get(e.c, "body", "")] :
             e.kind === :push ?
             ["kind" => "push", "at" => e.at, "who" => get(e.c[end], "by", ""),
              "commits" => [["oid" => c["oid"], "at" => c["at"], "by" => get(c, "by", ""),
@@ -315,7 +318,13 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # among the comments, in the order it happened, worded as the pane's
         # headers are (`src`, what `y` copies off one).
         for e in activity_list(cs, cms, sts)
-            if e.kind !== :comment
+            if e.kind === :review
+                print("  ", review_node(e.c, url)[1].meta["src"], "\n")
+                txt = String(something(get(e.c, "body", nothing), ""))
+                isempty(strip(txt)) || show_md(txt)
+                println()
+                continue
+            elseif e.kind !== :comment
                 nd = e.kind === :push ? push_node(e.c, url) : state_node(e.c, url)
                 print("  ", nd.meta["src"], "\n")
                 for l in split(nd.raw, '\n'; keepempty = false)

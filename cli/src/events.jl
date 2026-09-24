@@ -1256,7 +1256,8 @@ end
 
 """The last commits on a pull request's branch - `oid`, `at`, `headline`, `by`
 - and what happened to its state - `kind`, `at`, `by`, and what else the event
-says - in one request.
+says - in one request. Its reviews are among the events, `kind` `review`, with
+the verdict as `state`, the `body` and the `url`.
 
 The commits are empty for an issue, which has no branch. GraphQL rather than
 `/pulls/N/commits`, for one reason that decides it: REST returns commits
@@ -1302,6 +1303,9 @@ function activity(url::AbstractString; n::Int = 30)
         "      ... on ReopenedEvent { createdAt actor { login } }\n" *
         "      ... on ConvertToDraftEvent { createdAt actor { login } }\n" *
         "      ... on ReadyForReviewEvent { createdAt actor { login } }\n" *
+        "    } }\n" *
+        "    reviews(last: \$n, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { nodes {\n" *
+        "      author { login } state submittedAt body url\n" *
         "    } }\n" *
         "  }\n" *
         "  ... on Issue {\n" *
@@ -1368,6 +1372,24 @@ function activity_of(d, url::AbstractString)
                                              :abbreviatedOid, nothing), ""))
         end
         push!(events, ev)
+    end
+    # The reviews, which are said in the thread as much as a comment is: an
+    # approval with no words was the one movement the pane never showed, and
+    # the words of one that had them were nowhere at all. A `COMMENTED` review
+    # with no body is only the wrapper its line comments arrived in, and those
+    # are in the thread already.
+    rv = r === nothing ? nothing : get(r, :reviews, nothing)
+    for x in (rv === nothing ? () : something(get(rv, :nodes, nothing), ()))
+        x === nothing && continue
+        state = lowercase(String(something(get(x, :state, nothing), "")))
+        body = String(something(get(x, :body, nothing), ""))
+        at = String(something(get(x, :submittedAt, nothing), ""))
+        (isempty(at) || state == "commented" && isempty(strip(body))) && continue
+        push!(events, OrderedDict{String,Any}(
+            "kind" => "review", "at" => at,
+            "by" => String(something(get(something(get(x, :author, nothing), Dict{Symbol,Any}()), :login, nothing), "")),
+            "state" => state, "body" => body,
+            "url" => String(something(get(x, :url, nothing), ""))))
     end
     # The close that is the merge's other half, not a second thing.
     merged_at = Set(e["at"] for e in events if e["kind"] == "merged")
