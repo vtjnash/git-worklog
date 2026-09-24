@@ -1024,9 +1024,9 @@ function render(v::WorktreeView, w::Int, h::Int)
         v.mode === :active ? "nothing running — t or T on a worktree starts something" :
                              "no worktrees — register a repo with e, t or T on an item",
         THEME.reset))
-    keys = branches ? "↵ its worktree, or make one · h item · tab worktrees · r refresh · q back" :
+    keys = branches ? "↵ its worktree, or make one · h item · a adopt · tab worktrees · r refresh · q back" :
            onnew(v) ? "↵ make a worktree, for a branch that is here or a new one · tab active · q back" :
-                      string("↵/t shell · T agent · h item · K kill · tab ",
+                      string("↵/t shell · T agent · h item · a adopt · K kill · tab ",
                              v.mode === :active ? "branches" : "active", " · r refresh · q back")
     rows = vcat(bordered(body, w, h - 2, String(v.mode), true),
                 [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
@@ -1118,6 +1118,11 @@ A toggle, and always allowed: `a` is asking for it, which is the deliberate act
 the guard on the automatic route exists to require. A branch that already has a
 pull request is refused - it is an item already, and a second one keyed on the
 branch would be the same work listed twice.
+
+Which pull request the *branch* has is `branch_carrier`'s to say, and not the
+row's item: a worktree's falls back to what its sessions were opened on, and
+a shell opened on a pull request is where a new branch gets made. Refused on
+that, the branch could not be adopted until the shell that made it was closed.
 """
 function adopt_row(v::WorktreeView, r)
     v.onadopt === nothing && return "nowhere to record that from here"
@@ -1126,8 +1131,11 @@ function adopt_row(v::WorktreeView, r)
     isempty(branch) && return "a detached head has no branch to adopt"
     repo = r.repo
     isempty(repo) && return "no repo for this row"
-    if r.item !== nothing && r.item.is_pr
-        return string(r.item.ref, " is a pull request already")
+    it = r isa BranchRow ? r.item :
+         branch_carrier(branch_index(v.items), repo, (path = r.path, branch = branch,
+                                                      main = r.main), Tracking(r.path))
+    if it !== nothing && it.is_pr
+        return string(it.ref, " is a pull request already")
     end
     # Asked of `state.toml` and not of the row: the file is the record of what
     # has been adopted, and the row is a picture of it from a moment ago.

@@ -28,7 +28,9 @@ Work dashboard.
   wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
   wl note    julia#62452 "rebase after #62396 lands"
   wl archive julia#62452                  file it away; again to take it back out
-  wl adopted local:o/r#branch 2026-09-02  a local branch you are carrying
+  wl adopt   [branch | repo#branch]      a local branch you are carrying, as an item -
+                                          the one checked out here when none is named;
+                                          again to give it back
   wl clear   julia#62452
 
 Anywhere a ref is taken, `-` means "read them from stdin, one per line" - so a
@@ -136,6 +138,64 @@ function import_urls(urls::Vector{String}, at::DateTime)
     0
 end
 
+"""The `(repo, branch)` a `wl adopt` argument names.
+
+Nothing is the branch checked out where the command runs, which is where a new
+branch was just made; a bare name is a branch of that checkout's repository;
+`repo#branch` names the repository as `wl repos` lists it, or by its last part;
+and a `local:` key is itself. Only a pinned repository's branches: the pin is
+how the rest of the program finds the checkout again.
+"""
+function adopt_target(arg::AbstractString, cwd::AbstractString)
+    startswith(arg, "local:") && return localparts(arg)
+    if occursin('#', arg)
+        i = findfirst('#', arg)
+        name, branch = arg[1:prevind(arg, i)], arg[nextind(arg, i):end]
+        hits = [k for k in keys(load_repos())
+                if k == name || last(split(k, '/')) == name]
+        isempty(hits) && die("no pinned repo '$name' - `wl repos` lists them")
+        length(hits) > 1 && die("ambiguous '$name': " * join(sort(hits), ", "))
+        return (only(hits), String(branch))
+    end
+    # The worktree the directory is in, the deepest when one is inside another.
+    here = wtkey(cwd)
+    ws = [w for w in first(survey(; withdirty = false))
+          if (k = wtkey(w.path); here == k || startswith(here, rstrip(k, '/') * "/"))]
+    isempty(ws) && die("not in a checkout of a pinned repo - name it as repo#branch")
+    w = argmax(w -> length(wtkey(w.path)), ws)
+    isempty(arg) || return (w.repo, String(arg))
+    isempty(w.branch) && die("a detached head has no branch to adopt")
+    (w.repo, w.branch)
+end
+
+"""Claim a local branch as an item of yours, or give it back: the browser's `a`.
+
+A toggle, as `a` and `wl archive` are. The same refusals: a branch with a pull
+request is an item already - which pull request is `branch_carrier`'s to say,
+by name or by what the branch tracks - and one that is not in the checkout is
+not work that is here to carry.
+"""
+function adopt_branch(arg::AbstractString, at::DateTime; cwd = pwd(),
+                      items = something(fetched_items(), Item[]))
+    repo, branch = adopt_target(arg, cwd)
+    isempty(branch) && die("no branch named")
+    u = localurl(repo, branch)
+    if get_field(u, "adopted") !== nothing
+        set_fields(u, ["adopted" => nothing], at)
+        println("released ", localref(repo, branch))
+        return 0
+    end
+    p = repo_path(repo)
+    p === nothing && die("$repo is not checked out here - `wl repos` lists what is")
+    any(b -> b.name == branch, branches(repo, p)) || die("no branch $branch in $p")
+    it = branch_carrier(branch_index(items), repo, (path = "", branch = branch, main = false),
+                        Tracking(p))
+    it !== nothing && it.is_pr && die(string(it.ref, " is a pull request already"))
+    set_fields(u, ["adopted" => string(Date(at))], at)
+    println("adopted ", localref(repo, branch), "  ", u)
+    0
+end
+
 function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.poll)
     cmd = isempty(args) ? "" : args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
@@ -158,6 +218,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         length(args) > 1 || die(USAGE)
         return import_urls(args[2] == "-" ? stdin_lines() : args[2:end], at)
     end
+    cmd == "adopt" && return adopt_branch(length(args) > 1 ? args[2] : "", at)
     if cmd == "unread"
         # With a ref it is the inverse of `done`; bare it is the JSON dump,
         # which is how anything outside this program asks what is unread:

@@ -296,6 +296,37 @@ end
         pr = fixture_item("yours, open, with a branch and labels")
         fake = W.BranchRow(pr.repo, pr.branch, "", 0, 0, false, "", "", pr)
         @test occursin("pull request already", W.adopt_row(v, fake))
+        # A worktree's item may be the one its shell was opened on, which is
+        # where a new branch gets made: that says nothing about the branch, so
+        # the branch is still adoptable with the shell running in it.
+        onpr = W.WorktreeRow("o/main", main, "main", "mine", false, false, 0, 0, "",
+                             false, false, pr, W.SessionRow[])
+        @test W.adopt_row(v, onpr) == "adopted main#mine"
+        @test occursin("released", W.adopt_row(v, onpr))
+
+        # `wl adopt` is `a` from a shell: the branch checked out where it runs,
+        # a branch of that checkout by name, or `repo#branch` from anywhere.
+        at = DateTime(2026, 9, 24)
+        wl(a; items = W.Item[]) = redirect_stdout(devnull) do
+            W.adopt_branch(a, at; cwd = main, items = items)
+        end
+        head = strip(read(`git -C $main branch --show-current`, String))
+        @test W.adopt_target("", main) == ("o/main", head)
+        @test W.adopt_target("", joinpath(main, ".git")) == ("o/main", head)
+        @test W.adopt_target("mine", main) == ("o/main", "mine")
+        @test W.adopt_target("main#mine", "/") == ("o/main", "mine")
+        @test W.adopt_target("o/main#mine", "/") == ("o/main", "mine")
+        @test_throws W.CliError W.adopt_target("", "/")
+        @test_throws W.CliError W.adopt_target("nope#mine", "/")
+        @test wl("mine") == 0 && W.get_field(u, "adopted") == "2026-09-24"
+        @test wl("main#mine") == 0 && W.get_field(u, "adopted") === nothing
+        @test_throws W.CliError wl("no-such-branch")
+        # The pull request that is the branch's refuses it, as `a` does.
+        opened = W.Item(url = "https://github.com/o/main/pull/5", ref = "main#5",
+                        repo = "o/main", number = 5, is_pr = true, branch = "mine",
+                        title = "t")
+        @test_throws W.CliError wl("mine"; items = [opened])
+        @test W.get_field(u, "adopted") === nothing
         # And a detached head has no branch to adopt.
         det = W.BranchRow("o/main", "", "", 0, 0, false, "", "", nothing)
         @test occursin("no branch", W.adopt_row(v, det))
