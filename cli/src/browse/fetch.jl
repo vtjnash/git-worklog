@@ -287,7 +287,7 @@ two thousand items to answer a question about one.
 
 The metadata is asked for by clearing the key that decides whether it needs
 asking for, and started here rather than left to the caller so that the
-`load_meta!` at the end of the key loop finds it already in flight.
+`load_meta!` in `settle!` finds it already in flight.
 """
 function refresh_item!(st::BState)
     (isempty(st.items) || st.sel == 0) && return "nothing selected to re-read"
@@ -345,14 +345,20 @@ function due_refresh!(st::BState, at::Float64 = time())
     false
 end
 
-"""Start the loads a wake finds waiting - the ones the dwell held.
-
-The key loop runs both loaders after every key; the wake armed by `held!` is
-the one that arrives without a key, and this is that key's worth of them. Both
-are idempotent, so a wake from a landing fetch runs them for nothing. Returns
-false: starting a fetch changes no frame, the "loading …" is already up.
+"""Start the loads for whatever the cursor is on: the thread in the mode
+showing, and the metadata. What `settle!` is for the browser - run after every
+event, by the controller and at the end of `handle!` - so the pane follows the
+cursor however it moved: a key, a dialog's answer, another view's callback, a
+list that changed under it, or the dwell's wake (`held!`) arriving with no key
+at all. Both loaders are idempotent, so an event that moved nothing starts
+nothing. True when the pane or the metadata was let go of for a new load.
 """
-due_load!(st::BState) = (load_nodes!(st); load_meta!(st); false)
+function settle!(st::BState)
+    before = (st.pendkey, st.loaded, st.metakey, st.meta === nothing)
+    load_nodes!(st)
+    load_meta!(st)
+    before != (st.pendkey, st.loaded, st.metakey, st.meta === nothing)
+end
 
 "Adopt a finished fetch. Returns true when the frame needs redrawing."
 function collect_pending!(st::BState)

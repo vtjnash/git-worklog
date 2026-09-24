@@ -648,3 +648,27 @@ end
                                                 ref = "a#2", repo = "a/b", number = 2,
                                                 title = "t", is_pr = false))[1].header)
 end
+
+@testset "the pane follows the cursor however it moved" begin
+    # A dialog's answer moves the browser's cursor while the dialog is on top,
+    # and no key of the browser's is about to finish. `settle_all!`, which the
+    # controller runs after every event, reaches it underneath.
+    st = mkstate()
+    ctrl = W.Controller()
+    push!(ctrl.stack, st)
+    W.settle!(st)
+    push!(ctrl.stack, W.ChooseView("t", "", Tuple{String,Any}[("a", 1)], _ -> nothing))
+    st.sel = st.sel == 1 ? 2 : 1                 # what an answer does
+    key = string(st.items[st.sel].url, ":", st.mode)
+    @test st.pendkey != key
+    @test W.settle_all!(ctrl)                    # the frame changed
+    @test st.pendkey == key
+    @test W.pane_stamp(st, W.utcnow()) == "loading \u2026"
+    # And again is nothing: the loaders are idempotent.
+    @test !W.settle_all!(ctrl)
+    # A key the browser handles itself settles at the end of `handle!`,
+    # whichever of its paths returned.
+    pop!(ctrl.stack)
+    W.handle!(st, Int('j'), ctrl)
+    @test st.pendkey == string(st.items[st.sel].url, ":", st.mode)
+end

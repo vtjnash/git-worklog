@@ -224,13 +224,8 @@ function select_item!(st::BState, it::Item)
     end
     st.sel = i
     st.focus = :list
-    # `window` re-aims the scroll around the cursor, so `top` is left alone.
-    # The detail pane is loaded here rather than on the next keystroke: the
-    # caller is another view, so there is no `handle!` about to finish and do
-    # it, and arriving on an item showing the previous one's thread is worse
-    # than arriving a moment later.
-    load_nodes!(st)
-    load_meta!(st)
+    # `window` re-aims the scroll around the cursor, so `top` is left alone,
+    # and the pane follows it in `settle!`, after the other view's event.
     st.status = string("went to ", it.ref,
                        cleared ? " · cleared the filter to show it, ` goes back" : "")
     ""
@@ -656,9 +651,7 @@ function view_action(st::BState, ctrl::Controller)
                                            "] \u00b7 paste it into data/config.toml")
                     end))
             else
-                msg = apply_view!(st, v)
-                load_nodes!(st); load_meta!(st)
-                st.status = string("view: ", msg)
+                st.status = string("view: ", apply_view!(st, v))
             end
         end; numbered = true))
 end
@@ -934,9 +927,6 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # the wake, so the row has to be able to leave or arrive on the strength of
     # either.
     refilter!(st)
-    # The row can have left, and the cursor moved to the next one, from inside
-    # a dialog: no `handle!` is about to finish and load it.
-    load_nodes!(st); load_meta!(st)
     val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end
 

@@ -32,6 +32,18 @@ abstract type View end
 onwake!(::View) = false
 onresize!(::View) = nothing
 
+"""Bring what a view shows up to date with what it has selected, after any
+event, whichever view the event went to. Returns whether the frame changed.
+
+The one place a selection's consequences are started. Before it, every path
+that could move a cursor had to remember to start them - the end of a key, a
+wake, and then each dialog's answer and each other view's callback one at a
+time, since those run while something else is on top and no key of the
+view's own is about to finish. Asked of every view in the stack, not only the
+top: the answer that moves the browser's cursor comes from the dialog over it.
+"""
+settle!(::View) = false
+
 """Whether this view wants the bytes rather than the keys.
 
 Decoding exists so that views deal in characters, which is right for every view
@@ -331,6 +343,20 @@ function wake!(ctrl::Controller)
     ctrl.woken = true
     put!(ctrl.events, WakeEvent())
     true
+end
+
+"`settle!` every view in the stack, bottom first; whether any frame changed."
+function settle_all!(ctrl::Controller)
+    changed = false
+    for v in copy(ctrl.stack)
+        changed |= try
+            settle!(v) === true
+        catch e
+            logerror!(e, catch_backtrace(), "settle!")
+            true
+        end
+    end
+    changed
 end
 
 """Hear the terminal change shape, and put a `ResizeEvent` on the loop.
@@ -683,10 +709,6 @@ function run!(ctrl::Controller, root::View)
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     ctrl.running = true
-    # One wake before the first key, so the view on top starts whatever it
-    # would start on a wake - the browser's first thread - rather than drawing
-    # an empty pane until somebody presses something.
-    wake!(ctrl)
     unwatch_winch = watch_winch!(ctrl)
     # The reader reads one event per token and then waits for the next, rather
     # than looping on `read`. That is what lets `suspend` hand stdin to a child:
@@ -713,6 +735,9 @@ function run!(ctrl::Controller, root::View)
     end
     try
         dirty, armed = true, false
+        # Before the first frame too, so the browser's first thread is asked
+        # for rather than an empty pane drawn until somebody presses something.
+        settle_all!(ctrl)
         while !isempty(ctrl.stack)
             v = last(ctrl.stack)
             if dirty
@@ -778,12 +803,12 @@ function run!(ctrl::Controller, root::View)
                     at = findlast(x -> x === v, ctrl.stack)
                     at === nothing || deleteat!(ctrl.stack, at)
                     # And a wake for the view underneath, which heard none while
-                    # it was covered: a dialog's answer can move its selection,
-                    # and a fetch can have landed behind it.
+                    # it was covered: a fetch can have landed behind it.
                     wake!(ctrl)
                 end
                 dirty = true
             end
+            settle_all!(ctrl) && (dirty = true)
         end
     finally
         ctrl.running = false

@@ -96,7 +96,6 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
                 clip(weblink(it))
                 st.status = string("copied ", it.ref, " \u00b7 ", shortlink(weblink(it), 60))
             end
-            load_nodes!(st)         # clears any selection with the old nodes
         end
         return :ok
     end

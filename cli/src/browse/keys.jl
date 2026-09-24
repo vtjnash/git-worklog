@@ -36,7 +36,7 @@ Bitwise `|` and not `||`: each of these has to run whichever way the ones before
 it answered, and what comes back is whether the frame is now wrong.
 """
 onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
-                      reload_data!(st) | rerang!(st) | due_load!(st)
+                      reload_data!(st) | rerang!(st)
 
 """
     browse(items, title, unread)
@@ -83,6 +83,11 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     # lands says so on the pane's border (`pane_stamp`), not here.
     st.status = ""
     r = handle_key!(st, k, ctrl, at)
+    # Here and not in each key: whatever the key did to the cursor, the pane
+    # follows it. The controller does the same after every event, which is
+    # what reaches a cursor moved from a dialog; this is the key's own, for a
+    # caller that is not the controller.
+    settle!(st)
     r === :quit && (quit_prompt!(st, ctrl); return :ok)
     if curl(st) != before
         rearm_batch!(st, before)
@@ -149,8 +154,6 @@ end
 
 function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     h, w = displaysize(stdout)
-    load_nodes!(st)
-    load_meta!(st)
     L = layout(w, h, st.nmeta)
     # From the last frame, not from `layout`: those agree in the browser and do
     # not when a hosted pane has taken half the screen. `lpage` is the item
@@ -314,11 +317,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             st.filters = st.prev
             st.prev = was
             refilter!(st; keeprow = false)
-            load_nodes!(st); load_meta!(st)
             st.status = string("back to [", filter_summary(st.filters, st.sort), "]")
-            return :ok
         end
-        load_nodes!(st); load_meta!(st)
         return :ok
     end
     # Above the guard as well, and an empty list is exactly when `z` is wanted:
@@ -326,7 +326,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # used to be swallowed along with every per-item key.
     if k == Int('z') && st.lmode !== :filters
         st.status = undo!(st)
-        load_nodes!(st); load_meta!(st)
         return :ok
     end
     # Above the guard for the same reason `z` is: an empty list is exactly when
@@ -346,11 +345,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     end
     # `st.sel == 0` is the import row, which is not an item and answers to none
-    # of the keys below. The pane beside it still has to catch up with whatever
-    # the cursor has just moved onto, which for that row is its own text - and
-    # the per-item path below does this at its end for the same reason.
+    # of the keys below.
     if st.lmode === :filters || st.sel == 0 || isempty(st.items)
-        load_nodes!(st)
         return :ok
     end
     it = st.items[clamp(st.sel, 1, length(st.items))]
@@ -457,7 +453,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         st.sort = SORTS[mod1(something(i, 1) + 1, length(SORTS))][1]
         refilter!(st)
         st.status = string("sorted ", last(SORTS[findfirst(x -> x[1] === st.sort, SORTS)]))
-        load_nodes!(st); load_meta!(st)
         return :ok
     elseif k == Int('"')
         # Not per-item: a worktree outlives whatever was opened on it, and this
@@ -591,7 +586,5 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif k == Int('R')
         st.status = refresh_item!(st)
     end
-    load_nodes!(st)
-    load_meta!(st)
     :ok
 end

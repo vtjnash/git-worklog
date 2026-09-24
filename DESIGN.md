@@ -365,6 +365,14 @@ label), `issue` (`kind`), `stale` and `needs-nudge` (the second look says
 
 ## The browser's model
 
+**The pane follows the cursor, whatever moved it.** `settle!` starts the loads
+for whatever is selected, and the controller runs it on every view in the
+stack after every event and before the first frame (`settle_all!`); `handle!`
+runs it once more at its end, for a caller that is not the controller. No key,
+dialog answer or callback starts a load itself. They used to, one at a time,
+and every path that forgot one - the answer to `s`, startup, a view's callback -
+was a pane left showing the item before, or nothing.
+
 **`show` and `state` are two axes that only add, asked separately.** `show`
 is three boxes - `not done` · `done` · `filed away` - and `state` two - `open`
 · `closed or merged`; a row has one value on each (`disp_of`, `over_of`;
@@ -652,7 +660,7 @@ items = Worklog.loaditems()
 st = Worklog.BState(items, "worklog")
 ctrl = Worklog.Controller(); ctrl.running = true
 st.wake = () -> Worklog.wake!(ctrl)
-Worklog.load_nodes!(st); take!(ctrl.events); Worklog.onwake!(st)
+Worklog.settle!(st); take!(ctrl.events); Worklog.onwake!(st)
 ```
 
 ## Invariants found by debugging
