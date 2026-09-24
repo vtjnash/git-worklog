@@ -126,7 +126,7 @@ end
 
 A task that sleeps and then wakes, because the event loop blocks on its channel
 and has no tick of its own. It decides nothing: by the time it fires the
-selection may have moved, and what the wake does is whatever the loaders and
+selection may have moved, and what the wake does is whatever `settle!` and
 `due_refresh!` find on screen then rather than what was there when it was
 armed. Not in `INFLIGHT`: a drain that waited on one would hang for as long as
 the delay.
@@ -145,8 +145,9 @@ end
 
 `cached` says whether there is anything to show without asking; a cached copy
 is never held. Returns true when the load should not start yet, having armed
-the wake that will retry it - once per selection, not once per key: the second
-loader to ask in the same dwell finds the timer already running.
+the wake after which `settle!` retries it - once per selection, not once per
+key: the second loader to ask in the same dwell finds the timer already
+running.
 """
 function held!(st::BState, cached::Bool, at::Float64 = time())
     cached && return false
@@ -170,9 +171,7 @@ function load_nodes!(st::BState)
         st.loaded = "new:"
         st.pending = nothing; st.pendkey = ""; st.quiet = false
         clearsel!(st)
-        # The status is not touched. There is no fetch here to announce, and
-        # this runs after every key - including the ones on an empty list, whose
-        # message it would otherwise write over on the way past.
+        # There is no fetch here to announce, and no stamp on the border.
         return
     end
     it = st.items[st.sel]
@@ -231,7 +230,7 @@ for a thread visited in *this* session, and the rule is what answers it across
 sessions, because it is drawn from a mark on disk.
 
 The width is the one the pane was last drawn at, which is known because a fetch
-only ever lands after the frame that said "loading …" has been on screen.
+only ever lands after the frame whose border said "loading …" has been on screen.
 """
 function openrow(st::BState)
     i = findfirst(n -> get(n.meta, "newmark", false) === true, st.nodes)

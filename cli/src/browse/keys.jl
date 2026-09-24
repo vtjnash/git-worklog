@@ -33,7 +33,9 @@ render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
 """Adopt whatever woke us - a finished fetch, or a file somebody else wrote.
 
 Bitwise `|` and not `||`: each of these has to run whichever way the ones before
-it answered, and what comes back is whether the frame is now wrong.
+it answered, and what comes back is whether the frame is now wrong. Starting a
+load is not in here: the controller runs `settle!` after this, as after every
+event, and a held load's wake is retried there.
 """
 onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
                       reload_data!(st) | rerang!(st)
