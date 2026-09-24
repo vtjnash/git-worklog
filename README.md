@@ -119,7 +119,7 @@ GitHub.**
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on; on a commit in a push or a range-diff, that commit |
 | `;` | set a field - a picker: the tracking level (`normal` ↔ `loose`, this machine), then the milestone, an assignee, a reviewer, the state (draft ↔ ready; close and reopen, which ask first), the title - which reach GitHub; assignee and reviewer toggle, as `L` does |
-| `z` | undo the last local action, and go back to the row it was on |
+| `z` `Z` | undo the last local action, and go back to the row it was on · redo what `z` took back, until another action is taken |
 | `u` `R` | refresh everything without leaving (what it said is kept in `data/refresh.log`; the status row counts its warnings; a source the poll could not get an answer from - at launch or under `u` - stands in the footer until it answers) · reload this item |
 | `f` | the filter pane; `c` there clears it |
 | `'` | views; `1`–`9`, `0` are the first ten |

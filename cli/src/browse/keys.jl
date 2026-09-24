@@ -324,6 +324,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     if k == Int('z') && st.lmode !== :filters
         st.status = undo!(st)
         return :ok
+    elseif k == Int('Z') && st.lmode !== :filters
+        # A capital that reaches nothing but this machine: the shifted `z`,
+        # which is where redo is in every program that pairs the two, and a
+        # key that can only put back what `z` took is no way to reach GitHub.
+        st.status = redo!(st)
+        return :ok
     end
     # Above the guard for the same reason `z` is: an empty list is exactly when
     # the dashboard most wants rebuilding, and "nothing is selected" is not an
@@ -564,7 +570,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # And the agent's bell, which is the same kind of thing as the woken
         # snooze: a reason to be unread that the stamp cannot answer.
         rang = seen ? agent_seen!(it.url) : String[]
-        push!(st.undos, Undo(string(seen ? "done " : "not done ", it.ref), it.url, () -> begin
+        push_undo!(st, Undo(string(seen ? "done " : "not done ", it.ref), it.url, () -> begin
             # Raw, and with `fold`: a folded mark is no stamp and a head, and
             # that is what goes back, not the head dropped with the stamp.
             set_done_mark(it.url, prev, prevhead; fold = true)
@@ -572,7 +578,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             woke && (set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast]);
                      set_touched(it.url, prevtouch))
             agent_ring!(rang)
-        end))
+        end; keys = woke ? ["done", "done_head", "snooze", "last_snooze", "touched"] :
+                           ["done", "done_head"],
+             redo = () -> (seen && agent_seen!(it.url); nothing)))
         # The list is what the axes say it is, so a row that has just stopped
         # answering one of them leaves - which for `e` in the base list is the
         # whole of reading an inbox.

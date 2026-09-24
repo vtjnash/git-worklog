@@ -739,7 +739,9 @@ function undo!(st::BState)
     isempty(st.undos) && return "nothing to undo"
     u = pop!(st.undos)
     try
+        was = Pair{String,Any}[k => get_field(u.url, k) for k in u.keys]
         u.undo()
+        push!(st.redos, Redo(u, was))
         # Every axis is membership in something an undo can put back, so the
         # list is rebuilt rather than asked whether it cares.
         refilter!(st)
@@ -753,6 +755,39 @@ function undo!(st::BState)
         string("undid: ", u.what)
     catch e
         string("could not undo ", u.what, ": ", first(sprint(showerror, e), 80))
+    end
+end
+
+"""Record a local action's undo. The one way onto the stack, because a new
+action is also the end of what `Z` can redo: the redo stack is a road back to
+a state, and an action taken since has made another."""
+function push_undo!(st::BState, u::Undo)
+    push!(st.undos, u)
+    empty!(st.redos)
+    u
+end
+
+"""`Z`: do again what `z` last took back, and say what it was.
+
+The action's own side of it first - the bell silenced again, the row added
+again - and then its fields, as they stood before the undo, since the side
+may write through `set_fields`, which stamps `touched` on the way past. It
+goes back on the undo stack as it was, so `z` takes it back again.
+"""
+function redo!(st::BState)
+    isempty(st.redos) && return "nothing to redo"
+    r = pop!(st.redos)
+    u = r.u
+    try
+        u.redo()
+        isempty(r.was) || set_blocks!([u.url => r.was])
+        push!(st.undos, u)
+        refilter!(st)
+        i = isempty(u.url) ? nothing : findfirst(x -> x.url == u.url, st.items)
+        i === nothing || (st.sel = i)
+        string("redid: ", u.what)
+    catch e
+        string("could not redo ", u.what, ": ", first(sprint(showerror, e), 80))
     end
 end
 
@@ -795,13 +830,14 @@ function archive!(st::BState, it::Item, at::DateTime)
     end
     # The agent's bell goes with the stamp, as the woken snooze does.
     rang = was ? String[] : agent_seen!(it.url)
-    push!(st.undos, Undo(string(was ? "unarchive " : "archive ", it.ref), it.url, () -> begin
+    push_undo!(st, Undo(string(was ? "unarchive " : "archive ", it.ref), it.url, () -> begin
         set_archived(it.url, prev)
         woke && set_fields(it.url, ["snooze" => prevsnooze, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_done(it.url, prevread)
         agent_ring!(rang)
-    end))
+    end; keys = ["archived", "snooze", "last_snooze", "touched", "done"],
+         redo = () -> (was || agent_seen!(it.url); nothing)))
     refilter!(st)
     was ? string("back out: ", it.ref) : string("archived ", it.ref)
 end
@@ -915,12 +951,13 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # whether or not there was a snooze here before. The clock goes back after
     # it, not before: restoring the value writes through `set_fields`, which
     # stamps on the way past.
-    push!(st.undos, Undo(string("snooze ", it.ref), it.url, () -> begin
+    push_undo!(st, Undo(string("snooze ", it.ref), it.url, () -> begin
         set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_done(it.url, prevread)
         agent_ring!(rang)
-    end))
+    end; keys = ["snooze", "last_snooze", "touched", "done"],
+         redo = () -> (val === nothing || agent_seen!(it.url); nothing)))
     # The seen axis is over the stamp just written and the `snoozed` tag over
     # the wake, so the row has to be able to leave or arrive on the strength of
     # either.
@@ -985,11 +1022,12 @@ function set_track!(st::BState, it::Item, val::AbstractString, at::DateTime)
     prevtouch = touched_at(it.url)
     set_fields(it.url, ["track" => val], at)
     replace_item!(st, with(it; track = String(val)))
-    push!(st.undos, Undo(string("track ", it.ref), it.url, () -> begin
+    push_undo!(st, Undo(string("track ", it.ref), it.url, () -> begin
         set_fields(it.url, ["track" => prev])
         set_touched(it.url, prevtouch)
         replace_item!(st, it)
-    end))
+    end; keys = ["track", "touched"],
+         redo = () -> (replace_item!(st, with(it; track = String(val))); nothing)))
     string("tracking ", val)
 end
 

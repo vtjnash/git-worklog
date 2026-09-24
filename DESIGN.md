@@ -421,8 +421,9 @@ is why the merge composer cycles with `^x`.
 
 **A capital reaches GitHub; lowercase does not.** The line is *remote*, not
 *writes something* - `e` and `s` write `local.toml`. `z` may undo the
-lowercase set and must never offer to undo a capital. The one exception is
-`;`, whose picker says on its note which rows reach GitHub.
+lowercase set and must never offer to undo a capital. The two exceptions are
+`;`, whose picker says on its note which rows reach GitHub; and `Z`, which
+redoes what `z` undid and so can reach no further than `z` can.
 
 **A composer is drawn beside what it is about**, in the same split `t` and
 `T` use, wherever the screen has 150 columns; the machinery was never about a

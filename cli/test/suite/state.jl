@@ -92,8 +92,43 @@
             st.sel = min(st.sel + 1, length(st.items))
         end
         @test length(st.undos) == 3
+        after = marks()
         for _ in 1:3; W.handle!(st, Int('z'), ctrl); end
         @test isempty(st.undos) && marks() == before
+
+        # `Z` does them again, oldest undone last so first redone, to the
+        # file byte for byte - and `z` takes them back again.
+        @test length(st.redos) == 3
+        for _ in 1:3; W.handle!(st, Int('Z'), ctrl); end
+        @test occursin("redid: done", st.status)
+        @test marks() == after && isempty(st.redos) && length(st.undos) == 3
+        W.handle!(st, Int('Z'), ctrl)
+        @test st.status == "nothing to redo"
+        for _ in 1:3; W.handle!(st, Int('z'), ctrl); end
+        @test marks() == before
+        # Until the next action: that is another road, and the one `Z` walked
+        # is gone.
+        W.handle!(st, Int('Z'), ctrl)
+        @test length(st.redos) == 2
+        W.handle!(st, Int('e'), ctrl)
+        @test isempty(st.redos)
+        W.handle!(st, Int('Z'), ctrl)
+        @test st.status == "nothing to redo"
+        while !isempty(st.undos); W.handle!(st, Int('z'), ctrl); end
+        @test marks() == before
+
+        # Filing and snoozing, the two with the most fields behind them.
+        it = st.items[st.sel]
+        W.archive!(st, it, W.utcnow())
+        filed = marks()
+        W.handle!(st, Int('z'), ctrl); @test marks() == before
+        W.handle!(st, Int('Z'), ctrl); @test marks() == filed
+        W.handle!(st, Int('z'), ctrl)
+        W.apply_snooze!(st, it, "3d", W.utcnow())
+        slept = marks()
+        W.handle!(st, Int('z'), ctrl); @test marks() == before
+        W.handle!(st, Int('Z'), ctrl); @test marks() == slept
+        W.handle!(st, Int('z'), ctrl); @test marks() == before
     finally
         isempty(before) ? rm(W.localfile(); force = true) :
                           write(W.localfile(), before)

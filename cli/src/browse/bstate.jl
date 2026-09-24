@@ -11,13 +11,33 @@ holds one, it is the binding rule that has gone wrong, not this.
 there too: an archive or a snooze moves the row out from under the cursor, and
 the undo of one puts the row back wherever the sort says, which is not where
 the cursor is now. Empty when there is no item to go back to.
+
+`keys` and `redo` are `Z`'s: the fields of `url`'s block the undo puts back,
+which `undo!` reads just before it does so that `redo!` can write them again,
+and whatever else the action did - a bell silenced, a row added, the item
+rewritten in place - which `redo!` does again before the fields go back.
+Fields and not a second copy of each action: what the action wrote is in the
+file when `z` is pressed, and reading it there is the one answer that cannot
+drift from what the action does. Plain values only, as `get_field` reads them;
+the note is multi-line and its `redo` writes it.
 """
 struct Undo
     what::String
     url::String
     undo::Any            # () -> Nothing
+    keys::Vector{String}
+    redo::Any            # () -> Nothing
 end
-Undo(what::AbstractString, undo) = Undo(String(what), "", undo)
+Undo(what::AbstractString, url::AbstractString, undo; keys = String[], redo = () -> nothing) =
+    Undo(String(what), String(url), undo, String[k for k in keys], redo)
+Undo(what::AbstractString, undo) = Undo(what, "", undo)
+
+"""An undone action, with the fields its undo overwrote as they stood - what
+`Z` writes back."""
+struct Redo
+    u::Undo
+    was::Vector{Pair{String,Any}}
+end
 
 """Where the reader was: a list, and the row in it. What `\`` and `~` step
 through (`note_place!`, `step_place!`).
@@ -204,6 +224,8 @@ Base.@kwdef mutable struct BState <: View
     selb::Int = 0
     mouse::Bool = true     # mirrors the controller, for the footer
     undos::Vector{Undo} = Undo[]   # local actions, newest last
+    redos::Vector{Redo} = Redo[]   # what `z` took back, newest last, for `Z`;
+                                   # emptied by the next action (`push_undo!`)
     search::String = ""    # the live query; "" when no search is running
     searchin::Symbol = :list  # the pane it was started in, and belongs to
     hidden::Int = 0        # matches inside folded nodes, counted when re-aiming

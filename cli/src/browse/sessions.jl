@@ -313,10 +313,17 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
         i = findfirst(x -> x.url == it.url, v)
         i === nothing || (v[i] = now)
     end
-    push!(st.undos, Undo(string("note ", it.ref), it.url, () -> begin
+    # The row carries the note as well as the file, both ways, for the reason
+    # it was rewritten above.
+    push_undo!(st, Undo(string("note ", it.ref), it.url, () -> begin
         set_fields(it.url, ["note" => isempty(before) ? nothing : before])
         set_touched(it.url, prevtouch)
-    end))
+        replace_item!(st, with(now; note = String(before)))
+    end; keys = ["touched"],
+         redo = () -> begin
+             set_fields(it.url, ["note" => isempty(after) ? nothing : String(after)])
+             replace_item!(st, now)
+         end))
     isempty(after) ? "note cleared" : "note saved"
 end
 
