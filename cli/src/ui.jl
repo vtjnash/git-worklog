@@ -545,6 +545,11 @@ poll_item(u) = Item(
     act = String(nz(get(u, "updated", nothing), "")),
     # The poll has no fingerprint to compare, so what it saw *is* the movement.
     moved_at = String(nz(get(u, "updated", nothing), "")),
+    # Yours, with no comment and no notification - GitHub notifies nobody of
+    # their own acts - is the refresh's `opened` as near as the poll can say:
+    # a request or an assignment since is the refresh's to find.
+    moved_by = get(u, "author", nothing) == login() && get(u, "comments", 0) == 0 &&
+               !truthy(get(u, "reason", nothing)) ? "opened" : "",
     labels = String[String(l) for l in get(u, "labels", ())],
     state = uppercase(String(nz(get(u, "state", nothing), "open"))),
     mentioned = String(nz(get(u, "mentioned", nothing), Events.mention_words(u))),

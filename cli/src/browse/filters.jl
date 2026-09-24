@@ -386,11 +386,17 @@ function seen_of(it::Item, m::Marks = Marks())
     # no block. An empty stamp is something said - unread - and is earlier
     # than any movement below.
     at === nothing && (at = floor_of(it, m.sources))
-    at === nothing && return :unread
+    # Opened by you, and moved by nobody since: you have seen it, having
+    # written it, whatever the floor or its absence says. `done = ""` still
+    # says unread, and the wake and the bell still count.
+    opened = it.moved_by == "opened"
+    at === nothing && !opened && return :unread
+    opened && at == "" && return :unread
+    at = something(at, "")
     # An item with no movement on record is a synthetic one - an adopted
     # branch, an import no refresh has caught up with - and a stamp on it is
     # the only thing anybody has said about whether it has been seen.
-    moved = something(moved_of(it), "")
+    moved = opened ? "" : something(moved_of(it), "")
     wake = get(m.wake, it.url, nothing)
     wake !== nothing && wake <= m.now && wake > moved && (moved = wake)
     at < moved ? :unread : :done

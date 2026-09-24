@@ -239,6 +239,14 @@ The rules behind the table, each of which cost a bug:
   cannot see past your reply, so `their_comment_at` is carried. Being let off
   (a request withdrawn, an assignment removed) is not movement either; the
   `Removed`/`Unassigned` events are not fetched.
+- **Opening it is something you did.** An issue or pull request of yours
+  arrived as `new` and unread, with nothing to read (2026-09-24). A row you
+  wrote with no key of the table set is `moved_by = "opened"`
+  (`opened_by_you`), caught up the same way on a row first seen as `new`,
+  and `seen_of` reads it as seen - no stamp written, the floor not asked -
+  until somebody else moves it and the key replaces the word. `done = ""`,
+  a woken snooze and a bell still say unread. The poll's light row says it
+  as near as it can: yours, no comments, no notification `reason`.
 - **Every key says what it is, not what it was.** A push is a **sha**, not a
   clock: a rebase rewrites the committer date and a force-push of an older
   commit walks it backwards. A review is the **time the newest one arrived**,
@@ -276,7 +284,7 @@ The rules behind the table, each of which cost a bug:
   to compare - the bool that rose (`CI failed`), the force-push of an older
   commit - and for those the refresh keeps the key that set the stamp
   beside it, `moved_by` (`movement`, which is `moved_stamp` answering the
-  second question too; `new` on first sight; the key it had when nothing
+  second question too; `new` on first sight, `opened` for one of yours; the key it had when nothing
   moved; caught up once off the stamp by `moved_key` for a row from before
   it was kept). That is the *last* movement, dated `moved_at`, and is
   listed whatever it was. A push is dated by `head_at` only while `head_by`

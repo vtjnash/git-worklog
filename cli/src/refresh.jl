@@ -1018,7 +1018,9 @@ function derive!(r, old, st, cfg, at::DateTime)
     # pane's one word for what made the row unread - a push, a comment, a
     # review - which the stamp alone cannot say. `new` on first sight; the
     # key it had when nothing moved, or nothing, for a row from before there
-    # was one.
+    # was one. `opened` where the arrival was yours (`opened_by_you`), for a
+    # row first seen before there was that word too: nobody else has done
+    # anything since, or a key would have moved it.
     if old === nothing
         r["moved_at"], r["moved_by"] = first_seen_at(r), "new"
     else
@@ -1026,6 +1028,7 @@ function derive!(r, old, st, cfg, at::DateTime)
         r["moved_by"] = isempty(by) ? String(nz(jget(old, :moved_by), "")) : by
         isempty(r["moved_by"]) && (r["moved_by"] = moved_key(r))
     end
+    r["moved_by"] == "new" && opened_by_you(r, login) && (r["moved_by"] = "opened")
     r["new"] = old === nothing
     r
 end
@@ -1065,6 +1068,19 @@ function first_seen_at(r)
     end
     best
 end
+
+"""Is this row's arrival your own doing, and nothing since anybody else's?
+
+You wrote it, and no key of the wake table at its level is set - every one
+of them is somebody else's act, carried across your own. Opening an issue or
+a pull request is a keystroke of yours like any other, and "nothing you did
+yourself is movement": the row is `opened` rather than `new`, which `seen_of`
+reads as seen until somebody else moves it.
+"""
+opened_by_you(r, login) =
+    get(r, "author", nothing) == login &&
+    !any(k -> truthy(get(r, k, nothing)),
+         get(TRACK_KEYS, get(r, "track", "normal"), TRACK_KEYS["normal"]))
 
 """What moved between `old` and `r`, said for a person, or `""`.
 
@@ -1639,7 +1655,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         pop!(r, "slept") && push!(slept, url)
         pop!(r, "woken") && push!(woke, url => String(r["wake"]))
         if old === nothing
-            push!(changes, (url, r, "new"))
+            r["moved_by"] == "opened" || push!(changes, (url, r, "new"))
         else
             d = change_of(old, r)
             isempty(d) || push!(changes, (url, r, d))

@@ -464,6 +464,28 @@ end
     W.derive!(fresh, nothing, Dict{String,Any}(), cfg, at)
     @test fresh["new"] == true && fresh["moved_at"] == "2026-09-10T10:00:00Z"
     @test fresh["moved_by"] == "new"
+    # Unless it is yours and nobody else has done anything to it: opening it
+    # was your own keystroke, so it arrives `opened`, which reads as seen.
+    me = cfg["login"]
+    own = merge(W.kept_row(row), Dict{String,Any}("author" => me, "mine" => true,
+        "head_by" => me, "their_head" => nothing, "lane" => "mine", "track" => "normal"))
+    delete!(own, "moved_at")
+    W.derive!(own, nothing, Dict{String,Any}(), cfg, at)
+    @test own["new"] == true && own["moved_by"] == "opened"
+    # Somebody asked for a review before the first look: that is theirs.
+    asked = merge(W.kept_row(own), Dict{String,Any}("review_requested_at" => "2026-09-11T00:00:00Z"))
+    W.derive!(asked, nothing, Dict{String,Any}(), cfg, at)
+    @test asked["moved_by"] == "new"
+    # A row first seen as `new` before there was `opened` is caught up while
+    # nothing has moved it, and stops being when somebody does.
+    was = merge(W.kept_row(own), Dict{String,Any}("moved_by" => "new"))
+    again = W.kept_row(was)
+    W.derive!(again, J(was), Dict{String,Any}(), cfg, at)
+    @test again["moved_by"] == "opened" && again["moved_at"] == was["moved_at"]
+    moved = merge(W.kept_row(again), Dict{String,Any}("head_sha" => "def", "head_by" => "alice",
+                                                      "head_at" => "2026-09-12T09:00:00Z"))
+    W.derive!(moved, J(again), Dict{String,Any}(), cfg, at)
+    @test moved["moved_by"] == "their_head"
     # And a push by somebody else since is a movement, said as one.
     pushed = W.kept_row(J(row)); pushed["head_sha"] = "def"; pushed["head_at"] = "2026-09-12T09:00:00Z"
     W.derive!(pushed, J(row), Dict{String,Any}(), cfg, at)
@@ -2199,6 +2221,27 @@ end
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                         marks("2026-09-12T08:00:00Z"; wake = "2026-09-12T12:00:00Z")) == ["woke", "comment"]
     @test W.moved_words(mk(; url = "local:o/r/wip", moved_by = "their_head"), read) == String[]
+    # Opened by you, with nothing since: read, stamped or not, floor or not,
+    # with no words - until you say it is unread, or its snooze wakes.
+    opened = mk(; moved_by = "opened", author = W.login())
+    for mm in (marks(nothing), read, marks("2026-09-11T00:00:00Z"))
+        @test W.seen_of(opened, mm) === :done
+        @test W.moved_words(opened, mm) == String[]
+    end
+    @test W.seen_of(opened, marks("")) === :unread
+    @test W.seen_of(opened, marks(nothing; wake = "2026-09-12T12:00:00Z")) === :unread
+    @test W.moved_words(opened, marks(nothing; wake = "2026-09-12T12:00:00Z")) == ["woke"]
+    @test W.seen_of(opened, marks(nothing; rang = true)) === :unread
+    # The poll's light row says the same, as near as it can: yours, with no
+    # comment and no notification. Anyone's comment, or a reason, and the
+    # poll cannot tell whose - it is unread until the refresh asks.
+    light = Dict{String,Any}("url" => "https://github.com/o/r/issues/3", "repo" => "o/r",
+                             "number" => 3, "title" => "t", "author" => W.login(),
+                             "updated" => "2026-09-12T10:00:00Z", "comments" => 0)
+    @test W.poll_item(light).moved_by == "opened"
+    @test W.poll_item(merge(light, Dict("comments" => 1))).moved_by == ""
+    @test W.poll_item(merge(light, Dict("reason" => "author"))).moved_by == ""
+    @test W.poll_item(merge(light, Dict("author" => "alice"))).moved_by == ""
     # An agent's bell is first, whatever else moved when: it is standing now.
     # And it is the one movement an adopted branch can have.
     @test W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),

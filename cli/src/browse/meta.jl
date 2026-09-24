@@ -335,7 +335,11 @@ function table_words(it::Item, m::Marks)
     stamp === nothing && (stamp = floor_of(it, m.sources))
     # Never in front of you at all: everything on it is new, and one word
     # says so.
-    stamp === nothing && return ["new"]
+    # Opened by you, with nothing since: `seen_of`'s exception, said the same
+    # way - its arrival is not a movement, and there is no word for it.
+    opened = it.moved_by == "opened"
+    stamp === nothing && !opened && return ["new"]
+    stamp = something(stamp, "")
     evs = Tuple{String,String}[]          # (when, word), to sort newest first
     keys = get(TRACK_KEYS, it.track, TRACK_KEYS["normal"])
     for k in keys
@@ -348,7 +352,7 @@ function table_words(it::Item, m::Marks)
             k == "state_at" ? it.state_at : ""
         isempty(t) || t <= stamp || push!(evs, (t, moved_word(k, it)))
     end
-    moved = something(moved_of(it), "")
+    moved = opened ? "" : something(moved_of(it), "")
     wake = get(m.wake, it.url, nothing)
     wake !== nothing && wake <= m.now && wake > stamp && push!(evs, (wake, "woke"))
     # The last movement as the refresh recorded it, which is the one the
