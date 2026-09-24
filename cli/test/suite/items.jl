@@ -148,11 +148,13 @@ end
         try
             here = st.all[1]
             n0 = length(st.all)
+            W.set_done_mark(here.url, W.stamp(at), "cafe")  # read, at a head
             prevread = W.done_at(here.url)
             msg = W.import_url!(st, here.url, at)
             @test occursin("already here", msg) && occursin(here.ref, msg)
             @test length(st.all) == n0                      # not twice
             @test W.done_at(here.url) === nothing           # unread again
+            @test W.done_head(here.url) === nothing         # both halves go
             @test haskey(W.Events.load_inbox()["items"], here.url)
             @test W.get_field(here.url, "imported") == string(W.Date(at))
             # And the undo takes back all three writes an import makes: the
@@ -167,6 +169,14 @@ end
             @test W.get_field(here.url, "imported") === nothing
             @test !haskey(W.Events.load_inbox()["items"], here.url)
             @test W.done_at(here.url) == prevread
+            # And the head with it: the rule back in the thread and `p` still
+            # with nothing to compare against was the two halves out of step.
+            @test W.done_head(here.url) == "cafe"
+            # `Z` makes the import again, head and all.
+            W.handle!(st, Int('Z'), ctrl)
+            @test W.done_at(here.url) === nothing && W.done_head(here.url) === nothing
+            W.handle!(st, Int('z'), ctrl)
+            @test W.done_at(here.url) == prevread && W.done_head(here.url) == "cafe"
 
             # A row a *poll* wrote is not an import's to remove. Importing
             # something already in the inbox leaves the richer entry alone -

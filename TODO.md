@@ -9,7 +9,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 - [ ] Search in dh pane should use Regex matcher and remember the query string last used
 - [ ] should we support emoji :robot: in github markdown parsing?
-- [ ] undo restores the "new since you last looked" cursor, but not the done_head that drives p, which feels confusingly out of sync
 
 ## Upstream
 
