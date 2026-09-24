@@ -168,6 +168,24 @@ end
         @test any(h -> occursin("cat  2026-09-05", h), after)
         @test !any(h -> occursin("bob  2026-09-03", h), after)
 
+        # Your own entries after the stamp are not what is new: read up to
+        # the second comment as ann, whose push follows it, and the rule waits
+        # for cat's comment. Only your own since the stamp, and there is none.
+        keeplogin = W.LOGIN[]
+        try
+            W.LOGIN[] = "ann"
+            ns = W.comment_nodes(it, W.utcnow())
+            i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
+            @test i !== nothing && occursin("1 entry", W.astrip(ns[i].header))
+            @test occursin("cat  2026-09-05", W.astrip(ns[i + 1].header))
+            W.LOGIN[] = "cat"
+            W.set_done_mark(u, "2026-09-04T12:00:00Z", "9999999999")
+            @test !any(n -> get(n.meta, "newmark", false) === true,
+                       W.comment_nodes(it, W.utcnow()))
+        finally
+            W.LOGIN[] = keeplogin
+        end
+
         # And a thread read past the end of it has no rule either.
         W.set_done_mark(u, "2026-09-09T00:00:00Z", "9999999999")
         @test !any(n -> get(n.meta, "newmark", false) === true,

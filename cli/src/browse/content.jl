@@ -394,6 +394,13 @@ function activity_list(cs, cms, sts)
     group_pushes(evs)
 end
 
+"""Who an activity entry is by: the commenter, the reviewer, whoever changed
+the state, and for a run of pushes its last commit's author."""
+entry_by(e) = String(nz(e.kind === :comment ?
+                            get(something(get(e.c, "user", nothing), Dict{String,Any}()), "login", nothing) :
+                        e.kind === :push ? get(e.c[end], "by", nothing) :
+                                           get(e.c, "by", nothing), ""))
+
 """The thread pane of an adopted branch, which has no thread.
 
 Nothing about it is on GitHub, so there is nothing to ask for - and asking,
@@ -460,9 +467,13 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     evs = activity_list(cs, cms, sts)
     # Where the new part starts, and how much of it there is. Nothing at all for
     # an item never marked done: the whole thread is new then, and a rule above
-    # the first line of it says nothing.
+    # the first line of it says nothing. It starts at somebody else's entry,
+    # the same rule the wake table keeps: your own reply, push or review after
+    # the stamp is not news to you, and a rule over it alone said there was some.
     seen = done_at(it.url)
-    mk = seen === nothing ? nothing : findfirst(e -> e.at > seen, evs)
+    me = login()
+    mk = seen === nothing ? nothing :
+         findfirst(e -> e.at > seen && (isempty(me) || entry_by(e) != me), evs)
     mark = mk === nothing ? 0 : mk
     for (k, e) in enumerate(evs)
         k == mark && push!(ns, newmark_node(length(evs) - mark + 1))
