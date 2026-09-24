@@ -726,11 +726,13 @@ mutable struct WorktreeView <: View
     items::Vector{Item}
     rows::Vector{WorktreeRow}
     brows::Vector{BranchRow}
-    mode::Symbol                    # :worktrees | :branches
-    sel::Int                        # per mode, so `tab` does not lose either
+    mode::Symbol                    # :worktrees | :active | :branches
+    sel::Int                        # per mode, so `tab` does not lose any
     top::Int
     bsel::Int
     btop::Int
+    asel::Int
+    atop::Int
     status::String
     pending::Union{Nothing,Task}    # the dirty pass, which is the slow half
     wake::Any
@@ -750,7 +752,7 @@ background pass fills it in.
 function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing,
                        onadopt = nothing, source = nothing)
     rows, brows = place_rows(items; withdirty = false)
-    v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1,
+    v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1, 1, 1,
                      isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
                      nothing, wake, onitem, onadopt, source, (0.0, 0, 0))
     dirty_pass!(v)
@@ -766,8 +768,9 @@ saying the branch has none.
 function worktree_reload!(v::WorktreeView)
     v.source === nothing || (v.items = v.source())
     v.rows, v.brows = place_rows(v.items; withdirty = false)
-    v.sel = clamp(v.sel, 1, max(1, length(v.rows)))
+    v.sel = clamp(v.sel, 1, length(v.rows) + 1)       # the row that adds one
     v.bsel = clamp(v.bsel, 1, max(1, length(v.brows)))
+    v.asel = clamp(v.asel, 1, max(1, count(isactive, v.rows)))
     dirty_pass!(v)
     true
 end
@@ -850,6 +853,37 @@ function track_mark(ahead::Int, behind::Int)
 end
 track_mark(r::WorktreeRow) = track_mark(r.ahead, r.behind)
 track_mark(r::BranchRow) = track_mark(r.ahead, r.behind)
+
+"""Is something running here: a shell or an agent. A note is not work going on,
+so it does not put a worktree in the `active` list on its own."""
+isactive(r::WorktreeRow) = any(s -> s.kind === :shell || s.kind === :agent, r.sessions)
+
+"""The rows the cursor walks in the mode showing: every worktree, the ones with
+something running in them, or the branches. `active` is the first filtered by
+`isactive`, so it is the same rows drawn the same way, and a key does on one
+there what it does on it in the whole list."""
+shown(v) = v.mode === :branches ? v.brows :
+           v.mode === :active ? filter(isactive, v.rows) : v.rows
+
+"""How many rows the cursor can be on: `shown`, and in the whole worktree list
+one more - the row at the bottom that makes a new one, the way the import row
+at the top of the browser's list makes a new item."""
+nshown(v) = length(shown(v)) + (v.mode === :worktrees)
+
+"Is the cursor on the row that makes a new worktree?"
+onnew(v) = v.mode === :worktrees && v.sel == length(v.rows) + 1
+
+"The cursor and the scroll of the mode showing - each mode keeps its own."
+cursor(v) = v.mode === :branches ? (v.bsel, v.btop) :
+            v.mode === :active ? (v.asel, v.atop) : (v.sel, v.top)
+function setcursor!(v, sel::Int, top::Int = cursor(v)[2])
+    v.mode === :branches ? (v.bsel = sel; v.btop = top) :
+    v.mode === :active ? (v.asel = sel; v.atop = top) : (v.sel = sel; v.top = top)
+    sel
+end
+
+"The order `tab` goes through the modes; shift-tab goes back through it."
+const WT_MODES = (:worktrees, :active, :branches)
 
 """Scroll so the cursor is on screen, and report the window to draw.
 
@@ -971,23 +1005,30 @@ function render(v::WorktreeView, w::Int, h::Int)
     # that names the columns.
     inner = max(1, h - 5)
     branches = v.mode === :branches
-    n = branches ? length(v.brows) : length(v.rows)
-    sel, top, win = listwindow(n, branches ? v.bsel : v.sel,
-                               branches ? v.btop : v.top, inner)
-    branches ? (v.bsel = sel; v.btop = top) : (v.sel = sel; v.top = top)
+    rs = shown(v)
+    n = nshown(v)
+    sel, top, win = listwindow(n, cursor(v)..., inner)
+    setcursor!(v, sel, top)
     body = [list_header(branches, iw)]
     for i in win
-        line = branches ? br_line(v.brows[i], iw) : wt_line(v.rows[i], iw)
+        line = i > length(rs) ?
+            string(THEME.dim, "+ new worktree …", THEME.reset) :
+            branches ? br_line(rs[i], iw) : wt_line(rs[i], iw)
         push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
     end
-    # `n`, not `body`: the header is always in there, so an empty list is one
-    # that has no rows rather than one that drew nothing.
-    n == 0 && push!(body, string(THEME.dim, branches ?
-        "no branches — none of the registered repos is here" :
-        "no worktrees — register a repo with e, t or T on an item", THEME.reset))
+    # `rs`, not `body`: the header is always in there, and so in the whole
+    # list is the row that adds one, so an empty list is one that has no rows
+    # rather than one that drew nothing.
+    isempty(rs) && push!(body, string(THEME.dim,
+        branches ? "no branches — none of the registered repos is here" :
+        v.mode === :active ? "nothing running — t or T on a worktree starts something" :
+                             "no worktrees — register a repo with e, t or T on an item",
+        THEME.reset))
     keys = branches ? "↵ its worktree, or make one · h item · tab worktrees · r refresh · q back" :
-                      "↵/t shell · T agent · h item · K kill · tab branches · r refresh · q back"
-    rows = vcat(bordered(body, w, h - 2, branches ? "branches" : "worktrees", true),
+           onnew(v) ? "↵ make a worktree, for a branch that is here or a new one · tab active · q back" :
+                      string("↵/t shell · T agent · h item · K kill · tab ",
+                             v.mode === :active ? "branches" : "active", " · r refresh · q back")
+    rows = vcat(bordered(body, w, h - 2, String(v.mode), true),
                 [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
                  string(THEME.dim, afit(isempty(v.status) ? keys : v.status, w),
                         THEME.reset)])
@@ -1002,12 +1043,10 @@ moves the cursor. The worktree list's half of what `mouse.jl` says of the
 pickers, here because the view is."""
 function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
     h, w = displaysize(stdout)
-    branches = v.mode === :branches
-    n = branches ? length(v.brows) : length(v.rows)
+    n = nshown(v)
     if ev.kind === :wheelup || ev.kind === :wheeldown
         d = ev.kind === :wheelup ? -3 : 3
-        branches ? (v.bsel = clamp(v.bsel + d, 1, max(1, n))) :
-                   (v.sel = clamp(v.sel + d, 1, max(1, n)))
+        setcursor!(v, clamp(cursor(v)[1] + d, 1, max(1, n)))
         return :ok
     end
     ev.kind === :press || return :ok
@@ -1015,11 +1054,10 @@ function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64
     v.lastclick = (at, ev.x, ev.y)
     # The same window `render` drew: the border, then the column header, then
     # the rows from `top`.
-    _, top, win = listwindow(n, branches ? v.bsel : v.sel, branches ? v.btop : v.top,
-                             max(1, h - 5))
+    _, top, win = listwindow(n, cursor(v)..., max(1, h - 5))
     i = ev.y - 3 + top
     i in win || return :ok
-    branches ? (v.bsel = i) : (v.sel = i)
+    setcursor!(v, i)
     dbl ? handle!(v, 13, ctrl) : :ok
 end
 
@@ -1066,13 +1104,12 @@ end
 
 isdialog(::WorktreeView) = false
 
-"The row the cursor is on, in whichever list is showing, or `nothing`."
+"""The row the cursor is on, in whichever list is showing, or `nothing` - which
+is also what the row that makes a new worktree is."""
 function currow(v::WorktreeView)
-    if v.mode === :branches
-        isempty(v.brows) ? nothing : v.brows[clamp(v.bsel, 1, length(v.brows))]
-    else
-        isempty(v.rows) ? nothing : v.rows[clamp(v.sel, 1, length(v.rows))]
-    end
+    onnew(v) && return nothing
+    rs = shown(v)
+    isempty(rs) ? nothing : rs[clamp(cursor(v)[1], 1, length(rs))]
 end
 
 """Claim the row's branch as yours, or give it back.
@@ -1104,16 +1141,75 @@ user's business - disks, build trees and naming habits all differ - so the
 suggestion arrives already typed, to be accepted, edited or thrown away. `note`
 carries why the last attempt failed, which is what makes correcting a path
 cheaper than typing it again.
+
+`start` is where a branch that is not here yet is made from, and the note says
+what will be made, since that is decided before the path is asked for.
 """
-function ask_worktree(v::WorktreeView, r::BranchRow, ctrl; seed = "", note = "")
-    p = repo_path(r.repo)
-    p === nothing && return string("no local checkout registered for ", r.repo)
-    dest = isempty(seed) ? worktree_dest(p, r.name) : String(seed)
+function ask_worktree(v::WorktreeView, repo::AbstractString, branch::AbstractString, ctrl;
+                      seed = "", note = "", start::AbstractString = "")
+    p = repo_path(repo)
+    p === nothing && return string("no local checkout registered for ", repo)
+    from, base = branch_source(p, repo, branch, start)
+    dest = isempty(seed) ? worktree_dest(p, branch) : String(seed)
+    what = !isempty(from) ? string(" · tracking ", from) :
+           !isempty(base) ? string(" · a new branch from ", base) : ""
     push_view!(ctrl, PromptView(
-        string("New worktree for ", r.name),
-        isempty(note) ? string("where to check it out · ", r.repo, " is at ", p) : note,
-        b -> (v.status = make_worktree!(v, r, ctrl, b)); initial = dest))
+        string("New worktree for ", branch),
+        isempty(note) ? string("where to check it out · ", repo, " is at ", p, what) : note,
+        b -> (v.status = make_worktree!(v, repo, branch, ctrl, b; start)); initial = dest))
     ""
+end
+
+"""Where a worktree's branch comes from, as `add_worktree!`'s `from` and `base`.
+
+A branch that is here is checked out as it is, and neither is set. One that is
+only on the project's remote is made tracking it - the branch somebody else
+pushed, not a new one of the same name. Anything else is a new branch of your
+own: from `start` when it was given, or from the default branch.
+"""
+function branch_source(p::AbstractString, repo::AbstractString, branch::AbstractString,
+                       start::AbstractString = "")
+    has_rev(p, string("refs/heads/", branch)) && return ("", "")
+    isempty(start) || return ("", String(start))
+    theirs = string("refs/remotes/", remote_for(p, repo), "/", branch)
+    has_rev(p, theirs) && return (theirs, "")
+    ("", something(default_base(p), "HEAD"))
+end
+
+"""The row at the bottom of the worktree list: which repo, which branch, and
+for a branch that is not here yet, optionally where it starts. Asked in one
+line - `JuliaLang/julia jn/fix` - seeded with the repo of the last row, which
+is the one the cursor came down from; the path is asked next, the same as for a
+branch in the branch list.
+"""
+function ask_new_worktree(v::WorktreeView, ctrl; seed = "", note = "")
+    if isempty(seed)
+        repos = [r.repo for r in v.rows if !isempty(r.repo)]
+        pins = pinned_repos()
+        repo = !isempty(repos) ? last(repos) : isempty(pins) ? "" : first(pins).name
+        seed = isempty(repo) ? "" : string(repo, " ")
+    end
+    push_view!(ctrl, PromptView("New worktree",
+        isempty(note) ? "repo and branch · a branch that is not here yet starts " *
+                        "from the default branch, or from a third word" : note,
+        b -> (v.status = new_worktree!(v, ctrl, b)); initial = seed))
+    ""
+end
+
+"The answer to `ask_new_worktree`: asked again when it is not one, or on to the path."
+function new_worktree!(v::WorktreeView, ctrl, b::AbstractString)
+    ws = split(strip(b))
+    if !(length(ws) in (2, 3))
+        ask_new_worktree(v, ctrl; seed = b, note = "want: repo branch [start]")
+        return ""
+    end
+    repo, branch = String(ws[1]), String(ws[2])
+    if repo_path(repo) === nothing
+        ask_new_worktree(v, ctrl; seed = b,
+                         note = string("no local checkout registered for ", repo))
+        return ""
+    end
+    ask_worktree(v, repo, branch, ctrl; start = length(ws) == 3 ? String(ws[3]) : "")
 end
 
 """Make the place, and go to it.
@@ -1127,14 +1223,17 @@ complaint above it, because every way this fails is a path that wants
 correcting - the directory exists, its parent does not, the branch was checked
 out somewhere else a moment ago.
 """
-function make_worktree!(v::WorktreeView, r::BranchRow, ctrl, at::AbstractString)
-    p = repo_path(r.repo)
-    p === nothing && return string("no local checkout registered for ", r.repo)
+function make_worktree!(v::WorktreeView, repo::AbstractString, branch::AbstractString,
+                        ctrl, at::AbstractString; start::AbstractString = "")
+    p = repo_path(repo)
+    p === nothing && return string("no local checkout registered for ", repo)
     dest = try
-        add_worktree!(p, r.name, at)
+        from, base = branch_source(p, repo, branch, start)
+        add_worktree!(p, branch, at; from, base)
     catch e
         e isa GitError || rethrow()
-        ask_worktree(v, r, ctrl; seed = at, note = oneline(first(sprint(showerror, e), 200)))
+        ask_worktree(v, repo, branch, ctrl; seed = at, start,
+                     note = oneline(first(sprint(showerror, e), 200)))
         return ""
     end
     worktree_reload!(v)
@@ -1163,18 +1262,17 @@ end
 
 function handle!(v::WorktreeView, k::Int, ctrl)
     k = unshift(k)
-    branches = v.mode === :branches
-    n = branches ? length(v.brows) : length(v.rows)
-    move!(d) = branches ? (v.bsel = clamp(v.bsel + d, 1, max(1, n))) :
-                          (v.sel = clamp(v.sel + d, 1, max(1, n)))
+    n = nshown(v)
+    move!(d) = setcursor!(v, clamp(cursor(v)[1] + d, 1, max(1, n)))
     r = currow(v)
     if k == Int('q') || k == 27
         return :pop
     elseif k == 9 || k == K_STAB
-        # The same `tab` the browser uses to change pane: two lenses on one
+        # The same `tab` the browser uses to change pane: three lenses on one
         # key, and each keeps its own cursor so switching back returns to where
         # you were rather than to the top.
-        v.mode = branches ? :worktrees : :branches
+        i = findfirst(==(v.mode), WT_MODES)
+        v.mode = WT_MODES[mod1(i + (k == 9 ? 1 : -1), length(WT_MODES))]
         v.status = ""
     elseif k in (Int('j'), K_DOWN); move!(1)
     elseif k in (Int('k'), K_UP);   move!(-1)
@@ -1183,6 +1281,8 @@ function handle!(v::WorktreeView, k::Int, ctrl)
     elseif k == Int('r')
         worktree_reload!(v)
         v.status = ""
+    elseif onnew(v) && k in (13, 10, Int('t'))
+        v.status = ask_new_worktree(v, ctrl)
     elseif r === nothing
         # Nothing to act on; every key below wants a row.
     elseif k == 13 || k == 10 || k == Int('t') || k == Int('T')
@@ -1198,7 +1298,7 @@ function handle!(v::WorktreeView, k::Int, ctrl)
             if i !== nothing
                 v.mode = :worktrees; v.sel = i; v.status = ""
             elseif isempty(r.worktree)
-                v.status = ask_worktree(v, r, ctrl)
+                v.status = ask_worktree(v, r.repo, r.name, ctrl)
             else
                 # Checked out somewhere the survey did not report: another repo
                 # entirely, or one that has been unregistered since.

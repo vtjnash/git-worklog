@@ -252,7 +252,7 @@ end
         n0 = length(st.all)
         W.handle!(st, Int('"'), ctrl)
         v = last(ctrl.stack)
-        W.handle!(v, 9, ctrl)
+        W.handle!(v, W.K_STAB, ctrl)
         @test v.mode === :branches
         pick(n) = (v.bsel = findfirst(b -> b.name == n, v.brows))
 
@@ -401,6 +401,32 @@ end
     end
 end
 
+@testset "active, the worktrees something is running in" begin
+    items = W.loaditems()
+    ctrl = W.Controller(); ctrl.running = true
+    row(name, kinds...) = W.WorktreeRow("o/r", "/x/" * name, name, name, false, false,
+                                        0, 0, "", false, false, nothing,
+                                        [W.SessionRow(name * string(k), k, false, false)
+                                         for k in kinds])
+    rows = [row("idle"), row("shell", :shell), row("note", :note), row("agent", :agent, :note)]
+    v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
+                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0))
+    W.handle!(v, 9, ctrl)
+    @test v.mode === :active
+    # A note alone is not work going on.
+    @test [r.name for r in W.shown(v)] == ["shell", "agent"]
+    out = W.astrip(W.render(v, 120, 24))
+    @test occursin("active", out) && occursin("agent", out) && !occursin("idle", out)
+    # No row to make one here: that is the whole list's.
+    @test !occursin("+ new worktree", out)
+    W.handle!(v, Int('G'), ctrl)
+    @test v.asel == 2 && W.currow(v).name == "agent"
+    # Its own cursor: the whole list's is where it was.
+    @test v.sel == 1
+    W.handle!(v, W.K_STAB, ctrl)
+    @test v.mode === :worktrees && W.currow(v).name == "idle"
+end
+
 @testset "branches, the second lens" begin
     # Worktrees are places that exist; branches are work that exists without
     # one. Same key, same rows underneath, one `tab` apart.
@@ -435,6 +461,8 @@ end
         @test byname[pr.branch].item !== nothing && byname[pr.branch].item.url == pr.url
         @test byname["homeless"].item === nothing
 
+        # Three, with the ones something is running in between the two.
+        @test W.handle!(v, 9, ctrl) === :ok && v.mode === :active
         @test W.handle!(v, 9, ctrl) === :ok && v.mode === :branches
         for (w, h) in ((80, 24), (120, 40), (165, 50))
             ls = split(W.render(v, w, h), "\n")
@@ -453,8 +481,8 @@ end
         @test v.bsel == length(v.brows) && v.sel == 2
         W.handle!(v, 9, ctrl)
         @test v.mode === :worktrees && v.sel == 2
-        W.handle!(v, 9, ctrl)
-        @test v.bsel == length(v.brows)
+        W.handle!(v, W.K_STAB, ctrl)                 # and back the other way
+        @test v.mode === :branches && v.bsel == length(v.brows)
 
         # A branch is not a place: enter goes to the worktree that has it out.
         v.bsel = findfirst(b -> b.name == pr.branch, v.brows)
@@ -463,7 +491,7 @@ end
         # And offers to make one where there is none, which is the only thing
         # this list could see and not act on. The suggestion is beside the main
         # checkout, already typed and with the cursor after it.
-        W.handle!(v, 9, ctrl)
+        W.handle!(v, W.K_STAB, ctrl)
         v.bsel = findfirst(b -> b.name == "homeless", v.brows)
         @test W.handle!(v, 13, ctrl) === :ok
         @test v.mode === :branches
@@ -493,7 +521,7 @@ end
         @test ispath(joinpath(made, ".git"))
         @test !isempty(first(b for b in v.brows if b.name == "homeless").worktree)
         # Nowhere left to suggest: a second one is refused by git, not by us.
-        W.handle!(v, 9, ctrl)
+        W.handle!(v, W.K_STAB, ctrl)
         v.bsel = findfirst(b -> b.name == "homeless", v.brows)
         W.handle!(v, 13, ctrl)
         @test v.mode === :worktrees && v.rows[v.sel].name == "made"
@@ -501,7 +529,7 @@ end
         # `h` works from either lens.
         st = W.BState(items, "worklog")
         v2 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
-        W.handle!(v2, 9, ctrl)
+        W.handle!(v2, W.K_STAB, ctrl)
         v2.bsel = findfirst(b -> b.name == pr.branch, v2.brows)
         @test W.handle!(v2, Int('h'), ctrl) === :pop
         @test st.items[st.sel].url == pr.url
@@ -520,7 +548,7 @@ end
         @test W.onmouse!(v2, W.MouseEvent(:press, 0, 10, 2 + bi, 0), ctrl, 100.2) === :ok
         @test v2.mode === :worktrees && v2.rows[v2.sel].name == "made"
         @test W.onmouse!(v2, W.MouseEvent(:wheeldown, 0, 10, 5, 0), ctrl, 200.0) === :ok
-        @test v2.sel == min(length(v2.rows), findfirst(r -> r.name == "made", v2.rows) + 3)
+        @test v2.sel == min(length(v2.rows) + 1, findfirst(r -> r.name == "made", v2.rows) + 3)
         @test W.onmouse!(v2, W.MouseEvent(:press, 0, 10, 1, 0), ctrl, 300.0) === :ok  # the border
 
         # Newest tip first, across every repo at once.
@@ -529,11 +557,47 @@ end
 
         # An empty list still renders and says which one is empty.
         e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
-                           1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing,
+                           1, 1, 1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing,
                            (0.0, 0, 0))
         ls = split(W.render(e, 80, 24), "\n")
         @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))
+        e.mode = :active
+        @test occursin("nothing running", W.render(e, 80, 24))
+
+        # The row at the bottom makes one: a repo and a branch in one line,
+        # then the place, the same as for a branch that has none.
+        v.mode = :worktrees
+        W.handle!(v, Int('G'), ctrl)
+        @test W.onnew(v) && W.currow(v) === nothing
+        @test occursin("+ new worktree", W.astrip(W.render(v, 120, 40)))
+        @test W.handle!(v, 13, ctrl) === :ok
+        pv = last(ctrl.stack)
+        @test pv isa W.PromptView && W.text(pv) == string(pr.repo, " ")
+        pv.onsubmit("fresh")                             # no repo
+        @test last(ctrl.stack) !== pv && occursin("want:", last(ctrl.stack).note)
+        pv.onsubmit(string("no/where fresh"))
+        @test occursin("no local checkout", last(ctrl.stack).note)
+        # A branch that is not here is made, from the default branch.
+        pv.onsubmit(string(pr.repo, " fresh"))
+        pp = last(ctrl.stack)
+        @test W.text(pp) == joinpath(root, "main-fresh")
+        @test occursin("a new branch from master", pp.note)
+        empty!(ctrl.stack)
+        pp.onsubmit(joinpath(root, "fresh"))
+        @test isempty(ctrl.stack) && v.mode === :worktrees
+        @test v.rows[v.sel].name == "fresh" && v.rows[v.sel].branch == "fresh"
+        @test W.git(main, "rev-parse", "fresh") == W.git(main, "rev-parse", "master")
+        # And from a third word, when there is one.
+        W.git(main, "commit", "--quiet", "--allow-empty", "-m", "second")
+        W.handle!(v, Int('G'), ctrl); W.handle!(v, 13, ctrl)
+        last(ctrl.stack).onsubmit(string(pr.repo, " older master~1"))
+        pp = last(ctrl.stack)
+        @test occursin("from master~1", pp.note)
+        empty!(ctrl.stack)
+        pp.onsubmit(joinpath(root, "older"))
+        @test v.rows[v.sel].branch == "older"
+        @test W.git(main, "rev-parse", "older") == W.git(main, "rev-parse", "master~1")
     finally
         W.LOCAL[] = REPOS_SANDBOX
     end

@@ -347,7 +347,9 @@ the same branch, and that refusal is what lets the branch list claim a branch
 either has a place or has none.
 
 With `from`, the branch is not here yet and is made there, tracking `from` -
-a remote-tracking ref, named in full. Said outright rather than left to git's
+a remote-tracking ref, named in full. With `base` instead, it is made there
+and tracks nothing: a branch of your own, started from the default branch or
+wherever you said, has no upstream until it is pushed. Said outright rather than left to git's
 guess from the bare name, which makes a local branch off the one remote that
 has it and refuses with `invalid reference` the moment two remotes do: a
 checkout with `origin` on the fork and `upstream` on the project carries the
@@ -359,9 +361,12 @@ sessions by the resolved form, so the unresolved one would fail to find what it
 had just made.
 """
 function add_worktree!(path::AbstractString, branch::AbstractString, at::AbstractString;
-                       from::AbstractString = "")
+                       from::AbstractString = "", base::AbstractString = "")
     dest = abspath(expanduser(String(at)))
-    if isempty(from)
+    if !isempty(base)
+        git(path, "worktree", "add", "--quiet", "--no-track", "-b", String(branch), dest,
+            String(base))
+    elseif isempty(from)
         git(path, "worktree", "add", "--quiet", dest, String(branch))
     else
         git(path, "worktree", "add", "--quiet", "--track", "-b", String(branch), dest,
