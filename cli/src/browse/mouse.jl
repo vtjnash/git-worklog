@@ -122,7 +122,10 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
         st.anchor = idx
         st.sela = 0; st.selb = 0
         r = rs[idx]
-        if r.header && r.part == 0 && col <= 2   # the ▾/▸ marker
+        # The ▾/▸ marker, which a nested node draws after its indent: the
+        # blank columns in front of it belong to nobody.
+        ind = 2 * st.nodes[r.node].depth
+        if r.header && r.part == 0 && ind < col <= ind + 2
             i = r.node
             st.nodes[i].open = !st.nodes[i].open
             st.nrow = headerrow(st, i, L.riw)

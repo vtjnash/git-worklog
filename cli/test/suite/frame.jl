@@ -352,6 +352,19 @@ end
     press2(L.rx + 2, L.ry + 1 + st2.hdr)
     @test st2.nodes[1].open
 
+    # A nested node's marker is after its indent, and the indent is nobody's.
+    st3 = mkstate()
+    st3.nodes = [W.Node("someone  2026-09-02", "text", :md, true),
+                 W.Node("code", "x = 1", :plain, true, 1)]
+    st3.loaded = string(st3.items[st3.sel].url, ":", st3.mode)
+    W.render(st3, 160, 50)
+    j = findfirst(r -> r.node == 2 && r.header, W.rows(st3.nodes, L.riw))
+    press3(x) = W.onmouse!(st3, W.MouseEvent(:press, 0, x, L.ry + st3.hdr + j, 0), ctrl)
+    press3(L.rx + 2)
+    @test st3.nodes[2].open && st3.nodes[1].open
+    press3(L.rx + 4)
+    @test !st3.nodes[2].open
+
     # Clicking past the end of the content, or on a border, changes nothing.
     W.render(st2, 160, 50)
     before = (st2.nrow, st2.sel, st2.focus)
