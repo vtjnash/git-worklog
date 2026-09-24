@@ -25,6 +25,13 @@ login = ""
 # says what the roles are and what a colour may be written as.
 theme = "github-light-256.toml"
 
+# The zone times are shown in, as an IANA name - `America/New_York`, not
+# `-05:00`, since a zone knows when daylight time starts and an offset is right
+# for half the year. A bare date typed as a snooze is midnight there. Empty is
+# the zone `wl` was started in: `TZ`, or the machine's. Only what is shown:
+# every stamp is still stored and compared in UTC.
+tz = ""
+
 [thresholds]
 # A mention this recent, with the last word not yours, is a question owed a reply.
 reply_days = 30

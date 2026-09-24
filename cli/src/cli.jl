@@ -326,7 +326,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             end
             c = e.c
             who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
-            print("  ", replace(first(c["created_at"], 16), "T" => " "), "  ", pyrepr(who), "\n")
+            print("  ", when_str(c["created_at"]), "  ", pyrepr(who), "\n")
             # Rendered, not cut at 600 characters: the same markdown path the
             # browser uses, with links lifted to footnotes.
             show_md(something(get(c, "body", nothing), ""))
@@ -442,6 +442,9 @@ function main(args = String[])
     # at `__init__` off the shared file alone, and the file just written
     # names a theme of its own.
     seed_config!() && (empty!(THEME_NOTES); append!(THEME_NOTES, load_theme!()))
+    # The zone times are shown in. Here and not at `__init__`: it is the
+    # process's, and the suite loads the package without wanting it moved.
+    append!(THEME_NOTES, set_tz!())
     # A command's channel is stderr; the browser's is its footer, and it says
     # these there (`standing_note`).
     (isempty(args) || args == ["--refresh"]) ||

@@ -206,13 +206,13 @@ commits is context for the comment under it rather than forty lines to scroll.
 """
 function push_node(run, url::AbstractString)
     n = length(run)
-    when = first(run[end]["at"], 16)
+    when = when_str(run[end]["at"])
     # The last commit's author, which is whose push it was except where a run
     # collected two people's. A list of names on the header would be a byline
     # about the push rather than about a person, which is not what a byline is.
     who = isempty(run[end]["by"]) ? "" : string(run[end]["by"], "  ")
     peek = strip(first(replace(String(run[end]["headline"]), r"\s+" => " "), 58))
-    body = join((string(first(c["oid"], 8), "  ", first(c["at"], 16), "  ",
+    body = join((string(first(c["oid"], 8), "  ", when_str(c["at"]), "  ",
                         oneline(c["headline"])) for c in Iterators.reverse(run)), "\n")
     hd = string(THEME.settled, "↑ pushed ", n, n == 1 ? " commit" : " commits", THEME.reset)
     nd = Node(string(hd, "  ", THEME.dim, who, when, THEME.reset, "   ", peek),
@@ -253,7 +253,7 @@ function state_node(e, url::AbstractString)
                   kind == "draft" ? (THEME.dim, "converted to draft") :
                                     (THEME.settled, "ready for review")
     by = String(nz(get(e, "by", nothing), ""))
-    when = first(String(e["at"]), 16)
+    when = when_str(String(e["at"]))
     closer = String(nz(get(e, "closer", nothing), ""))
     reason = String(nz(get(e, "reason", nothing), ""))
     into = String(nz(get(e, "into", nothing), ""))
@@ -432,7 +432,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         end
         c = e.c
         who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
-        when = first(String(c["created_at"]), 16)
+        when = when_str(String(c["created_at"]))
         txt = strip(nz(get(c, "body", nothing), ""))
         # Anchored, so following it lands on this comment rather than the top.
         url = String(nz(get(c, "html_url", nothing), it.url))
@@ -729,7 +729,7 @@ a peek. Not where it pointed - the hunk it hangs off is where, which is the
 whole of what `place_comments` is for."""
 function comment_header(c)
     who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
-    at = first(String(nz(get(c, "created_at", nothing), "")), 16)
+    at = when_str(String(nz(get(c, "created_at", nothing), "")))
     peek = strip(first(replace(String(nz(get(c, "body", nothing), "")), r"\s+" => " "), 48))
     (string(who, "  ", at, "   ", peek), string(who, "  ", at))
 end

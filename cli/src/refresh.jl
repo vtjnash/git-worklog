@@ -660,8 +660,9 @@ rather than a hold that the table has to get past - so every shape is a time:
   * `3d`, `2w`, `6mo` - wake after that long. Counted from when it was set:
     `wl snooze` and `s` write the resolved time, and a span typed by hand into
     `local.toml` is counted from the done stamp beside it.
-  * `2026-09-15` - wake on that date; `2026-09-15T20:00:00Z` - at that moment.
-    The second is what the first two are written as.
+  * `2026-09-15` - wake on that date, at midnight where you are (`set_tz!`);
+    `2026-09-15T20:00:00Z` - at that moment. The second is what the first two
+    are written as.
 
 `nothing` for anything else, which is a value that was typed wrong. "Until it
 moves" is not a shape, because it is what `e` does; "forever" is not one,
@@ -674,7 +675,8 @@ function parse_snooze(sv::AbstractString)
     t = ts(strip(String(sv)))
     t === nothing || return (mode = :at, days = nothing, until = stamp(t))
     dt = tryparse(Date, strip(String(sv)))
-    dt === nothing ? nothing : (mode = :at, days = nothing, until = stamp(DateTime(dt)))
+    dt === nothing ? nothing :
+        (mode = :at, days = nothing, until = stamp(utc_of_local(DateTime(dt))))
 end
 
 """

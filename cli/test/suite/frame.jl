@@ -517,12 +517,12 @@ end
                                        cmt(3, "b.jl", 101)], "http://x")
     hdr(n) = W.astrip(n.header)
     @test occursin("💬1", hdr(out[1]))                    # the hunk says so
-    @test hdr(out[2]) == "alice  2026-08-01T10:00   a remark" && out[2].depth == 1
+    @test hdr(out[2]) == "alice  2026-08-01 10:00   a remark" && out[2].depth == 1
     # The peek is what makes a folded comment readable, and what makes an open
     # one say itself twice - so open, the header is the byline alone and the
     # words are on the row underneath it, once.
     open_ = W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2))
-    @test occursin("alice  2026-08-01T10:00", open_) && !occursin("a remark", open_)
+    @test occursin("alice  2026-08-01 10:00", open_) && !occursin("a remark", open_)
     out[2].open = false
     @test occursin("a remark",
                    W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2)))

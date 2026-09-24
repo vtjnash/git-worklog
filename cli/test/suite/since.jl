@@ -232,7 +232,7 @@ end
         # says them; and each in the state's own colour.
         @test occursin("by r#11", W.astrip(closed.header)) &&
               occursin("as not planned", W.astrip(closed.header))
-        @test occursin("bob  2026-09-03T10:00", W.astrip(closed.header))
+        @test occursin("bob  2026-09-03 10:00", W.astrip(closed.header))
         @test occursin(W.THEME.blocked, closed.header)
         @test closed.meta["url"] == "https://github.com/o/r/pull/11"
         @test occursin("into master", W.astrip(merged.header)) &&

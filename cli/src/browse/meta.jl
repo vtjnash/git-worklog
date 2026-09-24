@@ -274,14 +274,14 @@ function collect_meta!(st::BState)
     true
 end
 
-"""A GitHub timestamp as `2026-09-08 01:36`, or `""` for anything unparseable.
+"""A GitHub timestamp as `2026-09-08 01:36`, in the zone you are in (`set_tz!`),
+or `""` for anything unparseable.
 
 Its own function because "" has to survive it: a synthetic row - an unread
 thread the poll found, an adopted branch - carries no timestamps at all, and the
 metadata pane skips an empty value rather than printing an empty row.
 """
-when_str(s::AbstractString) =
-    length(s) >= 16 && s[11] == 'T' ? string(s[1:10], " ", s[12:16]) : ""
+when_str(s::AbstractString) = (t = ts(s); t === nothing ? "" : local_str(t))
 
 """The same, with how long ago that was beside it, dim: `2026-09-08 01:36
 3d ago`. The reader was doing the subtraction on every date the pane shows.
@@ -414,7 +414,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
                 (col, mark) = rev_mark(r.state)
                 push!(out, string("  ", col, mark, THEME.reset, " ",
                                   afit(rpad(r.login, 16), max(4, w - 6)),
-                                  THEME.dim, first(r.at, 10), "  ", ago_str(r.at, at),
+                                  THEME.dim, first(when_str(r.at), 10), "  ", ago_str(r.at, at),
                                   THEME.reset))
             end
             for who in vcat(m.requested, ["@" * t for t in m.teams])

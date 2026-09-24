@@ -24,6 +24,10 @@ const W = Worklog
 # tests below write and delete this file themselves anyway.
 isfile(W.errlog()) && rm(W.errlog())
 
+# Times are drawn in the zone the process is in (`set_tz!`), and what the tests
+# assert they are drawn as is UTC - on the developer's laptop as much as here.
+W.set_tz!("UTC")
+
 # Every path this program writes through is a `Ref`, and the rule is that all of
 # them are pointed somewhere else for the whole run - not that each leak is
 # fixed as it turns up. Both halves of `data/` are redirected here: a test that

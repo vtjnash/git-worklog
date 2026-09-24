@@ -103,6 +103,49 @@ now_isoformat(at::DateTime) = string(Dates.format(at, "yyyy-mm-ddTHH:MM:SS.sss")
 "The ISO-8601 Z form of `at`, which is how every timestamp is written here."
 stamp(at::DateTime) = Dates.format(at, "yyyy-mm-ddTHH:MM:SS") * "Z"
 
+"""
+    set_tz!(tz) -> notes
+
+Show times in `tz`, an IANA name - `America/New_York` - from the top-level
+`tz` in the config. Empty leaves the zone the process was started in, which is
+`TZ` or the machine's.
+
+**Only what is shown.** Every stamp stays UTC - GitHub's, written as `Z`,
+compared as strings - and nothing is stored in local time or against an offset.
+This is what a stamp is *drawn* as, and what a bare date typed as a snooze
+means: midnight where you are, not where the server is. A name and not an
+offset because an offset is right for half the year: libc knows when daylight
+time starts in a zone, and a number in a file does not.
+
+Set on the process, for git's `format-local` and `Dates.today()` to agree with
+it, and `tzset` asked to read it again: glibc reads `TZ` once, on the first
+conversion, and not on the ones after. A name libc has no file for is drawn
+as UTC without complaint, so that is said here instead.
+"""
+function set_tz!(tz = get(config(), "tz", ""))
+    (tz isa AbstractString && !isempty(tz)) || return String[]
+    ENV["TZ"] = tz
+    ccall(:tzset, Cvoid, ())
+    dirs = ("/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo")
+    (startswith(tz, ":") || any(d -> isfile(joinpath(d, tz)), dirs)) && return String[]
+    [string("tz = \"", tz, "\" is not a zone this machine knows; times are in UTC")]
+end
+
+"""`t`, a UTC time, as the wall clock where you are shows it: `2026-09-08 01:36`.
+See `set_tz!`."""
+local_str(t::DateTime) = Libc.strftime("%Y-%m-%d %H:%M", datetime2unix(t))
+
+"""The UTC time that the wall clock where you are shows as `t` - the other
+direction, for a time typed in. Daylight time is libc's to decide (`isdst = -1`),
+including for the hour a spring-forward skips."""
+function utc_of_local(t::DateTime)
+    tm = Libc.TmStruct()
+    tm.year, tm.month, tm.mday = year(t) - 1900, month(t) - 1, day(t)
+    tm.hour, tm.min, tm.sec = hour(t), minute(t), second(t)
+    tm.isdst = -1
+    unix2datetime(time(tm))
+end
+
 """Fill in the date placeholders in a search lane.
 
 `{since:21}` becomes the date 21 days before this run, and `{since}` defaults to

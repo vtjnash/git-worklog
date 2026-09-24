@@ -16,6 +16,10 @@ login = ""
 # palette pinned to the 256-colour cube.
 theme = "github-light-256.toml"
 
+# The zone times are shown in, when it is not this machine's - a server kept on
+# UTC, say. An IANA name, so daylight time comes and goes with the zone.
+# tz = "America/New_York"
+
 [filters]
 # Repos at the top of the filter pane (`f`) whether or not they are applied, in
 # this order - one `↵` away, in the same place every time. A name, or `owner/*`.

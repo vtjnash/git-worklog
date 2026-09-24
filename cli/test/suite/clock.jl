@@ -577,3 +577,25 @@ end
         @test W.noteeditor() == "v1"                   # VISUAL wins, as in less
     end
 end
+
+@testset "a time is shown where you are, and stored in UTC" begin
+    try
+        W.set_tz!("America/New_York")
+        # Daylight time comes and goes with the zone, which an offset would not.
+        @test W.when_str("2026-07-15T12:00:00Z") == "2026-07-15 08:00"
+        @test W.when_str("2026-01-15T12:00:00Z") == "2026-01-15 07:00"
+        @test W.when_str("") == "" && W.when_str("soon") == ""
+        # A bare date is midnight here, which is four or five hours into the
+        # UTC day - and written as that, so what is stored is still a stamp.
+        @test W.parse_snooze("2026-09-15").until == "2026-09-15T04:00:00Z"
+        @test W.parse_snooze("2026-12-15").until == "2026-12-15T05:00:00Z"
+        # A moment is a moment, wherever it is read.
+        @test W.parse_snooze("2026-09-15T20:00:00Z").until == "2026-09-15T20:00:00Z"
+        @test W.utc_of_local(DateTime(2026, 7, 15, 8)) == DateTime(2026, 7, 15, 12)
+        # A name libc has no file for is said, not drawn as UTC in silence.
+        @test occursin("not a zone", only(W.set_tz!("Nowhere/Special")))
+        @test isempty(W.set_tz!(""))
+    finally
+        W.set_tz!("UTC")
+    end
+end
