@@ -600,6 +600,46 @@ end
     @test occursin("💬2", W.astrip(wide.header))
 end
 
+@testset "a diff header says what it heads by its background" begin
+    txt = "diff --git a/a.jl b/a.jl\nindex 1..2 100644\n--- a/a.jl\n+++ b/a.jl\n" *
+          "@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n" *
+          "diff --git a/new.jl b/new.jl\nnew file mode 100644\n--- /dev/null\n" *
+          "+++ b/new.jl\n@@ -0,0 +1 @@\n+x\n" *
+          "diff --git a/c.jl b/c.jl\n--- a/c.jl\n+++ b/c.jl\n@@ -1 +1 @@\n-e\n+f\n"
+    ns = W.hunk_nodes(txt, "http://x")
+    # Said once, before the first hunk, and not carried to the file after.
+    @test [n.meta["newfile"] for n in ns] == [false, false, true, false]
+    c = W.Node("someone  2026-09-02", "a comment", :md, true, 1)
+    c.meta["comment_id"] = 7
+    insert!(ns, 2, c)
+    st = mkstate()
+    st.mode = :diff
+    st.nodes = ns
+    try
+        W.load_theme!(joinpath(W.ROOT, "themes", "github-dark-256.toml"))
+        rs = W.rows(ns, 80)
+        bgof(i) = W.header_bg(st, rs[findfirst(r -> r.node == i && r.header &&
+                                                    !isempty(r.text), rs)])
+        @test bgof(1) == W.THEME.diff_hunk_bg != ""
+        @test bgof(2) == W.THEME.diff_comment_bg != ""
+        @test bgof(4) == W.THEME.diff_file_bg != ""
+        # Not a body row, and not the blank row above a header.
+        @test all(W.header_bg(st, r) == "" for r in rs
+                  if !r.header || (r.part == 1 && isempty(r.text)))
+        # And the cursor's outranks it, so the cursor still shows on a header.
+        st.focus = :detail
+        st.nrow = findfirst(r -> r.node == 1 && r.header, rs)
+        st.loaded = string(st.items[st.sel].url, ":", st.mode)
+        out = W.render(st, 160, 50)
+        @test occursin(W.THEME.diff_file_bg, out) && occursin(W.THEME.cursor_bg, out)
+        # A comment in the history is not a diff's, and has none.
+        st.mode = :comments
+        @test bgof(2) == ""
+    finally
+        W.load_theme!(THEME_DEFAULT)
+    end
+end
+
 @testset "a control character in a diff is drawn, not obeyed" begin
     # An escape in a diff is a command to the terminal the frame is on, and gh
     # refuses to pipe one. Here it is asked for anyway, and what reaches the

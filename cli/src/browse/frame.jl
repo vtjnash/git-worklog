@@ -81,11 +81,13 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         # Mark the cursor row so it is visible while paging through a body,
         # not only when it lands on a header. The selection outranks it.
         cur = st.focus === :detail && i == st.nrow
-        (insel || cur) || continue
         r = rrows[i + st.hdr]
-        rrows[i + st.hdr] = Row(r.node, r.header,
-                                hlrow(apad(afit(r.text, riw), riw),
-                                      insel ? THEME.select_bg : THEME.cursor_bg),
+        # Otherwise a header in the diff says what it heads by its background,
+        # as GitHub's do. Laid here and not in `rows`, and only where the cursor
+        # is not: a background inside the row would outlast the cursor's.
+        bg = insel ? THEME.select_bg : cur ? THEME.cursor_bg : header_bg(st, r)
+        isempty(bg) && continue
+        rrows[i + st.hdr] = Row(r.node, r.header, hlrow(apad(afit(r.text, riw), riw), bg),
                                 r.src, r.part, r.gutter)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
@@ -133,6 +135,21 @@ function refresh_stamp(st::BState, at::DateTime)
     refreshing() && return string(THEME.dim, "refreshing \u2026 ", THEME.reset)
     w = when_str(st.refreshed, at)
     isempty(w) ? "" : string(THEME.dim, "refreshed ", THEME.reset, w, " ")
+end
+
+"""The background a diff header row is drawn on, or `""`.
+
+A hunk is blue and a hunk of a new file grey, which is how GitHub marks where
+one region of a change ends and the next begins; a review comment hanging off a
+line has its own. Not the blank row above a top-level header, which is spacing.
+"""
+function header_bg(st::BState, r::Row)
+    (r.header && !(r.part == 1 && isempty(r.text))) || return ""
+    n = st.nodes[r.node]
+    n.kind === :diff && return get(n.meta, "newfile", false) === true ?
+                               THEME.diff_file_bg : THEME.diff_hunk_bg
+    st.mode === :diff && haskey(n.meta, "comment_id") && return THEME.diff_comment_bg
+    ""
 end
 
 """

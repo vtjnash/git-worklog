@@ -67,6 +67,12 @@ diff_add_word = "on 157"
 diff_del_word = "on 217"
 diff_hunk = "26"
 diff_meta = "245"
+# Behind the header rows, which do run to the edge of the pane: GitHub's pale
+# blue (#ddf4ff) for where a hunk starts, and grey for a file the change
+# creates. Both kept off `cursor_bg`'s 255, so the cursor still shows on one.
+diff_hunk_bg    = "on 195"
+diff_file_bg    = "on 253"
+diff_comment_bg = "on 254"
 # neutral.muted, the grey GitHub puts behind an inline code span. A step darker
 # than `cursor_bg` so that a span on the row under the cursor is still marked.
 code_bg = "on 253"

@@ -71,6 +71,11 @@ diff_add_word = "reverse"
 diff_del_word = "reverse"
 diff_hunk = "cyan"
 diff_meta = "dim"
+# Behind the header rows. None: the eight colours have no tint quiet enough to
+# sit behind a row of text, and the header already has a weight and a rule.
+diff_hunk_bg    = ""
+diff_file_bg    = ""
+diff_comment_bg = ""
 # An inline code span, drawn as a quiet background instead of loud punctuation.
 # A background and not a foreground on purpose: the span is usually an
 # identifier in a sentence, and marking it must not compete with the sentence.

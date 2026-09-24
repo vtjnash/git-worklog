@@ -603,6 +603,9 @@ parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
 function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractString = "")
     txt, ctl = inert(txt)
     ns, file, buf, hdr = Node[], "", String[], ""
+    # Whether the file is one the change creates: said between `diff --git`
+    # and its first `@@`, and nowhere after.
+    newfile = false
     pending_range, pending_old = (0, 0), (0, 0)
     flush!() = if !isempty(hdr)
         adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
@@ -621,12 +624,15 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
         n.meta["down"] = 0
         n.meta["url"] = String(url)
         n.meta["head"] = String(head)
+        n.meta["newfile"] = newfile
         push!(ns, n)
     end
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
-            flush!(); hdr = ""; buf = String[]
+            flush!(); hdr = ""; buf = String[]; newfile = false
             file = replace(String(last(split(l, " "))), r"^b/" => "")
+        elseif isempty(hdr) && (startswith(l, "new file mode") || l == "--- /dev/null")
+            newfile = true
         elseif startswith(l, "@@")
             flush!()
             m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", String(l))

@@ -69,6 +69,12 @@ Base.@kwdef mutable struct Theme
     diff_del_word_off::String = ""
     diff_hunk::String = ""
     diff_meta::String = ""
+    # Behind a header row in the diff, which is drawn to the edge of the pane
+    # and so can carry one: a hunk, a hunk of a file that is new, and a review
+    # comment hanging off a line.
+    diff_hunk_bg::String = ""
+    diff_file_bg::String = ""
+    diff_comment_bg::String = ""
     code_bg::String = ""
     code_bg_off::String = ""
     # Where the cursor, the selection, a search hit and the insertion point are.
