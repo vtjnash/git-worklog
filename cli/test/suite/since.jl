@@ -191,6 +191,23 @@ end
         @test !any(n -> get(n.meta, "newmark", false) === true,
                    W.comment_nodes(it, W.utcnow()))
 
+        # With no stamp, the floor of its source is where it was read up to -
+        # the list reads it so, and a plain `e` that the floor covers writes no
+        # stamp at all - so the rule is drawn from it. It used to read the
+        # stamp alone, and a row read by construction had no rule.
+        W.set_done(u, nothing)
+        W.name_source!("o/r", "2026-09-03T12:00:00Z")
+        backlog = W.Item(url = u, ref = "r#9", repo = "o/r", number = 9, lane = "backlog",
+                         title = "a pull request", head = "9999999999", state = "OPEN")
+        ns = W.comment_nodes(backlog, W.utcnow())
+        i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
+        @test i !== nothing && occursin("2 entries", W.astrip(ns[i].header))
+        # An empty stamp is unread said out loud, and the floor does not answer
+        # over it: the whole thread is new.
+        W.set_done(u, "")
+        @test !any(n -> get(n.meta, "newmark", false) === true,
+                   W.comment_nodes(backlog, W.utcnow()))
+
         # An entry written before the pushes were drawn in here still shows the
         # conversation, rather than being dropped for a field that is new.
         W.cache_put("thread:" * u, (

@@ -127,6 +127,17 @@ moved_of(it::Item) = moved_of(it.moved_at, it.updated)
 "The day its source was named, or `nothing`; see `floor_of` in `marks.jl`."
 floor_of(it::Item, sources::AbstractDict) = floor_of(it.lane, it.repo, sources)
 
+"""What one item is done up to, off the file: its stamp, or where it has none the
+floor of its source - the rule `seen_of` reads. `nothing` for an item that is
+unread by what was said of it, an empty stamp, or by there being nothing to
+say. Not `done_at`, which is the stamp alone: a plain `e` writes none where the
+floor already answers (`folded`), so the stamp alone is missing on most of what
+was ever read."""
+function done_upto(it::Item)
+    v = mark_at(it.url, "done")
+    v === nothing ? floor_of(it, source_since()) : truthy(v) ? String(v) : nothing
+end
+
 """How many days ago this item last moved, as of `at`.
 
 Computed on demand rather than stored. The browser holds its items for the

@@ -470,7 +470,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # the first line of it says nothing. It starts at somebody else's entry,
     # the same rule the wake table keeps: your own reply, push or review after
     # the stamp is not news to you, and a rule over it alone said there was some.
-    seen = done_at(it.url)
+    # The stamp or the floor, as the list reads it: the stamp alone left no rule
+    # on a row read by construction, which the list called unread all the same.
+    seen = done_upto(it)
     me = login()
     mk = seen === nothing ? nothing :
          findfirst(e -> e.at > seen && (isempty(me) || entry_by(e) != me), evs)
