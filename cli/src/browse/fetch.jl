@@ -548,8 +548,14 @@ end
 "Take the sessions again once one rang, or went quiet, behind the frame."
 function rerang!(st::BState)
     st.rerang || return false
-    st.rerang = false
+    # Lowered after the refilter, not before: it yields reading the file and
+    # the sessions, and a poll landing in between compares against the `rang`
+    # it has not yet replaced and raises the flag again for a change this is
+    # taking. Dropping one raised in that window loses nothing, since the poll
+    # compares afresh each time and a change the refilter missed is unequal
+    # again on the next.
     refilter!(st)
+    st.rerang = false
     true
 end
 
