@@ -1141,14 +1141,22 @@ end
         v4.sel = findfirst(r -> r.name == "side", v4.rows)
         @test W.handle!(v4, Int('h'), ctrl) === :pop
         @test st2.items[st2.sel].url == pr.url
-        # Everything, since the row being jumped to may be filed or closed: the
-        # jump clears the axes *and* turns the four disposition boxes on.
-        @test st2.filters.show == W.everything().show
-        @test isempty(st2.filters.repos) && isempty(st2.filters.tags)
-        @test isempty(st2.search)
-        # And `\`` is the way back, the same as from every other jump.
-        @test st2.prev !== nothing && st2.prev.repos == Set(["nothing/here"])
-        @test occursin("cleared the filter", st2.status)
+        # Shown as the guest, in the list that was there: the filters and the
+        # search stay, and the row is in anyway, marked in the frame.
+        @test st2.filters.repos == Set(["nothing/here"])
+        @test st2.search == "zzzz-no-such-item"
+        @test st2.guest == pr.url && length(st2.items) == 1
+        @test occursin("filter hides it", st2.status)
+        @test occursin("+" * pr.ref, W.render_frame(st2, 160, 40))
+        # A refilter of the same list keeps it; asking for another list drops it.
+        W.refilter!(st2)
+        @test st2.guest == pr.url && st2.items[st2.sel].url == pr.url
+        st2.search = ""
+        W.refilter!(st2)
+        @test isempty(st2.guest) && isempty(st2.items)
+        # Nor is a row the filters show a guest: it is already where it belongs.
+        empty!(st2.filters.repos); W.refilter!(st2)
+        @test W.select_item!(st2, pr) == "" && isempty(st2.guest)
         # An item that is not in the dashboard at all is still a message: there
         # is no filter to clear that would bring it.
         gone = W.Item(url = "https://example.invalid/x/y/pull/9", ref = "y#9",

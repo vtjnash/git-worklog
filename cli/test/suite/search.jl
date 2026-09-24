@@ -37,8 +37,11 @@
         W.apply_snooze!(st, hidden, "3d", W.utcnow())
         @test !any(i -> i.url == hidden.url, st.items)
         W.handle!(st, Int('/'), ctrl); type!(st, string(hidden.number))
+        was = st.filters
         W.handle!(st, 13, ctrl)
         @test st.items[st.sel].url == hidden.url
+        # In the list that was there, rather than the filters cleared for it.
+        @test st.filters === was && st.guest == hidden.url
     finally
         W.set_fields(hidden.url, ["snooze" => nothing])
         W.set_done(hidden.url, nothing)

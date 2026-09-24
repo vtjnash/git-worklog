@@ -1126,12 +1126,15 @@ The order is the same distinction, read off what the list is *of*: the
 filters, the sort and the list search, written the way a view is
 (`view_lines`) and kept as `orderkey`. While those stand, a refilter keeps the
 order the reader has (`held_order`); the moment any of them changes - a view,
-a filter, `w`, a search, a jump that widened the filters to reach its row -
-the list is another list and is sorted afresh. So is one that asks
-(`resort`), which is a refresh landing: the same list, with what moved in it
-moved to where the order says.
+a filter, `w`, a search - the list is another list and is sorted afresh. So
+is one that asks (`resort`), which is a refresh landing: the same list, with
+what moved in it moved to where the order says.
+
+`guest` is a jump's: the url of a row the filters hide, to be shown in this
+list anyway (`st.guest`), until another list is asked for.
 """
-function refilter!(st; keeprow::Bool = true, resort::Bool = false)
+function refilter!(st; keeprow::Bool = true, resort::Bool = false,
+                   guest::Union{Nothing,String} = nothing)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
@@ -1148,9 +1151,24 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     # And the one record that is not in the file: whose agent rang. A
     # process, the same as the reads above are a file.
     st.rang = rang_urls()
-    fresh = sortitems(apply_filters(st.filters, st.all, Marks(st)), st.sort, st.touched)
     key = string(join(view_lines(st.filters, st.sort), "\n"), "\n/",
                  st.searchin === :list ? st.search : "")
+    # The guest is a row a jump went to that the filters hide: shown where the
+    # sort puts it among the rows they do not, rather than the filters cleared
+    # to reach it, which threw away the list being read to show one row of
+    # another. It stays while this list does - a key that marks it leaves it
+    # where it is, as the cursor being on it would - and goes the moment
+    # another list is asked for, or when the filters come to show it anyway.
+    (!keeprow || key != st.orderkey) && (st.guest = "")
+    guest === nothing || (st.guest = guest)
+    listed = apply_filters(st.filters, st.all, Marks(st))
+    g = isempty(st.guest) ? nothing : findfirst(it -> it.url == st.guest, st.all)
+    if g === nothing || any(it -> it.url == st.guest, listed)
+        st.guest = ""
+    else
+        push!(listed, st.all[g])
+    end
+    fresh = sortitems(listed, st.sort, st.touched)
     st.items = (resort || !keeprow || key != st.orderkey) ? fresh : held_order(fresh, st.items)
     st.orderkey = key
     # The text filter sits on top of the tag axes rather than inside `Filters`,
@@ -1159,8 +1177,10 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false)
     # Only a search started in the list narrows it. One begun in the thread is
     # about the thread, and should not quietly filter the list out from under
     # the cursor the next time anything rebuilds it.
+    # The guest is not narrowed by it either: it is there because it was asked
+    # for by name.
     (isempty(st.search) || st.searchin !== :list) ||
-        (st.items = [it for it in st.items if hits(it, st.search)])
+        (st.items = [it for it in st.items if it.url == st.guest || hits(it, st.search)])
     i = findfirst(x -> x.url == keep, st.items)
     # Stay on the same item when possible, and failing that on the same *row* -
     # whatever moved up into the place being read. `e` in the unread lane is the

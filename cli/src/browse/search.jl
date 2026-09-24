@@ -99,8 +99,9 @@ end
 
 Only on Enter: done live, typing the `1` of `18004` would land on whatever
 `#1` happens to be and take the rest of the digits as commands. The jump also
-reaches past the filter that is hiding the item, by widening the state axis -
-being unable to see it is exactly when you go looking for it by number.
+reaches past the filter that is hiding the item, as the guest row (see
+`refilter!`) - being unable to see it is exactly when you go looking for it by
+number.
 """
 function commit_search!(st::BState, w::Int)
     st.typing = false
@@ -122,16 +123,13 @@ function commit_search!(st::BState, w::Int)
     st.search = ""
     # With the same marks `refilter!` uses, or the question is asked of a
     # different list than the one on screen: without them an archived item
-    # reads as active, the widen does not happen, and the jump lands nowhere.
-    # Widening drops the disposition axis with the state: a number typed into
-    # `/` is a jump to one item, and every axis that could be hiding it goes.
-    # Everything, not widened one axis at a time: a number typed into `/` is a
-    # jump to one item, and every axis that could be hiding it goes - including
-    # the disposition boxes, since read, snoozed, filed and closed are four of
-    # the reasons the item you are looking for is not on screen.
-    any(it -> it.url == target, apply_filters(st.filters, st.all, Marks(st))) ||
-        (st.filters = everything())
-    refilter!(st)
+    # reads as active and the jump lands nowhere. Hidden, it is the guest - a
+    # number typed into `/` is a jump to one item, and read, snoozed, filed and
+    # closed are four of the reasons it is not on screen - and the list around
+    # it is the one that was there; the search typed to get here goes, since
+    # it was the number.
+    hidden = !any(it -> it.url == target, apply_filters(st.filters, st.all, Marks(st)))
+    refilter!(st; guest = hidden ? target : nothing)
     j = findfirst(it -> it.url == target, st.items)
     j === nothing || (st.sel = j)
     st.status = string("jumped to ", ref)

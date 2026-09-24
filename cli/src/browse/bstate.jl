@@ -81,6 +81,10 @@ Base.@kwdef mutable struct BState <: View
                                              # into a view and getting back out
                                              # is the move, and `z` is for
                                              # actions rather than for looking
+    guest::String = ""              # a row a jump went to that the filters
+                                    # hide, shown where the sort puts it until
+                                    # the list is asked for again; one slot, the
+                                    # way `prev` is. See `refilter!`
     lanes::Vector{String} = String[]
     repos::Vector{String} = String[]
     pinned::Vector{String} = String[]    # `[filters] pinned_repos`, as written:

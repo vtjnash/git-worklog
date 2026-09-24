@@ -199,7 +199,7 @@ on instead.
 """
 function select_item!(st::BState, it::Item)
     i = findfirst(x -> x.url == it.url, st.items)
-    cleared = false
+    guest = false
     if i === nothing
         findfirst(x -> x.url == it.url, st.all) === nothing &&
             return string(it.ref, " is not in this dashboard")
@@ -208,17 +208,14 @@ function select_item!(st::BState, it::Item)
         # pull request a worktree belongs to, "it is filtered out" is a refusal
         # to do the one thing that was asked.
         #
-        # Cleared rather than widened by whichever axis is hiding it: which one
-        # that is is not a question anybody wants answered, and `\`` is the way
-        # back from this the same as from every other jump. Everything, and not
-        # the list the browser opens with, because filed and snoozed work still
-        # has a worktree and is exactly what you would be going to look at.
-        st.prev = st.filters
-        st.filters = everything()
-        # A list search narrows on top of the axes, so it can hide it too.
-        st.searchin === :list && (st.search = "")
-        refilter!(st)
-        cleared = true
+        # Shown as the guest - where the sort puts it in the list on screen -
+        # rather than by clearing the filters, which it used to: that answered
+        # one row by throwing away the list being read, and `\`` to get it back
+        # lost the row instead. Whichever axis or search is hiding it, filed and
+        # snoozed work included, since those still have a worktree and are
+        # exactly what you would be going to look at.
+        refilter!(st; guest = it.url)
+        guest = true
         i = findfirst(x -> x.url == it.url, st.items)
         i === nothing && return string(it.ref, " could not be shown")
     end
@@ -227,7 +224,7 @@ function select_item!(st::BState, it::Item)
     # `window` re-aims the scroll around the cursor, so `top` is left alone,
     # and the pane follows it in `settle!`, after the other view's event.
     st.status = string("went to ", it.ref,
-                       cleared ? " · cleared the filter to show it, ` goes back" : "")
+                       guest ? " \u00b7 shown though the filter hides it" : "")
     ""
 end
 

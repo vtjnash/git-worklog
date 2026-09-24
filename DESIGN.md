@@ -477,6 +477,14 @@ search, written as a view is and kept as `orderkey` - is what fixes it: when
 any of them changes the list is another list and is sorted afresh, and a
 refresh landing asks for the same (`resort`).
 
+**A jump to a hidden row brings the row, not the filters down.** `"`'s `h`,
+a number typed into `/` and `esc` back to a draft go to one item, and when
+the filters hide it the row is shown anyway as the *guest* (`st.guest`),
+where the sort puts it and marked `+`, until another list is asked for. It
+used to clear the filters, which answered one row by throwing away the list
+being read, and `` ` `` to get the list back lost the row. One slot, like
+`prev`; a row the filters come to show is no longer a guest.
+
 ## Showing what changed
 
 Three things answer it, all read off the mark `e` leaves:

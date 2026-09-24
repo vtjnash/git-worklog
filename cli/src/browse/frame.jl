@@ -263,7 +263,10 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # read had to be found again in the list on the way back. Which
             # side is lit is the border's to say, and it does.
             on = i == st.sel
-            txt = afit(string(" ", it_.ref, " ", it_.title), liw)
+            # The guest says it is one, where every row has a space to spare:
+            # a row the filters in the title would not have shown, which the
+            # next list asked for will not have.
+            txt = afit(string(it_.url == st.guest ? "+" : " ", it_.ref, " ", it_.title), liw)
             # Weight says whether it has been read, which is the one thing
             # about a row worth knowing before opening it and the one thing the
             # list never said: unread is bold, read is plain. Dim is left to the
