@@ -575,14 +575,20 @@ end
         pv = last(ctrl.stack)
         @test pv isa W.PromptView && W.text(pv) == string(pr.repo, " ")
         pv.onsubmit("fresh")                             # no repo
-        @test last(ctrl.stack) !== pv && occursin("want:", last(ctrl.stack).note)
+        @test last(ctrl.stack) !== pv && occursin("one word", last(ctrl.stack).note) &&
+              occursin("Type a repository and a branch", last(ctrl.stack).note)
         pv.onsubmit(string("no/where fresh"))
-        @test occursin("no local checkout", last(ctrl.stack).note)
+        @test occursin("no/where has no checkout registered", last(ctrl.stack).note)
+        # The first time, the example is in the repo it is seeded with, and the
+        # registered ones are named.
+        @test occursin(string("`", pr.repo, " jn/fix`"), pv.note)
+        @test occursin(string("Registered: ", pr.repo), pv.note)
         # A branch that is not here is made, from the default branch.
         pv.onsubmit(string(pr.repo, " fresh"))
         pp = last(ctrl.stack)
         @test W.text(pp) == joinpath(root, "main-fresh")
-        @test occursin("a new branch from master", pp.note)
+        @test occursin("a new branch, started from master.", pp.note) &&
+              occursin("to use this path", pp.note)
         empty!(ctrl.stack)
         pp.onsubmit(joinpath(root, "fresh"))
         @test isempty(ctrl.stack) && v.mode === :worktrees
@@ -593,7 +599,7 @@ end
         W.handle!(v, Int('G'), ctrl); W.handle!(v, 13, ctrl)
         last(ctrl.stack).onsubmit(string(pr.repo, " older master~1"))
         pp = last(ctrl.stack)
-        @test occursin("from master~1", pp.note)
+        @test occursin("started from master~1", pp.note)
         empty!(ctrl.stack)
         pp.onsubmit(joinpath(root, "older"))
         @test v.rows[v.sel].branch == "older"

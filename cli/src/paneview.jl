@@ -1151,11 +1151,16 @@ function ask_worktree(v::WorktreeView, repo::AbstractString, branch::AbstractStr
     p === nothing && return string("no local checkout registered for ", repo)
     from, base = branch_source(p, repo, branch, start)
     dest = isempty(seed) ? worktree_dest(p, branch) : String(seed)
-    what = !isempty(from) ? string(" · tracking ", from) :
-           !isempty(base) ? string(" · a new branch from ", base) : ""
+    # What will be checked out there, since that was decided before this was
+    # asked and is the thing most worth catching before git does it.
+    what = !isempty(from) ? string("It will track ", from, ", the branch already pushed there.") :
+           !isempty(base) ? string("It will be a new branch, started from ", base, ".") :
+                            "The branch is already here, and is checked out as it is."
     push_view!(ctrl, PromptView(
         string("New worktree for ", branch),
-        isempty(note) ? string("where to check it out · ", repo, " is at ", p, what) : note,
+        isempty(note) ? string("Where to put the new checkout: \u21b5 to use this path, ",
+                               "or edit it first. ", what, " ", repo,
+                               "'s main checkout is at ", p, ".") : note,
         b -> (v.status = make_worktree!(v, repo, branch, ctrl, b; start)); initial = dest))
     ""
 end
@@ -1182,31 +1187,52 @@ line - `JuliaLang/julia jn/fix` - seeded with the repo of the last row, which
 is the one the cursor came down from; the path is asked next, the same as for a
 branch in the branch list.
 """
-function ask_new_worktree(v::WorktreeView, ctrl; seed = "", note = "")
+function ask_new_worktree(v::WorktreeView, ctrl; seed = "", problem = "")
+    pins = [r.name for r in pinned_repos()]
     if isempty(seed)
         repos = [r.repo for r in v.rows if !isempty(r.repo)]
-        pins = pinned_repos()
-        repo = !isempty(repos) ? last(repos) : isempty(pins) ? "" : first(pins).name
+        repo = !isempty(repos) ? last(repos) : isempty(pins) ? "" : first(pins)
         seed = isempty(repo) ? "" : string(repo, " ")
     end
     push_view!(ctrl, PromptView("New worktree",
-        isempty(note) ? "repo and branch · a branch that is not here yet starts " *
-                        "from the default branch, or from a third word" : note,
+        new_worktree_note(first(vcat(split(seed), [""])), pins, problem),
         b -> (v.status = new_worktree!(v, ctrl, b)); initial = seed))
     ""
+end
+
+"""What the first prompt says: the shape of the answer, by example, and what
+each kind of branch name does - since which of the three happens is decided by
+what is in the repository, and is not something to find out from git's error.
+A problem with the last answer goes first, and the explanation stays under it,
+because the problem is usually that the explanation was not read."""
+function new_worktree_note(repo::AbstractString, pins::Vector{String},
+                           problem::AbstractString = "")
+    # The example in the repository typed or seeded, when that is one of them:
+    # after a bad answer, its first word may be the branch.
+    r = repo in pins ? String(repo) : isempty(pins) ? "owner/repo" : first(pins)
+    known = isempty(pins) ? "No repository is registered yet: e, t or T on an item registers its own." :
+            string("Registered: ", join(first(pins, 6), ", "), length(pins) > 6 ? ", \u2026" : "", ".")
+    string(isempty(problem) ? "" : string(problem, " \u2014 "),
+           "Type a repository and a branch, like `", r, " jn/fix`. A branch that is here ",
+           "is checked out as it is; one only on the remote is checked out tracking it; ",
+           "any other name is a new branch from the default branch, or from a third word, ",
+           "like `", r, " jn/fix v1.12.0`. Where to put it is asked next. ", known)
 end
 
 "The answer to `ask_new_worktree`: asked again when it is not one, or on to the path."
 function new_worktree!(v::WorktreeView, ctrl, b::AbstractString)
     ws = split(strip(b))
     if !(length(ws) in (2, 3))
-        ask_new_worktree(v, ctrl; seed = b, note = "want: repo branch [start]")
+        ask_new_worktree(v, ctrl; seed = b, problem = string(
+            isempty(ws) ? "Nothing was typed" :
+            length(ws) == 1 ? "That is one word, and a repository and a branch are two" :
+                              "That is more than three words", "."))
         return ""
     end
     repo, branch = String(ws[1]), String(ws[2])
     if repo_path(repo) === nothing
-        ask_new_worktree(v, ctrl; seed = b,
-                         note = string("no local checkout registered for ", repo))
+        ask_new_worktree(v, ctrl; seed = b, problem = string(
+            repo, " has no checkout registered here, so there is nowhere to add a worktree to."))
         return ""
     end
     ask_worktree(v, repo, branch, ctrl; start = length(ws) == 3 ? String(ws[3]) : "")
