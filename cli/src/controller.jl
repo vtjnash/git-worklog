@@ -683,6 +683,10 @@ function run!(ctrl::Controller, root::View)
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     ctrl.running = true
+    # One wake before the first key, so the view on top starts whatever it
+    # would start on a wake - the browser's first thread - rather than drawing
+    # an empty pane until somebody presses something.
+    wake!(ctrl)
     unwatch_winch = watch_winch!(ctrl)
     # The reader reads one event per token and then waits for the next, rather
     # than looping on `read`. That is what lets `suspend` hand stdin to a child:
@@ -773,6 +777,10 @@ function run!(ctrl::Controller, root::View)
                 if act === :pop
                     at = findlast(x -> x === v, ctrl.stack)
                     at === nothing || deleteat!(ctrl.stack, at)
+                    # And a wake for the view underneath, which heard none while
+                    # it was covered: a dialog's answer can move its selection,
+                    # and a fetch can have landed behind it.
+                    wake!(ctrl)
                 end
                 dirty = true
             end

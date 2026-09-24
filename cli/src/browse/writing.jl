@@ -938,6 +938,10 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # the wake, so the row has to be able to leave or arrive on the strength of
     # either.
     refilter!(st)
+    # The row can have left, and the cursor moved to the next one, from inside
+    # a dialog: no `handle!` is about to finish and load it. Before the message
+    # and not after, as `x` does, since `load_nodes!` says "loading …".
+    load_nodes!(st); load_meta!(st)
     val === nothing ? "snooze cleared" : string("snoozed until ", when_str(val))
 end
 

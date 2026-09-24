@@ -369,6 +369,10 @@ end
         @test W.apply_snooze!(st, it, "2w", now) == "snoozed until 2026-09-26 12:00"
         @test W.get_field(it.url, "snooze") == "2026-09-26T12:00:00Z"
         @test st.wakes[it.url] == "2026-09-26T12:00:00Z"
+        # The pane follows the cursor wherever the snooze left it: the answer
+        # comes from a dialog, with no key about to finish and load it.
+        key = st.sel == 0 ? "new:" : string(st.items[st.sel].url, ":", st.mode)
+        @test st.loaded == key || st.pendkey == key
         # Now that there is one, clearing is offered and says when it wakes.
         W.handle!(st, Int('s'), ctrl)
         v2 = pop!(ctrl.stack)
