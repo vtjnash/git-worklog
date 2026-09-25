@@ -426,6 +426,11 @@ end
         "last_comment_at" => "2026-09-02T00:00:00Z",
         "review_requested_at" => "2026-09-03T00:00:00Z")) == "2026-09-03T00:00:00Z"
     @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-01T00:00:00Z")) == "2026-09-01T00:00:00Z"
+    # And not before it was opened: commits dated before the floor, in a pull
+    # request opened after it, are an arrival after the floor (libuv#5301).
+    @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-25T16:06:49Z",
+        "created" => "2026-09-25T16:06:49Z",
+        "head_at" => "2026-09-14T12:46:13Z")) == "2026-09-25T16:06:49Z"
 
     # A kept row is derived against itself, and nothing about it moves: the
     # mark stays, the carried keys stay, and only what depends on the clock -
@@ -464,6 +469,12 @@ end
     W.derive!(fresh, nothing, Dict{String,Any}(), cfg, at)
     @test fresh["new"] == true && fresh["moved_at"] == "2026-09-10T10:00:00Z"
     @test fresh["moved_by"] == "new"
+    # Opened after its commits were written: the arrival is the opening, so a
+    # floor between the two leaves it unread, as the thread says (libuv#5301).
+    late = merge(W.kept_row(row), Dict{String,Any}("created" => "2026-09-12T00:00:00Z"))
+    delete!(late, "moved_at")
+    W.derive!(late, nothing, Dict{String,Any}(), cfg, at)
+    @test late["moved_at"] == "2026-09-12T00:00:00Z" && late["moved_by"] == "new"
     # Unless it is yours and nobody else has done anything to it: opening it
     # was your own keystroke, so it arrives `opened`, which reads as seen.
     me = cfg["login"]

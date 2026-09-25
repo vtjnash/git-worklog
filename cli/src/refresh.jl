@@ -1065,10 +1065,17 @@ it - a review request, an assignment, somebody merging it - and that event is
 on the row as a time; dating the row by the last comment instead, as
 `activity_at` alone did, put the mark before the event, and before a read
 stamp from an earlier life, so a thread the inbox said was unread arrived
-read. Every one of these is GitHub's time, so a rebuilt `fetched.json` still
-does not read as everything moving at once."""
+read. And never before the item was opened (`created`): a pull request's
+push is dated by its commits, which can be days older than the opening, and
+dated by them alone a pull request opened after its source's floor arrived
+read, while the thread called all of it new (libuv#5301). Your own opening
+is no movement, but that is `opened_by_you`'s to say, not this. Every one of
+these is GitHub's time, so a rebuilt `fetched.json` still does not read as
+everything moving at once."""
 function first_seen_at(r)
     best = String(activity_at(r))
+    c = get(r, "created", nothing)
+    truthy(c) && (best = max(best, String(c)))
     for k in values(TIMED_KEYS)
         t = get(r, k, nothing)
         truthy(t) && (best = max(best, String(t)))
