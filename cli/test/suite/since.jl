@@ -582,9 +582,46 @@ end
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master"))
         @test occursin("nothing pushed", ns[1].header) && occursin("`h`", ns[1].raw)
+
+        # With no `done_head` - a row read by the floor, or by `s` or `x` -
+        # the refresh's copy on the row is what it measures from, and the
+        # one `e` wrote beats it wherever there is one.
+        W.set_done_mark(u, nothing)
+        ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
+                                   title = "t", head = ahead, base = "master",
+                                   read_head = newh))
+        @test occursin("1 commit added", W.astrip(ns[1].header))
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", ahead)
+        ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
+                                   title = "t", head = ahead, base = "master",
+                                   read_head = newh))
+        @test occursin("nothing pushed", ns[1].header)
     finally
         W.LOCAL[] = keep
     end
+end
+
+@testset "the refresh keeps the head as of the mark on the row" begin
+    row(moved, head; kw...) = Dict{String,Any}("moved_at" => moved, "head_sha" => head,
+                                               (String(k) => v for (k, v) in kw)...)
+    floor = "2026-09-10T00:00:00Z"
+    # First sight, under the floor: the head now is the head you are read at.
+    @test W.read_head(row("2026-09-05T00:00:00Z", "aaa"), nothing, floor) == "aaa"
+    # First sight, past it: nothing is known about the head at the floor.
+    @test W.read_head(row("2026-09-12T00:00:00Z", "bbb"), nothing, floor) == ""
+    # A push past the floor: the head before it, off the row it replaces.
+    old = row("2026-09-05T00:00:00Z", "aaa"; read_head = "aaa")
+    new = row("2026-09-12T00:00:00Z", "bbb")
+    @test W.read_head(new, old, floor) == "aaa"
+    # Another past it: carried, since the old row was not under it either.
+    newer = row("2026-09-14T00:00:00Z", "ccc")
+    @test W.read_head(newer, row("2026-09-12T00:00:00Z", "bbb"; read_head = "aaa"), floor) == "aaa"
+    # Read again - a stamp past the push - and it is the head now.
+    @test W.read_head(newer, new, "2026-09-15T00:00:00Z") == "ccc"
+    # Said unread: no mark to be at, so what the row had stays.
+    @test W.read_head(newer, row("2026-09-12T00:00:00Z", "bbb"; read_head = "aaa"), nothing) == "aaa"
+    # An issue has no head, and records none.
+    @test W.read_head(row("2026-09-05T00:00:00Z", ""), nothing, floor) == ""
 end
 
 @testset "a thread opens on the rule, not at the top" begin

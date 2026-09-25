@@ -92,6 +92,9 @@ Base.@kwdef struct Item
                            # the other end of the range-diff `p` takes against
                            # the head the done mark was made at. Empty on an
                            # issue, and on a synthetic row that never saw a lane
+    read_head::String = "" # the head as of the done mark or the floor, as the
+                           # refresh saw it: what `p` measures from where `e`
+                           # wrote no `done_head`; see `read_head`
     secondlook::String = "" # why this wants looking at again, empty when it does
                             # not. Derived every refresh and never stored: it is
                             # a fact about silence, and silence keeps changing
@@ -187,6 +190,7 @@ function item_of(r)
             branch = nz(jget(r, :branch), ""),
             head_repo = nz(jget(r, :head_repo), ""),
             head = nz(jget(r, :head_sha), ""),
+            read_head = nz(jget(r, :read_head), ""),
             base = nz(jget(r, :base), ""),
             base_sha = nz(jget(r, :base_sha), ""),
             merged_by = nz(jget(r, :merged_by), ""),

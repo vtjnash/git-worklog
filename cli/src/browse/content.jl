@@ -968,9 +968,11 @@ end
 #
 # It needs two commits and a checkout. The new head rides in on the item
 # (`headRefOid`, selected by every lane); the old one is `done_head`, written by
-# `e` and by nothing else. An item that has neither has no view here and says
-# so - that is the honest answer for a pull request nobody has marked done yet,
-# and it becomes a real one the first time `e` is pressed on it.
+# `e` and by nothing else - or, where `e` wrote none, the refresh's copy on the
+# row, `read_head`, the head as of the stamp or the floor the thread's rule is
+# drawn at. An item that has neither has no view here and says so - that is
+# the honest answer for a pull request nobody has marked done yet, and it
+# becomes a real one the first time `e` is pressed on it.
 
 """One line's worth of `git range-diff`, coloured by which range it is in.
 
@@ -1085,6 +1087,7 @@ or an error, because each of them is a different thing to do about it: press
 function pushed_nodes(it::Item)
     it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
     old = done_head(it.url)
+    old === nothing && !isempty(it.read_head) && (old = it.read_head)
     old === nothing &&
         return [Node("nothing to compare against yet",
                      "This view is the diff between the head commit you last " *

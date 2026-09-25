@@ -945,7 +945,7 @@ has a snooze or an archive but no done stamp, which the refresh stamps once
 for all of them, and `r["woken"]` whether its snooze has run out, which the
 refresh writes down as unread once for all of them.
 """
-function derive!(r, old, st, cfg, at::DateTime)
+function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
     login = cfg["login"]
     second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
     r["their_head"] = their_head(r, old, login)
@@ -1030,6 +1030,13 @@ function derive!(r, old, st, cfg, at::DateTime)
     end
     r["moved_by"] == "new" && opened_by_you(r, login) && (r["moved_by"] = "opened")
     r["new"] = old === nothing
+    # And the head as of the mark, after `moved_at`, which it is read against.
+    # The stamp, else the floor; an empty stamp - said unread - is neither.
+    done = get(st, "done", nothing)
+    upto = done === nothing ?
+           floor_of(String(nz(get(r, "lane", nothing), "")), String(nz(get(r, "repo", nothing), "")), sources) :
+           truthy(done) ? String(done) : nothing
+    r["read_head"] = read_head(r, old, upto)
     r
 end
 
@@ -1644,6 +1651,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
                                "adopted", length(handed), join(handed, ", "))
     changes = Any[]
     slept, woke = String[], Pair{String,String}[]
+    sources = source_since()
     for (i, (url, r)) in enumerate(collect(items))
         breathe(i)
         st = get(state, url, Dict{String,Any}())
@@ -1651,7 +1659,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         if old !== nothing && String(nz(jget(old, :fetched_at), "")) > String(r["fetched_at"])
             r = items[url] = kept_row(old)
         end
-        derive!(r, old, st, cfg, at)
+        derive!(r, old, st, cfg, at; sources = sources)
         pop!(r, "slept") && push!(slept, url)
         pop!(r, "woken") && push!(woke, url => String(r["wake"]))
         if old === nothing

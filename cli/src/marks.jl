@@ -258,6 +258,30 @@ function done_head(url::AbstractString)
     (h === nothing || isempty(h)) ? nothing : h
 end
 
+"""The head a row stood at as of what it is done up to, as the refresh saw it:
+the refresh's copy of `done_head`, kept on the row in `fetched.json`, for the
+rows `e` never wrote one on - read by the floor, or by `s`, `x` or `wl done`.
+Without it the thread drew its rule at the floor or the stamp and `p` had
+nothing to measure from, which was the two halves of where you were out of
+step, and `z` on such a row put exactly that back.
+
+`upto` is the stamp, else the floor (`done_upto`'s answer, off the row's own
+block). The new row's head, when its movement is under it; else the old
+row's, when *its* movement is; else whatever the old row carried. A push is
+movement, so a head that changed under the mark moved the row under it too.
+Precise, and lost with the file: a rebuilt `fetched.json` starts from the head
+of the first row it sees read, and `done_head` beats it wherever `e` wrote one.
+"""
+function read_head(r, old, upto::Union{Nothing,AbstractString})
+    carried = String(nz(rget(old, "read_head"), ""))
+    upto === nothing && return carried
+    under(x) = (m = moved_of(x); m !== nothing && String(m) <= upto)
+    head(x) = String(nz(rget(x, "head_sha"), ""))
+    under(r) && !isempty(head(r)) && return head(r)
+    old !== nothing && under(old) && !isempty(head(old)) && return head(old)
+    carried
+end
+
 "Set, or with `nothing` clear, one item's seen-up-to timestamp."
 set_done(url::AbstractString, at::Union{Nothing,AbstractString}) =
     set_mark!(url, "done", at)
@@ -365,6 +389,7 @@ moved_of(r) = moved_of(rget(r, "moved_at"), rget(r, "updated"))
 row read back from `fetched.json` by `Symbol`, and the marks done both."""
 rget(r::AbstractDict{String}, k::AbstractString) = get(r, k, nothing)
 rget(r, k::AbstractString) = jget(r, Symbol(k))
+rget(::Nothing, ::AbstractString) = nothing
 
 """Mark each url done up to its own last movement - `moved_of` over the row
 the corpus or the inbox has for it, `at` for a synthetic row that has neither

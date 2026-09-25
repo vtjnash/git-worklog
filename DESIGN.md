@@ -213,7 +213,13 @@ mark of its own: the backlog is not done and done, open, and leaves the filed wo
 
 Only `e` writes `done_head`, the sha the read was made at, because only `e`
 knows what you were looking at; `s`, `x` and `wl done` stamp "not now" and
-leave it alone.
+leave it alone. A row `e` never marked - read by the floor, or by those - has
+the refresh's copy instead, `read_head` on the row in `fetched.json`: the head
+as of the stamp, else the floor, carried from the row it replaces while the
+row moves past it (`read_head`). `p` reads it only where there is no
+`done_head`. Without it the thread drew its rule at the floor and `p` had
+nothing to measure from. It is lost with `fetched.json`, which is the price of
+keeping `local.toml` to what you did.
 
 ## Movement: the wake table
 

@@ -492,6 +492,19 @@ end
     @test pushed["moved_at"] == "2026-09-12T09:00:00Z"
     @test pushed["moved_by"] == "their_head"
     @test W.change_of(J(row), pushed) == "new push"
+    # And the head as of the mark: the stamp was under the old head, so the
+    # push leaves the row carrying the head it was read at - by the stamp, by
+    # the floor where there is none, and by neither where it was said unread.
+    done = Dict{String,Any}("done" => "2026-09-11T00:00:00Z")
+    W.derive!(pushed, J(row), done, cfg, at)
+    @test pushed["read_head"] == "abc"
+    W.derive!(pushed, J(row), Dict{String,Any}(), cfg, at;
+              sources = Dict("review" => "2026-09-11T00:00:00Z"))
+    @test pushed["read_head"] == "abc"
+    W.derive!(pushed, J(row), Dict{String,Any}(), cfg, at; sources = Dict{String,String}())
+    @test pushed["read_head"] == ""
+    W.derive!(pushed, J(row), Dict{String,Any}("done" => ""), cfg, at)
+    @test pushed["read_head"] == ""
     # A refresh that finds nothing moved keeps the key with the stamp.
     still = W.kept_row(J(pushed))
     W.derive!(still, J(pushed), Dict{String,Any}(), cfg, at)
