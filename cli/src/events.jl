@@ -533,6 +533,7 @@ function issue_row(r, login)
         "is_pr" => haskey(r, "pull_request"),
         "state" => r["state"],
         "author" => who,
+        "created" => get(r, "created_at", nothing),
         "updated" => r["updated_at"],
         "comments" => get(r, "comments", 0),
         "labels" => [l["name"] for l in get(r, "labels", ())],
@@ -919,10 +920,10 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         end
         watching === nothing && (watching = watched())
         cur = cursors[label]
+        wide = label == "notifications" && haskey(inbox, "wide")
+        s_ = stamp(ts(cur) - (wide ? Day(1) : overlap))
         answer = try
-            wide = label == "notifications" && haskey(inbox, "wide")
             ctx = (items = items, wide = wide)
-            s_ = stamp(ts(cur) - (wide ? Day(1) : overlap))
             applicable(fetch, s_, ctx) ? fetch(s_, ctx) : fetch(s_)   # a test's takes one
         catch e
             e isa ApiError || rethrow()
@@ -949,7 +950,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             url = String(row["url"])
             old = get(items, url, nothing)
             witness && label != "notifications" &&
-                expect!(inbox, url, old, row, at, watching, login)
+                expect!(inbox, url, old, row, at, watching, login; since = s_)
             # A `mentioned` already on the row is kept: the incoming one has
             # none, so the merge leaves it, and a reason that says so now sets it.
             items[url] = latch_mention!(old === nothing ? row : merge!(old, row))
@@ -1013,8 +1014,11 @@ end
 #
 # What does not count: a label or a push, which move `updated_at` and notify
 # nobody and which the issues list cannot tell from a comment - so the
-# evidence is the comment count rising, the state changing, or the row being
-# new - and your own comment, which notifies nobody either and which the list
+# evidence is the comment count rising, the state changing, or the item being
+# new: created inside the window this poll asked for, and not merely new to
+# the inbox, which drops a row once it is read, so that a label swept over
+# seventeen merged pull requests on 2026-09-24 read as seventeen new items
+# and held the ask wide - and your own comment, which notifies nobody either and which the list
 # cannot tell from anybody else's, so an expectation that is unmet after the
 # grace is checked once for whose the last comment was before it is called a
 # lag.
@@ -1024,12 +1028,16 @@ const EXPECT_GRACE = Minute(15)
 
 """Record that `url` moved in a way that should notify, unless a thread with a
 stamp at or past the movement is already here. `old` is the inbox row the
-poll's `row` replaces, or `nothing`."""
-function expect!(inbox, url, old, row, at::DateTime, watched::Set{String}, login::AbstractString)
+poll's `row` replaces, or `nothing`; `since` is where this poll's ask began,
+which a new item was created after."""
+function expect!(inbox, url, old, row, at::DateTime, watched::Set{String}, login::AbstractString;
+                 since::AbstractString = "")
     String(nz(get(row, "repo", nothing), "")) in watched || return
     ev = String(nz(get(row, "updated", nothing), ""))
     isempty(ev) && return
-    evidence = old === nothing ? get(row, "author", nothing) != login :
+    created = String(nz(get(row, "created", nothing), ""))
+    evidence = old === nothing ? get(row, "author", nothing) != login &&
+                                 !isempty(created) && created >= since :
                (get(row, "comments", 0) > get(old, "comments", 0) ||
                 get(row, "state", nothing) != get(old, "state", nothing))
     evidence || return
@@ -1054,6 +1062,9 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString;
     for (url, e) in collect(exp)
         ev, seen = String(e["event"]), ts(String(e["seen"]))
         row = get(items, url, nothing)
+        # Gone from the inbox: the refresh dropped it, having asked about it
+        # and found it read, and nothing is left for a thread to arrive on.
+        row === nothing && (delete!(exp, url); continue)
         notified = row === nothing ? "" : String(nz(get(row, "notified", nothing), ""))
         if notified >= ev
             # Arrived. How long after the event, and stamped with which time:
@@ -1077,7 +1088,7 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString;
         # list could not tell; one look at the last comment settles it.
         if !get(e, "checked", false)
             e["checked"] = true
-            by = lastby(url)
+            by = lastby(url, ev)
             if by == login
                 delete!(exp, url)
                 continue
@@ -1103,15 +1114,18 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString;
     nothing
 end
 
-"Who wrote the newest comment on `url`, or `nothing`: one request, on demand."
-function last_comment_by(url::AbstractString)
+"""Who wrote the newest comment on `url` since `ev`, or `nothing`: one
+request, on demand. `since` and the last of the page, because the list for
+one issue is oldest first and takes no `sort` or `direction` - those are the
+repository-wide list's - so asking for one row sorted descending answered
+with the first comment, and your own comment ending a thread was a lag."""
+function last_comment_by(url::AbstractString, ev::AbstractString)
     parts = split(String(url), '/')
     length(parts) >= 7 || return nothing
     try
         cs = api_get("/repos/$(parts[4])/$(parts[5])/issues/$(parts[7])/comments";
-                     params = Dict{String,Any}("per_page" => 1, "sort" => "created",
-                                               "direction" => "desc"))
-        isempty(cs) ? nothing : String(get(get(cs[1], "user", Dict{String,Any}()), "login", ""))
+                     params = Dict{String,Any}("per_page" => 100, "since" => String(ev)))
+        isempty(cs) ? nothing : String(get(get(cs[end], "user", Dict{String,Any}()), "login", ""))
     catch e
         e isa ApiError || rethrow()
         nothing

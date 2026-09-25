@@ -1494,11 +1494,12 @@ end
     W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
     E = W.Events
     try
-        issue(n, comments, state = "open"; by = "alice") = Dict{String,Any}(
+        issue(n, comments, state = "open"; by = "alice",
+              updated = "2026-09-13T12:0$(comments + 6):00Z", created = updated) = Dict{String,Any}(
             "html_url" => "https://github.com/o/r/issues/$n", "number" => n, "title" => "t$n",
             "repository_url" => "https://api.github.com/repos/o/r", "state" => state,
-            "user" => Dict{String,Any}("login" => by),
-            "updated_at" => "2026-09-13T12:0$(comments):00Z", "comments" => comments,
+            "user" => Dict{String,Any}("login" => by), "created_at" => created,
+            "updated_at" => updated, "comments" => comments,
             "labels" => Any[])
         thread(n, at; reason = "subscribed") = Dict{String,Any}(
             "id" => "$n", "unread" => true, "reason" => reason, "updated_at" => at,
@@ -1516,7 +1517,7 @@ end
         # The last comment's author is the one thing the settling asks
         # GitHub for; unknown here, which is "not yours".
         run(at; kw...) = E.sync!(srcs, at; now = () -> at, watched = watched, login = "me",
-                                 lastby = _ -> nothing, kw...)
+                                 lastby = (_, _) -> nothing, kw...)
         at = W.DateTime(2026, 9, 13, 12, 10)
         # A new issue by somebody else in a watched, polled repo, and no
         # thread yet: expected. One by you: not.
@@ -1524,20 +1525,20 @@ end
         run(at)
         ex = E.load_inbox()["expect"]
         @test haskey(ex, U(1)) && !haskey(ex, U(2))
-        @test ex[U(1)]["event"] == "2026-09-13T12:00:00Z"
+        @test ex[U(1)]["event"] == "2026-09-13T12:06:00Z"
         # The thread arrives on the next poll, stamped 20s after: met, and
         # nothing said, since nothing was late.
-        threads[] = [thread(1, "2026-09-13T12:00:20Z")]
+        threads[] = [thread(1, "2026-09-13T12:06:20Z")]
         run(at + W.Minute(3))
         @test !haskey(E.load_inbox(), "expect") && !haskey(E.load_inbox(), "wide")
-        @test E.load_inbox()["items"][U(1)]["notified"] == "2026-09-13T12:00:20Z"
+        @test E.load_inbox()["items"][U(1)]["notified"] == "2026-09-13T12:06:20Z"
         # A comment by somebody else (the count rose) with no thread behind
         # it: expected; unmet past the grace, the lag is declared and the ask
         # goes wide - a day behind the cursor.
         threads[] = Any[]
         polls[] = [issue(1, 1)]
         run(at + W.Minute(6))
-        @test E.load_inbox()["expect"][U(1)]["event"] == "2026-09-13T12:01:00Z"
+        @test E.load_inbox()["expect"][U(1)]["event"] == "2026-09-13T12:07:00Z"
         @test !haskey(E.load_inbox(), "wide")
         asks_before = length(asks)
         run(at + W.Minute(25))                 # > EXPECT_GRACE later; last comment unknown -> not yours
@@ -1547,20 +1548,48 @@ end
         @test W.ts(asks[end]) == W.DateTime(2026, 9, 12, 12, 35)   # a day behind the cursor
         # It arrives, an hour late, stamped with the event's time: met, the
         # lag reported, and the ask narrow again.
-        threads[] = [thread(1, "2026-09-13T12:01:00Z")]
+        threads[] = [thread(1, "2026-09-13T12:07:00Z")]
         run(at + W.Minute(70))
         @test !haskey(E.load_inbox(), "wide") && !haskey(E.load_inbox(), "expect")
         # And the user's word ends the waiting whatever is still awaited.
-        polls[] = [issue(3, 0)]; threads[] = Any[]
+        polls[] = [issue(3, 0; updated = "2026-09-13T13:20:00Z")]; threads[] = Any[]
         run(at + W.Minute(75))
         run(at + W.Minute(95))
         @test haskey(E.load_inbox(), "wide")
         @test E.caught_up!() == 1
         @test !haskey(E.load_inbox(), "wide") && !haskey(E.load_inbox(), "expect")
         # A label edit - updated moved, nothing else - is not evidence.
-        polls[] = [merge(issue(3, 0), Dict("updated_at" => "2026-09-13T13:00:00Z"))]
+        polls[] = [issue(3, 0; updated = "2026-09-13T13:40:00Z", created = "2026-09-13T13:20:00Z")]
         run(at + W.Minute(100))
         @test !haskey(E.load_inbox(), "expect")
+        # Nor is one on an item the inbox has let go of: new to the inbox,
+        # created long before the window this poll asked for. Seventeen merged
+        # pull requests relabelled in a sweep held the ask wide for a week.
+        polls[] = [issue(4, 2, "closed"; updated = "2026-09-13T13:50:00Z",
+                         created = "2026-08-01T00:00:00Z")]
+        run(at + W.Minute(110))
+        @test !haskey(E.load_inbox(), "expect")
+        # An expectation whose row the refresh has since dropped - read, and
+        # nothing left for a thread to arrive on - is let go, not declared.
+        polls[] = [issue(5, 0; updated = "2026-09-13T14:05:00Z")]
+        run(at + W.Minute(120))
+        @test haskey(E.load_inbox()["expect"], U(5))
+        inbox = E.load_inbox(); delete!(inbox["items"], U(5)); E.save_inbox(inbox)
+        polls[] = Any[]
+        run(at + W.Minute(140))
+        @test !haskey(E.load_inbox(), "expect") && !haskey(E.load_inbox(), "wide")
+        # And whose the last comment was is asked as of the event: your own
+        # comment ending the thread notifies nobody, and is no lag.
+        polls[] = [issue(6, 0; updated = "2026-09-13T14:25:00Z")]
+        run(at + W.Minute(140))
+        polls[] = [issue(6, 1; updated = "2026-09-13T14:40:00Z", created = "2026-09-13T14:25:00Z")]
+        threads[] = [thread(6, "2026-09-13T14:25:10Z")]
+        run(at + W.Minute(150))
+        asked = String[]
+        E.sync!(srcs, at + W.Minute(170); now = () -> at + W.Minute(170), watched = watched,
+                login = "me", lastby = (u, ev) -> (push!(asked, ev); "me"))
+        @test asked == ["2026-09-13T14:40:00Z"]
+        @test !haskey(E.load_inbox(), "expect") && !haskey(E.load_inbox(), "wide")
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm
     end

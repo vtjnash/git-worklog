@@ -91,7 +91,11 @@ event's time would be behind `cursor - overlap` and never asked for. For a
 repository both polled and watched, a polled row that moved in a way that
 notifies with no thread behind it after `EXPECT_GRACE` (15 min) is declared
 the lag on stderr, and the source asks a day behind its cursor until the
-thread arrives or `wl refresh --caught-up`.
+thread arrives or `wl refresh --caught-up`. A row new to the inbox is not a
+new item - the inbox drops a row once it is read, and a label swept over
+seventeen merged pull requests held the ask wide for a week - so "new" is
+`created` inside the window the poll asked for; and an expectation whose
+row the refresh has dropped is let go, having nothing left to arrive on.
 
 ### What the lanes ask for, and what they do not
 
@@ -759,6 +763,10 @@ Do not simplify any of these away.
     `addPullRequestReviewThread` has no such field and inherits the draft's,
     so a thread numbered against another commit is refused, and the draft is
     sent first. A diff gh served names no commit and takes the default.
+16. `/repos/o/r/issues/N/comments` is oldest first and takes no `sort` or
+    `direction` - those are `/repos/o/r/issues/comments`'s - so
+    `per_page=1&direction=desc` answers with the *first* comment, silently.
+    The newest is the last of a page asked with `since=`.
 
 ### Term.jl (v2.2, pinned)
 
