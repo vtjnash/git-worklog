@@ -894,6 +894,14 @@ Each of the following returns success and the wrong answer:
   was dead and the pane said `session ended` over an empty frame with no
   reason kept. `wake!` queues one `WakeEvent` at a time (`woken`); a wake
   is a level. And a dead client carries `why`, which the status now says.
+- **A session ends after its last `%output`, not with it.** `%exit` comes
+  alone, and a pane that re-read the session only when output woke it never
+  looked again: a shell's `exit` line lands close enough to the end that the
+  sync it wakes finds the client dead, but `claude` writes its farewell and
+  takes a moment to exit, so its pane kept the farewell with every key sent
+  to a dead client, `^]K` the only way out. The reader wakes once more as it
+  stops (`mux_open`'s `ondead`), and a key that finds the client dead says
+  `session ended` rather than going nowhere.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane

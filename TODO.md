@@ -7,11 +7,20 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] after exiting Claude, it seems like the pane stays locked (needing ^]K to close), rather than any key as for bash (time to read the exit message is good, but somehow isn't seeing the session ended in the same way), even though ^]q closes it entirely too
 - [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] does term.js expose whether to use a light or dark theme, which we could add as a keybinding to read and redraw if that code arrives (send the query on startup, but don't wait for reply)
+
+## Unverified
+
+- [ ] **`T` closes on any key once `claude` has exited.** The pane kept the
+      farewell with every key going to a dead client, and needed `^]K`: the
+      session ended after its last output and nothing woke the pane to find
+      that out. Reproduced and fixed against the bundled tmux with a child
+      that writes and then sleeps; not yet with the real `claude` on the host.
+      Exit it in a `T` pane: the footer should say `session ended`, and the
+      next key should close the pane.
 
 ## Upstream
 

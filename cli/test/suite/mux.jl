@@ -161,6 +161,51 @@ end
     end
 end
 
+@testset "a session that ends after its last words still says so" begin
+    # `claude` writes its farewell and then takes a moment to exit: the
+    # session ends after the last `%output`, and a pane that synced on output
+    # alone kept the farewell on screen with every key going to a dead client
+    # - `^]K` the one way out, where a shell closed on any key.
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the ended-session test"
+    else
+        n = "wl-test-ended-1"
+        W.mux_kill(n)
+        W.mux_start(n, pwd(), "sh -c 'printf bye; sleep 1'")
+        fr, deadwake = Ref{Any}(nothing), Ref(false)
+        f = fr[] = W.iframe(n, "t"; onwake = () -> begin
+                x = fr[]
+                x === nothing || x.client === nothing || !x.client.dead || (deadwake[] = true)
+            end)
+        @test f !== nothing
+        box = (60, 8)
+        W.iframe_sync!(f, box...)
+        t0 = time()
+        while !f.client.dead && time() - t0 < 10
+            sleep(0.1)
+        end
+        @test f.client.dead
+        sleep(0.2)
+        @test deadwake[]                   # a wake with nothing to say but that
+        # Which is what a host acts on: its sync finds the client gone.
+        W.iframe_sync!(f, box...)
+        @test f.client === nothing && occursin("session ended", f.status)
+        @test W.iframe_input!(f, UInt8['x'], (1, 1), box) === :pop
+
+        # And where the wake is lost, the first key says it and the next leaves.
+        W.mux_start(n, pwd(), "sh -c 'sleep 1'")
+        g = W.iframe(n, "t")
+        t0 = time()
+        while !g.client.dead && time() - t0 < 10
+            sleep(0.1)
+        end
+        @test W.iframe_input!(g, UInt8['x'], (1, 1), box) === :ok
+        @test g.client === nothing && occursin("session ended", g.status)
+        @test W.iframe_input!(g, UInt8['x'], (1, 1), box) === :pop
+        W.mux_kill(n)
+    end
+end
+
 @testset "what a pane keeps seeing: the forwards" begin
     # A pane is handed links, and the links are re-pointed at what this login
     # has when that is live - from its environment, never from a search of
