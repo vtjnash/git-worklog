@@ -55,6 +55,41 @@ end
     @test occursin("`span with several words", plain("a `span with several words that will not fit on one line at all` yes", 30))
     # And the background never reaches the plain text.
     @test !occursin("[48;5;238m", plain("call `x` here", 70))
+
+    # A span Term split carries its background onto the next line, and the
+    # spans after it on that line stay right side out. Paired line by line,
+    # the closing delimiter of `ErrorEx|ception` opened a span and the prose up
+    # to the next one was drawn on the background (julia#63360).
+    function shaded(ls)             # (text on the background, text off it)
+        on, off, bg = IOBuffer(), IOBuffer(), false
+        for l in ls, m in eachmatch(r"(\e\[[0-9;]*m)|([^\e]+)", l)
+            if m[1] !== nothing
+                m[1] == W.THEME.code_bg && (bg = true)
+                m[1] in (W.THEME.code_bg_off, W.THEME.reset) && (bg = false)
+            else
+                write(bg ? on : off, m[2])
+            end
+        end
+        String(take!(on)), String(take!(off))
+    end
+    para = "An invalid memory ordering passed to an atomic intrinsic throws " *
+           "`ConcurrencyViolationError`, but `intrinsic_exct` had no case for " *
+           "`atomic_fence` or the `atomic_pointer*` intrinsics. They fell through " *
+           "to the checks for math intrinsics, which reject the `Symbol` ordering " *
+           "argument with `ErrorException`, so inference concluded that only " *
+           "`ErrorException` could be thrown."
+    spans = join(m.match for m in eachmatch(r"`[^`]*`", para))
+    for w in 24:4:140
+        on, off = shaded(lines(para, w))
+        @test replace(on, r"\s" => "") == replace(spans, r"\s" => "")
+        @test !occursin('`', off)
+    end
+    # Some width in that range does split a span, or the loop proved nothing.
+    @test any(w -> any(l -> isodd(count('`', W.astrip(l))), lines(para, w)), 24:4:140)
+    # A blank line ends a paragraph, and a span left open does not cross it.
+    d = W.CODE_DELIM
+    on, off = shaded(split(W.style_code_spans("a $(d)b\n\nc $(d)d$(d) e"), '\n'))
+    @test on == "`b`d`" && off == "a c  e"
 end
 
 @testset "markup does not eat the text" begin

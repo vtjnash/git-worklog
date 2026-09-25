@@ -520,35 +520,44 @@ The backticks stay, dimmed. They could go - the background marks the span on its
 own - but they are part of what a copy produces, and pasting `Sockets.bind` back
 into a comment without them loses the formatting the author put there.
 
-Only a pair on one line is rewritten. Term wraps before this sees the text, so a
-span it split has one delimiter on each of two lines and no background could be
-drawn across the break; a lone delimiter becomes a dim backtick, which is what
-it would have been with none of this.
+Term wraps before this sees the text, so a span it split has its opening
+delimiter on one line and its closing one on the next. Whether a span is open
+is carried from line to line: the first line is drawn from the delimiter to its
+end, the next from its start - its indent aside - to the delimiter, each ending
+its own background so the pane's padding is not drawn on. Paired line by line
+instead, the next line's first delimiter opened a span rather than closing
+one, and every span after it on that line was drawn inside out - the prose
+between two spans on the background, and the code without (julia#63360, split
+in `ErrorException`). A blank line ends a paragraph, and any span with it.
 """
 function style_code_spans(str::AbstractString)
     occursin(CODE_DELIM, str) || return String(str)
     # Dim and no more: a reset here would end the background the span is drawn
     # on, which is what `dim_off` exists for.
     tick = string(THEME.dim, "`", THEME.dim_off)
+    inside(s) = rearm(String(s), THEME.code_bg)
     out = IOBuffer()
+    open = false
     for (i, line) in enumerate(split(str, '\n'))
         i == 1 || write(out, '\n')
+        isempty(strip(astrip(line))) && (open = false)
         parts = split(line, CODE_DELIM)
-        nd = length(parts) - 1
-        write(out, parts[1])
-        d = 1
-        while d <= nd
-            if d + 1 <= nd
-                write(out, THEME.code_bg, tick,
-                      rearm(String(parts[d + 1]), THEME.code_bg), tick,
-                      THEME.code_bg_off)
-                write(out, parts[d + 2])
-                d += 2
+        for (k, part) in enumerate(parts)
+            if k > 1
+                # The delimiter before this part: it closes a span or opens one.
+                write(out, open ? string(tick, THEME.code_bg_off) :
+                                  string(THEME.code_bg, tick))
+                open = !open
+                write(out, open ? inside(part) : part)
+            elseif open
+                # Carried over from the line above: the indent stays off it.
+                m = match(r"^(\s*)(.*)$"s, part)
+                write(out, m[1], THEME.code_bg, inside(m[2]))
             else
-                write(out, THEME.dim, "`", THEME.reset, parts[d + 1])
-                d += 1
+                write(out, part)
             end
         end
+        open && write(out, THEME.code_bg_off)
     end
     # Term can also wrap *between* the colour and the backtick it applies to,
     # leaving the sentinel alone on a line with no pair to find. Anything still
