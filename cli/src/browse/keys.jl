@@ -194,6 +194,8 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                                    research!(st, iw))
         elseif k == C_U
             st.search = ""; research!(st, iw)
+        elseif k == K_UP && st.searchin === :detail
+            st.search = st.lastsearch; research!(st, iw)
         elseif k in (C_W, K_WORD_BACK)
             st.search = String(first(st.search,
                                      word_start(st.search, length(st.search) + 1) - 1))

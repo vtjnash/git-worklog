@@ -7,7 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] Search in dh pane should use Regex matcher and remember the query string last used
 - [ ] should we support emoji :robot: in github markdown parsing?
 - [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated

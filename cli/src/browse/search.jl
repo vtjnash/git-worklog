@@ -1,6 +1,40 @@
 
 # --- search -----------------------------------------------------------------
 
+"""The detail pane's query as a pattern: a regex, and case-insensitive as the
+substring it replaced was - unless it starts with `\\C`, which makes it match
+case, as in `vi`; a leading `\\c` says insensitive outright. (To PCRE either
+would be an escape of its own, `\\cX` a control character and `\\C` one code
+unit, neither of which anybody searches a thread for.)
+
+A query that does not compile is taken literally rather than refused - `foo(`
+is what a regex looks like half-way through being typed, and also what
+somebody looking for a call types. One compiled pattern is kept,
+since `render` asks for it every frame and the query changes only on a key.
+A query that is only the prefix matches nothing rather than every row.
+
+The list search stays a substring: it is a filter a view is saved with, and
+`.` in a name there means a dot.
+"""
+function searchre(q::AbstractString)
+    k, re = SEARCHRE[]
+    k == q && return re
+    flags = startswith(q, "\\C") ? "" : "i"
+    body = startswith(q, "\\C") || startswith(q, "\\c") ? q[3:end] : q
+    re = if isempty(body)
+        r"(*FAIL)"
+    else
+        try
+            Regex(body, flags)
+        catch
+            Regex(string("\\Q", replace(body, "\\E" => "\\E\\\\E\\Q"), "\\E"), flags)
+        end
+    end
+    SEARCHRE[] = String(q) => re
+    re
+end
+const SEARCHRE = Ref{Pair{String,Regex}}("" => r"")
+
 """Rows of the detail pane that contain the query.
 
 Matched against `src`, the line as it was written, not against what the row
@@ -14,9 +48,9 @@ match cut in half is marked on both of the rows it landed on.
 """
 function match_rows(st::BState, w::Int)
     isempty(st.search) && return Int[]
-    q = lowercase(st.search)
+    q = searchre(st.search)
     [j for (j, r) in enumerate(rows(st.nodes, w))
-     if r.part == 0 && occursin(q, lowercase(r.src))]
+     if r.part == 0 && occursin(q, r.src)]
 end
 
 """A node's source lines, at the width `rows` would render it.
@@ -29,11 +63,11 @@ node_srcs(n::Node, w::Int) = (nodelines(n, max(20, w - 2 * n.depth)); n.srcs)
 
 "Nodes containing the query, whether or not any of them is currently visible."
 function node_hits(st::BState, w::Int)
-    q = lowercase(st.search)
-    isempty(q) && return Int[]
+    isempty(st.search) && return Int[]
+    q = searchre(st.search)
     [i for (i, n) in enumerate(st.nodes)
-     if occursin(q, lowercase(astrip(n.header))) ||
-        any(occursin(q, lowercase(src)) for (_, src) in node_srcs(n, w))]
+     if occursin(q, astrip(n.header)) ||
+        any(occursin(q, src) for (_, src) in node_srcs(n, w))]
 end
 
 """Node `i` and the run it is nested inside, innermost first.
@@ -97,6 +131,10 @@ end
 
 """Finish a search. A bare number is a jump rather than a filter.
 
+In the detail pane the query kept is remembered, and an empty one searches for
+it again - `/` then enter, as in `less` and `vi`, for the same word in the
+next thread.
+
 Only on Enter: done live, typing the `1` of `18004` would land on whatever
 `#1` happens to be and take the rest of the digits as commands. The jump also
 reaches past the filter that is hiding the item, as the guest row (see
@@ -106,6 +144,7 @@ number.
 function commit_search!(st::BState, w::Int)
     st.typing = false
     if st.searchin === :detail
+        isempty(st.search) ? (st.search = st.lastsearch) : (st.lastsearch = st.search)
         opened = reveal_matches!(st, w)
         research!(st, w)
         opened > 0 && (st.status = string("opened ", opened, " folded block",

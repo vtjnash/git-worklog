@@ -158,3 +158,48 @@ end
     W.handle!(st, Int('/'), ctrl); type!(st, "zarq")
     @test !st.nodes[2].open && st.hidden == 1
 end
+
+@testset "/ in the thread is a regex, and remembers" begin
+    ENV["COLUMNS"], ENV["LINES"] = "150", "40"
+    ctrl = W.Controller()
+    iw = W.layout(150, 40, 0).riw
+    type!(v, x) = for c in x; W.handle!(v, W.keycode(c), ctrl); end
+    thread() = (st = mkstate();
+                st.nodes = [W.Node("a", "call foo(1) here\nthen bar(22)\nFOO again", :md, true)];
+                st.loaded = string(st.items[st.sel].url, ":", st.mode);
+                st.focus = :detail; st)
+
+    st = thread()
+    st.search = "(foo|bar)\\("
+    @test length(W.match_rows(st, iw)) == 2
+    @test W.findhits("then bar(22)", W.searchre("\\d+")) == [10:11]
+    @test W.findhits("é bar", W.searchre("bar")) == [3:5]        # characters, not bytes
+    @test isempty(W.findhits("abc", W.searchre("x*")))           # an empty match marks nothing
+    # Half-typed, it is the text it spells: `foo(` finds the call.
+    st.search = "foo("
+    @test length(W.match_rows(st, iw)) == 1
+    st.search = "foo"
+    @test length(W.match_rows(st, iw)) == 2                      # case-insensitive
+    st.search = "\\CFOO"
+    @test length(W.match_rows(st, iw)) == 1                      # ...unless \C
+    st.search = "\\cFOO"
+    @test length(W.match_rows(st, iw)) == 2
+    st.search = "\\C"
+    @test isempty(W.match_rows(st, iw))                          # the prefix alone is nothing yet
+    @test W.findhits("a FOO b", W.searchre("\\CFOO")) == [3:5]
+    # The list's search is still a substring: a dot there is a dot.
+    @test isempty(W.findhits("abc", "a.c"))
+
+    # Kept, it is remembered; an empty `/` then enter, or up, is it again.
+    st = thread()
+    W.handle!(st, Int('/'), ctrl); type!(st, "bar\\(\\d+"); W.handle!(st, 13, ctrl)
+    @test st.lastsearch == "bar\\(\\d+"
+    W.handle!(st, Int('/'), ctrl); W.handle!(st, 27, ctrl)
+    @test isempty(st.search)
+    W.handle!(st, Int('/'), ctrl)
+    @test occursin("↑ /bar", W.astrip(W.render(st, 150, 40)))
+    W.handle!(st, 13, ctrl)
+    @test st.search == "bar\\(\\d+" && length(W.match_rows(st, iw)) == 1
+    W.handle!(st, Int('/'), ctrl); W.handle!(st, W.K_UP, ctrl)
+    @test st.typing && st.search == "bar\\(\\d+"
+end

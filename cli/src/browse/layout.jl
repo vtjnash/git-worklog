@@ -408,7 +408,20 @@ which is why every caller also says in the footer what it put there.
 """
 clip(text::AbstractString) = print("\e]52;c;", Base64.base64encode(text), "\a")
 
-"Every place `q` appears in `text`, as ranges of plain characters."
+"""Every place `q` appears in `text`, as ranges of plain characters.
+
+A string is a substring (the list's search); a `Regex` is the detail pane's
+(`searchre`), and a match of nothing marks nothing."""
+function findhits(text::AbstractString, re::Regex)
+    out = UnitRange{Int}[]
+    isempty(text) && return out
+    for m in eachmatch(re, text)
+        isempty(m.match) && continue
+        lo = length(text, 1, prevind(text, m.offset)) + 1
+        push!(out, lo:(lo + length(m.match) - 1))
+    end
+    out
+end
 function findhits(text::AbstractString, q::AbstractString)
     out = UnitRange{Int}[]
     (isempty(q) || isempty(text)) && return out

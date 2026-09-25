@@ -28,7 +28,7 @@ const HELP = Union{String,Tuple{String,String}}[
     ("tab", "the keyboard between the list and the detail"),
     ("↵", "on an item: read it · in the detail: fold · on the row above the first item: import"),
     ("n/N", "next and previous node, or search match"),
-    ("/", "search; a bare number in the list jumps to that item, past any filter"),
+    ("/", "search; a bare number in the list jumps to that item, past any filter · in the detail a regex (\\C first: match case), and ↑ or an empty one is the last again"),
     "",
     "looking",
     ("h  d  p  c", "the thread, its history · the diff · what was pushed since you last looked · the checks"),

@@ -53,6 +53,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         # the wrapping cut in half is marked on both of the rows it landed on.
         # Hits are found once per logical line; several rows share one.
         srchits = Dict{String,Vector{UnitRange{Int}}}()
+        re = searchre(st.search)
         cursor = 1
         for i in 1:length(nrows)
             r = rrows[i + st.hdr]
@@ -60,11 +61,11 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
             ind = 2 * st.nodes[r.node].depth
             sp = r.header ? nothing : row_span(r, ind, cursor)
             hs = if sp === nothing
-                findhits(astrip(r.text), st.search)
+                findhits(astrip(r.text), re)
             else
                 cursor = last(sp) + 1
                 out = UnitRange{Int}[]
-                for mr in get!(() -> findhits(r.src, st.search), srchits, r.src)
+                for mr in get!(() -> findhits(r.src, re), srchits, r.src)
                     lo, hi = max(first(mr), first(sp)), min(last(mr), last(sp))
                     lo <= hi &&
                         push!(out, (lo - first(sp) + 1 + ind):(hi - first(sp) + 1 + ind))
@@ -373,7 +374,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         found = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
         unit = st.searchin === :detail ? (found == 1 ? " match" : " matches") :
                                          (found == 1 ? " item" : " items")
-        tally = isempty(st.search) ? "" :
+        tally = isempty(st.search) ?
+                (st.searchin === :detail && !isempty(st.lastsearch) ?
+                     string("↑ /", st.lastsearch, " · ") : "") :
                 string(found, unit,
                        st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
         string(THEME.bold, "/", THEME.reset, st.search, THEME.caret, " ", THEME.caret_off,

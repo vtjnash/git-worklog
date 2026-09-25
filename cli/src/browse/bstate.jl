@@ -228,6 +228,8 @@ Base.@kwdef mutable struct BState <: View
                                    # emptied by the next action (`push_undo!`)
     search::String = ""    # the live query; "" when no search is running
     searchin::Symbol = :list  # the pane it was started in, and belongs to
+    lastsearch::String = ""   # the last query kept in the detail pane, which
+                              # enter on an empty `/` (or up) searches again
     hidden::Int = 0        # matches inside folded nodes, counted when re-aiming
     typing::Bool = false   # is the query still being typed?
     reload::Bool = false   # something under `data/` changed and it was not us;
