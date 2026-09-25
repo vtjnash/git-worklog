@@ -265,3 +265,23 @@ adopt` does the same for the branch checked out there, and says `released`
 the second time.
 
 *2026-09-24*: pass.
+
+## 16. `T` after `claude` exits
+
+In a `T` pane, exit `claude`. Pass: its farewell stays on screen, the
+footer says `session ended`, and the next key - any key - closes the pane,
+as it does after `exit` in a `t` shell. Fail is the pane taking no key but
+`^]K` (DESIGN, tmux: a session ends after its last `%output`).
+
+*2026-09-25*: pass.
+
+## 17. The theme follows the terminal's dark or light
+
+Launch `wl` in a terminal whose colour scheme is the opposite of the theme
+`config.toml` names, then switch the terminal's scheme while it runs - with
+a thread open, and again with a `T` pane focused. Pass: the colours follow
+each switch, the thread keeps its place, and nothing is typed into the
+pane. A terminal that does not answer `CSI ? 996 n` keeps the configured
+theme, which is also a pass.
+
+*2026-09-25*: pass - it follows, where the terminal answers.
