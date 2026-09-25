@@ -870,6 +870,22 @@ Each of the following returns success and the wrong answer:
   and a cut through one copy spared the other. `passthrough` keeps the
   unfinished tail per pane and reads the next line as its continuation.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
+- **Whether a child wants bracketed paste is asked, not followed.** tmux
+  keeps `?2004` as a pane flag; for a real client it sets the terminal to
+  match and drops the markers (`KEYC_PASTE_START`, `input-keys.c`) for a
+  pane without it. A control client has no terminal to set, `send-keys`
+  cannot name those keys (`PasteStart` goes in as text, `0x…` reaches only
+  characters), and `-H` sends the marker bytes to a child that never asked.
+  The mode's own `%output` is no record of it either: nothing is replayed
+  on attach (measured on 3.5a), so an agent reopened is a child whose mode
+  was set when nobody was looking. So `iframe_input!` asks
+  `#{bracket_paste_flag}` as each paste starts and streams it with or
+  without the markers. That format is **tmux 3.7's and the server's** - a
+  bundled binary newer than a running server buys nothing - and an older
+  server expands it to nothing; there the paste is held to its end and
+  sent through `paste-buffer -p -r -d` from a buffer of this process's own,
+  which brackets it per the pane. `set-buffer` takes the text in octal
+  escapes, since the control line is parsed, and cannot carry a NUL.
 - **The control-mode reader must never be made to wait on the loop.** It
   delivers the replies the loop blocks on, and it raises a wake per
   `%output` line: a burst longer than the events queue - a child clearing
@@ -938,6 +954,12 @@ Each of the following returns success and the wrong answer:
   more is coming, since Julia stops reading a stream nobody is reading, so
   keys typed by hand still draw one frame each. A hosted pane never had the
   problem: `readraw` takes the whole burst, and that goes as one `send-keys`.
+- **A paste is text, never keys.** Bracketed paste (`?2004`) is on for the
+  whole run and off across `suspend`, so a paste arrives as one
+  `PasteEvent` and goes to `onpaste!`: into a composer, a prompt, a picker's
+  query or a `/` query being typed, and nowhere else - a `q` pasted into the
+  list is not quitting, and a tab pasted into a composer is not moving the
+  focus. A hosted pane's child decides for itself: see *tmux*.
 - **No erase after a row that filled its width.** The last column written
   leaves the cursor pending a wrap, and terminals disagree where that is:
   xterm.js counts it past the last column and an `\e[K` there erases

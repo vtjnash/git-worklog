@@ -154,6 +154,20 @@ function rearm_batch!(st::BState, before::AbstractString)
     true
 end
 
+"""A paste is a query while one is being typed, and otherwise nothing: text
+pasted into a list is not the keys it happens to spell."""
+function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
+    if st.typing
+        h, w = displaysize(stdout)
+        iw = st.diw > 0 ? st.diw : layout(w, h, st.nmeta).riw
+        st.search *= pasteline(s)
+        research!(st, iw)
+    else
+        st.status = "a paste is text and not keys \u2014 / to search with it"
+    end
+    :ok
+end
+
 function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     h, w = displaysize(stdout)
     L = layout(w, h, st.nmeta)

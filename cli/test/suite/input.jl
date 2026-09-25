@@ -92,7 +92,7 @@ end
     @test ev("\e\e[D") == W.KeyEvent(W.K_WORD_LEFT) # iTerm's Esc+
     @test ev("\e[1;2D") == W.KeyEvent(W.K_LEFT)      # shift is not by-word
     @test ev("\e[3~") == W.KeyEvent(W.K_DEL)
-    @test ev("\e[200~") == W.KeyEvent(-1)            # unknown, but consumed
+    @test ev("\e[299~") == W.KeyEvent(-1)            # unknown, but consumed
 
     # A sequence must not leave its tail behind to arrive as keystrokes.
     io = IOBuffer("\e[Zq")
@@ -123,6 +123,39 @@ end
     @test W.readevent(io) == W.KeyEvent(Int('h')) && W.input_waiting(io)
     W.readevent(io)
     @test W.readevent(io) == W.KeyEvent(W.K_UP) && !W.input_waiting(io)
+
+    # A bracketed paste is one event and text, whatever keys it spells; the
+    # key after it is a key again.
+    io = IOBuffer("\e[200~q\tx\ry\e[201~j")
+    @test W.readevent(io) == W.PasteEvent("q\tx\ry")
+    @test W.readevent(io) == W.KeyEvent(Int('j'))
+    # And a terminal that went away mid-paste gives what did arrive.
+    @test ev("\e[200~half") == W.PasteEvent("half")
+end
+
+@testset "a paste goes where text goes, and nowhere else" begin
+    ctrl = W.Controller()
+    paste!(v, s) = W.safe_dispatch!(v, W.PasteEvent(s), ctrl)
+    ed = W.EditorView("comment", "", identity)
+    @test paste!(ed, "one\rtwo\t") === :ok
+    @test W.text(ed) == "one\ntwo\t"
+    pr = W.PromptView("url", "", identity)
+    paste!(pr, "https://github.com/a/b/pull/1\n")
+    @test W.text(pr) == "https://github.com/a/b/pull/1"
+    # Beside a thread, the side with the keys takes it.
+    st = mkstate()
+    sv = W.SideView(W.EditorView("comment", "", identity), st, :inner)
+    paste!(sv, "hi")
+    @test W.text(sv.inner) == "hi"
+    # The browser has no text to put it in unless a query is being typed:
+    # a pasted `q` does not quit and a pasted `e` marks nothing.
+    sel = st.sel
+    @test paste!(st, "qe") === :ok
+    @test st.sel == sel && occursin("not keys", st.status)
+    st.typing = true; st.searchin = :list
+    paste!(st, "juli\na\n")
+    @test st.search == "juli a"
+    st.typing = false; st.search = ""; W.refilter!(st)
 end
 
 @testset "details blocks fold to their summary" begin

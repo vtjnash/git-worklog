@@ -309,6 +309,11 @@ function handle!(v::SideView, k::Int, ctrl)
     handle!(v.inner, k, ctrl)
 end
 
+"""A paste goes where the keys would: into the dialog, or to the reading side."""
+onpaste!(v::SideView, s::AbstractString, ctrl) =
+    v.focus === :read ? (onpaste!(v.beside, s, ctrl); sidestatus!(v); :ok) :
+                        onpaste!(v.inner, s, ctrl)
+
 """Show the reading side's answer under the dialog, where there is a row for it.
 
 The composer is the only kind wrapped so far and the only kind with a row to put
@@ -481,6 +486,16 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     h, w = displaysize(stdout)
     iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h);
                   oncommand = b -> pane_command!(v, b, ctrl))
+end
+
+"""A paste on the reading side is the browser's, as a key there would be. On
+the child's side it never arrives as one: the input is raw there, markers and
+all, and the iframe hands it on."""
+function onpaste!(v::PaneView, s::AbstractString, ctrl)
+    v.beside === nothing && return :ok
+    onpaste!(v.beside, s, ctrl)
+    v.child.status = v.beside.status
+    :ok
 end
 
 """Keys, while the thread beside the child has the focus.

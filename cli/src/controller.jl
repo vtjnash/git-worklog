@@ -22,6 +22,7 @@ and each is explained where it is defined.
     onresize!(v)                       the terminal changed shape; the frame is redrawn regardless
     wantsraw(v) -> Bool                take input undecoded, as bytes
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
+    onpaste!(v, text, ctrl) -> Symbol  a bracketed paste, as text; ignored by default
     viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
     viewtitle(v) -> String | nothing   what the terminal's title bar says while this is on top
     isdialog(v) -> Bool                a question to answer, or a place to be
@@ -107,6 +108,25 @@ difference is whether the alternate screen, the mouse mode and raw mode are
 handed back on the way out.
 """
 struct EndEvent end
+
+"""A bracketed paste: what arrived between `ESC [ 200 ~` and `ESC [ 201 ~`.
+
+Text and never keys. Bracketed paste is on for the whole run so that a paste
+cannot be read as commands - a `q` in it is not quitting and a tab in it is
+not moving the focus - and a view with nowhere to put text ignores it.
+"""
+struct PasteEvent
+    text::String
+end
+
+"""Somewhere to put a paste, for a view that has one. The default is to do
+nothing with it, which is the point of it not being keys."""
+onpaste!(::View, ::AbstractString, ::Any) = :ok
+
+"""A paste for a one-line field: its breaks become spaces, the one it ends on
+goes, and nothing that is not a character is kept."""
+pasteline(s::AbstractString) =
+    filter(!iscntrl, TermInput.oneline(rstrip(String(s), ('\r', '\n'))))
 
 """Input that was never decoded, for a view that asked to forward it."""
 struct RawEvent
@@ -245,7 +265,21 @@ function read_csi(io::IO)
         push!(params, c)
         length(params) > 32 && return KeyEvent(-1)    # not a sequence we emit
     end
+    fin == UInt8('~') && params == b"200" && return read_paste(io)
     decode_csi(String(params), Char(fin))
+end
+
+"""The rest of a bracketed paste, its start marker already read: everything up
+to the end marker, which is waited for - once the start has arrived the end is
+certain, however many reads the text between takes."""
+function read_paste(io::IO)
+    buf = UInt8[]
+    stop = b"\e[201~"
+    while !(length(buf) >= length(stop) && view(buf, length(buf)-length(stop)+1:length(buf)) == stop)
+        eof(io) && return PasteEvent(String(buf))
+        push!(buf, read(io, UInt8))
+    end
+    PasteEvent(String(resize!(buf, length(buf) - length(stop))))
 end
 
 function decode_csi(params::String, fin::Char)
@@ -512,7 +546,7 @@ reader blocked in `read(stdin)` would race the child for every keystroke the
 user typed into it. The loop does not re-arm the reader until it has finished
 handling the event, and running the editor happens inside that handling.
 """
-suspend(f, ctrl::Controller) = suspend(f, ctrl.term; mouse = ctrl.mouse)
+suspend(f, ctrl::Controller) = suspend(f, ctrl.term; mouse = ctrl.mouse, paste = true)
 
 # --- surviving a bug ---------------------------------------------------------
 #
@@ -585,6 +619,7 @@ function safe_dispatch!(v::View, ev, ctrl)
     try
         ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
         ev isa RawEvent   ? onraw!(v, ev.bytes, ctrl) :
+        ev isa PasteEvent ? onpaste!(v, ev.text, ctrl) :
                             handle!(v, ev.code, ctrl)
     catch e
         logerror!(e, catch_backtrace(), "handle!")
@@ -717,6 +752,7 @@ function run!(ctrl::Controller, root::View)
     print("\e[22;2t")
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
+    print(bracketed_paste(true))
     ctrl.running = true
     unwatch_winch = watch_winch!(ctrl)
     # The reader reads one event per token and then waits for the next, rather
@@ -839,7 +875,7 @@ function run!(ctrl::Controller, root::View)
         try
             ctrl.mouse && mouse!(ctrl, false)
             REPL.Terminals.raw!(ctrl.term, false)
-            print("\e[?25h\e[?1049l\e[23;2t")
+            print(bracketed_paste(false), "\e[?25h\e[?1049l\e[23;2t")
         catch
         end
     end
@@ -906,6 +942,9 @@ function handle!(v::PromptView, k::Int, ctrl::Controller)
     end
     :ok
 end
+
+onpaste!(v::PromptView, s::AbstractString, ::Controller) =
+    (TermInput.paste!(getfield(v, :li), s); :ok)
 
 # --- a picker, as a view ----------------------------------------------------
 
@@ -1017,6 +1056,9 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
     end
     :ok
 end
+
+onpaste!(v::ChooseView, s::AbstractString, ::Controller) =
+    (v.query *= pasteline(s); v.sel = 1; :ok)
 
 # --- a yes or no, as a view -------------------------------------------------
 
@@ -1160,6 +1202,9 @@ Base.setproperty!(v::EditorView, f::Symbol, x) =
     f in fieldnames(EditorView) ? setfield!(v, f, x) : setproperty!(getfield(v, :ta), f, x)
 
 render(v::EditorView, w::Int, h::Int) = TermInput.render(getfield(v, :ta), w, h)
+
+onpaste!(v::EditorView, s::AbstractString, ::Controller) =
+    (TermInput.paste!(getfield(v, :ta), s); :ok)
 
 function handle!(v::EditorView, k::Int, ctrl::Controller)
     # Which terminal to give away is not known when the view is built, and is
