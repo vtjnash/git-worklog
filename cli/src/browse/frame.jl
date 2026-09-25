@@ -202,11 +202,14 @@ function refresh_stamp(st::BState, at::DateTime)
     isempty(w) ? "" : string(THEME.dim, "refreshed ", THEME.reset, w, " ")
 end
 
-"""The background a diff header row is drawn on, or `""`.
+"""The background a header row is drawn on, or `""`.
 
-A hunk is blue and a hunk of a new file grey, which is how GitHub marks where
-one region of a change ends and the next begins; a review comment hanging off a
-line has its own. Not the blank row above a top-level header, which is spacing.
+In the diff, a hunk is blue and a hunk of a new file grey, which is how GitHub
+marks where one region of a change ends and the next begins; a review comment
+hanging off a line has its own. In the thread, a comment or a review is grey,
+and blue when it is yours, as GitHub boxes them - and a push, a close or the
+rule over what is new is none, being the timeline between the boxes rather
+than one of them. Not the blank row above a top-level header, which is spacing.
 """
 function header_bg(st::BState, r::Row)
     (r.header && !(r.part == 1 && isempty(r.text))) || return ""
@@ -214,6 +217,8 @@ function header_bg(st::BState, r::Row)
     n.kind === :diff && return get(n.meta, "newfile", false) === true ?
                                THEME.diff_file_bg : THEME.diff_hunk_bg
     st.mode === :diff && haskey(n.meta, "comment_id") && return THEME.diff_comment_bg
+    st.mode === :comments && n.depth == 0 && haskey(n.meta, "mine") &&
+        return n.meta["mine"] === true ? THEME.thread_mine_bg : THEME.thread_bg
     ""
 end
 

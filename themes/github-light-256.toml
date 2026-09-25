@@ -73,6 +73,11 @@ diff_meta = "245"
 diff_hunk_bg    = "on 195"
 diff_file_bg    = "on 253"
 diff_comment_bg = "on 254"
+# Behind the header of each comment and review in the thread: GitHub's grey
+# (#f6f8fa) for somebody's, and its pale blue for your own. Both off
+# `cursor_bg`'s 255, so the cursor still shows on one.
+thread_bg      = "on 254"
+thread_mine_bg = "on 195"
 # neutral.muted, the grey GitHub puts behind an inline code span. A step darker
 # than `cursor_bg` so that a span on the row under the cursor is still marked.
 code_bg = "on 253"

@@ -75,6 +75,10 @@ Base.@kwdef mutable struct Theme
     diff_hunk_bg::String = ""
     diff_file_bg::String = ""
     diff_comment_bg::String = ""
+    # Behind the header of each comment and review in the thread, as GitHub
+    # boxes them: somebody's, and your own, which GitHub draws in blue.
+    thread_bg::String = ""
+    thread_mine_bg::String = ""
     code_bg::String = ""
     code_bg_off::String = ""
     # Where the cursor, the selection, a search hit and the insertion point are.

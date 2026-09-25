@@ -464,6 +464,10 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
                     String(nz(get(body, "html_url", nothing), it.url)), true)
         ns[1].meta["at"] = String(nz(get(body, "created_at", nothing), ""))
     end
+    # Whose each box is, for `header_bg`: present on a comment or a review and
+    # on nothing else, which is what says it is a box at all.
+    me = login()
+    isempty(ns) || (ns[1].meta["mine"] = !isempty(me) && who0 == me)
     evs = activity_list(cs, cms, sts)
     # Where the new part starts, and how much of it there is. Nothing at all for
     # an item never marked done: the whole thread is new then, and a rule above
@@ -473,7 +477,6 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # The stamp or the floor, as the list reads it: the stamp alone left no rule
     # on a row read by construction, which the list called unread all the same.
     seen = done_upto(it)
-    me = login()
     # And nothing for a thread opened since, by somebody else: the floor is
     # older than all of it, the opening post included, which is drawn first
     # and is no entry for the rule to go above. Under it the rule stood over
@@ -493,7 +496,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             push!(ns, state_node(e.c, it.url))
             continue
         elseif e.kind === :review
-            append!(ns, review_node(e.c, it.url))
+            rn = review_node(e.c, it.url)
+            rn[1].meta["mine"] = !isempty(me) && entry_by(e) == me
+            append!(ns, rn)
             continue
         end
         c = e.c
@@ -524,6 +529,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         # The time itself, for `rows` to say how long ago that was against
         # the frame's clock; the header carries only the date.
         made[1].meta["at"] = e.at
+        made[1].meta["mine"] = !isempty(me) && who == me
         # Only a review comment can be replied to in a thread; an issue comment
         # has no thread to reply into, so `c` there writes a new one.
         isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))

@@ -76,6 +76,8 @@ diff_meta = "dim"
 diff_hunk_bg    = ""
 diff_file_bg    = ""
 diff_comment_bg = ""
+thread_bg       = ""
+thread_mine_bg  = ""
 # An inline code span, drawn as a quiet background instead of loud punctuation.
 # A background and not a foreground on purpose: the span is usually an
 # identifier in a sentence, and marking it must not compete with the sentence.

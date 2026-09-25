@@ -64,6 +64,11 @@ diff_meta = "243"
 diff_hunk_bg    = "on 17"
 diff_file_bg    = "on 235"
 diff_comment_bg = "on 234"
+# Behind the header of each comment and review in the thread: grey for
+# somebody's, and blue for your own, as GitHub draws them. Both off
+# `cursor_bg`'s 236, so the cursor still shows on one.
+thread_bg      = "on 235"
+thread_mine_bg = "on 17"
 # The grey behind an inline code span, a step lighter than the cursor row so a
 # span under the cursor is still marked.
 code_bg = "on 238"

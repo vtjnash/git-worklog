@@ -640,6 +640,52 @@ end
     end
 end
 
+@testset "a thread's comment headers are its boxes" begin
+    keepdir, keepfresh = W.CACHE_DIR[], W.CACHE_FRESH[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    W.CACHE_FRESH[] = 600.0
+    it = W.Item(url = "https://github.com/o/r/pull/1", ref = "r#1", repo = "o/r",
+                number = 1, title = "t", is_pr = true)
+    c(who, t, body) = Dict("user" => Dict("login" => who), "created_at" => t,
+                           "body" => body, "html_url" => it.url)
+    try
+        me = W.login()
+        @test !isempty(me)
+        W.cache_put(W.thread_key(it.url),
+                    (body = Dict("user" => Dict("login" => "someone"), "body" => "the ask",
+                                 "html_url" => it.url, "created_at" => "2026-09-01T00:00:00Z"),
+                     comments = [c(me, "2026-09-02T00:00:00Z", "mine\n\n```\ncode\n```"),
+                                 c("someone", "2026-09-04T00:00:00Z", "theirs")],
+                     commits = [Dict("oid" => "a"^40, "at" => "2026-09-03T00:00:00Z",
+                                     "by" => "someone", "headline" => "fix")],
+                     events = [Dict("kind" => "closed", "at" => "2026-09-05T00:00:00Z",
+                                    "by" => "someone")]))
+        ns = W.comment_nodes(it, W.utcnow())
+        st = mkstate()
+        st.mode = :comments
+        st.nodes = ns
+        W.load_theme!(joinpath(W.ROOT, "themes", "github-dark-256.toml"))
+        rs = W.rows(ns, 80)
+        bgof(pred) = (i = findfirst(pred, ns);
+                      W.header_bg(st, rs[findfirst(r -> r.node == i && r.header &&
+                                                        !isempty(r.text), rs)]))
+        has(s) = n -> occursin(s, W.astrip(n.header))
+        @test bgof(has("opened this")) == W.THEME.thread_bg != ""
+        @test bgof(n -> n.depth == 0 && occursin("mine", n.raw)) == W.THEME.thread_mine_bg != ""
+        @test bgof(n -> n.depth == 0 && occursin("theirs", n.raw)) == W.THEME.thread_bg
+        # The timeline between the boxes is not one, nor is a block inside one.
+        @test bgof(has("pushed")) == ""
+        @test bgof(has("closed")) == ""
+        @test bgof(has("code")) == ""
+        # And it is the thread's: the same nodes under `d` are not.
+        st.mode = :diff
+        @test bgof(has("opened this")) == ""
+    finally
+        W.load_theme!(THEME_DEFAULT)
+        W.CACHE_DIR[], W.CACHE_FRESH[] = keepdir, keepfresh
+    end
+end
+
 @testset "a control character in a diff is drawn, not obeyed" begin
     # An escape in a diff is a command to the terminal the frame is on, and gh
     # refuses to pipe one. Here it is asked for anyway, and what reaches the

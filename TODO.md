@@ -7,11 +7,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
+- [ ] after exiting Claude, it seems like the pane stays locked (needing ^]K to close), rather than any key as for bash (time to read the exit message is good, but somehow isn't seeing the session ended in the same way), even though ^]q closes it entirely too
 - [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
-- [ ] now that we have header colors on each node in a diff, I've realized that I want those on each node in a comment section too
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
-- [ ] after exiting Claude, it seems like the pane stays locked (needing ^]K to close), rather than any key as for bash (time to read the exit message is good, but somehow isn't seeing the session ended in the same way)
+- [ ] does term.js expose whether to use a light or dark theme, which we could add as a keybinding to read and redraw if that code arrives (send the query on startup, but don't wait for reply)
 
 ## Upstream
 
