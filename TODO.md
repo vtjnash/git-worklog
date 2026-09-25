@@ -7,7 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] why does 62889 headers render with Markdown.Code instead of formatting that: `Why Markdown.Code("", "JL_GC_PUSHARGS") frames are the hard case.`
 - [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
@@ -26,10 +25,22 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       | #306 table nested in a list is a `MethodError` | `for_term` moves it to a code block |
       | #309 code span in a table header drawn as a block | header cells wrapped in a `Paragraph` |
 
+      It also fixes one thing nothing here worked around: `Bold` and `Italic`
+      interpolated their children rather than recursing, so a code span in
+      emphasis printed as `Markdown.Code("", "JL_GC_PUSHARGS")` (seen on
+      JuliaLang/julia#62889, `**Why `JL_GC_PUSHARGS` frames are the hard
+      case.**`). Add a `render_md` test for `**a `b` c**` with the bump.
+
       #310 (`leftalign`/`vstack` re-wrapping a wide table) never needed one:
       `render_md` is handed a pane width. Keep the underscore half of
       `escape_source` - JuliaLang/julia#63081 is still open. Rewrite DESIGN's
       "Term.jl (v2.2, pinned)" section to match what is left.
+
+- [ ] **PR Term's header fix upstream.** v2.2.1 recurses into a header's
+      elements but still ends each with a newline, so `## a `b` c` renders as
+      three centred lines. The fix is branch `md-header-inline` in `Term.jl/`
+      (on top of v2.2.1, with a test); push it and open the PR, then add the
+      header case to the `render_md` test once it is released.
 
 - [ ] **File Highlights' `Pkg` import upstream.** `Highlights` 0.6 imports `Pkg`
       at load time for one `Pkg.Registry.reachable_registries()` in

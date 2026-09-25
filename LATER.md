@@ -128,6 +128,33 @@ filtered as wanted.
       - **How it reports** - the status line is one row, and a rebase that stops
         is not one row.
 
+- [ ] **A resize reported in-band (`CSI ? 2048 h`) instead of by SIGWINCH.**
+      *Blocked on the terminals this runs in reporting it: tmux and xterm.js
+      (VS Code) at least. Checked 2026-09-25: neither does - tmux master
+      after 3.8 has no mode 2048 in `input.c`, `tty.c` or `server-client.c`,
+      xterm.js none in `InputHandler.ts`, and neither has an issue asking.*
+      The point is deleting `watch_winch!` - libuv's `uv_signal_t` by hand,
+      malloc and all - and that is only a win once terminals generally
+      support the mode. Until then it would have to run beside SIGWINCH and
+      replaces none of it. It buys nothing where SIGWINCH is missing, either:
+      libuv already emulates SIGWINCH on Windows from console resizes. And
+      falling back to "the size refreshes on the next key" is not an option:
+      that is the torn frame `watch_winch!` was written to end.
+
+      The shape, when it is time, is the one mode 2031 (`SchemeEvent`)
+      already has:
+      - **Set and unset** beside `scheme_reports`, in all three places - at
+        start, around `suspend` (a child's stdin must not get reports), and
+        in `run!`'s `finally`. One `reports(on)` for both modes.
+      - **Decode** `CSI 48 ; rows ; cols ; ypx ; xpx t` in `readevent` as a
+        `ResizeEvent`, and strip it on the raw path where `scheme_in` strips
+        the scheme report, so a hosted pane's child never reads it.
+        `displaysize` stays the source of the size; the report is only when.
+      - **Know it is supported** by the report the terminal sends as soon as
+        the mode is set - that one is the proof. Stop the SIGWINCH watch on
+        seeing it, rather than drawing twice per resize; a terminal that
+        never sends one keeps SIGWINCH for the session.
+
 - [ ] **A word for *filed away*.** *Decide: the word.*
       `x` puts a thing out of the backlog as well as out of the inbox, and it
       comes back when it moves the way a done one does - neither "filed away"

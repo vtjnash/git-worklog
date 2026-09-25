@@ -479,8 +479,9 @@ condition does the `put!`. A timer comparing `displaysize` every 200 ms was the
 other way, and one ioctl every fifth of a second for the life of the browser
 is a cadence of its own, which nothing else here runs on.
 
-Not on Windows, which has no signal for it: there `displaysize` at the next
-key is all there is, which is what it was everywhere.
+Windows too: libuv delivers SIGWINCH there itself, from the console's resize
+events, and gives it the same number (`uv/win.h`), so nothing here asks which
+system it is on.
 
 Returns the function that stops it, for `run!`'s `finally`.
 """
@@ -491,7 +492,6 @@ winch_signalled(::Ptr{Cvoid}, ::Cint) =
     (ccall(:uv_async_send, Cint, (Ptr{Cvoid},), WINCH_COND[].handle); nothing)
 winch_freed(h::Ptr{Cvoid}) = (Libc.free(h); nothing)
 function watch_winch!(ctrl::Controller)
-    Sys.iswindows() && return () -> nothing
     cond = Base.AsyncCondition()
     WINCH_COND[] = cond
     h = Libc.malloc(ccall(:uv_handle_size, Csize_t, (Cint,), UV_SIGNAL))
