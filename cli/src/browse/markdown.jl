@@ -425,7 +425,8 @@ function autolink(row::AbstractString, repo::AbstractString)
     String(take!(io))
 end
 
-"""Protect text from the two markup layers that would eat it.
+"""Protect text from the two markup layers that would eat it, and spell what
+GitHub spells.
 
 **Underscores inside words.** Julia's `Markdown` opens emphasis on an underscore
 with letters on both sides, so `deliver_result and connect_to_peer` comes back
@@ -443,11 +444,21 @@ and a doubled brace survives `parse_md` and is collapsed by `render_md`. It
 cannot be done to `parse_md`'s *output*, which is where the braces of Term's own
 tags live.
 
-Code is left alone for both, since a backslash inside a code span prints as a
-backslash and `parse_md` already escapes braces there itself: fenced blocks,
-indented blocks and inline spans are all skipped. An unbalanced backtick makes
+**Emoji shortcodes.** GitHub draws `:robot:` as the character, from the table
+in `emoji.jl`, and nothing downstream knows the names. One that follows a letter
+or digit is left as typed, as is a name not in the table - `12:30:45` is a time.
+The emoji is written without its U+FE0F, the selector asking for the picture:
+`textwidth` counts `⚠️` as one column and a terminal honouring the selector
+draws two, which pushes every column after it along by one; without it the
+terminal draws the one column that was counted.
+
+Code is left alone for all three, since a backslash inside a code span prints as
+a backslash, `parse_md` already escapes braces there itself, and `:robot:` in
+code is what was meant: fenced blocks, indented blocks and inline spans are all
+skipped. An unbalanced backtick makes
 the rest of its line count as code, which errs towards changing nothing.
 """
+const SHORTCODE = r"\G:([a-z0-9_+-]+):"
 function escape_source(md::AbstractString)
     isword(c) = isletter(c) || isdigit(c) || c == '_'
     out = IOBuffer()
@@ -467,6 +478,12 @@ function escape_source(md::AbstractString)
             if c == '`'
                 incode = !incode
                 write(out, c)
+            elseif !incode && c == ':' &&
+                   (i == firstindex(line) || !isword(line[prevind(line, i)])) &&
+                   (m = match(SHORTCODE, line, i)) !== nothing && haskey(EMOJI, m[1])
+                write(out, replace(EMOJI[m[1]], '\ufe0f' => ""))
+                i += ncodeunits(m.match)
+                continue
             elseif !incode && (c == '{' || c == '}')
                 write(out, c, c)                 # Term's escape is doubling
             elseif !incode && c == '_' &&

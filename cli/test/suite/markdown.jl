@@ -87,6 +87,17 @@ end
     @test esc("a {b}") == "a {{b}}"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 
+    # GitHub's shortcodes are the characters it draws for them - not in code,
+    # not after a letter, not a name it does not know - and without the
+    # presentation selector, whose second column `textwidth` does not count.
+    @test render("thanks :tada: from :robot: :+1:") == "thanks 🎉 from 🤖 👍"
+    @test render("`:robot:` stays") == "`:robot:` stays"
+    @test esc("```\n:robot:\n```") == "```\n:robot:\n```"
+    @test esc("at 12:30:45 or a:tada: or :nosuchname:") == "at 12:30:45 or a:tada: or :nosuchname:"
+    @test esc(":white_check_mark: done") == "✅ done"               # the underscores are the name's
+    @test esc(":warning:") == "⚠" && !occursin('\ufe0f', esc(":hash:"))
+    @test W.EMOJI["robot"] == "🤖"
+
     # And the name is findable, which is the point.
     st = mkstate()
     st.nodes = [W.Node("h", "guard the raw stderr writes in deliver_result and connect_to_peer",

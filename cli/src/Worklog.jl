@@ -117,6 +117,7 @@ include("ui.jl")
 include("browse/nodes.jl")        # `Node`, which the rest of this is about
 include("browse/filters.jl")      # the filter and view model
 include("browse/bstate.jl")       # `Undo` and `BState`
+include("browse/emoji.jl")        # `:robot:`, GitHub's table of them
 include("browse/markdown.jl")     # a comment body becomes styled rows
 include("browse/meta.jl")         # the metadata pane
 include("browse/layout.jl")       # geometry, selection, hit-testing, links
