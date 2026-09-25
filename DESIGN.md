@@ -1099,6 +1099,14 @@ Each of the following returns success and the wrong answer:
   it is not tried again.
 - **The lanes stay GraphQL**; REST search could answer the three queries but
   not the bundle. GraphQL is slow per row (150-200ms a node), not per request.
+- **The terminal's dark or light is not forwarded into a pane.** tmux takes
+  `CSI ? 997 ; 1|2 n` as a key only from a real terminal client, and
+  `send-keys` would type it into the child instead. A control client's one
+  channel is `refresh-client -r %pane:` with an OSC 11 *colour*, from which
+  3.6+ guesses dark or light - so it is an invented colour or a second
+  query standing in for what a real client says outright. Neither is what
+  tmux does for a terminal, so the child gets no report through us. A
+  real client attached (`^]a`) reports it itself.
 - **`p` uses a checkout**; there is no endpoint.
 - **`d` uses the checkout too, when one is pinned, and gh without.** Both
   ends are known - the head and where the base branch was, `headRefOid`
