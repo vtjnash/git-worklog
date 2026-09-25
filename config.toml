@@ -22,7 +22,10 @@ login = ""
 # is not there draws everything plain, with no escapes printed at all - so
 # `theme = ""` is the way to ask for that. A misspelt role or colour inside the
 # file is reported on stderr at startup and drawn as nothing; the file itself
-# says what the roles are and what a colour may be written as.
+# says what the roles are and what a colour may be written as. A terminal that
+# says whether it is dark or light (VS Code's, tmux 3.6+) gets the file of the
+# same name with `light` and `dark` swapped, where there is one, and is
+# followed when it changes; a name with neither word is used as it is.
 theme = "github-light-256.toml"
 
 # The zone times are shown in, as an IANA name - `America/New_York`, not

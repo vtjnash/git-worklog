@@ -298,6 +298,9 @@ the view. Hand-edited, both, and only ever read.
 
 - `login` (yours; nothing runs without it), and `theme` - a file under
   `themes/`. Empty draws everything plain, with no escape sequences at all.
+  Where the terminal says whether it is dark or light - VS Code's does, and
+  tmux 3.6 passes it on - a name with `light` or `dark` in it is swapped for
+  its pair, and swapped back when the terminal's theme changes.
 - `[lanes]` - the three searches for the open work, as `@me`, which GitHub
   reads as whoever holds the token. `sort:created-asc` on each is load-bearing
   (see DESIGN.md). A lane of the same key in your file replaces it; a new key

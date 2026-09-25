@@ -481,6 +481,24 @@ function themefile()
         isabspath(name) ? name : joinpath(ROOT, "themes", name)
 end
 
+"""The file the colours were last loaded from, which is `themefile()` until the
+terminal says its scheme is the other one - see `scheme_theme`."""
+const LOADED_THEME = Ref("")
+
+"""The theme to draw with on a terminal whose colours are `dark` (or light),
+given the one `config.toml` names: that one where its name says it is for this
+scheme or says neither - `default-ansi.toml` uses the terminal's own colours -
+and otherwise its pair, the same name with `light` and `dark` swapped, when
+there is a file of that name. Named rather than configured, so a pair is two
+files and not a key that has to be kept in step with them."""
+function scheme_theme(path::AbstractString, dark::Bool)
+    want, other = dark ? ("dark", "light") : ("light", "dark")
+    b = basename(path)
+    (isempty(path) || occursin(want, b) || !occursin(other, b)) && return String(path)
+    q = joinpath(dirname(path), replace(b, other => want))
+    isfile(q) ? q : String(path)
+end
+
 """What loading the theme had to say - a file that is not there, a colour that
 is not one - kept for whichever channel the process has: stderr for a command,
 the footer for the browser. Filled once, in `__init__`."""
@@ -505,6 +523,7 @@ here on every load, so that "the theme" means one file and not four globals
 that drifted apart.
 """
 function load_theme!(path::AbstractString = themefile())
+    LOADED_THEME[] = String(path)
     probs = String[]
     for f in fieldnames(Theme)
         setfield!(THEME, f, "")

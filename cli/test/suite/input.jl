@@ -265,3 +265,73 @@ end
     f = String(W.frame_bytes("\e[1mab\e[0m\ncd", "", nothing; w = 2))
     @test !occursin("\e[K", f)
 end
+
+@testset "the terminal says dark or light, and the theme follows" begin
+    # The report is an event of its own, from the decoded path and from the
+    # raw one - where it is taken out of a pane's input, which goes on without
+    # it - and anything else is what it was.
+    ev = W.readevent(IOBuffer("\e[?997;1n"))
+    @test ev isa W.SchemeEvent && ev.dark && isempty(ev.rest)
+    ev = W.readevent(IOBuffer("\e[?997;2n"))
+    @test ev isa W.SchemeEvent && !ev.dark
+    @test W.readevent(IOBuffer("\e[?997;3n")) == W.KeyEvent(-1)
+    ev = W.scheme_in(Vector{UInt8}(codeunits("ab\e[?997;1ncd")))
+    @test ev isa W.SchemeEvent && ev.dark && String(copy(ev.rest)) == "abcd"
+    @test W.scheme_in(Vector{UInt8}(codeunits("\e[?997;2n"))).rest == UInt8[]
+    @test W.scheme_in(UInt8['x']) isa W.RawEvent
+
+    # Paired by name, and a theme that names neither is the terminal's own.
+    th(n) = joinpath(W.ROOT, "themes", n)
+    @test W.scheme_theme(th("github-light-256.toml"), true) == th("github-dark-256.toml")
+    @test W.scheme_theme(th("github-dark-256.toml"), false) == th("github-light-256.toml")
+    @test W.scheme_theme(th("github-dark-256.toml"), true) == th("github-dark-256.toml")
+    @test W.scheme_theme(th("default-ansi.toml"), true) == th("default-ansi.toml")
+    @test W.scheme_theme(th("my-light.toml"), true) == th("my-light.toml")   # no pair on disk
+    @test W.scheme_theme("", true) == ""
+
+    # Switching loads the pair of the theme the config names, once, and again
+    # only when the scheme changes.
+    ctrl = W.Controller()
+    try
+        W.load_theme!(W.themefile())
+        want = W.scheme_theme(W.themefile(), true)
+        @test W.scheme!(ctrl, true) == (want != W.themefile())
+        @test W.LOADED_THEME[] == want
+        @test !W.scheme!(ctrl, true)                       # already so
+        W.scheme!(ctrl, false)
+        @test W.LOADED_THEME[] == W.scheme_theme(W.themefile(), false)
+    finally
+        W.load_theme!(THEME_DEFAULT)
+    end
+
+    # The browser's nodes carry the old escapes, and are built again quietly:
+    # the ones on screen stay until the new ones land, and it is the cache
+    # that is read, not GitHub.
+    keepdir, keepfresh = W.CACHE_DIR[], W.CACHE_FRESH[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    W.CACHE_FRESH[] = 600.0
+    try
+        st = mkstate()
+        st.mode = :comments
+        u = st.items[st.sel].url
+        W.cache_put(W.thread_key(u), (body = Dict("user" => Dict("login" => "a"),
+                                                 "body" => "hello", "html_url" => u),
+                                      comments = []))
+        st.nodes = [W.Node("a", "body", :md, true)]
+        st.loaded = string(u, ":", st.mode)
+        W.retheme!(st)
+        @test st.quiet && st.pending !== nothing && length(st.nodes) == 1
+        ns = fetch(st.pending)
+        @test occursin("hello", ns[1].raw)
+    finally
+        W.CACHE_DIR[], W.CACHE_FRESH[] = keepdir, keepfresh
+    end
+
+    # Off while the terminal is handed over, and asked again after.
+    out = mktemp() do path, io
+        redirect_stdout(() -> W.suspend(() -> nothing, ctrl), io)
+        flush(io)
+        read(path, String)
+    end
+    @test occursin("\e[?2031l", out) && endswith(out, "\e[?2031h\e[?996n")
+end

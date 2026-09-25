@@ -13,7 +13,8 @@ login = ""
 
 # A file under `themes/`, or `""` for no colour at all. `default-ansi.toml` is
 # the terminal's own sixteen colours; the two `github-*-256` files are GitHub's
-# palette pinned to the 256-colour cube.
+# palette pinned to the 256-colour cube; either follows the terminal to the
+# other where it says whether it is dark or light.
 theme = "github-light-256.toml"
 
 # The zone times are shown in, when it is not this machine's - a server kept on

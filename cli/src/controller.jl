@@ -133,6 +133,30 @@ struct RawEvent
     bytes::Vector{UInt8}
 end
 
+"""The terminal says whether its colours are dark or light: `CSI ? 997 ; 1 n`
+for dark and `; 2 n` for light, the answer to `CSI ? 996 n` and, once
+`CSI ? 2031 h` is set, sent again by itself whenever that changes (xterm.js
+from the 6.1 betas, which is VS Code's terminal; tmux from 3.6; the spec is
+contour's, "color palette update notifications").
+
+An event of its own and not a key, because it is not something anybody typed
+and no view binds it: the loop switches the theme and every view is drawn
+again. `rest` is what a raw read held besides the report - a pane's input is
+read in whatever bursts it arrives in, and the report is taken out of it here
+rather than typed into the child - and it goes on to the view as the
+`RawEvent` it would have been."""
+struct SchemeEvent
+    dark::Bool
+    rest::Vector{UInt8}
+end
+
+"""The sequences that ask for `SchemeEvent`s - the current answer now, and
+each change as it happens - and that stop them. Off while the terminal is
+handed to a child (`suspend`), whose input a report would land in."""
+scheme_reports(on::Bool) = on ? "\e[?2031h\e[?996n" : "\e[?2031l"
+
+const SCHEME_REPORT = r"\e\[\?997;([12])n"
+
 """One mouse report.
 
 `kind` is `:press`, `:drag`, `:release`, `:wheelup` or `:wheeldown`; `x` and `y`
@@ -180,7 +204,22 @@ function readraw(io::IO)
     buf = UInt8[b]
     n = bytesavailable(io)
     n > 0 && append!(buf, read(io, n))
-    RawEvent(buf)
+    scheme_in(buf)
+end
+
+"""A raw read as the event it is: the colour-scheme report is ours and not the
+child's, and is taken out of the bytes with whatever else came with it left in
+order. A report cut across two reads goes through as bytes, which the child
+ignores; a terminal writes one in a single write, and does not interleave it
+with a key."""
+function scheme_in(buf::Vector{UInt8})
+    s = String(copy(buf))
+    m = nothing
+    for x in eachmatch(SCHEME_REPORT, s)
+        m = x
+    end
+    m === nothing && return RawEvent(buf)
+    SchemeEvent(m[1] == "1", Vector{UInt8}(codeunits(replace(s, SCHEME_REPORT => ""))))
 end
 
 """
@@ -301,6 +340,7 @@ function decode_csi(params::String, fin::Char)
     fin == 'H' && return KeyEvent(K_HOME)
     fin == 'F' && return KeyEvent(K_END)
     fin == 'Z' && return KeyEvent(K_STAB)
+    fin == 'n' && params in ("?997;1", "?997;2") && return SchemeEvent(params[end] == '1', UInt8[])
     if fin == '~'
         # `CSI 5 ~` and `CSI 5 ; 2 ~` are the same key, modified.
         n = tryparse(Int, String(first(split(params, ';'))))
@@ -376,6 +416,33 @@ function wake!(ctrl::Controller)
     ctrl.woken && return true
     ctrl.woken = true
     put!(ctrl.events, WakeEvent())
+    true
+end
+
+"""A view whose frame holds colours it worked out before now - rendered rows,
+headers built with the theme's escapes in them - drops them, because the theme
+just changed. Most views draw from `THEME` on every frame and need nothing."""
+retheme!(::View) = nothing
+
+"""Draw with the theme for a terminal whose colours are `dark` or light.
+
+The one `config.toml` names, or its pair (`scheme_theme`); nothing happens
+when that is the one already loaded, which is every report after the first
+until the terminal's scheme actually changes. What the load had to say
+replaces what the last one did, in the footer's standing note."""
+function scheme!(ctrl::Controller, dark::Bool)
+    path = scheme_theme(themefile(), dark)
+    path == LOADED_THEME[] && return false
+    probs = load_theme!(path)
+    empty!(THEME_NOTES)
+    append!(THEME_NOTES, probs)
+    for v in ctrl.stack
+        try
+            retheme!(v)
+        catch e
+            logerror!(e, catch_backtrace(), "retheme!")
+        end
+    end
     true
 end
 
@@ -546,7 +613,15 @@ reader blocked in `read(stdin)` would race the child for every keystroke the
 user typed into it. The loop does not re-arm the reader until it has finished
 handling the event, and running the editor happens inside that handling.
 """
-suspend(f, ctrl::Controller) = suspend(f, ctrl.term; mouse = ctrl.mouse, paste = true)
+function suspend(f, ctrl::Controller)
+    print(scheme_reports(false))
+    try
+        suspend(f, ctrl.term; mouse = ctrl.mouse, paste = true)
+    finally
+        # And asked again: the scheme may have changed while it was away.
+        print(scheme_reports(true))
+    end
+end
 
 # --- surviving a bug ---------------------------------------------------------
 #
@@ -753,6 +828,9 @@ function run!(ctrl::Controller, root::View)
     REPL.Terminals.raw!(ctrl.term, true)
     mouse!(ctrl, true)
     print(bracketed_paste(true))
+    # Asked and not waited for: the answer is an event like any other, and a
+    # terminal that does not know the question says nothing at all.
+    print(scheme_reports(true))
     ctrl.running = true
     unwatch_winch = watch_winch!(ctrl)
     # The reader reads one event per token and then waits for the next, rather
@@ -843,7 +921,11 @@ function run!(ctrl::Controller, root::View)
                 dirty = true
             else
                 armed = false
-                act = safe_dispatch!(v, ev, ctrl)
+                if ev isa SchemeEvent
+                    scheme!(ctrl, ev.dark)
+                    ev = isempty(ev.rest) ? nothing : RawEvent(ev.rest)
+                end
+                act = ev === nothing ? :ok : safe_dispatch!(v, ev, ctrl)
                 act === :quit && break
                 # Pop the view that asked, not whatever is on top: a view may
                 # push its successor while handling the key it pops on - the
@@ -875,7 +957,7 @@ function run!(ctrl::Controller, root::View)
         try
             ctrl.mouse && mouse!(ctrl, false)
             REPL.Terminals.raw!(ctrl.term, false)
-            print(bracketed_paste(false), "\e[?25h\e[?1049l\e[23;2t")
+            print(scheme_reports(false), bracketed_paste(false), "\e[?25h\e[?1049l\e[23;2t")
         catch
         end
     end

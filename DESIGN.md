@@ -942,6 +942,18 @@ Each of the following returns success and the wrong answer:
 
 ### The terminal
 
+- **Dark or light is asked, not guessed, and the answer is an event.**
+  `CSI ? 996 n` and `CSI ? 2031 h` at startup, and again after a `suspend`
+  (which turns reports off, since they would land in the child's input);
+  the answer, now and on each change, is `CSI ? 997 ; 1|2 n` - xterm.js
+  from the 6.1 betas, which VS Code tracks, and tmux from 3.6. Nothing
+  waits for it: a terminal that does not know the question says nothing,
+  and the configured theme stands. Not OSC 11, which every xterm.js
+  answers but as an `ESC ]` string `readevent` would read as Escape and
+  then keys. A pane's input is raw, so `readraw` takes the report out of
+  it before the child sees it. The theme is `config.toml`'s or its pair by
+  name, and the browser's nodes, which hold the old escapes, are rebuilt
+  from the cache in place.
 - A one-row field must hold one row: `showerror` embeds a newline, and one
   element holding a newline scrolls the screen and shifts every mouse click.
   `oneline`.

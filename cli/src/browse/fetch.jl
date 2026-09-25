@@ -251,7 +251,7 @@ the middle of.
 Only ever for the item that is loaded and only when nothing else is in flight,
 so this can never be what a keystroke is waiting on.
 """
-function refresh_nodes!(st::BState)
+function refresh_nodes!(st::BState; fresh::Bool = true)
     (isempty(st.items) || st.sel == 0) && return false
     it = st.items[clamp(st.sel, 1, length(st.items))]
     key = string(it.url, ":", st.mode)
@@ -262,15 +262,20 @@ function refresh_nodes!(st::BState)
     st.pendkey = key
     # Its own key: a re-read that joined the cached read already in the air
     # would come back with exactly the answer it was asked to go past.
-    st.pending = fetching(string(key, " fresh")) do
+    st.pending = fetching(string(key, fresh ? " fresh" : " again")) do
         try
-            mode_nodes(mode, it, at; fresh = true)
+            mode_nodes(mode, it, at; fresh)
         finally
             st.wake === nothing || st.wake()
         end
     end
     true
 end
+
+"""The theme changed: the nodes on screen have the old one's escapes in their
+headers and in every rendered row, so they are built again - from the cache,
+with the cursor and the folds kept, as any quiet refresh keeps them."""
+retheme!(st::BState) = (refresh_nodes!(st; fresh = false); nothing)
 
 """Re-read everything about the item on screen, cache and all.
 
