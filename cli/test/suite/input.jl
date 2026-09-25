@@ -116,6 +116,13 @@ end
     @test W.unshift(W.K_SUP) == W.K_UP && W.unshift(W.K_SDOWN) == W.K_DOWN
     @test W.unshift(Int('j')) == Int('j')
     @test ev("\e[<0;40M") == W.KeyEvent(-1)          # malformed
+
+    # A paste is a key per character with the rest already waiting, which is
+    # what holds the frame until the last of them; a key typed alone is not.
+    io = IOBuffer("hi\e[A")
+    @test W.readevent(io) == W.KeyEvent(Int('h')) && W.input_waiting(io)
+    W.readevent(io)
+    @test W.readevent(io) == W.KeyEvent(W.K_UP) && !W.input_waiting(io)
 end
 
 @testset "details blocks fold to their summary" begin

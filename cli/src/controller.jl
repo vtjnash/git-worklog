@@ -681,6 +681,15 @@ function frame_bytes(frame::AbstractString, title::AbstractString,
     take!(io)
 end
 
+"""Has the terminal sent input that no event has been read from yet?
+
+What has already arrived and is in the stream's buffer, never a wait for more:
+Julia stops reading a stream nobody is waiting on, so this is the rest of the
+last read - a paste, up to what the pty delivered at once - and zero between
+keys typed by hand.
+"""
+input_waiting(io::IO) = bytesavailable(io) > 0
+
 """
     run!(ctrl, root)
 
@@ -740,7 +749,12 @@ function run!(ctrl::Controller, root::View)
         settle_all!(ctrl)
         while !isempty(ctrl.stack)
             v = last(ctrl.stack)
-            if dirty
+            # Not while the terminal has already sent more: a paste into a
+            # composer is a key per character, and a frame per key was ~14 kB
+            # rendered, written and drawn per character - a paste came in at
+            # about typing speed. `dirty` stays set, so the frame is drawn
+            # once the input already here has run out.
+            if dirty && !input_waiting(stdin)
                 h, w = displaysize(stdout)
                 # The title bar follows the selection: `wl JuliaLang/julia#1`
                 # while that is the item, `wl` on the import row. Only on a

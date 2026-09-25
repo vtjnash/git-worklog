@@ -929,6 +929,15 @@ Each of the following returns success and the wrong answer:
   `TTY` is unbuffered, so `print` with three arguments was three writes,
   and the cursor shown at the end of one frame was at the top left for
   the start of the next.
+- **No frame while input is waiting** (`input_waiting`). A paste reaches a
+  composer as one key per character, and a frame after each was ~14 kB per
+  character to render, write and draw: 2700 characters took 5.6 s under tmux
+  and about typing speed in a real terminal (2026-09-25). The loop skips the
+  draw while bytes already read sit in stdin's buffer, and draws once they
+  run out - 0.02 s for the same paste. It never waits for input to see if
+  more is coming, since Julia stops reading a stream nobody is reading, so
+  keys typed by hand still draw one frame each. A hosted pane never had the
+  problem: `readraw` takes the whole burst, and that goes as one `send-keys`.
 - **No erase after a row that filled its width.** The last column written
   leaves the cursor pending a wrap, and terminals disagree where that is:
   xterm.js counts it past the last column and an `\e[K` there erases

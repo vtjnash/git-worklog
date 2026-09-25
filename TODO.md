@@ -9,6 +9,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 - [ ] Search in dh pane should use Regex matcher and remember the query string last used
 - [ ] should we support emoji :robot: in github markdown parsing?
+- [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
+- [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
+- [ ] now that we have header colors on each node in a diff, I've realized that I want those on each node in a comment section too
 
 ## Upstream
 
@@ -68,7 +71,3 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       short snippet should be part of the sentence instead.*
       A fenced block is a node with its own header and fold state, so a
       three-line snippet gets the same furniture as a file.
-
-## Unverified - needs a real terminal
-
-Nothing at present.
