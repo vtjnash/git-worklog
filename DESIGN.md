@@ -681,9 +681,26 @@ failing test would stop `wl` starting. Invented items, hermetic paths, a
 `catch` around everything. **It must not leave a process running**, or
 precompilation stops on "waiting for IO": `hermetic` takes the binaries away
 (empty `PATH`; `WORKLOG_TMUX` at a path that does not exist), which survives
-somebody adding a key; `drain_fetches!` at the end is the other half.
+somebody adding a key; `drain_fetches!` at the end is the other half. A spawn
+with a buffer on stdin must look for its binary first (`gh_run`), or the
+failed spawn leaves the writer task behind. **Nor reach the network**:
+GitHub.jl finds a token without `gh`, so `hermetic` takes the token away too.
 `PrecompileTools` is kept: the macro is worth 0.6s a launch over a bare `let`,
 and Base has no equivalent.
+
+**What it covers is read off a trace, not guessed.** The workload seeds the
+files a launch reads - `fetched.json` with an inbox, the cache under the first
+row (bundle, thread, meta, merge, checks, diff), a notice - launches as `ui`
+does, and drives keys through `step!`, one turn of `run!`'s loop, so the
+dialogs a key opens are drawn and answered too. What only the network or a
+TTY reaches is a list of `precompile` signatures beside it. To redo it, run
+the browser from `cli/precompile` with
+`--trace-compile=<file> --trace-compile-timing` inside a tmux session over a
+copy of `data/` (`WORKLOG_DATA`), press the keys, and read what is still
+compiled, biggest first. JSON3 types an empty array, a nested object and a
+top-level one apart, so a path is covered only in the shapes it was seeded
+in. On 2026-09-26 the same session went from 18.1s of runtime compilation to
+2.6s.
 
 **Its manifest is `cli/Manifest.toml` plus one entry**, never resolved fresh:
 copy, fix the two relative `../` paths, `Pkg.resolve()`. Check:

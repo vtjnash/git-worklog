@@ -7,7 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the

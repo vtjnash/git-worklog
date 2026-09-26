@@ -36,8 +36,12 @@ function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep
       }
     }"""
     out = try
-        d = JSON3.read(read(pipeline(`gh api graphql -F owner=$owner -F name=$name
-                                      -F num=$number -F query=@-`; stdin = IOBuffer(q)), String))
+        # Through `gh_run`, which looks for `gh` before it spawns one: see
+        # there for what a failed spawn with a buffer on stdin leaves behind.
+        rc, txt, err = gh_run(["api", "graphql", "-F", "owner=$owner", "-F", "name=$name",
+                               "-F", "num=$number", "-F", "query=@-"], q)
+        rc == 0 || error(first(isempty(err) ? txt : err, 300))
+        d = JSON3.read(txt)
         roll = d.data.repository.pullRequest.commits.nodes[1].commit.statusCheckRollup
         roll === nothing ? (state = "NONE", contexts = []) :
             (state = String(roll.state),

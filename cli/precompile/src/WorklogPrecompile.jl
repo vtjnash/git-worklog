@@ -30,7 +30,7 @@ minus everything that talks to a process or the network.
 module WorklogPrecompile
 
 using Worklog
-using Dates: DateTime
+using Dates: DateTime, Day, Millisecond, Second
 using PrecompileTools: @compile_workload, @setup_workload
 
 # Re-exported so `using WorklogPrecompile` is a drop-in for `using Worklog`, and
@@ -69,16 +69,29 @@ half-closed process handle behind, and precompilation ended in "Waiting for
 background task / IO / timer to finish" often enough to be noticed. `gh_run`
 looks for `gh` before it spawns now; see its docstring in `gh.jl`.
 
+An empty `PATH` stops `gh`, not the network. The item pane's own requests -
+`itemmeta`, `fetch_bundle`'s `server_now` - go through GitHub.jl, and `token()`
+finds a token without `gh` whenever the sandbox's token file or `GH_TOKEN` is
+there: the workload could make real requests while the image was built, on
+exactly the machines that have one. So the token is taken away too - the file at a
+path that does not exist, the variables unset, the cached auth dropped - and
+those requests fail on "no GitHub token" before they open a connection.
+
 Everything is restored in a `finally`, the `Ref`s to `""` rather than to what
 they held: `""` is what a freshly loaded module has, and the point is that
 nothing about this workload is still set when `wl` runs.
 """
 function hermetic(f)
     d = mktempdir()
-    path, mux = get(ENV, "PATH", nothing), get(ENV, "WORKLOG_TMUX", nothing)
+    E = Worklog.Events
+    keep = Dict(k => get(ENV, k, nothing) for k in ("PATH", "WORKLOG_TMUX", "GH_TOKEN", "GITHUB_TOKEN"))
+    tokfile, patfile = E.TOKEN_FILE[], E.PAT_FILE[]
     try
         ENV["PATH"] = ""
         ENV["WORKLOG_TMUX"] = joinpath(d, "no-tmux-here")
+        delete!(ENV, "GH_TOKEN"); delete!(ENV, "GITHUB_TOKEN")
+        E.TOKEN_FILE[] = E.PAT_FILE[] = joinpath(d, "no-token-here")
+        E._AUTH[] = E._PAT[] = nothing
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.LOCAL[] = joinpath(d, "local.toml")
@@ -88,8 +101,11 @@ function hermetic(f)
             f()
         end
     finally
-        path === nothing ? delete!(ENV, "PATH") : (ENV["PATH"] = path)
-        mux === nothing ? delete!(ENV, "WORKLOG_TMUX") : (ENV["WORKLOG_TMUX"] = mux)
+        for (k, v) in keep
+            v === nothing ? delete!(ENV, k) : (ENV[k] = v)
+        end
+        E.TOKEN_FILE[], E.PAT_FILE[] = tokfile, patfile
+        E._AUTH[] = E._PAT[] = nothing
         Worklog.LOGIN[] = ""
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
@@ -190,8 +206,231 @@ function sample_facts()
          "updated": "2026-08-20T09:30:00Z"
        }
      },
-     "points": {}}
+     "points": {},
+     "inbox": {
+       "cursors": {}, "polled": {}, "failed": {},
+       "items": {
+         "https://github.com/o/r/issues/3": {
+           "url": "https://github.com/o/r/issues/3", "repo": "o/r", "number": 3,
+           "title": "a watched repository's traffic", "is_pr": false,
+           "state": "open", "author": "someone", "updated": "2026-09-01T08:00:00Z",
+           "comments": 2, "labels": [], "mine": false,
+           "notified": "2026-09-01T08:00:05Z", "lane": "notifications",
+           "reason": "subscribed", "why": "you watch the repository"
+         }
+       }
+     }}
     """
+end
+
+"""Two rows as GitHub's GraphQL answers them, for the road `fetch_bundle`
+takes after its request - which is the one the cursor takes whenever it lands
+on a row whose bundle is stale.
+
+Inside an object, and read back out of it, because a node in an answer is
+nested and JSON3 types a nested object apart from a top-level one. The pull
+request has what `normalize` branches on - a timeline, reviews, a head commit
+with its checks, and a bundle in the cache to be derived against; the issue
+has every list empty, which JSON3 types apart again, and no row before it.
+"""
+function sample_graphql()
+    login(l) = Dict{String,Any}("login" => l)
+    ev(kind, at; kw...) = Dict{String,Any}("__typename" => kind, "createdAt" => at,
+                                           "actor" => login("someone"),
+                                           (String(k) => v for (k, v) in kw)...)
+    pr = Dict{String,Any}(
+        "__typename" => "PullRequest", "url" => "https://github.com/o/r/pull/1",
+        "number" => 1, "title" => "a pull request with a reasonably long title",
+        "state" => "OPEN", "isDraft" => false, "repository" => Dict("nameWithOwner" => "o/r"),
+        "createdAt" => "2026-08-30T12:00:00Z", "updatedAt" => "2026-09-02T12:00:00Z",
+        "author" => login("vtjnash"), "milestone" => Dict("title" => "1.13", "dueOn" => nothing),
+        "assignees" => Dict("nodes" => [login("vtjnash")]),
+        "labels" => Dict("nodes" => [Dict("name" => "bug")]),
+        "timelineItems" => Dict("nodes" => [
+            ev("AssignedEvent", "2026-08-30T13:00:00Z"; assignee = login("vtjnash")),
+            ev("ReviewRequestedEvent", "2026-08-30T13:05:00Z"; requestedReviewer = login("alice")),
+            ev("ClosedEvent", "2026-09-02T12:30:00Z")]),
+        "comments" => Dict("nodes" => [Dict("author" => login("alice"),
+                                            "createdAt" => "2026-08-31T09:00:00Z")]),
+        "reviews" => Dict("nodes" => [Dict("author" => login("bob"), "state" => "CHANGES_REQUESTED",
+                                           "submittedAt" => "2026-09-01T10:00:00Z")]),
+        "reviewThreads" => Dict("nodes" => [Dict("isResolved" => false, "isOutdated" => false)]),
+        "headRefName" => "jn/topic", "headRefOid" => "b"^40, "baseRefName" => "master",
+        "baseRefOid" => "c"^40, "headRepository" => Dict("nameWithOwner" => "o/r"),
+        "mergedBy" => nothing, "reviewDecision" => "CHANGES_REQUESTED",
+        "commits" => Dict("nodes" => [Dict("commit" => Dict(
+            "committedDate" => "2026-09-01T11:05:00Z", "oid" => "b"^40,
+            "committer" => Dict("user" => login("vtjnash")),
+            "author" => Dict("user" => login("vtjnash")),
+            "statusCheckRollup" => Dict("state" => "FAILURE")))]))
+    issue = Dict{String,Any}(
+        "__typename" => "Issue", "url" => "https://github.com/o/r/issues/4", "number" => 4,
+        "title" => "an issue", "state" => "OPEN", "repository" => Dict("nameWithOwner" => "o/r"),
+        "createdAt" => "2026-08-20T09:00:00Z", "updatedAt" => "2026-08-20T09:30:00Z",
+        "author" => login("someone"), "milestone" => nothing,
+        "assignees" => Dict("nodes" => []), "labels" => Dict("nodes" => []),
+        "timelineItems" => Dict("nodes" => []), "comments" => Dict("nodes" => []))
+    Worklog.JSON3.read(Worklog.json_dumps(Dict("nodes" => [pr, issue]))).nodes
+end
+
+"""What the browser finds in the cache for the first row, which is most of
+what the pane beside the list draws from.
+
+A bundle newer than the file's row, so `loaditems` reads the row off the
+cache; the thread, with what `comment_nodes` branches on - a comment of
+markdown with a table in it, a line comment, a run of pushes, a review and a
+close - so the pane is built from GitHub's shapes and not from invented
+`Node`s; and the metadata, the merge state and the checks, so `load_meta!`
+reads the three of them back through `_meta_shape`, `_merge_shape` and the
+checks pane. Each written with `cache_put`, as the fetches write them, and in
+the types they write, so that call is compiled for those too. The diff, its
+line comments and the Buildkite jobs behind the failed check are the `d` and
+`c` panes of the same row.
+
+JSON3 types an empty array apart from one of objects - `JSON3.Array{Union{}}` -
+and a real thread's pushes and state changes are empty more often than not, so
+`comment_nodes` over one of those is a different compilation. The second and
+third threads are those shapes, and nothing but their shape is in them.
+"""
+function seed_cache(u::String)
+    who(l) = Dict{String,Any}("login" => l)
+    Worklog.cache_put(Worklog.bundle_key(u), Dict{String,Any}(
+        "url" => u, "repo" => "o/r", "number" => 1, "type" => "PullRequest",
+        "title" => "a pull request with a reasonably long title", "author" => "vtjnash",
+        "state" => "OPEN", "lane" => "review", "track" => "normal",
+        "labels" => ["bug"], "branch" => "jn/topic", "ci" => "SUCCESS",
+        "review" => "review requested", "mine" => true, "new" => false,
+        "created" => "2026-08-30T12:00:00Z", "updated" => "2026-09-02T12:00:00Z",
+        "moved_at" => "2026-09-02T12:00:00Z", "moved_by" => "human_comment_at",
+        "human_comment_at" => "2026-09-02T12:00:00Z", "last_comment_by" => "alice",
+        "fetched_at" => "2026-09-02T12:05:00Z", "milestone" => nothing, "note" => nothing))
+    comment(id, by, at, body; kw...) = Dict{String,Any}(
+        "id" => id, "user" => who(by), "created_at" => at, "body" => body,
+        "html_url" => string(u, "#issuecomment-", id), (String(k) => v for (k, v) in kw)...)
+    Worklog.cache_put(Worklog.thread_key(u), (
+        body = Dict{String,Any}("user" => who("vtjnash"), "html_url" => u,
+                                "created_at" => "2026-08-30T12:00:00Z",
+                                "body" => "Why this is here, with a [link](https://example.com) " *
+                                          "and a mention of @alice.\n\nFixes #2."),
+        comments = [comment(11, "alice", "2026-08-31T09:00:00Z",
+                            "| case | before | after |\n|---|:-:|--:|\n" *
+                            "| one | `1.0s` | 0.5s |\n| two | slow | **fast** |\n\n" *
+                            "> quoted, and then\n\n1. a numbered\n2. list"),
+                    comment(12, "bob", "2026-09-01T10:00:00Z", "`nothing` here?";
+                            path = "src/a.jl", line = 10),
+                    comment(13, "vtjnash", "2026-09-02T12:00:00Z", "Done, thanks.")],
+        commits = [Dict{String,Any}("oid" => "a"^40, "at" => "2026-09-01T11:00:00Z",
+                                    "by" => "vtjnash", "headline" => "address review"),
+                   Dict{String,Any}("oid" => "b"^40, "at" => "2026-09-01T11:05:00Z",
+                                    "by" => "vtjnash", "headline" => "and a test")],
+        events = [Dict{String,Any}("kind" => "review", "state" => "changes_requested",
+                                   "by" => "bob", "at" => "2026-09-01T10:00:00Z",
+                                   "body" => "One thing."),
+                  Dict{String,Any}("kind" => "closed", "by" => "alice",
+                                   "at" => "2026-09-02T12:30:00Z", "reason" => "completed")]))
+    Worklog.cache_put(Worklog.Events.meta_key(u), Dict{String,Any}(
+        "requested" => ["alice"], "teams" => String[], "assignees" => ["vtjnash"],
+        "pending" => "", "fork" => "someone/r", "default" => "master",
+        "reviews" => [Dict{String,Any}("by" => "bob", "state" => "CHANGES_REQUESTED",
+                                       "at" => "2026-09-01T10:00:00Z")]))
+    Worklog.cache_put(Worklog.Events.merge_key(u), Dict{String,Any}(
+        "id" => "PR_x", "oid" => "b"^40, "state" => "OPEN", "draft" => false,
+        "mergeable" => "MERGEABLE", "status" => "CLEAN", "base" => "master",
+        "commits" => 2, "methods" => ["SQUASH"],
+        "text" => Dict{String,Any}("SQUASH" => Dict{String,Any}("headline" => "a", "body" => ""))))
+    Worklog.cache_put(Worklog.checks_key("o/r", 1),
+        (state = "FAILURE",
+         contexts = [(name = "tests", state = "FAILURE",
+                      url = "https://buildkite.com/o/r/builds/1#job"),
+                     (name = "docs", state = "SUCCESS", url = "https://example.com")]))
+    Worklog.cache_put("bkjobs:o/r/1",
+        [(name = "tests", state = "failed", exit = 1, id = "j1"),
+         (name = "docs", state = "passed", exit = 0, id = "j2")])
+    Worklog.cache_put("diff:o/r#1",
+        "diff --git a/src/a.jl b/src/a.jl\n--- a/src/a.jl\n+++ b/src/a.jl\n" *
+        "@@ -8,4 +8,4 @@ function f(x)\n ctx\n ctx\n-    nothing\n+    x\n ctx\n")
+    Worklog.cache_put(string("reviewcomments:", u),
+        [Worklog.OrderedDict{String,Any}("id" => 12, "user" => who("bob"), "path" => "src/a.jl",
+                                         "line" => 10, "original_line" => 10, "body" => "`nothing` here?",
+                                         "created_at" => "2026-09-01T10:00:00Z",
+                                         "html_url" => string(u, "#discussion_r12")),
+         Worklog.OrderedDict{String,Any}("id" => 14, "user" => who("vtjnash"), "path" => "src/a.jl",
+                                         "line" => 10, "in_reply_to_id" => 12, "body" => "fixed",
+                                         "created_at" => "2026-09-01T11:10:00Z",
+                                         "html_url" => string(u, "#discussion_r14"))])
+    quiet(v) = Dict{String,Any}("user" => who("someone"), "html_url" => v, "body" => "",
+                                "created_at" => "2026-08-20T09:00:00Z")
+    for (v, cs, sts) in (
+            ("https://github.com/o/r/issues/2",
+             [comment(21, "someone", "2026-08-20T09:30:00Z", "a plain reply")], []),
+            ("https://github.com/o/r/issues/3", [],
+             [Dict{String,Any}("kind" => "closed", "by" => "someone",
+                               "at" => "2026-09-01T08:00:00Z")]))
+        Worklog.cache_put(Worklog.thread_key(v),
+                          (body = quiet(v), comments = cs, commits = [], events = sts))
+    end
+end
+
+"""`local.toml` with what the list reads off it: a notice, which is a row of
+its own, and a done stamp, which puts the rule in the first row's thread."""
+function seed_local(at)
+    write(Worklog.localfile(), """
+        ["notice:11"]
+        type = "Release"
+        repo = "o/r"
+        reason = "subscribed"
+        title = "v1.0.0"
+        at = "2026-09-01T07:00:00Z"
+        web = "https://github.com/o/r/releases"
+        """)
+    Worklog.mark_done(["https://github.com/o/r/pull/1"], Worklog.DateTime(2026, 8, 31, 12))
+end
+
+"""One turn of `run!`'s loop, which cannot itself run here - it wants a TTY -
+and one turn is most of what it compiles: the event to the view on top
+through `safe_dispatch!`, a `:pop` taken off the stack, `settle_all!`, the
+background work adopted by `onwake!`, and the frame through `safe_render`
+and `frame_bytes`. A key that opens a dialog is then answered by the dialog,
+which is why this goes through the stack and not straight to the browser.
+
+`drain_fetches!` before the wake, so the load a key started has landed by
+the time the wake looks for it, and the thread drawn is the one read from
+the cache rather than an empty pane waiting for one.
+"""
+function step!(ctrl, ev; w = 170, h = 50)
+    v = last(ctrl.stack)
+    act = Worklog.safe_dispatch!(v, ev, ctrl)
+    act === :quit && return
+    if act === :pop
+        i = findlast(x -> x === v, ctrl.stack)
+        i === nothing || deleteat!(ctrl.stack, i)
+    end
+    Worklog.settle_all!(ctrl)
+    Worklog.drain_fetches!()
+    top = last(ctrl.stack)
+    Worklog.onwake!(top)
+    Worklog.frame_bytes(Worklog.safe_render(top, w, h), "", Worklog.viewcursor(top, w, h); w)
+    nothing
+end
+
+# What only an answer from GitHub, or a terminal, reaches - which the workload
+# cannot have - named by signature instead: the launch poll, which is
+# `event_sources`, `sync!` and `api_get_dated`, with its rows as `inbox_items`'s
+# second argument; and the terminal the keys are read from. Each is from a
+# `--trace-compile` of a browser session over the real dashboard, as what it
+# still compiled after the workload. `precompile` answers `false` rather than
+# failing, so each is checked: a signature that stops matching is a line doing
+# nothing, and says so while the image is built.
+const Source = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}
+for (f, sig) in (
+        (Worklog.inbox_items, (Set{String}, Vector{Worklog.OrderedDict{String,Any}})),
+        (Worklog.Events.event_sources, (Vector{String},)),
+        (Core.kwcall, (NamedTuple{(:login, :ttl, :backfill),Tuple{String,Millisecond,Day}},
+                       typeof(Worklog.Events.sync!), Vector{Source}, DateTime)),
+        (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},Worklog.Events.GitHub.OAuth2}},
+                       typeof(Worklog.Events.api_get_dated), String)),
+        (Worklog.readevent, (Base.TTY,)))
+    precompile(f, sig) || @warn "worklog: precompile matched nothing" f sig
 end
 
 @setup_workload begin
@@ -200,12 +439,18 @@ end
     @compile_workload begin
         try
             hermetic() do
-                # The dashboard, read the way the browser reads it: the first
-                # thing between the user and a frame is a JSON3 parse and a row
-                # of `item_of` per item, and neither was in the image while the
-                # only items here were constructed in Julia.
+                # The launch, the way `ui` makes it: the dashboard - a JSON3
+                # parse and an `item_of` per row, one of them off the bundle
+                # cache - then the adopted branches, the inbox's light rows and
+                # the notices, and where the last session left off.
                 write(Worklog.fetchedfile(), sample_facts())
-                st = Worklog.BState(vcat(Worklog.loaditems(), items), "worklog")
+                seed_cache("https://github.com/o/r/pull/1")
+                seed_local(Worklog.utcnow())
+                its = vcat(Worklog.loaditems(), Worklog.local_items())
+                append!(its, Worklog.inbox_items(Set(x.url for x in its)))
+                append!(its, Worklog.notice_items())
+                st = Worklog.BState(vcat(its, items), "worklog")
+                Worklog.restore_view!(st)
                 # Both layouts: side by side above the split width, stacked below.
                 for (w, h) in ((170, 50), (150, 40), (100, 30), (80, 24))
                     Worklog.render(st, w, h)
@@ -224,8 +469,26 @@ end
                 Worklog.toggle_filter!(st)
                 st.lmode = :items
 
-                # The thread, which is where the time actually goes: `nodelines`
-                # hands each body to Term and that is the slow half of a frame.
+                # A row the cursor re-read: `fetch_bundle` after its request.
+                let cfg = Worklog.config(), file = Worklog.fetched("items")
+                    for n in sample_graphql()
+                        u = String(n.url)
+                        old = Worklog.bundled(u, Worklog.jget(file, Symbol(u)))
+                        r = Worklog.normalize(n, "review", cfg["login"])
+                        Worklog.derive!(r, old, Dict{String,Any}(), cfg, Worklog.utcnow())
+                        Worklog.item_of(Worklog.JSON3.read(Worklog.json_dumps(r)))
+                    end
+                end
+
+                # The threads whose pushes and state changes are empty.
+                for it in its
+                    it.url in ("https://github.com/o/r/issues/2",
+                               "https://github.com/o/r/issues/3") &&
+                        Worklog.rows(Worklog.comment_nodes(it, Worklog.utcnow()), 96)
+                end
+
+                # The node kinds the cached thread does not have - a diff hunk,
+                # a plain line - at the widths a pane is drawn at.
                 st.nodes = nodes
                 for w in (140, 96, 60)
                     Worklog.rows(st.nodes, w)
@@ -234,14 +497,27 @@ end
                 Worklog.meta_lines(st, items[1], 44)
                 Worklog.selrange(st)
 
-                # Keys. Every one of these ends in `load_nodes!` and
-                # `load_meta!`, which start a fetch whenever the selection has
-                # moved - so this is only safe because `hermetic` has taken the
-                # binaries away and the fetch fails before it forks.
+                # A session, a key at a time through the loop's own turn
+                # (`step!`): the thread, diff and checks of the first row, the
+                # dialogs the keys open and the keys that answer them, the
+                # marks, a search, the history, the worktree list, a click and
+                # a wheel, a paste, and the quit question left unanswered.
+                # Every move ends in `load_nodes!` and `load_meta!`, which
+                # start a fetch for whatever the cache does not have - so this
+                # is only safe because `hermetic` has taken the binaries and
+                # the token away, and each such fetch fails before it forks
+                # or connects.
                 ctrl = Worklog.Controller()
-                for k in (Int('j'), Int('k'), Int('w'), Int('g'), Int('G'),
-                          9, Int('f'), Int('f'), Int('m'), Int('`'))
-                    Worklog.handle!(st, k, ctrl)
+                Worklog.push_view!(ctrl, st)
+                Worklog.settle_all!(ctrl)
+                for k in ("j", "k", "G", "g", "\e[B", "\e[A", "G", "w", "h", "\t", "n", "N",
+                          "\t", "d", "[", "\e", "]", "\e", "c", "p", "h", "?", "\e",
+                          "f", "j", "\r", "f", "'", "2", "'", "1", ";", "\e", "s", "\e",
+                          "e", "z", "Z", "x", "x", "/", "r", "#", "\r", "/", :paste, "\e",
+                          "`", "~", "\"", "\t", "j", "\e", "\e[<0;40;12M", "\e[<64;5;5M",
+                          "q", "n")
+                    step!(ctrl, k === :paste ? Worklog.PasteEvent("a paste") :
+                                               Worklog.readevent(IOBuffer(k)))
                 end
                 # And nothing outlives the workload. `INFLIGHT` is what knows
                 # which fetches are still in the air - a view only ever holds
