@@ -136,7 +136,8 @@ GitHub.**
 
 **A notice** is a row for a notification that is not an issue or pull
 request, listed as the repository and its type - `julia release`, `julia CI`,
-`julia alert`, `julia invite`, `julia discussion`, `julia commit` - in the
+`julia alert`, `julia advisory`, `julia invite`, `julia discussion`,
+`julia commit` - in the
 firehose (it is `closed` on the state axis: news, and not work) and in no
 other built-in view; `kind` has a fourth value for them alone (`kind = "notice"` in a view).
 The pane is its own facts: what it is, why GitHub said so, the repository,

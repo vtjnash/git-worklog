@@ -809,6 +809,14 @@ Do not simplify any of these away.
     `direction` - those are `/repos/o/r/issues/comments`'s - so
     `per_page=1&direction=desc` answers with the *first* comment, silently.
     The newest is the last of a page asked with `since=`.
+17. A notification that is not an issue or pull request carries no html url
+    (measured 2026-09-26, 67 threads). `subject.url` is `/commits/<sha>` on a
+    Commit, with `latest_comment_url` at `/comments/N`, which GitHub draws
+    at `#commitcomment-N`; `/discussions/N` on a Discussion; a Release's is
+    `/releases/<id>`, while its page is by tag, which the thread does not
+    carry; `null` on a RepositoryAdvisory, which carries no GHSA id either.
+    `notice_web` builds the link from exactly this, and the thread's
+    `html_url`s are all the repository's.
 
 ### Term.jl (v2.2.1, pinned)
 

@@ -173,14 +173,14 @@ end
 """What the number is of, said beside it: `issue`, `pull request`, `draft
 pull request`, `branch` for an adopted one - the words the filter's kind axis
 uses - with the state in front once it is over, `merged pull request`, `closed
-issue` - and a notice's type in a word, `release`, `CI`, `alert`.
+issue` - and `notice` for a notice, whose ref already says its type.
 `julia#62452` says neither, and which of the two it is decides what
 the keys under it do: `d`, `p`, `M` and a review are a pull request's. Merged
 is settled and closed is blocked, the colours the state has everywhere else;
 open is dim, being the usual case."""
 function kind_phrase(it::Item)
     islocal(it) && return string(THEME.dim, "branch", THEME.reset)
-    isnotice(it) && return string(THEME.dim, notice_word(it.notice), THEME.reset)
+    isnotice(it) && return string(THEME.dim, "notice", THEME.reset)
     what = it.is_pr ? (it.draft ? "draft pull request" : "pull request") : "issue"
     it.state == "MERGED" && return string(THEME.settled, "merged ", what, THEME.reset)
     it.state == "CLOSED" && return string(THEME.blocked, "closed ", what, THEME.reset)

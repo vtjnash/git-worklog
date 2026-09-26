@@ -514,6 +514,7 @@ notice_word(kind::AbstractString) =
     kind == "Release" ? "release" : kind == "Discussion" ? "discussion" :
     kind == "Commit" ? "commit" : kind in ("CheckSuite", "WorkflowRun") ? "CI" :
     kind in ("RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread") ? "alert" :
+    kind == "RepositoryAdvisory" ? "advisory" :
     kind == "RepositoryInvitation" ? "invite" : isempty(kind) ? "notice" : lowercase(kind)
 
 """Every notice's block, `key -> field -> value`, parsed: a title is

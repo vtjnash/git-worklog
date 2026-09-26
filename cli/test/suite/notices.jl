@@ -22,7 +22,9 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
     @test web("RepositoryVulnerabilityAlert", nothing) == "https://github.com/o/r/security/dependabot"
     @test web("RepositoryDependabotAlertsThread", nothing) == "https://github.com/o/r/security/dependabot"
     @test web("RepositoryInvitation", nothing) == "https://github.com/o/r/invitations"
+    @test web("Discussion", "$api/discussions/62980") == "https://github.com/o/r/discussions/62980"
     @test web("Discussion", nothing) == "https://github.com/o/r/discussions"
+    @test web("RepositoryAdvisory", nothing) == "https://github.com/o/r/security/advisories"
     @test web("SomethingNew", nothing) == "https://github.com/o/r"
     # The repository off the subject's url, where the thread does not name it.
     t = notice_thread("Release", "$api/releases/5")
@@ -50,7 +52,10 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
     # The pane is its own facts, with the link on it; no fetch.
     ns = W.comment_nodes(it, W.DateTime(2026, 9, 21))
     @test length(ns) == 1 && ns[1].meta["url"] == "https://github.com/o/r/actions"
-    @test occursin("CI in o/r", ns[1].header)
+    @test startswith(ns[1].header, "CI  2026-09-20 10:00  CI failed")
+    @test ns[1].meta["at"] == "2026-09-20T10:00:00Z"
+    @test !occursin('\e', ns[1].raw)                    # no escapes for markdown to read
+    @test occursin("CheckSuite in o/r", ns[1].raw)
     @test occursin("notice", W.diff_nodes(it)[1].header)          # `d` says what it is
     m = W.Events.mention_words(Dict{String,Any}("reason" => "mention", "notified" => "2026-09-20T10:00:00Z"))
     @test !isempty(m)

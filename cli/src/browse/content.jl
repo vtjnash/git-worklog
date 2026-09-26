@@ -423,18 +423,23 @@ end
 """A notice's own facts, which is all there is to read of one here: what it
 is, why GitHub said so, where, when, and the link - no fetch. A release's
 notes or a commit comment is one REST `GET` each, and later; `o` opens the
-page, and `y` copies the link."""
+page, and `y` copies the link.
+
+The time is the header's, as a comment's is - `meta["at"]`, and how long
+ago drawn per frame - and never in the body: a date written there with its
+age was the age as of the load, and its escapes were markdown's to mangle."""
 function notice_nodes(it::Item, at::DateTime)
-    word = notice_word(it.notice)
-    lead = Node(string(word, " in ", isempty(it.repo) ? "GitHub" : it.repo, " - ", it.title),
-                string("A ", isempty(it.notice) ? "notification" : it.notice,
-                       " GitHub notified you of", isempty(it.reason) ? "" :
+    lead = Node(string(notice_word(it.notice), "  ", when_str(it.moved_at), "  ", it.title),
+                string("GitHub notified you of this ", isempty(it.notice) ? "notification" :
+                       it.notice, " in ", isempty(it.repo) ? "a repository" : it.repo,
+                       isempty(it.reason) ? "" :
                        string(" (", replace(it.reason, "_" => " "), ")"),
-                       ", ", when_str(it.moved_at, at), ". It is not an issue or a ",
-                       "pull request, so there is no thread here: `o` opens it on ",
-                       "GitHub", isempty(it.web) ? "" : string(", at ", it.web),
-                       ". `e` or `x` dismisses it, and it is gone until it notifies again."),
+                       ". It is not an issue or a pull request, so there is no thread ",
+                       "here: `o` opens it on GitHub",
+                       isempty(it.web) ? "" : string(", at ", it.web),
+                       ", and `e` or `x` dismisses it until it notifies again."),
                 :md, true)
+    lead.meta["at"] = it.moved_at
     isempty(it.web) || (lead.meta["url"] = it.web)
     Node[lead]
 end
