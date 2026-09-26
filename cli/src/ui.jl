@@ -589,6 +589,51 @@ function imported_items(have::Set{String}, at::DateTime = utcnow())
     out
 end
 
+"""A GitHub table, with the alignment GitHub gives it: `Markdown`'s own
+`github_table`, and then a column whose `---` has a colon at neither end is
+`:l`. The stdlib reads such a column as `:r` (`default_align`), and its
+`Table` has no way to say "none", so Term drew every plain column pushed to
+the right, where GitHub draws it left. The row is read again from the source
+the stock parser consumed - it is only dashes, colons and pipes - and left as
+parsed if it does not split into the columns the table has."""
+function gfm_table(stream::IO, md::Markdown.MD)
+    start = position(stream)
+    Markdown.github_table(stream, md) || return false
+    stop = position(stream)
+    t = md.content[end]
+    seek(stream, start)
+    rows = filter(l -> !isempty(strip(l)), split(String(read(stream, stop - start)), '\n'))
+    seek(stream, stop)
+    (t isa Markdown.Table && length(rows) >= 2) || return true
+    cells = strip.(split(strip(strip(rows[2]), '|'), '|'))
+    length(cells) == length(t.align) || return true
+    for (j, c) in enumerate(cells)
+        startswith(c, ':') || endswith(c, ':') || (t.align[j] = :l)
+    end
+    true
+end
+
+"""`Markdown`'s default flavor with `gfm_table` in place of its table parser:
+what every comment body is parsed with. Copied, not built from a list, so a
+Julia that adds a parser keeps it; one that renames `github_table` leaves this
+the stock flavor."""
+const GFM_FLAVOR = let c = deepcopy(Markdown.julia)
+    replace!(f -> f === Markdown.github_table ? gfm_table : f, c.regular)
+    replace!(f -> f === Markdown.github_table ? gfm_table : f, c.breaking)
+    c
+end
+
+"A comment body, parsed as GitHub would: see `GFM_FLAVOR`."
+parse_gfm(s::AbstractString) = Markdown.parse(String(s); flavor = GFM_FLAVOR)
+
+"""Markdown to styled text at `width`, by Term: its markup consumed, and its
+brace escape with it. `parse_md` escapes every `{` as `{{`, in prose and in
+code, and only Term's own `print` collapses it; safe to do here only because
+`apply_style` has already read the markup."""
+term_md(md, width::Int) =
+    replace(Term.apply_style(string(Term.TermMarkdown.parse_md(md; width))),
+            "{{" => "{", "}}" => "}")
+
 """Print one markdown body: links lifted to numbered footnotes, the rest
 rendered by Term, wrapped to the terminal."""
 function show_md(raw)
@@ -597,8 +642,7 @@ function show_md(raw)
     w = max(40, min(displaysize(stdout)[2] - 4, 100))
     body, urls = delink(txt)
     out = try
-        plain_term(Term.apply_style(string(Term.TermMarkdown.parse_md(
-            Markdown.parse(body); width = w))))
+        plain_term(term_md(for_term(parse_gfm(body)), w))
     catch e
         @warn "markdown render failed, showing raw text" exception = e maxlog = 1
         body

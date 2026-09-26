@@ -768,12 +768,16 @@ Do not simplify any of these away.
     `per_page=1&direction=desc` answers with the *first* comment, silently.
     The newest is the last of a page asked with `since=`.
 
-### Term.jl (v2.2, pinned)
+### Term.jl (v2.2.1, pinned)
 
-- Braces are markup. `parse_md` doubles them inside a code span and nothing
-  collapses them (`render_md` undoes it); in prose it does not, and
-  `apply_style` deletes them (`escape_source` doubles them first). Both paths
-  end at one brace. Filed as FedeClaudi/Term.jl#304.
+- Braces are markup. Since 2.2.1 `parse_md` escapes every brace as `{{`, in
+  prose and in code, and only Term's own `print` collapses it; `term_md`
+  collapses it after `apply_style`. Before, prose braces were deleted and
+  `escape_source` doubled them; it must not now, or they print doubled.
+  FedeClaudi/Term.jl#304.
+- A newline in a paragraph is a space since 2.2.1 (#311), for Julia 1.14's
+  `Markdown`, which keeps it. GitHub draws it as a line break in a comment,
+  so `for_term` makes each one a `LineBreak`.
 - `parse_md` does not wrap a line containing inline code; `awrap` does. #247
   is open on Term's own wrapping.
 - `Panel` measures markup, not what prints; not used for layout. A `{`
@@ -782,10 +786,15 @@ Do not simplify any of these away.
   pieces; `nodelines` renders a second time at a width nothing reaches and
   aligns the two, which is what makes a copy paste as paragraphs. The wide
   line is only the better source when it *joined* several narrow ones.
-- An empty list item is a `BoundsError` (#305); a table nested in a list is a
-  `MethodError` (#306); a code span in a table header is drawn as a block
-  (#309). `for_term` works around the first two, a `Paragraph` around the
-  third.
+- A table ignores the width: every column is as wide as its longest cell,
+  and `Table` truncates a cell rather than wrap it, so a long cell makes the
+  box wider than the pane and the pane's wrapping breaks it (julia#63195).
+  Its box and row rules are fixed in `parse_md`, not the theme. Not fixed
+  here: FedeClaudi/Term.jl#314 (open) fits the table and adds the theme
+  fields.
+- A table nested in a list or a quote renders since 2.2.1 (#306), but
+  centred beside the bullet; `for_term` still makes it code. An empty list
+  item (#305) and a code span in a table header (#309) are Term's again.
 
 ### Julia's Markdown
 
@@ -793,6 +802,14 @@ Do not simplify any of these away.
   CommonMark forbids; it takes two to pair, so `deliver_result and
   connect_to_peer` loses both. `escape_source` escapes them outside code.
   Filed, with a fix, as JuliaLang/julia#63081 (open).
+- A table column with no colon in its `---` is `:r` (`default_align`), and
+  `Table` has no way to say none; GitHub draws it left. `parse_gfm` parses
+  with a copy of the default flavor whose table parser reads the row again.
+  JuliaLang/julia#63365 (open, RFC) makes the default `:l`.
+- Emphasis is matched before code spans, so a `*` inside backticks closes an
+  enclosing `*...*`: `` *a `b*` c* `` is italic `` a `b `` and the text
+  `` ` c* ``. CommonMark gives code spans precedence. Not worked around;
+  JuliaLang/julia#63364 (open).
 
 ### git
 

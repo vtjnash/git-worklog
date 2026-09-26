@@ -60,6 +60,7 @@ using TermInput
 import TermInput: suspend, text
 import REPL
 import InteractiveUtils
+import Markdown
 using Base64
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))

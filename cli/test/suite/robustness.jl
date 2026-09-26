@@ -254,9 +254,8 @@ end
     # `parse_md(::Markdown.Table)` passes `inline = true` for the body rows and
     # not for the header, so a span there came out a code *block* - a panel
     # three lines tall and `width - 12` across. The table then sized itself to
-    # that cell and its borders were wrapped mid-line. Each header cell is
-    # wrapped in a paragraph now, which is the one container whose handler
-    # passes `inline` down.
+    # that cell and its borders were wrapped mid-line. Term 2.2.1 passes it
+    # (FedeClaudi/Term.jl#309); `for_term` wrapped each cell in a paragraph.
     plain = split(rstrip(W.render_md("| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     spans = split(rstrip(W.render_md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     @test length(plain) == 5              # border, header, rule, row, border
@@ -276,13 +275,12 @@ end
         @test !occursin("BoundsError", out)
     end
     @test !isfile(W.errlog())
-    # Filled rather than dropped: the bullet was typed, so it is drawn, and an
-    # ordered list is not renumbered behind the user's back.
-    md = W.Markdown.parse("1. one\n2.\n3. three\n")
-    @test length(W.for_term(md).content[1].items) == 3
-    @test all(!isempty(i) for i in W.for_term(md).content[1].items)
-    out = W.render_md("1. one\n2.\n3. three\n", 60)
+    # Drawn rather than dropped: the bullet was typed, so it is drawn, and an
+    # ordered list is not renumbered behind the user's back. Term 2.2.1 does
+    # this itself (FedeClaudi/Term.jl#305); `for_term` used to.
+    out = W.astrip(W.render_md("1. one\n2.\n3. three\n", 60))
     @test occursin("one", out) && occursin("three", out)
+    @test occursin(r"1\.\s+one", out) && occursin(r"2\.", out) && occursin(r"3\.\s+three", out)
 end
 
 @testset "cursor and mouse, against a live child" begin

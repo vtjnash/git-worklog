@@ -15,7 +15,6 @@
 
 import Term
 using Term: apply_style
-import Markdown
 
 "A foldable block - a comment, the issue body, or one file of a diff."
 mutable struct Node

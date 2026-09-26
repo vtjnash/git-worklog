@@ -425,8 +425,8 @@ function autolink(row::AbstractString, repo::AbstractString)
     String(take!(io))
 end
 
-"""Protect text from the two markup layers that would eat it, and spell what
-GitHub spells.
+"""Protect text from the markup that would eat it, and spell what GitHub
+spells.
 
 **Underscores inside words.** Julia's `Markdown` opens emphasis on an underscore
 with letters on both sides, so `deliver_result and connect_to_peer` comes back
@@ -437,12 +437,10 @@ forbids it: a `_` may open emphasis only if it is left-flanking and either not
 right-flanking or preceded by punctuation, and one with a letter each side is
 both and neither. GitHub renders the name intact.
 
-**Braces.** Term's markup is `{...}`, and `apply_style` deletes anything that
-looks like a tag - so `a Tuple{Type{S{N}}} sig` printed as `a Tuple sig`, with
-the type silently removed. Doubling is Term's own escape (`escape_brackets`),
-and a doubled brace survives `parse_md` and is collapsed by `render_md`. It
-cannot be done to `parse_md`'s *output*, which is where the braces of Term's own
-tags live.
+**Not braces.** Term's markup is `{...}`, and before 2.2.1 `apply_style`
+deleted anything in prose that looked like a tag, so this doubled them - Term's
+own escape. Term escapes every leaf itself now (FedeClaudi/Term.jl#304), and a
+brace doubled here as well came out doubled on screen.
 
 **Emoji shortcodes.** GitHub draws `:robot:` as the character, from the table
 in `emoji.jl`, and nothing downstream knows the names. One that follows a letter
@@ -452,9 +450,8 @@ The emoji is written without its U+FE0F, the selector asking for the picture:
 draws two, which pushes every column after it along by one; without it the
 terminal draws the one column that was counted.
 
-Code is left alone for all three, since a backslash inside a code span prints as
-a backslash, `parse_md` already escapes braces there itself, and `:robot:` in
-code is what was meant: fenced blocks, indented blocks and inline spans are all
+Code is left alone for both, since a backslash inside a code span prints as
+a backslash and `:robot:` in code is what was meant: fenced blocks, indented blocks and inline spans are all
 skipped. An unbalanced backtick makes
 the rest of its line count as code, which errs towards changing nothing.
 """
@@ -484,8 +481,6 @@ function escape_source(md::AbstractString)
                 write(out, replace(EMOJI[m[1]], '\ufe0f' => ""))
                 i += ncodeunits(m.match)
                 continue
-            elseif !incode && (c == '{' || c == '}')
-                write(out, c, c)                 # Term's escape is doubling
             elseif !incode && c == '_' &&
                    i > firstindex(line) && isword(line[prevind(line, i)]) &&
                    nextind(line, i) <= lastindex(line) && isword(line[nextind(line, i)])
@@ -566,57 +561,65 @@ function style_code_spans(str::AbstractString)
     replace(String(take!(out)), MD_CODE_SENTINEL => THEME.dim)
 end
 
-"""Rewrite the parsed markdown into what Term can actually render.
+"""Rewrite the parsed markdown into what Term should render.
 
-One walk of the tree, for three shapes Julia's parser produces and Term's does
-not handle. Two of them throw, and a throw costs the whole comment: `render_md`
-can catch it but not the node that caused it.
+One walk of the tree, for two shapes where what Term draws is not what GitHub
+does.
 
-**A table inside a list or a block quote.**
-`Term.TermMarkdown.parse_md(::Markdown.Table)` accepts `width` and nothing else,
-while Term's recursion passes `inline` to whatever it finds nested. Keyword
-arguments take no part in dispatch, so a method of our own would replace Term's
-rather than extend it; the table is moved instead. Nested, it becomes a code
-block of its own markdown source, which keeps every cell and loses only the box
-drawing. At the top level Term renders it properly, so it is left alone.
+**A line break in a paragraph.** GitHub draws a newline in a comment as a line
+break (`<br>`: its own renderer, in `gfm` mode, says so), and a comment
+hand-wrapped at 72 columns is meant to be read that way. Julia's `Markdown`
+keeps the newline in the text since 1.14, and Term turns it into a space since
+2.2.1 (FedeClaudi/Term.jl#311), which is right for a document and reflowed
+every comment. Each one becomes a `LineBreak`, which Term draws as one.
 
-**A code span in a table's header row.** `parse_md(::Markdown.Table)` parses the
-body rows with `inline = true` and the header without it, and a code span that
-is not inline is a code *block* - a panel three lines tall and `width - 12`
-across, which a header cell has no room for. Each header cell is wrapped in a
-`Paragraph`, the one container whose handler passes `inline` down, so the cell
-takes Term's own inline path and the header row is one line.
-
-**An empty list item.** `parse_md(::Markdown.List)` indexes `[1]` on every item,
-and `- a` / `-` / `- b` parses to items of length `[1, 0, 1]`, so a lone `-`
-is a `BoundsError`. The empty item is filled with an empty paragraph rather than
-dropped: the bullet was typed, so it should appear, and dropping one out of an
-ordered list would renumber everything after it.
+**A table inside a list or a block quote.** Term draws it (it threw before
+2.2.1, FedeClaudi/Term.jl#306), but centred on the full width beside the bullet
+or inside the quote marks, its box split from the text around it. Nested, it
+becomes code - its own markdown source - which keeps every cell and loses only
+the box drawing. At the top level Term renders it properly, so it
+is left alone.
 """
 for_term(x, nested::Bool = false) = x
 for_term(t::Markdown.Table, nested::Bool) =
-    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) :
-    Markdown.Table([i == 1 ? Any[Any[Markdown.Paragraph(cell)] for cell in row] : row
-                    for (i, row) in enumerate(t.rows)], t.align)
+    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) : t
 for_term(md::Markdown.MD, nested::Bool = false) =
     Markdown.MD([for_term(c, nested) for c in md.content])
 for_term(l::Markdown.List, nested::Bool) =
-    Markdown.List([isempty(item) ? Any[Markdown.Paragraph(Any[""])] :
-                   Any[for_term(b, true) for b in item] for item in l.items],
+    Markdown.List([Any[for_term(b, true) for b in item] for item in l.items],
                   l.ordered, l.loose)
 for_term(q::Markdown.BlockQuote, nested::Bool) =
     Markdown.BlockQuote([for_term(c, true) for c in q.content])
 for_term(a::Markdown.Admonition, nested::Bool) =
     Markdown.Admonition(a.category, a.title, [for_term(c, true) for c in a.content])
+for_term(p::Markdown.Paragraph, nested::Bool) = Markdown.Paragraph(hard_breaks(p.content))
+
+"Inline content with each newline in its text a `LineBreak`; see `for_term`."
+function hard_breaks(xs::AbstractVector)
+    out = Any[]
+    for x in xs
+        if x isa AbstractString
+            for (i, piece) in enumerate(split(x, '\n'))
+                i == 1 || push!(out, Markdown.LineBreak())
+                isempty(piece) || push!(out, String(piece))
+            end
+        elseif x isa Markdown.Bold
+            push!(out, Markdown.Bold(hard_breaks(x.text)))
+        elseif x isa Markdown.Italic
+            push!(out, Markdown.Italic(hard_breaks(x.text)))
+        else
+            push!(out, x)
+        end
+    end
+    out
+end
 
 """Markdown to ANSI at one width.
 
 Term is handed *markup*, not ANSI: `apply_style` here would bake in escape codes
 that Term then counts toward the line width, wrapping content that already fits.
-Its brace doubling is undone afterwards - `parse_md` escapes `{` as `{{` and
-nothing downstream collapses it, so Julia type signatures reach the screen as
-`Tuple{{Type{{S{{N, Tup}}}`. That is safe here only because `apply_style` has
-already consumed the markup.
+Its brace escape is undone by `term_md`, or Julia type signatures would reach
+the screen as `Tuple{{Type{{S{{N, Tup}}}`.
 
 A bad comment must not take the pane down, but the reason has to be visible:
 swallowing it once hid that markdown was not rendering at all, for want of an
@@ -627,9 +630,8 @@ the backtrace, and the standing warning keeps pointing at it.
 """
 function render_md(body::AbstractString, w::Int)
     try
-        a = apply_style(string(Term.TermMarkdown.parse_md(
-                for_term(Markdown.parse(escape_source(body))); width = max(20, w))))
-        plain_term(style_code_spans(replace(a, "{{" => "{", "}}" => "}")))
+        a = term_md(for_term(parse_gfm(escape_source(body))), max(20, w))
+        plain_term(style_code_spans(a))
     catch e
         logerror!(e, catch_backtrace(), "render_md")
         String(body)          # the raw text; this path bypasses Term entirely

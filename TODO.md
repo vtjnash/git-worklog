@@ -13,34 +13,37 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Upstream
 
-- [ ] **Bump Term to v2.2.1 and take out the workarounds it retires.** v2.2.1
-      (2026-09-17) carries FedeClaudi/Term.jl#304, #305, #306, #309 and #310;
-      the Manifest pins 2.2.0. Bump, run the suite, then delete what each one
-      stood in for:
+- [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313
+      (merged 2026-09-25, after v2.2.1) keeps a header's inline elements on
+      one line; on 2.2.1 `## a `b` c` renders as three centred lines. Bump
+      Term, and add the header case to the `render_md` tests.
 
-      | fixed | workaround here |
-      |---|---|
-      | #304 braces deleted in prose, doubled in code spans | the brace half of `escape_source`, and `render_md`'s collapse |
-      | #305 empty list item is a `BoundsError` | `for_term` fills it |
-      | #306 table nested in a list is a `MethodError` | `for_term` moves it to a code block |
-      | #309 code span in a table header drawn as a block | header cells wrapped in a `Paragraph` |
+- [ ] **Take Term's table fitting once it is released.**
+      FedeClaudi/Term.jl#314 (open) makes `parse_md(::Markdown.Table)` fit
+      the width it is handed, wrapping cells rather than truncating, and
+      reads the table's box, style and row rules from the theme
+      (`md_table_box`, `md_table_style`, `md_table_compact`). Bump Term; set
+      `md_table_box = :MINIMAL_HEAVY_HEAD` and `md_table_compact = true`
+      where `load_theme!` sets Term's theme, which is GitHub's look; add a
+      test that JuliaLang/julia#63195's second table fits the pane at 60 and
+      100 columns with every word of every cell present; and drop the table
+      bullet from DESIGN's "Term.jl" section. Check whether a table nested in
+      a list still needs `for_term`'s move to code once it is not padded to
+      the width.
 
-      It also fixes one thing nothing here worked around: `Bold` and `Italic`
-      interpolated their children rather than recursing, so a code span in
-      emphasis printed as `Markdown.Code("", "JL_GC_PUSHARGS")` (seen on
-      JuliaLang/julia#62889, `**Why `JL_GC_PUSHARGS` frames are the hard
-      case.**`). Add a `render_md` test for `**a `b` c**` with the bump.
+- [ ] **Drop `parse_gfm` once Julia aligns a plain column left.**
+      JuliaLang/julia#63365 (open, RFC) makes `default_align` `:l`. When it
+      is in the nightly this runs on, delete `gfm_table`, `GFM_FLAVOR` and
+      `parse_gfm` (`ui.jl`), call `Markdown.parse` again, keep the alignment
+      test in "a comment is drawn as GitHub draws a comment", and drop the
+      bullet from DESIGN's "Julia's Markdown". If it lands as something else
+      - a marker for no alignment - map that to `:l` in `for_term` instead.
 
-      #310 (`leftalign`/`vstack` re-wrapping a wide table) never needed one:
-      `render_md` is handed a pane width. Keep the underscore half of
-      `escape_source` - JuliaLang/julia#63081 is still open. Rewrite DESIGN's
-      "Term.jl (v2.2, pinned)" section to match what is left.
-
-- [ ] **PR Term's header fix upstream.** v2.2.1 recurses into a header's
-      elements but still ends each with a newline, so `## a `b` c` renders as
-      three centred lines. The fix is branch `md-header-inline` in `Term.jl/`
-      (on top of v2.2.1, with a test); push it and open the PR, then add the
-      header case to the `render_md` test once it is released.
+- [ ] **Code spans before emphasis, once Julia has it.**
+      JuliaLang/julia#63364 (open) matches code spans before emphasis, so
+      `` *a `abc*` b* `` is italic around a code span. Nothing here works
+      around it; when it is in the nightly, add that case to the `render_md`
+      tests and drop the bullet from DESIGN's "Julia's Markdown".
 
 - [ ] **File Highlights' `Pkg` import upstream.** `Highlights` 0.6 imports `Pkg`
       at load time for one `Pkg.Registry.reachable_registries()` in

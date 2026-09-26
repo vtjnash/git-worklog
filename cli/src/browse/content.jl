@@ -89,16 +89,13 @@ end
 Break prose apart from fenced code blocks: `(:text, "", prose)` and
 `(:code, language, contents)`.
 
-Term draws a fenced block as a bordered panel sized to its *longest line*, not
-to the width it was asked for. A pasted gdb log or stack trace routinely runs to
-250 columns, so in a 96-column pane the panel is wider than the pane and the
-wrapping breaks it: the left border, some content, then the rest of that line on
-following rows with the closing border landing in the middle of nothing.
-
-Lifting the block out means it never reaches Term at all - it becomes a node of
-its own, rendered as plain text, which wraps like everything else and keeps its
-borders because it has none. A long log also becomes foldable, which is what a
-long log wants to be.
+Term draws a fenced block as a bordered panel. It once sized the panel to the
+block's *longest line*, so a pasted 250-column log broke the pane's wrapping;
+2.2 wraps inside the panel at the width it is handed. It is lifted out all the
+same, for what a panel cannot be here: a node of its own, so a long log folds,
+which is what a long log wants to be; drawn without a border, so a copy pastes
+as the code and not as box drawing; and the pane's full width, where the panel
+spends sixteen columns on its indent and padding.
 """
 function split_fences(md::AbstractString)
     out = Tuple{Symbol,String,String}[]

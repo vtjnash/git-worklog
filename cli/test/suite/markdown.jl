@@ -115,11 +115,23 @@ end
     @test esc("") == ""
 
     # Braces written as prose survive too: Term's markup is `{...}`, and
-    # apply_style deletes anything shaped like a tag.
+    # apply_style deletes anything shaped like a tag. Term escapes them itself
+    # since 2.2.1, so `escape_source` leaves them be: escaped twice, they
+    # printed doubled.
     @test render("a Tuple{Type{S{N}}} sig") == "a Tuple{Type{S{N}}} sig"
     @test render("mixed Set{Int} and `Vector{T}` here") == "mixed Set{Int} and `Vector{T}` here"
     @test render("a { lone brace") == "a { lone brace"
-    @test esc("a {b}") == "a {{b}}"
+    @test esc("a {b}") == "a {b}"
+    @test startswith(render("**bold {x}** _it {y}_ [link {l}](http://x)"), "bold {x} it {y} link {l} ")
+    # A code span in emphasis is a code span, not the `Markdown.Code(...)` it
+    # printed as before Term 2.2.1 recursed into bold and italic (seen on
+    # julia#62889).
+    @test render("**Why `JL_GC_PUSHARGS` frames are the hard case.**") ==
+          "Why `JL_GC_PUSHARGS` frames are the hard case."
+    @test render("_a `b` c_") == "a `b` c"
+    # And `wl show`, which is Term without the pane.
+    @test W.astrip(W.term_md(W.for_term(W.parse_gfm("a Dict{String,Int} and `T{S}`")), 80)) ==
+          "a Dict{String,Int} and `T{S}`"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 
     # GitHub's shortcodes are the characters it draws for them - not in code,
@@ -210,4 +222,36 @@ end
     s2 = "\e[32mfoo bar baz\e[0m"
     @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"),
                             W.THEME.match_bg)) == "foo bar baz"
+end
+
+@testset "a comment is drawn as GitHub draws a comment" begin
+    lines(t, w = 80) = [rstrip(W.astrip(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
+    # A newline is a line break, which is what GitHub's own renderer makes of
+    # it in a comment (`<br>`); Term 2.2.1 made it a space, and a comment
+    # wrapped by hand was reflowed.
+    @test filter(!isempty, lines("the quick brown fox\njumps over\nthe **lazy\ndog**")) ==
+          ["the quick brown fox", "jumps over", "the lazy", "dog"]
+    # A blank line is still a paragraph, and a long line still wraps.
+    @test count(isempty, lines("one\n\ntwo")) >= 1
+    @test length(filter(!isempty, lines("word "^30, 40))) > 1
+
+    # A column with no colon is drawn left, as GitHub draws it; the stdlib
+    # reads it as `:r`. One with colons keeps what they say.
+    t = W.parse_gfm("| a | b | c | d |\n|---|:--|--:|:-:|\n| 1 | 2 | 3 | 4 |").content[1]
+    @test t.align == [:l, :l, :r, :c]
+    @test W.parse_gfm("a | b\n--- | ---:\n1 | 2").content[1].align == [:l, :r]
+    # Anything else parses as it did.
+    @test W.parse_gfm("# h\n\n- a\n- b").content[2] isa W.Markdown.List
+    @test W.parse_gfm("not | a table").content[1] isa W.Markdown.Paragraph
+    rows = lines("| Advisory | CVSS |\n|---|---|\n| JLSEC-2026-1275 | 9.4 |")
+    head = only(filter(l -> occursin("Advisory", l), rows))
+    @test occursin(r"│ Advisory +│", head)                      # left, not right
+
+    # What Term 2.2.1 fixed, which `for_term` used to work around: an empty
+    # list item keeps its bullet, and a code span in a header stays one row.
+    @test count(l -> occursin("•", l), lines("- a\n-\n- b")) == 3
+    rows = filter(l -> occursin("│", l), lines("| `code` | b |\n|---|---|\n| 1 | 2 |"))
+    @test length(rows) == 2 && occursin("`code`", rows[1])
+    # And a table in a list is still its source, not a box beside the bullet.
+    @test any(l -> occursin(r"\|\s+a\s+\|", l), lines("- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |"))
 end
