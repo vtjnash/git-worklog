@@ -681,7 +681,10 @@ failing test would stop `wl` starting. Invented items, hermetic paths, a
 `catch` around everything. **It must not leave a process running**, or
 precompilation stops on "waiting for IO": `hermetic` takes the binaries away
 (empty `PATH`; `WORKLOG_TMUX` at a path that does not exist), which survives
-somebody adding a key; `drain_fetches!` at the end is the other half. A spawn
+somebody adding a key; `drain_fetches!` at the end is the other half.
+`cli/test/aqua.jl` builds the image and fails, naming the handles, where a
+build would wait; Aqua's own `test_persistent_tasks` cannot, since loading
+the wrapper runs none of its workload. A spawn
 with a buffer on stdin must look for its binary first (`gh_run`), or the
 failed spawn leaves the writer task behind. **Nor reach the network**:
 GitHub.jl finds a token without `gh`, so `hermetic` takes the token away too.
@@ -699,7 +702,10 @@ the browser from `cli/precompile` with
 copy of `data/` (`WORKLOG_DATA`), press the keys, and read what is still
 compiled, biggest first. JSON3 types an empty array, a nested object and a
 top-level one apart, so a path is covered only in the shapes it was seeded
-in. On 2026-09-26 the same session went from 18.1s of runtime compilation to
+in - except the readers of a thread's lists (`activity_list`, the node
+builders, `thread_seen`, `event_at`), which are `@nospecialize` and loop
+rather than build a generator over a list, so that one shape covers every
+mix of empty and not. On 2026-09-26 the same session went from 18.1s of runtime compilation to
 2.6s.
 
 **Its manifest is `cli/Manifest.toml` plus one entry**, never resolved fresh:
@@ -745,8 +751,8 @@ No TTY, so the UI is tested by construction:
 - Time is an argument: a test says when now is by passing it. So is the
   network where a function reaches it outside its sources - `sync!`'s
   `now` and `lastby` - and the suite runs whole with no token.
-- `--project=cli`, never the wrapper. `latency.jl` builds the image and spawns
-  cold processes and is deliberately not in the suite.
+- `--project=cli`, never the wrapper. `latency.jl` and `aqua.jl` build the
+  image and spawn processes, and are deliberately not in the suite.
 - What none of this reaches - the terminal's own bytes and title, a resize,
   the clipboard, a pane through a reconnect, `gh` against GitHub - is
   `cli/test/MANUAL.md`: steps, what passing looks like, and when each last

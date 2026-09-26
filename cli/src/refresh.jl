@@ -49,7 +49,7 @@ a close or a merge, which is asked for by name below.
 `evs` is `nothing` for a row the bulk lanes returned, which fetch no timeline,
 and for an imported row before the refresh has caught up with it.
 """
-function event_at(evs, login::AbstractString, kinds, who::Union{Symbol,Nothing};
+function event_at(@nospecialize(evs), login::AbstractString, kinds, who::Union{Symbol,Nothing};
                   team::Bool = false)
     evs === nothing && return nothing
     best = ""

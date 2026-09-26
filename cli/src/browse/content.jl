@@ -201,7 +201,7 @@ cares about anyway.
 Folded past three, with the newest headline as the peek: a rebase of forty
 commits is context for the comment under it rather than forty lines to scroll.
 """
-function push_node(run, url::AbstractString)
+function push_node(@nospecialize(run), url::AbstractString)
     n = length(run)
     when = when_str(run[end]["at"])
     # The last commit's author, which is whose push it was except where a run
@@ -242,7 +242,7 @@ has on the pane's header; reopened is waiting, since it is open work again.
 Followed to the closer when there is one - the pull request that fixed it is
 where the answer is - and to the item itself otherwise.
 """
-function state_node(e, url::AbstractString)
+function state_node(@nospecialize(e), url::AbstractString)
     kind = String(e["kind"])
     (col, word) = kind == "merged" ? (THEME.settled, "\u2713 merged") :
                   kind == "closed" ? (THEME.blocked, "\u2717 closed") :
@@ -281,7 +281,7 @@ Approved is settled and changes requested blocked, the colours the verdict has
 on the row; a comment review is plain, since it is a comment; a dismissed one
 is dim - GitHub keeps no record of what it had said.
 """
-function review_node(e, url::AbstractString)
+function review_node(@nospecialize(e), url::AbstractString)
     state = String(nz(get(e, "state", nothing), ""))
     (col, word) = state == "approved" ? (THEME.settled, "\u2713 approved") :
                   state == "changes_requested" ? (THEME.blocked, "\u2717 changes requested") :
@@ -371,10 +371,19 @@ order. Consecutive pushes are one entry ([`group_pushes`](@ref)).
 Each entry is `(kind, at, c)`: `:comment` with the comment, `:push` with the
 run of commits, `:state` with the event, `:review` with the review. What the browser draws and what
 `wl show` and `wl thread` print, so the three agree on what happened.
+
+**Not specialized**, nor are the node builders under it: JSON3 types an array
+by what is in it - `[]` is `JSON3.Array{Union{}}` - and a thread's three
+lists are empty or not independently, so each mix was a compilation of its
+own; the precompile trace had this one several times over. The rows are read
+by `get` either way.
 """
-function activity_list(cs, cms, sts)
+function activity_list(@nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
     from = isempty(cs) ? "" : String(first(cs)["created_at"])
-    evs = Any[(kind = :comment, at = String(c["created_at"]), c = c) for c in cs]
+    evs = Any[]
+    for c in cs
+        push!(evs, (kind = :comment, at = String(c["created_at"]), c = c))
+    end
     for c in cms
         t = String(c["at"])
         (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
@@ -566,11 +575,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # stamps the same, since the newest thing in it is the newest thing in
     # it. `e` takes the max of this and `moved_at`, for the movements a
     # thread does not show: a CI edge, a review request.
-    seen = maximum(Iterators.flatten((
-               (String(nz(get(c, "created_at", nothing), "")) for c in cs),
-               (String(nz(get(c, "at", nothing), "")) for c in cms),
-               (String(nz(get(e, "at", nothing), "")) for e in sts),
-               (String(nz(get(body, "updated_at", nothing), "")),))); init = "")
+    seen = thread_seen(body, cs, cms, sts)
     isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
@@ -579,6 +584,26 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     why = thread_mention(body, cs, login())
     isempty(why) || (out[1].meta["mentioned"] = why)
     out
+end
+
+"""The newest time anywhere in a thread as read: the comments, the pushes,
+the state changes and reviews, and the opening post's last edit; `""` for
+none. Its own function, not specialized, and loops rather than a flattened
+generator: JSON3 types each list by what is in it, and a generator over one
+is a type of its own whatever the argument says - so every mix of empty and
+not was a `maximum` compiled again. See `activity_list`."""
+function thread_seen(@nospecialize(body), @nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
+    seen = String(nz(get(body, "updated_at", nothing), ""))
+    for c in cs
+        seen = max(seen, String(nz(get(c, "created_at", nothing), "")))
+    end
+    for c in cms
+        seen = max(seen, String(nz(get(c, "at", nothing), "")))
+    end
+    for e in sts
+        seen = max(seen, String(nz(get(e, "at", nothing), "")))
+    end
+    seen
 end
 
 """Does `txt` name `me` - an `@me` GitHub would link? Not inside code, fenced
@@ -594,15 +619,23 @@ sentence `mentioned` carries, or `""`. The opening post first, then the
 comments in the order they came; only what was loaded, which is the newest
 thirty. Your own team is not looked for: which teams you are in is not a thing
 this program knows."""
-function thread_mention(body, cs, me::AbstractString)
-    for c in Iterators.flatten(((body,), cs))
-        who = String(nz(get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing), ""))
-        lowercase(who) == lowercase(me) && continue
-        names_you(String(nz(get(c, "body", nothing), "")), me) || continue
-        when = first(String(nz(get(c, "created_at", nothing), "")), 10)
-        return string("@", me, " by ", isempty(who) ? "?" : who, isempty(when) ? "" : string(", ", when))
+function thread_mention(@nospecialize(body), @nospecialize(cs), me::AbstractString)
+    why = mention_by(body, me)
+    for c in cs
+        isempty(why) || break
+        why = mention_by(c, me)
     end
-    ""
+    why
+end
+
+# One post of `thread_mention`'s, and not a flattened iterator over the opening
+# post and the comments: that is a type per shape of `cs` (see `thread_seen`).
+function mention_by(@nospecialize(c), me::AbstractString)
+    who = String(nz(get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing), ""))
+    lowercase(who) == lowercase(me) && return ""
+    names_you(String(nz(get(c, "body", nothing), "")), me) || return ""
+    when = first(String(nz(get(c, "created_at", nothing), "")), 10)
+    string("@", me, " by ", isempty(who) ? "?" : who, isempty(when) ? "" : string(", ", when))
 end
 
 """The pull request's diff as `gh pr diff` answers it, or a `FetchError`.

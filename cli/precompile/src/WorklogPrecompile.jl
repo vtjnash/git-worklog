@@ -288,9 +288,10 @@ line comments and the Buildkite jobs behind the failed check are the `d` and
 `c` panes of the same row.
 
 JSON3 types an empty array apart from one of objects - `JSON3.Array{Union{}}` -
-and a real thread's pushes and state changes are empty more often than not, so
-`comment_nodes` over one of those is a different compilation. The second and
-third threads are those shapes, and nothing but their shape is in them.
+and a real thread's pushes and state changes are empty more often than not.
+There were two more threads here in those shapes, for `comment_nodes` to be
+compiled over each; the thread readers are `@nospecialize` now, and a trace of
+drawing both after the image loaded compiles nothing of theirs without them.
 """
 function seed_cache(u::String)
     who(l) = Dict{String,Any}("login" => l)
@@ -358,17 +359,6 @@ function seed_cache(u::String)
                                          "line" => 10, "in_reply_to_id" => 12, "body" => "fixed",
                                          "created_at" => "2026-09-01T11:10:00Z",
                                          "html_url" => string(u, "#discussion_r14"))])
-    quiet(v) = Dict{String,Any}("user" => who("someone"), "html_url" => v, "body" => "",
-                                "created_at" => "2026-08-20T09:00:00Z")
-    for (v, cs, sts) in (
-            ("https://github.com/o/r/issues/2",
-             [comment(21, "someone", "2026-08-20T09:30:00Z", "a plain reply")], []),
-            ("https://github.com/o/r/issues/3", [],
-             [Dict{String,Any}("kind" => "closed", "by" => "someone",
-                               "at" => "2026-09-01T08:00:00Z")]))
-        Worklog.cache_put(Worklog.thread_key(v),
-                          (body = quiet(v), comments = cs, commits = [], events = sts))
-    end
 end
 
 """`local.toml` with what the list reads off it: a notice, which is a row of
@@ -478,13 +468,6 @@ end
                         Worklog.derive!(r, old, Dict{String,Any}(), cfg, Worklog.utcnow())
                         Worklog.item_of(Worklog.JSON3.read(Worklog.json_dumps(r)))
                     end
-                end
-
-                # The threads whose pushes and state changes are empty.
-                for it in its
-                    it.url in ("https://github.com/o/r/issues/2",
-                               "https://github.com/o/r/issues/3") &&
-                        Worklog.rows(Worklog.comment_nodes(it, Worklog.utcnow()), 96)
                 end
 
                 # The node kinds the cached thread does not have - a diff hunk,

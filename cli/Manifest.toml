@@ -2,7 +2,7 @@
 
 julia_version = "1.14.0-DEV"
 manifest_format = "2.1"
-project_hash = "7ad06f02e6433fe8dc0c0f90f20c205a7a862d19"
+project_hash = "8b9a61abd9c5d29652af3414f589e4db1af0127c"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
@@ -663,7 +663,7 @@ uuid = "b1a7f0de-4c2e-4f8a-9c31-7d5e6a2b9c04"
 version = "0.1.0"
 
     [deps.Worklog.syntax]
-    julia_version = "1.14.0-DEV"
+    julia_version = "1.11.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]

@@ -8,28 +8,13 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next
 
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
-- [ ] **Compile the JSON readers once, not once per shape.** JSON3 types an
-      array by what is in it - `[]` is `JSON3.Array{Union{}}`, one of objects
-      `JSON3.Array{JSON3.Object}`, a mixed one `Any` - so a function handed a
-      thread's comments, pushes and events is compiled again for every mix of
-      empty and not; the precompile trace showed `activity_list` and
-      `event_at` several times over. `@nospecialize` on the readers that take
-      a thread's worth of rows (`activity_list`, `event_at`, `bk_failed`, the
-      node builders, `normalize`'s helpers), not on `item_of`, which is
-      2000 calls a launch and only ever sees an object. Then drop the second
-      and third threads from the precompile workload's `seed_cache` if the
-      trace no longer asks for them, and measure a launch before and after
-      (`cli/test/latency.jl`).
-- [ ] **Run JET and Aqua over `Worklog`.** A testset each, or a script like
-      `latency.jl` if either is too slow for the suite. Aqua: ambiguities,
-      unbound type parameters, piracy, stale deps, and
-      `test_persistent_tasks` on `WorklogPrecompile` - the check for the "must
-      not leave a process running" rule, which today is only noticed when
-      precompilation hangs. JET: `report_package` for the errors it can prove,
-      and `report_opt` over the entry points (`dispatch`, `render`,
-      `handle!`) for runtime dispatch - read with the item above in mind,
-      since the `@nospecialize` there is dispatch on purpose. Fix what is
-      real; note what is deliberate where it is.
+- [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
+      is fast enough for the suite. `report_package` for the errors it can
+      prove, and `report_opt` over the entry points (`dispatch`, `render`,
+      `handle!`) for runtime dispatch - read knowing that the thread readers
+      (`activity_list`, the node builders, `thread_seen`, `event_at`,
+      `bk_failed`) are `@nospecialize` on purpose. Fix what is real; note
+      what is deliberate where it is.
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is

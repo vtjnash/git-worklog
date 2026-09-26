@@ -380,6 +380,7 @@ Writing - comments, reviews, labels, merges - needs `issues: write` and
 ```bash
 julia --project=cli cli/test/runtests.jl          # everything testable without a TTY
 julia --project=cli cli/test/latency.jl           # startup, measured; not part of the suite
+julia --project=cli/precompile cli/test/aqua.jl   # Aqua, and the wrapper builds without hanging
 julia --project=TermInput.jl  TermInput.jl/test/runtests.jl
 julia --project=TermIFrame.jl TermIFrame.jl/test/runtests.jl
 ```

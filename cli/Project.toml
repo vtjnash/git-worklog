@@ -30,13 +30,23 @@ TermInput = {path = "../TermInput.jl"}
 
 [compat]
 Base64 = "1.11.0"
+Dates = "1.11.0"
+FileWatching = "1.11.0"
 GitHub = "5.13.0"
+InteractiveUtils = "1.11.0"
+JSON3 = "1.14.3"
 Markdown = "1.11.0"
 OrderedCollections = "2.0.1"
+Printf = "1.11.0"
+REPL = "1.11.0"
 SHA = "1.13.0"
+Sockets = "1.11.0"
+TOML = "1.0.3"
 Term = "2.1.1"
 TermIFrame = "0.1"
 TermInput = "0.1"
+Test = "1.11.0"
+julia = "1.11"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

@@ -92,7 +92,7 @@ function bk_jobs(b; ttl = 300.0)
     out
 end
 
-bk_failed(jobs) = [j for j in jobs
+bk_failed(@nospecialize(jobs)) = [j for j in jobs
                    if j.state in ("failed", "broken", "timed_out") ||
                       (j.exit isa Integer && j.exit != 0)]
 
