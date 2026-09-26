@@ -7,7 +7,115 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] Can we design for adding unread entries corresponding to the 'notifications 2 not an issue or pull request, skipped" items (once read/archived they are simply deleted, and refused to be snoozed)
+- [ ] **Notices: a notification that is not an issue or pull request is a
+      row, unread until dismissed.** Today `sync!` counts them ("N not an
+      issue or pull request, skipped") and nothing else sees them: a
+      Discussion, a Release, a commit comment, a CheckSuite or WorkflowRun,
+      a Dependabot alert, a repository invitation. The plan:
+
+      - **Not the corpus, and not the inbox.** A notice has no bundle, no
+        state, no wake table and no url the by-url fetch can answer, and
+        everything that reads the inbox's `items` - `stale_by`, the
+        refresh's `involved` ask, `expect!`, the drop - would try to ask
+        GitHub about it. Nor `fetched.json` at all: once the cursor is past
+        a thread nothing asks for it again, so an unread one kept there is
+        lost with the file, which must stay safe to delete. **The unread
+        ones are blocks in `local.toml`**, one per notice and gone when it
+        is dismissed - the set that stays small, where the dismissed set
+        would only grow:
+
+            ["notice:1234567"]
+            type = "Release"
+            repo = "JuliaLang/julia"
+            title = "v1.12.0"
+            reason = "subscribed"
+            at = "2026-09-26T10:00:00Z"
+            web = "https://github.com/JuliaLang/julia/releases"
+
+        Keyed by the thread's `id`, which is stable across a thread's
+        re-notifications; a thread that notifies again while its block
+        stands updates `title`, `reason` and `at`. `thread_row` stays as it
+        is; `sync!` hands what it now skips to `notice_row(t)` and writes
+        the blocks in one `set_blocks!`, and the report line becomes "N
+        notices". No request per notice: everything in the block is on the
+        thread. The refresh's promotion of marked rows reads `https://`
+        keys only, so it never sees one.
+      - **The row.** `url` is the block's key - a key, as `local:` is - and
+        `web` the link: a Commit's from `subject.url`'s sha (and
+        `#commitcomment-N` off `latest_comment_url`); a Release
+        `/<repo>/releases`; CheckSuite and WorkflowRun `/<repo>/actions`;
+        the alerts `/<repo>/security/dependabot`; an invitation
+        `/<repo>/invitations`; a Discussion and anything else the
+        repository. `lane = "notifications"`, `reason`, the `mentioned`
+        latch off the reason, `moved_at` and `updated` from `at`, no
+        author, `number = 0`. `notice_items()` makes `Item`s of the blocks,
+        and `corpus_items` appends them, so `wl unread`, `wl done all` and
+        the browser stay one list.
+      - **Presence is the seen bit.** A notice is unread while its block
+        stands and gone when it does not - `seen_of` says `:unread` for one
+        before it looks at a stamp or a floor. `consolidate!` skips it, as
+        it does a row with no movement: it has no stamp for the floor to
+        answer for, and counted as a stampless unread row it would hold
+        every `since` down for as long as one stood.
+      - **`e` and `x` dismiss; `s` refuses.** Both remove the block and say
+        `dismissed <ref>`; `z` writes it back and `Z` removes it again,
+        with no `touched` stamp either way. There is no "not done" to
+        toggle to, and no `filed` for it to be in. `s` says "a notice has
+        no snooze - e dismisses it", and `wl snooze` / `wl archive` on a
+        `notice:` key the same; `wl done <key>` and `wl done all` dismiss.
+        What cannot apply is refused the way an adopted branch's is
+        (`not_pr`): `C`, `A`, `M`, `L`, `;`, `R`; the `d`, `p` and `c`
+        readings are empty. `o` and `y` take `web`.
+      - **The cursor filters all but the overlap, and the poll remembers
+        that.** `sync!` asks from five minutes behind the cursor, a day
+        while `wide`, which is there for a thread made visible late; inside
+        that window a dismissed thread read again and a late one read for
+        the first time look the same. So the poll keeps what it has made
+        into notices, `inbox.noticed[id] = updated_at`, and a thread at or
+        under its entry is not a notice again; one that notifies again is
+        past it and is back, unread, which is the point. Pruned by `sync!`
+        once under `cursor - 1 day`, the widest ask. `sync!` is its one
+        writer, and the browser writes only `local.toml`, where it only
+        removes a block and the poll only adds one for an `(id, at)` it has
+        not had - so the two cannot bring a dismissed notice back between
+        them. Losing `fetched.json` costs at most one overlap's worth of
+        dismissed notices shown again, which is what the overlap costs any
+        row.
+      - **The axes.** `kind` gains a fourth value, `notice`, beside `pr`
+        and `issue` (`kind_ok` stops reading `!is_pr` as an issue). On
+        `state` a notice is `closed or merged` (`over_of`): the question
+        that axis answers is "is it open work", and a closed thing that
+        moved is exactly what the firehose shows and the backlog leaves
+        out. So a notice is in the firehose, and in neither my work (it has
+        no author) nor the backlog. The pane's `state` row says the
+        subject's type, not "closed". The list's kind column says the type
+        in words: `release`, `discussion`, `commit`, `CI`, `alert`,
+        `invite`.
+      - **The pane is the notice's own facts**: type, reason, repository,
+        when, the link - `notice_nodes`, beside `local_nodes`. No fetch, and
+        no meta pane request; every `islocal` guard that means "not a
+        GitHub issue or pull request" (`fetch_bundle`, `prefetch`,
+        `meta.jl`, `content.jl`, `checkout.jl`, `writing.jl`) becomes one
+        predicate that covers both.
+      - **No history.** The cursor is already running, and only threads
+        from it on arrive; switching this on is not a quarter of releases
+        to dismiss.
+
+      Tests, with raw threads as fixtures: each subject type makes the block
+      and link above; `e`, `x` and `wl done all` remove it; `z` writes it
+      back; a re-read inside the overlap stays gone and a later
+      notification comes back; `noticed` is pruned under `cursor - 1 day`;
+      a re-notify updates a standing block in place; `seen_of` is unread
+      and `consolidate!` unmoved by one; the firehose has it, my work and
+      the backlog do not; `s` refused. Docs: README for the rows and the
+      keys, DESIGN "Marks" for presence as the seen bit and "Ownership" for
+      the one kind of `local.toml` block the poll writes whole, the `kind` axis in
+      `config.toml`'s comment. **Measure first**, with a person's token,
+      what `subject.url` and `latest_comment_url` carry for each type - a
+      Discussion's has been `null` - and whether a Discussion has any url
+      better than its repository's discussions page. A reader for a
+      Release body or a commit comment is later, and is one REST `GET`
+      each.
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 
@@ -63,13 +171,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       table in `theme.jl` write into the `Dict` in place, which works only
       because the binding is `const` and the contents are anybody's. Offer a
       patch from the `Term.jl/` clone.
-
-## The list
-
-- [ ] **Discussions, releases, commit comments.** *Decide: whether to open them
-      at all.*
-      The notifications source sees each arrive and skips it, counted. Nothing
-      here can open one.
 
 ## Reading
 
