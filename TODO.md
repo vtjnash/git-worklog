@@ -38,12 +38,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - The query through `gh api graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
 
-## Unverified
-
-- [x] **`o` on a notice opens the link.** Through `code --openExternal` from
-      a Remote-SSH terminal, the desktop's opener locally; neither is reached
-      by the suite. The links themselves were measured (DESIGN, GitHub 17).
-
 ## Upstream
 
 - [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313

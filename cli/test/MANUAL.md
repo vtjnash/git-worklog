@@ -285,3 +285,13 @@ pane. A terminal that does not answer `CSI ? 996 n` keeps the configured
 theme, which is also a pass.
 
 *2026-09-25*: pass - it follows, where the terminal answers.
+
+## 18. `o` on a notice
+
+Put the cursor on a notice - `'` then the firehose, or `f` and kind
+`notices` - and press `o`. Pass: the notice's link opens in a browser -
+through `code --openExternal` from a Remote-SSH terminal, the desktop's
+opener locally - and the status row says `opened <url>`; with neither, it
+says the link was copied. The links themselves are DESIGN's GitHub 17.
+
+*2026-09-26*: pass.
