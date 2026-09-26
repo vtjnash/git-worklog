@@ -101,6 +101,17 @@ filtered as wanted.
       the arithmetic of four ranges in step. Honest version: rows that belong to
       a node without being its body, which changes what a `Row` is.
 
+- [ ] **A release notice linked to the release itself.** *Decide: whether
+      the exact page is worth a request.* A release notice links to
+      `/<repo>/releases`, since its thread carries the release's id and the
+      page is by tag. Measured 2026-09-26 on 30 release threads: the title is
+      the tag or starts with it on 29, and not on the thirtieth ("Doxygen
+      release 1.18.0", tagged `Release_1_18_0`), so a tag guessed from the
+      title is a 404 now and then. `GET /repos/o/r/releases/<id>` answers
+      `html_url` exactly, once, when the poll writes the block, and would be
+      the only request a notice makes. Not done because the title already
+      names the release, and that is enough to find it on the list.
+
 - [ ] **A list row two high.** For the titles the one row cuts at about half.
       Usually enough of the title shows; sometimes not. The one ask from the
       terminal pass (MANUAL.md §12).
