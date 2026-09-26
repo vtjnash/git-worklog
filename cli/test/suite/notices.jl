@@ -55,7 +55,10 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
     @test startswith(ns[1].header, "CI  2026-09-20 10:00  CI failed")
     @test ns[1].meta["at"] == "2026-09-20T10:00:00Z"
     @test !occursin('\e', ns[1].raw)                    # no escapes for markdown to read
-    @test occursin("CheckSuite in o/r", ns[1].raw)
+    @test occursin("check suite in o/r", ns[1].raw)
+    # A type nobody has named here is words, not one run-together one.
+    @test W.notice_word("RepositoryAdvisory") == "advisory"
+    @test W.notice_word("SecurityAdvisoryThread") == "security advisory thread"
     @test occursin("notice", W.diff_nodes(it)[1].header)          # `d` says what it is
     m = W.Events.mention_words(Dict{String,Any}("reason" => "mention", "notified" => "2026-09-20T10:00:00Z"))
     @test !isempty(m)

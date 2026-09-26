@@ -509,13 +509,20 @@ end
 isnotice(url::AbstractString) = startswith(url, "notice:")
 isnotice(it::Item) = isnotice(it.url)
 
-"""The subject's type in a word, as the list and the kind axis say it."""
+"""GitHub's name for a type as words: `RepositoryAdvisory` is `repository
+advisory`. What a type nobody has named here yet is called, rather than one
+run-together word."""
+type_words(kind::AbstractString) =
+    lowercase(replace(String(kind), r"(?<=[a-z0-9])(?=[A-Z])" => " "))
+
+"""The subject's type in a word, as the list and the kind axis say it; a
+type not named here in `type_words`."""
 notice_word(kind::AbstractString) =
     kind == "Release" ? "release" : kind == "Discussion" ? "discussion" :
     kind == "Commit" ? "commit" : kind in ("CheckSuite", "WorkflowRun") ? "CI" :
     kind in ("RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread") ? "alert" :
     kind == "RepositoryAdvisory" ? "advisory" :
-    kind == "RepositoryInvitation" ? "invite" : isempty(kind) ? "notice" : lowercase(kind)
+    kind == "RepositoryInvitation" ? "invite" : isempty(kind) ? "notice" : type_words(kind)
 
 """Every notice's block, `key -> field -> value`, parsed: a title is
 somebody else's text, and has the escapes a line scan would leave in it. A

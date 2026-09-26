@@ -431,7 +431,7 @@ age was the age as of the load, and its escapes were markdown's to mangle."""
 function notice_nodes(it::Item, at::DateTime)
     lead = Node(string(notice_word(it.notice), "  ", when_str(it.moved_at), "  ", it.title),
                 string("GitHub notified you of this ", isempty(it.notice) ? "notification" :
-                       it.notice, " in ", isempty(it.repo) ? "a repository" : it.repo,
+                       type_words(it.notice), " in ", isempty(it.repo) ? "a repository" : it.repo,
                        isempty(it.reason) ? "" :
                        string(" (", replace(it.reason, "_" => " "), ")"),
                        ". It is not an issue or a pull request, so there is no thread ",
