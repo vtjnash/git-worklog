@@ -720,9 +720,9 @@ row that comes and goes with the count is not. `owner/*` is every repo of that
 owner the corpus has, alphabetically, so the entry `[events] repos` already
 takes is the entry this takes.
 """
-function repo_axis(st)
+function repo_axis(st)                  # a `BState`, which is defined after this file
     out = String[]
-    for p in st.pinned
+    for p in st.pinned::Vector{String}
         if endswith(p, "/*")
             for r in st.repos
                 startswith(r, p[1:end-1]) && !(r in out) && push!(out, r)

@@ -126,7 +126,7 @@ function import_urls(urls::Vector{String}, at::DateTime)
             "url" => u, "repo" => n.repository.nameWithOwner, "number" => n.number,
             "title" => n.title,
             "is_pr" => jget(n, :__typename, "PullRequest") == "PullRequest",
-            "state" => lowercase(String(nz(jget(n, :state), "open"))),
+            "state" => lowercase(jstr(n, :state, "open")),
             "author" => who, "updated" => n.updatedAt, "comments" => 0,
             "labels" => String[l.name for l in n.labels.nodes],
             "mine" => who == login()))
@@ -150,12 +150,12 @@ how the rest of the program finds the checkout again.
 function adopt_target(arg::AbstractString, cwd::AbstractString)
     startswith(arg, "local:") && return localparts(arg)
     if occursin('#', arg)
-        i = findfirst('#', arg)
+        i = something(findfirst('#', arg))
         name, branch = arg[1:prevind(arg, i)], arg[nextind(arg, i):end]
         hits = [k for k in keys(load_repos())
                 if k == name || last(split(k, '/')) == name]
         isempty(hits) && die("no pinned repo '$name' - `wl repos` lists them")
-        length(hits) > 1 && die("ambiguous '$name': " * join(sort(hits), ", "))
+        length(hits) > 1 && die(string("ambiguous '", name, "': ", join(sort(hits), ", ")))
         return (only(hits), String(branch))
     end
     # The worktree the directory is in, the deepest when one is inside another.
@@ -197,12 +197,30 @@ function adopt_branch(arg::AbstractString, at::DateTime; cwd = pwd(),
     0
 end
 
+"Who wrote a comment or an issue, for `wl thread`: its user's login, or `nothing`."
+thread_who(c) = jstr(jobj(c, :user), :login)
+
+"One entry of `activity_list` as `wl thread` prints it."
+thread_entry(e) = e.kind === :comment ?
+    ["kind" => "comment", "at" => e.at, "who" => thread_who(e.c),
+     "body" => something(get(e.c, "body", nothing), "")] :
+    e.kind === :review ?
+    ["kind" => "review", "at" => e.at, "who" => get(e.c, "by", ""),
+     "state" => get(e.c, "state", ""), "body" => get(e.c, "body", "")] :
+    e.kind === :push ?
+    ["kind" => "push", "at" => e.at, "who" => get(e.c[end], "by", ""),
+     "commits" => [["oid" => c["oid"], "at" => c["at"], "by" => get(c, "by", ""),
+                    "headline" => c["headline"]] for c in e.c]] :
+    ["kind" => "state", "at" => e.at, "who" => get(e.c, "by", ""),
+     "state" => e.c["kind"],
+     (String(k) => v for (k, v) in e.c if k in ("closer", "reason", "into", "oid"))...]
+
 function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.poll)
     cmd = isempty(args) ? "" : args[1]
     cmd in ("-h", "--help", "help") && (println(USAGE); return 0)
     # Everything below reads rows as yours or not by this name; with none,
     # every one of them would be wrong quietly.
-    isempty(String(get(config(), "login", ""))) &&
+    isempty(jstr(config(), :login, "")) &&
         die("no `login` in $(userconfig()): set it to your GitHub login")
     (isempty(args) || args == ["--refresh"]) && return ui(args, at)
     if cmd == "refresh"
@@ -304,28 +322,14 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # `comments` as it always was, and beside it the pushes and the
         # state changes the browser draws among them - as `activity`, the one
         # list in the order it happened, each entry saying which it is.
-        who(c) = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
-        entry(e) = e.kind === :comment ?
-            ["kind" => "comment", "at" => e.at, "who" => who(e.c),
-             "body" => something(get(e.c, "body", nothing), "")] :
-            e.kind === :review ?
-            ["kind" => "review", "at" => e.at, "who" => get(e.c, "by", ""),
-             "state" => get(e.c, "state", ""), "body" => get(e.c, "body", "")] :
-            e.kind === :push ?
-            ["kind" => "push", "at" => e.at, "who" => get(e.c[end], "by", ""),
-             "commits" => [["oid" => c["oid"], "at" => c["at"], "by" => get(c, "by", ""),
-                            "headline" => c["headline"]] for c in e.c]] :
-            ["kind" => "state", "at" => e.at, "who" => get(e.c, "by", ""),
-             "state" => e.c["kind"],
-             (String(k) => v for (k, v) in e.c if k in ("closer", "reason", "into", "oid"))...]
         print(json_dumps([
             "title" => body["title"],
             "body" => something(get(body, "body", nothing), ""),
             "state" => body["state"],
-            "user" => who(body),
-            "comments" => [["at" => c["created_at"], "who" => who(c),
+            "user" => thread_who(body),
+            "comments" => [["at" => c["created_at"], "who" => thread_who(c),
                             "body" => something(get(c, "body", nothing), "")] for c in cs],
-            "activity" => [entry(e) for e in activity_list(cs, cms, sts)]]))
+            "activity" => [thread_entry(e) for e in activity_list(cs, cms, sts)]]))
         return 0
     end
     if cmd == "done"

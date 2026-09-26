@@ -288,19 +288,19 @@ function edit_note(st::BState, it::Item, ctrl)
 
     # No multiplexer: hand over the whole terminal, which is what this did
     # before there was anywhere else to put it.
-    ok = true
-    suspend(ctrl) do
+    ok = suspend(ctrl) do
         try
             # Through a shell, and with the path as an argument rather than
             # interpolated: `$EDITOR` is a command line, not a program, and it
             # is routinely one with arguments and quotes in it - `code --wait`,
             # `emacsclient -a "" -c`. Splitting it on spaces mangles those.
             run(`sh -c $(string(noteeditor(), " \"\$1\"")) sh $path`)
+            true
         catch e
             logerror!(e, catch_backtrace(), "edit_note")
-            ok = false
+            false
         end
-    end
+    end::Bool
     ok || return string("could not run ", noteeditor())
     finish()
 end

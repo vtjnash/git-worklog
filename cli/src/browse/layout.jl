@@ -232,7 +232,10 @@ function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractS
             write(io, m.match); i += ncodeunits(m.match); continue
         end
         n += 1
-        inspan = any(r -> n in r, ranges)
+        inspan = false                  # a loop, not `any` over a closure: `n`
+        for r in ranges                 # changes, and a closure over it is boxed
+            n in r && (inspan = true; break)
+        end
         inspan && !open_ && write(io, bg)
         !inspan && open_ && write(io, off)
         open_ = inspan
@@ -324,7 +327,7 @@ the same reason `row_span` exists, and it is what maps the column back.
 """
 function link_at(st::BState, r::Row, col::Int)
     fn = match(r"^\[\d+\]\s+(\S+)\s*$", r.src)
-    fn === nothing || return String(fn[1])
+    fn === nothing || return String(something(fn[1]))
     j = src_at(st, r, col)
     j == 0 && return ""
     for m in eachmatch(URL_RE, r.src)

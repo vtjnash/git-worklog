@@ -1218,7 +1218,8 @@ function head_sha(it::Item)
     isempty(it.head) || return it.head
     key = string("headsha:", it.repo, "#", it.number)
     hit = cache_get(key, 86_400.0)
-    hit === nothing || return String(hit[1])
+    v = hit === nothing ? nothing : hit[1]
+    v isa AbstractString && return String(v)
     out = try
         strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefOid -q .headRefOid`,
                    String))

@@ -26,19 +26,18 @@ row of the frame would overdraw the row.
 """
 function inert(s::AbstractString)
     n = 0
-    out = sprint() do io
-        for c in s
-            cp = UInt32(c)
-            if (cp < 0x20 && c != '\t' && c != '\n') || cp == 0x7f ||
-               0x80 <= cp <= 0x9f
-                n += 1
-                print(io, '^', cp == 0x7f ? '?' : Char((cp & 0x1f) + 0x40))
-            else
-                print(io, c)
-            end
+    io = IOBuffer()             # not `sprint() do`, whose closure would box `n`
+    for c in s
+        cp = UInt32(c)
+        if (cp < 0x20 && c != '\t' && c != '\n') || cp == 0x7f ||
+           0x80 <= cp <= 0x9f
+            n += 1
+            print(io, '^', cp == 0x7f ? '?' : Char((cp & 0x1f) + 0x40))
+        else
+            print(io, c)
         end
     end
-    (out, n)
+    (String(take!(io)), n)
 end
 
 """
@@ -150,8 +149,12 @@ function word_marks(a::AbstractString, b::AbstractString)
     tb = collect(eachmatch(r"\w+|\s+|[^\w\s]", b))
     n, m = length(ta), length(tb)
     (n == 0 || m == 0 || n * m > 250_000) && return none
-    word = t -> isletter(t.match[1]) || isdigit(t.match[1]) || t.match[1] == '_'
-    (any(word, ta) && any(word, tb)) || (word = t -> !all(isspace, t.match))
+    # One function and a flag, not a closure assigned twice: `weight` below
+    # calls it in the table's inner loop, and a variable a closure captures
+    # and that is then assigned again is boxed, a dynamic call every cell.
+    isword(t) = isletter(t.match[1]) || isdigit(t.match[1]) || t.match[1] == '_'
+    marks_only = !(any(isword, ta) && any(isword, tb))
+    word = t -> marks_only ? !all(isspace, t.match) : isword(t)
     # The LCS table, weighted: a word in common is worth three of a space or
     # a mark, so that between matching `frame` and matching the `.` beside
     # it - `frame.linfo` against `StackTraces.frame_mi(frame)` - the word
@@ -231,13 +234,14 @@ function hunk_words(lines::AbstractVector{<:AbstractString})
         elseif !isempty(adds) && length(dels) * length(adds) <= 400
             from = first(adds)
             for x in dels
-                best, at, marks = 0.0, 0, nothing
+                best, at = 0.0, 0
+                ma = mb = UnitRange{Int}[]
                 for y in from:last(adds)
                     sc, ra, rb = word_marks(SubString(lines[x], 2), SubString(lines[y], 2))
-                    sc > best && ((best, at, marks) = (sc, y, (ra, rb)))
+                    sc > best && ((best, at, ma, mb) = (sc, y, ra, rb))
                 end
                 at == 0 && continue
-                out[x], out[at] = shift(marks[1]), shift(marks[2])
+                out[x], out[at] = shift(ma), shift(mb)
                 from = at + 1
             end
         end
@@ -393,15 +397,8 @@ function autolink(row::AbstractString, repo::AbstractString)
     isempty(repo) && return String(row)
     occursin(r"[#0-9]", row) || return String(row)
     io, at, inlink = IOBuffer(), firstindex(row), false
-    function refs(seg)
-        k = firstindex(seg)
-        for u in eachmatch(BAREURL, seg)
-            text(SubString(seg, k, prevind(seg, u.offset)))
-            write(io, u.match)
-            k = u.offset + ncodeunits(u.match)
-        end
-        text(SubString(seg, k))
-    end
+    # `text` before `refs`, which calls it: a closure that names one defined
+    # after it captures it boxed, and calls it dynamically.
     function text(s)
         k = firstindex(s)
         for m in eachmatch(AUTOREF, s)
@@ -411,6 +408,15 @@ function autolink(row::AbstractString, repo::AbstractString)
             k = m.offset + ncodeunits(m.match)
         end
         write(io, SubString(s, k))
+    end
+    function refs(seg)
+        k = firstindex(seg)
+        for u in eachmatch(BAREURL, seg)
+            text(SubString(seg, k, prevind(seg, u.offset)))
+            write(io, u.match)
+            k = u.offset + ncodeunits(u.match)
+        end
+        text(SubString(seg, k))
     end
     for m in eachmatch(ANYESC, row)
         seg = SubString(row, at, prevind(row, m.offset))
@@ -546,8 +552,8 @@ function style_code_spans(str::AbstractString)
                 write(out, open ? inside(part) : part)
             elseif open
                 # Carried over from the line above: the indent stays off it.
-                m = match(r"^(\s*)(.*)$"s, part)
-                write(out, m[1], THEME.code_bg, inside(m[2]))
+                m = something(match(r"^(\s*)(.*)$"s, part))    # matches anything
+                write(out, something(m[1]), THEME.code_bg, inside(something(m[2])))
             else
                 write(out, part)
             end

@@ -371,10 +371,11 @@ end
 
 "Adopt a finished fetch. Returns true when the frame needs redrawing."
 function collect_pending!(st::BState)
-    st.pending === nothing && return false
-    istaskdone(st.pending) || return false
+    t = st.pending                  # a local, so the test below narrows it
+    t === nothing && return false
+    istaskdone(t) || return false
     ns = try
-        fetch(st.pending)
+        fetch(t)
     catch e
         [failednode("load failed", first(sprint(showerror, e), 300))]
     end

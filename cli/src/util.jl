@@ -87,11 +87,15 @@ function http_date(s)
     s === nothing && return nothing
     m = match(r"^\w{3}, (\d{1,2}) (\w{3}) (\d{4}) (\d\d):(\d\d):(\d\d) GMT$", strip(String(s)))
     m === nothing && return nothing
-    mon = findfirst(==(m[2]), ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    mon = findfirst(==(something(m[2])), ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
     mon === nothing && return nothing
-    DateTime(parse(Int, m[3]), mon, parse(Int, m[1]),
-             parse(Int, m[4]), parse(Int, m[5]), parse(Int, m[6]))
+    # Every group is required, so each is there once the whole matched:
+    # `something` says so to the compiler, which types a capture as maybe
+    # `nothing` whatever the pattern.
+    DateTime(parse(Int, something(m[3])), mon, parse(Int, something(m[1])),
+             parse(Int, something(m[4])), parse(Int, something(m[5])),
+             parse(Int, something(m[6])))
 end
 
 """`datetime.now(utc).isoformat()` for `at`. Julia's clock is millisecond
@@ -158,8 +162,8 @@ two refreshes stops being returned and is never seen at all.
 """
 function expand_lane(q::AbstractString, at::DateTime)
     replace(String(q), r"\{since(?::(\d+))?\}" => s -> begin
-        m = match(r"\{since(?::(\d+))?\}", s)
-        string(Date(at) - Day(m[1] === nothing ? 14 : parse(Int, m[1])))
+        d = something(match(r"\{since(?::(\d+))?\}", s))[1]  # what `replace` matched
+        string(Date(at) - Day(d === nothing ? 14 : parse(Int, d)))
     end)
 end
 
@@ -169,8 +173,9 @@ function ts(s)
     (s === nothing || s === missing) && return nothing
     m = match(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?", String(s))
     m === nothing && return nothing
-    frac = m[2] === nothing ? "" : "." * rpad(first(m[2], 3), 3, '0')
-    DateTime(m[1] * frac)
+    f = m[2]
+    frac = f === nothing ? "" : "." * rpad(first(f, 3), 3, '0')
+    DateTime(something(m[1]) * frac)
 end
 
 "`(at - t).days`, which floors, so a future timestamp is negative rather than
@@ -273,9 +278,44 @@ end
 
 # Python's `.get(k)`, which cannot tell a missing key from an explicit null and
 # does not need to: both mean "GitHub did not give us this".
-jget(o, k::Symbol) = get(o, k, nothing)
-jget(::Nothing, ::Symbol) = nothing
+#
+# An object is a `JSON3.Object` (keyed by `Symbol`), what `GitHub.JSON.parse`
+# and the cache answer (keyed by `String`), or a `NamedTuple` default; anything
+# else - a null, a scalar, an array where an object was expected - has no
+# fields, rather than a `MethodError` on `get`.
+jget(o::AbstractDict{Symbol}, k::Symbol) = get(o, k, nothing)
+jget(o::AbstractDict{<:AbstractString}, k::Symbol) = get(o, String(k), nothing)
+jget(o::AbstractDict, k::Symbol) = get(o, k, nothing)
+jget(o::NamedTuple, k::Symbol) = get(o, k, nothing)
+jget(o, ::Symbol) = nothing
 jget(o, k::Symbol, d) = (v = jget(o, k); v === nothing ? d : v)
+
+"`jget` down a path of fields: `nothing` as soon as one is missing."
+jpath(o) = o
+jpath(o, k::Symbol, ks::Symbol...) = jpath(jget(o, k), ks...)
+
+# The field, if it is of the kind asked for, and `nothing` (or `d`) if it is
+# missing, null or anything else. JSON3 answers a field as any of seven types,
+# so whatever is done with it next - `String`, `!`, `==` - is inferred, and
+# checked at run time, against all seven; one of these at the read is the
+# field's type from there on, a concrete one. `jint` leaves out `Bool`, which
+# Julia counts as an `Integer` and JSON does not. The return types are
+# declared so that a caller holding an untyped `o` - one of the
+# `@nospecialize` thread readers - is told them too.
+jstr(o, k::Symbol)::Union{Nothing,String} =
+    (v = jget(o, k); v isa AbstractString ? String(v) : nothing)
+jstr(o, k::Symbol, d::AbstractString)::String = something(jstr(o, k), String(d))
+jint(o, k::Symbol)::Union{Nothing,Int} =
+    (v = jget(o, k); v isa Integer && !(v isa Bool) ? Int(v) : nothing)
+jint(o, k::Symbol, d::Int)::Int = something(jint(o, k), d)
+jbool(o, k::Symbol)::Union{Nothing,Bool} = (v = jget(o, k); v isa Bool ? v : nothing)
+jbool(o, k::Symbol, d::Bool)::Bool = something(jbool(o, k), d)
+"The field if it is an object, else `nothing`: `jget` again, or a `j*` read, goes on from here."
+jobj(o, k::Symbol) = (v = jget(o, k); v isa Union{AbstractDict,NamedTuple} ? v : nothing)
+"The field if it is an array, else an empty one - for a loop, which then needs no test."
+jlist(o, k::Symbol) = (v = jget(o, k); v isa AbstractVector ? v : ())
+"`jlist(o, :nodes)`, GraphQL's connection, of the object under `k`."
+jnodes(o, k::Symbol) = jlist(jobj(o, k), :nodes)
 
 # Here and not in `ui.jl`, where it was: `events.jl` imports it from `Worklog`
 # and is included first, which 1.14 names as "undeclared at import time".
@@ -328,7 +368,7 @@ function table_key_order(text::AbstractString, table::AbstractString)
         cur == want || continue
         m = match(r"^(\"[^\"]*\"|[A-Za-z0-9_.\-]+)\s*=", l)
         m === nothing && continue
-        push!(out, String(strip(m.captures[1], '"')))
+        push!(out, String(strip(something(m[1]), '"')))
     end
     # Once each: `config_text` is two files end to end, and a lane both name
     # sits where the first one put it.

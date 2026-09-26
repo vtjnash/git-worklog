@@ -168,6 +168,47 @@ function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
     :ok
 end
 
+# Context expansion and the editor both need a local checkout. Ask for it the
+# first time it is actually needed, rather than as up-front configuration.
+#
+# What is typed is kept for good - one path per repository, for every item
+# of it from then on - so the prompt says so, and says where. And a path
+# whose remotes do not name the repository is asked about once more before
+# it is kept: forks and mirrors are legitimate, but so is a slip, and one
+# checkout pinned for two unrelated repositories (2026-09-23) was every
+# worktree of it listed twice, with a warning after the fact nobody read.
+# The same path entered again is the answer.
+function needs_repo!(st::BState, ctrl::Controller, it::Item, action;
+                     seed = "", note = "", anyway = "")
+    push_view!(ctrl, PromptView(
+        "Local checkout for $(it.repo)",
+        isempty(note) ?
+            string("Path to a clone or worktree of ", it.repo, ". Recorded in ",
+                   contractuser(localfile()), " as this repository's checkout, for ",
+                   "every item of it from now on. Any worktree of it will do.") : note,
+        p -> begin
+            full = abspath(expanduser(String(p)))
+            rs = try remote_names(full) catch; nothing end
+            if rs !== nothing && full != anyway &&
+               !any(r -> lowercase(r) == lowercase(it.repo), rs)
+                needs_repo!(st, ctrl, it, action; seed = p, anyway = full,
+                            note = string(full, " is not ", it.repo, ": ",
+                                          isempty(rs) ? "it has no GitHub remote" :
+                                          string("its remotes are ", join(rs, ", ")),
+                                          ". Enter again to pin it anyway."))
+                return
+            end
+            try
+                rp = register_repo!(it.repo, p)
+                st.status = string("pinned ", it.repo, " -> ", rp.path,
+                                   rp.matched ? "" : "  (remote does not match)")
+                action()
+            catch e
+                st.status = "could not pin: " * first(sprint(showerror, e), 80)
+            end
+        end; initial = seed))
+end
+
 function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     h, w = displaysize(stdout)
     L = layout(w, h, st.nmeta)
@@ -374,54 +415,24 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # got; the rest - the readings, `y`, `w` - fall through as for any row.
     isnotice(it) && notice_key!(st, it, k) && return :ok
 
-    # Context expansion and the editor both need a local checkout. Ask for it the
-    # first time it is actually needed, rather than as up-front configuration.
+    # Context expansion and the editor both need a local checkout, asked for
+    # the first time it is needed: `needs_repo!`.
     #
-    # What is typed is kept for good - one path per repository, for every item
-    # of it from then on - so the prompt says so, and says where. And a path
-    # whose remotes do not name the repository is asked about once more before
-    # it is kept: forks and mirrors are legitimate, but so is a slip, and one
-    # checkout pinned for two unrelated repositories (2026-09-23) was every
-    # worktree of it listed twice, with a warning after the fact nobody read.
-    # The same path entered again is the answer.
-    needs_repo(action; seed = "", note = "", anyway = "") = push_view!(ctrl, PromptView(
-        "Local checkout for $(it.repo)",
-        isempty(note) ?
-            string("Path to a clone or worktree of ", it.repo, ". Recorded in ",
-                   contractuser(localfile()), " as this repository's checkout, for ",
-                   "every item of it from now on. Any worktree of it will do.") : note,
-        p -> begin
-            full = abspath(expanduser(String(p)))
-            rs = try remote_names(full) catch; nothing end
-            if rs !== nothing && full != anyway &&
-               !any(r -> lowercase(r) == lowercase(it.repo), rs)
-                needs_repo(action; seed = p, anyway = full,
-                           note = string(full, " is not ", it.repo, ": ",
-                                         isempty(rs) ? "it has no GitHub remote" :
-                                         string("its remotes are ", join(rs, ", ")),
-                                         ". Enter again to pin it anyway."))
-                return
-            end
-            try
-                r = register_repo!(it.repo, p)
-                st.status = string("pinned ", it.repo, " -> ", r.path,
-                                   r.matched ? "" : "  (remote does not match)")
-                action()
-            catch e
-                st.status = "could not pin: " * first(sprint(showerror, e), 80)
-            end
-        end; initial = seed))
+    # How `t` and `T` report, now and when a question they asked is answered.
+    # Made once here rather than in each branch: a variable assigned twice and
+    # captured by a closure is boxed.
+    say = rr -> report_session!(st, ctrl, rr)
 
     if k in (Int('['), Int(']')) && st.mode in (:diff, :pushed)
-        i = curnode(st, iw)
-        if i > 0
+        ni = curnode(st, iw)        # not `i`, which the closure would box
+        if ni > 0
             dir = k == Int('[') ? -1 : 1
             retry_expand = () -> begin
-                rr = expand_hunk!(st.nodes, i, it, dir)
+                rr = expand_hunk!(st.nodes, ni, it, dir)
                 st.status = rr isa String ? rr : ""
             end
-            r = expand_hunk!(st.nodes, i, it, dir)
-            r === :needs_repo ? needs_repo(retry_expand) :
+            r = expand_hunk!(st.nodes, ni, it, dir)
+            r === :needs_repo ? needs_repo!(st, ctrl, it, retry_expand) :
                 (st.status = r isa String ? r : "")
         end
         return :ok
@@ -433,14 +444,17 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             retry_commit = () -> (rr = open_commit(it, sha; items = st.all);
                                   st.status = rr isa String ? rr : "")
             r = open_commit(it, sha; items = st.all)
-            r === :needs_repo ? needs_repo(retry_commit) : (st.status = r isa String ? r : "")
+            r === :needs_repo ? needs_repo!(st, ctrl, it, retry_commit) :
+                                (st.status = r isa String ? r : "")
             return :ok
         end
-        at = edit_target(st, iw)
-        retry_edit = () -> (rr = open_editor(it, at; mode = st.mode, items = st.all);
+        # Where in the file, and not `at`, which is the time this key is handled.
+        spot = edit_target(st, iw)
+        retry_edit = () -> (rr = open_editor(it, spot; mode = st.mode, items = st.all);
                             st.status = rr isa String ? rr : "")
-        r = open_editor(it, at; mode = st.mode, items = st.all)
-        r === :needs_repo ? needs_repo(retry_edit) : (st.status = r isa String ? r : "")
+        r = open_editor(it, spot; mode = st.mode, items = st.all)
+        r === :needs_repo ? needs_repo!(st, ctrl, it, retry_edit) :
+                            (st.status = r isa String ? r : "")
         return :ok
     elseif k == Int('t')
         # `say` and not the return value alone: `t` may have to ask which
@@ -448,16 +462,14 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # to that arrives long after this call has returned. Both routes
         # report through the same line. `st.all` is for the second question:
         # which item's branch a copy has been reused for.
-        say = rr -> report_session!(st, ctrl, rr)
         retry_term = () -> say(open_terminal(it, ctrl, say; items = st.all))
         r = open_terminal(it, ctrl, say; items = st.all)
-        r === :needs_repo ? needs_repo(retry_term) : say(r)
+        r === :needs_repo ? needs_repo!(st, ctrl, it, retry_term) : say(r)
         return :ok
     elseif k == Int('T')
-        say = rr -> report_session!(st, ctrl, rr)
         retry_agent = () -> say(open_agent(it, ctrl, say; items = st.all))
         r = open_agent(it, ctrl, say; items = st.all)
-        r === :needs_repo ? needs_repo(retry_agent) : say(r)
+        r === :needs_repo ? needs_repo!(st, ctrl, it, retry_agent) : say(r)
         return :ok
     elseif k == Int('v')
         st.status = edit_note(st, it, ctrl)
@@ -572,7 +584,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # about a pull request that may not even have moved. A row with no
             # sha records none and has no `p` view, which is what it had before.
             upto = something(moved_of(it), stamp(at))
-            fi === nothing || (upto = max(upto, String(st.nodes[fi].meta["seen_up_to"])))
+            fi === nothing || (upto = max(upto, jstr(st.nodes[fi].meta, :seen_up_to, "")))
             # And folded: a row said unread by hand whose movement is still
             # under its source's floor goes back to saying nothing, since
             # the floor answers - unless it is filed or still snoozed,

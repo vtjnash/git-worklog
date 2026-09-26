@@ -18,7 +18,7 @@ checks_key(repo::AbstractString, number::Integer) = string("checks:", repo, "#",
 function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep = ttl)
     key = checks_key(repo, number)
     hit = cache_get(key, ttl; keep_s = keep)
-    hit === nothing || return hit[1]
+    hit === nothing || return _checks_shape(hit[1])
     owner, name = split(String(repo), '/')
     q = """
     query(\$owner:String!,\$name:String!,\$num:Int!) {
@@ -42,27 +42,34 @@ function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep
                                "-F", "num=$number", "-F", "query=@-"], q)
         rc == 0 || error(first(isempty(err) ? txt : err, 300))
         d = JSON3.read(txt)
-        roll = d.data.repository.pullRequest.commits.nodes[1].commit.statusCheckRollup
+        cs = jnodes(jpath(d, :data, :repository, :pullRequest), :commits)
+        roll = isempty(cs) ? nothing : jpath(first(cs), :commit, :statusCheckRollup)
         roll === nothing ? (state = "NONE", contexts = []) :
-            (state = String(roll.state),
-             contexts = [(name = String(get(c, :name, get(c, :context, "?"))),
-                          state = String(something(get(c, :conclusion, nothing),
-                                                   get(c, :state, "?"))),
-                          url = String(something(get(c, :detailsUrl, nothing),
-                                                 get(c, :targetUrl, nothing), "")))
-                         for c in roll.contexts.nodes])
+            (state = jstr(roll, :state, ""),
+             contexts = [(name = something(jstr(c, :name), jstr(c, :context), "?"),
+                          state = something(jstr(c, :conclusion), jstr(c, :state), "?"),
+                          url = something(jstr(c, :detailsUrl), jstr(c, :targetUrl), ""))
+                         for c in jnodes(roll, :contexts)])
     catch e
         (state = "ERROR", contexts = [(name = "could not fetch checks",
                                        state = first(sprint(showerror, e), 120), url = "")])
     end
     cache_put(key, out)
-    out
+    _checks_shape(out)
 end
+
+"Both a fresh fetch and a cache hit reach the caller in the same shape."
+_checks_shape(v) =
+    (state = jstr(v, :state, ""),
+     contexts = @NamedTuple{name::String, state::String, url::String}[
+         (name = jstr(c, :name, "?"), state = jstr(c, :state, "?"), url = jstr(c, :url, ""))
+         for c in jlist(v, :contexts)])
 
 "`(pipeline, build)` for a Buildkite URL, or nothing."
 function bk_parse(url::AbstractString)
     m = match(r"buildkite\.com/([^/]+)/([^/]+)/builds/(\d+)", String(url))
-    m === nothing ? nothing : (org = String(m[1]), pipeline = String(m[2]), build = String(m[3]))
+    m === nothing ? nothing : (org = String(something(m[1])), pipeline = String(something(m[2])),
+                               build = String(something(m[3])))
 end
 
 function _curl_json(url)
@@ -109,14 +116,15 @@ function bk_log(b, uuid::AbstractString; tail::Int = 300, ttl = 900.0)
         t = try
             d = _curl_json("https://buildkite.com/organizations/$(b.org)/pipelines/" *
                            "$(b.pipeline)/builds/$(b.build)/jobs/$uuid/log")
-            String(get(d, :output, ""))
+            jstr(d, :output, "")
         catch e
             "could not fetch log: " * first(sprint(showerror, e), 120)
         end
         cache_put(key, t)
         t
     else
-        String(hit[1])
+        v = hit[1]
+        v isa AbstractString ? String(v) : ""
     end
     s = replace(txt, r"<time[^>]*>.*?</time>"s => "")
     s = replace(s, r"<[^>]+>" => "")

@@ -130,8 +130,10 @@ Throws on anything else, including the three-digit form's odd lengths, so that
 something else.
 """
 function hex2rgb(word::AbstractString)
-    h = SubString(word, 2)
-    length(h) == 3 && (h = join(c^2 for c in h))
+    # Bound once: the generator below captures `h`, and would box it if it
+    # were assigned twice.
+    d = SubString(word, 2)
+    h = length(d) == 3 ? join(c^2 for c in d) : String(d)
     (length(h) == 6 && all(isxdigit, h)) ||
         throw(ArgumentError(string("`", word, "` is not #rgb or #rrggbb")))
     Tuple(parse(Int, h[i:(i + 1)]; base = 16) for i in (1, 3, 5))
@@ -360,7 +362,8 @@ A field whose name ends in `_bg` is interpolated by Term as `on_<value>`, so it
 takes a bare colour and nothing else: `"236"`, not `"on 236"` and not
 `"bold 236"`.
 """
-function apply_term!(tbl, probs::Vector{String}, where_::AbstractString)
+function apply_term!(tbl::AbstractDict{String}, probs::Vector{String},
+                     where_::AbstractString)
     t = Term.TERM_THEME[]
     for (key, value) in tbl
         field = Symbol(key)
@@ -415,7 +418,8 @@ and a theme naming one Term does not ship is how a capture that currently falls
 back gets a colour of its own. So a misspelling here is silent - the one place
 in this file where that is true, and the theme file says so.
 """
-function apply_code!(tbl, probs::Vector{String}, where_::AbstractString)
+function apply_code!(tbl::AbstractDict{String}, probs::Vector{String},
+                     where_::AbstractString)
     for (key, value) in tbl
         if !(value isa AbstractString)
             push!(probs, string(where_, ": `code.", key, "` wants a string"))

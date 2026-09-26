@@ -510,7 +510,7 @@ does not fire rather than firing on a stale reading.
 function second_look(r, at::DateTime, days::Int)
     isover(r) && return ""
     in_pile(r) && return ""
-    author = String(nz(get(r, "author", nothing), ""))
+    author = jstr(r, :author, "")
     opened = ts(get(r, "created", nothing))
     lc = ts(get(r, "last_comment_at", nothing))
     # The author's last word: the opening, or their comment if it is the last.
@@ -646,8 +646,9 @@ arming date to be a `Date` rather than a timestamp.
 function rel_days(sv::AbstractString)
     m = match(r"^(\d+)\s*(mo|[dwy])$", lowercase(strip(String(sv))))
     m === nothing && return nothing
-    per = m[2] == "mo" ? 30 : m[2] == "w" ? 7 : m[2] == "y" ? 365 : 1
-    parse(Int, m[1]) * per
+    u = something(m[2])
+    per = u == "mo" ? 30 : u == "w" ? 7 : u == "y" ? 365 : 1
+    parse(Int, something(m[1])) * per
 end
 
 """
@@ -691,9 +692,10 @@ function wake_of(sv, from)
     truthy(sv) || return nothing
     p = parse_snooze(String(sv))
     p === nothing && return nothing
-    p.mode === :at && return p.until
+    days = p.days                       # `nothing` for `mode = :at`
+    days === nothing && return p.until
     f = from === nothing ? nothing : ts(String(from))
-    f === nothing ? nothing : stamp(f + Day(p.days))
+    f === nothing ? nothing : stamp(f + Day(days))
 end
 
 "Has this wake time passed, as of `at`? A wake that has not is a snooze still on."
@@ -745,10 +747,10 @@ across no comment at all - every one deleted - for the same reason.
 """
 function their_comment_at(r, old, login::AbstractString, key::AbstractString; human::Bool)
     at, by = get(r, "last_comment_at", nothing), get(r, "last_comment_by", nothing)
-    carried = jget(old, Symbol(key))
-    carry = carried === nothing ? nothing : String(carried)
-    truthy(at) || return carry
-    (by == login || (human && endswith(something(by, ""), "[bot]"))) ? carry : String(at)
+    carry = jstr(old, Symbol(key))
+    (at isa AbstractString && !isempty(at)) || return carry
+    by = by isa AbstractString ? by : ""
+    (by == login || (human && endswith(by, "[bot]"))) ? carry : String(at)
 end
 
 """Is this a row nobody put in front of you - the pile?
@@ -1025,7 +1027,7 @@ function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
         r["moved_at"], r["moved_by"] = first_seen_at(r), "new"
     else
         (r["moved_at"], by) = movement(old, r, at)
-        r["moved_by"] = isempty(by) ? String(nz(jget(old, :moved_by), "")) : by
+        r["moved_by"] = isempty(by) ? jstr(old, :moved_by, "") : by
         isempty(r["moved_by"]) && (r["moved_by"] = moved_key(r))
     end
     r["moved_by"] == "new" && opened_by_you(r, login) && (r["moved_by"] = "opened")
@@ -1034,7 +1036,7 @@ function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
     # The stamp, else the floor; an empty stamp - said unread - is neither.
     done = get(st, "done", nothing)
     upto = done === nothing ?
-           floor_of(String(nz(get(r, "lane", nothing), "")), String(nz(get(r, "repo", nothing), "")), sources) :
+           floor_of(jstr(r, :lane, ""), jstr(r, :repo, ""), sources) :
            truthy(done) ? String(done) : nothing
     r["read_head"] = read_head(r, old, upto)
     r
@@ -1048,7 +1050,7 @@ again. A stamp that is an event's time names the event; a bool's, a
 force-push's or a first sight's names nothing, and `""` is the answer.
 """
 function moved_key(r)
-    m = String(nz(get(r, "moved_at", nothing), ""))
+    m = jstr(r, :moved_at, "")
     isempty(m) && return ""
     for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
         by = get(TIMED_KEYS, k, nothing)
@@ -1104,7 +1106,7 @@ not in it. Said as what happened, because it is an event and not a value:
 and this is the line a person reads to find out why their dashboard changed.
 """
 function change_of(old, r)
-    r["moved_at"] == String(nz(jget(old, :moved_at), "")) && return ""
+    r["moved_at"] == jstr(old, :moved_at, "") && return ""
     d = String[]
     jget(old, :review_requested_at) == get(r, "review_requested_at", nothing) ||
         push!(d, "review requested")
@@ -1164,9 +1166,9 @@ end
 already carries, else what the row it replaces did, else its reason now. Never
 unset once set - the whole of what makes it a different fact from `reason`."""
 function mentioned_of(r, old)
-    v = String(nz(get(r, "mentioned", nothing), ""))
+    v = jstr(r, :mentioned, "")
     isempty(v) || return v
-    v = String(nz(jget(old, :mentioned), ""))
+    v = jstr(old, :mentioned, "")
     isempty(v) || return v
     Events.mention_words(r)
 end
@@ -1188,11 +1190,10 @@ bundle is evidence that something was seen the bundle does not have. A row
 from before there was a `fetched_at` is stale, once.
 """
 function stale_by(inbox_row, old, read = nothing)
-    f = jget(old, :fetched_at)
-    truthy(f) || return true
-    inbox_row !== nothing &&
-        String(nz(get(inbox_row, "updated", nothing), "")) > String(f) && return true
-    truthy(read) && String(read) > String(f)
+    f = jstr(old, :fetched_at, "")
+    isempty(f) && return true
+    inbox_row !== nothing && jstr(inbox_row, :updated, "") > f && return true
+    read isa AbstractString && !isempty(read) && read > f
 end
 
 """Is there a clock over this url? The repo poll covers the repositories named
@@ -1251,7 +1252,7 @@ with nothing the REST list does not carry - no head, no reviews, no
 timeline. Light, the way the firehose's rows were; filled in by url the
 first time a clock says it moved or the cursor lands on it."""
 function backlog_row(r, login::AbstractString)
-    who = String(nz(get(something(get(r, "user", nothing), Dict{String,Any}()), "login", nothing), "?"))
+    who = jstr(jobj(r, :user), :login, "?")
     assignees = String[String(a["login"]) for a in get(r, "assignees", ())]
     ms = get(r, "milestone", nothing)
     OrderedDict{String,Any}(
@@ -1344,12 +1345,23 @@ refresh_report(args::Vector{String} = String[], at::Union{Nothing,DateTime} = no
                io::IO = report(), kw...) =
     reporting(() -> refresh_(args, at; kw...), io)
 
-function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
+function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
                   search = search, fetch_url_map = fetch_url_map, poll = Events.poll,
                   open_list = open_list)
     cfg = config()
     cfgtext = config_text()
     login = cfg["login"]
+    # **GitHub's now, not this machine's.** Everything this run stamps is
+    # compared, sooner or later, against a time GitHub wrote - a movement with
+    # no clock of its own against the done mark, a done mark on a hand-typed
+    # snooze against the next comment, a bundle's `fetched_at` against the
+    # inbox's clock - so the instant it is all measured from is GitHub's, off
+    # a `Date` header, and not the local clock plus a correction. One request,
+    # free of the rate limit. A test hands in its own. Bound once, and `t0`
+    # below too, since the closures here capture both: one assigned twice is
+    # boxed, and every read of it untyped.
+    at = at_ === nothing ? Events.server_now() : at_
+    t0 = time_ns()                       # monotonic: a duration, not a clock
     # When a row was fetched, as GitHub's time: `at` plus how long this
     # machine has been running since it asked for `at` - `t0` taken after
     # `at` came back, not before it was asked, or the stamp would run ahead
@@ -1362,15 +1374,6 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # data would win. Earlier is the safe direction for every comparison
     # this feeds - a row is at least as old as its stamp says.
     now_() = stamp(at + Millisecond(round(Int, (time_ns() - t0) ÷ 1_000_000)))
-    # **GitHub's now, not this machine's.** Everything this run stamps is
-    # compared, sooner or later, against a time GitHub wrote - a movement with
-    # no clock of its own against the done mark, a done mark on a hand-typed
-    # snooze against the next comment, a bundle's `fetched_at` against the
-    # inbox's clock - so the instant it is all measured from is GitHub's, off
-    # a `Date` header, and not the local clock plus a correction. One request,
-    # free of the rate limit. A test hands in its own.
-    at === nothing && (at = Events.server_now())
-    t0 = time_ns()                       # monotonic: a duration, not a clock
     state = load_state()
     # What the last run left, to diff this one against. Read once and held: the
     # parts of the file this run writes - the poll's inbox, the items
@@ -1511,7 +1514,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         url = String(k)
         haskey(items, url) && continue
         old = prev(url)
-        lane = String(nz(jget(old, :lane), "carried"))
+        lane = jstr(old, :lane, "carried")
         push!(carried, url)
         if stale_by(get(inbox, url, nothing), old,
                     get(get(state, url, Dict{String,Any}()), "done", nothing)) ||
@@ -1525,7 +1528,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     for (url, e) in inbox
         (haskey(items, url) || haskey(ask, url)) && continue
         involved(get(e, "reason", nothing)) || continue
-        ask[url] = String(nz(get(e, "lane", nothing), "notifications"))
+        ask[url] = jstr(e, :lane, "notifications")
         brought += 1
     end
     # **A mark is proof it was in front of you.** A watched repository's
@@ -1546,7 +1549,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
             push!(carried, url)
             promoted += 1
         elseif haskey(inbox, url)
-            ask[url] = String(nz(get(inbox[url], "lane", nothing), "activity"))
+            ask[url] = jstr(inbox[url], :lane, "activity")
             marked += 1
         end
     end
@@ -1582,7 +1585,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
                 moved_ += 1
                 old = prev(asked)
                 delete!(items, asked)
-                push!(gone, (asked, String(nz(jget(old, :ref), asked))))
+                push!(gone, (asked, jstr(old, :ref, asked)))
                 @printf(report(), "  %-9s %s is now %s\n", "by url", asked, u)
                 (haskey(items, u) || haskey(answers, u)) && continue
                 renamed[u] = asked
@@ -1632,7 +1635,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
     # in, and `notifications` where its cursor started; what is left is
     # every lane value a corpus row carries with no block yet.
     let named = source_since(), f = now_()
-        lanes = unique(String(nz(get(r, "lane", nothing), "")) for (_, r) in items)
+        lanes = unique(jstr(r, :lane, "") for (_, r) in items)
         fresh = sort!([l for l in lanes if !isempty(l) && !(l in ("backlog", "activity")) &&
                                             !haskey(named, l)])
         for l in fresh
@@ -1663,7 +1666,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         breathe(i)
         st = get(state, url, Dict{String,Any}())
         old = prev(get(renamed, url, url))
-        if old !== nothing && String(nz(jget(old, :fetched_at), "")) > String(r["fetched_at"])
+        if old !== nothing && jstr(old, :fetched_at, "") > jstr(r, :fetched_at, "")
             r = items[url] = kept_row(old)
         end
         derive!(r, old, st, cfg, at; sources = sources)
@@ -1707,7 +1710,7 @@ function refresh_(args::Vector{String}, at::Union{Nothing,DateTime};
         breathe(i)
         r = get(items, url, nothing)
         r === nothing && continue
-        String(nz(get(e, "updated", nothing), "")) <= String(r["fetched_at"]) || continue
+        jstr(e, :updated, "") <= String(r["fetched_at"]) || continue
         seen_of(item_of(JSON3.read(json_dumps(r))), marks) === :done || continue
         push!(dropped, url)
     end

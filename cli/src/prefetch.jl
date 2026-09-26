@@ -46,31 +46,33 @@ moving.
 without GitHub.
 """
 function prefetch_items(items; thread = fetch_thread!, diff = prefetch_diff, ntasks::Int = 4)
-    threads = diffs = cached = failed = done = 0
+    # Refs, since `warm` adds to them: a closure over a variable that is
+    # assigned again boxes it. The tasks take turns (`asyncmap`), so no lock.
+    threads, diffs, cached, failed, done = Ref(0), Ref(0), Ref(0), Ref(0), Ref(0)
     warm(it) = begin
         ghitem(it) || return
         try
             if cache_has(thread_key(it.url))
-                cached += 1
+                cached[] += 1
             else
                 thread(it.url)
-                threads += 1
+                threads[] += 1
             end
         catch e
-            failed += 1
+            failed[] += 1
             @printf(warning(), "  %-24s thread: %s\n", it.ref, first(sprint(showerror, e), 200))
         end
         if it.is_pr
             try
-                diff(it) === :fetched && (diffs += 1)
+                diff(it) === :fetched && (diffs[] += 1)
             catch e
-                failed += 1
+                failed[] += 1
                 @printf(warning(), "  %-24s diff: %s\n", it.ref, first(sprint(showerror, e), 200))
             end
         end
-        done += 1
-        if done % 25 == 0
-            @printf(report(), "  %d of %d\n", done, length(items))
+        done[] += 1
+        if done[] % 25 == 0
+            @printf(report(), "  %d of %d\n", done[], length(items))
             flush(report())
         end
     end
@@ -78,7 +80,7 @@ function prefetch_items(items; thread = fetch_thread!, diff = prefetch_diff, nta
     # `task_local_storage` is not inherited, so it is handed on by hand.
     r = current_report()
     asyncmap(it -> task_local_storage(() -> warm(it), :report, r), items; ntasks = ntasks)
-    (; threads, diffs, cached, failed)
+    (threads = threads[], diffs = diffs[], cached = cached[], failed = failed[])
 end
 
 """The diff made ready where there is somewhere to keep it: a pinned checkout,

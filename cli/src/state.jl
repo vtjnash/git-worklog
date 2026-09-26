@@ -64,7 +64,7 @@ function resolve(ref::AbstractString)
     items = fetched("items")
     items === nothing && die("nothing fetched yet - run `wl refresh` first")
     occursin('#', ref) || die("cannot parse ref '$ref'")
-    i = findlast('#', ref)
+    i = something(findlast('#', ref))          # there is one, said just above
     repo, num = ref[1:prevind(ref, i)], ref[nextind(ref, i):end]
     hits = String[]
     for (u, r) in pairs(items)
@@ -123,10 +123,12 @@ write of that field spells it the new way.
 function parse_local(p::AbstractString = localfile())
     t = replace(read(p, String),
                 r"(?<!\\)((?:\\\\)*)\\u(d[89ab][0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})"i => s -> begin
-                    m = match(r"^((?:\\\\)*)\\u(....)\\u(....)$", s)
-                    hi, lo = parse(UInt32, m[2]; base = 16), parse(UInt32, m[3]; base = 16)
+                    # The pair the pattern above matched, so every part is there.
+                    m = something(match(r"^((?:\\\\)*)\\u(....)\\u(....)$", s))
+                    hi = parse(UInt32, something(m[2]); base = 16)
+                    lo = parse(UInt32, something(m[3]); base = 16)
                     u = 0x10000 + ((hi - 0xd800) << 10) + (lo - 0xdc00)
-                    string(m[1], "\\U", string(u, base = 16, pad = 8))
+                    string(something(m[1]), "\\U", string(u, base = 16, pad = 8))
                 end)
     TOML.parse(t)
 end
@@ -155,7 +157,7 @@ function set_blocks!(updates)
     i, n = 1, length(lines)
     while i <= n
         h = match(r"^\[\"(.*)\"\]\s*$", strip(lines[i]))
-        key = h === nothing ? "" : String(h[1])
+        key = h === nothing ? "" : String(something(h[1]))
         if isempty(key) || !haskey(want, key)
             push!(out, lines[i]); i += 1; continue
         end
@@ -240,14 +242,14 @@ function field_maps(keys)
     for l in load_lines()
         if startswith(lstrip(l), "[")
             h = match(r"^\[\"(.*)\"\]\s*$", strip(l))
-            cur = h === nothing ? "" : String(h[1])
+            cur = h === nothing ? "" : String(something(h[1]))
             continue
         end
         isempty(cur) && continue
         for (k, pat) in pats
             m = match(pat, l)
             m === nothing ||
-                (get!(out, cur, Dict{String,String}())[k] = String(strip(String(m[1]), '"')))
+                (get!(out, cur, Dict{String,String}())[k] = String(strip(something(m[1]), '"')))
         end
     end
     out
@@ -272,7 +274,7 @@ function get_field(url::AbstractString, key::AbstractString)
     pat = Regex("^\\s*\\Q" * key * "\\E\\s*=\\s*(.*?)\\s*\$")
     for b in lines[i+1:j-1]
         m = match(pat, b)
-        m === nothing || return String(strip(String(m[1]), '"'))
+        m === nothing || return String(strip(something(m[1]), '"'))
     end
     nothing
 end

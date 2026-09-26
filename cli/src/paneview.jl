@@ -814,10 +814,11 @@ function dirty_pass!(v::WorktreeView)
 end
 
 function onwake!(v::WorktreeView)
-    v.pending === nothing && return false
-    istaskdone(v.pending) || return false
+    t = v.pending                   # a local, so the test below narrows it
+    t === nothing && return false
+    istaskdone(t) || return false
     d = try
-        fetch(v.pending)
+        fetch(t)
     catch
         Dict{String,Tuple{Bool,Bool}}()
     end
@@ -976,6 +977,10 @@ function br_line(r::BranchRow, iw::Int)
            apad(afit(label, br_label(iw)), br_label(iw)))
 end
 
+"A row of whichever list is shown, by what the row is."
+row_line(r::WorktreeRow, iw::Int) = wt_line(r, iw)
+row_line(r::BranchRow, iw::Int) = br_line(r, iw)
+
 """The row that names the columns, which is also the key to the marks.
 
 It does not scroll with the list: a key you have to scroll back to is not a
@@ -1028,7 +1033,7 @@ function render(v::WorktreeView, w::Int, h::Int)
     for i in win
         line = i > length(rs) ?
             string(THEME.dim, "+ new worktree …", THEME.reset) :
-            branches ? br_line(rs[i], iw) : wt_line(rs[i], iw)
+            row_line(rs[i], iw)
         push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
     end
     # `rs`, not `body`: the header is always in there, and so in the whole
@@ -1320,7 +1325,7 @@ function handle!(v::WorktreeView, k::Int, ctrl)
         # The same `tab` the browser uses to change pane: three lenses on one
         # key, and each keeps its own cursor so switching back returns to where
         # you were rather than to the top.
-        i = findfirst(==(v.mode), WT_MODES)
+        i = something(findfirst(==(v.mode), WT_MODES))  # the modes are these
         v.mode = WT_MODES[mod1(i + (k == 9 ? 1 : -1), length(WT_MODES))]
         v.status = ""
     elseif k in (Int('j'), K_DOWN); move!(1)

@@ -184,9 +184,10 @@ function collect_meta!(st::BState)
     # Each of the three lands on its own; the merge answer is the late one, and
     # a frame that has the reviews should not wait for it.
     got = false
-    if st.bundlepending !== nothing && istaskdone(st.bundlepending)
+    bt = st.bundlepending           # locals, so the tests narrow them
+    if bt !== nothing && istaskdone(bt)
         b = try
-            fetch(st.bundlepending)
+            fetch(bt)
         catch
             nothing
         end
@@ -196,9 +197,10 @@ function collect_meta!(st::BState)
         b === nothing || replace_item!(st, b)
         got = true
     end
-    if st.mergepending !== nothing && istaskdone(st.mergepending)
+    gt = st.mergepending
+    if gt !== nothing && istaskdone(gt)
         m = try
-            fetch(st.mergepending)
+            fetch(gt)
         catch
             nothing
         end
@@ -216,13 +218,14 @@ function collect_meta!(st::BState)
             (st.metastale = true)
         got = true
     end
-    if st.metapending === nothing
+    mt = st.metapending
+    if mt === nothing
         got && arm_refresh!(st)
         return got
     end
-    istaskdone(st.metapending) || return got
+    istaskdone(mt) || return got
     r = try
-        fetch(st.metapending)
+        fetch(mt)
     catch
         (meta = nothing, checks = nothing, err = "load failed")
     end
@@ -609,9 +612,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     elseif haskey(st.snoozes, it.url) || haskey(st.wakes, it.url)
         # Off the snooze itself where one is still on file and woken - typed
         # by hand, and no refresh has written it down yet.
-        ls = get(st.snoozes, it.url, get(st.wakes, it.url, ""))
-        kv("snoozed", ls <= marks.now ? string("woke ", when_str(ls, at)) :
-                      string("until ", when_str(ls, at), "  ", THEME.dim, "cleared", THEME.reset))
+        wk = get(st.snoozes, it.url, get(st.wakes, it.url, ""))
+        kv("snoozed", wk <= marks.now ? string("woke ", when_str(wk, at)) :
+                      string("until ", when_str(wk, at), "  ", THEME.dim, "cleared", THEME.reset))
     end
     if !isempty(it.note)
         push!(out, string(THEME.dim, "note", THEME.reset))

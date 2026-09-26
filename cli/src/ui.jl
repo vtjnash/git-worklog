@@ -164,50 +164,50 @@ have made. Two mappings would drift, and the first thing to drift would be
 `act`, which every age and every order is worked out from.
 """
 function item_of(r)
-        act = something(jget(r, :head_at), jget(r, :last_comment_at), r.updated)
+        act = something(jstr(r, :head_at), jstr(r, :last_comment_at), jstr(r, :updated, ""))
         Item(
             url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
             repo = r.repo, number = r.number, title = r.title,
-            lane = nz(jget(r, :lane), ""), track = nz(jget(r, :track), "normal"),
-            note = nz(jget(r, :note), ""),
-            ci = nz(jget(r, :ci), ""), unresolved = nz(jget(r, :unresolved), 0),
-            act = String(nz(act, "")),
-            moved_at = String(nz(jget(r, :moved_at), "")),
-            moved_by = String(nz(jget(r, :moved_by), "")),
-            head_at = String(nz(jget(r, :head_at), "")),
-            head_by = String(nz(jget(r, :head_by), "")),
-            their_comment_at = String(nz(jget(r, :their_comment_at), "")),
-            human_comment_at = String(nz(jget(r, :human_comment_at), "")),
-            review_at = String(nz(jget(r, :review_at), "")),
-            review_requested_at = String(nz(jget(r, :review_requested_at), "")),
-            assigned_at = String(nz(jget(r, :assigned_at), "")),
-            state_at = String(nz(jget(r, :state_at), "")),
-            created = String(nz(jget(r, :created), "")),
-            updated = String(nz(jget(r, :updated), "")),
-            new = nz(jget(r, :new), false),
-            is_pr = nz(jget(r, :type), "PullRequest") == "PullRequest",
-            author = nz(jget(r, :author), ""),
-            assignees = String[String(a) for a in jget(r, :assignees, ())],
-            labels = String[String(l) for l in jget(r, :labels, ())],
-            milestone = nz(jget(r, :milestone), ""),
-            milestone_due = first(String(nz(jget(r, :milestone_due), "")), 10),
-            review_decision = nz(jget(r, :review_decision), ""),
-            state = nz(jget(r, :state), ""),
-            branch = nz(jget(r, :branch), ""),
-            head_repo = nz(jget(r, :head_repo), ""),
-            head = nz(jget(r, :head_sha), ""),
-            read_head = nz(jget(r, :read_head), ""),
-            base = nz(jget(r, :base), ""),
-            base_sha = nz(jget(r, :base_sha), ""),
-            merged_by = nz(jget(r, :merged_by), ""),
-            secondlook = nz(jget(r, :second_look), ""),
-            reply = nz(jget(r, :reply), ""),
-            mentioned = nz(jget(r, :mentioned), ""),
-            edits = nz(jget(r, :edits), ""),
-            ready = nz(jget(r, :ready), ""),
-            review = nz(jget(r, :review), ""),
-            draft = nz(jget(r, :draft), false),
-            fetched = String(nz(jget(r, :fetched_at), "")))
+            lane = jstr(r, :lane, ""), track = jstr(r, :track, "normal"),
+            note = jstr(r, :note, ""),
+            ci = jstr(r, :ci, ""), unresolved = jint(r, :unresolved, 0),
+            act = act,
+            moved_at = jstr(r, :moved_at, ""),
+            moved_by = jstr(r, :moved_by, ""),
+            head_at = jstr(r, :head_at, ""),
+            head_by = jstr(r, :head_by, ""),
+            their_comment_at = jstr(r, :their_comment_at, ""),
+            human_comment_at = jstr(r, :human_comment_at, ""),
+            review_at = jstr(r, :review_at, ""),
+            review_requested_at = jstr(r, :review_requested_at, ""),
+            assigned_at = jstr(r, :assigned_at, ""),
+            state_at = jstr(r, :state_at, ""),
+            created = jstr(r, :created, ""),
+            updated = jstr(r, :updated, ""),
+            new = jbool(r, :new, false),
+            is_pr = jstr(r, :type, "PullRequest") == "PullRequest",
+            author = jstr(r, :author, ""),
+            assignees = String[String(a) for a in jlist(r, :assignees)],
+            labels = String[String(l) for l in jlist(r, :labels)],
+            milestone = jstr(r, :milestone, ""),
+            milestone_due = first(jstr(r, :milestone_due, ""), 10),
+            review_decision = jstr(r, :review_decision, ""),
+            state = jstr(r, :state, ""),
+            branch = jstr(r, :branch, ""),
+            head_repo = jstr(r, :head_repo, ""),
+            head = jstr(r, :head_sha, ""),
+            read_head = jstr(r, :read_head, ""),
+            base = jstr(r, :base, ""),
+            base_sha = jstr(r, :base_sha, ""),
+            merged_by = jstr(r, :merged_by, ""),
+            secondlook = jstr(r, :second_look, ""),
+            reply = jstr(r, :reply, ""),
+            mentioned = jstr(r, :mentioned, ""),
+            edits = jstr(r, :edits, ""),
+            ready = jstr(r, :ready, ""),
+            review = jstr(r, :review, ""),
+            draft = jbool(r, :draft, false),
+            fetched = jstr(r, :fetched_at, ""))
 end
 
 # --- the bundle for the row under the cursor ---------------------------------
@@ -247,7 +247,7 @@ function bundled(url::AbstractString, r)
     b = bundle_of(url)
     b === nothing && return r
     r === nothing && return b
-    String(nz(jget(b, :fetched_at), "")) > String(nz(jget(r, :fetched_at), "")) ? b : r
+    jstr(b, :fetched_at, "") > jstr(r, :fetched_at, "") ? b : r
 end
 
 "Seconds since the bundle behind `it` was fetched; `Inf` for a row with none."
@@ -324,7 +324,7 @@ function latch_mention!(url::AbstractString, why::AbstractString)
     d = load_fetched()
     its = get(d, "items", nothing)
     if its !== nothing && haskey(its, Symbol(url)) &&
-       isempty(String(nz(jget(its[Symbol(url)], :mentioned), "")))
+       isempty(jstr(its[Symbol(url)], :mentioned, ""))
         new = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(its))
         row = kept_row(its[Symbol(url)])
         row["mentioned"] = String(why)
@@ -334,12 +334,12 @@ function latch_mention!(url::AbstractString, why::AbstractString)
     end
     ib = Events.load_inbox()
     e = get(ib["items"], String(url), nothing)
-    if e !== nothing && isempty(String(nz(get(e, "mentioned", nothing), "")))
+    if e !== nothing && isempty(jstr(e, :mentioned, ""))
         e["mentioned"] = String(why)
         Events.save_inbox(ib)
     end
     b = bundle_of(url)
-    if b !== nothing && isempty(String(nz(jget(b, :mentioned), "")))
+    if b !== nothing && isempty(jstr(b, :mentioned, ""))
         row = kept_row(b)
         row["mentioned"] = String(why)
         cache_put(bundle_key(url), row)
@@ -357,7 +357,14 @@ would put the identity of an item somewhere other than in the item.
 """
 function loaditems(its = fetched("items"))
     its === nothing && die("nothing fetched yet — run `wl refresh` first")
-    [item_of(bundled(String(u), r)) for (u, r) in pairs(its)]
+    # A loop and not `Item[... for ...]`: over an iterator of unknown type, a
+    # typed comprehension is not known to be a `Vector`, since its shape is the
+    # iterator's, and every caller's `items` would be untyped.
+    out = Item[]
+    for (u, r) in pairs(its)
+        push!(out, item_of(bundled(String(u), r)))
+    end
+    out
 end
 
 """The corpus when one has been fetched, or `nothing`.
@@ -381,7 +388,7 @@ inside a view that has no other reason to be handed the whole config.
 const LOGIN = Ref("")
 login() = isempty(LOGIN[]) ?
     (LOGIN[] = try
-        String(get(config(), "login", ""))
+        jstr(config(), :login, "")
     catch
         ""
     end) : LOGIN[]
@@ -541,7 +548,7 @@ end
 
 """The keys of every notice standing, off the headers alone: what the
 browser drops a dismissed one from its list by, once per `refilter!`."""
-notice_keys() = Set{String}(String(m[1]) for l in load_lines()
+notice_keys() = Set{String}(String(something(m[1])) for l in load_lines()
                             for m in (match(r"^\[\"(notice:[^\"]*)\"\]\s*$", strip(l)),)
                             if m !== nothing)
 
@@ -561,7 +568,7 @@ function notice_item(key::AbstractString, b::AbstractDict)
 end
 
 "Every notice standing, as items, newest first."
-notice_items() = sort!([notice_item(k, b) for (k, b) in notice_blocks()];
+notice_items() = sort!(Item[notice_item(k, b) for (k, b) in notice_blocks()];
                        by = it -> (it.moved_at, it.url), rev = true)
 
 """Dismiss these notices: their blocks go, whole. Answers the blocks as
@@ -643,20 +650,20 @@ pair of them being apart is how the fields drifted the first time.
 poll_item(u) = Item(
     url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
     ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-    title = String(u["title"]), lane = String(nz(get(u, "lane", nothing), "activity")),
-    author = String(nz(get(u, "author", nothing), "")),
-    updated = String(nz(get(u, "updated", nothing), "")),
-    act = String(nz(get(u, "updated", nothing), "")),
+    title = String(u["title"]), lane = jstr(u, :lane, "activity"),
+    author = jstr(u, :author, ""),
+    updated = jstr(u, :updated, ""),
+    act = jstr(u, :updated, ""),
     # The poll has no fingerprint to compare, so what it saw *is* the movement.
-    moved_at = String(nz(get(u, "updated", nothing), "")),
+    moved_at = jstr(u, :updated, ""),
     # Yours, with no comment and no notification - GitHub notifies nobody of
     # their own acts - is the refresh's `opened` as near as the poll can say:
     # a request or an assignment since is the refresh's to find.
     moved_by = get(u, "author", nothing) == login() && get(u, "comments", 0) == 0 &&
                !truthy(get(u, "reason", nothing)) ? "opened" : "",
     labels = String[String(l) for l in get(u, "labels", ())],
-    state = uppercase(String(nz(get(u, "state", nothing), "open"))),
-    mentioned = String(nz(get(u, "mentioned", nothing), Events.mention_words(u))),
+    state = uppercase(jstr(u, :state, "open")),
+    mentioned = something(jstr(u, :mentioned), Events.mention_words(u)),
     is_pr = get(u, "is_pr", true))
 
 """Imports that `facts.json` has not caught up with, fetched now.
@@ -702,7 +709,7 @@ function gfm_table(stream::IO, md::Markdown.MD)
     stop = position(stream)
     t = md.content[end]
     seek(stream, start)
-    rows = filter(l -> !isempty(strip(l)), split(String(read(stream, stop - start)), '\n'))
+    rows = filter(l -> !isempty(strip(l)), split(String(read(stream, stop - start)::Vector{UInt8}), '\n'))
     seek(stream, stop)
     (t isa Markdown.Table && length(rows) >= 2) || return true
     cells = strip.(split(strip(strip(rows[2]), '|'), '|'))
@@ -947,7 +954,8 @@ function consolidate!(at::DateTime; dry_run::Bool = false,
             push!(reads, (moved, it))
         end
     end
-    below = [mv for (mv, _) in reads if oldest === nothing || mv < oldest]
+    floor_ = oldest                     # once, for the comprehension to capture
+    below = [mv for (mv, _) in reads if floor_ === nothing || mv < floor_]
     since = isempty(below) ? nothing : maximum(below)
     raised = Dict{String,String}(l => since for (l, s) in sources
                                  if since !== nothing && since > s)
@@ -997,9 +1005,14 @@ did rather than keeping the old light rows by hand off a set the poll wrote
 once.
 """
 function inbox_items(have::Set{String}, rows = values(Events.load_inbox()["items"]))
-    [let b = bundle_of(String(u["url"]))
-         b === nothing || before_inbox(b, u) ? poll_item(u) : item_of(b)
-     end for u in rows if !(String(u["url"]) in have)]
+    out = Item[]                        # a loop, for the reason in `loaditems`
+    for u in rows
+        url = String(u["url"])
+        url in have && continue
+        b = bundle_of(url)
+        push!(out, b === nothing || before_inbox(b, u) ? poll_item(u) : item_of(b))
+    end
+    out
 end
 
 """Is the bundle `b` from before the inbox's clock for its row `u` - fetched
@@ -1008,4 +1021,4 @@ two, and the one a mark stamps by (`mark_done_moved`) as well as the one
 shown (`inbox_items`), or `wl done all` would stamp under what `wl unread`
 listed against."""
 before_inbox(b, u) =
-    String(nz(jget(b, :fetched_at), "")) < String(nz(get(u, "updated", nothing), ""))
+    jstr(b, :fetched_at, "") < jstr(u, :updated, "")

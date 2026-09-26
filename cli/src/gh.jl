@@ -168,18 +168,19 @@ function fetch_url_map(urls; per::Int = 40)
     # not the batch failed: forty rows kept as they were for one url that
     # cannot be seen would be forty rows frozen for as long as it stays in
     # the ask. Errors with no data at all are the request failing.
-    data = jget(d, :data)
-    if haskey(d, :errors)
+    data = jobj(d, :data)
+    errs = jlist(d, :errors)
+    if !isempty(errs)
         data === nothing &&
-            throw(FetchError("GraphQL errors: " * first(json_dumps(d.errors), 500)))
-        @printf(warning(), "    by url: %d of %d not answered: %s\n", length(d.errors),
-                length(us), first(json_dumps(d.errors), 200))
+            throw(FetchError("GraphQL errors: " * first(json_dumps(errs), 500)))
+        @printf(warning(), "    by url: %d of %d not answered: %s\n", length(errs),
+                length(us), first(json_dumps(errs), 200))
     end
     for (i, u) in enumerate(us)
-        n = jget(data, Symbol("r", i))
+        n = jobj(data, Symbol("r", i))
         # Null for a url that resolves to nothing, and field-less for one that
         # resolves to something else - a discussion, a commit, a repository.
-        (n === nothing || jget(n, :url) === nothing) && continue
+        jstr(n, :url) === nothing && continue
         out[u] = n
     end
     out
@@ -237,8 +238,9 @@ function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
     rc, out, err = gh_run(["api", "graphql", "--input", "-"], body)
     rc == 0 || throw(FetchError(first(isempty(err) ? out : err, 300)))
     d = JSON3.read(out)
-    haskey(d, :errors) && throw(FetchError(first(json_dumps(d.errors), 400)))
-    d.data
+    errs = jlist(d, :errors)
+    isempty(errs) || throw(FetchError(first(json_dumps(errs), 400)))
+    jobj(d, :data)
 end
 
 """How long to wait before trying this failure again, or `nothing` to give up.
@@ -322,17 +324,19 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
                 run = gh_run)
     out = Any[]
     seen = Set{String}()
-    spent = 0
-    total = 0
+    # Refs, since the closures below add to them: a captured variable that is
+    # assigned again is boxed, and every read of it is then untyped.
+    spent = Ref(0)
+    total = Ref(0)
     keyset = occursin("sort:created-asc", q) && !occursin("created:", q)
     budget = cap ÷ 50 + 8               # requests, all loops together
-    spent_pages = 0
+    spent_pages = Ref(0)
     # One page of `ask` after `cursor`: the retry loop, the errors, the cost.
     function page(ask, cursor)
-        spent_pages += 1
+        spent_pages[] += 1
         body = json_dumps(["query" => query,
                            "variables" => ["q" => ask, "cursor" => cursor]])
-        local stdout_
+        stdout_ = ""
         # Long paginations reliably hit transient 5xx from the GraphQL
         # endpoint, and a whole refresh is enough requests in a burst to be
         # told so. Retry the page rather than losing the refresh.
@@ -354,38 +358,46 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
             sleep(wait_)
         end
         d = JSON3.read(stdout_)
-        haskey(d, :errors) &&
+        errs = jlist(d, :errors)
+        isempty(errs) ||
             throw(FetchError("GraphQL errors for $(repr(q)): " *
-                             first(json_dumps(d.errors), 2000)))
-        spent += d.data.rateLimit.cost
-        d.data.search
+                             first(json_dumps(errs), 2000)))
+        data = jobj(d, :data)
+        spent[] += jint(jobj(data, :rateLimit), :cost, 0)
+        jobj(data, :search)
+    end
+    # Where the next page starts, or `nothing` on the last one.
+    function next_cursor(s)
+        p = jobj(s, :pageInfo)
+        jbool(p, :hasNextPage, false) ? jstr(p, :endCursor) : nothing
     end
     # Collect a page's rows; the newest `createdAt` on it, seen or not.
     function take!(s)
         last_ = ""
-        for n in s.nodes
+        for n in jlist(s, :nodes)
             # A stub with no `url` is the Issue-against-a-PR-only-fragment case
             # above; it carries nothing usable, so drop it rather than
             # normalising a record with no fields.
-            (n === nothing || jget(n, :url) === nothing) && continue
-            last_ = String(nz(jget(n, :createdAt), last_))
-            String(n.url) in seen && continue
-            push!(seen, String(n.url))
+            u = jstr(n, :url)
+            u === nothing && continue
+            last_ = jstr(n, :createdAt, last_)
+            u in seen && continue
+            push!(seen, u)
             push!(out, n)
         end
         last_
     end
-    done() = length(out) >= cap || spent_pages >= budget
-    cut() = (out[1:min(cap, length(out))], spent, total)
+    done() = length(out) >= cap || spent_pages[] >= budget
+    cut() = (out[1:min(cap, length(out))], spent[], total[])
 
     if !keyset
         cursor = nothing
         while true
             s = page(q, cursor)
             take!(s)
-            cursor === nothing && (total = s.issueCount)
-            (!s.pageInfo.hasNextPage || done()) && return cut()
-            cursor = String(s.pageInfo.endCursor)
+            cursor === nothing && (total[] = jint(s, :issueCount, 0))
+            cursor = next_cursor(s)
+            (cursor === nothing || done()) && return cut()
         end
     end
     floor_, strict = "", false
@@ -393,8 +405,8 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         ask = isempty(floor_) ? q : string(q, " created:", strict ? ">" : ">=", floor_)
         s = page(ask, nothing)
         last_ = take!(s)
-        isempty(floor_) && (total = s.issueCount)
-        (!s.pageInfo.hasNextPage || done()) && return cut()
+        isempty(floor_) && (total[] = jint(s, :issueCount, 0))
+        (next_cursor(s) === nothing || done()) && return cut()
         isempty(last_) && return cut()       # nothing on it to cut by
         if last_ == floor_
             # The whole page is the floor's own second: drain it by offset.
@@ -402,8 +414,8 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
             while true
                 t = page(string(q, " created:", floor_, "..", floor_), cursor)
                 take!(t)
-                (!t.pageInfo.hasNextPage || done()) && break
-                cursor = String(t.pageInfo.endCursor)
+                cursor = next_cursor(t)
+                (cursor === nothing || done()) && break
             end
             done() && return cut()
             strict = true

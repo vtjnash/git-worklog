@@ -193,14 +193,14 @@ function branch_carrier(ix::BranchIndex, repo::AbstractString, w, tr = nothing)
     r, ref = follows(tr, b)
     m = match(r"^refs/pull/(\d+)/head$", ref)
     it = if m !== nothing
-        get(ix.bynumber, (repo, parse(Int, m[1])), nothing)
+        get(ix.bynumber, (repo, parse(Int, something(m[1]))), nothing)
     else
         m = match(r"^refs/heads/(.+)$", ref)
         m === nothing && return nothing
         # The fork's copy of the name when the branch says whose it is, and
         # the name's best pull request when it does not, or the item has no
         # word on whose it wants (a row from before `head_repo`).
-        head = String(m[1])
+        head = String(something(m[1]))
         o = isempty(r) ? nothing : get(ix.byhead, (repo, lowercase(r), head), nothing)
         o === nothing ? get(ix.byname, (repo, head), nothing) : o
     end

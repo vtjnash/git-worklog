@@ -116,7 +116,7 @@ function split_fences(md::AbstractString)
                 push!(out, (:code, lang, join(code, "\n")))
                 empty!(code); fenced = false
             else
-                lang, opener, fenced = String(m[1]), String(line), true
+                lang, opener, fenced = String(something(m[1])), String(line), true
             end
             continue
         end
@@ -249,12 +249,12 @@ function state_node(@nospecialize(e), url::AbstractString)
                   kind == "reopened" ? (THEME.waiting, "\u21bb reopened") :
                   kind == "draft" ? (THEME.dim, "converted to draft") :
                                     (THEME.settled, "ready for review")
-    by = String(nz(get(e, "by", nothing), ""))
+    by = jstr(e, :by, "")
     when = when_str(String(e["at"]))
-    closer = String(nz(get(e, "closer", nothing), ""))
-    reason = String(nz(get(e, "reason", nothing), ""))
-    into = String(nz(get(e, "into", nothing), ""))
-    oid = String(nz(get(e, "oid", nothing), ""))
+    closer = jstr(e, :closer, "")
+    reason = jstr(e, :reason, "")
+    into = jstr(e, :into, "")
+    oid = jstr(e, :oid, "")
     said = kind == "closed" ? join(filter(!isempty, [isempty(closer) ? "" : string("by ", closer),
                                                      isempty(reason) ? "" : string("as ", reason)]),
                                    ", ") :
@@ -268,7 +268,7 @@ function state_node(@nospecialize(e), url::AbstractString)
                      isempty(said) ? "" : string("   ", said)), "", :plain, true)
     nd.meta["src"] = string(word, "  ", isempty(by) ? "" : string(by, "  "), when,
                             isempty(said) ? "" : string("  ", said))
-    nd.meta["url"] = String(nz(get(e, "closer_url", nothing), url))
+    nd.meta["url"] = jstr(e, :closer_url, url)
     nd.meta["at"] = String(e["at"])
     nd
 end
@@ -282,17 +282,17 @@ on the row; a comment review is plain, since it is a comment; a dismissed one
 is dim - GitHub keeps no record of what it had said.
 """
 function review_node(@nospecialize(e), url::AbstractString)
-    state = String(nz(get(e, "state", nothing), ""))
+    state = jstr(e, :state, "")
     (col, word) = state == "approved" ? (THEME.settled, "\u2713 approved") :
                   state == "changes_requested" ? (THEME.blocked, "\u2717 changes requested") :
                   state == "dismissed" ? (THEME.dim, "review dismissed") :
                                          ("", "reviewed")
-    by = String(nz(get(e, "by", nothing), ""))
+    by = jstr(e, :by, "")
     who = isempty(by) ? "" : string(by, "  ")
     when = when_str(String(e["at"]))
     hd = string(col, word, THEME.reset, "  ", THEME.dim, who, when, THEME.reset)
-    txt = strip(String(nz(get(e, "body", nothing), "")))
-    link = String(nz(get(e, "url", nothing), ""))
+    txt = strip(jstr(e, :body, ""))
+    link = jstr(e, :url, "")
     link = isempty(link) ? String(url) : link
     ns = isempty(txt) ? [Node(hd, "", :plain, true)] : body_nodes(hd, txt, link, true)
     if !isempty(txt)
@@ -327,6 +327,13 @@ function newmark_node(n::Int)
     nd
 end
 
+"""One entry of the activity list: what it is, when, and the record it came from
+- a comment, a review or a state change as read, or for a push the run of
+commits. `c` stays untyped, as its readers are (`activity_list`); `kind` and
+`at` are what every one of them branches and sorts on, and are typed so that
+none of those is a dynamic call."""
+const ActivityEntry = @NamedTuple{kind::Symbol, at::String, c::Any}
+
 """Consecutive pushes folded into one entry, keeping everything else in place.
 
 The run is stamped at its *last* commit, so a push that is half older than the
@@ -335,7 +342,7 @@ shows a commit you had already seen among the new ones, where the other way
 round hides one you have not.
 """
 function group_pushes(evs)
-    out = Any[]
+    out = ActivityEntry[]
     for e in evs
         if e.kind === :push && !isempty(out) && out[end].kind === :push
             run = push!(out[end].c, e.c)
@@ -380,7 +387,7 @@ by `get` either way.
 """
 function activity_list(@nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
     from = isempty(cs) ? "" : String(first(cs)["created_at"])
-    evs = Any[]
+    evs = ActivityEntry[]
     for c in cs
         push!(evs, (kind = :comment, at = String(c["created_at"]), c = c))
     end
@@ -402,10 +409,8 @@ end
 
 """Who an activity entry is by: the commenter, the reviewer, whoever changed
 the state, and for a run of pushes its last commit's author."""
-entry_by(e) = String(nz(e.kind === :comment ?
-                            get(something(get(e.c, "user", nothing), Dict{String,Any}()), "login", nothing) :
-                        e.kind === :push ? get(e.c[end], "by", nothing) :
-                                           get(e.c, "by", nothing), ""))
+entry_by(e) = e.kind === :comment ? jstr(jobj(e.c, :user), :login, "") :
+              e.kind === :push ? jstr(e.c[end], :by, "") : jstr(e.c, :by, "")
 
 """The thread pane of an adopted branch, which has no thread.
 
@@ -488,12 +493,12 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         return [failednode("could not load thread", first(sprint(showerror, e), 200))]
     end
     ns = Node[]
-    who0 = get(something(get(body, "user", nothing), Dict{String,Any}()), "login", "?")
-    btxt = strip(nz(get(body, "body", nothing), ""))
+    who0 = jstr(jobj(body, :user), :login, "?")
+    btxt = strip(jstr(body, :body, ""))
     if !isempty(btxt)
-        body_nodes!(ns, string(nz(who0, "?"), " opened this"), btxt,
-                    String(nz(get(body, "html_url", nothing), it.url)), true)
-        ns[1].meta["at"] = String(nz(get(body, "created_at", nothing), ""))
+        body_nodes!(ns, string(who0, " opened this"), btxt,
+                    jstr(body, :html_url, it.url), true)
+        ns[1].meta["at"] = jstr(body, :created_at, "")
     end
     # Whose each box is, for `header_bg`: present on a comment or a review and
     # on nothing else, which is what says it is a box at all.
@@ -507,14 +512,14 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # the stamp is not news to you, and a rule over it alone said there was some.
     # The stamp or the floor, as the list reads it: the stamp alone left no rule
     # on a row read by construction, which the list called unread all the same.
-    seen = done_upto(it)
+    upto = done_upto(it)
     # And nothing for a thread opened since, by somebody else: the floor is
     # older than all of it, the opening post included, which is drawn first
     # and is no entry for the rule to go above. Under it the rule stood over
     # the first push - its commits dated before the opening, so older than
-    # the post above it (libuv#5295).
-    opened = String(nz(get(body, "created_at", nothing), ""))
-    seen !== nothing && opened > seen && (isempty(me) || who0 != me) && (seen = nothing)
+    # the post above it (libuv#5295). Bound once, for the closure below.
+    opened = jstr(body, :created_at, "")
+    seen = upto !== nothing && opened > upto && (isempty(me) || who0 != me) ? nothing : upto
     mk = seen === nothing ? nothing :
          findfirst(e -> e.at > seen && (isempty(me) || entry_by(e) != me), evs)
     mark = mk === nothing ? 0 : mk
@@ -533,30 +538,30 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             continue
         end
         c = e.c
-        who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
-        when = when_str(String(c["created_at"]))
-        txt = strip(nz(get(c, "body", nothing), ""))
+        who = jstr(jobj(c, :user), :login, "?")
+        when = when_str(e.at)             # the comment's `created_at`
+        txt = strip(jstr(c, :body, ""))
         # Anchored, so following it lands on this comment rather than the top.
-        url = String(nz(get(c, "html_url", nothing), it.url))
+        url = jstr(c, :html_url, it.url)
         # A review comment reads as a non-sequitur in a chronological list
         # without the line it was left on. The diff pane places it against the
         # code; here it at least says where it was pointing.
         loc = comment_loc(c)
-        made = body_nodes(string(nz(who, "?"), "  ", when), txt, url, true)
+        made = body_nodes(string(who, "  ", when), txt, url, true)
         # The peek belongs to the prose. A comment that is nothing but a folded
         # block has none, so it borrows the summary - "<details><summary>" is
         # not a useful thing to read on the header line.
         lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
                made[2].header : made[1].raw
         peek = strip(first(replace(lead, r"\s+" => " "), 58))
-        made[1].header = string(nz(who, "?"), "  ", when, loc, "   ", peek)
+        made[1].header = string(who, "  ", when, loc, "   ", peek)
         # The header's peek is cut mid-word; copy the byline instead, since the
         # body itself is on the rows underneath it. `byline` is the same thing
         # for the screen rather than for the clipboard, so it keeps the colour
         # on the location - it is what the header reads as once the node is open
         # and the peek would be repeating the row below it.
-        made[1].meta["src"] = string(nz(who, "?"), "  ", when, astrip(loc))
-        made[1].meta["byline"] = string(nz(who, "?"), "  ", when, loc)
+        made[1].meta["src"] = string(who, "  ", when, astrip(loc))
+        made[1].meta["byline"] = string(who, "  ", when, loc)
         # The time itself, for `rows` to say how long ago that was against
         # the frame's clock; the header carries only the date.
         made[1].meta["at"] = e.at
@@ -575,8 +580,8 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # stamps the same, since the newest thing in it is the newest thing in
     # it. `e` takes the max of this and `moved_at`, for the movements a
     # thread does not show: a CI edge, a review request.
-    seen = thread_seen(body, cs, cms, sts)
-    isempty(ns) || isempty(seen) || (ns[1].meta["seen_up_to"] = seen)
+    newest = thread_seen(body, cs, cms, sts)
+    isempty(ns) || isempty(newest) || (ns[1].meta["seen_up_to"] = newest)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
     asof === nothing || (out[1].meta["asof"] = asof)
@@ -593,15 +598,15 @@ generator: JSON3 types each list by what is in it, and a generator over one
 is a type of its own whatever the argument says - so every mix of empty and
 not was a `maximum` compiled again. See `activity_list`."""
 function thread_seen(@nospecialize(body), @nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
-    seen = String(nz(get(body, "updated_at", nothing), ""))
+    seen = jstr(body, :updated_at, "")
     for c in cs
-        seen = max(seen, String(nz(get(c, "created_at", nothing), "")))
+        seen = max(seen, jstr(c, :created_at, ""))
     end
     for c in cms
-        seen = max(seen, String(nz(get(c, "at", nothing), "")))
+        seen = max(seen, jstr(c, :at, ""))
     end
     for e in sts
-        seen = max(seen, String(nz(get(e, "at", nothing), "")))
+        seen = max(seen, jstr(e, :at, ""))
     end
     seen
 end
@@ -631,10 +636,10 @@ end
 # One post of `thread_mention`'s, and not a flattened iterator over the opening
 # post and the comments: that is a type per shape of `cs` (see `thread_seen`).
 function mention_by(@nospecialize(c), me::AbstractString)
-    who = String(nz(get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing), ""))
+    who = jstr(jobj(c, :user), :login, "")
     lowercase(who) == lowercase(me) && return ""
-    names_you(String(nz(get(c, "body", nothing), "")), me) || return ""
-    when = first(String(nz(get(c, "created_at", nothing), "")), 10)
+    names_you(jstr(c, :body, ""), me) || return ""
+    when = first(jstr(c, :created_at, ""), 10)
     string("@", me, " by ", isempty(who) ? "?" : who, isempty(when) ? "" : string(", ", when))
 end
 
@@ -706,7 +711,8 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
             else
                 stale = hit[2] > CACHE_FRESH[]
                 asof = time() - hit[2]
-                String(hit[1])
+                v = hit[1]
+                v isa AbstractString ? String(v) : ""
             end
         end
     catch e
@@ -738,39 +744,23 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
     # and its first `@@`, and nowhere after.
     newfile = false
     pending_range, pending_old = (0, 0), (0, 0)
-    flush!() = if !isempty(hdr)
-        adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
-        dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
-        n = Node(string(file, "  ", hdr, "  +", adds, " -", dels),
-                 join(buf, "\n"), :diff, true)
-        n.meta["file"] = file
-        n.meta["start"] = pending_range[1]
-        n.meta["count"] = pending_range[2]
-        # The old-side range as well, so a comment left on a deleted line - which
-        # GitHub anchors to the LEFT side - can be placed too.
-        n.meta["ostart"] = pending_old[1]
-        n.meta["ocount"] = pending_old[2]
-        n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
-        n.meta["up"] = 0
-        n.meta["down"] = 0
-        n.meta["url"] = String(url)
-        n.meta["head"] = String(head)
-        n.meta["newfile"] = newfile
-        push!(ns, n)
-    end
+    # Each hunk goes to `hunk_node` whole when the next begins, not to a
+    # `flush!` closure: all of these are assigned again, and a closure over
+    # them would box every one.
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
-            flush!(); hdr = ""; buf = String[]; newfile = false
+            isempty(hdr) ||
+                push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
+            hdr = ""; buf = String[]; newfile = false
             file = replace(String(last(split(l, " "))), r"^b/" => "")
         elseif isempty(hdr) && (startswith(l, "new file mode") || l == "--- /dev/null")
             newfile = true
         elseif startswith(l, "@@")
-            flush!()
+            isempty(hdr) ||
+                push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
             m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", String(l))
-            rng = m === nothing ? (0, 0) :
-                  (parse(Int, m[3]), m[4] === nothing ? 1 : parse(Int, m[4]))
-            old = m === nothing ? (0, 0) :
-                  (parse(Int, m[1]), m[2] === nothing ? 1 : parse(Int, m[2]))
+            rng = m === nothing ? (0, 0) : hunk_span(m[3], m[4])
+            old = m === nothing ? (0, 0) : hunk_span(m[1], m[2])
             hdr = string("@@ ", rng[1], ",", rng[2], " @@")
             pending_range, pending_old = rng, old
             buf = String[]
@@ -778,9 +768,37 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
             push!(buf, String(l))
         end
     end
-    flush!()
+    isempty(hdr) ||
+        push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
     isempty(ns) || ctl == 0 || pushfirst!(ns, ctlnode(ctl))
     ns
+end
+
+"A side of an `@@` header: a count left out is one line; a start is always there."
+hunk_span(a, n) = (parse(Int, something(a)), n === nothing ? 1 : parse(Int, n))
+
+"One hunk of `hunk_nodes`, as the node the pane folds."
+function hunk_node(file::String, hdr::String, buf::Vector{String},
+                   rng::Tuple{Int,Int}, old::Tuple{Int,Int},
+                   url::AbstractString, head::AbstractString, newfile::Bool)
+    adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
+    dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
+    n = Node(string(file, "  ", hdr, "  +", adds, " -", dels),
+             join(buf, "\n"), :diff, true)
+    n.meta["file"] = file
+    n.meta["start"] = rng[1]
+    n.meta["count"] = rng[2]
+    # The old-side range as well, so a comment left on a deleted line - which
+    # GitHub anchors to the LEFT side - can be placed too.
+    n.meta["ostart"] = old[1]
+    n.meta["ocount"] = old[2]
+    n.meta["body"] = join(buf, "\n")      # the hunk itself, without context
+    n.meta["up"] = 0
+    n.meta["down"] = 0
+    n.meta["url"] = String(url)
+    n.meta["head"] = String(head)
+    n.meta["newfile"] = newfile
+    n
 end
 
 """The row that says `inert` found something, for the top of a diff.
@@ -849,7 +867,7 @@ comment arrives - it is the wrong line in today's file, but it is the only
 number the comment has, and printing nothing there reads as a bug.
 """
 function comment_loc(c)
-    p = String(nz(get(c, "path", nothing), ""))
+    p = jstr(c, :path, "")
     isempty(p) && return ""
     ln = something(get(c, "line", nothing), get(c, "original_line", nothing), "?")
     string("  ", THEME.accent, last(split(p, '/')), ":", ln, THEME.reset)
@@ -860,8 +878,8 @@ a peek. Not where it pointed - the hunk it hangs off is where, which is the
 whole of what `place_comments` is for."""
 function comment_header(c)
     who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", "?")
-    at = when_str(String(nz(get(c, "created_at", nothing), "")))
-    peek = strip(first(replace(String(nz(get(c, "body", nothing), "")), r"\s+" => " "), 48))
+    at = when_str(jstr(c, :created_at, ""))
+    peek = strip(first(replace(jstr(c, :body, ""), r"\s+" => " "), 48))
     (string(who, "  ", at, "   ", peek), string(who, "  ", at))
 end
 
@@ -915,10 +933,10 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
 
     "The hunk a comment points into, by file and by the side it was left on."
     function findhunk(c)
-        path = String(nz(get(c, "path", nothing), ""))
+        path = jstr(c, :path, "")
         line = get(c, "line", nothing)
         line === nothing && return nothing        # outdated: nothing to point at
-        right = String(nz(get(c, "side", nothing), "RIGHT")) != "LEFT"
+        right = jstr(c, :side, "RIGHT") != "LEFT"
         for (i, n) in enumerate(hunks)
             get(n.meta, "file", "") == path || continue
             st_ = right ? n.meta["start"] : n.meta["ostart"]
@@ -930,12 +948,12 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
 
     emit!(out, c, depth) = begin
         (hdr, src) = comment_header(c)
-        made = body_nodes!(Node[], hdr, strip(String(nz(get(c, "body", nothing), ""))),
-                           String(nz(get(c, "html_url", nothing), url)), true, depth)
+        made = body_nodes!(Node[], hdr, strip(jstr(c, :body, "")),
+                           jstr(c, :html_url, url), true, depth)
         made[1].meta["src"] = src
         made[1].meta["byline"] = src
         made[1].meta["comment_id"] = get(c, "id", nothing)
-        made[1].meta["at"] = String(nz(get(c, "created_at", nothing), ""))
+        made[1].meta["at"] = jstr(c, :created_at, "")
         append!(out, made)
         for r in get(replies, get(c, "id", nothing), ())
             emit!(out, r, depth + 1)
@@ -975,7 +993,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
             line = get(c, "line", nothing)
             line === nothing && continue
             push!(marks, (Int(line),
-                          String(nz(get(c, "side", nothing), "RIGHT")) != "LEFT",
+                          jstr(c, :side, "RIGHT") != "LEFT",
                           isdone(c)))
         end
         isempty(marks) || (n.meta["cmarks"] = marks)
@@ -1119,15 +1137,18 @@ function rangediff_nodes(txt::AbstractString)
             continue
         end
         flush!()
-        (col, what) = something(range_mark(first(m[3])), (THEME.reset, String(m[3])))
+        # Every group but the last is required, and the last matches empty.
+        oldsha, mark = something(m[2]), something(m[3])
+        newsha, subj = something(m[5]), something(m[6])
+        (col, what) = something(range_mark(first(mark)), (THEME.reset, String(mark)))
         # Which sha to show: the one that still exists. A commit the rebase
         # dropped has no new sha and a commit it added has no old one, and
         # `-------` is not something to put in front of a subject line.
-        sha = m[5] == "-------" ? m[2] : m[5]
+        sha = newsha == "-------" ? oldsha : newsha
         n = Node(string(col, rpad(what, 10), THEME.reset,
-                        THEME.dim, first(sha, 8), THEME.reset, "  ", m[6]),
-                 "", :plain, first(m[3]) != '=')
-        n.meta["src"] = string(what, "  ", first(sha, 8), "  ", m[6])
+                        THEME.dim, first(sha, 8), THEME.reset, "  ", subj),
+                 "", :plain, first(mark) != '=')
+        n.meta["src"] = string(what, "  ", first(sha, 8), "  ", subj)
         # What `o` opens, anywhere on the node: the pair is one commit.
         n.meta["sha"] = String(sha)
         n.meta["byline"] = string(col, rpad(what, 10), THEME.reset,

@@ -107,7 +107,7 @@ function remote_repos(path)
     out = Dict{String,String}()
     for l in split(git(path, "remote", "-v"), "\n")
         m = match(r"^(\S+)\s+\S*github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?\s", l * " ")
-        m === nothing || (out[String(m[1])] = string(m[2], "/", m[3]))
+        m === nothing || (out[String(something(m[1]))] = string(m[2], "/", m[3]))
     end
     out
 end
@@ -149,8 +149,9 @@ function Tracking(path::AbstractString)
     for l in split(out, '\n'; keepempty = false)
         m = match(r"^branch\.(.+)\.(remote|merge) (.*)$", l)
         m === nothing && continue
-        r, mg = get(bs, m[1], ("", ""))
-        bs[String(m[1])] = m[2] == "remote" ? (String(m[3]), mg) : (r, String(m[3]))
+        b, v = String(something(m[1])), String(something(m[3]))
+        r, mg = get(bs, b, ("", ""))
+        bs[b] = m[2] == "remote" ? (v, mg) : (r, v)
     end
     rs = try remote_repos(path) catch; Dict{String,String}() end
     Tracking(bs, rs)
@@ -304,7 +305,8 @@ function returning_branch(path::AbstractString)
     elseif isfile(dot)
         m = match(r"^gitdir:\s*(.+?)\s*$"m, read(dot, String))
         m === nothing && return ""
-        isabspath(m[1]) ? String(m[1]) : normpath(joinpath(path, m[1]))
+        p = String(something(m[1]))
+        isabspath(p) ? p : normpath(joinpath(path, p))
     else
         return ""
     end
@@ -483,9 +485,9 @@ nowhere in particular: no upstream, or level with it."""
 function branch_standing(path, line::AbstractString)
     m = match(r"^(\S+?)\.\.\.(\S+)(?: \[(.*)\])?$", line)
     m === nothing && return ""
-    branch, up, counts = m[1], m[2], something(m[3], "")
-    ahead = (x = match(r"ahead (\d+)", counts)) === nothing ? 0 : parse(Int, x[1])
-    behind = (x = match(r"behind (\d+)", counts)) === nothing ? 0 : parse(Int, x[1])
+    branch, up, counts = something(m[1]), something(m[2]), something(m[3], "")
+    ahead = (x = match(r"ahead (\d+)", counts)) === nothing ? 0 : parse(Int, something(x[1]))
+    behind = (x = match(r"behind (\d+)", counts)) === nothing ? 0 : parse(Int, something(x[1]))
     (ahead == 0 && behind == 0) && return ""
     parts = String[]
     ahead > 0 && push!(parts, string(ahead, " ahead"))
@@ -513,7 +515,7 @@ function remote_for(path, repo::AbstractString)
             m = match(r"^(\S+)\s+\S*github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?\s",
                       l * " ")
             m === nothing && continue
-            lowercase(string(m[2], "/", m[3])) == want && return String(m[1])
+            lowercase(string(m[2], "/", m[3])) == want && return String(something(m[1]))
         end
     catch
     end
@@ -716,7 +718,8 @@ function branch_lag(path, branch::AbstractString, tip::AbstractString)
         return nothing
     end
     m = match(r"^(\d+)\s+(\d+)", strip(out))
-    m === nothing ? nothing : (ahead = parse(Int, m[1]), behind = parse(Int, m[2]))
+    m === nothing ? nothing :
+        (ahead = parse(Int, something(m[1])), behind = parse(Int, something(m[2])))
 end
 
 """One line when `push.useForceIfIncludes` is off in this checkout - or `""`.
@@ -879,7 +882,8 @@ function track_counts(s::AbstractString)
     occursin("gone", s) && return (0, 0, true)
     a = match(r"ahead (\d+)", s)
     b = match(r"behind (\d+)", s)
-    (a === nothing ? 0 : parse(Int, a[1]), b === nothing ? 0 : parse(Int, b[1]), false)
+    (a === nothing ? 0 : parse(Int, something(a[1])),
+     b === nothing ? 0 : parse(Int, something(b[1])), false)
 end
 
 """Every local branch of one checkout, in one `for-each-ref`.

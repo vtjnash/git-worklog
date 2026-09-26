@@ -100,9 +100,11 @@ function cache_get(key::AbstractString, ttl_s::Real; keep_s::Real = ttl_s)
     isfile(f) || return nothing
     try
         d = JSON3.read(read(f, String))
-        age = time() - d.at
+        at = jget(d, :at)
+        at isa Real || return nothing
+        age = time() - at
         age > max(ttl_s, keep_s) && return nothing
-        (d.value, age)
+        (jget(d, :value), age)
     catch
         nothing
     end

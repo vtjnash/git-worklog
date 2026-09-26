@@ -27,6 +27,7 @@ import GitHub
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
 using ..Worklog: load_done, mark_unread, nz, report, warning
+using ..Worklog: jstr, jint, jbool, jobj, jlist, jnodes, jpath
 import ..Worklog
 
 struct ApiError <: Exception
@@ -136,6 +137,8 @@ GitHub wrote. See `utcnow` for which those are.
 """
 function server_now()
     r = GitHub.gh_get(GitHub.DEFAULT_API, "/rate_limit"; auth = auth())
+    # GitHub.jl's retries answer `nothing` once they give up, not an error.
+    r === nothing && throw(ApiError("no answer from /rate_limit"))
     d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
     d === nothing && throw(ApiError("no Date header on /rate_limit"))
     d
@@ -176,6 +179,7 @@ function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), au
     catch e
         throw(ApiError(first(sprint(showerror, e), 200)))
     end
+    r === nothing && throw(ApiError("no answer from $endpoint"))
     elapsed = (time_ns() - t0) / 1e9
     v = GitHub.JSON.parse(GitHub.http_payload(r, String))
     d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
@@ -566,7 +570,7 @@ function thread_subject(t)
     m = match(r"^https://api\.github\.com/repos/([^/]+/[^/]+)/(?:issues|pulls)/(\d+)$",
               String(something(get(s, "url", nothing), "")))
     m === nothing && return nothing
-    repo, n = String(m[1]), parse(Int, m[2])
+    repo, n = String(something(m[1])), parse(Int, something(m[2]))
     is_pr = kind == "PullRequest"
     (path = "/repos/$repo/issues/$n",
      url = "https://github.com/$repo/$(is_pr ? "pull" : "issues")/$n",
@@ -647,16 +651,16 @@ thread with no id or no stamp, which could not be told apart from the next.
 function notice_row(t)
     s = get(t, "subject", nothing)
     s === nothing && return nothing
-    kind = String(nz(get(s, "type", nothing), ""))
+    kind = jstr(s, :type, "")
     kind in ("Issue", "PullRequest") && return nothing
     id = String(string(nz(get(t, "id", nothing), "")))
-    at = String(nz(get(t, "updated_at", nothing), ""))
+    at = jstr(t, :updated_at, "")
     (isempty(id) || isempty(at)) && return nothing
     repo = notice_repo(t)
     fields = Pair{String,Any}[
         "type" => kind, "repo" => repo,
-        "title" => String(nz(get(s, "title", nothing), "")),
-        "reason" => String(nz(get(t, "reason", nothing), "")),
+        "title" => jstr(s, :title, ""),
+        "reason" => jstr(t, :reason, ""),
         "at" => at, "web" => notice_web(kind, repo, s)]
     (key = string("notice:", id), id = id, at = at, fields = fields)
 end
@@ -669,7 +673,7 @@ function notice_repo(t)
     s = get(t, "subject", nothing)
     u = s === nothing ? "" : String(something(get(s, "url", nothing), ""))
     m = match(r"^https://api\.github\.com/repos/([^/]+/[^/]+)", u)
-    m === nothing ? "" : String(m[1])
+    m === nothing ? "" : String(something(m[1]))
 end
 
 """Where a notice is read on github.com. A commit by its sha, and at the
@@ -717,14 +721,14 @@ has read can set it too, off an `@you` in the comments (`thread_mention`)."""
 function mention_words(row)
     reason = get(row, "reason", nothing)
     reason in ("mention", "team_mention") || return ""
-    when = first(String(nz(get(row, "notified", nothing), nz(get(row, "updated", nothing), ""))), 10)
+    when = first(something(jstr(row, :notified), jstr(row, :updated, "")), 10)
     string(reason == "mention" ? "notified: named you" : "notified: named your team",
            isempty(when) ? "" : string(", ", when))
 end
 
 "Set `mentioned` on an inbox row from its reason, unless it is already set."
 function latch_mention!(row)
-    isempty(String(nz(get(row, "mentioned", nothing), ""))) || return row
+    isempty(jstr(row, :mentioned, "")) || return row
     why = mention_words(row)
     isempty(why) || (row["mentioned"] = why)
     row
@@ -1041,7 +1045,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
                 n = label == "notifications" ? notice_row(r) : nothing
                 if n === nothing
                     skipped += 1
-                elseif String(get(noticed, n.id, "")) < n.at
+                elseif jstr(noticed, Symbol(n.id), "") < n.at
                     # A thread at or under what this poll already made of it
                     # is a re-read inside the overlap - dismissed or standing,
                     # not a notice again; one past it notified again.
@@ -1073,7 +1077,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         # What no ask can return again - under the widest ask behind the
         # cursor, a day - has nothing left to be told apart from.
         if label == "notifications"
-            floor_ = stamp(ts(cursors[label]) - Day(1))
+            floor_ = stamp(something(ts(cursors[label])) - Day(1))  # a stamp, set above
             filter!(kv -> kv[2] >= floor_, noticed)
         end
     end
@@ -1148,16 +1152,16 @@ poll's `row` replaces, or `nothing`; `since` is where this poll's ask began,
 which a new item was created after."""
 function expect!(inbox, url, old, row, at::DateTime, watched::Set{String}, login::AbstractString;
                  since::AbstractString = "")
-    String(nz(get(row, "repo", nothing), "")) in watched || return
-    ev = String(nz(get(row, "updated", nothing), ""))
+    jstr(row, :repo, "") in watched || return
+    ev = jstr(row, :updated, "")
     isempty(ev) && return
-    created = String(nz(get(row, "created", nothing), ""))
+    created = jstr(row, :created, "")
     evidence = old === nothing ? get(row, "author", nothing) != login &&
                                  !isempty(created) && created >= since :
                (get(row, "comments", 0) > get(old, "comments", 0) ||
                 get(row, "state", nothing) != get(old, "state", nothing))
     evidence || return
-    notified = old === nothing ? "" : String(nz(get(old, "notified", nothing), ""))
+    notified = old === nothing ? "" : jstr(old, :notified, "")
     notified >= ev && return
     exp = get!(inbox, "expect", Dict{String,Any}())
     haskey(exp, url) && String(exp[url]["event"]) >= ev && return
@@ -1181,7 +1185,7 @@ function settle_expectations!(inbox, items, at::DateTime, login::AbstractString;
         # Gone from the inbox: the refresh dropped it, having asked about it
         # and found it read, and nothing is left for a thread to arrive on.
         row === nothing && (delete!(exp, url); continue)
-        notified = row === nothing ? "" : String(nz(get(row, "notified", nothing), ""))
+        notified = row === nothing ? "" : jstr(row, :notified, "")
         if notified >= ev
             # Arrived. How long after the event, and stamped with which time:
             # a stamp within a minute of the event is the event's own, and
@@ -1451,55 +1455,50 @@ end
 
 "The answer to [`activity`](@ref)'s query, read into its two lists."
 function activity_of(d, url::AbstractString)
-    r = get(d, :resource, nothing)
-    cc = r === nothing ? nothing : get(r, :commits, nothing)
-    ns = cc === nothing ? () : something(get(cc, :nodes, nothing), ())
+    r = jobj(d, :resource)
     commits = OrderedDict{String,Any}[]
-    for x in ns
-        c = get(x, :commit, nothing)
-        c === nothing && continue
+    for x in jnodes(r, :commits)
+        c = jobj(x, :commit)
+        oid = jstr(c, :oid)
+        oid === nothing && continue
         # The GitHub login where the committer has an account, the name off the
         # commit where they do not - a co-author or an unlinked email is still
         # somebody, and "?" beside a push reads as a bug rather than as a fact.
-        a = something(get(c, :author, nothing), Dict{Symbol,Any}())
-        u = something(get(a, :user, nothing), Dict{Symbol,Any}())
-        who = something(get(u, :login, nothing), get(a, :name, nothing), "")
+        a = jobj(c, :author)
+        who = something(jstr(jobj(a, :user), :login), jstr(a, :name), "")
         push!(commits, OrderedDict{String,Any}(
-            "oid" => String(c.oid), "at" => String(c.committedDate),
-            "headline" => String(something(get(c, :messageHeadline, nothing), "")),
-            "by" => String(who)))
+            "oid" => oid, "at" => jstr(c, :committedDate, ""),
+            "headline" => jstr(c, :messageHeadline, ""), "by" => who))
     end
-    tl = r === nothing ? nothing : get(r, :timelineItems, nothing)
     events = OrderedDict{String,Any}[]
     repo = join(split(url, '/')[4:5], '/')
-    for e in (tl === nothing ? () : something(get(tl, :nodes, nothing), ()))
-        e === nothing && continue
+    for e in jnodes(r, :timelineItems)
         kind = get(Dict("ClosedEvent" => "closed", "MergedEvent" => "merged",
                         "ReopenedEvent" => "reopened", "ConvertToDraftEvent" => "draft",
                         "ReadyForReviewEvent" => "ready"),
-                   String(something(get(e, :__typename, nothing), "")), "")
+                   jstr(e, :__typename, ""), "")
         isempty(kind) && continue
         ev = OrderedDict{String,Any}(
-            "kind" => kind, "at" => String(something(get(e, :createdAt, nothing), "")),
-            "by" => String(something(get(something(get(e, :actor, nothing), Dict{Symbol,Any}()), :login, nothing), "")))
+            "kind" => kind, "at" => jstr(e, :createdAt, ""),
+            "by" => jstr(jobj(e, :actor), :login, ""))
         if kind == "closed"
-            why = String(something(get(e, :stateReason, nothing), ""))
+            why = jstr(e, :stateReason, "")
             why in ("", "COMPLETED") || (ev["reason"] = lowercase(replace(why, "_" => " ")))
-            c = get(e, :closer, nothing)
+            c = jobj(e, :closer)
             if c !== nothing
-                t = String(something(get(c, :__typename, nothing), ""))
                 # The item's own spelling for a pull request: the repository's
                 # name and the number, the owner too when it is another one.
-                ev["closer"] = t == "PullRequest" ?
-                    string((rn = String(c.repository.nameWithOwner)) == repo ?
-                               last(split(rn, '/')) : rn, "#", c.number) :
-                    String(something(get(c, :abbreviatedOid, nothing), ""))
-                ev["closer_url"] = String(something(get(c, :url, nothing), ""))
+                ev["closer"] = if jstr(c, :__typename, "") == "PullRequest"
+                    rn = jstr(jobj(c, :repository), :nameWithOwner, "")
+                    string(rn == repo ? last(split(rn, '/')) : rn, "#", jint(c, :number, 0))
+                else
+                    jstr(c, :abbreviatedOid, "")
+                end
+                ev["closer_url"] = jstr(c, :url, "")
             end
         elseif kind == "merged"
-            ev["into"] = String(something(get(e, :mergeRefName, nothing), ""))
-            ev["oid"] = String(something(get(something(get(e, :commit, nothing), Dict{Symbol,Any}()),
-                                             :abbreviatedOid, nothing), ""))
+            ev["into"] = jstr(e, :mergeRefName, "")
+            ev["oid"] = jstr(jobj(e, :commit), :abbreviatedOid, "")
         end
         push!(events, ev)
     end
@@ -1508,18 +1507,14 @@ function activity_of(d, url::AbstractString)
     # the words of one that had them were nowhere at all. A `COMMENTED` review
     # with no body is only the wrapper its line comments arrived in, and those
     # are in the thread already.
-    rv = r === nothing ? nothing : get(r, :reviews, nothing)
-    for x in (rv === nothing ? () : something(get(rv, :nodes, nothing), ()))
-        x === nothing && continue
-        state = lowercase(String(something(get(x, :state, nothing), "")))
-        body = String(something(get(x, :body, nothing), ""))
-        at = String(something(get(x, :submittedAt, nothing), ""))
+    for x in jnodes(r, :reviews)
+        state = lowercase(jstr(x, :state, ""))
+        body = jstr(x, :body, "")
+        at = jstr(x, :submittedAt, "")
         (isempty(at) || state == "commented" && isempty(strip(body))) && continue
         push!(events, OrderedDict{String,Any}(
-            "kind" => "review", "at" => at,
-            "by" => String(something(get(something(get(x, :author, nothing), Dict{Symbol,Any}()), :login, nothing), "")),
-            "state" => state, "body" => body,
-            "url" => String(something(get(x, :url, nothing), ""))))
+            "kind" => "review", "at" => at, "by" => jstr(jobj(x, :author), :login, ""),
+            "state" => state, "body" => body, "url" => jstr(x, :url, "")))
     end
     # The close that is the merge's other half, not a second thing.
     merged_at = Set(e["at"] for e in events if e["kind"] == "merged")
@@ -1616,21 +1611,21 @@ function review_state(url::AbstractString; ttl = 60.0)
         "{ id reviews(states: PENDING, first: 1, author: \$me) " *
         "{ nodes { id comments { totalCount } commit { oid } } } } } }";
         vars = Dict{String,Any}("u" => String(url), "me" => Worklog.login()))
-    r = get(d, :resource, nothing)
-    (r === nothing || get(r, :id, nothing) === nothing) && return nothing
-    ns = get(get(r, :reviews, (; nodes = ())), :nodes, ())
-    c = isempty(ns) ? nothing : get(ns[1], :commit, nothing)
-    v = OrderedDict{String,Any}("id" => String(r.id),
-                                "review" => isempty(ns) ? "" : String(ns[1].id),
-                                "n" => isempty(ns) ? 0 : ns[1].comments.totalCount,
-                                "head" => c === nothing ? "" : String(c.oid))
+    r = jobj(d, :resource)
+    id = jstr(r, :id)
+    id === nothing && return nothing
+    ns = jnodes(r, :reviews)
+    p = isempty(ns) ? nothing : first(ns)
+    v = OrderedDict{String,Any}("id" => id, "review" => jstr(p, :id, ""),
+                                "n" => jint(jobj(p, :comments), :totalCount, 0),
+                                "head" => jstr(jobj(p, :commit), :oid, ""))
     cache_put(key, v)
     _review_shape(v)
 end
 
 # `head` with a default: an entry written before the field was asked for.
-_review_shape(v) = (id = String(v["id"]), review = String(v["review"]),
-                    n = Int(v["n"]), head = String(get(v, "head", "")))
+_review_shape(v) = (id = something(jstr(v, :id)), review = something(jstr(v, :review)),
+                    n = something(jint(v, :n)), head = jstr(v, :head, ""))
 
 "Remember what a mutation just made true, so the next frame does not ask."
 function _review_put(url, id, review, n, head)
@@ -1864,11 +1859,11 @@ function set_draft(url::AbstractString, draft::Bool)
     _write() do
         d = gh_graphql("query(\$u: URI!) { resource(url: \$u) { ... on PullRequest { id } } }";
                        vars = Dict{String,Any}("u" => String(url)))
-        r = get(d, :resource, nothing)
-        (r === nothing || get(r, :id, nothing) === nothing) && error("not a pull request")
+        id = jstr(jobj(d, :resource), :id)
+        id === nothing && error("not a pull request")
         m = draft ? "convertPullRequestToDraft" : "markPullRequestReadyForReview"
         gh_graphql("mutation(\$id: ID!) { $m(input: {pullRequestId: \$id}) { clientMutationId } }";
-                   vars = Dict{String,Any}("id" => String(r.id)))
+                   vars = Dict{String,Any}("id" => id))
         _invalidate(url)
     end
 end
@@ -1951,12 +1946,12 @@ merge_key(url::AbstractString) = string("merge:", url)
 
 "Is a cache hit under `merge_key` one to show, at `ttl`? See `merge_state`."
 merge_usable(hit, ttl) =
-    hit !== nothing && (hit[2] <= ttl || String(hit[1]["mergeable"]) == "CONFLICTING")
+    hit !== nothing && (hit[2] <= ttl || jstr(hit[1], :mergeable) == "CONFLICTING")
 
 function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
     key = merge_key(url)
     hit = cache_get(key, ttl; keep_s = keep)
-    merge_usable(hit, ttl) && return _merge_shape(hit[1])
+    hit !== nothing && merge_usable(hit, ttl) && return _merge_shape(hit[1])
     d = gh_graphql(
         "query(\$u: URI!) { resource(url: \$u) { ... on PullRequest {\n" *
         "      id state isDraft mergeable mergeStateStatus\n" *
@@ -1964,38 +1959,49 @@ function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
         _MERGE_TEXT *
         "repository { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed }\n" *
         "  } } }"; vars = Dict{String,Any}("u" => String(url)))
-    r = get(d, :resource, nothing)
-    (r === nothing || get(r, :id, nothing) === nothing) && return nothing
-    rp = r.repository
+    r = jobj(d, :resource)
+    id = jstr(r, :id)
+    id === nothing && return nothing
+    rp = jobj(r, :repository)
     allowed = String[m for m in MERGE_METHODS
-                     if (m == "SQUASH" ? rp.squashMergeAllowed :
-                         m == "MERGE" ? rp.mergeCommitAllowed : rp.rebaseMergeAllowed)]
+                     if jbool(rp, m == "SQUASH" ? :squashMergeAllowed :
+                                  m == "MERGE" ? :mergeCommitAllowed : :rebaseMergeAllowed, false)]
     txt = OrderedDict{String,Any}(
         m => OrderedDict{String,Any}(
-            "headline" => String(something(get(r, Symbol(lowercase(m), "h"), ""), "")),
-            "body" => String(something(get(r, Symbol(lowercase(m), "b"), ""), "")))
+            "headline" => jstr(r, Symbol(lowercase(m), "h"), ""),
+            "body" => jstr(r, Symbol(lowercase(m), "b"), ""))
         for m in allowed)
     v = OrderedDict{String,Any}(
-        "id" => String(r.id), "oid" => String(r.headRefOid),
-        "state" => String(something(get(r, :state, ""), "")),
-        "draft" => get(r, :isDraft, false) === true,
-        "mergeable" => String(something(get(r, :mergeable, "UNKNOWN"), "UNKNOWN")),
-        "status" => String(something(get(r, :mergeStateStatus, "UNKNOWN"), "UNKNOWN")),
-        "base" => String(r.baseRefName), "commits" => Int(r.commits.totalCount),
+        "id" => id, "oid" => jstr(r, :headRefOid, ""),
+        "state" => jstr(r, :state, ""),
+        "draft" => jbool(r, :isDraft, false),
+        "mergeable" => jstr(r, :mergeable, "UNKNOWN"),
+        "status" => jstr(r, :mergeStateStatus, "UNKNOWN"),
+        "base" => jstr(r, :baseRefName, ""),
+        "commits" => jint(jobj(r, :commits), :totalCount, 0),
         "methods" => allowed, "text" => txt)
     cache_put(key, v)
     _merge_shape(v)
 end
 
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
-_merge_shape(v) = (id = String(v["id"]), oid = String(v["oid"]),
-                   state = String(v["state"]), draft = v["draft"] === true,
-                   mergeable = String(v["mergeable"]), status = String(v["status"]),
-                   base = String(v["base"]), commits = Int(v["commits"]),
-                   methods = String[String(m) for m in v["methods"]],
-                   text = Dict{String,Tuple{String,String}}(
-                       String(k) => (String(t["headline"]), String(t["body"]))
-                       for (k, t) in pairs(v["text"])))
+_merge_shape(v) = (id = something(jstr(v, :id)), oid = something(jstr(v, :oid)),
+                   state = something(jstr(v, :state)), draft = jbool(v, :draft, false),
+                   mergeable = something(jstr(v, :mergeable)),
+                   status = something(jstr(v, :status)),
+                   base = something(jstr(v, :base)), commits = something(jint(v, :commits)),
+                   methods = String[String(m) for m in jlist(v, :methods)],
+                   text = merge_text(jobj(v, :text)))
+
+"The messages under `text`, by method, off either a fetch or the cache."
+function merge_text(t)
+    out = Dict{String,Tuple{String,String}}()
+    t === nothing && return out
+    for (k, m) in pairs(t)
+        out[String(k)] = (jstr(m, :headline, ""), jstr(m, :body, ""))
+    end
+    out
+end
 
 """Merge it, with the message that was written for it.
 
@@ -2072,11 +2078,11 @@ function resolved_comments(url::AbstractString; ttl = 300.0)
             "{ reviewThreads(first: 100) { nodes { isResolved " *
             "comments(first: 100) { nodes { databaseId } } } } } } }";
             vars = Dict{String,Any}("u" => String(url)))
-        r = get(d, :resource, nothing)
-        for t in get(get(r === nothing ? (;) : r, :reviewThreads, (; nodes = ())), :nodes, ())
-            t.isResolved || continue
-            for c in t.comments.nodes
-                c.databaseId === nothing || push!(out, Int(c.databaseId))
+        for t in jnodes(jobj(d, :resource), :reviewThreads)
+            jbool(t, :isResolved, false) || continue
+            for c in jnodes(t, :comments)
+                id = jint(c, :databaseId)
+                id === nothing || push!(out, id)
             end
         end
     catch
@@ -2114,67 +2120,66 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     num = parts[end]
     kind = is_pr ? "pulls" : "issues"
     head = api_get("/repos/$owner_repo/$kind/$num")[1]
-    assignees = String[String(a["login"]) for a in get(head, "assignees", ())]
-    requested, teams, latest = String[], String[], OrderedDict{String,Any}()
+    assignees = String[jstr(a, :login, "?") for a in jlist(head, :assignees)]
+    # Per person, latest verdict first: `(state, at)`.
+    requested, teams, latest = String[], String[], OrderedDict{String,Tuple{String,String}}()
     pending, fork, default = "", "", ""
     if is_pr
         # And what the base repository merges into by default, off the same
         # answer: a pull request against `v1.x` or `release-1.12` is one that
         # will not land on the branch everything else does, and the pane says
         # so beside the base rather than leaving it to be noticed.
-        default = String(get(get(get(head, "base", Dict{String,Any}()), "repo",
-                                 Dict{String,Any}()), "default_branch", ""))
+        default = jstr(jpath(head, :base, :repo), :default_branch, "")
         # Where the head branch lives, when that is not here: the lanes carry
         # the branch name and not its repository, and `owner:branch` is the
         # half of the name that says which checkout it can be fetched from.
         # `head.repo` is null once a fork is deleted, and then there is no
         # name to say.
-        hr = get(get(head, "head", Dict{String,Any}()), "repo", nothing)
-        hr === nothing || (full = String(get(hr, "full_name", ""));
-                           full == owner_repo || (fork = full))
-        for r in get(head, "requested_reviewers", ())
-            push!(requested, String(r["login"]))
+        full = jstr(jpath(head, :head, :repo), :full_name)
+        full === nothing || full == owner_repo || (fork = full)
+        for r in jlist(head, :requested_reviewers)
+            push!(requested, jstr(r, :login, "?"))
         end
-        for t in get(head, "requested_teams", ())
-            push!(teams, String(get(t, "slug", get(t, "name", "?"))))
+        for t in jlist(head, :requested_teams)
+            push!(teams, something(jstr(t, :slug), jstr(t, :name), "?"))
         end
         for r in api_paged("/repos/$owner_repo/pulls/$num/reviews")
-            st = String(get(r, "state", ""))
-            who = String(get(something(get(r, "user", nothing), Dict{String,Any}()),
-                             "login", "?"))
-            at = String(something(get(r, "submitted_at", nothing), ""))
+            st = jstr(r, :state, "")
+            who = jstr(jobj(r, :user), :login, "?")
+            at = jstr(r, :submitted_at, "")
             # A draft of yours, which GitHub shows to nobody else. Picked up here
             # because this request is already being made - the alternative is a
             # GraphQL query per selected pull request, to answer a question that
             # is usually "no". It is not the authority on the count, only on the
             # draft being there: the mutations that add to one say how many.
             if st == "PENDING" && who == Worklog.login()
-                pending = String(get(r, "node_id", ""))
+                pending = jstr(r, :node_id, "")
                 continue
             end
             # A later COMMENTED does not undo an APPROVED or a CHANGES_REQUESTED.
             prev = get(latest, who, nothing)
-            (st == "COMMENTED" && prev !== nothing && prev["state"] != "COMMENTED") && continue
-            latest[who] = Dict{String,Any}("state" => st, "at" => at)
+            (st == "COMMENTED" && prev !== nothing && prev[1] != "COMMENTED") && continue
+            latest[who] = (st, at)
         end
     end
     v = OrderedDict{String,Any}(
         "requested" => requested, "teams" => teams, "assignees" => assignees,
         "pending" => pending, "fork" => fork, "default" => default,
-        "reviews" => [OrderedDict{String,Any}("login" => k, "state" => v["state"],
-                                              "at" => v["at"]) for (k, v) in latest])
+        "reviews" => [OrderedDict{String,Any}("login" => k, "state" => st, "at" => at)
+                      for (k, (st, at)) in latest])
     cache_put(key, v)
     _meta_shape(v)
 end
 
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
-_meta_shape(v) = (requested = String[String(x) for x in v["requested"]],
-                  teams = String[String(x) for x in v["teams"]],
-                  assignees = String[String(x) for x in v["assignees"]],
-                  pending = String(get(v, "pending", "")),
-                  fork = String(get(v, "fork", "")),
-                  default = String(get(v, "default", "")),
-                  reviews = [(login = String(r["login"]), state = String(r["state"]),
-                              at = String(r["at"])) for r in v["reviews"]])
+_meta_shape(v) = (requested = String[String(x) for x in jlist(v, :requested)],
+                  teams = String[String(x) for x in jlist(v, :teams)],
+                  assignees = String[String(x) for x in jlist(v, :assignees)],
+                  pending = jstr(v, :pending, ""),
+                  fork = jstr(v, :fork, ""),
+                  default = jstr(v, :default, ""),
+                  reviews = @NamedTuple{login::String, state::String, at::String}[
+                      (login = jstr(r, :login, ""), state = jstr(r, :state, ""),
+                       at = jstr(r, :at, "")) for r in jlist(v, :reviews)])
 
 end # module Events

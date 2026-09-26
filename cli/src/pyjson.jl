@@ -18,7 +18,7 @@ _pairs(o::Vector{<:Pair}) = o
 
 function _jstring(io::IO, s::AbstractString)
     print(io, '"')
-    for c in s
+    for c::Char in s
         if c == '"'
             print(io, "\\\"")
         elseif c == '\\'
