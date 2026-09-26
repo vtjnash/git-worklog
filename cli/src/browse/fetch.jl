@@ -697,6 +697,8 @@ function reload_data!(st::BState)
                 logerror!(e, catch_backtrace(), "inbox_items")
                 Item[]
             end)
+            # And the notices, which the poll that wrote the file wrote too.
+            append!(fresh, notice_items())
             st.all = fresh
             rebuild_axes!(st)
         end

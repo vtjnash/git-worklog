@@ -48,7 +48,7 @@ without GitHub.
 function prefetch_items(items; thread = fetch_thread!, diff = prefetch_diff, ntasks::Int = 4)
     threads = diffs = cached = failed = done = 0
     warm(it) = begin
-        islocal(it) && return
+        ghitem(it) || return
         try
             if cache_has(thread_key(it.url))
                 cached += 1

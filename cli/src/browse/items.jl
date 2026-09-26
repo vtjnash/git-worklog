@@ -180,6 +180,47 @@ function branchfor(repo, branch)
     nothing
 end
 
+"""The keys a notice answers differently, and whether `k` was one of them.
+
+`e` and `x` dismiss it - the block goes, and with it the row - since there
+is no *not done* for `e` to toggle to and no filed box for `x` to put it in;
+`z` writes the block back and `Z` takes it again, and neither stamps
+`touched`. `s` is refused: a snooze is a wake beside a stamp, and a notice
+has neither. So is everything that needs an issue or a pull request - `C`,
+`A`, `M`, `L`, `;`, `R` - or a checkout or a block to keep a note in - `t`,
+`T`, `v` - the way an adopted branch's `d` is (`not_pr`). `o` opens the link.
+"""
+function notice_key!(st::BState, it::Item, k::Int)
+    if k in (Int('e'), Int('x'))
+        st.status = dismiss_notice!(st, it)
+    elseif k == Int('s')
+        st.status = "a notice has no snooze \u2014 e dismisses it"
+    elseif k == Int('o')
+        st.status = open_web(weblink(it))
+    elseif k in (Int('C'), Int('A'), Int('M'), Int('L'), Int(';'), Int('R'),
+                 Int('t'), Int('T'), Int('v'))
+        st.status = string("nothing to ", Char(k), " on - this is ", not_pr(it),
+                           " \u00b7 o opens it on GitHub")
+    else
+        return false
+    end
+    true
+end
+
+"""Dismiss a notice: its block goes, whole, and its row with it. `z` puts
+both back, and `Z` takes them again."""
+function dismiss_notice!(st::BState, it::Item)
+    gone = dismiss_notices!([it.url])
+    drop_item!(st, it.url)
+    isempty(gone) && return string(it.ref, " was already dismissed")
+    push_undo!(st, Undo(string("dismiss ", it.ref), it.url, () -> begin
+        restore_notices!(gone)
+        add_item!(st, it)
+        nothing
+    end; redo = () -> (dismiss_notices!([it.url]); drop_item!(st, it.url); nothing)))
+    string("dismissed ", it.ref)
+end
+
 """Make every value this item carries selectable in the filter pane.
 
 Each axis is built once, from the items the browser opened with, so a lane,

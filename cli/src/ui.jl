@@ -118,6 +118,12 @@ Base.@kwdef struct Item
                            # an adopted branch's `url` is its `local:` key, and
                            # this is its compare page, where the pull request
                            # gets opened. Empty for a row whose `url` is the link
+    notice::String = ""    # the subject's type - `Release`, `Discussion`,
+                           # `CheckSuite` - on a notice, a notification that
+                           # is not an issue or pull request; empty on
+                           # everything else. See `notice_item`
+    reason::String = ""    # why GitHub notified: on a notice, which has no
+                           # other way to say it. The corpus keeps its own
     fetched::String = ""   # when the bundle behind this row was asked for -
                            # GitHub's time, `fetched_at` on the row - and empty
                            # for a light row the poll or a thread made, which
@@ -264,7 +270,7 @@ thread gave is carried too, off the old row or the inbox, since GitHub does not
 repeat it on the item.
 """
 function fetch_bundle(it::Item)
-    islocal(it) && return nothing
+    ghitem(it) || return nothing
     # The stamp is from before the request, for the same reason the refresh's
     # is: a row is at least as old as its stamp says, never newer.
     at = Events.server_now()
@@ -399,6 +405,11 @@ localref(repo, branch) = string(last(split(String(repo), '/')), "#", branch)
 islocal(url::AbstractString) = startswith(url, "local:")
 islocal(it::Item) = islocal(it.url)
 
+"""Is this a GitHub issue or pull request - a url the by-url fetch, the
+thread, the metadata and the prefetch can answer? Not an adopted branch,
+whose `local:` url is a key, and not a notice, whose `notice:` url is one."""
+ghitem(it::Item) = !(islocal(it) || isnotice(it))
+
 "`(repo, branch)` from a local url, splitting at the first `#` - a repo has none."
 function localparts(url::AbstractString)
     rest = String(url)[7:end]
@@ -482,6 +493,87 @@ function local_items()
     byk = Dict((b.repo, b.name) => b for b in bs)
     [local_item(u, get(byk, localparts(u), nothing)) for u in urls]
 end
+
+# --- notices ----------------------------------------------------------------
+#
+# A notification that is not an issue or pull request - a Release, a
+# Discussion, a comment on a commit, a CI run, an alert, an invitation - has
+# no bundle, no state, no wake table and no url the by-url fetch can answer,
+# so it is neither a corpus row nor an inbox row: everything that reads those
+# would ask GitHub about it. It is a block in `local.toml`, written whole by
+# the poll (`Events.notice_row`), one per notice and gone when it is
+# dismissed - the set that stays small, where the dismissed set would only
+# grow. **Its presence is the seen bit**: unread while the block stands, and
+# nothing is stamped.
+
+isnotice(url::AbstractString) = startswith(url, "notice:")
+isnotice(it::Item) = isnotice(it.url)
+
+"""The subject's type in a word, as the list and the kind axis say it."""
+notice_word(kind::AbstractString) =
+    kind == "Release" ? "release" : kind == "Discussion" ? "discussion" :
+    kind == "Commit" ? "commit" : kind in ("CheckSuite", "WorkflowRun") ? "CI" :
+    kind in ("RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread") ? "alert" :
+    kind == "RepositoryInvitation" ? "invite" : isempty(kind) ? "notice" : lowercase(kind)
+
+"""Every notice's block, `key -> field -> value`, parsed: a title is
+somebody else's text, and has the escapes a line scan would leave in it. A
+file that does not parse has none to show."""
+function notice_blocks()
+    isfile(localfile()) || return Dict{String,Dict{String,String}}()
+    raw = try
+        parse_local()
+    catch
+        return Dict{String,Dict{String,String}}()
+    end
+    Dict{String,Dict{String,String}}(String(k) => Dict{String,String}(
+        String(f) => string(v) for (f, v) in b)
+        for (k, b) in raw if isnotice(String(k)) && b isa AbstractDict)
+end
+
+"""The keys of every notice standing, off the headers alone: what the
+browser drops a dismissed one from its list by, once per `refilter!`."""
+notice_keys() = Set{String}(String(m[1]) for l in load_lines()
+                            for m in (match(r"^\[\"(notice:[^\"]*)\"\]\s*$", strip(l)),)
+                            if m !== nothing)
+
+"""One notice as an `Item`. `url` is the key - a key, as `local:` is - and
+`web` the link; `lane` is `notifications`, the time is the thread's
+throughout, and there is no author and no number."""
+function notice_item(key::AbstractString, b::AbstractDict)
+    kind, repo = get(b, "type", ""), get(b, "repo", "")
+    at = get(b, "at", "")
+    reason = get(b, "reason", "")
+    Item(url = String(key), repo = repo, number = 0, is_pr = false,
+         ref = string(isempty(repo) ? "github" : last(split(repo, '/')), " ", notice_word(kind)),
+         title = get(b, "title", ""), lane = "notifications", notice = kind,
+         reason = reason, web = get(b, "web", ""),
+         created = at, updated = at, moved_at = at, act = at,
+         mentioned = Events.mention_words(Dict{String,Any}("reason" => reason, "notified" => at)))
+end
+
+"Every notice standing, as items, newest first."
+notice_items() = sort!([notice_item(k, b) for (k, b) in notice_blocks()];
+                       by = it -> (it.moved_at, it.url), rev = true)
+
+"""Dismiss these notices: their blocks go, whole. Answers the blocks as
+they stood, `key => [field => value]`, which is what `restore_notices!`
+writes back - `z`'s, and nothing else's."""
+function dismiss_notices!(keys)
+    have = notice_blocks()
+    gone = Pair{String,Vector{Pair{String,Any}}}[]
+    for k in unique(String(k) for k in keys)
+        b = get(have, k, nothing)
+        b === nothing && continue
+        push!(gone, k => Pair{String,Any}[f => v for (f, v) in b])
+    end
+    isempty(gone) || set_blocks!([k => Pair{String,Any}[f => nothing for (f, _) in fs]
+                                  for (k, fs) in gone])
+    gone
+end
+
+"Put dismissed notices back, as `dismiss_notices!` answered them."
+restore_notices!(gone) = (isempty(gone) || set_blocks!(collect(gone)); nothing)
 
 # --- work in a repo nobody is watching --------------------------------------
 #
@@ -750,6 +842,8 @@ function ui(args = String[], at::DateTime = utcnow())
     append!(items, imported_items(Set(x.url for x in items), at))
     append!(items, inbox_items(Set(x.url for x in items),
                                Events.poll(cfg, cfg["login"], at; verbose = false)))
+    # And the notices the poll just wrote, beside the rows it came with.
+    append!(items, notice_items())
     # Straight into the browser: what the lane menu used to choose is now a tag.
     browse(items, "worklog")
     0
@@ -783,10 +877,11 @@ unread_marks(at::DateTime) =
     Marks(done = load_done(), sources = source_since(), wake = wake_map(),
           archived = archived_map(), now = stamp(at), rang = rang_urls())
 
-"The corpus and the light rows, as items: what the seen bit is asked over."
+"The corpus, the light rows and the notices, as items: what the seen bit is asked over."
 function corpus_items(rows = values(Events.load_inbox()["items"]))
     items = something(fetched_items(), Item[])
     append!(items, inbox_items(Set(x.url for x in items), rows))
+    append!(items, notice_items())
 end
 
 """
@@ -808,7 +903,8 @@ mark is skipped, since a hand-typed span counts from the stamp (`wake_of`)
 and the refresh reads either with no stamp as put away by hand and stamps
 it at its own clock - over whatever moved since, which for a filed row is
 the one thing the `filed` box is kept for (`held_by`); a row with no
-movement on record - a synthetic one - has nothing to say. Then every
+movement on record - a synthetic one - has nothing to say, and nor has a
+notice, whose seen bit is its block. Then every
 `source:` block gets `max(since, since′)` - **together, and never lowered**,
 so a row whose lane changes (a backlog issue that `assigned` claims) cannot
 flip by falling under a different floor, and a source named later keeps its
@@ -828,6 +924,9 @@ function consolidate!(at::DateTime; dry_run::Bool = false,
     oldest = nothing                    # of the stampless unread rows
     reads = Tuple{String,Item}[]        # the movement of every read, stamped row
     for it in items
+        # A notice has no stamp for a floor to answer for, and as a stampless
+        # unread row it would hold every `since` down while one stood.
+        isnotice(it) && continue
         moved = moved_of(it)
         moved === nothing && continue
         r = get(raw, it.url, nothing)
@@ -862,14 +961,17 @@ end
 the url and the ref, what it is, whose, where it stands, when it last moved
 and what has moved since it was read - `why`, the same words the pane's row
 says, against the same marks (`moved_words`). The shape the inbox rows had,
-with `moved_at` beside `updated`."""
+with `moved_at` beside `updated`. A notice says its type, its reason and
+its link as well, which it has no row elsewhere to say, and is `closed` as
+it is on the state axis."""
 item_json(it::Item, m) = OrderedDict{String,Any}(
     "url" => it.url, "ref" => it.ref, "repo" => it.repo, "number" => it.number,
     "title" => it.title, "is_pr" => it.is_pr,
-    "state" => lowercase(isempty(it.state) ? "open" : it.state),
+    "state" => isnotice(it) ? "closed" : lowercase(isempty(it.state) ? "open" : it.state),
     "author" => it.author, "updated" => it.updated, "moved_at" => it.moved_at,
     "labels" => it.labels, "mine" => it.author == login(),
-    "lane" => it.lane, "why" => moved_words(it, m))
+    "lane" => it.lane, "why" => moved_words(it, m),
+    (isnotice(it) ? ["notice" => it.notice, "reason" => it.reason, "web" => it.web] : [])...)
 
 """The rows the clocks know and the corpus does not, as items to select.
 

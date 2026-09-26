@@ -82,6 +82,31 @@ function launch_code(cmd::Cmd, fw, said::AbstractString)
     String(said)
 end
 
+"""Open a page on github.com, for a row whose page is all there is of it -
+a notice. Through `code --openExternal` where `code` is the server's (a
+Remote-SSH terminal, whose browser is on the far side), else the desktop's
+own opener where there is a display to open it on, else copied - the link
+has to reach a browser somehow, and `y` is the last resort anyway."""
+function open_web(url::AbstractString)
+    fw = forwards!()
+    code, _ = code_cli(fw)
+    if !isempty(code) && last(code_kind(code)) == "--openExternal"
+        return launch_code(`$code --openExternal $url`, fw, string("opened ", url))
+    end
+    opener = Sys.isapple() ? Sys.which("open") :
+             (haskey(ENV, "DISPLAY") || haskey(ENV, "WAYLAND_DISPLAY")) ? Sys.which("xdg-open") :
+             nothing
+    if opener !== nothing
+        try
+            run(pipeline(`$opener $url`; stdout = devnull, stderr = devnull); wait = false)
+            return string("opened ", url)
+        catch
+        end
+    end
+    clip(url)
+    string("copied ", url, " \u00b7 nothing here to open it in")
+end
+
 """Open commit `sha` of this item's checkout in VS Code: every file it
 changed, against its first parent, in one editor - what GitHub's page for
 the commit is. `o` on a commit in a list of them, a push in the thread or a

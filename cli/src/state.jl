@@ -10,6 +10,9 @@
 #     ["https://github.com/o/r/pull/1"]   an item
 #     ["local:o/r#some-branch"]           a branch you adopted, which has no url
 #     ["repo:o/r"]                        where that repo is checked out
+#     ["notice:1234567"]                  an unread notification that is not an
+#                                         issue or pull request, written whole
+#                                         by the poll and removed on dismissal
 #
 # Inside an item's block, your fields and the marks sit together - `note` and
 # `snooze` beside `done` and `touched` - because they are one answer to "what
@@ -52,10 +55,12 @@ die(msg) = throw(CliError(msg))
 A `local:o/r#branch` url is its own answer, as an `http` one is: an adopted
 branch is never in `fetched.json` - it is an item because `local.toml` says
 `adopted` - so `wl adopted local:o/r#branch DATE` is the one command whose ref
-must not be looked up there.
+must not be looked up there. A `notice:` key is too: a notice is a block of
+`local.toml` and nothing else.
 """
 function resolve(ref::AbstractString)
-    (startswith(ref, "http") || startswith(ref, "local:")) && return String(rstrip(ref, '/'))
+    (startswith(ref, "http") || startswith(ref, "local:") || startswith(ref, "notice:")) &&
+        return String(rstrip(ref, '/'))
     items = fetched("items")
     items === nothing && die("nothing fetched yet - run `wl refresh` first")
     occursin('#', ref) || die("cannot parse ref '$ref'")

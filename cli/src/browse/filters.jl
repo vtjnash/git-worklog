@@ -186,14 +186,17 @@ const SORTS = [(:moved, "by when it moved"),
                (:touched, "by when you last acted"),
                (:name, "by url, newest first")]
 
-"""Issue, pull request, or both - the third radio group.
+"""Issue, pull request, notice, or any - the third radio group.
 
-A radio and not a fourth tag axis: the values are exhausted by three and they
+A radio and not a fourth tag axis: the values are exhausted by four and they
 are mutually exclusive, so a set of them would only ever hold one thing or say
 nothing. `Item.is_pr` was already there and every lane carries both kinds, which
-is what made "issues only" impossible to ask for and obvious to want.
+is what made "issues only" impossible to ask for and obvious to want. A notice
+- a notification that is neither - is the fourth, and not an issue: `:both` is
+still the value's name, since a view writes it, and it means any.
 """
-const KINDS = [(:both, "both"), (:pr, "pull requests"), (:issue, "issues")]
+const KINDS = [(:both, "any"), (:pr, "pull requests"), (:issue, "issues"),
+               (:notice, "notices")]
 
 """The order a selection opens in, where it implies one.
 
@@ -246,7 +249,7 @@ Base.@kwdef mutable struct Filters
     lanes::Set{String} = Set{String}()     # empty means every lane
     repos::Set{String} = Set{String}()     # empty means every repo
     labels::Set{String} = Set{String}()    # empty means every label
-    kind::Symbol = :both                   # :both | :pr | :issue
+    kind::Symbol = :both                   # :both | :pr | :issue | :notice
     authors::Set{String} = Set{String}()   # empty means anybody; @me and
                                            # @anyone-else are values here as
                                            # well as logins
@@ -366,6 +369,10 @@ no time to compare and needs none. Every mark clears it (`agent_seen!`), for
 the reason the woken snooze taught: a reason left standing beside the stamp
 would keep the row unread whatever was pressed.
 
+**A notice is unread, and nothing else.** Its block in `local.toml` is the
+seen bit - it stands until the notice is dismissed, and then there is no
+item to ask about - so no stamp, floor, wake or bell is read for one.
+
 No stamp at all reads against the floor - the day the row's source was named,
 `floor_of` - and as unread only where there is none, which is what "never been
 in front of you" means. It used to be a third value, `unseen`, on the theory
@@ -379,6 +386,9 @@ the moment `e` is pressed - `Item` is immutable and rebuilt by the refresh - so
 the browser would have to rewrite every row it touched.
 """
 function seen_of(it::Item, m::Marks = Marks())
+    # A notice's seen bit is its block: while there is an item for it, the
+    # block stands, and it is unread. Nothing stamps one.
+    isnotice(it) && return :unread
     it.url in m.rang && return :unread
     at = get(m.done, it.url, nothing)
     # Nothing said about it: it is done up to the day its source was named,
@@ -427,8 +437,13 @@ function asleep(it::Item, m::Marks = Marks())
     wake !== nothing && wake > m.now
 end
 
-"Is it finished? Empty reads as open, which is what a synthetic item is."
-over_of(it::Item) = (it.state == "CLOSED" || it.state == "MERGED") ? :closed : :open
+"""Is it finished? Empty reads as open, which is what a synthetic item is.
+
+A notice is `closed`: what this axis answers is "is it open work", and a
+release or a CI run that notified is news and not work - in the firehose,
+which has both states, and out of the backlog, which is open only."""
+over_of(it::Item) = (isnotice(it) || it.state == "CLOSED" || it.state == "MERGED") ?
+                    :closed : :open
 
 """The tags an item carries, of the nine there are.
 
@@ -554,8 +569,12 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
     mode === :name ? sort(items; by = urlkey, rev = true) :
     sort(items; by = it -> (sortkey(it, touched, mode), urlkey(it)), rev = true)
 
-"Issue or pull request, with `:both` restricting nothing."
-kind_ok(kind::Symbol, it::Item) = kind === :both || (kind === :pr) == it.is_pr
+"""Which of the kinds a row is: a notice, a pull request, or an issue - which
+an adopted branch, with no pull request yet, counts as."""
+kind_of(it::Item) = isnotice(it) ? :notice : it.is_pr ? :pr : :issue
+
+"Issue, pull request or notice, with `:both` restricting nothing."
+kind_ok(kind::Symbol, it::Item) = kind === :both || kind === kind_of(it)
 
 """Whose it is. An empty set restricts nothing, as on every other axis.
 
@@ -851,7 +870,11 @@ function apply_view!(st, d)
         key in VIEW_KEYS ||
             (bad = string(bad, " \u00b7 no axis '", key, "'"))
     end
-    haskey(d, "kind") && (f.kind = Symbol(d["kind"]))
+    if haskey(d, "kind")
+        k = Symbol(d["kind"])
+        any(y -> y[1] === k, KINDS) ? (f.kind = k) :
+            (bad = string(bad, " \u00b7 no kind '", d["kind"], "'"))
+    end
     for (k, set) in (("lane", f.lanes), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
         haskey(d, k) || continue
@@ -1155,6 +1178,13 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false,
     # And the one record that is not in the file: whose agent rang. A
     # process, the same as the reads above are a file.
     st.rang = rang_urls()
+    # A notice whose block has gone - dismissed here, or by `wl done` in
+    # another shell - is gone from the list: its block is its seen bit, and
+    # there is nothing left for it to be.
+    if any(isnotice, st.all)
+        standing = notice_keys()
+        filter!(it -> !isnotice(it) || it.url in standing, st.all)
+    end
     key = string(join(view_lines(st.filters, st.sort), "\n"), "\n/",
                  st.searchin === :list ? st.search : "")
     # The guest is a row a jump went to that the filters hide: shown where the
@@ -1232,7 +1262,7 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     end
     isempty(f.tags) ||
         push!(parts, join([last(x) for x in TAGS if first(x) in f.tags], "+"))
-    f.kind === :both || push!(parts, f.kind === :pr ? "pull requests" : "issues")
+    f.kind === :both || push!(parts, last(KINDS[findfirst(x -> x[1] === f.kind, KINDS)]))
     # Named only when it is not the order this selection opens in. Newest-first
     # is the default everywhere now, and a summary that says so on every screen
     # is a phrase the reader stops seeing and a footer three words narrower for

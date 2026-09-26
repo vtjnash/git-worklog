@@ -369,6 +369,10 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     end
     it = st.items[clamp(st.sel, 1, length(st.items))]
+    # A notice answers the keys that mean something for one here, and refuses
+    # the ones that would reach for a thread, a checkout or a mark it has not
+    # got; the rest - the readings, `y`, `w` - fall through as for any row.
+    isnotice(it) && notice_key!(st, it, k) && return :ok
 
     # Context expansion and the editor both need a local checkout. Ask for it the
     # first time it is actually needed, rather than as up-front configuration.

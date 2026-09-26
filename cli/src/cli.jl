@@ -15,6 +15,7 @@ Work dashboard.
   wl unread  julia#62891                  mark a thread unread again
   wl thread  julia#62891 [n]              JSON of a thread's recent comments
   wl done    julia#62891                  mark a thread done (or: done all)
+  wl done    notice:1234567               dismiss a notice - a release, a CI run, an alert
   wl done    --consolidate [--dry-run]    raise every source's floor, drop the stamps it answers for
   wl show    julia#62891                  state + the thread's recent comments
   wl watching                             repos you watch, and which are tracked
@@ -225,7 +226,11 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # the clocks polled, then `seen_of` over the corpus and the light
         # rows - the one answer, the browser's too.
         if length(args) > 1
-            for u in refs(args[2])
+            us = refs(args[2])
+            # A notice is unread while it stands, and a dismissed one is gone.
+            any(isnotice, us) &&
+                die("a notice has no not done: it is unread until `wl done` dismisses it")
+            for u in us
                 println(mark_unread([u]) == 0 ? "was not done $u" :
                         "not done $u")
             end
@@ -349,9 +354,17 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             cfg = config()
             rows = poll(cfg, cfg["login"], at; verbose = false)
             urls = [it.url for it in unread_items(at, rows)]
-            println("done: $(mark_done_moved(urls, at; fold = true)) threads")
+            # A notice is dismissed rather than stamped: its block is its
+            # seen bit, and a stamp in it would be read by nothing.
+            gone = dismiss_notices!(filter(isnotice, urls))
+            println("done: $(mark_done_moved(filter(!isnotice, urls), at; fold = true)) threads",
+                    isempty(gone) ? "" : ", $(length(gone)) notice$(length(gone) == 1 ? "" : "s") dismissed")
         else
             for u in refs(arg)
+                if isnotice(u)
+                    println(isempty(dismiss_notices!([u])) ? "no notice $u" : "dismissed $u")
+                    continue
+                end
                 mark_done_moved([u], at; fold = true)
                 println("done $u")
             end
@@ -361,6 +374,13 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
     length(args) > 1 || die(USAGE)
     urls = refs(args[2])
     url = first(urls)
+    # A notice is a block the poll writes whole and dismissal removes, with no
+    # thread to show and nothing that outlives it to keep a field in.
+    if any(isnotice, urls)
+        cmd in ("snooze", "archive") &&
+            die("a notice has no $cmd - `wl done` dismisses it")
+        die("a notice is not an issue or pull request: `wl done` dismisses it, and nothing else applies")
+    end
 
     if cmd == "show"
         st = load_state()

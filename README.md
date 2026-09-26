@@ -21,7 +21,10 @@ them lack is a record of what *you* decided, and the facts a decision needs -
   awaiting your review, issues assigned to you - and everything else **only
   when a clock says it moved**: the repositories you poll, and your GitHub
   notifications. A question put to you on an issue closed years ago reaches
-  you the same way a comment on an open one does.
+  you the same way a comment on an open one does. A notification that is not
+  an issue or pull request - a release, a discussion, a comment on a commit,
+  a CI run, an alert, an invitation - is a **notice**: a row, unread until you
+  dismiss it, and then gone until it notifies again.
 - **Knows what moved.** An item is unread when somebody else did something to
   it since you read it: pushed, commented, reviewed, asked you, assigned you,
   closed or merged it, or your own CI went red. Nothing you did yourself counts.
@@ -131,6 +134,22 @@ GitHub.**
 | `C` `A` `L` `M` | comment · send the draft review · toggle a label · merge |
 | `q` | quit; asks first, and about an unsent draft review if there is one |
 
+**A notice** is a row for a notification that is not an issue or pull
+request, listed as the repository and its type - `julia release`, `julia CI`,
+`julia alert`, `julia invite`, `julia discussion`, `julia commit` - in the
+firehose (it is `closed` on the state axis: news, and not work) and in no
+other built-in view; `kind` has a fourth value for them alone (`kind = "notice"` in a view).
+The pane is its own facts: what it is, why GitHub said so, the repository,
+when, the link. `o` opens the link - through `code --openExternal` from a
+Remote-SSH terminal, the desktop's opener where there is a display, and
+otherwise it is copied - and `y` copies it. `e` and `x` both dismiss it:
+there is no *not done* for it to go back to and no filed box to hold it,
+so its block in `data/local.toml` goes, and `z` puts it back. `s` is
+refused, as is everything that needs a thread or a checkout (`C` `A` `M`
+`L` `;` `R` `t` `T` `v`); `d`, `p` and `c` say there is nothing to show.
+A dismissed notice comes back when the thread notifies again, and not
+before.
+
 **Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - open,
 done ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
 to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
@@ -237,6 +256,7 @@ wl prefetch                             cache the thread of every unread item th
                                         (any age counts), and fetch its diff into a pinned
                                         checkout; runs by itself after a refresh
 wl done    julia#62891                  mark done (or: done all)
+wl done    notice:1234567               dismiss a notice (`done all` dismisses them too)
 wl done    --consolidate [--dry-run]    fold the done stamps into the sources' floors
 wl track   julia#62452 loose            normal | loose - what counts as it moving
 wl snooze  julia#62452 3d               or 2w, 6mo, a date; "off" clears it
@@ -329,7 +349,7 @@ to the 256-colour cube.
 | `config.toml`, `config.user.toml`, `themes/` | you | hand-edited; the shared half, the template for yours, the colours |
 | `cli/claude-settings.json` | you | what `T` hands `claude` as `--settings`: the hooks that ring the pane when a turn ends. Only ever read |
 | `data/config.toml` | you | your half: login, theme, the repos you poll and pin. Seeded from the template on the first launch and never written again. Tracked |
-| `data/local.toml` | you and the program | one block per item: your note, snooze, tracking level, and what you have done to it. Edited key by key; **never rewritten**. Tracked |
+| `data/local.toml` | you and the program | one block per item: your note, snooze, tracking level, and what you have done to it; and one per unread notice, `["notice:<id>"]`, written by the poll and removed when it is dismissed. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser, `wl prefetch` | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
 | `data/view.toml` | the browser | where it was when it last closed - the filter, the item, which view of it - read back at the next launch; `` ` `` is the way back to the firehose from there. Written whole on the way out; ignored. Delete it to open on the firehose |

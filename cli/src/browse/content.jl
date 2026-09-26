@@ -420,6 +420,25 @@ function local_nodes(it::Item)
     ns
 end
 
+"""A notice's own facts, which is all there is to read of one here: what it
+is, why GitHub said so, where, when, and the link - no fetch. A release's
+notes or a commit comment is one REST `GET` each, and later; `o` opens the
+page, and `y` copies the link."""
+function notice_nodes(it::Item, at::DateTime)
+    word = notice_word(it.notice)
+    lead = Node(string(word, " in ", isempty(it.repo) ? "GitHub" : it.repo, " - ", it.title),
+                string("A ", isempty(it.notice) ? "notification" : it.notice,
+                       " GitHub notified you of", isempty(it.reason) ? "" :
+                       string(" (", replace(it.reason, "_" => " "), ")"),
+                       ", ", when_str(it.moved_at, at), ". It is not an issue or a ",
+                       "pull request, so there is no thread here: `o` opens it on ",
+                       "GitHub", isempty(it.web) ? "" : string(", at ", it.web),
+                       ". `e` or `x` dismisses it, and it is gone until it notifies again."),
+                :md, true)
+    isempty(it.web) || (lead.meta["url"] = it.web)
+    Node[lead]
+end
+
 """Read the thread from GitHub and put it in the cache under `thread_key`, the
 shape `comment_nodes` reads back. Its own function so the prefetch fills the
 very entry the pane will look for."""
@@ -431,6 +450,7 @@ end
 
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
+    isnotice(it) && return notice_nodes(it, at)
     local body, cs, cms, sts
     stale = false
     asof = nothing          # when a cached copy was read; `loadedat`
@@ -1180,6 +1200,7 @@ end
 
 "What a row with no pull request is, for a pane that shows only pull requests."
 not_pr(it::Item) = islocal(it) ? "a local branch, not yet a pull request" :
+                  isnotice(it) ? string("a ", notice_word(it.notice), " notice, not a pull request") :
                                  "an issue, not a pull request"
 
 """A load that failed, marked as such.

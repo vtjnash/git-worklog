@@ -102,13 +102,17 @@ function start_meta!(st::BState, it::Item, how::Symbol)
     st.metapending = fetching(string("meta ", it.url, tag)) do
         try
             # An adopted branch has nothing on GitHub to ask about, and its
-            # `local:` url is not one the request could be made of anyway.
+            # `local:` url is not one the request could be made of anyway;
+            # nor has a notice, whose facts are all on its row, and which has
+            # no checkout for a session to be in.
             rows = mux_list()
-            (meta = islocal(it) ? nothing :
-                        Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep),
+            (meta = ghitem(it) ?
+                        Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep) : nothing,
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
-             sessions = rows, taken = taken_in(it, item_place(it; items = st.all), rows))
+             sessions = rows,
+             taken = isnotice(it) ? NamedTuple[] :
+                     taken_in(it, item_place(it; items = st.all), rows))
         catch e
             (meta = nothing, checks = nothing, sessions = String[], taken = NamedTuple[],
              err = first(sprint(showerror, e), 120))
@@ -234,14 +238,14 @@ function collect_meta!(st::BState)
         # As of the older of the two entries it was read from: a cached copy is
         # as old as the entry, and the stamp says what is on screen.
         st.metaat = hasproperty(r, :err) ? 0.0 :
-            it === nothing || islocal(it) ? time() :
+            it === nothing || !ghitem(it) ? time() :
             time() - min(max(cache_age(Events.meta_key(it.url)),
                              it.is_pr ? cache_age(checks_key(it.repo, it.number)) : 0.0),
                          time())
         # Old enough to want re-reading behind what just went up. Not off a
         # failure, for the reason above; and either half is enough, since the
         # re-read asks only for what is actually old.
-        !hasproperty(r, :err) && it !== nothing && !islocal(it) &&
+        !hasproperty(r, :err) && it !== nothing && ghitem(it) &&
             (cache_age(Events.meta_key(it.url)) > CACHE_FRESH[] ||
              (it.is_pr && cache_age(checks_key(it.repo, it.number)) > CACHE_FRESH[]) ||
              (st.bundletried != it.url && bundle_age(it) > CACHE_FRESH[])) &&
@@ -330,7 +334,7 @@ end
 
 "The words off the wake table alone; `moved_words` puts the agent's in front."
 function table_words(it::Item, m::Marks)
-    islocal(it) && return String[]
+    ghitem(it) || return String[]
     stamp = get(m.done, it.url, nothing)
     stamp === nothing && (stamp = floor_of(it, m.sources))
     # Never in front of you at all: everything on it is new, and one word
@@ -568,6 +572,13 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
                            mergedbyme(it) ? string("  ", THEME.dim, "you merged it", THEME.reset) : ""))
     end
     it.draft && kv("state", "draft")
+    # A notice is closed on the axis, and is not closed: what it is, and why
+    # GitHub said so, which it has nowhere else to say.
+    if isnotice(it)
+        kv("state", string(notice_word(it.notice), "  ", THEME.dim, "a notice \u00b7 e dismisses it",
+                           THEME.reset))
+        kv("reason", replace(it.reason, "_" => " "))
+    end
     push!(out, "")
 
     # What is written down about it, in `local.toml`: the block is the file's
@@ -585,7 +596,7 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
               (isempty(words) ? "unread" : string("unread: ", join(words, ", "))) : "done")
     # By the command's own word. What the level means is the command's help;
     # said here it wrapped the row on every item, and `;` is the key for it.
-    kv("track", it.track)
+    isnotice(it) || kv("track", it.track)
     # When it wakes, while it is asleep; once the snooze has gone, that
     # there was one, and whether it woke or was cleared by hand
     # (`last_snooze`, which outlives the snooze) - the one place the wake's

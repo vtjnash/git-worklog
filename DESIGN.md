@@ -24,7 +24,7 @@ somebody asked on it was never seen. Facts do not compete.
 |---|---|---|
 | `config.toml`, `themes/*.toml` | you | read, never written. The shared half of the config: every key with its default, naming nobody - the lanes say `@me` |
 | `data/config.toml` | you | your half, read on top of the shared one: login, theme, the repos you poll and pin. Written **once**, from `config.user.toml`, by the first `wl` that finds none (`seed_config!`), with `login` filled from `gh`; never again. The merge is two levels: a table merges key by key, anything under a key replaces whole. Tracked, in `data/`'s own repository |
-| `data/local.toml` | you and the program | **never rewritten.** Every write goes through a line-based editor (`state.jl`) that changes the keys it names inside the block it names and leaves every other line byte-identical. Tracked, in `data/`'s own repository |
+| `data/local.toml` | you and the program | **never rewritten.** Every write goes through a line-based editor (`state.jl`) that changes the keys it names inside the block it names and leaves every other line byte-identical. Tracked, in `data/`'s own repository. One kind of block the poll writes whole: a notice, `["notice:<id>"]`, which dismissal removes whole (Marks) |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Must stay safe to delete: nothing that cannot be rebuilt from GitHub goes in it |
 | `data/cache/` | the browser | per-item reads with a TTL |
 | `data/view.toml` | the browser | where it was when it last closed: the filter and its order, the item, the mode. Written whole on the way out (`save_view`), read once at launch (`restore_view!`). Not `local.toml`'s: it is nothing without the corpus beside it, and where you were is not judgement. Ignored |
@@ -35,6 +35,15 @@ was named - is `local.toml`'s, even when it is the poll that writes it. That
 is why the poll cursors and the `source:` blocks live there: for an evening
 the backlog's read-by-construction stamp was in `fetched.json`, and the file
 was no longer safe to lose.
+
+A **notice** - a notification that is not an issue or pull request - is
+the case that rule was written for. Once the cursor is past a thread nothing
+can ask for it again, so an unread one kept in `fetched.json` was lost with
+the file; and it is not in the inbox either, whose rows everything that
+reads them - `stale_by`, the refresh's `involved` ask, `expect!` - would ask
+GitHub about. So each unread one is a block in `local.toml`, written whole
+by `sync!` and removed whole when it is dismissed: the set that stays small,
+where a record of the dismissed would only grow.
 
 `data/` is its own git repository so that the record has a history without
 dirtying the code's tree on every refresh. **`git rev-parse --show-toplevel`
@@ -208,6 +217,30 @@ whatever was pressed; `z` rings it back (`agent_ring!`). Read per
 `refilter!` like the records, one `list-panes`, and polled every
 `SESSIONS_EVERY` while the browser is up (`watch_sessions!`), since tmux tells
 a control client about the pane it is on and nothing else.
+
+**A notice's seen bit is its presence.** A notice has no bundle, no state
+and no wake table - a Release, a Discussion, a commit comment, a CI run,
+an alert, an invitation - and nothing for a stamp to be compared against
+but the time it notified. So it is unread while its block stands and gone
+when it does not: `seen_of` says `:unread` for one before it looks at a
+stamp, a floor, a wake or a bell; `e`, `x`, `wl done` and `wl done all`
+remove the block and `z` writes it back, with no `touched` stamp either way
+- there is no *not done* to toggle to, and no filed box for it to be in; `s`
+is refused, having no stamp for a wake to sit beside. `consolidate!` skips
+one: counted as a stampless unread row it would hold every `since` down for
+as long as one stood. On the axes it is the fourth `kind`, and `closed` on
+`state` - what that axis answers is "is it open work", and news that is not
+work is what the firehose shows and the backlog leaves out.
+
+The poll keeps what it has made into notices, `noticed[id] = updated_at` in
+the inbox, because the overlap asks again for what the last poll read and
+there a dismissed thread read again and a late one read for the first time
+look the same. A thread at or under its entry is not a notice again; one
+that notifies again is past it and is back. Pruned under `cursor - 1 day`,
+the widest ask. `sync!` is the one writer of both, and the browser only
+removes a block where the poll only adds one for an `(id, at)` it has not
+had, so between them they cannot bring a dismissed notice back; a lost
+`fetched.json` costs one overlap's worth of dismissed notices shown again.
 
 **An archive is a done mark that filters separately.** `x` stamps `archived`
 and `done`. An archived item that moves is unread again - filing is not an
@@ -604,7 +637,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/events.jl` | `Events`: the clocks, the by-url fetch, the token lookup |
 | `cli/src/refresh.jl` | normalize, the wake table, the tags, the snapshot diff |
 | `cli/src/cli.jl` | the `wl <command>` surface and `USAGE` |
-| `cli/src/ui.jl` | `Item`, and the adopted branches synthesized from `local.toml` |
+| `cli/src/ui.jl` | `Item`, and the adopted branches and the notices synthesized from `local.toml` |
 | `cli/src/marks.jl`, `state.jl` | what you did to an item; the line-based `local.toml` editor |
 | `cli/src/util.jl`, `pyjson.jl` | `oneline`, `table_key_order`; JSON written the way the Python port did |
 | `cli/src/fetched.jl` | `fetched.json` |

@@ -42,7 +42,7 @@ const HELP = Union{String,Tuple{String,String}}[
     "changing this machine",
     ("e", "done ↔ not done"),
     ("s", "snooze: 3d, 2w, 6mo, a date; wakes then, or when it moves, whichever is first"),
-    ("x", "file it away, and back; a filed item that moves is unread again"),
+    ("x", "file it away, and back; a filed item that moves is unread again. On a notice, e and x dismiss it"),
     ("v  o", "edit the note in \$VISUAL/\$EDITOR · open the checkout in VS Code; on a diff line, that diff at that line; on a commit in a list of them, that commit"),
     (";", "set a field: the tracking level (this machine); the milestone, an assignee, a reviewer, the state, the title (GitHub)"),
     ("z  Z", "undo the last local action · redo it, until the next action"),

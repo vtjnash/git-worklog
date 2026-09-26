@@ -471,7 +471,8 @@ many repos and only the row knows which one it came from.
 drop_forks(rows, forks::Set{String}) =
     isempty(forks) ? rows : [r for r in rows if !(item_repo(r) in forks)]
 
-"""The accumulated inbox: `cursors`, `polled` and `items`.
+"""The accumulated inbox: `cursors`, `polled`, `items`, and `noticed`, the
+threads the poll has made into notices (`sync!`).
 
 One part of `fetched.json`, because that is what it is: `cursors` is how far
 each source has been polled, `polled` is when it was last asked, and `items` is
@@ -482,6 +483,7 @@ which is the whole test for which half of `data/` a thing belongs in.
 function load_inbox()
     d = Dict{String,Any}("cursors" => Dict{String,String}(), "polled" => Dict{String,String}(),
                          "failed" => Dict{String,String}(),
+                         "noticed" => Dict{String,String}(),
                          "items" => Dict{String,Any}())
     raw = Worklog.fetched("inbox")
     raw === nothing && return d
@@ -503,6 +505,11 @@ function load_inbox()
         end
         w = get(raw, :wide, nothing)
         w === nothing || (d["wide"] = String(w))
+        # The threads the poll has made into notices, by id, at the stamp it
+        # made them at; see `sync!`.
+        for (kk, vv) in get(raw, :noticed, (;))
+            d["noticed"][String(kk)] = String(vv)
+        end
     catch
         # A damaged inbox is an empty one: the cursors reset to now, which loses
         # a poll's worth of history rather than every future poll.
@@ -545,8 +552,9 @@ end
 
 Where a notification thread points. `subject.url` is an API url -
 `/repos/o/r/issues/N` or `/repos/o/r/pulls/N` - and `nothing` is every
-subject this program cannot open: a Discussion, a Release, a Commit, a
-CheckSuite, a RepositoryVulnerabilityAlert. `path` is the issue endpoint for
+subject that is not a row of the corpus: a Discussion, a Release, a Commit, a
+CheckSuite, a RepositoryVulnerabilityAlert, each of which is a notice
+instead (`notice_row`). `path` is the issue endpoint for
 both kinds, which is the shape `issue_row` reads and the one the repo polls
 already return.
 """
@@ -620,6 +628,70 @@ function thread_row(t, login; fetch = path -> api_get(path; auth = pat()[1]))
     u = get(issue, "updated_at", nothing)
     isempty(something(u, "")) || (full["updated"] = String(u))
     full
+end
+
+"""
+    notice_row(t) -> (; key, id, at, fields), or nothing
+
+A notification thread that is not an issue or pull request - a Release, a
+Discussion, a Commit's comment, a CheckSuite or WorkflowRun, a Dependabot
+alert, a repository invitation - as the `local.toml` block that stands for
+it while it is unread: a **notice**. Keyed `notice:<id>` by the thread's id,
+which is stable across the thread's re-notifications, so a thread that
+notifies again while its block stands updates it in place.
+
+Everything in the block is on the thread; no request is made for one.
+`nothing` for an issue or a pull request, which is `thread_row`'s, and for a
+thread with no id or no stamp, which could not be told apart from the next.
+"""
+function notice_row(t)
+    s = get(t, "subject", nothing)
+    s === nothing && return nothing
+    kind = String(nz(get(s, "type", nothing), ""))
+    kind in ("Issue", "PullRequest") && return nothing
+    id = String(string(nz(get(t, "id", nothing), "")))
+    at = String(nz(get(t, "updated_at", nothing), ""))
+    (isempty(id) || isempty(at)) && return nothing
+    repo = notice_repo(t)
+    fields = Pair{String,Any}[
+        "type" => kind, "repo" => repo,
+        "title" => String(nz(get(s, "title", nothing), "")),
+        "reason" => String(nz(get(t, "reason", nothing), "")),
+        "at" => at, "web" => notice_web(kind, repo, s)]
+    (key = string("notice:", id), id = id, at = at, fields = fields)
+end
+
+"The repository a thread is in: its `repository`, else off `subject.url`."
+function notice_repo(t)
+    r = get(t, "repository", nothing)
+    n = r === nothing ? nothing : get(r, "full_name", nothing)
+    n === nothing || return String(n)
+    s = get(t, "subject", nothing)
+    u = s === nothing ? "" : String(something(get(s, "url", nothing), ""))
+    m = match(r"^https://api\.github\.com/repos/([^/]+/[^/]+)", u)
+    m === nothing ? "" : String(m[1])
+end
+
+"""Where a notice is read on github.com. A commit by its sha, and at the
+comment when `latest_comment_url` names one; a release, the checks, the
+alerts, an invitation and a discussion at the repository's page for them -
+the subject's own url is an API id there (a release's is not its tag), and
+`null` on a Discussion and the alerts; anything else at the repository."""
+function notice_web(kind::AbstractString, repo::AbstractString, s)
+    isempty(repo) && return "https://github.com/notifications"
+    base = string("https://github.com/", repo)
+    if kind == "Commit"
+        m = match(r"/commits/([0-9a-f]+)$", String(something(get(s, "url", nothing), "")))
+        m === nothing && return string(base, "/commits")
+        c = match(r"/comments/(\d+)$", String(something(get(s, "latest_comment_url", nothing), "")))
+        return string(base, "/commit/", m[1], c === nothing ? "" : string("#commitcomment-", c[1]))
+    end
+    kind == "Release" ? string(base, "/releases") :
+    kind in ("CheckSuite", "WorkflowRun") ? string(base, "/actions") :
+    kind in ("RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread") ?
+        string(base, "/security/dependabot") :
+    kind == "RepositoryInvitation" ? string(base, "/invitations") :
+    kind == "Discussion" ? string(base, "/discussions") : base
 end
 
 """Which notification `reason`s name *you* - as against `subscribed`, which is
@@ -875,6 +947,18 @@ the repo it is in - and each knows something the other does not: the thread
 its `reason`, the poll the state and the author. Merging keeps both whichever
 came second; overwriting kept whichever came last.
 
+A thread that is not an issue or pull request is a **notice**: a block in
+`local.toml` (`notice_row`), unread while it stands and gone once dismissed,
+since once the cursor is past a thread nothing can ask for it again and this
+file must stay safe to lose. The overlap asks again for what the last poll
+read, where a notice dismissed since and one arriving late look the same; so
+the inbox keeps `noticed`, what this poll has made into notices, and a thread
+at or under its entry is not one again. One that notifies again is past it,
+and is back. This is the one writer of `noticed`, and the browser only ever
+removes a block where this only ever adds or updates one, so between them
+they cannot bring a dismissed notice back; a lost `fetched.json` costs one
+overlap's worth of dismissed notices shown again.
+
 `now` and `lastby` are the two things here that reach GitHub outside the
 sources' own fetches - the server's clock, and who wrote the newest comment
 on a row awaited past the grace - and both are arguments so a test says what
@@ -896,6 +980,10 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     got = 0
     server = nothing
     failed = get!(inbox, "failed", Dict{String,String}())
+    # The threads this poll has made into notices, `id => updated_at`: the
+    # overlap asks again for what the last poll read, and a notice dismissed
+    # since and one arriving late look the same without it.
+    noticed = inbox["noticed"]
     watching = nothing                   # asked once, only if a poll runs
     # The poll can witness for the notifications only where the source runs:
     # on a machine whose token cannot read them there is nothing to expect,
@@ -941,10 +1029,20 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         rows, started = answer isa Tuple ? answer : (answer, nothing)
         started === nothing && (started = now())
         skipped = 0
+        notices = Pair{String,Vector{Pair{String,Any}}}[]
         for r in rows
             row = torow(r, first)
             if row === nothing
-                skipped += 1
+                n = label == "notifications" ? notice_row(r) : nothing
+                if n === nothing
+                    skipped += 1
+                elseif String(get(noticed, n.id, "")) < n.at
+                    # A thread at or under what this poll already made of it
+                    # is a re-read inside the overlap - dismissed or standing,
+                    # not a notice again; one past it notified again.
+                    noticed[n.id] = n.at
+                    push!(notices, n.key => n.fields)
+                end
                 continue
             end
             url = String(row["url"])
@@ -958,8 +1056,21 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         end
         skipped == 0 || @printf(report(), "    %-24s %d not an issue or pull request, skipped\n",
                                 label, skipped)
+        # One write for all of them, as a mark is. Only ever an add or an
+        # update: the browser and `wl done` only ever remove one.
+        if !isempty(notices)
+            Worklog.set_blocks!(notices)
+            @printf(report(), "    %-24s %d notice%s\n", label, length(notices),
+                    length(notices) == 1 ? "" : "s")
+        end
         cursors[label] = advanced[label] = max(String(cur), stamp(started))
         polled[label] = stamp(at)
+        # What no ask can return again - under the widest ask behind the
+        # cursor, a day - has nothing left to be told apart from.
+        if label == "notifications"
+            floor_ = stamp(ts(cursors[label]) - Day(1))
+            filter!(kv -> kv[2] >= floor_, noticed)
+        end
     end
 
     witness && settle_expectations!(inbox, items, at, login; lastby)
