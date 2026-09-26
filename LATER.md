@@ -110,7 +110,9 @@ filtered as wanted.
       title is a 404 now and then. `GET /repos/o/r/releases/<id>` answers
       `html_url` exactly, once, when the poll writes the block, and would be
       the only request a notice makes. Not done because the title already
-      names the release, and that is enough to find it on the list.
+      names the release, and that is enough to find it on the list. TODO's
+      reader for a release asks the same endpoint when the notice is opened,
+      and puts the exact page on the pane; this is only the block's link.
 
 - [ ] **A list row two high.** For the titles the one row cuts at about half.
       Usually enough of the title shows; sometimes not. The one ask from the
