@@ -10,19 +10,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 
-## Unverified
-
-- [ ] **Notices, against a person's token.** The sandbox's token cannot read
-      `/notifications`, so the poll's notices are tested on made-up threads
-      only. With a real one: what `subject.url` and `latest_comment_url`
-      carry for each type (a Discussion's has been `null`; `notice_web`
-      falls back to the type's page on the repository), whether a
-      Discussion has any url better than `/<repo>/discussions`, that each
-      link lands where it says, and that `o` opens it - through `code
-      --openExternal` from a Remote-SSH terminal, the desktop's opener
-      locally. A reader for a Release's notes or a commit comment, one REST
-      `GET` each, is after that.
-
 ## Upstream
 
 - [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313

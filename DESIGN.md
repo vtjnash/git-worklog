@@ -242,6 +242,23 @@ removes a block where the poll only adds one for an `(id, at)` it has not
 had, so between them they cannot bring a dismissed notice back; a lost
 `fetched.json` costs one overlap's worth of dismissed notices shown again.
 
+**A notice's link is built from the thread, and is not yet measured.**
+Everything on the block is on the thread, so no request is made for one;
+the link is `notice_web`'s: a commit by the sha off `subject.url`, at
+`#commitcomment-N` when `latest_comment_url` names one; a release at
+`/<repo>/releases`, since its `subject.url` is an API id and not its tag;
+a CI run at `/actions`, an alert at `/security/dependabot`, an invitation
+at `/invitations`, a discussion at `/discussions`, since `subject.url` is
+`null` on the last and on the alerts; anything else at the repository.
+These are GitHub's documented shapes, not observed ones: the sandbox's
+token cannot read `/notifications`, and the suite runs on made-up threads.
+What to check with a person's token is what `subject.url` and
+`latest_comment_url` carry for each type, whether a Discussion has a url
+better than its repository's page, and that `o` lands on each - through
+`code --openExternal` from a Remote-SSH terminal, the desktop's opener
+locally. A reader for a release's notes or a commit comment is one REST
+`GET` each, and comes after that.
+
 **An archive is a done mark that filters separately.** `x` stamps `archived`
 and `done`. An archived item that moves is unread again - filing is not an
 answer about whether a thing changed - but `show_ok` holds it out of every
