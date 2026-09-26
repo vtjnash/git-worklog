@@ -9,6 +9,18 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 - [ ] a lot of features have been added since last updating the precompile list, so it may need to be regenerated
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
+- [ ] **A reader for a notice.** A release's notes or a commit comment in the
+      pane, one REST `GET` each; after the links are measured (below).
+
+## Unverified
+
+- [ ] **Notices, against a person's token.** The sandbox's token cannot read
+      `/notifications`, so notices are tested on made-up threads only. Check
+      what `subject.url` and `latest_comment_url` carry for each type (a
+      Discussion's has been `null`), whether a Discussion has a url better
+      than `/<repo>/discussions`, that each `notice_web` link lands where it
+      says, and that `o` opens it - `code --openExternal` from a Remote-SSH
+      terminal, the desktop's opener locally.
 
 ## Upstream
 
