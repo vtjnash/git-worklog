@@ -214,9 +214,11 @@ GitHub did not do. And the woken-snooze rule applies: `e`, `s`, `x` and
 `mark_read_moved` silence it (`agent_seen!`, a control-mode attach on a
 closed stdin, 4 ms) or a bell left beside the stamp would keep the row unread
 whatever was pressed; `z` rings it back (`agent_ring!`). Read per
-`refilter!` like the records, one `list-panes`, and polled every
-`SESSIONS_EVERY` while the browser is up (`watch_sessions!`), since tmux tells
-a control client about the pane it is on and nothing else.
+`refilter!` like the records, one `list-panes`, and heard while the browser
+is up through the command pipe's subscription to who rang
+(`watch_sessions!`): tmux tells a control client about the pane it is on and
+nothing else, except what it subscribes to. Where there is no pipe it is
+polled every `SESSIONS_EVERY`.
 
 **A notice's seen bit is its presence.** A notice has no bundle, no state
 and no wake table - a Release, a Discussion, a commit comment, a CI run,
@@ -992,8 +994,9 @@ Each of the following returns success and the wrong answer:
   sync it wakes finds the client dead, but `claude` writes its farewell and
   takes a moment to exit, so its pane kept the farewell with every key sent
   to a dead client, `^]K` the only way out. The reader wakes once more as it
-  stops (`mux_open`'s `ondead`), and a key that finds the client dead says
-  `session ended` rather than going nowhere.
+  stops (the client's `wake`, which `mux_wait` answers `false` from then
+  on), and a key that finds the client dead says `session ended` rather
+  than going nowhere.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane
@@ -1027,14 +1030,54 @@ Each of the following returns success and the wrong answer:
   TermIFrame keeps no list of its own. Every row carries `#{session_id}`,
   `$N`: kept through a rename, never reused while the server lives, and
   back at `$0` after a restart - which ends every session too.
-- **A trailing `;` is a command separator, in any argument.** `set @x 'y;'`
-  sets `y`, one command or several; `\;` is the character. `mux_tag!`
-  escapes it, and joins its `set`s into one `tmux` with `;` (3.2 ms a
-  process, measured).
+- **A trailing `;` is a command separator, in any argument of a command
+  line.** `set @x 'y;'` as arguments sets `y`, one command or several; `\;`
+  is the character. On a control line it is not: a quoted `'y;'` is `y;`,
+  and inside single quotes every character is itself - `#`, `$`, `~`, `\`
+  (3.5a). So the quoting is the transport's: `mux_spawn` escapes the
+  argument, `mux_line` quotes the word.
+- **One control line with `;` in it is one reply block per command**, and
+  replies are matched by position, so `mux` sends a line per command down
+  the pipe and joins them with `;` only into one process.
 - **A control client has to attach to stay open.** `tmux -C` with any other
   command runs it, says `%exit` and quits; and attaching to one of ours
-  clears its bell. The pipe TODO plans parks on a hidden session of its
-  own, where a session beside it kept `attached=0` and its bell.
+  clears its bell. So the command pipe (`mux_pipe_open`) parks on a hidden
+  session of its own, `_wl-ctl-<pid>`, where a session beside it kept
+  `attached=0` and its bell. A process is 3.2 ms a command, the pipe
+  ~0.03 ms. It is open while a `wl-` session is (`watch_sessions!` closes it
+  on the `%sessions-changed` that leaves none), since opening one starts a
+  server and holding one keeps it up; one-shot commands never open it.
+  `switch-client` and the attach behind `mux_seen!` are spawned always: they
+  are about the client that asks, which down the pipe would be the pipe.
+  A session started down it takes the `update-environment` list from the
+  pipe's client, which is this browser's environment as it launched - what
+  a spawn would hand over too (the same size, directory and variables,
+  measured).
+- **`destroy-unattached` set on a session nobody is attached to ends it on
+  the spot** (3.5a). The pipe's session is given it once its client is on,
+  and then goes with the client: a browser killed outright closes the
+  client's stdin, the client exits, the session ends. One that died between
+  the two is ended by the next browser's pipe, by pid.
+- **A subscription is about the attached session, unless its format loops.**
+  `refresh-client -B name::fmt` is checked once a second and says
+  `%subscription-changed` when the value differs; `#{S:...}` in the format
+  walks every session on the server, so the pipe, on its hidden session,
+  subscribes to the ids of our sessions with a bell standing (`bell_format`).
+  That replaced listing them every two seconds. `%sessions-changed` comes
+  for any session starting or ending, ours or not.
+- **TermIFrame takes no functions from its host.** A stored callback is a
+  field typed `Any` and a dynamic call under `--trim`, and each one the
+  iframe took was a thing the host could read instead: the client's `wake`
+  (an `Event` that resets as it is taken, which `watch_pane!` waits on and
+  turns into `wake!`), the clipboard kept on the client and printed by the
+  sync on the loop's task rather than by the reader mid-frame, the client
+  gone after a sync (`pane_sync!` takes a note back from `PaneView.note`,
+  once), and `:attach` answered by `iframe_input!` for the pane to carry out.
+  The settable globals stay: `MUX_ENV`, `MUX_PREFIX` and `SCRUB_PREFIXES`
+  are concrete `Ref`s set once in `__init__`, one host to a process, and
+  `MUX_PIPE` is one per process for the same reason. `MUX_TAGS` became an
+  argument because the tags are the host's schema, which it types; these
+  are settings.
   The hook runs under `/bin/sh` in a session of its own with no controlling
   terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
   rings `/proc/$PPID/fd/1`, its parent being `claude` and `claude`'s stdout

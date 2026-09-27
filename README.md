@@ -208,8 +208,10 @@ keeps as the window's bell flag until somebody looks. It is only that one bit
 - stopped or asking, not which - and it lives in the tmux server with the
 session, so nothing has to be running to catch it. Looking (`T`) clears it,
 and so does every mark - `e`, `s`, `x`, `wl done` - the way a mark ends a
-woken snooze; `z` rings it back. The browser lists the sessions every two
-seconds for it while it is up.
+woken snooze; `z` rings it back. While the browser is up tmux tells it, within
+a second, through one control-mode client it keeps for all its tmux commands -
+parked on a hidden session of its own, `_wl-ctl-<pid>`, which you may see in
+`tmux ls` and which goes when the browser does.
 
 **VS Code** (`o`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is

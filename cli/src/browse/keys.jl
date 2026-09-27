@@ -58,6 +58,9 @@ function browse(items::Vector{Item}, title::AbstractString)
     finally
         # However it ended - `q`, or the terminal going away under it.
         save_view(st)
+        # And the pipe's hidden session with it, which would otherwise end
+        # only when its client noticed this process gone.
+        mux_pipe_close()
     end
 end
 

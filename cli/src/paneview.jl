@@ -17,13 +17,19 @@
 
 `child` is the iframe: the session, its screen, its scrollback and its keys.
 Everything else is what this program puts around one.
+
+`note` is a note being edited in the child, taken back once when the editor
+exits (`pane_sync!`) and then `nothing`: once and never from a later sync,
+since reading the file twice would undo an edit made in between.
 """
 mutable struct PaneView <: View
     child::IFrame
     beside::Any                    # the BState to read alongside, or nothing
     focus::Symbol                  # :child forwards every byte to it; :read
                                    # gives the keys to the thread drawn beside
+    note::Union{Nothing,NoteEdit}
 end
+PaneView(child::IFrame, beside, focus::Symbol) = PaneView(child, beside, focus, nothing)
 
 """Below this there is no room to put two things side by side."""
 const SPLIT_MIN = 150
@@ -68,19 +74,32 @@ Returns `nothing` when there is no multiplexer or no such session, so the
 caller can put a reason in its own status line rather than showing an empty
 pane that never explains itself.
 
-The four callbacks are the whole of what the iframe knows about this program:
-what to poke when the child writes, what to do when it exits, how to hand the
-terminal over for `^]a`, and where an error in any of that gets written down.
+The iframe knows nothing about this program. What the pane does with it is
+read off it here: a task per pane waits on the client and wakes the loop - on
+each burst of output, and once more as the session ends, which the pane has to
+see as much as any output - and the loop's sync finds what changed.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
-                   beside = beside_of(ctrl), onend = nothing)
-    f = iframe(name, title;
-               onwake = () -> wake!(ctrl),
-               onend = onend,
-               suspend = g -> suspend(g, ctrl),
-               onerror = logerror!)
+                   beside = beside_of(ctrl), note::Union{Nothing,NoteEdit} = nothing)
+    f = iframe(name, title)
     f === nothing && return nothing
-    PaneView(f, beside, :child)
+    watch_pane!(f.client, ctrl)
+    PaneView(f, beside, :child, note)
+end
+
+"""Wake the loop whenever the pane's client has something to say, until it
+ends - and once more then. A wake is a level (`wake!`), so a burst of output is
+one wake, and the client never waits on the loop to take it."""
+function watch_pane!(c::MuxClient, ctrl)
+    @async try
+        while mux_wait(c)
+            wake!(ctrl)
+        end
+        wake!(ctrl)
+    catch e
+        logerror!(e, catch_backtrace(), "watch_pane!")
+    end
+    nothing
 end
 
 """Give the child the size it is being drawn at, and read its screen back.
@@ -92,7 +111,19 @@ it has half.
 """
 function pane_sync!(v::PaneView)
     h, w = displaysize(stdout)
-    iframe_sync!(v.child, iframe_box(pane_cols(v, w), h)...)
+    r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h)...)
+    # The child has exited: a note's editor is read back, once.
+    if v.child.client === nothing && v.note !== nothing
+        n, v.note = v.note, nothing
+        said = try
+            adopt_note!(n)
+        catch e
+            logerror!(e, catch_backtrace(), "adopt_note!")
+            "the note could not be taken back"
+        end
+        isempty(said) || (v.child.status = said)
+    end
+    r
 end
 
 """A wake is the child's, or a fetch landing for what is drawn beside it.
@@ -484,8 +515,20 @@ and the rest sent on unread.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     h, w = displaysize(stdout)
-    iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h);
-                  oncommand = b -> pane_command!(v, b, ctrl))
+    r = iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h);
+                      oncommand = b -> pane_command!(v, b, ctrl))
+    r === :attach || return r
+    full_screen!(v, ctrl)
+    :ok
+end
+
+"""`^]a`, and `a` once the child has gone: the session full screen, the
+terminal handed over for it, and the pane re-read at whatever size the screen
+is when it comes back."""
+function full_screen!(v::PaneView, ctrl)
+    mux_attach(v.child.name; suspend = g -> suspend(g, ctrl))
+    pane_sync!(v)
+    nothing
 end
 
 """A paste on the reading side is the browser's, as a key there would be. On
@@ -557,8 +600,7 @@ function handle!(v::PaneView, k::Int, ctrl)
         mux_kill(v.child.name)
         return :pop
     elseif k == Int('a')
-        mux_attach(v.child.name; suspend = v.child.suspend)
-        pane_sync!(v)
+        full_screen!(v, ctrl)
     elseif k == Int('r')
         pane_sync!(v)
     end

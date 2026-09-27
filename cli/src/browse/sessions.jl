@@ -254,7 +254,8 @@ function edit_note(st::BState, it::Item, ctrl)
     before = it.note
     prevtouch = touched_at(it.url)
     write(path, isempty(before) ? "" : before)
-    finish = () -> adopt_note!(st, it, path, before, prevtouch)
+    note = NoteEdit(st, it, path, String(before),
+                    prevtouch === nothing ? nothing : String(prevtouch))
 
     # In a pane, beside the thread, the same as `t` and `T`. Taking the whole
     # screen for it was the odd one out: the note is nearly always *about* what
@@ -270,14 +271,15 @@ function edit_note(st::BState, it::Item, ctrl)
         fw = forwards!()
         ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)); set = fw.env)
         ok || return err
+        mux_pipe_open()
         mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
-        v = pane_view(name, string("note  ", it.ref), ctrl; onend = finish)
+        v = pane_view(name, string("note  ", it.ref), ctrl; note)
         if v === nothing
             # Still running means the attach really failed. Gone means the
             # editor finished before we got there - which an editor configured
             # to write and exit does every time - and the note is taken anyway
             # rather than thrown away for having been quick.
-            mux_alive(name) || return finish()
+            mux_alive(name) || return adopt_note!(note)
             mux_kill(name)
             return "could not attach to " * name
         end
@@ -302,7 +304,7 @@ function edit_note(st::BState, it::Item, ctrl)
         end
     end::Bool
     ok || return string("could not run ", noteeditor())
-    finish()
+    adopt_note!(note)
 end
 
 """Single-quote for a shell, the only quoting that needs no other escaping.
@@ -312,6 +314,18 @@ and a path that is not quoted is a path that is one `mktempdir` away from being
 two arguments.
 """
 shquote(s::AbstractString) = string("'", replace(String(s), "'" => "'\\''"), "'")
+
+"""A note being edited in a pane: what `adopt_note!` needs to take it back
+once the editor exits, which the pane does (`pane_sync!`)."""
+struct NoteEdit
+    st::BState
+    it::Item
+    path::String
+    before::String
+    prevtouch::Union{Nothing,String}
+end
+
+adopt_note!(n::NoteEdit) = adopt_note!(n.st, n.it, n.path, n.before, n.prevtouch)
 
 """Take whatever the editor left in `path` and make it the item's note.
 
@@ -411,6 +425,9 @@ function enter_session(target::AbstractString, branch::AbstractString,
     if found === nothing
         ok, err = mux_start(name, target, mkcmd(target, branch); set = fw.env)
         ok || return err
+        # The first session of ours, perhaps: the pipe is up from here until
+        # the last one ends (`watch_sessions!`).
+        mux_pipe_open()
     else
         mux_rename(found.name, name)
     end

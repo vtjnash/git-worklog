@@ -185,6 +185,17 @@ filtered as wanted.
       seen is the shape, so a slow copy is not cut and a dead one does not
       stand. Not a size: a real copy can be any size.
 
+- [ ] **Two views of one session share its client.** *After `wl` shows more
+      than one pane at a time.* Nothing assumes one pane: TermIFrame's state
+      is per `IFrame` and per client, a pane's watch is its own task, and the
+      command pipe is apart from them. But two views of the *same* session
+      would each attach, and the wake is an `Event` that one waiter takes.
+      The shape: one client per session, counted by the views on it, each
+      view setting its own size (`refresh-client -C`) with `window-size
+      latest` sizing the window to whichever was active last, and one watch
+      per client that wakes the loop for all of them. Not built while
+      `push_place!` closes the last pane before it opens the next.
+
 ## The composer
 
 - [ ] **Undo in the composer.** *After the `^w` you did not mean bites.*

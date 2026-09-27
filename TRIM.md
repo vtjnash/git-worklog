@@ -51,9 +51,9 @@ and a count can rise as code is fixed. What needs Julia itself is in TODO,
 - [ ] **`Source.fetch` and `Source.row` as `Core.TypedCallable`s, once there
       is one.** `sync!`'s sources are the one real callback interface in
       `wl`: three kinds, and the tests' own. Their signatures are settled and
-      written on `Source`; `SyncCtx` is the context's type. The same fits
-      TermIFrame's `iframe` hooks (`onend`, `suspend`, `onerror`), which a
-      library cannot type by its host's types. Waiting on
+      written on `Source`; `SyncCtx` is the context's type. (TermIFrame's
+      `iframe` hooks were the other case, and are gone: the host reads
+      state off the iframe instead - DESIGN, *tmux*.) Waiting on
       JuliaLang/julia#62559 (draft, "Part 1/2", on #62245) and the trim
       support its description leaves to a second part; the RFC is #59774.
 - [ ] **Decide what an unknown container is, on read.** `jget`, `jstr`,

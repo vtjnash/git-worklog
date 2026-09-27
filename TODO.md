@@ -8,9 +8,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next
 
 - [ ] **Push TermIFrame before `wl`.** `wl`'s submodule points at
-      TermIFrame `3b5984e` (`mux_list(tags)`, `MuxRow`), which is only
-      local: push TermIFrame's `main` first, or a fresh clone has no such
-      commit.
+      TermIFrame `3ae3b56` (the command pipe, and no callbacks), which with
+      `3b5984e` under it is only local: push TermIFrame's `main` first, or
+      a fresh clone has no such commit.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
       is fast enough for the suite. `report_package` for the errors it can
@@ -19,69 +19,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       (`activity_list`, the node builders, `thread_seen`, `event_at`,
       `bk_failed`) are `@nospecialize` on purpose. Fix what is real; note
       what is deliberate where it is.
-- [ ] **One control pipe per browser, for all the sessions.** Every `mux(...)`
-      is a `tmux` process today, 3.2 ms each measured; over a control-mode
-      pipe the same `set` is 0.24 ms and `list-panes` 0.06 ms. A control client
-      has to attach to a session to stay open - with any other command
-      `tmux -C` runs it and exits - and attaching to one of ours would count as
-      looking and clear its bell, so each browser parks its own on a hidden
-      session of its own, `_wl-ctl-<pid>`, outside the `wl-` prefix
-      (`-f no-output,ignore-size`; a real session attached beside it was left
-      `attached=0` with its bell standing). It exists only while ours do:
-      opened with the first `wl-` session, the browser's or found at launch,
-      and killed by its browser when the last one ends - `%sessions-changed`
-      on the pipe says when - or when the browser exits; one whose pid is not
-      running is killed by the next browser to open, since it would keep the
-      server up. Commands go down the pipe while it is open and are spawned
-      otherwise, and one-shot commands (`wl unread`) always spawn. Then the
-      bell poll (`watch_sessions!`, every 2 s) can become a subscription,
-      `refresh-client -B`, which is most of the point.
-      - **Any number of panes may be visible at once**, though `wl` shows
-        one today (`push_place!` closes the last). Nothing in TermIFrame
-        assumes one: its state is per `IFrame` and per client. So a shown
-        pane is a control client attached to its session, one per pane, and
-        the command pipe is one per browser beside them. Two views of the
-        *same* session share its client rather than attaching twice: each
-        client sets its own size (`refresh-client -C`), and `window-size
-        latest` sizes the window to whichever was active last.
-      - **Not merged with the panes' clients.** A pane's client ends when its
-        session does - `%exit`, the `session ended` signal. One pipe for
-        both would `switch-client` to each pane and back, and outlive a
-        session only with `detach-on-destroy off`, which moves the client to
-        the session anybody used last: with another session looked at since,
-        the client landed on it and cleared its bell (measured, 3.5a).
-      - **A lock in `MuxClient`, around each ask.** Replies are matched by
-        position (`mux_ask`), so two tasks asking one client at once can each
-        take the other's answer. Only the event loop asks a pane's client
-        today, but the command pipe will be asked from the metadata fetch,
-        the session watch and key handlers, and a second pane is a second
-        caller of whatever draws: one `ReentrantLock` per client, held from
-        the write to the reply, costs nothing uncontended. The reader needs
-        none: it only puts replies on a `Channel` and routes notifications,
-        which tmux never sends inside a reply.
-- [ ] **Review TermIFrame's callbacks: state the host reads, not functions it
-      hands in.** `iframe` takes four, and `mux_open` two, each typed `Any` -
-      a dynamic call under `--trim`, and each a reason for `TypedCallable`
-      that may not be one:
-      - `onwake` / `ondead`: the reader calls it on every `%output` and once
-        at the end, and the host only ever raises a wake (`wake!(ctrl)`).
-        It could be a level the client holds - a `Threads.Condition`, or a
-        flag plus the host's own `Event` - that the host waits on or checks.
-      - `onend`: called once, from `iframe_sync!` - on the host's loop
-        already, not the reader's - when the client is found dead; a string
-        it returns becomes the status. It could be `ended::Bool` (or a
-        `Base.Event`) that the host sees after a sync, doing its own once;
-        the "once, never from a later sync" rule is then the host's to keep.
-      - `suspend`: hands the terminal over for `^]a`. It could be
-        `iframe_input!` answering `:attach` and the host calling
-        `mux_attach` itself, as it does for `:pop`.
-      - `onerror`: a place to log. It could be errors kept on the iframe for
-        the host to take, or the one hook worth keeping.
-      And the settable globals, which the host sets once at init: `MUX_ENV`,
-      `MUX_PREFIX`, `SCRUB_PREFIXES` (`tmux.jl`) - the same shape `MUX_TAGS`
-      had before it became `mux_list`'s argument. Whether each is an
-      argument, a field of a per-host settings value, or fine as it is.
-      Keeps working with several panes visible at once (the item above).
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is

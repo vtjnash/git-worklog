@@ -549,8 +549,9 @@ end
                 @test W.get_field(it.url, "note") === nothing
                 # Once only: a second sync must not read the file again and
                 # undo an edit made in between.
-                @test v.child.onend === nothing
+                @test v.note === nothing
                 @test !W.pane_sync!(v)
+                @test W.get_field(it.url, "note") === nothing
                 pop!(ctrl.stack)
             end
         finally

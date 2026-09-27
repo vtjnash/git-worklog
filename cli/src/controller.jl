@@ -400,11 +400,12 @@ Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
 **One wake on the queue at a time, and never a blocking one.** A wake is a
 level, not a count: the loop that takes it runs every collector there is
 (`onwake!`), so a second one queued behind the first would find nothing left
-to adopt. And the task calling this may be the one the loop is waiting on. A
-hosted pane's control-mode reader calls it once per `%output` line, and the
-loop answers a wake by asking tmux for the screen and blocking on the reply -
-which that same reader has to deliver, after every `%output` line queued in
-front of it. Sixty-four of those and `put!` blocked the reader with the reply
+to adopt. And the task calling this may be one the loop is waiting on. A
+hosted pane's control-mode reader called it once per `%output` line (a pane's
+`watch_pane!` does now, per wake of the client), and the loop answers a wake
+by asking tmux for the screen and blocking on the reply - which that same
+reader has to deliver, after every `%output` line queued in front of it.
+Sixty-four of those and `put!` blocked the reader with the reply
 unread: the ask timed out at five seconds, the client was marked dead, and
 the pane said `session ended` over an empty frame with no reason anywhere. A
 child clearing to the alternate screen, or `git log` into a pager, is that

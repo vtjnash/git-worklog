@@ -519,35 +519,71 @@ function watch_data!(st::BState)
     end
 end
 
-"""How often the sessions are listed for a bell, in seconds.
+"""How often the sessions are listed for a bell, in seconds, while there is
+no pipe to be told on.
 
-One `list-panes` a poll, about 5 ms: nothing against a bell that is the
-difference between an agent waiting and an agent working, and the reason
+One `list-panes` a poll, about 5 ms as a process: nothing against a bell that
+is the difference between an agent waiting and an agent working, and the reason
 this is not a second.
 """
 const SESSIONS_EVERY = Ref(2.0)
 
-"""Hear an agent ring while the browser is elsewhere.
+"""Hear an agent ring while the browser is elsewhere, and keep the command pipe
+up for exactly as long as there are sessions of ours.
 
-The bell is tmux's, and tmux tells nobody: a control client hears `%output`
-for the pane it is on and nothing for any other, and there is no client at all
-while the list is up. So the sessions are listed, every `SESSIONS_EVERY`
-seconds, and a change in who rang is a wake - compared against what
-`refilter!` last read, so a change it already took, `e` silencing a bell or
-`T` looking, wakes nothing, and a wake that reached a view with no list in it
-comes again. Not started where there is no tmux to ask.
+The bell is tmux's, and a pane's client hears `%output` for its own pane and
+nothing for any other. The command pipe (`mux_pipe_open`) is told instead: it
+subscribes to which sessions have a bell standing, which tmux checks once a
+second, and a change in the answer - or a session starting or ending - wakes
+this through `mux_wait`, with nothing listed on a clock. When the last session
+of ours has ended the pipe is closed, since all it would do then is keep a
+server up for itself.
+
+With no pipe - there were no sessions when the browser opened, the server
+refused the subscription (before 3.2), or the pipe died - the sessions are
+listed every `SESSIONS_EVERY` seconds, as they always were, and the pipe is
+opened as soon as there is a session to open it for: one started by another
+`wl` is how that happens while this browser holds none.
+
+Either way a change in who rang is a wake - compared against what `refilter!`
+last read, so a change it already took, `e` silencing a bell or `T` looking,
+wakes nothing, and a wake that reached a view with no list in it comes again.
+Not started where there is no tmux to ask.
 """
 function watch_sessions!(st::BState)
     mux_bin() === nothing && return
-    @async while true
+    @async begin
         try
-            sleep(SESSIONS_EVERY[])
-            rang_urls() == st.rang && continue
-            st.rerang = true
-            wake!(st.wake)
+            isempty(mux_sessions()) || mux_pipe_open()
         catch e
             logerror!(e, catch_backtrace(), "watch_sessions!")
-            return
+        end
+        while true
+            try
+                c = mux_pipe()
+                if c !== nothing && c.bells
+                    mux_wait(c) || continue
+                    if c.sessions
+                        c.sessions = false
+                        isempty(mux_sessions()) && mux_pipe_close()
+                    end
+                else
+                    sleep(SESSIONS_EVERY[])
+                    if c === nothing
+                        none = isempty(mux_sessions())
+                        none || mux_pipe_open()
+                        # Nothing of ours to have rung, and nothing standing to
+                        # go quiet: one process a poll, not two.
+                        none && isempty(st.rang) && continue
+                    end
+                end
+                rang_urls() == st.rang && continue
+                st.rerang = true
+                wake!(st.wake)
+            catch e
+                logerror!(e, catch_backtrace(), "watch_sessions!")
+                return
+            end
         end
     end
 end

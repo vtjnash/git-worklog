@@ -91,12 +91,14 @@ end
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh")
         got = String[]
-        carry = Ref("")
-        c = W.mux_open(n; onoutput = (_, b) -> append!(got, W.passthrough(carry, b)))
+        # What the reader kept, as a host's sync takes it.
+        c = W.mux_open(n)
         @test c !== nothing
         sleep(1.0)
+        W.mux_relay!(c)
         W.mux_keys(c, codeunits("printf '\\033]52;c;d29ya2xvZyBjb3BpZWQ=\\007'\r"))
         sleep(1.5)
+        append!(got, W.mux_relay!(c))
         @test length(got) == 1          # the emitted one, not the echoed text
         @test occursin("d29ya2xvZyBjb3BpZWQ=", got[1])
         # And one longer than an `%output` line: tmux cuts the stream at a few
@@ -111,6 +113,7 @@ end
             W.mux_keys(c, codeunits("sh $f\r"))
             sleep(2.0)
         end
+        append!(got, W.mux_relay!(c))
         @test got == ["\e]52;c;" * b64 * "\a"]
         W.mux_close(c)
         W.mux_kill(n)
@@ -128,10 +131,7 @@ end
         n = "wl-test-control-1"
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf READY; sleep 120'")
-        woke = Ref(0)
-        # Two arguments: the pane, and what it wrote. The bytes are what the
-        # clipboard relay above reads; a redraw only needs to know it happened.
-        c = W.mux_open(n; onoutput = (_, _) -> (woke[] += 1))
+        c = W.mux_open(n)
         @test c !== nothing
         # Attaching emits a reply block of its own; if it were left in the
         # queue every command here would return the previous one's answer.
@@ -142,7 +142,7 @@ end
         @test W.mux_keys(c, "xyz") === true
         sleep(0.5)
         @test occursin("xyz", join(W.mux_capture(c; escapes = false)))
-        @test woke[] > 0                                # %output arrived unasked
+        @test c.outputs > 0                             # %output arrived unasked
         # An error is an answer, and the client keeps working after one.
         ok, lines = W.mux_ask(c, "no-such-command")
         @test ok === false && occursin("unknown command", join(lines))
@@ -172,12 +172,11 @@ end
         n = "wl-test-ended-1"
         W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf bye; sleep 1'")
-        fr, deadwake = Ref{Any}(nothing), Ref(false)
-        f = fr[] = W.iframe(n, "t"; onwake = () -> begin
-                x = fr[]
-                x === nothing || x.client === nothing || !x.client.dead || (deadwake[] = true)
-            end)
+        f = W.iframe(n, "t")
         @test f !== nothing
+        # The pane's own watch: a wake per burst, and one more as it ends.
+        c, deadwake = f.client, Ref(false)
+        @async (while W.mux_wait(c); end; deadwake[] = c.dead)
         box = (60, 8)
         W.iframe_sync!(f, box...)
         t0 = time()

@@ -793,6 +793,22 @@ end
             @test it.url in st.rang && !st.rerang
             take!(wk.events); wk.woken = false; sleep(0.3)
             @test !wk.woken              # nothing changed since, so no wake
+            # And it is not a poll: with a session of ours up, the command pipe
+            # is open and subscribed, and the bell going quiet is heard on it.
+            c = W.mux_pipe()
+            @test c !== nothing && c.bells
+            @test W.mux_seen!(n)
+            for _ in 1:60; wk.woken && break; sleep(0.05); end
+            @test wk.woken && st.rerang
+            @test W.rerang!(st) && isempty(st.rang)
+            take!(wk.events); wk.woken = false
+            # The last session of ours ending closes it, since it would keep a
+            # server up for nothing - unless this server has others of ours.
+            W.mux_kill(n)
+            if isempty(W.mux_sessions())
+                for _ in 1:60; W.mux_pipe() === nothing && break; sleep(0.05); end
+                @test W.mux_pipe() === nothing && c.dead
+            end
         finally
             W.SESSIONS_EVERY[] = 2.0
             W.mux_kill(n)
