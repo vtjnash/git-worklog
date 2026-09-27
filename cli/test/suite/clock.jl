@@ -274,9 +274,9 @@ end
             @test length(ctrl.stack) == 1
             @test occursin("not loaded", st.status)
             st.metakey = it.url
-            st.meta = (requested = ["carol"], teams = ["core"], assignees = String[],
-                       pending = "", fork = "", default = "",
-                       reviews = [(login = "dave", state = "APPROVED", at = "")])
+            st.meta = W.Events.item_meta(requested = ["carol"], teams = ["core"],
+                                         reviews = [(login = "dave", state = "APPROVED",
+                                                     at = "")])
             ch.onpick(:reviewer)
             rv = pop!(ctrl.stack)
             logins = [o[2] for o in rv.options]

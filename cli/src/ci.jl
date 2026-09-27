@@ -58,12 +58,23 @@ function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep
     _checks_shape(out)
 end
 
+"One check of a pull request's head: its name, its state, where it is shown."
+const CheckContext = @NamedTuple{name::String, state::String, url::String}
+
+"""What `check_contexts` answers, and what the pane holds as `st.checks`: the
+rollup's state and every check under it. A type of its own so that the field
+holding it is not `Any`, and every read of it a dynamic call; `checks_of`
+makes one, with the defaults a test leaves out."""
+const Checks = @NamedTuple{state::String, contexts::Vector{CheckContext}}
+checks_of(; state = "", contexts = CheckContext[]) = Checks((state, contexts))
+
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
 _checks_shape(v) =
-    (state = jstr(v, :state, ""),
-     contexts = @NamedTuple{name::String, state::String, url::String}[
-         (name = jstr(c, :name, "?"), state = jstr(c, :state, "?"), url = jstr(c, :url, ""))
-         for c in jlist(v, :contexts)])
+    checks_of(state = jstr(v, :state, ""),
+              contexts = CheckContext[
+                  (name = jstr(c, :name, "?"), state = jstr(c, :state, "?"),
+                   url = jstr(c, :url, ""))
+                  for c in jlist(v, :contexts)])
 
 "`(pipeline, build)` for a Buildkite URL, or nothing."
 function bk_parse(url::AbstractString)

@@ -522,8 +522,7 @@ end
         # is old by; which row is first depends on the order the list opens
         # in, and this is not a test of that.
         it.is_pr && W.cache_put(W.checks_key(it.repo, it.number), Dict("x" => 1))
-        meta = (pending = "", reviews = [], requested = String[], teams = String[],
-                assignees = String[])
+        meta = W.Events.item_meta()
         fin(t) = (wait(t); t)
         # Current: lands, and nothing is armed.
         st.metapending = fin(@async (meta = meta, checks = nothing))
@@ -555,10 +554,9 @@ end
         # nothing.
         st.metakey = it.url
         W.cache_put(W.Events.merge_key(it.url), Dict("mergeable" => "CONFLICTING"))
-        ms = (; id = "x", oid = "o", state = "OPEN", draft = false,
-                mergeable = "CONFLICTING", status = "DIRTY", base = "master",
-                commits = 1, methods = String[],
-                text = Dict{String,Tuple{String,String}}())
+        ms = W.Events.merge_info(id = "x", oid = "o", state = "OPEN",
+                                 mergeable = "CONFLICTING", status = "DIRTY",
+                                 base = "master", commits = 1)
         st.mergepending = fin(@async ms)
         @test W.collect_meta!(st)
         @test st.merge === ms && st.metastale
@@ -593,21 +591,17 @@ end
     # With the metadata fetched, a head in a fork is named `owner/repo:branch`,
     # which is what `gh pr checkout` and a `git fetch` would be told.
     st.metakey = pr.url
-    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
-               assignees = String[], fork = "c/b")
+    st.meta = W.Events.item_meta(fork = "c/b")
     @test says(pr) == "branch    c/b:jn/fix → master"
     # A head in the same repository says nothing about where; a meta built
     # before the field existed - a cache hit from then - is the same.
-    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
-               assignees = String[], fork = "")
+    st.meta = W.Events.item_meta(fork = "")
     @test says(pr) == "branch    jn/fix → master"
-    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
-               assignees = String[])
+    st.meta = W.Events.item_meta()
     @test says(pr) == "branch    jn/fix → master"
     # A base that is not the repository's default branch is said, and coloured
     # as a thing waiting: it is where the change will not land.
-    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
-               assignees = String[], fork = "", default = "master")
+    st.meta = W.Events.item_meta(default = "master")
     @test says(pr) == "branch    jn/fix → master"
     v1 = W.Item(url = pr.url, ref = "a#1", repo = "a/b", number = 1, title = "t",
                 is_pr = true, branch = "jn/fix", base = "v1.x")
@@ -616,8 +610,7 @@ end
     @test occursin(string(W.THEME.waiting, "v1.x"), raw)
     # Unknown - a cache entry from before the field, or no base repo - says
     # nothing rather than marking every base.
-    st.meta = (pending = "", reviews = [], requested = String[], teams = String[],
-               assignees = String[], fork = "", default = "")
+    st.meta = W.Events.item_meta(default = "")
     @test says(v1) == "branch    jn/fix → v1.x"
     # An adopted branch has one and no base; an issue has neither.
     @test says(W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,

@@ -132,7 +132,8 @@ end
     it = st.items[st.sel]
     @test isempty(W.load_drafts())
     st.metakey = it.url
-    st.metapending = schedule(Task(() -> (meta = (pending = "PRR_z",), checks = nothing)))
+    st.metapending = schedule(Task(() -> (meta = W.Events.item_meta(pending = "PRR_z"),
+                                          checks = nothing)))
     wait(st.metapending)
     @test W.collect_meta!(st)
     # Found, marked, and adopted as the batch in hand - a draft from an earlier
@@ -140,7 +141,7 @@ end
     @test haskey(st.drafts, it.url)
     @test st.batch !== nothing && st.batch.url == it.url && st.batch.review == "PRR_z"
     # And gone again, when the item says it is gone.
-    st.metapending = schedule(Task(() -> (meta = (pending = "",), checks = nothing)))
+    st.metapending = schedule(Task(() -> (meta = W.Events.item_meta(), checks = nothing)))
     wait(st.metapending)
     @test W.collect_meta!(st)
     @test !haskey(st.drafts, it.url) && st.batch === nothing
@@ -154,12 +155,10 @@ end
     st = mkstate()
     it = st.items[st.sel]
     st.metakey = it.url
-    ms = (; id = "x", oid = "o", state = "OPEN", draft = false, mergeable = "MERGEABLE",
-            status = "BEHIND", base = "master", commits = 1, methods = String[],
-            text = Dict{String,Tuple{String,String}}())
+    ms = W.Events.merge_info(id = "x", oid = "o", state = "OPEN", mergeable = "MERGEABLE",
+                             status = "BEHIND", base = "master", commits = 1)
     slow = Channel{Bool}(1)
-    meta = (pending = "", reviews = [], requested = String[], teams = String[],
-            assignees = String[])
+    meta = W.Events.item_meta()
     st.metapending = schedule(Task(() -> (meta = meta, checks = nothing)))
     st.mergepending = schedule(Task(() -> (take!(slow); ms)))
     wait(st.metapending)

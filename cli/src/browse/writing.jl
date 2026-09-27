@@ -1142,7 +1142,8 @@ function assignee_action(st::BState, ctrl::Controller, it::Item)
         now = on ? filter(!=(who), have) : sort(vcat(have, who))
         replace_item!(st, with(it; assignees = now))
         # Still this item's: the cursor may have moved while the list was up.
-        st.metakey == it.url && st.meta !== nothing && (st.meta = merge(st.meta, (assignees = now,)))
+        sm = st.meta
+        st.metakey == it.url && sm !== nothing && (st.meta = merge(sm, (assignees = now,)))
         st.status = string(on ? "unassigned " : "assigned ", who)
     end
     push_view!(ctrl, ChooseView(string("Assignee \u00b7 ", it.ref), "\u21b5 toggles one", opts,
@@ -1171,8 +1172,9 @@ function reviewer_action(st::BState, ctrl::Controller, it::Item)
         isempty(r) || (st.status = r; return)
         touch!(it.url)
         now = on ? filter(!=(who), have) : vcat(have, who)
-        st.metakey == it.url && st.meta !== nothing &&
-            (st.meta = merge(st.meta, (requested = filter(x -> !startswith(x, "@"), now),
+        sm = st.meta
+        st.metakey == it.url && sm !== nothing &&
+            (st.meta = merge(sm, (requested = filter(x -> !startswith(x, "@"), now),
                                        teams = String[lstrip(x, '@') for x in now if startswith(x, "@")])))
         st.status = string(on ? "withdrew the request to " : "asked ", who,
                            on ? "" : " to review")

@@ -188,15 +188,15 @@ Base.@kwdef mutable struct BState <: View
                            # indexes a row - n/N, the search, page down - has to
                            # measure against the wrapping the reader is looking
                            # at rather than the one it would have had alone
-    meta::Any = nothing    # Events.itemmeta result for `metakey`, or nothing
-    checks::Any = nothing  # check_contexts result, or nothing
-    merge::Any = nothing   # Events.merge_state result, or nothing: asked for
+    meta::Union{Nothing,Events.ItemMeta} = nothing   # `Events.itemmeta` for `metakey`
+    checks::Union{Nothing,Checks} = nothing         # `check_contexts` for it
+    merge::Union{Nothing,Events.MergeInfo} = nothing  # `Events.merge_state`: asked for
                            # one open pull request at a time, here, because
                            # `mergeable` is what GitHub computes lazily and the
                            # lanes do not ask for it - see `PR_FIELDS`. Its own
                            # task, since it comes back well after the reviews
                            # and the checks do and they should not wait for it
-    mergepending::Any = nothing
+    mergepending::Union{Nothing,Task} = nothing
     bundlepending::Union{Nothing,Task} = nothing   # `fetch_bundle` for `metakey`
     bundletried::String = ""    # the url the bundle was last asked for, so a
                                 # fetch that fails is not asked again every

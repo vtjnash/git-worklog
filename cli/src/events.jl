@@ -1984,14 +1984,28 @@ function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
     _merge_shape(v)
 end
 
+"""What `merge_state` answers, and what the pane holds as `st.merge`. A type
+of its own so that the field is not `Any`; `merge_info` makes one, with the
+defaults a test leaves out."""
+const MergeInfo = @NamedTuple{id::String, oid::String, state::String, draft::Bool,
+                              mergeable::String, status::String, base::String,
+                              commits::Int, methods::Vector{String},
+                              text::Dict{String,Tuple{String,String}}}
+merge_info(; id = "", oid = "", state = "", draft = false, mergeable = "UNKNOWN",
+           status = "UNKNOWN", base = "", commits = 0, methods = String[],
+           text = Dict{String,Tuple{String,String}}()) =
+    MergeInfo((id, oid, state, draft, mergeable, status, base, commits, methods, text))
+
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
-_merge_shape(v) = (id = something(jstr(v, :id)), oid = something(jstr(v, :oid)),
-                   state = something(jstr(v, :state)), draft = jbool(v, :draft, false),
-                   mergeable = something(jstr(v, :mergeable)),
-                   status = something(jstr(v, :status)),
-                   base = something(jstr(v, :base)), commits = something(jint(v, :commits)),
-                   methods = String[String(m) for m in jlist(v, :methods)],
-                   text = merge_text(jobj(v, :text)))
+_merge_shape(v) = merge_info(id = something(jstr(v, :id)), oid = something(jstr(v, :oid)),
+                             state = something(jstr(v, :state)),
+                             draft = jbool(v, :draft, false),
+                             mergeable = something(jstr(v, :mergeable)),
+                             status = something(jstr(v, :status)),
+                             base = something(jstr(v, :base)),
+                             commits = something(jint(v, :commits)),
+                             methods = String[String(m) for m in jlist(v, :methods)],
+                             text = merge_text(jobj(v, :text)))
 
 "The messages under `text`, by method, off either a fetch or the cache."
 function merge_text(t)
@@ -2171,15 +2185,30 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     _meta_shape(v)
 end
 
+"One reviewer's standing verdict: the latest, and when it was given."
+const Review = @NamedTuple{login::String, state::String, at::String}
+
+"""What `itemmeta` answers, and what the pane holds as `st.meta`. A type of
+its own so that the field is not `Any`, and every read of it a dynamic call;
+`item_meta` makes one, with the defaults a test leaves out - and a cache entry
+from before a field existed, through `_meta_shape`."""
+const ItemMeta = @NamedTuple{requested::Vector{String}, teams::Vector{String},
+                             assignees::Vector{String}, pending::String, fork::String,
+                             default::String, reviews::Vector{Review}}
+item_meta(; requested = String[], teams = String[], assignees = String[], pending = "",
+          fork = "", default = "", reviews = Review[]) =
+    ItemMeta((requested, teams, assignees, pending, fork, default, reviews))
+
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
-_meta_shape(v) = (requested = String[String(x) for x in jlist(v, :requested)],
-                  teams = String[String(x) for x in jlist(v, :teams)],
-                  assignees = String[String(x) for x in jlist(v, :assignees)],
-                  pending = jstr(v, :pending, ""),
-                  fork = jstr(v, :fork, ""),
-                  default = jstr(v, :default, ""),
-                  reviews = @NamedTuple{login::String, state::String, at::String}[
-                      (login = jstr(r, :login, ""), state = jstr(r, :state, ""),
-                       at = jstr(r, :at, "")) for r in jlist(v, :reviews)])
+_meta_shape(v) = item_meta(requested = String[String(x) for x in jlist(v, :requested)],
+                           teams = String[String(x) for x in jlist(v, :teams)],
+                           assignees = String[String(x) for x in jlist(v, :assignees)],
+                           pending = jstr(v, :pending, ""),
+                           fork = jstr(v, :fork, ""),
+                           default = jstr(v, :default, ""),
+                           reviews = Review[(login = jstr(r, :login, ""),
+                                             state = jstr(r, :state, ""),
+                                             at = jstr(r, :at, ""))
+                                            for r in jlist(v, :reviews)])
 
 end # module Events

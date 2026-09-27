@@ -1850,10 +1850,9 @@ end
             number = 1, title = "t", is_pr = true)
     says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
                               if occursin("mergeable", l)], " "))
-    ms(; kw...) = (; id = "x", oid = "o", state = "OPEN", draft = false,
-                     mergeable = "MERGEABLE", status = "CLEAN", base = "master",
-                     commits = 1, methods = String[], text = Dict{String,Tuple{String,String}}(),
-                     kw...)
+    ms(; kw...) = W.Events.merge_info(; id = "x", oid = "o", state = "OPEN",
+                                      mergeable = "MERGEABLE", status = "CLEAN",
+                                      base = "master", commits = 1, kw...)
     # Nothing until it has been asked, and nothing once the pull request is
     # over: a merged one has no merge left to be possible.
     @test says(W.Item(; base..., state = "OPEN")) == ""

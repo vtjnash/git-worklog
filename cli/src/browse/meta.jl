@@ -93,7 +93,7 @@ function start_meta!(st::BState, it::Item, how::Symbol)
                 how === :quiet ? (CACHE_FRESH[], CACHE_FRESH[]) :
                                  (CACHE_FRESH[], CACHE_KEEP[])
     mttl = how === :fresh ? 0.0 :
-           how === :quiet && st.merge !== nothing && st.merge.mergeable == "CONFLICTING" ?
+           how === :quiet && (mg = st.merge) !== nothing && mg.mergeable == "CONFLICTING" ?
                CACHE_FRESH[] : MERGE_FRESH[]
     mkeep = how === :load ? CACHE_KEEP[] : mttl
     tag = how === :load ? "" : how === :quiet ? " quiet" : " fresh"
@@ -262,8 +262,9 @@ function collect_meta!(st::BState)
     # writes comments, and a review submitted from github.com would leave one
     # standing forever - so what the metadata says about the item on screen is
     # taken as the answer, in both directions.
-    if st.meta !== nothing && !isempty(st.metakey)
-        if !isempty(get(st.meta, :pending, ""))
+    sm = st.meta                    # a local, so the test narrows it
+    if sm !== nothing && !isempty(st.metakey)
+        if !isempty(sm.pending)
             haskey(st.drafts, st.metakey) ||
                 (draft!(st.metakey); st.drafts = load_drafts())
             # Adopted only when the batch in hand is nothing or is this item's
@@ -273,7 +274,7 @@ function collect_meta!(st::BState)
             if st.batch === nothing || st.batch.url == st.metakey
                 i = findfirst(x -> x.url == st.metakey, st.all)
                 i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref,
-                                                    st.meta.pending,
+                                                    sm.pending,
                                                     st.batch === nothing ? 0 : st.batch.n))
             end
         elseif haskey(st.drafts, st.metakey)
@@ -485,8 +486,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # what `wl unread` prints as `why`, and what moved is the `why` here.
     kv("lane", it.lane)
     kv("author", it.author)
-    st.meta === nothing || isempty(st.meta.assignees) ||
-        kv("assignee", join(st.meta.assignees, ", "))
+    sm = st.meta
+    sm === nothing || isempty(sm.assignees) || kv("assignee", join(sm.assignees, ", "))
     # The branch, and where it is going, in the form `git` and `gh` take:
     # `owner/repo:branch` when the head lives in a fork, which the lanes do
     # not say and the metadata fetch does. An adopted branch has one and no
@@ -494,8 +495,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # branch - `v1.x` on libuv, a backport branch anywhere - is the one fact
     # on this row worth a colour: it says where the change will *not* land.
     if !isempty(it.branch)
-        fork = st.meta === nothing ? "" : String(get(st.meta, :fork, ""))
-        default = st.meta === nothing ? "" : String(get(st.meta, :default, ""))
+        fork = sm === nothing ? "" : sm.fork
+        default = sm === nothing ? "" : sm.default
         offbase = !isempty(default) && !isempty(it.base) && it.base != default
         kv("branch", string(isempty(fork) ? "" : string(fork, ":"), it.branch,
                             isempty(it.base) ? "" :
