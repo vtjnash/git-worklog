@@ -136,7 +136,7 @@ function wake_after!(st::BState, secs::Real)
     w === nothing && return false
     @async begin
         sleep(max(0.0, secs))
-        w()
+        wake!(w)
     end
     true
 end
@@ -212,7 +212,7 @@ function load_nodes!(st::BState)
         try
             mode_nodes(mode, it, at)
         finally
-            st.wake === nothing || st.wake()   # redraw as soon as this lands
+            wake!(st.wake)                        # redraw as soon as this lands
         end
     end
 end
@@ -266,7 +266,7 @@ function refresh_nodes!(st::BState; fresh::Bool = true)
         try
             mode_nodes(mode, it, at; fresh)
         finally
-            st.wake === nothing || st.wake()
+            wake!(st.wake)
         end
     end
     true
@@ -509,7 +509,7 @@ function watch_data!(st::BState)
             ours(joinpath(dir, String(name))) && continue
             sleep(0.25)
             st.reload = true
-            st.wake === nothing || st.wake()
+            wake!(st.wake)
         catch
             # A directory that has gone away, or a watch the kernel dropped:
             # there is nothing on screen this can be reported to, and the
@@ -544,7 +544,7 @@ function watch_sessions!(st::BState)
             sleep(SESSIONS_EVERY[])
             rang_urls() == st.rang && continue
             st.rerang = true
-            st.wake === nothing || st.wake()
+            wake!(st.wake)
         catch e
             logerror!(e, catch_backtrace(), "watch_sessions!")
             return
@@ -607,7 +607,7 @@ function refresh_all!(st::BState)
         end
         st.refreshsaid = said
         st.reload = true
-        st.wake === nothing || st.wake()
+        wake!(st.wake)
     end
     "refreshing \u2026"
 end

@@ -75,7 +75,7 @@ end
     try
         api = "https://api.github.com/repos/o/r"
         threads = Ref(Any[])
-        srcs = [(label = "notifications", fetch = since -> threads[],
+        srcs = [E.Source(label = "notifications", fetch = (since, _) -> (threads[], nothing),
                  overlap = E.OVERLAP_REST, row = (t, _) -> E.thread_row(t, "me"; fetch = nothing))]
         now_ = Ref(W.DateTime(2026, 9, 20, 12))
         poll(at) = (now_[] = at;
@@ -128,7 +128,8 @@ end
         @test isempty(E.load_inbox()["noticed"])
         # A source that is not the notifications makes no notice of a row it
         # cannot read: it is skipped, as before.
-        other = [(label = "o/r", fetch = since -> Any[rel], overlap = E.OVERLAP_REST,
+        other = [E.Source(label = "o/r", fetch = (since, _) -> (Any[rel], nothing),
+                          overlap = E.OVERLAP_REST,
                   row = (r, _) -> nothing)]
         said = IOBuffer()
         W.reporting(() -> E.sync!(other, W.DateTime(2026, 9, 22, 13); now = () -> W.DateTime(2026, 9, 22, 13),

@@ -415,7 +415,7 @@ end
 """Who an activity entry is by: the commenter, the reviewer, whoever changed
 the state, and for a run of pushes its last commit's author."""
 entry_by(e) = e.kind === :comment ? jstr(jobj(e.c, :user), :login, "") :
-              e.kind === :push ? jstr(e.c[end], :by, "") : jstr(e.c, :by, "")
+              e.kind === :push ? jstr(last(anylist(e.c)), :by, "") : jstr(e.c, :by, "")
 
 """The thread pane of an adopted branch, which has no thread.
 

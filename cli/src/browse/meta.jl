@@ -117,7 +117,7 @@ function start_meta!(st::BState, it::Item, how::Symbol)
             (meta = nothing, checks = nothing, sessions = String[], taken = NamedTuple[],
              err = first(sprint(showerror, e), 120))
         finally
-            st.wake === nothing || st.wake()
+            wake!(st.wake)
         end
     end
     # Whether it can be merged is asked here and nowhere else: the lanes do
@@ -137,7 +137,7 @@ function start_meta!(st::BState, it::Item, how::Symbol)
             catch
                 nothing
             finally
-                st.wake === nothing || st.wake()
+                wake!(st.wake)
             end
         end : nothing
     if how === :fresh || (how === :quiet && st.bundletried != it.url &&
@@ -149,7 +149,7 @@ function start_meta!(st::BState, it::Item, how::Symbol)
             catch
                 nothing
             finally
-                st.wake === nothing || st.wake()
+                wake!(st.wake)
             end
         end
     end

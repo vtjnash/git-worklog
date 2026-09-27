@@ -130,8 +130,8 @@ end
         W.DATA_DIR[] = d
         write(joinpath(d, "fetched.json"), "{}")
         st = W.BState(W.Item[], "watched")
-        woke = Ref(0)
-        st.wake = () -> (woke[] += 1)
+        ctrl = W.Controller(); ctrl.running = true
+        st.wake = ctrl
         W.watch_data!(st)
         # Not every file in there is on screen: the cache changes on every
         # fetch this program makes, and waking for that would be a wakeup per
@@ -143,7 +143,7 @@ end
         while !st.reload && time() - t0 < 10
             sleep(0.1)
         end
-        @test st.reload && woke[] >= 1
+        @test st.reload && ctrl.woken
     finally
         W.DATA_DIR[] = was
     end
@@ -785,15 +785,15 @@ end
             # The poll notices a change the frame has not taken, and only that.
             @test W.rang_urls() != st.rang
             st.rerang = false
-            woke = Ref(false); st.wake = () -> woke[] = true
+            wk = W.Controller(); wk.running = true; st.wake = wk
             W.SESSIONS_EVERY[] = 0.05
             W.watch_sessions!(st)
-            for _ in 1:40; woke[] && break; sleep(0.05); end
-            @test woke[] && st.rerang
+            for _ in 1:40; wk.woken && break; sleep(0.05); end
+            @test wk.woken && st.rerang
             @test W.rerang!(st)          # the wake's half: the sessions taken again
             @test it.url in st.rang && !st.rerang
-            woke[] = false; sleep(0.3)
-            @test !woke[]                # nothing changed since, so no wake
+            take!(wk.events); wk.woken = false; sleep(0.3)
+            @test !wk.woken              # nothing changed since, so no wake
         finally
             W.SESSIONS_EVERY[] = 2.0
             W.mux_kill(n)

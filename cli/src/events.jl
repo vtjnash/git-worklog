@@ -186,7 +186,7 @@ function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), au
     d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
     started = d === nothing ? nothing :
               d - Millisecond(round(Int, 1000 * elapsed)) - Second(1)
-    (v isa AbstractVector ? v : Any[v], started)
+    (v isa Vector{Any} ? v : v isa AbstractVector ? anylist(v) : Any[v], started)
 end
 
 """Page explicitly rather than by following Link headers.
@@ -747,15 +747,37 @@ few dozen threads a day is one in ten polls."""
 const OVERLAP_REST = Second(5 * 60)
 const OVERLAP_SEARCH = Second(15 * 60)
 
+"""What `sync!` hands a source's `fetch` beside the floor: the inbox's rows,
+and whether the notifications are being asked wide (`expect!`)."""
+const SyncCtx = @NamedTuple{items::Dict{String,Any}, wide::Bool}
+
+"""One place the inbox is polled from; `sources` makes them, and a test makes
+its own.
+
+    fetch(since::String, ctx::SyncCtx) -> (rows, started::Union{Nothing,DateTime})
+    row(r, first::Bool) -> the inbox row, or nothing
+
+The two are fields typed `Any`, so each call of one is a dynamic call - under
+`--trim` too. The signatures above are the types a `Core.TypedCallable` would
+be given, once there is one (TRIM.md, "The plan"); until then this is the
+contract `sync!` asserts on what comes back.
 """
-    sources(cfg, login; verbose) -> [(; label, fetch, overlap, row), ...]
+Base.@kwdef struct Source
+    label::String
+    fetch::Any
+    overlap::Second
+    row::Any
+end
+
+"""
+    sources(cfg, login; verbose) -> Vector{Source}
 
 Every source the inbox is polled from, in the order they are asked. `fetch`
 takes a `since` stamp and returns `(rows, started)` - the raw rows and a lower
-bound on GitHub's time when the first request began, see `api_get_dated` -
-or bare rows, for which the bound is asked of the clock; `row` takes one raw
-row and whether this is the source's first sight (the backfill), and returns
-the entry to write or `nothing` to skip it.
+bound on GitHub's time when the first request began, see `api_get_dated`, or
+`nothing`, for which the bound is asked of the clock; `row` takes one raw row
+and whether this is the source's first sight (the backfill), and returns the
+entry to write or `nothing` to skip it.
 
 Three kinds. A repo named in `[events] repos` is one REST list with `since=`,
 exact. An `owner/*` entry is every repo that owner has, asked as one search
@@ -781,10 +803,12 @@ function sources(cfg, login; verbose::Bool = true)
     explicit, owners, bad = event_sources(jstrs(cfge, :repos))
     verbose && !isempty(bad) &&
         @printf(warning(), "    ignoring %s: only `owner/*` is a pattern\n", join(bad, ", "))
-    srcs = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}[]
-    p = pat()
-    if p !== nothing
-        p = p[1]
+    srcs = Source[]
+    pt = pat()
+    if pt !== nothing
+        # A name of its own, not `p = p[1]`: the closures below capture it, and
+        # a captured variable assigned twice is boxed, every read of it untyped.
+        p = pt[1]
         # `all=true`, because GitHub's read state is not this program's: a
         # thread read on github.com and then moved again is still news here.
         # `since` there is compared against when the thread last *notified*,
@@ -810,7 +834,7 @@ function sources(cfg, login; verbose::Bool = true)
         # repository's traffic stays a thin row, as a poll's own would be,
         # and is filled in when it next moves or is looked at. Steady state
         # fetches every subject: a few dozen a day.
-        push!(srcs, (label = "notifications",
+        push!(srcs, Source(label = "notifications",
                      fetch = (since, ctx) -> begin
             st = Ref{Any}(nothing)
             # **Wide**, while a notification is known to be late - `sync!`
@@ -865,7 +889,7 @@ function sources(cfg, login; verbose::Bool = true)
                 "notifications", patfile())
     end
     for repo in explicit
-        push!(srcs, (label = repo,
+        push!(srcs, Source(label = repo,
                      fetch = (since, _) -> begin
             st = Ref{Any}(nothing)
             rows = walk_updated(since; started = st) do floor_, n
@@ -882,7 +906,7 @@ function sources(cfg, login; verbose::Bool = true)
     # by a source that actually polls.
     keep = keep_forks(cfge)
     for owner in owners, kind in ("is:issue", "is:pull-request")
-        push!(srcs, (label = string(owner, "/* ", kind),
+        push!(srcs, Source(label = string(owner, "/* ", kind),
                      fetch = (since, _) -> begin
             st, cut = Ref{Any}(nothing), Ref(false)
             its, total = search_issues("user:$owner $kind", since; started = st, cut = cut)
@@ -972,7 +996,7 @@ sources' own fetches - the server's clock, and who wrote the newest comment
 on a row awaited past the grace - and both are arguments so a test says what
 they answer, the way it says when now is.
 """
-function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
+function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0),
                now = server_now, watched = watched_repos, login = Worklog.login(),
                lastby = last_comment_by)
     inbox = load_inbox()
@@ -1001,7 +1025,8 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
     due(label) = (last = get(polled, label, nothing);
                   t = last === nothing ? nothing : ts(last);
                   t === nothing || at - t >= ttl)
-    for (label, fetch, overlap, torow) in srcs
+    for src in srcs
+        label, overlap = src.label, src.overlap
         due(label) || continue
         first = !haskey(cursors, label)
         if first
@@ -1018,8 +1043,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
         wide = label == "notifications" && haskey(inbox, "wide")
         s_ = stamp(ts(cur) - (wide ? Day(1) : overlap))
         answer = try
-            ctx = (items = items, wide = wide)
-            applicable(fetch, s_, ctx) ? fetch(s_, ctx) : fetch(s_)   # a test's takes one
+            src.fetch(s_, SyncCtx((items, wide)))
         catch e
             e isa ApiError || rethrow()
             @printf(warning(), "    %-24s FAILED: %s\n", label, e.msg)
@@ -1033,12 +1057,13 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
             continue
         end
         delete!(failed, label)
-        rows, started = answer isa Tuple ? answer : (answer, nothing)
+        rows = anylist(answer[1])
+        started = answer[2]::Union{Nothing,DateTime}
         started === nothing && (started = now())
         skipped = 0
         notices = Pair{String,Vector{Pair{String,Any}}}[]
         for r in rows
-            row = torow(r, first)
+            row = src.row(r, first)
             if row === nothing
                 n = label == "notifications" ? notice_row(r) : nothing
                 if n === nothing

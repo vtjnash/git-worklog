@@ -487,7 +487,7 @@ end
         @test st2.pending !== nothing
         # The wake is armed once per selection, not once per key while it waits.
         st3 = mkstate()
-        woke = Ref(0); st3.wake = () -> (woke[] += 1)
+        st3.wake = W.Controller()
         st3.selurl = ""; st3.selat = 0.0
         @test W.held!(st3, false, 100.0) == false          # selat is long ago
         st3.selat = 100.0
@@ -598,6 +598,28 @@ end
         @test fresh.reviews == [(login = "carol", state = "APPROVED", at = "2026-09-01T00:00:00Z")]
         W.cache_put("meta", v)
         @test W.Events._meta_shape(W.cache_get("meta", 60.0)[1]) == fresh
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+end
+
+@testset "a build's jobs read the same fresh as from the cache" begin
+    # `bk_jobs` writes what it fetched to the cache, and a hit reads it back as
+    # parsed JSON; both come out as `BkJob`s. An entry from before `exit`
+    # could be null said `""` for a job that had not exited.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        b = (org = "o", pipeline = "p", build = "7")
+        jobs = [W.BkJob("tests", "failed", 1, "a"), W.BkJob("docs", "passed", 0, "b"),
+                W.BkJob("deploy", "canceled", nothing, "c")]
+        W.cache_put("bkjobs:o/p/7",
+                    [(name = j.name, state = j.state, exit = j.exit, id = j.id) for j in jobs])
+        @test W.bk_jobs(b) == jobs
+        @test W.bk_failed(W.bk_jobs(b)) == jobs[1:1]
+        W.cache_put("bkjobs:o/p/7", [(name = "old", state = "running", exit = "", id = "d")])
+        @test W.bk_jobs(b) == [W.BkJob("old", "running", nothing, "d")]
+        @test isempty(W.bk_failed(W.bk_jobs(b)))
     finally
         W.CACHE_DIR[] = keepdir
     end

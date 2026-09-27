@@ -88,31 +88,45 @@ function _curl_json(url)
     JSON.parse(out)
 end
 
+"""One job of a Buildkite build: `exit` is `nothing` until it has exited.
+
+One type whether the jobs were fetched or read back from the cache, which
+kept them as objects: the two used to be a `NamedTuple` and a `JSON.Object`,
+read alike only because both answer `j.state`."""
+struct BkJob
+    name::String
+    state::String
+    exit::Union{Nothing,Int}
+    id::String
+end
+"A job as the cache kept it. An entry from before `exit` could be null has `\"\"` there."
+bk_job(@nospecialize(j)) = BkJob(jstr(j, :name, "?"), jstr(j, :state, "?"), jint(j, :exit),
+                                 jstr(j, :id, ""))
+
 """Every job in a build.
 
 Uses the build page's own /data/jobs endpoint. `builds/<n>.json` looks like the
 obvious choice and is a trap: anonymously it returns build metadata with an
 empty jobs array, so job discovery through it silently finds nothing.
 """
-function bk_jobs(b; ttl = 300.0)
+function bk_jobs(b; ttl = 300.0)::Vector{BkJob}
     key = string("bkjobs:", b.org, "/", b.pipeline, "/", b.build)
     hit = cache_get(key, ttl)
-    hit === nothing || return hit[1]
+    hit === nothing || return BkJob[bk_job(j) for j in anylist(hit[1])]
     out = try
         d = _curl_json("https://buildkite.com/$(b.org)/$(b.pipeline)/builds/$(b.build)/data/jobs")
-        [(name = String(get(j, :name, "?")), state = String(get(j, :state, "?")),
-          exit = something(get(j, :exit_status, nothing), ""),
-          id = String(get(j, :id, ""))) for j in d.records]
+        BkJob[BkJob(jstr(j, :name, "?"), jstr(j, :state, "?"), jint(j, :exit_status),
+                    jstr(j, :id, "")) for j in jlist(d, :records)]
     catch
-        NamedTuple[]
+        BkJob[]
     end
-    cache_put(key, out)
+    cache_put(key, [(name = j.name, state = j.state, exit = j.exit, id = j.id) for j in out])
     out
 end
 
-bk_failed(@nospecialize(jobs)) = [j for j in jobs
-                   if j.state in ("failed", "broken", "timed_out") ||
-                      (j.exit isa Integer && j.exit != 0)]
+bk_failed(jobs::Vector{BkJob}) = BkJob[j for j in jobs
+                                       if j.state in ("failed", "broken", "timed_out") ||
+                                          (j.exit !== nothing && j.exit != 0)]
 
 """Tail of a job's log.
 

@@ -182,17 +182,17 @@ end
     try
         asks = Dict{String,String}()
         srcs = [
-            (label = "notifications",
-             fetch = since -> (asks["notifications"] = since; [
+            E.Source(label = "notifications",
+             fetch = (since, _) -> (asks["notifications"] = since; (Any[
                  thread("https://api.github.com/repos/o/r/pulls/7", "PullRequest"),
                  thread("https://api.github.com/repos/o/r/issues/9", "Issue";
                         reason = "subscribed", at = "2026-09-10T00:00:00Z"),
                  thread("https://api.github.com/repos/o/r/releases/5", "Release";
-                        at = "2026-09-11T00:00:00Z")]),
+                        at = "2026-09-11T00:00:00Z")], nothing)),
              overlap = E.OVERLAP_REST,
              row = (t, _) -> E.thread_row(t, "me"; fetch = p -> [issue])),
-            (label = "o/r",
-             fetch = since -> (asks["o/r"] = since; [issue]),
+            E.Source(label = "o/r",
+             fetch = (since, _) -> (asks["o/r"] = since; (Any[issue], nothing)),
              overlap = E.OVERLAP_REST,
              row = (r, _) -> E.issue_row(r, "me")),
         ]
@@ -245,8 +245,8 @@ end
         # A source that answers with its own bound - the first request's
         # `Date` less its length - sets the cursor from that, and the clock is
         # not asked at all.
-        dated = [(label = "o/r",
-                  fetch = since -> ([issue], W.DateTime(2026, 9, 13, 12, 20, 30)),
+        dated = [E.Source(label = "o/r",
+                  fetch = (since, _) -> (Any[issue], W.DateTime(2026, 9, 13, 12, 20, 30)),
                   overlap = E.OVERLAP_REST, row = (r, _) -> E.issue_row(r, "me"))]
         E.sync!(dated, at + W.Minute(30); now = () -> error("the page said when"), watched = () -> Set{String}())
         @test E.load_inbox()["cursors"]["o/r"] == "2026-09-13T12:20:30Z"
@@ -314,11 +314,12 @@ end
     isfile(W.errlog()) && rm(W.errlog())
     try
         broken = Ref(true)
-        srcs = [(label = "o/r",
-                 fetch = since -> broken[] ? throw(E.ApiError("401 Bad credentials")) : [],
+        srcs = [E.Source(label = "o/r",
+                 fetch = (since, _) -> broken[] ? throw(E.ApiError("401 Bad credentials")) :
+                                                  (Any[], nothing),
                  overlap = E.OVERLAP_REST, row = (r, _) -> nothing),
-                (label = "p/q", fetch = since -> [], overlap = E.OVERLAP_REST,
-                 row = (r, _) -> nothing)]
+                E.Source(label = "p/q", fetch = (since, _) -> (Any[], nothing),
+                 overlap = E.OVERLAP_REST, row = (r, _) -> nothing)]
         at = W.DateTime(2026, 9, 17, 9, 0)
         said = IOBuffer()
         _, r = W.reporting(() -> E.sync!(srcs, at; now = () -> at, watched = () -> Set{String}()), said)
@@ -345,7 +346,7 @@ end
         @test occursin("delete it to clear", W.standing_note(at, fs))  # behind an error
         rm(W.errlog())
         # A second failing source is counted, not listed.
-        E.sync!([(label = "z/z", fetch = since -> throw(E.ApiError("500")),
+        E.sync!([E.Source(label = "z/z", fetch = (since, _) -> throw(E.ApiError("500")),
                   overlap = E.OVERLAP_REST, row = (r, _) -> nothing)],
                 at + W.Minute(1); now = () -> at, watched = () -> Set{String}())
         fs2 = E.failing()
@@ -1135,7 +1136,8 @@ end
         @test W.seen_of(W.with(mine; moved_at = "2026-09-13T17:00:00Z"), m2) === :unread
         # And the notifications source names itself where its cursor starts.
         E = W.Events
-        E.sync!([(label = "notifications", fetch = since -> Any[], overlap = E.OVERLAP_REST,
+        E.sync!([E.Source(label = "notifications", fetch = (since, _) -> (Any[], nothing),
+                          overlap = E.OVERLAP_REST,
                   row = (t, _) -> nothing)], W.DateTime(2026, 9, 13, 18);
                 now = () -> W.DateTime(2026, 9, 13, 18), watched = () -> Set{String}())
         @test W.source_since()["notifications"] == "2026-09-13T18:00:00Z"
@@ -1519,9 +1521,10 @@ end
         U(n) = "https://github.com/o/r/issues/$n"
         polls = Ref(Any[]); threads = Ref(Any[]); asks = String[]
         srcs = [
-            (label = "notifications", fetch = (since, ctx) -> (push!(asks, since); (threads[], nothing)),
+            E.Source(label = "notifications",
+                     fetch = (since, ctx) -> (push!(asks, since); (threads[], nothing)),
              overlap = E.OVERLAP_REST, row = (t, _) -> E.thread_row(t, "me"; fetch = nothing)),
-            (label = "o/r", fetch = since -> polls[], overlap = E.OVERLAP_REST,
+            E.Source(label = "o/r", fetch = (since, _) -> (polls[], nothing), overlap = E.OVERLAP_REST,
              row = (r, _) -> E.issue_row(r, "me")),
         ]
         watched = () -> Set(["o/r"])

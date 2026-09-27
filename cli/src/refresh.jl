@@ -146,7 +146,7 @@ function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString
         light = jpath(n, :reviewThreads, :nodes) === nothing   # firehose record: no thread/review data
         threads = jnodes(n, :reviewThreads)
         reviews = jnodes(n, :reviews)
-        mine_reviews = [r for r in reviews
+        mine_reviews = Any[r for r in reviews
                         if jstr(jobj(r, :author), :login) == login && jstr(r, :submittedAt) !== nothing]
         rec["branch"] = something(jget(n, :headRefName), "")
         # And whose repository that branch is in: a fork's pull request from

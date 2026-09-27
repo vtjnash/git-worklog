@@ -51,7 +51,7 @@ function check_nodes(it::Item; fresh::Bool = false)
         isempty(failed) && continue
         for j in failed
             jn = Node(string(THEME.blocked, rpad(j.state, 10), THEME.reset, j.name,
-                             j.exit == "" ? "" : string("  (exit ", j.exit, ")")),
+                             j.exit === nothing ? "" : string("  (exit ", j.exit, ")")),
                       "press l to fetch this job's log", :plain, false, 1)
             jn.meta["bk"] = b
             jn.meta["job"] = j.id

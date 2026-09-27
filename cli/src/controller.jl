@@ -418,6 +418,8 @@ function wake!(ctrl::Controller)
     put!(ctrl.events, WakeEvent())
     true
 end
+"`wake!` the controller a view was handed, if it was handed one."
+wake!(::Nothing) = false
 
 """A view whose frame holds colours it worked out before now - rendered rows,
 headers built with the theme's escapes in them - drops them, because the theme

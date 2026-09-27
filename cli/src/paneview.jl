@@ -750,7 +750,7 @@ mutable struct WorktreeView <: View
     atop::Int
     status::String
     pending::Union{Nothing,Task}    # the dirty pass, which is the slow half
-    wake::Any
+    wake::Union{Nothing,Controller} # the browser's, to draw when the dirty pass lands
     onitem::Any                     # (Item) -> String, supplied by the browser
     onadopt::Any                    # (repo, branch, take::Bool) -> String
     source::Any                     # () -> Vector{Item}, re-read on every reload
@@ -807,7 +807,7 @@ function dirty_pass!(v::WorktreeView)
         catch
             Dict{String,Tuple{Bool,Bool}}()
         finally
-            v.wake === nothing || v.wake()
+            wake!(v.wake)
         end
         r
     end

@@ -50,7 +50,7 @@ function browse(items::Vector{Item}, title::AbstractString)
     st = BState(collect(items), String(title))
     restore_view!(st)
     ctrl = Controller()
-    st.wake = () -> wake!(ctrl)
+    st.wake = ctrl
     watch_data!(st)
     watch_sessions!(st)
     try
@@ -497,7 +497,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # request it belongs to because a filter is hiding it elsewhere.
         push_place!(ctrl, worktree_view(st.all;
                                         source = () -> st.all,
-                                        wake = () -> wake!(ctrl),
+                                        wake = ctrl,
                                         onitem = x -> select_item!(st, x),
                                         onadopt = (repo, br, take) ->
                                             take ? adopt!(st, repo, br, at) :

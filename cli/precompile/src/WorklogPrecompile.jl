@@ -411,12 +411,11 @@ end
 # still compiled after the workload. `precompile` answers `false` rather than
 # failing, so each is checked: a signature that stops matching is a line doing
 # nothing, and says so while the image is built.
-const Source = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}
 for (f, sig) in (
         (Worklog.inbox_items, (Set{String}, Vector{Worklog.OrderedDict{String,Any}})),
         (Worklog.Events.event_sources, (Vector{String},)),
         (Core.kwcall, (NamedTuple{(:login, :ttl, :backfill),Tuple{String,Millisecond,Day}},
-                       typeof(Worklog.Events.sync!), Vector{Source}, DateTime)),
+                       typeof(Worklog.Events.sync!), Vector{Worklog.Events.Source}, DateTime)),
         (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},Worklog.Events.GitHub.OAuth2}},
                        typeof(Worklog.Events.api_get_dated), String)),
         (Worklog.readevent, (Base.TTY,)))

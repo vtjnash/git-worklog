@@ -62,14 +62,17 @@ end
 """One thing a pane is to keep seeing.
 
 `var` is what the pane is handed, `link` where under [`rundir`](@ref) the link
-is. `own` is this process's value for it, `live` whether a value still
-answers, and `what` is what to call it when nothing does.
+is, and `what` is what to call it when nothing is live. A `:socket` is this
+process's value of the variable `from`, live while something listens there; an
+`:exe` is the program `from` on this process's `PATH`, live while it can be
+run. Data rather than two closures a forward carries: there are two kinds, and
+a field holding a function is a call nothing can see into.
 """
 struct Forward
     var::String
     link::String
-    own::Function
-    live::Function
+    kind::Symbol          # :socket or :exe
+    from::String
     what::String
 end
 
@@ -92,17 +95,18 @@ function live_socket(path::AbstractString)
     true
 end
 
-"This process's `code`, or `\"\"`."
-own_code() = something(Sys.which("code"), "")
+"This process's value for `f`, or `\"\"`."
+own_value(f::Forward) = f.kind === :exe ? something(Sys.which(f.from), "") : get(ENV, f.from, "")
+
+"Whether `path` still answers for `f`."
+is_live(f::Forward, path::AbstractString) =
+    f.kind === :exe ? isfile(path) && Sys.isexecutable(path) : live_socket(path)
 
 const FORWARDS = [
-    Forward("SSH_AUTH_SOCK", "agent.sock", () -> get(ENV, "SSH_AUTH_SOCK", ""),
-            live_socket, "ssh agent"),
-    Forward("VSCODE_IPC_HOOK_CLI", "vscode-ipc.sock", () -> get(ENV, "VSCODE_IPC_HOOK_CLI", ""),
-            live_socket, "VS Code"),
+    Forward("SSH_AUTH_SOCK", "agent.sock", :socket, "SSH_AUTH_SOCK", "ssh agent"),
+    Forward("VSCODE_IPC_HOOK_CLI", "vscode-ipc.sock", :socket, "VSCODE_IPC_HOOK_CLI", "VS Code"),
     # On the pane's `PATH`, in front, and not a variable of its own.
-    Forward("PATH", joinpath("bin", "code"), own_code,
-            p -> isfile(p) && Sys.isexecutable(p), "code"),
+    Forward("PATH", joinpath("bin", "code"), :exe, "code", "code"),
 ]
 
 """Point `link` at this process's own value when that is live, and answer with
@@ -118,12 +122,12 @@ point at itself.
 """
 function point!(link::AbstractString, f::Forward)
     cur = islink(link) ? (try realpath(link) catch; "" end) : ""
-    own = try realpath(f.own()) catch; "" end
-    if !isempty(own) && own != link && f.live(own)
+    own = try realpath(own_value(f)) catch; "" end
+    if !isempty(own) && own != link && is_live(f, own)
         own == cur || relink(link, own)
         return own
     end
-    !isempty(cur) && f.live(cur) ? cur : ""
+    !isempty(cur) && is_live(f, cur) ? cur : ""
 end
 
 """Replace `link` with one to `target`, as one step: a `git push` in a pane at

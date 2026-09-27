@@ -47,7 +47,7 @@
     else
         st = W.BState(W.loaditems(), "worklog")
         ctrl = W.Controller(); ctrl.running = true
-        st.wake = () -> W.wake!(ctrl); push!(ctrl.stack, st)
+        st.wake = ctrl; push!(ctrl.stack, st)
         n = "wl-test-split-1"; W.mux_kill(n)
         W.mux_start(n, pwd(), "sh -c 'printf MARKER; sleep 120'")
         v = W.pane_view(n, "child", ctrl)

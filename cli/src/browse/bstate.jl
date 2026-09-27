@@ -179,7 +179,7 @@ Base.@kwdef mutable struct BState <: View
     lmode::Symbol = :items          # :items | :filters
     frow::Int = 3        # the first disposition row; 1 is the reset row and 2
                          # its head
-    wake::Any = nothing             # set by the controller; called when a fetch lands
+    wake::Union{Nothing,Controller} = nothing   # set by `browse`; woken when a fetch lands
     hdr::Int = 0           # rows of item title above the nodes in the detail
                            # pane; the mouse needs it to turn a screen row into
                            # an `nrow`, and only `render` knows how tall it got

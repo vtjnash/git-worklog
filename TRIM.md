@@ -31,27 +31,33 @@ For comparison, today's `cli/bin/wl --help` warm is 1.7-2.0 s, loading a
 
 ## The plan
 
-1498 errors under `--trim=safe` on the 1.14 nightly, 456 of them in `wl`'s
-own code (2026-09-27, after the accessors below). The verifier counts each
+1434 errors under `--trim=safe` on the 1.14 nightly, 401 of them in `wl`'s
+own code (2026-09-27, after the accessors below and the stored functions). The verifier counts each
 method once, however many callers reach it, and **does not look inside a
 call it cannot resolve** - so typing a call site makes its callee visible,
 and a count can rise as code is fixed. What needs Julia itself is in TODO,
 *Upstream*: the 1.14 `LazyLibrary` regression, subprocesses, and
 `@nospecialize` on an argument with a default.
 
-- [ ] **Read `Dict{String,Any}` through the accessors: the rest.** The
-      refresh and its derivation, `dispatch`, `set_blocks!`, `load_inbox`,
-      the thread readers and nodes, `item_of`/`poll_item` and the config
-      reads are done (with `jdict`, `jstrs`, `jfloat`, `anylist`, `asdict`,
-      `same`, and `Record` for the refresh's rows). Of the 456 left in
-      `wl`'s code, 178 are the three items below (`@printf` 81, `stdout`/
-      `stderr` 56, `showerror` 41); 28 call a function held in a field
-      typed `Any` - `sync!`'s sources, `Forward`, `fetching`'s `wake` - which
-      want a concrete type for the field, not an accessor; about 26 are
-      field reads still (`check_nodes`'s `.state`/`.id`, `bk_jobs`'s
-      `.records`, `item_worktree`'s `.worktree`); the rest is a tail of one or
-      two per function (`run!`, `load_theme!`, `merge_state`, `search`'s
-      `take!`). The tabulation to recount with is under "Reproducing".
+- [ ] **The rest of the untyped reads.** Of the 401 left in `wl`'s code, 178
+      are the three items below (`@printf` 81, `stdout`/`stderr` 56,
+      `showerror` 41) and 12 are `sync!` calling a `Source`'s functions (the
+      next item); nearly all the rest is a tail of one or two per function
+      (`run!`, `load_theme!`, `merge_state`, `search`'s `take!`). Two
+      stored values are typed `Any` so the suite can replace them: `_PAT`,
+      the token, which a test sets to a string; and `Source`'s functions.
+      The tabulation to recount with is under "Reproducing".
+- [ ] **`Source.fetch` and `Source.row` as `Core.TypedCallable`s, once there
+      is one.** `sync!`'s sources are the one real callback interface in
+      `wl`: three kinds, and the tests' own. Their signatures are settled and
+      written on `Source`; `SyncCtx` is the context's type. The same fits
+      TermIFrame's `iframe` hooks (`onend`, `suspend`, `onerror`), which a
+      library cannot type by its host's types. Waiting on
+      JuliaLang/julia#62559 (draft, "Part 1/2", on #62245) and the trim
+      support its description leaves to a second part; the RFC is #59774.
+- [ ] **`mux_list`'s rows.** `Vector{NamedTuple}`, fields named by
+      `MUX_TAGS` at run time, so every read of a row is dynamic, and
+      `BState.sessions`/`taken` hold them as `NamedTuple`. Being looked at.
 - [ ] **Decide what an unknown container is, on read.** `jget`, `jstr`,
       `jint` and `jlist` test the concrete containers the program holds, then
       fall back to the generic read through one dynamic call each (`_jget`,

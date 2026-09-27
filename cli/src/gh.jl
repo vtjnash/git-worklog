@@ -222,7 +222,7 @@ function gh_run(args::Vector{String}, input::AbstractString = "")
     Sys.which("gh") === nothing && return (127, "", "gh is not on PATH")
     out, err = IOBuffer(), IOBuffer()
     p = run(pipeline(ignorestatus(Cmd(["gh"; args]));
-                     stdin = IOBuffer(input), stdout = out, stderr = err))
+                     stdin = IOBuffer(input), stdout = out, stderr = err))::Base.Process
     (p.exitcode, String(take!(out)), String(take!(err)))
 end
 
