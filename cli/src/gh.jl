@@ -162,7 +162,7 @@ function fetch_url_map(urls; per::Int = 40)
     rc, o, e = gh_run(["api", "graphql", "--input", "-"], json_dumps(["query" => q]))
     rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " *
                                 first(isempty(e) ? o : e, 300)))
-    d = JSON3.read(o)
+    d = JSON.parse(o)
     # An error with data beside it is one slot GitHub would not answer - a
     # resource behind SAML is the known case - and that slot is unanswered,
     # not the batch failed: forty rows kept as they were for one url that
@@ -237,7 +237,7 @@ function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
     body = json_dumps(["query" => String(query), "variables" => vars])
     rc, out, err = gh_run(["api", "graphql", "--input", "-"], body)
     rc == 0 || throw(FetchError(first(isempty(err) ? out : err, 300)))
-    d = JSON3.read(out)
+    d = JSON.parse(out)
     errs = jlist(d, :errors)
     isempty(errs) || throw(FetchError(first(json_dumps(errs), 400)))
     jobj(d, :data)
@@ -357,7 +357,7 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
                     attempt + 1, round(Int, wait_), strip(err))
             sleep(wait_)
         end
-        d = JSON3.read(stdout_)
+        d = JSON.parse(stdout_)
         errs = jlist(d, :errors)
         isempty(errs) ||
             throw(FetchError("GraphQL errors for $(repr(q)): " *

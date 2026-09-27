@@ -9,8 +9,8 @@
 # have no character and are not here; they stay the text that was typed.
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    import JSON3
-    let g = JSON3.read(read(ARGS[1], String)),
+    import JSON
+    let g = JSON.parse(read(ARGS[1], String)),
         ps = sort!([String(a) => String(e.emoji) for e in g for a in e.aliases]),
         src = read(@__FILE__, String)
         head = src[1:findfirst("const EMOJI", src).start - 1]

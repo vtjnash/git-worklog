@@ -41,7 +41,7 @@ function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep
         rc, txt, err = gh_run(["api", "graphql", "-F", "owner=$owner", "-F", "name=$name",
                                "-F", "num=$number", "-F", "query=@-"], q)
         rc == 0 || error(first(isempty(err) ? txt : err, 300))
-        d = JSON3.read(txt)
+        d = JSON.parse(txt)
         cs = jnodes(jpath(d, :data, :repository, :pullRequest), :commits)
         roll = isempty(cs) ? nothing : jpath(first(cs), :commit, :statusCheckRollup)
         roll === nothing ? (state = "NONE", contexts = []) :
@@ -85,7 +85,7 @@ end
 
 function _curl_json(url)
     out = read(`curl -sS -H "Accept: application/json" $url`, String)
-    JSON3.read(out)
+    JSON.parse(out)
 end
 
 """Every job in a build.

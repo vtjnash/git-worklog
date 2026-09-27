@@ -384,9 +384,9 @@ end
     # fetched - both GitHub's time - and not against the row's own `updated`,
     # which is a different clock for the same event: a thread's `updated_at`
     # is delivery time, 2 to 46 seconds after the subject's.
-    # The old row is the file's, which is JSON3 and keyed by symbol - as it is
-    # in the refresh, where `old` is what `fetched.json` holds.
-    J(d) = W.JSON3.read(W.json_dumps(d))
+    # The old row is the file's, parsed - as it is in the refresh, where `old`
+    # is what `fetched.json` holds.
+    J(d) = W.JSON.parse(W.json_dumps(d))
     old = J(Dict{String,Any}("url" => "u", "updated" => "2026-09-13T10:00:00Z",
                              "fetched_at" => "2026-09-13T10:05:00Z", "lane" => "mine"))
     e(at) = Dict{String,Any}("url" => "u", "updated" => at)
@@ -648,7 +648,7 @@ end
     W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
     try
         u = "https://github.com/a/b/pull/9"
-        file = W.JSON3.read("""{"url":"$u","fetched_at":"2026-09-13T10:00:00Z","title":"old"}""")
+        file = W.JSON.parse("""{"url":"$u","fetched_at":"2026-09-13T10:00:00Z","title":"old"}""")
         @test W.bundle_of(u) === nothing
         @test W.bundled(u, file) === file
         @test W.bundled(u, nothing) === nothing
@@ -686,7 +686,7 @@ end
     d = mktempdir()
     W.FETCHED[] = joinpath(d, "fetched.json")
     W.LOCAL[] = joinpath(d, "local.toml"); write(W.LOCAL[], "")
-    node(url, n; kw...) = W.JSON3.read(W.json_dumps(merge(Dict{String,Any}(
+    node(url, n; kw...) = W.JSON.parse(W.json_dumps(merge(Dict{String,Any}(
         "__typename" => "Issue", "url" => url, "number" => n, "title" => "t$n",
         "createdAt" => "2026-09-01T00:00:00Z", "updatedAt" => "2026-09-10T00:00:00Z",
         "state" => "OPEN", "repository" => Dict("nameWithOwner" => "o/r"),
@@ -858,7 +858,7 @@ end
     urls = ["https://github.com/o/r/issues/$i" for i in 1:130]
     asked = String[]
     function fake(args, body)
-        d = W.JSON3.read(body)
+        d = W.JSON.parse(body)
         q = String(d.variables.q)
         push!(asked, q)
         cursor = d.variables.cursor
@@ -1163,7 +1163,7 @@ end
         "state" => "open", "author" => "bob", "updated" => updated, "comments" => 1,
         "labels" => String[], "mine" => false, "lane" => "activity"),
         Dict{String,Any}(String(k) => v for (k, v) in kw))
-    node(u, n; kw...) = W.JSON3.read(W.json_dumps(merge(Dict{String,Any}(
+    node(u, n; kw...) = W.JSON.parse(W.json_dumps(merge(Dict{String,Any}(
         "__typename" => "Issue", "url" => u, "number" => n, "title" => "t$n", "state" => "OPEN",
         "repository" => Dict("nameWithOwner" => "o/r"), "createdAt" => "2026-09-01T00:00:00Z",
         "updatedAt" => "2026-09-10T00:00:00Z", "author" => Dict("login" => "bob"),
@@ -1267,7 +1267,7 @@ end
             flush(io)
             read(path, String)
         end
-        js = W.JSON3.read(said(["unread"], at))
+        js = W.JSON.parse(said(["unread"], at))
         @test [String(j.url) for j in js] == [U(4), U(1), U(5), U(2)]
         @test js[1].lane == "activity" && js[2].moved_at == "2026-09-10T00:00:00Z"
         @test js[2].updated == "2026-09-15T00:00:00Z" && js[2].state == "open"
@@ -1761,7 +1761,7 @@ end
 
 @testset "mentioned is a latch, not the notification's reason" begin
     E = W.Events
-    J(d) = W.JSON3.read(W.json_dumps(d))
+    J(d) = W.JSON.parse(W.json_dumps(d))
     # GitHub's reason says so, for you or a team you are in, and nothing else does.
     @test E.mention_words(Dict("reason" => "mention", "notified" => "2026-09-20T01:02:03Z")) ==
           "notified: named you, 2026-09-20"

@@ -379,11 +379,11 @@ Each entry is `(kind, at, c)`: `:comment` with the comment, `:push` with the
 run of commits, `:state` with the event, `:review` with the review. What the browser draws and what
 `wl show` and `wl thread` print, so the three agree on what happened.
 
-**Not specialized**, nor are the node builders under it: JSON3 types an array
-by what is in it - `[]` is `JSON3.Array{Union{}}` - and a thread's three
-lists are empty or not independently, so each mix was a compilation of its
-own; the precompile trace had this one several times over. The rows are read
-by `get` either way.
+**Not specialized**, nor are the node builders under it: a list can be typed
+by what is in it - a fetch's, and every one under JSON3, where `[]` was
+`JSON3.Array{Union{}}` - and a thread's three lists are empty or not
+independently, so each mix was a compilation of its own; the precompile trace
+had this one several times over. The rows are read by `get` either way.
 """
 function activity_list(@nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
     from = isempty(cs) ? "" : String(first(cs)["created_at"])
@@ -596,7 +596,7 @@ end
 """The newest time anywhere in a thread as read: the comments, the pushes,
 the state changes and reviews, and the opening post's last edit; `""` for
 none. Its own function, not specialized, and loops rather than a flattened
-generator: JSON3 types each list by what is in it, and a generator over one
+generator: a list can be typed by what is in it, and a generator over one
 is a type of its own whatever the argument says - so every mix of empty and
 not was a `maximum` compiled again. See `activity_list`."""
 function thread_seen(@nospecialize(body), @nospecialize(cs), @nospecialize(cms), @nospecialize(sts))

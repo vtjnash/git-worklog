@@ -44,7 +44,76 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - The query through `gh api graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
 
+## Trim
+
+`juliac --trim=safe` over `wl` (JuliaC 0.3, 1.14 nightly): 2281 errors
+after the move to JSON.jl, from 2648. Built with an `@main` that calls
+`Worklog.main`; each count below is the verifier's, which names a
+method once, however many callers reach it. The Base items are under
+*Upstream*.
+
+- [ ] **Read `Dict{String,Any}` through the accessors.** 1299 errors, on
+      407 lines in about 120 functions, are `wl`'s own code acting on a value
+      typed `Any`: 179 `get(d, "k", …)` and 298 `d["k"]` sites, the 26
+      `config()` reads, `String(…)` of a field (93), and `ActivityEntry.c`.
+      Each becomes a `jstr`/`jint`/`jbool`/`jobj`/`jlist` read, or a
+      concrete `isa`, at the point of use. Biggest first: `refresh_` (272),
+      `dispatch` (164), `set_blocks!` (122, `local.toml` as
+      `OrderedDict{String,Any}`), `push_node`, `pane_sync!`, `load_inbox`,
+      `import_urls` (70-74 each), `activity_list`, `thread_entry`. Fewer
+      dispatch sites for JET too.
+- [ ] **Decide what an unknown container is, on read.** `jget`, `jstr`,
+      `jint` and `jlist` test the concrete containers the program holds, then
+      fall back to the generic read through one dynamic call each (`_jget`,
+      `_anylist`, `String`/`Int` of an abstract). That fallback is the only
+      trim error left in them, and it is where a shape nobody listed goes -
+      a fresh fetch's `Vector{String}`, a vector of `OrderedDict`s, a test's
+      `Dict{String,String}`. Find what actually reaches it (count the
+      fallback's types across a suite run and a traced session), then either
+      list those or build them as `Dict{String,Any}`/`Vector{Any}` where they
+      are made. Either way, a test per shape: nothing proves a fresh fetch and
+      its cached copy read the same except the one for `_meta_shape`.
+- [ ] **Decide what an unknown value is, on write.** `json_dumps`
+      specialises while the static type is known and narrows an `Any` in
+      `_jany`; anything unlisted falls back to a dynamic `_jvalue`. As a
+      closed list it took eight rounds of the suite to find the types that
+      reach it (`Dict{String,Vector{Any}}`, `Vector{Pair{String,String}}`,
+      `Vector{Nothing}`, `Dict{String,Dict{String,String}}`, …), and a write
+      that fails is silent: `cache_put` swallows it, and the cache stops
+      working. At least `logerror!` it there; then settle which shapes the
+      cache and `fetched.json` hold, as above.
+- [ ] **`logerror!` without `showerror(io, e, bt)`.** 444 errors from that
+      one call: printing an exception of unknown type, with its backtrace,
+      is all of Base's error printing. The same for the dozen
+      `sprint(showerror, e)` sites. Say `e.msg` for the exception types `wl`
+      owns, and the type's name for the rest.
+- [ ] **A concrete stream for `stderr` and `stdout`.** Both are `IO`-typed
+      globals: 130 errors, the `@printf`s (53) among them, and the one that
+      kills a trimmed build first - `seed_config!`'s `io = stderr`, a
+      keyword call on every command.
+- [ ] **`ROOT` from where the program is, not where it was built.**
+      `@__DIR__` is fixed at build time, and JuliaC builds from a copy under
+      `/tmp`. From the executable's path or `WORKLOG_DATA`'s parent, with
+      `config.toml`, `themes/` and prefetch's `cli/bin/wl` under it.
+- [ ] **GitHub.jl for the REST calls.** `Events.auth` alone is 60 errors
+      (HTTP, MbedTLS, URIs), and it is the only reason HTTP is loaded. `gh
+      api` serves the lanes already; it could serve these, once running a
+      subprocess trims (*Upstream*).
+
 ## Upstream
+
+- [ ] **Report the 1.14 `LazyLibrary` regression.** A trimmed executable
+      whose JLL loads a lazy dependency dies at load: `InitError(:libevent_jll,
+      MethodError(dlopen, ("…/libcrypto.so.3", 0x44)))`. Four lines,
+      `using libevent_jll` and an `@main`, with `--trim=unsafe-warn`: dies on
+      the 1.14 nightly, runs on 1.13. `dlopen(string(ll.path::Any))` in
+      `libdl.jl`.
+- [ ] **Running a subprocess does not trim.** `read(`echo hi`, String)`
+      alone is 30 errors on 1.13 and 44 on 1.14, all in `process.jl`
+      (`setup_stdios`, `close_stdio`, `rawhandle`, the `cancel` keyword).
+      Everything `wl` does goes through `gh`, `git` or `tmux`, so nothing
+      else here makes a trimmed `wl` run until this does. Check the nightly
+      first; report it if it is still so.
 
 - [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313
       (merged 2026-09-25, after v2.2.1) keeps a header's inline elements on

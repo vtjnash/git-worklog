@@ -700,10 +700,12 @@ TTY reaches is a list of `precompile` signatures beside it. To redo it, run
 the browser from `cli/precompile` with
 `--trace-compile=<file> --trace-compile-timing` inside a tmux session over a
 copy of `data/` (`WORKLOG_DATA`), press the keys, and read what is still
-compiled, biggest first. JSON3 types an empty array, a nested object and a
-top-level one apart, so a path is covered only in the shapes it was seeded
-in - except the readers of a thread's lists (`activity_list`, the node
-builders, `thread_seen`, `event_at`), which are `@nospecialize` and loop
+compiled, biggest first. JSON3 typed an empty array, a nested object and a
+top-level one apart, so a path was covered only in the shapes it was seeded
+in; `JSON.parse` does not - every object is a `JSON.Object{String,Any}` and
+every array a `Vector{Any}` - but a fetch's lists still are typed by what is
+in them. So the readers of a thread's lists (`activity_list`, the node
+builders, `thread_seen`, `event_at`) are `@nospecialize` and loop
 rather than build a generator over a list, so that one shape covers every
 mix of empty and not. On 2026-09-26 the same session went from 18.1s of runtime compilation to
 2.6s.

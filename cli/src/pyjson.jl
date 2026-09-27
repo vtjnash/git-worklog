@@ -11,11 +11,9 @@
 # reorders them by code point, which is what `sort_keys=True` does and what
 # Julia's `isless` on `String` already gives us.
 
-const JSONObj = Union{AbstractDict,Vector{<:Pair}}
-
-_pairs(o::AbstractDict) = collect(o)
-_pairs(o::Vector{<:Pair}) = o
-
+# Written for `--trim`: `_jvalue` is called with a value whose static type is
+# concrete, so each of its branches folds; a value typed `Any` - a field of a
+# `Dict{String,Any}`, an element of a `Vector{Any}` - goes through `_jany`.
 function _jstring(io::IO, s::AbstractString)
     print(io, '"')
     for c::Char in s
@@ -64,13 +62,54 @@ function _jvalue(io::IO, v, indent, level, sortkeys)
         print(io, v)
     elseif v isa AbstractString
         _jstring(io, v)
-    elseif v isa JSONObj
+    elseif v isa Symbol
+        _jstring(io, String(v))
+    elseif v isa AbstractDict
         _jobject(io, v, indent, level, sortkeys)
+    elseif v isa Vector{<:Pair}
+        _jobject(io, v, indent, level, sortkeys)
+    elseif v isa NamedTuple
+        _jnt(io, v, indent, level)
     elseif v isa AbstractVector
+        _jarray(io, v, indent, level, sortkeys)
+    elseif v isa Tuple
         _jarray(io, v, indent, level, sortkeys)
     else
         _jstring(io, string(v))     # matches json.dumps(default=str)
     end
+end
+
+"""The value of a field typed `Any`: the shapes the program stores are tested
+first, so writing them is a static call; anything else is written as it always
+was, through one dynamic call."""
+function _jany(io::IO, @nospecialize(v), indent, level, sortkeys)
+    v === nothing ? print(io, "null") :
+    v isa Bool ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Int ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Float64 ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa String ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa JSON.Object{String,Any} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Dict{String,Any} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa OrderedDict{String,Any} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Dict{String,String} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Vector{Any} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Vector{String} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Vector{Dict{String,Any}} ? _jvalue(io, v, indent, level, sortkeys) :
+    v isa Vector{OrderedDict{String,Any}} ? _jvalue(io, v, indent, level, sortkeys) :
+    _jvalue(io, v, indent, level, sortkeys)
+end
+
+@inline _jelem(io::IO, v, ::Type{T}, indent, level, sortkeys) where {T} =
+    isconcretetype(T) ? _jvalue(io, v::T, indent, level, sortkeys) : _jany(io, v, indent, level, sortkeys)
+
+@generated function _jnt(io::IO, nt::NamedTuple{K,V}, indent, level) where {K,V}
+    body = Any[:(_jopen(io, '{', indent, level))]
+    for (i, k) in enumerate(K)
+        i == 1 || push!(body, :(_jsep(io, indent, level)))
+        push!(body, :(_jstring(io, $(String(k)))), :(print(io, ": ")))
+        push!(body, :(_jelem(io, getfield(nt, $i), $(fieldtype(V, i)), indent, level + 1, false)))
+    end
+    isempty(K) ? :(print(io, "{}")) : Expr(:block, body..., :(_jclose(io, '}', indent, level)))
 end
 
 function _jopen(io, open, indent, level)
@@ -84,16 +123,22 @@ function _jclose(io, close, indent, level)
     print(io, close)
 end
 
+_pairs(o::AbstractDict{K,V}) where {K,V} = collect(Pair{K,V}, o)
+_pairs(o::Vector{<:Pair}) = o
+_valtype(::Vector{Pair{K,V}}) where {K,V} = V
+_valtype(::Vector{P}) where {P<:Pair} = Any
+
 function _jobject(io::IO, o, indent, level, sortkeys)
     ps = _pairs(o)
     isempty(ps) && return print(io, "{}")
     sortkeys && (ps = sort(ps; by = p -> String(first(p))))
+    V = _valtype(ps)
     _jopen(io, '{', indent, level)
     for (i, p) in enumerate(ps)
         i == 1 || _jsep(io, indent, level)
         _jstring(io, String(first(p)))
         print(io, ": ")
-        _jvalue(io, last(p), indent, level + 1, sortkeys)
+        _jelem(io, last(p), V, indent, level + 1, sortkeys)
     end
     _jclose(io, '}', indent, level)
 end
@@ -103,7 +148,7 @@ function _jarray(io::IO, a, indent, level, sortkeys)
     _jopen(io, '[', indent, level)
     for (i, v) in enumerate(a)
         i == 1 || _jsep(io, indent, level)
-        _jvalue(io, v, indent, level + 1, sortkeys)
+        _jelem(io, v, eltype(a), indent, level + 1, sortkeys)
     end
     _jclose(io, ']', indent, level)
 end

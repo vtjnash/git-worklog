@@ -38,7 +38,7 @@
 const FETCHED = Ref("")
 fetchedfile() = isempty(FETCHED[]) ? datapath("fetched.json") : FETCHED[]
 
-"""The whole file: top-level parts by name, their contents left as JSON3.
+"""The whole file: top-level parts by name, their contents left as parsed.
 
 Mutable at the top level and read-only underneath, which is exactly the shape
 every caller wants - each replaces one whole part and reads the others.
@@ -47,7 +47,7 @@ function load_fetched()
     isfile(fetchedfile()) || return OrderedDict{String,Any}()
     try
         OrderedDict{String,Any}(String(k) => v
-                                for (k, v) in JSON3.read(read(fetchedfile(), String)))
+                                for (k, v) in JSON.parse(read(fetchedfile(), String)))
     catch
         # A damaged file is an empty one. Everything in here is re-fetchable by
         # definition, so the recovery is `wl refresh` rather than an error at

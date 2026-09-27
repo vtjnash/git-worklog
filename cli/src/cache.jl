@@ -99,7 +99,7 @@ function cache_get(key::AbstractString, ttl_s::Real; keep_s::Real = ttl_s)
     f = _slot(key)
     isfile(f) || return nothing
     try
-        d = JSON3.read(read(f, String))
+        d = JSON.parse(read(f, String))
         at = jget(d, :at)
         at isa Real || return nothing
         age = time() - at
@@ -129,7 +129,7 @@ function cache_put(key::AbstractString, value)
     d = cachedir()
     isdir(d) || mkpath(d)
     try
-        write_atomic(_slot(key), JSON3.write((at = time(), key = key, value = value)))
+        write_atomic(_slot(key), json_dumps((at = time(), key = String(key), value = value)))
     catch
         # A cache that cannot be written is a slow program, not a broken one -
         # which is the one thing here that is true of no other file in `data/`.

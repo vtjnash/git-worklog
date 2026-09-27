@@ -301,7 +301,7 @@ function fetch_bundle(it::Item)
     derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
     pop!(r, "slept", nothing); pop!(r, "woken", nothing)
     cache_put(bundle_key(it.url), r)
-    item_of(JSON3.read(json_dumps(r)))
+    item_of(JSON.parse(json_dumps(r)))
 end
 
 """
@@ -614,7 +614,7 @@ function item_by_url(url::AbstractString, at::DateTime = utcnow())
     cfg = config()
     r = normalize(fetch_url(url), "imported", cfg["login"])
     apply_state!(r, get(load_state(), String(r["url"]), Dict{String,Any}()), cfg, at)
-    item_of(JSON3.read(json_dumps(r)))
+    item_of(JSON.parse(json_dumps(r)))
 end
 
 """The inbox entry for an item already known, in the shape a poll writes.
@@ -692,7 +692,7 @@ function imported_items(have::Set{String}, at::DateTime = utcnow())
              end
         r = normalize(n, "imported", cfg["login"])
         derive!(r, nothing, get(state, String(r["url"]), Dict{String,Any}()), cfg, at)
-        push!(out, item_of(JSON3.read(json_dumps(r))))
+        push!(out, item_of(JSON.parse(json_dumps(r))))
     end
     out
 end

@@ -1085,7 +1085,7 @@ Minified, so the command line and `ps` carry one line of it.
 """
 function agent_settings()
     try
-        JSON3.write(JSON3.read(read(AGENT_SETTINGS, String)))
+        json_dumps(JSON.parse(read(AGENT_SETTINGS, String)))
     catch e
         logerror!(e, catch_backtrace(), "agent settings")
         ""

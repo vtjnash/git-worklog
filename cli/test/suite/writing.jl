@@ -517,7 +517,7 @@ end
                              "status" => "DIRTY", "base" => "master", "commits" => 1,
                              "methods" => String[], "text" => Dict{String,Any}())
         W.write_atomic(W._slot(W.Events.merge_key(u)),
-                       W.JSON3.write((at = time() - 900, key = "k", value = v)))
+                       W.json_dumps((at = time() - 900, key = "k", value = v)))
         ms = W.Events.merge_state(u; ttl = 600.0, keep = 86_400.0)
         @test ms !== nothing && ms.mergeable == "CONFLICTING"
         # The same entry saying clean is past its window, and is not shown -
@@ -525,7 +525,7 @@ end
         # is asked directly rather than the function.
         v["mergeable"] = "MERGEABLE"
         W.write_atomic(W._slot(W.Events.merge_key(u)),
-                       W.JSON3.write((at = time() - 900, key = "k", value = v)))
+                       W.json_dumps((at = time() - 900, key = "k", value = v)))
         h = W.cache_get(W.Events.merge_key(u), 600.0; keep_s = 86_400.0)
         @test h !== nothing && !W.Events.merge_usable(h, 600.0)
         # The windows the pane loads under, as `meta_cached` reads them.

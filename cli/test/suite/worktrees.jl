@@ -29,13 +29,13 @@
     @test isfile(W.AGENT_SETTINGS)
     j = W.agent_settings()
     @test startswith(j, "{") && !occursin('\n', j)
-    @test W.JSON3.read(j) == W.JSON3.read(read(W.AGENT_SETTINGS, String))
+    @test W.JSON.parse(j) == W.JSON.parse(read(W.AGENT_SETTINGS, String))
     @test cmd == string("'", ENV["SHELL"], "' -ic ",
                         W.shquote(string("claude --settings ", W.shquote(j))))
     @test !occursin(W.AGENT_SETTINGS, cmd)
     # What the file says: a `Stop` and a permission prompt, each a ring, and
     # nothing that could block the turn.
-    hooks = W.JSON3.read(read(W.AGENT_SETTINGS, String))[:hooks]
+    hooks = W.JSON.parse(read(W.AGENT_SETTINGS, String))[:hooks]
     @test haskey(hooks, :Stop) && haskey(hooks, :Notification)
     @test hooks[:Notification][1][:matcher] == "permission_prompt"
     for ev in (:Stop, :Notification), h in hooks[ev][1][:hooks]

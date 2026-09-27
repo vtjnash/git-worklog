@@ -169,11 +169,11 @@ end
 """The same dashboard as `sample_items`, in the form it is actually read from.
 
 `loaditems` is the first thing the browser does and none of it was in the image:
-a `facts.json` is parsed by JSON3 and every row goes through `item_of`, which is
-thirty keyword arguments over a `JSON3.Object` - about a third of a second of
+a `facts.json` is parsed and every row goes through `item_of`, which is thirty
+keyword arguments over a `JSON.Object` - about a third of a second of
 compilation, paid on the frame the user is waiting for. Compiling it takes a
-file, because the types `item_of` sees carry the buffer the object was parsed
-from, and a hand-built `Dict` is not that type.
+file, because the types `item_of` sees are the parser's, and a hand-built
+`Dict` is not that type.
 
 Written out rather than copied from the real one for the reason the items are
 invented: the image must not depend on what was in the dashboard the day it was
@@ -228,10 +228,10 @@ takes after its request - which is the one the cursor takes whenever it lands
 on a row whose bundle is stale.
 
 Inside an object, and read back out of it, because a node in an answer is
-nested and JSON3 types a nested object apart from a top-level one. The pull
-request has what `normalize` branches on - a timeline, reviews, a head commit
-with its checks, and a bundle in the cache to be derived against; the issue
-has every list empty, which JSON3 types apart again, and no row before it.
+nested, which JSON3 typed apart from a top-level object. The pull request has
+what `normalize` branches on - a timeline, reviews, a head commit with its
+checks, and a bundle in the cache to be derived against; the issue has every
+list empty, and no row before it.
 """
 function sample_graphql()
     login(l) = Dict{String,Any}("login" => l)
@@ -270,7 +270,7 @@ function sample_graphql()
         "author" => login("someone"), "milestone" => nothing,
         "assignees" => Dict("nodes" => []), "labels" => Dict("nodes" => []),
         "timelineItems" => Dict("nodes" => []), "comments" => Dict("nodes" => []))
-    Worklog.JSON3.read(Worklog.json_dumps(Dict("nodes" => [pr, issue]))).nodes
+    Worklog.JSON.parse(Worklog.json_dumps(Dict("nodes" => [pr, issue]))).nodes
 end
 
 """What the browser finds in the cache for the first row, which is most of
@@ -287,7 +287,7 @@ the types they write, so that call is compiled for those too. The diff, its
 line comments and the Buildkite jobs behind the failed check are the `d` and
 `c` panes of the same row.
 
-JSON3 types an empty array apart from one of objects - `JSON3.Array{Union{}}` -
+JSON3 typed an empty array apart from one of objects - `JSON3.Array{Union{}}` -
 and a real thread's pushes and state changes are empty more often than not.
 There were two more threads here in those shapes, for `comment_nodes` to be
 compiled over each; the thread readers are `@nospecialize` now, and a trace of
@@ -429,8 +429,8 @@ end
     @compile_workload begin
         try
             hermetic() do
-                # The launch, the way `ui` makes it: the dashboard - a JSON3
-                # parse and an `item_of` per row, one of them off the bundle
+                # The launch, the way `ui` makes it: the dashboard - a parse
+                # and an `item_of` per row, one of them off the bundle
                 # cache - then the adopted branches, the inbox's light rows and
                 # the notices, and where the last session left off.
                 write(Worklog.fetchedfile(), sample_facts())
@@ -466,7 +466,7 @@ end
                         old = Worklog.bundled(u, Worklog.jget(file, Symbol(u)))
                         r = Worklog.normalize(n, "review", cfg["login"])
                         Worklog.derive!(r, old, Dict{String,Any}(), cfg, Worklog.utcnow())
-                        Worklog.item_of(Worklog.JSON3.read(Worklog.json_dumps(r)))
+                        Worklog.item_of(Worklog.JSON.parse(Worklog.json_dumps(r)))
                     end
                 end
 

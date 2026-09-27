@@ -1711,7 +1711,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
         r = get(items, url, nothing)
         r === nothing && continue
         jstr(e, :updated, "") <= String(r["fetched_at"]) || continue
-        seen_of(item_of(JSON3.read(json_dumps(r))), marks) === :done || continue
+        seen_of(item_of(JSON.parse(json_dumps(r))), marks) === :done || continue
         push!(dropped, url)
     end
     for u in dropped

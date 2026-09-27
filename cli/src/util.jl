@@ -279,43 +279,69 @@ end
 # Python's `.get(k)`, which cannot tell a missing key from an explicit null and
 # does not need to: both mean "GitHub did not give us this".
 #
-# An object is a `JSON3.Object` (keyed by `Symbol`), what `GitHub.JSON.parse`
-# and the cache answer (keyed by `String`), or a `NamedTuple` default; anything
+# An object is a `JSON.Object` - what `JSON.parse`, `GitHub.JSON.parse` and the
+# cache answer - a `Dict` the program built, or a `NamedTuple` default; anything
 # else - a null, a scalar, an array where an object was expected - has no
 # fields, rather than a `MethodError` on `get`.
-jget(o::AbstractDict{Symbol}, k::Symbol) = get(o, k, nothing)
-jget(o::AbstractDict{<:AbstractString}, k::Symbol) = get(o, String(k), nothing)
-jget(o::AbstractDict, k::Symbol) = get(o, k, nothing)
-jget(o::NamedTuple, k::Symbol) = get(o, k, nothing)
-jget(o, ::Symbol) = nothing
-jget(o, k::Symbol, d) = (v = jget(o, k); v === nothing ? d : v)
+# One method each, `@nospecialize`, with the concrete containers the program
+# holds tested first: a caller with an `Any` in hand then makes a static call,
+# which is what `--trim` needs. Anything else falls through to the generic
+# read, one dynamic call, so a container not listed reads as it always did.
+function jget(@nospecialize(o), k::Symbol)
+    o isa JSON.Object{String,Any} && return get(o, String(k), nothing)
+    o isa Dict{String,Any} && return get(o, String(k), nothing)
+    o isa OrderedDict{String,Any} && return get(o, String(k), nothing)
+    o isa Dict{String,String} && return get(o, String(k), nothing)
+    o === nothing && return nothing
+    _jget(o, k)
+end
+_jget(o::AbstractDict{Symbol}, k::Symbol) = get(o, k, nothing)
+_jget(o::AbstractDict{<:AbstractString}, k::Symbol) = get(o, String(k), nothing)
+_jget(o::AbstractDict, k::Symbol) = get(o, k, nothing)
+_jget(o::NamedTuple, k::Symbol) = get(o, k, nothing)
+_jget(o, ::Symbol) = nothing
+jget(@nospecialize(o), k::Symbol, @nospecialize(d)) = (v = jget(o, k); v === nothing ? d : v)
 
 "`jget` down a path of fields: `nothing` as soon as one is missing."
-jpath(o) = o
-jpath(o, k::Symbol, ks::Symbol...) = jpath(jget(o, k), ks...)
+function jpath(@nospecialize(o), ks::Symbol...)
+    x::Any = o
+    for k in ks
+        x = jget(x, k)
+    end
+    x
+end
 
 # The field, if it is of the kind asked for, and `nothing` (or `d`) if it is
-# missing, null or anything else. JSON3 answers a field as any of seven types,
+# missing, null or anything else. Parsed JSON answers a field as any of seven types,
 # so whatever is done with it next - `String`, `!`, `==` - is inferred, and
 # checked at run time, against all seven; one of these at the read is the
 # field's type from there on, a concrete one. `jint` leaves out `Bool`, which
 # Julia counts as an `Integer` and JSON does not. The return types are
 # declared so that a caller holding an untyped `o` - one of the
 # `@nospecialize` thread readers - is told them too.
-jstr(o, k::Symbol)::Union{Nothing,String} =
-    (v = jget(o, k); v isa AbstractString ? String(v) : nothing)
-jstr(o, k::Symbol, d::AbstractString)::String = something(jstr(o, k), String(d))
-jint(o, k::Symbol)::Union{Nothing,Int} =
-    (v = jget(o, k); v isa Integer && !(v isa Bool) ? Int(v) : nothing)
-jint(o, k::Symbol, d::Int)::Int = something(jint(o, k), d)
-jbool(o, k::Symbol)::Union{Nothing,Bool} = (v = jget(o, k); v isa Bool ? v : nothing)
-jbool(o, k::Symbol, d::Bool)::Bool = something(jbool(o, k), d)
+function jstr(@nospecialize(o), k::Symbol)::Union{Nothing,String}
+    v = jget(o, k)
+    v isa String ? v : v isa AbstractString ? String(v) : nothing
+end
+jstr(@nospecialize(o), k::Symbol, d::AbstractString)::String = something(jstr(o, k), String(d))
+function jint(@nospecialize(o), k::Symbol)::Union{Nothing,Int}
+    v = jget(o, k)
+    v isa Int ? v : v isa Integer && !(v isa Bool) ? Int(v) : nothing
+end
+jint(@nospecialize(o), k::Symbol, d::Int)::Int = something(jint(o, k), d)
+jbool(@nospecialize(o), k::Symbol)::Union{Nothing,Bool} = (v = jget(o, k); v isa Bool ? v : nothing)
+jbool(@nospecialize(o), k::Symbol, d::Bool)::Bool = something(jbool(o, k), d)
 "The field if it is an object, else `nothing`: `jget` again, or a `j*` read, goes on from here."
-jobj(o, k::Symbol) = (v = jget(o, k); v isa Union{AbstractDict,NamedTuple} ? v : nothing)
-"The field if it is an array, else an empty one - for a loop, which then needs no test."
-jlist(o, k::Symbol) = (v = jget(o, k); v isa AbstractVector ? v : ())
+jobj(@nospecialize(o), k::Symbol) = (v = jget(o, k); v isa Union{AbstractDict,NamedTuple} ? v : nothing)
+"""The field if it is an array, else an empty one - for a loop, which then needs
+no test. Always a `Vector{Any}`, so the loop is typed whatever was stored."""
+function jlist(@nospecialize(o), k::Symbol)::Vector{Any}
+    v = jget(o, k)
+    v isa Vector{Any} ? v : v isa AbstractVector ? _anylist(v) : Any[]
+end
+_anylist(v::AbstractVector) = collect(Any, v)
 "`jlist(o, :nodes)`, GraphQL's connection, of the object under `k`."
-jnodes(o, k::Symbol) = jlist(jobj(o, k), :nodes)
+jnodes(@nospecialize(o), k::Symbol)::Vector{Any} = jlist(jget(o, k), :nodes)
 
 # Here and not in `ui.jl`, where it was: `events.jl` imports it from `Worklog`
 # and is included first, which 1.14 names as "undeclared at import time".
@@ -474,13 +500,10 @@ catch
     ""
 end
 
-# Records reach the renderer from two places with two key types: freshly
-# normalised items are `Dict{String,Any}`, while items recovered from the
-# previous `fetched.json` are JSON3 objects keyed by `Symbol`. One accessor for
-# both, so a lookup cannot silently miss.
-pget(o::AbstractDict{String}, k::AbstractString) = get(o, k, nothing)
-pget(o, k::AbstractString) = get(o, Symbol(k), nothing)
-pget(::Nothing, ::AbstractString) = nothing
+# Records reach the renderer from two places: freshly normalised items are
+# `Dict{String,Any}`, while items recovered from the previous `fetched.json` are
+# `JSON.Object`s. One accessor for both, by the key as the row spells it.
+pget(@nospecialize(o), k::AbstractString) = jget(o, Symbol(k))
 
 """One line, whatever it was.
 

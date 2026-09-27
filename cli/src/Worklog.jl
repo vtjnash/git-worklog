@@ -48,7 +48,8 @@ module Worklog
 
 using Dates, Printf, SHA, Sockets, TOML
 import FileWatching
-using JSON3, OrderedCollections
+import JSON
+using OrderedCollections
 using TermIFrame
 # By name, so the pane can add the one method that knows where it is drawn.
 import TermIFrame: retarget_mouse
@@ -146,14 +147,12 @@ include("cli.jl")
 precompile(main, (Vector{String},))
 precompile(dispatch, (Vector{String}, DateTime))
 precompile(refresh, (Vector{String}, DateTime))
-# Spelled out, because `JSON3.Object` bare is a `UnionAll` and `precompile`
-# answers `false` for one without saying so - this line was a no-op for as long
-# as it has been here. The parameters are what `JSON3.read` of a string gives a
-# *nested* object, which is what a search result's node is.
-precompile(normalize, (JSON3.Object{Base.CodeUnits{UInt8,String},
-                                    SubArray{UInt64,1,Vector{UInt64},
-                                             Tuple{UnitRange{Int64}},true}},
-                       String, String))
+# Spelled out, because `precompile` answers `false` for a `UnionAll` without
+# saying so - under JSON3, whose objects are parameterised by the buffer they
+# were read from, this line was a no-op for as long as it was there.
+# `JSON.parse` answers `JSON.Object{String,Any}` for every object, nested or
+# not, which is what a search result's node is.
+precompile(normalize, (JSON.Object{String,Any}, String, String))
 precompile(Events.poll, (Dict{String,Any}, String, DateTime))
 precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(ui, (Vector{String}, DateTime))

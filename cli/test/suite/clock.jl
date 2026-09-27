@@ -23,7 +23,7 @@
     @test W.moved_of("", "2026-09-12T10:00:00Z") == "2026-09-12T10:00:00Z"
     @test W.moved_of(nothing, nothing) === nothing && W.moved_of(nothing) === nothing
     @test W.moved_of(Dict{String,Any}("updated" => "2026-09-12T10:00:00Z")) == "2026-09-12T10:00:00Z"
-    @test W.moved_of(W.JSON3.read("{\"moved_at\":\"2026-09-12T09:00:00Z\",\"updated\":\"2026-09-12T10:00:00Z\"}")) == "2026-09-12T09:00:00Z"
+    @test W.moved_of(W.JSON.parse("{\"moved_at\":\"2026-09-12T09:00:00Z\",\"updated\":\"2026-09-12T10:00:00Z\"}")) == "2026-09-12T09:00:00Z"
     @test W.moved_of(W.Item(url = "u", ref = "r", repo = "o/r", number = 1, title = "t",
                             updated = "2026-09-12T10:00:00Z")) == "2026-09-12T10:00:00Z"
     st = mkstate(); st.filters = W.everything(); W.refilter!(st)

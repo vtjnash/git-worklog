@@ -333,14 +333,14 @@ end
     # Two real answers, 2026-09-18. A merged pull request is two events the
     # same second - `MergedEvent` and `ClosedEvent` - and reads as one here;
     # the close that a pull request did names it the way an item is named.
-    pr = W.JSON3.read("""{"resource":{"commits":{"nodes":[{"commit":{"oid":"7b724d9cc6fd98817dd3638258233a1075e5d562","committedDate":"2026-09-03T14:31:16Z","messageHeadline":"rewrite prose","author":{"user":{"login":"vtjnash"},"name":"Jameson Nash"}}}]},"timelineItems":{"nodes":[{"__typename":"ReadyForReviewEvent","createdAt":"2026-07-24T19:39:27Z","actor":{"login":"vtjnash"}},{"__typename":"MergedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"mergeRefName":"master","commit":{"abbreviatedOid":"fd4b58c"}},{"__typename":"ClosedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":null}]}}}""")
+    pr = W.JSON.parse("""{"resource":{"commits":{"nodes":[{"commit":{"oid":"7b724d9cc6fd98817dd3638258233a1075e5d562","committedDate":"2026-09-03T14:31:16Z","messageHeadline":"rewrite prose","author":{"user":{"login":"vtjnash"},"name":"Jameson Nash"}}}]},"timelineItems":{"nodes":[{"__typename":"ReadyForReviewEvent","createdAt":"2026-07-24T19:39:27Z","actor":{"login":"vtjnash"}},{"__typename":"MergedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"mergeRefName":"master","commit":{"abbreviatedOid":"fd4b58c"}},{"__typename":"ClosedEvent","createdAt":"2026-09-03T20:36:52Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":null}]}}}""")
     cms, evs = W.Events.activity_of(pr, "https://github.com/JuliaLang/julia/pull/62396")
     @test length(cms) == 1 && cms[1]["by"] == "vtjnash" && cms[1]["oid"] == "7b724d9cc6fd98817dd3638258233a1075e5d562"
     @test [e["kind"] for e in evs] == ["ready", "merged"]
     @test evs[2]["by"] == "IanButterworth" && evs[2]["into"] == "master" && evs[2]["oid"] == "fd4b58c"
     @test !haskey(evs[1], "into")
 
-    issue = W.JSON3.read("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":63266,"url":"https://github.com/JuliaLang/julia/pull/63266","repository":{"nameWithOwner":"JuliaLang/julia"}}}]}}}""")
+    issue = W.JSON.parse("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"IanButterworth"},"stateReason":"COMPLETED","closer":{"__typename":"PullRequest","number":63266,"url":"https://github.com/JuliaLang/julia/pull/63266","repository":{"nameWithOwner":"JuliaLang/julia"}}}]}}}""")
     cms, evs = W.Events.activity_of(issue, "https://github.com/JuliaLang/julia/issues/63263")
     @test isempty(cms)
     @test length(evs) == 1 && evs[1]["kind"] == "closed"
@@ -349,7 +349,7 @@ end
     @test !haskey(evs[1], "reason")             # completed is the usual case, unsaid
     # From another repository the owner is kept, and a commit is its sha; a
     # reason other than completed is said in words.
-    other = W.JSON3.read("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"x"},"stateReason":"NOT_PLANNED","closer":{"__typename":"PullRequest","number":5,"url":"https://github.com/o/r/pull/5","repository":{"nameWithOwner":"o/r"}}},{"__typename":"ReopenedEvent","createdAt":"2026-09-19T00:00:00Z","actor":null},{"__typename":"ClosedEvent","createdAt":"2026-09-20T00:00:00Z","actor":{"login":"y"},"stateReason":"DUPLICATE","closer":{"__typename":"Commit","abbreviatedOid":"abc1234","url":"https://github.com/JuliaLang/julia/commit/abc1234"}}]}}}""")
+    other = W.JSON.parse("""{"resource":{"timelineItems":{"nodes":[{"__typename":"ClosedEvent","createdAt":"2026-09-18T20:10:21Z","actor":{"login":"x"},"stateReason":"NOT_PLANNED","closer":{"__typename":"PullRequest","number":5,"url":"https://github.com/o/r/pull/5","repository":{"nameWithOwner":"o/r"}}},{"__typename":"ReopenedEvent","createdAt":"2026-09-19T00:00:00Z","actor":null},{"__typename":"ClosedEvent","createdAt":"2026-09-20T00:00:00Z","actor":{"login":"y"},"stateReason":"DUPLICATE","closer":{"__typename":"Commit","abbreviatedOid":"abc1234","url":"https://github.com/JuliaLang/julia/commit/abc1234"}}]}}}""")
     _, evs = W.Events.activity_of(other, "https://github.com/JuliaLang/julia/issues/1")
     @test [e["kind"] for e in evs] == ["closed", "reopened", "closed"]
     @test evs[1]["closer"] == "o/r#5" && evs[1]["reason"] == "not planned"
@@ -358,7 +358,7 @@ end
     # Reviews are events too, from their own connection: libuv#5291, one
     # approval with no words and one with some. A comment review with no body
     # is only the wrapper for its line comments, and is left out.
-    rv = W.JSON3.read("""{"resource":{"commits":{"nodes":[]},"timelineItems":{"nodes":[]},"reviews":{"nodes":[{"author":{"login":"vtjnash"},"state":"APPROVED","submittedAt":"2026-09-23T16:32:33Z","body":"","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-1"},{"author":{"login":"x"},"state":"COMMENTED","submittedAt":"2026-09-23T17:00:00Z","body":"","url":"u"},{"author":{"login":"bnoordhuis"},"state":"APPROVED","submittedAt":"2026-09-23T19:58:02Z","body":"LGTM and doesn't really need a test","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-2"}]}}}""")
+    rv = W.JSON.parse("""{"resource":{"commits":{"nodes":[]},"timelineItems":{"nodes":[]},"reviews":{"nodes":[{"author":{"login":"vtjnash"},"state":"APPROVED","submittedAt":"2026-09-23T16:32:33Z","body":"","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-1"},{"author":{"login":"x"},"state":"COMMENTED","submittedAt":"2026-09-23T17:00:00Z","body":"","url":"u"},{"author":{"login":"bnoordhuis"},"state":"APPROVED","submittedAt":"2026-09-23T19:58:02Z","body":"LGTM and doesn't really need a test","url":"https://github.com/libuv/libuv/pull/5291#pullrequestreview-2"}]}}}""")
     _, evs = W.Events.activity_of(rv, "https://github.com/libuv/libuv/pull/5291")
     @test [(e["kind"], e["by"], e["state"]) for e in evs] ==
           [("review", "vtjnash", "approved"), ("review", "bnoordhuis", "approved")]
@@ -366,7 +366,7 @@ end
     @test evs[2]["url"] == "https://github.com/libuv/libuv/pull/5291#pullrequestreview-2"
     # Nothing at all - `resource` null, as for a url GitHub cannot find - is
     # two empty lists, not an error.
-    @test W.Events.activity_of(W.JSON3.read("""{"resource":null}"""),
+    @test W.Events.activity_of(W.JSON.parse("""{"resource":null}"""),
                                  "https://github.com/o/r/issues/1") == ([], [])
 end
 

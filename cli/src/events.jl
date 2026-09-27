@@ -21,7 +21,8 @@ module Events
 import ..cache_get, ..cache_put, ..cache_drop
 import ..gh_graphql
 
-using Dates, Printf, JSON3, OrderedCollections
+using Dates, Printf, OrderedCollections
+import JSON
 import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic

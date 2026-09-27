@@ -580,6 +580,29 @@ end
     end
 end
 
+@testset "the pane's metadata reads the same fresh as from the cache" begin
+    # A fetch hands `_meta_shape` the lists as it built them - `Vector{String}`,
+    # a vector of `OrderedDict`s - and the cache hands it parsed JSON, all
+    # `Vector{Any}`. The readers take both, so a fresh fetch is not an empty
+    # pane until the next launch reads it back.
+    keepdir = W.CACHE_DIR[]
+    W.CACHE_DIR[] = joinpath(mktempdir(), "cache")
+    try
+        v = W.OrderedDict{String,Any}(
+            "requested" => ["alice"], "teams" => ["core"], "assignees" => ["bob"],
+            "pending" => "", "fork" => "c/b", "default" => "master",
+            "reviews" => [W.OrderedDict{String,Any}("login" => "carol", "state" => "APPROVED",
+                                                    "at" => "2026-09-01T00:00:00Z")])
+        fresh = W.Events._meta_shape(v)
+        @test fresh.requested == ["alice"] && fresh.teams == ["core"] && fresh.assignees == ["bob"]
+        @test fresh.reviews == [(login = "carol", state = "APPROVED", at = "2026-09-01T00:00:00Z")]
+        W.cache_put("meta", v)
+        @test W.Events._meta_shape(W.cache_get("meta", 60.0)[1]) == fresh
+    finally
+        W.CACHE_DIR[] = keepdir
+    end
+end
+
 @testset "the branch is on the pane, in the form git takes" begin
     st = mkstate()
     row(l) = something(findfirst(x -> startswith(x, "branch"), l), 0)
