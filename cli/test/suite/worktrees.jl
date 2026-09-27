@@ -168,7 +168,7 @@ end
             # repository's is the number alone, `#9`.
             @test occursin("side", row) && occursin(" t ", row) && occursin(" wt#9 ", row)
             @test occursin(" #9 ", W.astrip(W.checkout_option(
-                (path = side, branch = pr.branch, main = false), W.mux_list(), "o/wt")))
+                (path = side, branch = pr.branch, main = false), W.session_list(), "o/wt")))
             @test !occursin("running", row) && W.awidth(row) <= 72
             @test !occursin("#9", W.astrip(ch.options[1][1]))
             # Picking it re-points the shell: the session is on this item now
@@ -178,8 +178,8 @@ end
             W.handle!(ch, 13, ctrl)
             @test last(ctrl.stack) isa W.PaneView
             pop!(ctrl.stack)
-            @test any(r -> r.item == issue2.ref, W.mux_list())
-            @test !any(r -> r.item == issue.ref, W.mux_list())
+            @test any(r -> r.item == issue2.ref, W.session_list())
+            @test !any(r -> r.item == issue.ref, W.session_list())
             @test W.wtkey(W.item_worktree(issue2)[1]) == W.wtkey(side)
             t, b, ask = W.item_worktree(issue)
             @test W.wtkey(t) == W.wtkey(main) && ask
@@ -192,7 +192,7 @@ end
             @test last(ctrl.stack) isa W.PaneView
             pop!(ctrl.stack)
 
-            for r in W.mux_list()
+            for r in W.session_list()
                 r.item in (issue.ref, issue2.ref) && W.mux_kill(r.name)
             end
         end
@@ -337,7 +337,7 @@ end
                 # Anything but the three named keys is no shell at all.
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() === shown && said[] in (nothing, "")
-                @test !any(r -> r.item == pr.ref, W.mux_list())
+                @test !any(r -> r.item == pr.ref, W.session_list())
 
                 # A changed file is on the question, since it is what a
                 # checkout trips on. `n` goes in as it is: a shell on master,
@@ -352,7 +352,7 @@ end
                 @test occursin("started", string(said[]))
                 @test isempty(asked())
                 @test any(r -> r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main),
-                          W.mux_list())
+                          W.session_list())
                 drop!(top())
                 W.git(main, "checkout", "--quiet", "--", "a.txt")
 
@@ -387,7 +387,7 @@ end
                 # And a shell that has gone did not take the answer with it:
                 # the agent still standing there places the next `t` (rule 2)
                 # and holds the answer for it.
-                for r in W.mux_list()
+                for r in W.session_list()
                     (r.item == pr.ref && r.kind == "shell" &&
                      W.wtkey(r.worktree) == W.wtkey(main)) && W.mux_kill(r.name)
                 end
@@ -455,7 +455,7 @@ end
                 # marked free - and going back is asked, with or without the
                 # list: the copy has moved since the shell was last entered.
                 @test any(r -> r.item == pr.ref && r.kind == "shell" && r.branch == pr.branch,
-                          W.mux_list())
+                          W.session_list())
                 W.git(main, "checkout", "--quiet", "master")
                 @test W.item_worktree(pr; items = known).ask
                 @test W.item_worktree(pr).ask
@@ -488,7 +488,7 @@ end
                 # move until the item is put there again, which writes one -
                 # `@` for a detached head, so that staying detached is not a
                 # move and leaving it is.
-                for r in W.mux_list()
+                for r in W.session_list()
                     (r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main)) &&
                         W.mux_tag!(r.name; branch = "")
                 end
@@ -498,7 +498,7 @@ end
                 r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
                 @test r isa String && occursin("back in", r) && said[] === nothing
                 drop!(top())
-                tags = [r.branch for r in W.mux_list()
+                tags = [r.branch for r in W.session_list()
                         if r.item == pr.ref && W.wtkey(r.worktree) == W.wtkey(main)]
                 @test length(tags) == 2 && all(==("@"), tags)
                 @test !W.item_worktree(pr; items = known).ask
@@ -544,7 +544,7 @@ end
                 # does not.
                 @test occursin(string("was ", pr.ref, "'s"), top().child.title)
                 @test first(W.worktrees(main)).branch == pr.branch
-                @test any(r -> r.item == pr2.ref, W.mux_list())
+                @test any(r -> r.item == pr2.ref, W.session_list())
                 drop!(top())
                 rm(fail)
 
@@ -555,7 +555,7 @@ end
                 # rule 1 has the answer, and the shell is re-pointed with a word.
                 # The agent in main from before stays pr's throughout: a
                 # session is its worktree *and* its kind.
-                shell_of() = [r.item for r in W.mux_list()
+                shell_of() = [r.item for r in W.session_list()
                               if W.wtkey(r.worktree) == W.wtkey(main) && r.kind == "shell"]
                 said[] = nothing
                 r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
@@ -569,7 +569,7 @@ end
                 r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
                 @test r isa String && occursin("back in", r)
                 @test !occursin("was ", top().child.title)
-                @test any(r -> r.item == pr.ref && r.kind == "agent", W.mux_list())
+                @test any(r -> r.item == pr.ref && r.kind == "agent", W.session_list())
                 drop!(top())
                 # pr2 takes it, and this time the checkout lands.
                 write(want, pr2.branch)
@@ -796,7 +796,7 @@ end
                 drop!(top())
                 # A new session some time later is a new look: `y` fast-forwards
                 # and goes in, and the branch is at the head.
-                for r in W.mux_list()
+                for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(dest7) && W.mux_kill(r.name)
                 end
                 @test W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known) == ""
@@ -814,7 +814,7 @@ end
                 @test W.status_preview(dest7)[2] == "1 behind origin/ff \u00b7 a force push would pass: ff had origin/ff's tip and moved off it"
                 W.git(dest7, "reset", "--quiet", "--hard", f2)
                 # And nothing more to ask, with or without a session there.
-                for r in W.mux_list()
+                for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(dest7) && W.mux_kill(r.name)
                 end
                 r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
@@ -931,7 +931,7 @@ end
                 drop!(top())
                 rm(joinpath(gd, "rebase-merge"); recursive = true)
                 W.git(dest13, "checkout", "--quiet", "rb")
-                for r in W.mux_list()
+                for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(dest13) && W.mux_kill(r.name)
                 end
                 @test W.enter_session(rbpr, ctrl, :shell, sleep120, say; items = known) == ""
@@ -959,7 +959,7 @@ end
                 @test first(W.worktrees(main)).branch == "pr45/dup"
                 @test strip(W.git(main, "rev-parse", "dup")) == mtip
                 @test any(r -> r.item == duppr.ref && r.branch == "pr45/dup" &&
-                               W.wtkey(r.worktree) == W.wtkey(main), W.mux_list())
+                               W.wtkey(r.worktree) == W.wtkey(main), W.session_list())
                 drop!(top()); rm(log)
                 W.git(main, "checkout", "--quiet", pr.branch)
                 W.git(main, "branch", "--quiet", "-D", "pr45/dup")
@@ -1020,7 +1020,7 @@ end
                 ENV["PATH"] = keptpath
                 # In the `finally`, so a run that errors out leaves nothing
                 # behind for the next one to trip over.
-                for r in W.mux_list()
+                for r in W.session_list()
                     startswith(r.worktree, realpath(root)) && W.mux_kill(r.name)
                 end
             end
@@ -1179,9 +1179,9 @@ end
             @test occursin("s", W.astrip(W.render(v5, 165, 24)))
             # And the same worktree reached from its item is the same session,
             # because a session is keyed by where it is and not by what asked.
-            n = length(W.mux_list())
+            n = length(W.session_list())
             W.open_terminal(pr, ctrl)
-            @test length(W.mux_list()) == n
+            @test length(W.session_list()) == n
             # What `t` reports lands on the pane's footer as well as the
             # browser's row: the pane covers the row as the report arrives.
             pv = last(ctrl.stack)

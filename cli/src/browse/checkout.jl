@@ -16,7 +16,7 @@ Three questions in order, and only the last one is a guess:
    `master` ([`carrier_refused`](@ref)) - or by what git says the branch
    follows, since the pull request's branch is here as often under another
    name (`<owner>/master`, gh's; `pr<N>/<branch>`, ours) as under its own.
-2. **A session already tagged with this item.** `mux_list` rows carry the item
+2. **A session already tagged with this item.** `session_list` rows carry the item
    they were opened on and the worktree they are in, so a session says where
    the work is happening whatever branch happens to be checked out there - and
    an *agent* left running in a scratch copy is exactly the case rule 1 cannot
@@ -75,7 +75,7 @@ function item_worktree(it::Item; items = Item[])
         here = Dict(wtkey(w.path) => w for w in ws)
         # Once, not once per session: the index is a pass over the whole list.
         ix = isempty(branch) ? nothing : branch_index(items)
-        rows = mux_list()
+        rows = session_list()
         mine = [r for r in rows if r.item == it.ref && !isempty(r.worktree)]
         for r in mine
             w = get(here, wtkey(r.worktree), nothing)
@@ -111,8 +111,8 @@ end
 nothing running afterwards. Empty for no place. Not an untagged shell, which
 is nobody's to take."""
 taken_in(it::Item, place::AbstractString, rows) =
-    isempty(place) ? NamedTuple[] :
-    NamedTuple[r for r in rows if !isempty(r.item) && r.item != it.ref &&
+    isempty(place) ? Session[] :
+    Session[r for r in rows if !isempty(r.item) && r.item != it.ref &&
                !isempty(r.worktree) && wtkey(r.worktree) == wtkey(place)]
 
 """The checkout to work in for an item, and the branch it is for.

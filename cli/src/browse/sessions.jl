@@ -363,7 +363,7 @@ Matched here rather than with a tmux filter expression: a path can contain the
 characters a format string is made of, and a comma in a checkout's name would
 otherwise quietly match nothing.
 """
-function mux_find(worktree::AbstractString, kind::Symbol, rows = mux_list())
+function mux_find(worktree::AbstractString, kind::Symbol, rows = session_list())
     want, k = String(worktree), String(kind)
     for r in rows
         r.worktree == want && r.kind == k && return r
@@ -391,7 +391,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
                        ref::AbstractString, num::AbstractString, url::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd)
     mux_bin() === nothing && return no_mux()
-    rows = mux_list()
+    rows = session_list()
     found = mux_find(target, kind, rows)
     # Already looking at it. `^]t` and `^]T` reach here from inside a pane -
     # which is how a shell gets to the agent on the same item and back - and the
@@ -582,7 +582,7 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
     tr === nothing && (tr = Tracking(w.path))
     on_branch(it, w, tr) || return nothing
     if !picked && !isempty(it.ref)
-        rows === nothing && (rows = mux_list())
+        rows === nothing && (rows = session_list())
         any(r -> session_of(r, it, w.path), rows) && return nothing
     end
     # The branch as it is named *here*, which is the pull request's under
@@ -619,7 +619,7 @@ function update_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkcmd
                       r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
     end
     lease = lease_note(target, it.repo, b)
-    rows === nothing && (rows = mux_list())
+    rows === nothing && (rows = session_list())
     theirs = taken_note(it, target, kind, rows)
     notes = vcat([string(b, " is ", lag.behind, " commit", lag.behind == 1 ? "" : "s",
                          " behind ", at, ", pushed from somewhere else")],
@@ -731,7 +731,7 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
     tr === nothing && (tr = Tracking(target))
     on_branch(it, w, tr) && return nothing
     if !picked && !isempty(it.ref)
-        rows === nothing && (rows = mux_list())
+        rows === nothing && (rows = session_list())
         any(r -> session_of(r, it, target), rows) && return nothing
     end
     name = basename(rstrip(target, '/'))
@@ -740,7 +740,7 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
          string(name, " is on ", wbranch,
                 owner === nothing ? "" : string(" \u00b7 ", owner.ref, "'s"))
     lease = it.is_pr ? lease_note(target, it.repo, pr) : ""
-    rows === nothing && (rows = mux_list())
+    rows === nothing && (rows = session_list())
     theirs = taken_note(it, target, kind, rows)
     notes = vcat([on], isempty(theirs) ? String[] : [theirs], status_preview(target),
                  [string("y runs ", it.is_pr ? string("gh pr checkout ", it.number) :
@@ -844,7 +844,7 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
-    rows === nothing && (rows = mux_list())
+    rows === nothing && (rows = session_list())
     opts = Tuple{String,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
     push!(opts, ("+ a new worktree …", ""))
     push_view!(ctrl, ChooseView(
@@ -1100,7 +1100,7 @@ but it has hooks, and `--settings` takes a file of them for one launch: the
 `Stop` hook fires as the turn ends, and a permission prompt is the other way a
 turn stops on you. Each rings the terminal bell, which tmux keeps as the
 window's bell flag until somebody attaches - a seen bit the server holds, that
-[`mux_list`](@ref) reads back as `bell` and the worktree list draws. No socket,
+`session_list` reads back as `bell` and the worktree list draws. No socket,
 no listener, nothing for the hook to find: the pane it is in is the whole of
 the channel.
 
@@ -1132,7 +1132,7 @@ a listing is one process. A session from before the url was tagged reads
 back an empty one and is nobody's bell until it is entered again, which
 re-tags it.
 """
-rang_urls(rows = mux_list()) =
+rang_urls(rows = session_list()) =
     Set{String}(r.url for r in rows if r.kind == "agent" && r.bell && !isempty(r.url))
 
 """Silence the item's agent, as every mark that reads the item does.
@@ -1143,7 +1143,7 @@ So `e`, `s`, `x` and the shell's marks clear it, through `mux_seen!` - an
 attach tmux counts as looking. Answers the sessions it silenced, which is what
 `z` rings again.
 """
-function agent_seen!(url::AbstractString, rows = mux_list())
+function agent_seen!(url::AbstractString, rows = session_list())
     names = String[r.name for r in rows if r.kind == "agent" && r.bell && r.url == url]
     for n in names
         mux_seen!(n)

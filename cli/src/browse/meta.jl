@@ -105,16 +105,16 @@ function start_meta!(st::BState, it::Item, how::Symbol)
             # `local:` url is not one the request could be made of anyway;
             # nor has a notice, whose facts are all on its row, and which has
             # no checkout for a session to be in.
-            rows = mux_list()
+            rows = session_list()
             (meta = ghitem(it) ?
                         Events.itemmeta(it.url, it.is_pr; ttl = ttl, keep = keep) : nothing,
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
              sessions = rows,
-             taken = isnotice(it) ? NamedTuple[] :
+             taken = isnotice(it) ? Session[] :
                      taken_in(it, item_place(it; items = st.all), rows))
         catch e
-            (meta = nothing, checks = nothing, sessions = String[], taken = NamedTuple[],
+            (meta = nothing, checks = nothing, sessions = Session[], taken = Session[],
              err = first(sprint(showerror, e), 120))
         finally
             wake!(st.wake)

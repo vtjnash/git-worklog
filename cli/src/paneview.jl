@@ -664,7 +664,7 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     # names none.
     live = Dict{String,Vector{SessionRow}}()
     on = Dict{String,Vector{Tuple{String,String}}}()
-    for r in mux_list()
+    for r in session_list()
         k = isempty(r.worktree) ? "" : wtkey(r.worktree)
         # tmux hands a tag back as the string it was set with, and an untagged
         # session as an empty one: a shell is what a session is unless it says
@@ -844,7 +844,7 @@ stopped, or is asking - and is waiting on you until you look, since tmux clears
 the bell on the attach. Grey is there and quiet.
 
 Over anything with `kind`, `attached` and `bell` - the row's `SessionRow`s, or
-the sessions of one worktree straight off `mux_list` - so the checkout picker
+the sessions of one worktree straight off `session_list` - so the checkout picker
 draws the same three letters this list does, and a reader who has seen either
 knows the other.
 """

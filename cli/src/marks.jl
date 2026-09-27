@@ -434,7 +434,7 @@ function mark_done_moved(urls, at::DateTime; fold::Bool = false)
     # And an agent's bell, for the same reason: `wl unread` lists it against
     # the bell, and a stamp that left the bell standing would leave it listed.
     # One listing for the lot, since each silence is a process of its own.
-    rows = mux_list()
+    rows = session_list()
     for u in us
         agent_seen!(u, rows)
     end

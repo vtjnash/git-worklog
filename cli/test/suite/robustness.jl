@@ -187,15 +187,15 @@ end
 
 @testset "the metadata fetch result fits the field it lands in" begin
     # This is the bug that killed a live session: `load_meta!` handed
-    # `mux_sessions()` - names - to a field holding what `mux_list()` returns.
+    # `mux_sessions()` - names - to a field holding what `session_list()` returns.
     # Every test set `st.sessions` by hand, so none of them ever saw it.
     st = W.BState(W.loaditems(), "worklog")
-    st.sessions = W.mux_list()
-    @test st.sessions isa Vector{NamedTuple}
+    st.sessions = W.session_list()
+    @test st.sessions isa Vector{W.Session}
     if W.mux_bin() !== nothing
         n = "wl-test-fetchtype-1"; W.mux_kill(n)
         W.mux_start(n, pwd(), "sleep 60")
-        st.sessions = W.mux_list()
+        st.sessions = W.session_list()
         @test any(r -> r.name == n, st.sessions)
         @test W.meta_lines(st, st.items[1], 40) isa Vector{String}
         W.mux_kill(n)

@@ -381,7 +381,7 @@ end
                 # carries it, `h` goes to it, and there is nothing to adopt.
                 @test W.goto_item(v, v.rows[v.sel].item) === :ok
                 @test v.status == "no pull request on this branch"
-                for r in W.mux_list()
+                for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(joinpath(root, "wt-agent")) &&
                         W.mux_tag!(r.name; item = pr.ref, url = pr.url)
                 end
@@ -389,7 +389,7 @@ end
                 v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
                 @test v.rows[v.sel].item !== nothing && v.rows[v.sel].item.url == pr.url
                 @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
-                for r in W.mux_list()
+                for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(joinpath(root, "wt-agent")) && W.mux_kill(r.name)
                 end
                 W.worktree_reload!(v)

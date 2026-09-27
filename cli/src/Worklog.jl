@@ -176,11 +176,6 @@ function __init__()
     # Both are TermIFrame's defaults to be told, not its business to guess.
     MUX_PREFIX[] = "wl"
     MUX_ENV[] = "WORKLOG_TMUX"
-    # And what a session is tagged with: the url beside the ref, since the
-    # marks are keyed by url and an agent's bell is a mark (`rang_urls`); and
-    # the branch the copy was on when the session was last entered, which is
-    # what says the copy has since moved under it (`item_worktree`, rule 2).
-    MUX_TAGS[] = (:worktree, :kind, :item, :url, :branch)
 end
 
 end # module Worklog

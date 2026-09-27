@@ -59,6 +59,34 @@ end
 comments are in it, and whether leaving the item has put the question."
 const Batch = @NamedTuple{url::String, ref::String, review::String, n::Int, asked::Bool}
 
+"""What a session of ours is tagged with, kept in the tmux server as strings:
+the checkout it runs in, what it is (`shell`, `agent`, `note`), the item's ref
+and url - the marks are keyed by url, and an agent's bell is a mark
+(`rang_urls`) - and the branch the copy was on when the session was last
+entered, which is what says the copy has since moved under it
+(`item_worktree`, rule 2)."""
+const SESSION_TAGS = ["worktree", "kind", "item", "url", "branch"]
+
+"""One of our sessions: TermIFrame's row, with `SESSION_TAGS` read into fields
+of their own. `id` is the server's, which a rename does not change."""
+struct Session
+    name::String
+    id::String
+    command::String
+    attached::Bool
+    bell::Bool
+    worktree::String
+    kind::String
+    item::String
+    url::String
+    branch::String
+end
+Session(r::MuxRow) = Session(r.name, r.id, r.command, r.attached, r.bell,
+                             r.tags[1], r.tags[2], r.tags[3], r.tags[4], r.tags[5])
+
+"Every session this program owns, now: one `tmux list-panes`."
+session_list() = Session[Session(r) for r in mux_list(SESSION_TAGS)]
+
 """The browser's whole state.
 
 Keyword-constructed, with defaults: it has more than fifty fields, and the
@@ -213,10 +241,10 @@ Base.@kwdef mutable struct BState <: View
     # gets forgotten.
     batch::Union{Nothing,Batch} = nothing   # `mkbatch`, or nothing
     metapending::Union{Nothing,Task} = nothing
-    sessions::Vector{NamedTuple} = NamedTuple[]  # live multiplexer sessions, as
+    sessions::Vector{Session} = Session[]  # live multiplexer sessions, as
                                           # of the last metadata fetch; asking
                                           # costs a process, and `render` is pure
-    taken::Vector{NamedTuple} = NamedTuple[]  # of those, the other items' in the
+    taken::Vector{Session} = Session[]  # of those, the other items' in the
                                           # copy `t`/`T` would open in - which
                                           # they take over (`item_place`)
     anchor::Int = 0        # row a drag started on

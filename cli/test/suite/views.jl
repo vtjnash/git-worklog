@@ -407,7 +407,7 @@ end
         @test length(ctrl.stack) == depth
         @test last(ctrl.stack) isa W.PaneView
 
-        for r in W.mux_list()
+        for r in W.session_list()
             r.worktree == wt && W.mux_kill(r.name)
         end
         while length(ctrl.stack) > 1
@@ -673,7 +673,7 @@ end
             n2 = W.mux_name(wt, "main", "2"; kind = kind)
             W.mux_rename(W.mux_find(wt, kind).name, n2)
             W.mux_tag!(n2; worktree = wt, kind = kind, item = "b#2")
-            @test count(r -> r.worktree == wt, W.mux_list()) == 1
+            @test count(r -> r.worktree == wt, W.session_list()) == 1
             @test W.mux_find(wt, kind).item == "b#2"
             @test W.mux_find(wt, kind).name == n2
             W.mux_kill(n2)
@@ -682,10 +682,9 @@ end
 
     # A tag comes back from tmux as the string it was set with, so that is what
     # a row carries and what the pane reads.
-    row(kind, ref; bell = false) = (name = "wl-x", command = "sh", attached = false,
-                                    bell = bell, worktree = "/tmp/x",
-                                    kind = String(kind), item = ref)
-    st.sessions = NamedTuple[]
+    row(kind, ref; bell = false) = W.Session("wl-x", "\$1", "sh", false, bell, "/tmp/x",
+                                             String(kind), ref, "", "")
+    st.sessions = W.Session[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
     # Matched on the item the session was tagged with, so the pane never has to
     # work out which worktree the item would land in.
@@ -715,7 +714,7 @@ end
     @test occursin("T takes it over", lines)
     st.taken = [row(:shell, "someone/else#1")]
     @test occursin("t takes it over", join(W.meta_lines(st, tasked, 40), "\n"))
-    st.taken = NamedTuple[]
+    st.taken = W.Session[]
     # And the line the questions carry for it, kind-aware.
     @test W.taken_note(tasked, "/tmp/x", :agent, [theirs]) ==
           "someone/else#1's agent is running here \u00b7 going in takes the agent over"

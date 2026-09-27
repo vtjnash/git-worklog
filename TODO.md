@@ -15,6 +15,23 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       (`activity_list`, the node builders, `thread_seen`, `event_at`,
       `bk_failed`) are `@nospecialize` on purpose. Fix what is real; note
       what is deliberate where it is.
+- [ ] **One control pipe per browser, for all the sessions.** Every `mux(...)`
+      is a `tmux` process today, 3.2 ms each measured; over a control-mode
+      pipe the same `set` is 0.24 ms and `list-panes` 0.06 ms. A control client
+      has to attach to a session to stay open - with any other command
+      `tmux -C` runs it and exits - and attaching to one of ours would count as
+      looking and clear its bell, so each browser parks its own on a hidden
+      session of its own, `_wl-ctl-<pid>`, outside the `wl-` prefix
+      (`-f no-output,ignore-size`; a real session attached beside it was left
+      `attached=0` with its bell standing). It exists only while ours do:
+      opened with the first `wl-` session, the browser's or found at launch,
+      and killed by its browser when the last one ends - `%sessions-changed`
+      on the pipe says when - or when the browser exits; one whose pid is not
+      running is killed by the next browser to open, since it would keep the
+      server up. Commands go down the pipe while it is open and are spawned
+      otherwise, and one-shot commands (`wl unread`) always spawn. Then the
+      bell poll (`watch_sessions!`, every 2 s) can become a subscription,
+      `refresh-client -B`, which is most of the point.
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is

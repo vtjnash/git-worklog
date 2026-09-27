@@ -31,15 +31,16 @@ For comparison, today's `cli/bin/wl --help` warm is 1.7-2.0 s, loading a
 
 ## The plan
 
-1434 errors under `--trim=safe` on the 1.14 nightly, 401 of them in `wl`'s
-own code (2026-09-27, after the accessors below and the stored functions). The verifier counts each
+1410 errors under `--trim=safe` on the 1.14 nightly, 397 of them in `wl`'s
+own code (2026-09-27, after the accessors below, the stored functions and
+the session rows). The verifier counts each
 method once, however many callers reach it, and **does not look inside a
 call it cannot resolve** - so typing a call site makes its callee visible,
 and a count can rise as code is fixed. What needs Julia itself is in TODO,
 *Upstream*: the 1.14 `LazyLibrary` regression, subprocesses, and
 `@nospecialize` on an argument with a default.
 
-- [ ] **The rest of the untyped reads.** Of the 401 left in `wl`'s code, 178
+- [ ] **The rest of the untyped reads.** Of the 397 left in `wl`'s code, 178
       are the three items below (`@printf` 81, `stdout`/`stderr` 56,
       `showerror` 41) and 12 are `sync!` calling a `Source`'s functions (the
       next item); nearly all the rest is a tail of one or two per function
@@ -55,9 +56,6 @@ and a count can rise as code is fixed. What needs Julia itself is in TODO,
       library cannot type by its host's types. Waiting on
       JuliaLang/julia#62559 (draft, "Part 1/2", on #62245) and the trim
       support its description leaves to a second part; the RFC is #59774.
-- [ ] **`mux_list`'s rows.** `Vector{NamedTuple}`, fields named by
-      `MUX_TAGS` at run time, so every read of a row is dynamic, and
-      `BState.sessions`/`taken` hold them as `NamedTuple`. Being looked at.
 - [ ] **Decide what an unknown container is, on read.** `jget`, `jstr`,
       `jint` and `jlist` test the concrete containers the program holds, then
       fall back to the generic read through one dynamic call each (`_jget`,
