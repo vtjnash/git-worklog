@@ -36,6 +36,22 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       otherwise, and one-shot commands (`wl unread`) always spawn. Then the
       bell poll (`watch_sessions!`, every 2 s) can become a subscription,
       `refresh-client -B`, which is most of the point.
+      - **Not merged with the pane's own client.** A shown pane is one control
+        client attached to its session (at most one: `push_place!` closes the
+        last), and the session ending is what ends it - `%exit`, the
+        `session ended` signal. One pipe for both would `switch-client` to the
+        pane and back, and outlive the session only with `detach-on-destroy
+        off`, which moves the client to the session anybody used last: with
+        another session looked at since, the client landed on it and cleared
+        its bell (measured, 3.5a). Two clients per browser at most.
+      - **A lock around each ask.** Replies are matched by position
+        (`mux_ask`), so two tasks asking at once can each take the other's
+        answer. The pane's client has no lock and needs none - only the event
+        loop asks it - but this one will be asked from the metadata fetch,
+        the session watch and key handlers: one `ReentrantLock`, held from the
+        write to the reply. The reader needs none: it only puts replies on a
+        `Channel` and routes notifications, which tmux never sends inside a
+        reply.
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is
