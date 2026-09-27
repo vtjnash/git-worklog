@@ -200,7 +200,7 @@ resolves - a `~` in a hand-edited entry is the user's text and worth showing
 back to them unchanged.
 """
 function pinned_repos()
-    [(name = k, path = String(get(v, "worktree", "")),
+    [(name = k, path = jstr(v, :worktree, ""),
       there = isdir(userpath(jstr(v, :worktree, ""))))
      for (k, v) in sort(collect(load_repos()); by = first)]
 end

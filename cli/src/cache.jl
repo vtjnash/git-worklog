@@ -101,7 +101,7 @@ function cache_get(key::AbstractString, ttl_s::Real; keep_s::Real = ttl_s)
     try
         d = JSON.parse(read(f, String))
         at = jget(d, :at)
-        at isa Real || return nothing
+        at = at isa Float64 ? at : at isa Int ? Float64(at) : return nothing
         age = time() - at
         age > max(ttl_s, keep_s) && return nothing
         (jget(d, :value), age)

@@ -202,15 +202,18 @@ Folded past three, with the newest headline as the peek: a rebase of forty
 commits is context for the comment under it rather than forty lines to scroll.
 """
 function push_node(@nospecialize(run), url::AbstractString)
-    n = length(run)
-    when = when_str(run[end]["at"])
+    cs = anylist(run)
+    n = length(cs)
+    at = jstr(cs[end], :at, "")
+    when = when_str(at)
     # The last commit's author, which is whose push it was except where a run
     # collected two people's. A list of names on the header would be a byline
     # about the push rather than about a person, which is not what a byline is.
-    who = isempty(run[end]["by"]) ? "" : string(run[end]["by"], "  ")
-    peek = strip(first(replace(String(run[end]["headline"]), r"\s+" => " "), 58))
-    body = join((string(first(c["oid"], 8), "  ", when_str(c["at"]), "  ",
-                        oneline(c["headline"])) for c in Iterators.reverse(run)), "\n")
+    by = jstr(cs[end], :by, "")
+    who = isempty(by) ? "" : string(by, "  ")
+    peek = strip(first(replace(jstr(cs[end], :headline, ""), r"\s+" => " "), 58))
+    body = join((string(first(jstr(c, :oid, ""), 8), "  ", when_str(jstr(c, :at, "")), "  ",
+                        oneline(jstr(c, :headline, ""))) for c in Iterators.reverse(cs)), "\n")
     hd = string(THEME.settled, "↑ pushed ", n, n == 1 ? " commit" : " commits", THEME.reset)
     nd = Node(string(hd, "  ", THEME.dim, who, when, THEME.reset, "   ", peek),
               body, :plain, n <= 3)
@@ -223,8 +226,8 @@ function push_node(@nospecialize(run), url::AbstractString)
     nd.meta["push"] = n
     # The whole sha behind each row of the body, in the order drawn: the rows
     # show eight characters, and `o` on one opens that commit.
-    nd.meta["oids"] = [String(c["oid"]) for c in Iterators.reverse(run)]
-    nd.meta["at"] = String(run[end]["at"])
+    nd.meta["oids"] = String[jstr(c, :oid, "") for c in Iterators.reverse(cs)]
+    nd.meta["at"] = at
     nd
 end
 
@@ -243,14 +246,15 @@ Followed to the closer when there is one - the pull request that fixed it is
 where the answer is - and to the item itself otherwise.
 """
 function state_node(@nospecialize(e), url::AbstractString)
-    kind = String(e["kind"])
+    kind = jstr(e, :kind, "")
     (col, word) = kind == "merged" ? (THEME.settled, "\u2713 merged") :
                   kind == "closed" ? (THEME.blocked, "\u2717 closed") :
                   kind == "reopened" ? (THEME.waiting, "\u21bb reopened") :
                   kind == "draft" ? (THEME.dim, "converted to draft") :
                                     (THEME.settled, "ready for review")
     by = jstr(e, :by, "")
-    when = when_str(String(e["at"]))
+    at = jstr(e, :at, "")
+    when = when_str(at)
     closer = jstr(e, :closer, "")
     reason = jstr(e, :reason, "")
     into = jstr(e, :into, "")
@@ -269,7 +273,7 @@ function state_node(@nospecialize(e), url::AbstractString)
     nd.meta["src"] = string(word, "  ", isempty(by) ? "" : string(by, "  "), when,
                             isempty(said) ? "" : string("  ", said))
     nd.meta["url"] = jstr(e, :closer_url, url)
-    nd.meta["at"] = String(e["at"])
+    nd.meta["at"] = at
     nd
 end
 
@@ -289,7 +293,7 @@ function review_node(@nospecialize(e), url::AbstractString)
                                          ("", "reviewed")
     by = jstr(e, :by, "")
     who = isempty(by) ? "" : string(by, "  ")
-    when = when_str(String(e["at"]))
+    when = when_str(jstr(e, :at, ""))
     hd = string(col, word, THEME.reset, "  ", THEME.dim, who, when, THEME.reset)
     txt = strip(jstr(e, :body, ""))
     link = jstr(e, :url, "")
@@ -302,7 +306,7 @@ function review_node(@nospecialize(e), url::AbstractString)
     end
     ns[1].meta["src"] = string(word, "  ", who, when)
     ns[1].meta["url"] = link
-    ns[1].meta["at"] = String(e["at"])
+    ns[1].meta["at"] = jstr(e, :at, "")
     ns
 end
 
@@ -386,18 +390,19 @@ independently, so each mix was a compilation of its own; the precompile trace
 had this one several times over. The rows are read by `get` either way.
 """
 function activity_list(@nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
-    from = isempty(cs) ? "" : String(first(cs)["created_at"])
+    cs_ = anylist(cs)
+    from = isempty(cs_) ? "" : jstr(first(cs_), :created_at, "")
     evs = ActivityEntry[]
-    for c in cs
-        push!(evs, (kind = :comment, at = String(c["created_at"]), c = c))
+    for c in cs_
+        push!(evs, (kind = :comment, at = jstr(c, :created_at, ""), c = c))
     end
-    for c in cms
-        t = String(c["at"])
+    for c in anylist(cms)
+        t = jstr(c, :at, "")
         (isempty(from) || t >= from) && push!(evs, (kind = :push, at = t, c = c))
     end
-    for e in sts
-        t = String(e["at"])
-        if get(e, "kind", "") == "review"
+    for e in anylist(sts)
+        t = jstr(e, :at, "")
+        if jstr(e, :kind, "") == "review"
             (isempty(from) || t >= from) && push!(evs, (kind = :review, at = t, c = e))
         else
             push!(evs, (kind = :state, at = t, c = e))
@@ -570,7 +575,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         made[1].meta["mine"] = !isempty(me) && who == me
         # Only a review comment can be replied to in a thread; an issue comment
         # has no thread to reply into, so `c` there writes a new one.
-        isempty(loc) || (made[1].meta["comment_id"] = get(c, "id", nothing))
+        isempty(loc) || (made[1].meta["comment_id"] = jget(c, :id))
         append!(ns, made)
     end
     # **What this thread shows you up to**, which is what `e` marks the item
@@ -601,13 +606,13 @@ is a type of its own whatever the argument says - so every mix of empty and
 not was a `maximum` compiled again. See `activity_list`."""
 function thread_seen(@nospecialize(body), @nospecialize(cs), @nospecialize(cms), @nospecialize(sts))
     seen = jstr(body, :updated_at, "")
-    for c in cs
+    for c in anylist(cs)
         seen = max(seen, jstr(c, :created_at, ""))
     end
-    for c in cms
+    for c in anylist(cms)
         seen = max(seen, jstr(c, :at, ""))
     end
-    for e in sts
+    for e in anylist(sts)
         seen = max(seen, jstr(e, :at, ""))
     end
     seen

@@ -163,11 +163,12 @@ import fetches one mid-session and has to become the same `Item` a lane would
 have made. Two mappings would drift, and the first thing to drift would be
 `act`, which every age and every order is worked out from.
 """
-function item_of(r)
+function item_of(@nospecialize(r))
         act = something(jstr(r, :head_at), jstr(r, :last_comment_at), jstr(r, :updated, ""))
+        repo, number = jstr(r, :repo, ""), jint(r, :number, 0)
         Item(
-            url = r.url, ref = string(split(r.repo, '/')[end], '#', r.number),
-            repo = r.repo, number = r.number, title = r.title,
+            url = jstr(r, :url, ""), ref = string(split(repo, '/')[end], '#', number),
+            repo = repo, number = number, title = jstr(r, :title, ""),
             lane = jstr(r, :lane, ""), track = jstr(r, :track, "normal"),
             note = jstr(r, :note, ""),
             ci = jstr(r, :ci, ""), unresolved = jint(r, :unresolved, 0),
@@ -187,8 +188,8 @@ function item_of(r)
             new = jbool(r, :new, false),
             is_pr = jstr(r, :type, "PullRequest") == "PullRequest",
             author = jstr(r, :author, ""),
-            assignees = String[String(a) for a in jlist(r, :assignees)],
-            labels = String[String(l) for l in jlist(r, :labels)],
+            assignees = jstrs(r, :assignees),
+            labels = jstrs(r, :labels),
             milestone = jstr(r, :milestone, ""),
             milestone_due = first(jstr(r, :milestone_due, ""), 10),
             review_decision = jstr(r, :review_decision, ""),
@@ -285,18 +286,14 @@ function fetch_bundle(it::Item)
     # is the refresh's to sort out, which puts the row under its new name;
     # a bundle under the old name with the new url inside it would be two
     # items with one url.
-    String(n.url) == it.url || return nothing
+    jstr(n, :url, "") == it.url || return nothing
     cfg = config()
-    file = fetched("items")
-    old = bundled(it.url, file === nothing ? nothing : jget(file, Symbol(it.url)))
-    r = normalize(n, it.lane, cfg["login"])
-    reason = nz(jget(old, :reason), nothing)
-    if reason === nothing
-        e = get(Events.load_inbox()["items"], it.url, nothing)
-        reason = e === nothing ? nothing : get(e, "reason", nothing)
-    end
-    truthy(reason) && (r["reason"] = String(reason))
-    carry_mention!(r, get(Events.load_inbox()["items"], it.url, nothing))
+    old = bundled(it.url, jget(fetched("items"), Symbol(it.url)))
+    r = normalize(n, it.lane, jstr(cfg, :login, ""))
+    inbox_row = get(Events.load_inbox()["items"]::Dict{String,Any}, it.url, nothing)
+    reason = something(jstr(old, :reason), jstr(inbox_row, :reason, ""))
+    isempty(reason) || (r["reason"] = reason)
+    carry_mention!(r, inbox_row)
     r["fetched_at"] = stamp(at)
     derive!(r, old, get(load_state(), it.url, Dict{String,Any}()), cfg, at)
     pop!(r, "slept", nothing); pop!(r, "woken", nothing)
@@ -648,10 +645,10 @@ notifications source saw carries `lane = "notifications"`.
 Beside `inbox_row` because they are one conversion in two directions, and the
 pair of them being apart is how the fields drifted the first time.
 """
-poll_item(u) = Item(
-    url = String(u["url"]), repo = String(u["repo"]), number = u["number"],
-    ref = string(split(String(u["repo"]), '/')[end], '#', u["number"]),
-    title = String(u["title"]), lane = jstr(u, :lane, "activity"),
+poll_item(@nospecialize(u)) = Item(
+    url = jstr(u, :url, ""), repo = jstr(u, :repo, ""), number = jint(u, :number, 0),
+    ref = string(split(jstr(u, :repo, ""), '/')[end], '#', jint(u, :number, 0)),
+    title = jstr(u, :title, ""), lane = jstr(u, :lane, "activity"),
     author = jstr(u, :author, ""),
     updated = jstr(u, :updated, ""),
     act = jstr(u, :updated, ""),
@@ -660,12 +657,12 @@ poll_item(u) = Item(
     # Yours, with no comment and no notification - GitHub notifies nobody of
     # their own acts - is the refresh's `opened` as near as the poll can say:
     # a request or an assignment since is the refresh's to find.
-    moved_by = get(u, "author", nothing) == login() && get(u, "comments", 0) == 0 &&
-               !truthy(get(u, "reason", nothing)) ? "opened" : "",
-    labels = String[String(l) for l in get(u, "labels", ())],
+    moved_by = jstr(u, :author) == login() && jint(u, :comments, 0) == 0 &&
+               !truthy(jget(u, :reason)) ? "opened" : "",
+    labels = jstrs(u, :labels),
     state = uppercase(jstr(u, :state, "open")),
     mentioned = something(jstr(u, :mentioned), Events.mention_words(u)),
-    is_pr = get(u, "is_pr", true))
+    is_pr = jbool(u, :is_pr, true))
 
 """Imports that `facts.json` has not caught up with, fetched now.
 
@@ -690,8 +687,8 @@ function imported_items(have::Set{String}, at::DateTime = utcnow())
                 logerror!(e, catch_backtrace(), "imported")
                 Any[]
              end
-        r = normalize(n, "imported", cfg["login"])
-        derive!(r, nothing, get(state, String(r["url"]), Dict{String,Any}()), cfg, at)
+        r = normalize(n, "imported", jstr(cfg, :login, ""))
+        derive!(r, nothing, get(state, jstr(r, :url, ""), Dict{String,Any}()), cfg, at)
         push!(out, item_of(JSON.parse(json_dumps(r))))
     end
     out
@@ -843,13 +840,13 @@ function ui(args = String[], at::DateTime = utcnow())
         logerror!(e, catch_backtrace(), "forwards")
     end
     cfg = config()
-    cc = get(cfg, "cache", Dict{String,Any}())
+    cc = jdict(cfg, :cache)
     # `detail_ttl_minutes` is the older name for the same number, from when it
     # covered the thread and the diff and nothing else. Before `loaditems`,
     # which reads the bundle cache under `CACHE_KEEP`.
-    CACHE_FRESH[] = 60.0 * get(cc, "fresh_minutes", get(cc, "detail_ttl_minutes", 2))
-    CACHE_KEEP[] = 86_400.0 * get(cc, "keep_days", 30)
-    MERGE_FRESH[] = 60.0 * get(cc, "merge_minutes", 10)
+    CACHE_FRESH[] = 60.0 * jfloat(cc, :fresh_minutes, jfloat(cc, :detail_ttl_minutes, 2.0))
+    CACHE_KEEP[] = 86_400.0 * jfloat(cc, :keep_days, 30.0)
+    MERGE_FRESH[] = 60.0 * jfloat(cc, :merge_minutes, 10.0)
     # Adopted branches are items too, and everything keyed by url works on them
     # the moment they are: notes, snoozes, the clock, the tags, the filters.
     items = vcat(loaditems(), local_items())
@@ -857,7 +854,7 @@ function ui(args = String[], at::DateTime = utcnow())
     # tracked from the moment it is made rather than from the next one.
     append!(items, imported_items(Set(x.url for x in items), at))
     append!(items, inbox_items(Set(x.url for x in items),
-                               Events.poll(cfg, cfg["login"], at; verbose = false)))
+                               Events.poll(cfg, jstr(cfg, :login, ""), at; verbose = false)))
     # And the notices the poll just wrote, beside the rows it came with.
     append!(items, notice_items())
     # Straight into the browser: what the lane menu used to choose is now a tag.
@@ -880,7 +877,7 @@ Neither `local_items` nor `imported_items`: the first walks the checkouts
 and the second reaches GitHub, and an import that no refresh has caught up
 with is in the inbox as a light row, said unread, until one has.
 """
-function unread_items(at::DateTime, rows = values(Events.load_inbox()["items"]))
+function unread_items(at::DateTime, rows = values(Events.load_inbox()["items"]::Dict{String,Any}))
     items = corpus_items(rows)
     m = unread_marks(at)
     sort!([it for it in items if seen_of(it, m) === :unread && !filed_of(it, m)];
@@ -894,7 +891,7 @@ unread_marks(at::DateTime) =
           archived = archived_map(), now = stamp(at), rang = rang_urls())
 
 "The corpus, the light rows and the notices, as items: what the seen bit is asked over."
-function corpus_items(rows = values(Events.load_inbox()["items"]))
+function corpus_items(rows = values(Events.load_inbox()["items"]::Dict{String,Any}))
     items = something(fetched_items(), Item[])
     append!(items, inbox_items(Set(x.url for x in items), rows))
     append!(items, notice_items())
@@ -932,7 +929,7 @@ Explicit and dry-run first; the refresh can call it once it has been
 watched. Answers what it did, or would do.
 """
 function consolidate!(at::DateTime; dry_run::Bool = false,
-                      rows = values(Events.load_inbox()["items"]))
+                      rows = values(Events.load_inbox()["items"]::Dict{String,Any}))
     items = corpus_items(rows)
     raw = field_maps(("done", "snooze", "archived"))
     sources = source_since()
@@ -1005,10 +1002,10 @@ reloads, and it polled on the way - so a reload rebuilds the same list launch
 did rather than keeping the old light rows by hand off a set the poll wrote
 once.
 """
-function inbox_items(have::Set{String}, rows = values(Events.load_inbox()["items"]))
+function inbox_items(have::Set{String}, rows = values(Events.load_inbox()["items"]::Dict{String,Any}))
     out = Item[]                        # a loop, for the reason in `loaditems`
     for u in rows
-        url = String(u["url"])
+        url = jstr(u, :url, "")
         url in have && continue
         b = bundle_of(url)
         push!(out, b === nothing || before_inbox(b, u) ? poll_item(u) : item_of(b))

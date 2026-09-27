@@ -272,13 +272,13 @@ movement, so a head that changed under the mark moved the row under it too.
 Precise, and lost with the file: a rebuilt `fetched.json` starts from the head
 of the first row it sees read, and `done_head` beats it wherever `e` wrote one.
 """
-function read_head(r, old, upto::Union{Nothing,AbstractString})
-    carried = String(nz(rget(old, "read_head"), ""))
+function read_head(r, @nospecialize(old), upto::Union{Nothing,AbstractString})
+    carried = jstr(old, :read_head, "")
     upto === nothing && return carried
-    under(x) = (m = moved_of(x); m !== nothing && String(m) <= upto)
-    head(x) = String(nz(rget(x, "head_sha"), ""))
-    under(r) && !isempty(head(r)) && return head(r)
-    old !== nothing && under(old) && !isempty(head(old)) && return head(old)
+    under(@nospecialize(x)) = (m = row_moved(x); m !== nothing && m <= upto)
+    under(r) && !isempty(jstr(r, :head_sha, "")) && return jstr(r, :head_sha, "")
+    old !== nothing && under(old) && !isempty(jstr(old, :head_sha, "")) &&
+        return jstr(old, :head_sha, "")
     carried
 end
 
@@ -383,13 +383,18 @@ could not be marked done by anything. Nothing compares a stamp against
 moved_of(moved_at, updated) =
     truthy(moved_at) ? String(moved_at) : truthy(updated) ? String(updated) : nothing
 moved_of(::Nothing) = nothing
-moved_of(r) = moved_of(rget(r, "moved_at"), rget(r, "updated"))
+moved_of(r) = row_moved(r)
+"`moved_of` a row in any of its shapes, typed: `moved_at`, else `updated`, else `nothing`."
+function row_moved(@nospecialize(r))::Union{Nothing,String}
+    m = jstr(r, :moved_at, "")
+    isempty(m) || return m
+    u = jstr(r, :updated, "")
+    isempty(u) ? nothing : u
+end
 
 """One key of a row, or `nothing`: an inbox row is keyed by `String`, a corpus
 row read back from `fetched.json` by `Symbol`, and the marks done both."""
-rget(r::AbstractDict{String}, k::AbstractString) = get(r, k, nothing)
-rget(r, k::AbstractString) = jget(r, Symbol(k))
-rget(::Nothing, ::AbstractString) = nothing
+rget(@nospecialize(r), k::AbstractString) = jget(r, Symbol(k))
 
 """Mark each url done up to its own last movement - `moved_of` over the row
 the corpus or the inbox has for it, `at` for a synthetic row that has neither

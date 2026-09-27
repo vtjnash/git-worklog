@@ -105,7 +105,7 @@ function import_urls(urls::Vector{String}, at::DateTime)
     known = Dict(x.url => x for x in something(fetched_items(), Item[]))
     fresh = [u for u in want if !haskey(known, u)]
     nodes = isempty(fresh) ? Any[] : fetch_urls(fresh)
-    got = Dict(String(n.url) => n for n in nodes)
+    got = Dict{String,Any}(jstr(n, :url, "") => n for n in nodes)
     rows = OrderedDict{String,Any}[]
     for u in want
         it = get(known, u, nothing)
@@ -121,14 +121,14 @@ function import_urls(urls::Vector{String}, at::DateTime)
             continue
         end
         set_fields(u, ["imported" => string(Date(at))], at)
-        who = jget(jget(n, :author), :login)
+        who = jstr(jobj(n, :author), :login)
         push!(rows, OrderedDict{String,Any}(
-            "url" => u, "repo" => n.repository.nameWithOwner, "number" => n.number,
-            "title" => n.title,
-            "is_pr" => jget(n, :__typename, "PullRequest") == "PullRequest",
+            "url" => u, "repo" => jstr(jobj(n, :repository), :nameWithOwner, ""),
+            "number" => jint(n, :number, 0), "title" => jstr(n, :title, ""),
+            "is_pr" => jstr(n, :__typename, "PullRequest") == "PullRequest",
             "state" => lowercase(jstr(n, :state, "open")),
-            "author" => who, "updated" => n.updatedAt, "comments" => 0,
-            "labels" => String[l.name for l in n.labels.nodes],
+            "author" => who, "updated" => jstr(n, :updatedAt, ""), "comments" => 0,
+            "labels" => String[jstr(l, :name, "") for l in jnodes(n, :labels)],
             "mine" => who == login()))
         println("imported ", u)
     end
@@ -200,20 +200,32 @@ end
 "Who wrote a comment or an issue, for `wl thread`: its user's login, or `nothing`."
 thread_who(c) = jstr(jobj(c, :user), :login)
 
-"One entry of `activity_list` as `wl thread` prints it."
-thread_entry(e) = e.kind === :comment ?
-    ["kind" => "comment", "at" => e.at, "who" => thread_who(e.c),
-     "body" => something(get(e.c, "body", nothing), "")] :
-    e.kind === :review ?
-    ["kind" => "review", "at" => e.at, "who" => get(e.c, "by", ""),
-     "state" => get(e.c, "state", ""), "body" => get(e.c, "body", "")] :
-    e.kind === :push ?
-    ["kind" => "push", "at" => e.at, "who" => get(e.c[end], "by", ""),
-     "commits" => [["oid" => c["oid"], "at" => c["at"], "by" => get(c, "by", ""),
-                    "headline" => c["headline"]] for c in e.c]] :
-    ["kind" => "state", "at" => e.at, "who" => get(e.c, "by", ""),
-     "state" => e.c["kind"],
-     (String(k) => v for (k, v) in e.c if k in ("closer", "reason", "into", "oid"))...]
+"""One entry of `activity_list` as `wl thread` prints it: an ordered object, so
+the keys come out in this order and the writer knows the type."""
+function thread_entry(e::ActivityEntry)
+    c = e.c
+    e.kind === :comment && return OrderedDict{String,Any}(
+        "kind" => "comment", "at" => e.at, "who" => thread_who(c),
+        "body" => jstr(c, :body, ""))
+    e.kind === :review && return OrderedDict{String,Any}(
+        "kind" => "review", "at" => e.at, "who" => jstr(c, :by, ""),
+        "state" => jstr(c, :state, ""), "body" => jstr(c, :body, ""))
+    if e.kind === :push
+        cs = anylist(c)
+        return OrderedDict{String,Any}(
+            "kind" => "push", "at" => e.at, "who" => jstr(last(cs), :by, ""),
+            "commits" => OrderedDict{String,Any}[OrderedDict{String,Any}(
+                "oid" => jstr(x, :oid, ""), "at" => jstr(x, :at, ""), "by" => jstr(x, :by, ""),
+                "headline" => jstr(x, :headline, "")) for x in cs])
+    end
+    out = OrderedDict{String,Any}("kind" => "state", "at" => e.at, "who" => jstr(c, :by, ""),
+                                  "state" => jstr(c, :kind, ""))
+    for k in (:reason, :closer, :into, :oid)
+        v = jstr(c, k)
+        v === nothing || (out[String(k)] = v)
+    end
+    out
+end
 
 function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.poll)
     cmd = isempty(args) ? "" : args[1]
@@ -255,7 +267,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             return 0
         end
         cfg = config()
-        rows = poll(cfg, cfg["login"], at; verbose = false)
+        rows = poll(cfg, jstr(cfg, :login, ""), at; verbose = false)
         m = unread_marks(at)
         print(json_dumps([item_json(it, m) for it in unread_items(at, rows)]))
         return 0
@@ -269,9 +281,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         return 0
     end
     if cmd == "watching"
-        cfg = config()
-        listed = get(get(cfg, "events", Dict{String,Any}()), "repos", String[])
-        explicit, owners, _ = Events.event_sources(listed)
+        explicit, owners, _ = Events.event_sources(jstrs(jdict(config(), :events), :repos))
         subs = Events.subscriptions()
         covers(r) = r in explicit ? "listed" :
                     first(split(r, '/')) in owners ? "covered" : ""
@@ -322,14 +332,16 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # `comments` as it always was, and beside it the pushes and the
         # state changes the browser draws among them - as `activity`, the one
         # list in the order it happened, each entry saying which it is.
-        print(json_dumps([
-            "title" => body["title"],
-            "body" => something(get(body, "body", nothing), ""),
-            "state" => body["state"],
+        print(json_dumps(OrderedDict{String,Any}(
+            "title" => jstr(body, :title, ""),
+            "body" => jstr(body, :body, ""),
+            "state" => jstr(body, :state, ""),
             "user" => thread_who(body),
-            "comments" => [["at" => c["created_at"], "who" => thread_who(c),
-                            "body" => something(get(c, "body", nothing), "")] for c in cs],
-            "activity" => [thread_entry(e) for e in activity_list(cs, cms, sts)]]))
+            "comments" => OrderedDict{String,Any}[OrderedDict{String,Any}(
+                "at" => jstr(c, :created_at, ""), "who" => thread_who(c),
+                "body" => jstr(c, :body, "")) for c in anylist(cs)],
+            "activity" => OrderedDict{String,Any}[thread_entry(e)
+                                                  for e in activity_list(cs, cms, sts)])))
         return 0
     end
     if cmd == "done"
@@ -356,7 +368,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
             # nothing by construction: every row it stamps is stamped at the
             # movement `seen_of` compares against.
             cfg = config()
-            rows = poll(cfg, cfg["login"], at; verbose = false)
+            rows = poll(cfg, jstr(cfg, :login, ""), at; verbose = false)
             urls = [it.url for it in unread_items(at, rows)]
             # A notice is dismissed rather than stamped: its block is its
             # seen bit, and a stamp in it would be read by nothing.
@@ -397,7 +409,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         catch e
             die("could not fetch thread: " * sprint(showerror, e))
         end
-        title = body["title"]
+        title = jstr(body, :title, "")
         print("\n$title\n", "-"^min(length(title), 78), "\n\n")
         # The same list the browser draws: the pushes and the state changes
         # among the comments, in the order it happened, worded as the pane's
@@ -405,7 +417,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         for e in activity_list(cs, cms, sts)
             if e.kind === :review
                 print("  ", review_node(e.c, url)[1].meta["src"], "\n")
-                txt = String(something(get(e.c, "body", nothing), ""))
+                txt = jstr(e.c, :body, "")
                 isempty(strip(txt)) || show_md(txt)
                 println()
                 continue
@@ -419,11 +431,11 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
                 continue
             end
             c = e.c
-            who = get(something(get(c, "user", nothing), Dict{String,Any}()), "login", nothing)
-            print("  ", when_str(c["created_at"]), "  ", pyrepr(who), "\n")
+            who = thread_who(c)
+            print("  ", when_str(jstr(c, :created_at, "")), "  ", pyrepr(who), "\n")
             # Rendered, not cut at 600 characters: the same markdown path the
             # browser uses, with links lifted to footnotes.
-            show_md(something(get(c, "body", nothing), ""))
+            show_md(jstr(c, :body, ""))
             println()
         end
         return 0

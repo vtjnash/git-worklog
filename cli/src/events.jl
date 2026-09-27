@@ -28,7 +28,7 @@ import GitHub
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
 using ..Worklog: load_done, mark_unread, nz, report, warning
-using ..Worklog: jstr, jint, jbool, jobj, jlist, jnodes, jpath
+using ..Worklog: jstr, jint, jbool, jobj, jlist, jnodes, jpath, jdict, jstrs, jfloat, asdict, anylist
 import ..Worklog
 
 struct ApiError <: Exception
@@ -386,7 +386,7 @@ end
 and anything shaped like a pattern that is not `owner/*`, which is reported
 rather than guessed at.
 """
-function event_sources(repos)
+function event_sources(repos::Vector{String})
     explicit = [String(r) for r in repos if !occursin('*', r)]
     owners = unique([String(first(split(r, '/'))) for r in repos if endswith(r, "/*")])
     bad = [String(r) for r in repos if occursin('*', r) && !endswith(r, "/*")]
@@ -401,7 +401,7 @@ interested in, and a repo you stopped caring about would come back on every
 refresh because you never got round to unwatching it. `config.toml` stays the
 statement of what is tracked.
 """
-subscriptions() = sort!([String(r["full_name"]) for r in api_paged("/user/subscriptions")])
+subscriptions() = sort!(String[jstr(r, :full_name, "") for r in api_paged("/user/subscriptions")])
 
 """The repositories watched on github.com, as a set, cached for a day: every
 notifying event on one of these should reach the notifications source, which
@@ -452,8 +452,8 @@ function owner_forks(owner::AbstractString)
 end
 
 "`owner/name` out of a search result, which names the repo only by its API url."
-function item_repo(r)
-    u = String(get(r, "repository_url", ""))
+function item_repo(@nospecialize(r))
+    u = jstr(r, :repository_url, "")
     p = split(u, "/repos/")
     length(p) < 2 ? "" : String(p[end])
 end
@@ -493,28 +493,27 @@ function load_inbox()
     raw = Worklog.fetched("inbox")
     raw === nothing && return d
     try
-        for k in ("cursors", "polled", "failed")
-            for (kk, vv) in get(raw, Symbol(k), (;))
-                d[k][String(kk)] = String(vv)
+        # `noticed` is the threads the poll has made into notices, by id, at
+        # the stamp it made them at; see `sync!`. Every value in these four
+        # is a string, or the file is damaged.
+        for k in ("cursors", "polled", "failed", "noticed")
+            part = d[k]::Dict{String,String}
+            for (kk, vv) in jdict(raw, Symbol(k))
+                part[kk] = vv::String
             end
         end
-        for (kk, vv) in get(raw, :items, (;))
-            d["items"][String(kk)] = OrderedDict{String,Any}(String(a) => b
-                                                             for (a, b) in vv)
+        items = d["items"]::Dict{String,Any}
+        for (kk, vv) in jdict(raw, :items)
+            items[kk] = vv isa JSON.Object{String,Any} ? OrderedDict{String,Any}(vv) :
+                                                         OrderedDict{String,Any}(asdict(vv))
         end
         # What the poll is waiting on from the notifications, and since when
         # the ask has been wide; see `expect!`.
-        for (kk, vv) in get(raw, :expect, (;))
-            get!(d, "expect", Dict{String,Any}())[String(kk)] =
-                Dict{String,Any}(String(a) => b for (a, b) in vv)
-        end
-        w = get(raw, :wide, nothing)
-        w === nothing || (d["wide"] = String(w))
-        # The threads the poll has made into notices, by id, at the stamp it
-        # made them at; see `sync!`.
-        for (kk, vv) in get(raw, :noticed, (;))
-            d["noticed"][String(kk)] = String(vv)
-        end
+        ex = jdict(raw, :expect)
+        isempty(ex) ||
+            (d["expect"] = Dict{String,Any}(kk => asdict(vv) for (kk, vv) in ex))
+        w = jstr(raw, :wide)
+        w === nothing || (d["wide"] = w)
     catch
         # A damaged inbox is an empty one: the cursors reset to now, which loses
         # a poll's worth of history rather than every future poll.
@@ -719,8 +718,8 @@ and this does not. So the sentence is written onto the row the first time it
 is true (`latch_mention!`) and carried from then on: by the merge in `sync!`
 here, and by `thread_facts!` and `derive!` in the refresh. A thread the browser
 has read can set it too, off an `@you` in the comments (`thread_mention`)."""
-function mention_words(row)
-    reason = get(row, "reason", nothing)
+function mention_words(@nospecialize(row))
+    reason = jstr(row, :reason, "")
     reason in ("mention", "team_mention") || return ""
     when = first(something(jstr(row, :notified), jstr(row, :updated, "")), 10)
     string(reason == "mention" ? "notified: named you" : "notified: named your team",
@@ -778,9 +777,8 @@ labels, comments - lands on top of the thread's `lane` and `reason`
 rather than in place of them; see `sync!`.
 """
 function sources(cfg, login; verbose::Bool = true)
-    cfge = get(cfg, "events", Dict{String,Any}())
-    repos = get(cfge, "repos", String[])
-    explicit, owners, bad = event_sources(repos)
+    cfge = jdict(cfg, :events)
+    explicit, owners, bad = event_sources(jstrs(cfge, :repos))
     verbose && !isempty(bad) &&
         @printf(warning(), "    ignoring %s: only `owner/*` is a pattern\n", join(bad, ", "))
     srcs = NamedTuple{(:label, :fetch, :overlap, :row),Tuple{String,Any,Second,Any}}[]
@@ -978,22 +976,21 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
                now = server_now, watched = watched_repos, login = Worklog.login(),
                lastby = last_comment_by)
     inbox = load_inbox()
-    polled, items = inbox["polled"], inbox["items"]
+    polled, items = inbox["polled"]::Dict{String,String}, inbox["items"]::Dict{String,Any}
     # The cursors are `local.toml`'s - `source_cursors`, how far each source
     # has been read, which is a fact about what was done and not one GitHub
     # can answer - with the inbox's own copy under them for a file from
     # before they moved there. What this poll advances is written back in
     # one go at the end.
-    cursors = merge!(Dict{String,String}(String(k) => String(v) for (k, v) in inbox["cursors"]),
-                     Worklog.source_cursors())
+    cursors = merge!(copy(inbox["cursors"]::Dict{String,String}), Worklog.source_cursors())
     advanced = Dict{String,String}()
     got = 0
     server = nothing
-    failed = get!(inbox, "failed", Dict{String,String}())
+    failed = get!(inbox, "failed", Dict{String,String}())::Dict{String,String}
     # The threads this poll has made into notices, `id => updated_at`: the
     # overlap asks again for what the last poll read, and a notice dismissed
     # since and one arriving late look the same without it.
-    noticed = inbox["noticed"]
+    noticed = inbox["noticed"]::Dict{String,String}
     watching = nothing                   # asked once, only if a poll runs
     # The poll can witness for the notifications only where the source runs:
     # on a machine whose token cannot read them there is nothing to expect,
@@ -1055,7 +1052,7 @@ function sync!(srcs, at::DateTime; ttl = Millisecond(120_000), backfill = Day(0)
                 end
                 continue
             end
-            url = String(row["url"])
+            url = jstr(row, :url, "")
             old = get(items, url, nothing)
             witness && label != "notifications" &&
                 expect!(inbox, url, old, row, at, watching, login; since = s_)
@@ -1106,9 +1103,9 @@ not here either. `why` is `""` for an entry from before the reason was kept.
 """
 function failing()
     out = NamedTuple{(:label, :since, :why),Tuple{String,String,String}}[]
-    for (label, v) in load_inbox()["failed"]
-        parts = split(String(v), ' '; limit = 2)
-        push!(out, (label = String(label), since = String(parts[1]),
+    for (label, v) in load_inbox()["failed"]::Dict{String,String}
+        parts = split(v, ' '; limit = 2)
+        push!(out, (label = label, since = String(parts[1]),
                     why = length(parts) > 1 ? String(strip(parts[2])) : ""))
     end
     sort!(out; by = x -> x.label)
@@ -1283,15 +1280,15 @@ one of three answers to the question. The sources are `sources`, the loop is
 `sync!`.
 """
 function poll(cfg, login, at::DateTime; verbose::Bool = true)
-    cfge = get(cfg, "events", Dict{String,Any}())
+    cfge = jdict(cfg, :events)
     srcs = sources(cfg, login; verbose = verbose)
     isempty(srcs) && return OrderedDict{String,Any}[]
     auth()          # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.
     items, got = sync!(srcs, at; login = login,
-        ttl = Millisecond(round(Int, 1000 * get(cfge, "activity_ttl_seconds", 120))),
-        backfill = Day(get(cfge, "backfill_days", 0)))
+        ttl = Millisecond(round(Int, 1000 * jfloat(cfge, :activity_ttl_seconds, 120.0))),
+        backfill = Day(jint(cfge, :backfill_days, 0)))
     out = collect(OrderedDict{String,Any}, values(items))
     sort!(out; by = e -> e["updated"], rev = true)
     verbose && @printf(report(), "  %-16s %4d in the inbox (%d new across %d source(s))\n",
@@ -1319,10 +1316,10 @@ what is wanted in that case; replacing it with a thinner row is not.
 """
 function inbox_add!(rows; overwrite::Bool = true)
     inbox = load_inbox()
-    items = inbox["items"]
+    items = inbox["items"]::Dict{String,Any}
     urls = String[]
     for r in rows
-        u = String(r["url"])
+        u = jstr(r, :url, "")
         (overwrite || !haskey(items, u)) && (items[u] = r)
         u in urls || push!(urls, u)
     end
@@ -2201,15 +2198,16 @@ item_meta(; requested = String[], teams = String[], assignees = String[], pendin
     ItemMeta((requested, teams, assignees, pending, fork, default, reviews))
 
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
-_meta_shape(v) = item_meta(requested = String[String(x) for x in jlist(v, :requested)],
-                           teams = String[String(x) for x in jlist(v, :teams)],
-                           assignees = String[String(x) for x in jlist(v, :assignees)],
-                           pending = jstr(v, :pending, ""),
-                           fork = jstr(v, :fork, ""),
-                           default = jstr(v, :default, ""),
-                           reviews = Review[(login = jstr(r, :login, ""),
-                                             state = jstr(r, :state, ""),
-                                             at = jstr(r, :at, ""))
-                                            for r in jlist(v, :reviews)])
+_meta_shape(@nospecialize(v)) =
+    item_meta(requested = jstrs(v, :requested),
+              teams = jstrs(v, :teams),
+              assignees = jstrs(v, :assignees),
+              pending = jstr(v, :pending, ""),
+              fork = jstr(v, :fork, ""),
+              default = jstr(v, :default, ""),
+              reviews = Review[(login = jstr(r, :login, ""),
+                                state = jstr(r, :state, ""),
+                                at = jstr(r, :at, ""))
+                               for r in jlist(v, :reviews)])
 
 end # module Events

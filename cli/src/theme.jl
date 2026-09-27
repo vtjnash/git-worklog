@@ -477,7 +477,7 @@ function themefile()
     # problem and this is not where it should be reported. `login()` does the
     # same with the same file for the same reason.
     name = try
-        String(get(config(), "theme", ""))
+        jstr(config(), :theme, "")
     catch
         ""
     end

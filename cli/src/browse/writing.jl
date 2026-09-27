@@ -1216,12 +1216,12 @@ end
 below is for the rest: a branch adopted into being an item, a row the activity
 poll wrote, and a snapshot written before the field was asked for.
 """
-function head_sha(it::Item)
+function head_sha(it::Item)::String
     isempty(it.head) || return it.head
     key = string("headsha:", it.repo, "#", it.number)
     hit = cache_get(key, 86_400.0)
     v = hit === nothing ? nothing : hit[1]
-    v isa AbstractString && return String(v)
+    v isa String && return v
     out = try
         strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefOid -q .headRefOid`,
                    String))

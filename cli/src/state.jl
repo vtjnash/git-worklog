@@ -62,15 +62,16 @@ function resolve(ref::AbstractString)
     (startswith(ref, "http") || startswith(ref, "local:") || startswith(ref, "notice:")) &&
         return String(rstrip(ref, '/'))
     items = fetched("items")
-    items === nothing && die("nothing fetched yet - run `wl refresh` first")
+    items isa JSON.Object{String,Any} || die("nothing fetched yet - run `wl refresh` first")
     occursin('#', ref) || die("cannot parse ref '$ref'")
     i = something(findlast('#', ref))          # there is one, said just above
     repo, num = ref[1:prevind(ref, i)], ref[nextind(ref, i):end]
     hits = String[]
-    for (u, r) in pairs(items)
-        string(r.number) == num || continue
-        (isempty(repo) || r.repo == repo || split(r.repo, '/')[end] == repo) || continue
-        push!(hits, String(u))
+    for (u, r) in items
+        string(jint(r, :number, -1)) == num || continue
+        rr = jstr(r, :repo, "")
+        (isempty(repo) || rr == repo || split(rr, '/')[end] == repo) || continue
+        push!(hits, u)
     end
     isempty(hits) && die("no tracked item matches '$ref'")
     length(hits) > 1 && die("ambiguous '$ref':\n  " * join(hits, "\n  "))
@@ -94,6 +95,23 @@ end
 
 fmt(v::AbstractVector) = "[" * join((fmt(x) for x in v), ", ") * "]"
 fmt(v) = json_dumps(v)
+
+"""`fmt` of a value typed `Any`: what a block holds tested first - a string, a
+bool, a number, a list of strings - and anything else through one dynamic call."""
+function fmt_any(@nospecialize(v))::String
+    v isa String && return fmt(v)
+    v isa Bool && return fmt(v)
+    v isa Int && return fmt(v)
+    v isa Vector{String} && return fmt(v)
+    v isa AbstractString && return fmt(String(v))
+    _fmt(v)
+end
+_fmt(v) = fmt(v)::String
+
+"""One block's updates, as `set_blocks!` walks them: each key a `String`, each
+value whatever it was, `nothing` for a key to remove."""
+block_updates(v::Vector{Pair{String,Any}}) = v
+block_updates(v) = Pair{String,Any}[Pair{String,Any}(String(first(p)), last(p)) for p in v]
 
 """A string as TOML spells it: JSON's escapes, which the two share, except
 above the Basic Multilingual Plane. JSON writes an emoji as a surrogate pair,
@@ -149,9 +167,9 @@ Answers with what happened per block: "added", "updated" or "cleared".
 """
 function set_blocks!(updates)
     lines = load_lines()
-    want = OrderedDict{String,Any}()
+    want = OrderedDict{String,Vector{Pair{String,Any}}}()
     for (k, v) in updates
-        want[String(k)] = v
+        want[String(k)] = block_updates(v)
     end
     out, said = String[], Dict{String,String}()
     i, n = 1, length(lines)
@@ -180,7 +198,7 @@ function set_blocks!(updates)
         for (k, v) in want[key]
             pat = Regex("^\\s*\\Q" * k * "\\E\\s*=")
             body = [b for b in body if match(pat, b) === nothing]
-            v === nothing || push!(body, "$k = $(fmt(v))")
+            v === nothing || push!(body, string(k, " = ", fmt_any(v)))
         end
         keep = [b for b in body if !isempty(strip(b))]
         isempty(keep) || append!(out, vcat([lines[i]], body, blanks))
@@ -190,7 +208,7 @@ function set_blocks!(updates)
     end
     # Whatever had no block yet, appended in the order it was asked for.
     for (key, ups) in want
-        rows = ["$k = $(fmt(v))" for (k, v) in ups if v !== nothing]
+        rows = String[string(k, " = ", fmt_any(v)) for (k, v) in ups if v !== nothing]
         if isempty(rows)
             said[key] = "cleared"
             continue

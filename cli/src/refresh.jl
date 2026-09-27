@@ -16,17 +16,25 @@
 
 "Python truthiness, which several of the fact rules lean on: `unresolved`
 is meaningfully `0`, `None` and `[]` alike."
-truthy(v) = !(v === nothing || v === missing || v === false || v == "" ||
-              (v isa Integer && v == 0) ||
-              (v isa Union{AbstractVector,AbstractDict} && isempty(v)))
+function truthy(@nospecialize(v))::Bool
+    (v === nothing || v === missing || v === false) && return false
+    v === true && return true
+    v isa String && return !isempty(v)
+    v isa Int && return v != 0
+    v isa Vector{Any} && return !isempty(v)
+    v isa Vector{String} && return !isempty(v)
+    !(_falsy(v)::Bool)
+end
+_falsy(v) = v == "" || (v isa Integer && v == 0) ||
+            (v isa Union{AbstractVector,AbstractDict} && isempty(v))
 
 """Last real human activity: a push or a comment, falling back to updatedAt.
 
 updatedAt moves on label and milestone edits too, so it overstates liveness.
 """
-function activity_at(r)
-    c = [t for t in (get(r, "head_at", nothing), get(r, "last_comment_at", nothing)) if truthy(t)]
-    isempty(c) ? r["updated"] : maximum(c)
+function activity_at(@nospecialize(r))
+    c = String[t for t in (jstr(r, :head_at, ""), jstr(r, :last_comment_at, "")) if !isempty(t)]
+    isempty(c) ? jstr(r, :updated) : maximum(c)
 end
 
 activity_age(r, at::DateTime) = days_since(activity_at(r), at)
@@ -53,50 +61,62 @@ function event_at(@nospecialize(evs), login::AbstractString, kinds, who::Union{S
                   team::Bool = false)
     evs === nothing && return nothing
     best = ""
-    for e in evs
-        jget(e, :__typename) in kinds || continue
-        jget(jget(e, :actor), :login) == login && continue
-        named = who === nothing || jget(jget(e, who), :login) == login ||
-                (team && jget(jget(e, who), :slug) !== nothing)
+    for e in anylist(evs)
+        jstr(e, :__typename, "") in kinds || continue
+        jstr(jobj(e, :actor), :login) == login && continue
+        named = who === nothing || jstr(jobj(e, who), :login) == login ||
+                (team && jget(jobj(e, who), :slug) !== nothing)
         named || continue
-        t = jget(e, :createdAt)
-        t === nothing || (best = max(best, String(t)))
+        t = jstr(e, :createdAt)
+        t === nothing || (best = max(best, t))
     end
     isempty(best) ? nothing : best
 end
 
+"""A row of the corpus, as this program builds one: `normalize`'s, `backlog_row`'s
+and `kept_row`'s alike, so a refresh holds one type of row whichever made it,
+and reads out of it are static calls. Read back from `fetched.json` a row is a
+`JSON.Object`, until `kept_row` makes it one of these again.
+
+A `Dict` and not an ordered one: the order that matters is the corpus's, which
+`items` keeps, and Base stores a value typed `Any` into a `Dict{String,Any}`
+without asking what it is, where `OrderedDict` specialises on it."""
+const Record = Dict{String,Any}
+
 "Flatten one GraphQL node into the record the rest of the script uses."
-function normalize(n, lane::AbstractString, login::AbstractString)
-    typename = jget(n, :__typename, "PullRequest")
+function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString)::Record
+    typename = jstr(n, :__typename, "PullRequest")
     is_pr = typename == "PullRequest"
-    author = jget(jget(n, :author), :login)
+    author = jstr(jobj(n, :author), :login)
     # Asked of every lane, including the bulk ones, because "mine" is a fact
     # about the item rather than about which query found it: an issue assigned
     # to you that a mention lane returned first is still yours to do.
-    assignees = String[String(a.login) for a in jget(jget(n, :assignees), :nodes, ())
-                       if truthy(jget(a, :login))]
+    assignees = String[jstr(a, :login, "") for a in jnodes(n, :assignees)
+                       if !isempty(jstr(a, :login, ""))]
+    mine = author == login || login in assignees
     ms = jget(n, :milestone)
-    rec = Dict{String,Any}(
-        "type" => typename,
-        "lane" => lane,
-        "url" => n.url,
-        "number" => n.number,
-        "title" => n.title,
-        "repo" => n.repository.nameWithOwner,
-        "author" => truthy(author) ? author : "?",
-        "state" => jget(n, :state),
-        "created" => n.createdAt,
-        "updated" => n.updatedAt,
-        "labels" => String[l.name for l in n.labels.nodes],
-        "milestone" => jget(ms, :title),
-        "milestone_due" => jget(ms, :dueOn),
-        "assignees" => assignees,
-        # Author **or** assignee. Being asked to review something, or named in a
-        # thread, is what makes an item *unread*; it does not make it yours.
-        # Being assigned it does, and GitHub is the only one who can say so.
-        "mine" => author == login || login in assignees,
-    )
-    lastc = jget(jget(n, :comments), :nodes, ())
+    # Key by key rather than as pairs: a pair of a value typed `Any` is built
+    # at run time, and these are the fields as GitHub answered them.
+    rec = Record()
+    rec["type"] = typename
+    rec["lane"] = lane
+    rec["url"] = jget(n, :url)
+    rec["number"] = jget(n, :number)
+    rec["title"] = jget(n, :title)
+    rec["repo"] = jpath(n, :repository, :nameWithOwner)
+    rec["author"] = author === nothing || isempty(author) ? "?" : author
+    rec["state"] = jget(n, :state)
+    rec["created"] = jget(n, :createdAt)
+    rec["updated"] = jget(n, :updatedAt)
+    rec["labels"] = String[jstr(l, :name, "") for l in jnodes(n, :labels)]
+    rec["milestone"] = jget(ms, :title)
+    rec["milestone_due"] = jget(ms, :dueOn)
+    rec["assignees"] = assignees
+    # Author **or** assignee. Being asked to review something, or named in a
+    # thread, is what makes an item *unread*; it does not make it yours.
+    # Being assigned it does, and GitHub is the only one who can say so.
+    rec["mine"] = mine
+    lastc = jnodes(n, :comments)
     rec["last_comment_by"] = isempty(lastc) ? nothing : jget(jget(lastc[1], :author), :login)
     rec["last_comment_at"] = isempty(lastc) ? nothing : jget(lastc[1], :createdAt)
     # `their_comment_at` and `human_comment_at` - the keys - are set beside
@@ -120,15 +140,14 @@ function normalize(n, lane::AbstractString, login::AbstractString)
     rec["state_at"] = event_at(evs, login, ("ClosedEvent", "MergedEvent", "ReopenedEvent"), nothing)
 
     if is_pr
-        commits = n.commits.nodes
-        commit = isempty(commits) ? nothing : commits[1].commit
+        commits = jnodes(n, :commits)
+        commit = isempty(commits) ? nothing : jget(commits[1], :commit)
         roll = jget(commit, :statusCheckRollup)
-        threads = jget(jget(n, :reviewThreads), :nodes)
-        reviews = jget(jget(n, :reviews), :nodes, ())
-        light = threads === nothing       # firehose record: no thread/review data
-        threads === nothing && (threads = ())
+        light = jpath(n, :reviewThreads, :nodes) === nothing   # firehose record: no thread/review data
+        threads = jnodes(n, :reviewThreads)
+        reviews = jnodes(n, :reviews)
         mine_reviews = [r for r in reviews
-                        if jget(jget(r, :author), :login) == login && jget(r, :submittedAt) !== nothing]
+                        if jstr(jobj(r, :author), :login) == login && jstr(r, :submittedAt) !== nothing]
         rec["branch"] = something(jget(n, :headRefName), "")
         # And whose repository that branch is in: a fork's pull request from
         # its `master` is named the same as the project's, and as every
@@ -153,7 +172,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # Who pushed the button, and only ever asked of the closed lanes -
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)
-        rec["draft"] = n.isDraft
+        rec["draft"] = jget(n, :isDraft)
         rec["review_decision"] = jget(n, :reviewDecision)
         rec["head_at"] = jget(commit, :committedDate)
         # **Who put the head there**, which decides whether a push is news.
@@ -165,9 +184,11 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         rec["head_by"] = something(jget(jget(jget(commit, :committer), :user), :login),
                                    jget(jget(jget(commit, :author), :user), :login),
                                    "")
-        rec["ci"] = jget(roll, :state)
+        ci = jstr(roll, :state)
+        rec["ci"] = ci
         rec["unresolved"] = light ? nothing :
-                            count(t -> !t.isResolved && !t.isOutdated, threads)
+                            count(t -> !jbool(t, :isResolved, false) && !jbool(t, :isOutdated, false),
+                                  threads)
         # **When you were last asked.** Being asked is an event, and it used
         # to be recorded as a bool without its time - so it had to be hashed,
         # and hashed as true-or-absent so that the day it shipped did not read
@@ -224,21 +245,25 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # `nothing` for a row the bulk lanes returned, which fetch no reviews at
         # all - see `light`. A key arriving is not an event, and `moved_stamp`
         # is where that is written down.
-        theirs = (jget(r, :submittedAt) for r in reviews
-                  if jget(jget(r, :author), :login) != login)
-        dismissed = event_at(evs, login, ("ReviewDismissedEvent",), nothing)
-        rec["review_at"] = maximum(String(t) for t in Iterators.flatten((theirs, (dismissed,)))
-                                   if t !== nothing; init = "") |>
-                           (s -> isempty(s) ? nothing : s)
-        rec["my_last_review_at"] = isempty(mine_reviews) ? nothing :
-                                   maximum(r.submittedAt for r in mine_reviews)
+        theirs = something(event_at(evs, login, ("ReviewDismissedEvent",), nothing), "")
+        for r in reviews
+            jstr(jobj(r, :author), :login) == login && continue
+            t = jstr(r, :submittedAt)
+            t === nothing || (theirs = max(theirs, t))
+        end
+        rec["review_at"] = isempty(theirs) ? nothing : theirs
+        # The newest of yours, and the last of those in the order GitHub
+        # listed them when two share a time.
+        mine_at = maximum(r -> jstr(r, :submittedAt, ""), mine_reviews; init = "")
+        rec["my_last_review_at"] = isempty(mine_reviews) ? nothing : mine_at
         rec["my_last_review_state"] = isempty(mine_reviews) ? nothing :
-            sort(mine_reviews; by = r -> r.submittedAt)[end].state
+            jget(mine_reviews[something(findlast(r -> jstr(r, :submittedAt, "") == mine_at,
+                                                 mine_reviews))], :state)
         # The newest approval by anybody, which is a thing that *happened* and
         # so has a time - unlike `reviewDecision`, which is the current verdict
         # and says nothing about when it was reached.
-        approvals = [jget(r, :submittedAt) for r in reviews
-                     if jget(r, :state) == "APPROVED" && jget(r, :submittedAt) !== nothing]
+        approvals = String[jstr(r, :submittedAt, "") for r in reviews
+                           if jstr(r, :state) == "APPROVED" && jstr(r, :submittedAt) !== nothing]
         rec["approved_at"] = isempty(approvals) ? nothing : maximum(approvals)
         # **One bool, where the whole CI state used to be a key.** What is worth
         # being told is that your own pull request is failing; a run starting,
@@ -255,7 +280,7 @@ function normalize(n, lane::AbstractString, login::AbstractString)
         # was: the value is hashed, so a `false` on every row would differ from
         # the missing key on every row already in `fetched.json` and the first
         # refresh after this shipped would stamp the whole dashboard as moved.
-        rec["ci_failed"] = (rec["mine"] && rec["ci"] == "FAILURE") ? true : nothing
+        rec["ci_failed"] = (mine && ci == "FAILURE") ? true : nothing
     end
     rec
 end
@@ -300,12 +325,14 @@ end
 # not a reason to put an item back in front of you. `mergeable` was the other,
 # and is not fetched at all any more: see `PR_FIELDS` for why, and
 # `Events.merge_state` for where it is asked instead.
-const TRACK_KEYS = Dict(
-    "normal" => ("their_head", "their_comment_at", "review_at", "review_requested_at",
-                 "assigned_at", "state_at", "ci_failed"),
-    "loose"  => ("their_head", "human_comment_at", "review_at", "review_requested_at",
-                 "assigned_at", "state_at"),
+const TRACK_KEYS = Dict{String,Vector{String}}(
+    "normal" => ["their_head", "their_comment_at", "review_at", "review_requested_at",
+                 "assigned_at", "state_at", "ci_failed"],
+    "loose"  => ["their_head", "human_comment_at", "review_at", "review_requested_at",
+                 "assigned_at", "state_at"],
 )
+"The keys of the wake table at `r`'s level: `normal`'s for a row with none."
+track_keys(@nospecialize(r)) = get(TRACK_KEYS, jstr(r, :track, "normal"), TRACK_KEYS["normal"])
 
 """Each key that can be dated, and the field that dates it.
 
@@ -391,7 +418,7 @@ says, or a rebuilt `fetched.json` would read as every item moving at once.
 `movement` is the same walk answering the second question too - *which* key
 moved it, `""` when none did - and `moved_stamp` is its first half.
 """
-moved_stamp(old, r, at::DateTime) = first(movement(old, r, at))
+moved_stamp(@nospecialize(old), r, at::DateTime) = first(movement(old, r, at))
 
 """
     movement(old, r, at) -> (stamp, key)
@@ -401,23 +428,22 @@ moved it then: the one whose time is the stamp, the bool that rose, the key
 whose time could not account for the change. `""` when nothing moved and the
 mark stayed, so the caller keeps the key it had.
 """
-function movement(old, r, at::DateTime)
-    prev = jget(old, :moved_at)
-    high = prev isa AbstractString ? String(prev) : ""
+function movement(@nospecialize(old), r, at::DateTime)
+    high = jstr(old, :moved_at, "")
     ev = Pair{String,String}[]          # the event's time => the key
-    for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
-        was, now_ = jget(old, Symbol(k)), get(r, k, nothing)
-        was == now_ && continue
+    for k in track_keys(r)
+        was, now_ = jget(old, Symbol(k)), jget(r, Symbol(k))
+        same(was, now_) && continue
         by = get(TIMED_KEYS, k, nothing)
         if by === nothing
             # A bool: the rising edge is the event, and the falling one is not.
             (now_ === true && was !== true) && return (stamp(at), k)
             continue
         end
-        t = get(r, by, nothing)
-        truthy(t) || return (stamp(at), k)
+        t = jstr(r, Symbol(by), "")
+        isempty(t) && return (stamp(at), k)
         # The record catching up rather than something happening; see above.
-        (was === nothing && !isempty(high) && String(t) <= high) || push!(ev, String(t) => k)
+        (was === nothing && !isempty(high) && t <= high) || push!(ev, t => k)
     end
     # Nothing moved at this level, or only keys that were arriving, or a bool
     # that cleared: the mark stays where it is. An old row with no mark at all
@@ -443,13 +469,12 @@ about them could reach you at all.
 
 Finished work is loose whoever it belongs to: nothing about it should wake you.
 """
-resolve_track(st, r) = let t = get(st, "track", nothing)
-    t isa AbstractString && t in TRACK ? t :
-    (pget(r, "mine") === true && !isover(r)) ? "normal" : "loose"
+resolve_track(@nospecialize(st), @nospecialize(r)) = let t = jstr(st, :track, "")
+    t in TRACK ? t : (jget(r, :mine) === true && !isover(r)) ? "normal" : "loose"
 end
 
 "Finished, whichever lane found it: `MERGED` or `CLOSED`."
-isover(r) = pget(r, "state") in ("MERGED", "CLOSED")
+isover(@nospecialize(r)) = jstr(r, :state, "") in ("MERGED", "CLOSED")
 
 """Whole working days between two instants, counting Monday to Friday.
 
@@ -511,20 +536,20 @@ function second_look(r, at::DateTime, days::Int)
     isover(r) && return ""
     in_pile(r) && return ""
     author = jstr(r, :author, "")
-    opened = ts(get(r, "created", nothing))
-    lc = ts(get(r, "last_comment_at", nothing))
+    opened = ts(jget(r, :created))
+    lc = ts(jget(r, :last_comment_at))
     # The author's last word: the opening, or their comment if it is the last.
     # Somebody else's last comment is an answer, and there is nothing to say.
     acted = opened
     if lc !== nothing
-        get(r, "last_comment_by", nothing) == author || return ""
+        jstr(r, :last_comment_by) == author || return ""
         acted = acted === nothing ? lc : max(acted, lc)
     end
     acted === nothing && return ""
     # A review by anybody - theirs, or yours - after the author last spoke is
     # an answer too, whatever its verdict.
-    for k in ("review_at", "my_last_review_at")
-        rv = ts(get(r, k, nothing))
+    for k in (:review_at, :my_last_review_at)
+        rv = ts(jget(r, k))
         rv !== nothing && rv > acted && return ""
     end
     n = workdays_since(stamp(acted), at)
@@ -567,13 +592,13 @@ an import arrives in the middle of a session and has to carry the same facts as
 everything else. A second copy of this is a fact that drifts, and the facts are
 what decide which views a row is in.
 """
-function apply_state!(r, st, cfg, at::DateTime)
+function apply_state!(r, @nospecialize(st), cfg, at::DateTime)
     r["reply"] = reply_owed(r, cfg, at)
     r["edits"] = edits_owed(r)
     r["ready"] = ready_to_merge(r)
     r["review"] = review_owed(r)
     r["track"] = resolve_track(st, r)
-    r["note"] = get(st, "note", nothing)
+    r["note"] = jget(st, :note)
     r
 end
 
@@ -593,10 +618,11 @@ lane while the mention searches existed, and a team mention was a free-text
 search for the team's name.
 """
 function reply_owed(r, cfg, at::DateTime)
-    get(r, "reason", nothing) in ("mention", "team_mention") || return ""
+    jstr(r, :reason, "") in ("mention", "team_mention") || return ""
     age = activity_age(r, at)
-    (age !== nothing && age <= cfg["thresholds"]["reply_days"]) || return ""
-    get(r, "last_comment_by", nothing) in (nothing, cfg["login"]) && return ""
+    (age !== nothing && age <= jfloat(jdict(cfg, :thresholds), :reply_days, 0.0)) || return ""
+    by = jstr(r, :last_comment_by)
+    (by === nothing || by == jstr(cfg, :login, "")) && return ""
     "mentioned you $(age)d ago; last word is theirs"
 end
 
@@ -606,20 +632,20 @@ that means yours names the author axis beside it.
 """
 function edits_owed(r)
     isover(r) && return ""
-    L = Set(get(r, "labels", String[]))
-    get(r, "review_decision", nothing) == "CHANGES_REQUESTED" && return "changes requested"
-    truthy(get(r, "unresolved", nothing)) && return "$(r["unresolved"]) unresolved thread(s)"
-    get(r, "ci", nothing) in ("FAILURE", "ERROR") && return "CI $(lowercase(r["ci"]))"
-    "status: waiting for PR author" in L && return "labelled waiting for author"
+    jstr(r, :review_decision) == "CHANGES_REQUESTED" && return "changes requested"
+    u = jint(r, :unresolved, 0)
+    u == 0 || return "$u unresolved thread(s)"
+    ci = jstr(r, :ci, "")
+    ci in ("FAILURE", "ERROR") && return "CI $(lowercase(ci))"
+    "status: waiting for PR author" in jstrs(r, :labels) && return "labelled waiting for author"
     ""
 end
 
 "Approved and green, and not a draft: waiting on a button, or `\"\"`."
 function ready_to_merge(r)
     isover(r) && return ""
-    truthy(get(r, "draft", nothing)) && return ""
-    get(r, "review_decision", nothing) == "APPROVED" && get(r, "ci", nothing) == "SUCCESS" ||
-        return ""
+    truthy(jget(r, :draft)) && return ""
+    jstr(r, :review_decision) == "APPROVED" && jstr(r, :ci) == "SUCCESS" || return ""
     "approved and green"
 end
 
@@ -630,8 +656,8 @@ not on one nobody asked you about.
 function review_owed(r)
     isover(r) && return ""
     pget(r, "mine") === true && return ""
-    truthy(get(r, "review_requested_at", nothing)) || return ""
-    head, mine_rev = ts(get(r, "head_at", nothing)), ts(get(r, "my_last_review_at", nothing))
+    truthy(jget(r, :review_requested_at)) || return ""
+    head, mine_rev = ts(jget(r, :head_at)), ts(jget(r, :my_last_review_at))
     mine_rev === nothing && return "review requested"
     head !== nothing && mine_rev <= head && return "they pushed after your review"
     ""
@@ -688,18 +714,19 @@ When a `snooze` value says to come back, as a stamp: a span counted from
 time in it - an empty one, or one typed wrong. `from` is `nothing` when there
 is nothing to count a span from, and then a span has no answer either.
 """
-function wake_of(sv, from)
-    truthy(sv) || return nothing
-    p = parse_snooze(String(sv))
+function wake_of(@nospecialize(sv), @nospecialize(from))
+    s = sv isa String ? sv : sv isa AbstractString ? String(sv)::String : ""
+    isempty(s) && return nothing
+    p = parse_snooze(s)
     p === nothing && return nothing
     days = p.days                       # `nothing` for `mode = :at`
     days === nothing && return p.until
-    f = from === nothing ? nothing : ts(String(from))
+    f = ts(from)
     f === nothing ? nothing : stamp(f + Day(days))
 end
 
 "Has this wake time passed, as of `at`? A wake that has not is a snooze still on."
-woken(wake, at::DateTime) = wake !== nothing && String(wake) <= stamp(at)
+woken(wake::Union{Nothing,AbstractString}, at::DateTime) = wake !== nothing && wake <= stamp(at)
 
 """The head as of the last time somebody else moved it, or `nothing`.
 
@@ -723,10 +750,10 @@ the item would go unread for the thing this exists to ignore.
 `nothing` for an issue, for a row no lane has fetched commits for, and for a
 pull request only ever pushed to by you - which is the honest state for each.
 """
-function their_head(r, old, login::AbstractString)
-    sha = get(r, "head_sha", nothing)
-    truthy(sha) || return nothing
-    get(r, "head_by", nothing) == login ? jget(old, :their_head) : String(sha)
+function their_head(r, @nospecialize(old), login::AbstractString)
+    sha = jstr(r, :head_sha, "")
+    isempty(sha) && return nothing
+    jstr(r, :head_by) == login ? jget(old, :their_head) : sha
 end
 
 """The newest comment by somebody else - and with `human`, by somebody who is
@@ -745,12 +772,12 @@ when a bot spoke after a human, which was a change like any other and woke a
 `loose` item for exactly the comment that level exists to ignore. Carried
 across no comment at all - every one deleted - for the same reason.
 """
-function their_comment_at(r, old, login::AbstractString, key::AbstractString; human::Bool)
-    at, by = get(r, "last_comment_at", nothing), get(r, "last_comment_by", nothing)
+function their_comment_at(r, @nospecialize(old), login::AbstractString, key::AbstractString;
+                          human::Bool)
+    at, by = jstr(r, :last_comment_at, ""), jstr(r, :last_comment_by, "")
     carry = jstr(old, Symbol(key))
-    (at isa AbstractString && !isempty(at)) || return carry
-    by = by isa AbstractString ? by : ""
-    (by == login || (human && endswith(by, "[bot]"))) ? carry : String(at)
+    isempty(at) && return carry
+    (by == login || (human && endswith(by, "[bot]"))) ? carry : at
 end
 
 """Is this a row nobody put in front of you - the pile?
@@ -780,10 +807,10 @@ waiting on a reviewer - which `second_look` could not say either, since it
 refuses the pile. Two thresholds, both silent, both unrecorded, both hiding the
 same work.
 """
-function in_pile(r)
-    lane = String(nz(pget(r, "lane"), ""))
+function in_pile(@nospecialize(r))
+    lane = jstr(r, :lane, "")
     pile = lane in ("notifications", "activity", "backlog") || retired_lane(lane)
-    pile && isempty(String(nz(pget(r, "reply"), "")))
+    pile && isempty(jstr(r, :reply, ""))
 end
 
 """The lanes that were deleted on 2026-09-13 - the firehose and the six
@@ -811,13 +838,13 @@ function load_state()
     # disposable is pointing *this* somewhere disposable too. It read the real
     # file through the redirect for as long as it has been here.
     p = localfile()
-    isfile(p) || return Dict{String,Any}()
+    isfile(p) || return Dict{String,Dict{String,Any}}()
     raw = parse_local(p)
     # Item blocks only. The file's other inhabitants are keyed by what they are
     # - `repo:o/r` - and a refresh has no business reading them.
-    Dict{String,Any}(u => Dict{String,Any}(
+    Dict{String,Dict{String,Any}}(u => Dict{String,Any}(
         k => (v isa Union{Date,DateTime,Dates.Time} ? string(v) : v) for (k, v) in st)
-        for (u, st) in raw if st isa AbstractDict && !startswith(u, "repo:"))
+        for (u, st) in raw if st isa Dict{String,Any} && !startswith(u, "repo:"))
 end
 
 """An adopted branch whose pull request has arrived hands it what was written.
@@ -841,10 +868,10 @@ the two is later.
 `state` is updated in place as well, so the rows derived after this carry what
 was moved in the same run. Answers with the refs it handed over.
 """
-function adopt_pull_requests!(items, state::Dict{String,Any}, login::AbstractString)
+function adopt_pull_requests!(items, state::AbstractDict{String}, login::AbstractString)
     byb = Dict{Tuple{String,String},String}()
     for (u, st) in state
-        (islocal(u) && truthy(get(st, "adopted", nothing))) || continue
+        (islocal(u) && truthy(jget(st, :adopted))) || continue
         byb[localparts(u)] = u
     end
     isempty(byb) && return String[]
@@ -852,21 +879,22 @@ function adopt_pull_requests!(items, state::Dict{String,Any}, login::AbstractStr
     ups = Pair{String,Vector{Pair{String,Any}}}[]
     out = String[]
     for (url, r) in items
-        pget(r, "type") == "PullRequest" || continue
-        String(nz(pget(r, "author"), "")) == login || continue
-        lu = get(byb, (String(nz(pget(r, "repo"), "")), String(nz(pget(r, "branch"), ""))), nothing)
+        jstr(r, :type) == "PullRequest" || continue
+        jstr(r, :author, "") == login || continue
+        lu = get(byb, (jstr(r, :repo, ""), jstr(r, :branch, "")), nothing)
         lu === nothing && continue
-        from = state[lu]
-        to = get!(state, url, Dict{String,Any}())
+        from = asdict(state[lu])
+        to = asdict(get!(state, url, Dict{String,Any}()))
         into, outof = Pair{String,Any}[], Pair{String,Any}["adopted" => nothing]
         for k in carried
             v = get(from, k, nothing)
             truthy(v) || continue
-            push!(outof, k => nothing)
+            push!(outof, Pair{String,Any}(k, nothing))
             # The clock is the later of the two; a word is the one already there.
             have = get(to, k, nothing)
-            truthy(have) && (k != "touched" || String(have) >= String(v)) && continue
-            push!(into, k => v)
+            truthy(have) && (k != "touched" || jstr(to, Symbol(k), "") >= jstr(from, Symbol(k), "")) &&
+                continue
+            push!(into, Pair{String,Any}(k, v))
             to[k] = v
         end
         delete!(from, "adopted")
@@ -875,7 +903,7 @@ function adopt_pull_requests!(items, state::Dict{String,Any}, login::AbstractStr
         end
         isempty(into) || push!(ups, url => into)
         push!(ups, lu => outof)
-        push!(out, string(last(split(String(pget(r, "repo")), '/')), "#", pget(r, "number")))
+        push!(out, string(last(split(jstr(r, :repo, ""), '/')), "#", pyrepr(jget(r, :number))))
         delete!(byb, localparts(lu))        # one pull request takes it
     end
     isempty(ups) || set_blocks!(ups)
@@ -947,9 +975,10 @@ has a snooze or an archive but no done stamp, which the refresh stamps once
 for all of them, and `r["woken"]` whether its snooze has run out, which the
 refresh writes down as unread once for all of them.
 """
-function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
-    login = cfg["login"]
-    second_days = Int(get(cfg["thresholds"], "second_look_days", 2))
+function derive!(r, @nospecialize(old), @nospecialize(st), cfg, at::DateTime;
+                 sources = source_since())
+    login = jstr(cfg, :login, "")
+    second_days = jint(jdict(cfg, :thresholds), :second_look_days, 2)
     r["their_head"] = their_head(r, old, login)
     r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
     r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
@@ -966,10 +995,10 @@ function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
     # `apply_snooze!` and `wl snooze` do on the way in and the only thing that
     # used to need an arming. Without it the item would be unread and hidden
     # by nothing, and "not now" would have said nothing at all.
-    read_ = get(st, "done", nothing)
-    r["wake"] = wake_of(get(st, "snooze", nothing), read_)
-    held = (r["wake"] !== nothing && !woken(r["wake"], at)) ||
-           truthy(get(st, "archived", nothing))
+    read_ = jget(st, :done)
+    wake = wake_of(jget(st, :snooze), read_)
+    r["wake"] = wake
+    held = (wake !== nothing && !woken(wake, at)) || truthy(jget(st, :archived))
     r["slept"] = held && !truthy(read_)
     # And the other end of a snooze: a wake that has passed is written down
     # - `done = ""`, the snooze gone - so that **unread implies no snooze**.
@@ -981,7 +1010,7 @@ function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
     # left to the stamp, since the stamp is the movement the snooze was
     # made at and would read as read; `done_head` stays, because you are
     # still where you were in it.
-    r["woken"] = r["wake"] !== nothing && woken(r["wake"], at)
+    r["woken"] = wake !== nothing && woken(wake, at)
     # After `reply`, which `in_pile` reads and the pile is not a to-do
     # list, and after the snooze, for the reason above.
     r["second_look"] = held ? "" : second_look(r, at, second_days)
@@ -1024,20 +1053,21 @@ function derive!(r, old, st, cfg, at::DateTime; sources = source_since())
     # row first seen before there was that word too: nobody else has done
     # anything since, or a key would have moved it.
     if old === nothing
-        r["moved_at"], r["moved_by"] = first_seen_at(r), "new"
+        r["moved_at"], moved_by = first_seen_at(r), "new"
     else
         (r["moved_at"], by) = movement(old, r, at)
-        r["moved_by"] = isempty(by) ? jstr(old, :moved_by, "") : by
-        isempty(r["moved_by"]) && (r["moved_by"] = moved_key(r))
+        moved_by = isempty(by) ? jstr(old, :moved_by, "") : by
+        isempty(moved_by) && (moved_by = moved_key(r))
     end
-    r["moved_by"] == "new" && opened_by_you(r, login) && (r["moved_by"] = "opened")
+    moved_by == "new" && opened_by_you(r, login) && (moved_by = "opened")
+    r["moved_by"] = moved_by
     r["new"] = old === nothing
     # And the head as of the mark, after `moved_at`, which it is read against.
     # The stamp, else the floor; an empty stamp - said unread - is neither.
-    done = get(st, "done", nothing)
+    done = jget(st, :done)
     upto = done === nothing ?
            floor_of(jstr(r, :lane, ""), jstr(r, :repo, ""), sources) :
-           truthy(done) ? String(done) : nothing
+           truthy(done) ? jstr(st, :done) : nothing
     r["read_head"] = read_head(r, old, upto)
     r
 end
@@ -1052,10 +1082,10 @@ force-push's or a first sight's names nothing, and `""` is the answer.
 function moved_key(r)
     m = jstr(r, :moved_at, "")
     isempty(m) && return ""
-    for k in get(TRACK_KEYS, r["track"], TRACK_KEYS["normal"])
+    for k in track_keys(r)
         by = get(TIMED_KEYS, k, nothing)
         by === nothing && continue
-        String(nz(get(r, by, nothing), "")) == m && return k
+        jstr(r, Symbol(by), "") == m && return k
     end
     ""
 end
@@ -1075,12 +1105,10 @@ is no movement, but that is `opened_by_you`'s to say, not this. Every one of
 these is GitHub's time, so a rebuilt `fetched.json` still does not read as
 everything moving at once."""
 function first_seen_at(r)
-    best = String(activity_at(r))
-    c = get(r, "created", nothing)
-    truthy(c) && (best = max(best, String(c)))
+    best = something(activity_at(r), "")
+    best = max(best, jstr(r, :created, ""))
     for k in values(TIMED_KEYS)
-        t = get(r, k, nothing)
-        truthy(t) && (best = max(best, String(t)))
+        best = max(best, jstr(r, Symbol(k), ""))
     end
     best
 end
@@ -1093,10 +1121,8 @@ a pull request is a keystroke of yours like any other, and "nothing you did
 yourself is movement": the row is `opened` rather than `new`, which `seen_of`
 reads as seen until somebody else moves it.
 """
-opened_by_you(r, login) =
-    get(r, "author", nothing) == login &&
-    !any(k -> truthy(get(r, k, nothing)),
-         get(TRACK_KEYS, get(r, "track", "normal"), TRACK_KEYS["normal"]))
+opened_by_you(r, login::AbstractString) =
+    jstr(r, :author) == login && !any(k -> truthy(jget(r, Symbol(k))), track_keys(r))
 
 """What moved between `old` and `r`, said for a person, or `""`.
 
@@ -1105,16 +1131,15 @@ not in it. Said as what happened, because it is an event and not a value:
 "review_requested_at 14:02->16:40" is the same sentence written for a machine,
 and this is the line a person reads to find out why their dashboard changed.
 """
-function change_of(old, r)
-    r["moved_at"] == jstr(old, :moved_at, "") && return ""
+function change_of(@nospecialize(old), r)
+    jstr(r, :moved_at, "") == jstr(old, :moved_at, "") && return ""
     d = String[]
-    jget(old, :review_requested_at) == get(r, "review_requested_at", nothing) ||
+    same(jget(old, :review_requested_at), jget(r, :review_requested_at)) ||
         push!(d, "review requested")
-    jget(old, :assigned_at) == get(r, "assigned_at", nothing) ||
+    same(jget(old, :assigned_at), jget(r, :assigned_at)) ||
         push!(d, "assigned to you")
-    jget(old, :state_at) == get(r, "state_at", nothing) ||
-        push!(d, get(r, "state", nothing) == "OPEN" ? "reopened" :
-                 lowercase(something(get(r, "state", nothing), "closed")))
+    same(jget(old, :state_at), jget(r, :state_at)) ||
+        push!(d, jstr(r, :state) == "OPEN" ? "reopened" : lowercase(jstr(r, :state, "closed")))
     # The events say what happened; the states say what they went from and
     # to. `their_head` and `review_at` are printed as events even though they
     # are a sha and a timestamp, because "new push 0a1b2c->3d4e5f" is not a
@@ -1124,9 +1149,9 @@ function change_of(old, r)
                      ("review_at", "new review"),
                      ("ci", "CI"), ("review_decision", "review"),
                      ("unresolved", "unresolved"))
-        if jget(old, Symbol(f)) != get(r, f, nothing)
+        if !same(jget(old, Symbol(f)), jget(r, Symbol(f)))
             push!(d, f in ("their_head", "their_comment_at", "review_at") ? lab :
-                     "$lab $(pyrepr(jget(old, Symbol(f))))->$(pyrepr(get(r, f, nothing)))")
+                     string(lab, " ", pyrepr(jget(old, Symbol(f))), "->", pyrepr(jget(r, Symbol(f)))))
         end
     end
     join(d, ", ")
@@ -1135,7 +1160,13 @@ end
 """A row kept from the last run without asking GitHub again, as this run's
 row: a copy, so that the derivation can compare it to itself and find nothing
 moved. `fetched_at` stays what it was, which is the whole point."""
-kept_row(old::AbstractDict) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
+function kept_row(@nospecialize(old))::Record
+    old isa JSON.Object{String,Any} && return Record(k => v for (k, v) in old)
+    old isa Record && return Record(old)
+    old isa OrderedDict{String,Any} && return Record(old)
+    _kept_row(old)
+end
+_kept_row(old::AbstractDict) = Record(String(k) => v for (k, v) in pairs(old))
 
 """What a thread the notifications source saw contributes to the corpus row
 built for it: the reason. Off the inbox row, which
@@ -1144,10 +1175,13 @@ no thread for this url any more: a mention that was read, and then moved in
 a way the repo poll saw and the notifications source did not re-deliver (a
 label, your own comment), is still a mention, and the `reply` tag still reads
 the reason."""
-function thread_facts!(r, inbox_row, old = nothing)
-    v = inbox_row === nothing ? nothing : get(inbox_row, "reason", nothing)
-    truthy(v) || (v = jget(old, :reason))
-    truthy(v) && (r["reason"] = String(v))
+thread_facts!(r, @nospecialize(inbox_row)) = thread_facts!(r, inbox_row, nothing)
+# Not `@nospecialize(old) = nothing`: on an argument with a default the mark is
+# dropped from every method, and a call with the old row in hand was dynamic.
+function thread_facts!(r, @nospecialize(inbox_row), @nospecialize(old))
+    v = jstr(inbox_row, :reason, "")
+    isempty(v) && (v = jstr(old, :reason, ""))
+    isempty(v) || (r["reason"] = v)
     carry_mention!(r, inbox_row, old)
 end
 
@@ -1155,17 +1189,18 @@ end
 have latched it off a reason that has moved on since, or off the row being
 replaced. `derive!` then sets it from this row's own reason if neither had it;
 see `Events.mention_words`."""
-function carry_mention!(r, inbox_row, old = nothing)
-    v = inbox_row === nothing ? nothing : get(inbox_row, "mentioned", nothing)
-    truthy(v) || (v = jget(old, :mentioned))
-    truthy(v) && (r["mentioned"] = String(v))
+carry_mention!(r, @nospecialize(inbox_row)) = carry_mention!(r, inbox_row, nothing)
+function carry_mention!(r, @nospecialize(inbox_row), @nospecialize(old))
+    v = jstr(inbox_row, :mentioned, "")
+    isempty(v) && (v = jstr(old, :mentioned, ""))
+    isempty(v) || (r["mentioned"] = v)
     r
 end
 
 """Whether you were ever named on this, as a sentence, or `""`: what the row
 already carries, else what the row it replaces did, else its reason now. Never
 unset once set - the whole of what makes it a different fact from `reason`."""
-function mentioned_of(r, old)
+function mentioned_of(r, @nospecialize(old))
     v = jstr(r, :mentioned, "")
     isempty(v) || return v
     v = jstr(old, :mentioned, "")
@@ -1189,7 +1224,7 @@ event in it, fetched fresher than any bundle - so a done stamp past the
 bundle is evidence that something was seen the bundle does not have. A row
 from before there was a `fetched_at` is stale, once.
 """
-function stale_by(inbox_row, old, read = nothing)
+function stale_by(@nospecialize(inbox_row), @nospecialize(old), read = nothing)
     f = jstr(old, :fetched_at, "")
     isempty(f) && return true
     inbox_row !== nothing && jstr(inbox_row, :updated, "") > f && return true
@@ -1210,7 +1245,7 @@ carried row was before the clocks. The set is the open carried rows, a
 handful, and forty of them are one request."""
 function covered(url::AbstractString, cfge)
     repo = join(split(String(url), '/')[4:5], '/')
-    explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
+    explicit, owners, _ = Events.event_sources(jstrs(cfge, :repos))
     repo in explicit || first(split(repo, '/')) in owners
 end
 
@@ -1251,23 +1286,30 @@ end
 with nothing the REST list does not carry - no head, no reviews, no
 timeline. Light, the way the firehose's rows were; filled in by url the
 first time a clock says it moved or the cursor lands on it."""
-function backlog_row(r, login::AbstractString)
+function backlog_row(@nospecialize(r), login::AbstractString)::Record
     who = jstr(jobj(r, :user), :login, "?")
-    assignees = String[String(a["login"]) for a in get(r, "assignees", ())]
-    ms = get(r, "milestone", nothing)
-    OrderedDict{String,Any}(
-        "type" => haskey(r, "pull_request") ? "PullRequest" : "Issue",
-        "lane" => "backlog",
-        "url" => String(r["html_url"]), "number" => r["number"], "title" => r["title"],
-        "repo" => Events.item_repo(r), "author" => who,
-        "state" => uppercase(String(get(r, "state", "open"))),
-        "created" => get(r, "created_at", nothing), "updated" => r["updated_at"],
-        "labels" => String[String(l["name"]) for l in get(r, "labels", ())],
-        "milestone" => ms === nothing ? nothing : get(ms, "title", nothing),
-        "milestone_due" => ms === nothing ? nothing : get(ms, "due_on", nothing),
-        "assignees" => assignees, "mine" => who == login || login in assignees,
-        "last_comment_by" => nothing, "last_comment_at" => nothing,
-        "assigned_at" => nothing, "state_at" => nothing)
+    assignees = String[jstr(a, :login, "") for a in jlist(r, :assignees)]
+    ms = jobj(r, :milestone)
+    rec = Record()
+    rec["type"] = jobj(r, :pull_request) === nothing ? "Issue" : "PullRequest"
+    rec["lane"] = "backlog"
+    rec["url"] = jstr(r, :html_url, "")
+    rec["number"] = jget(r, :number)
+    rec["title"] = jget(r, :title)
+    rec["repo"] = Events.item_repo(r)
+    rec["author"] = who
+    rec["state"] = uppercase(jstr(r, :state, "open"))
+    rec["created"] = jget(r, :created_at)
+    rec["updated"] = jget(r, :updated_at)
+    rec["labels"] = String[jstr(l, :name, "") for l in jlist(r, :labels)]
+    rec["milestone"] = jget(ms, :title)
+    rec["milestone_due"] = jget(ms, :due_on)
+    rec["assignees"] = assignees
+    rec["mine"] = who == login || login in assignees
+    for k in ("last_comment_by", "last_comment_at", "assigned_at", "state_at")
+        rec[k] = nothing
+    end
+    rec
 end
 
 """
@@ -1290,8 +1332,8 @@ owner at once and comes back with the bundle. `only` names the sources to
 import; every source, when it is the `--backlog` run.
 """
 function open_list(cfge, login::AbstractString; only = nothing, spent = Ref(0))
-    explicit, owners, _ = Events.event_sources(get(cfge, "repos", String[]))
-    rows = Any[]                     # `normalize` gives a Dict, `backlog_row` an ordered one
+    explicit, owners, _ = Events.event_sources(jstrs(cfge, :repos))
+    rows = Record[]
     for repo in explicit
         (only === nothing || repo in only) || continue
         got = Events.api_paged("/repos/$repo/issues"; max_pages = 200,
@@ -1350,7 +1392,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
                   open_list = open_list)
     cfg = config()
     cfgtext = config_text()
-    login = cfg["login"]
+    login = jstr(cfg, :login, "")
     # **GitHub's now, not this machine's.** Everything this run stamps is
     # compared, sooner or later, against a time GitHub wrote - a movement with
     # no clock of its own against the done mark, a done mark on a hand-typed
@@ -1379,7 +1421,9 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # parts of the file this run writes - the poll's inbox, the items
     # themselves - each go back through a fresh read at the moment they are
     # written, since between them they span a minute of network.
-    prev_items = something(fetched("items"), (;))
+    prev_items = let p = fetched("items")
+        p isa JSON.Object{String,Any} ? p : JSON.Object{String,Any}()
+    end
     yield()                                  # a 6 MB parse, in one piece
     # The row this run knows last about a url: the file's, or the bundle the
     # browser fetched for the row under the cursor when that is the newer.
@@ -1387,8 +1431,8 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # by whoever saw it first (`moved_stamp`), and a refresh that compared
     # against the file's older row would see the same edge again, date it
     # again, and put back in front of you a thing you had read.
-    prev(url) = bundled(url, jget(prev_items, Symbol(url)))
-    cfge = get(cfg, "events", Dict{String,Any}())
+    prev(url) = bundled(url, get(prev_items, url, nothing))
+    cfge = jdict(cfg, :events)
 
     # **The open work is asked for whole, every run.** The three lanes are
     # GraphQL searches because they do two things at once that nothing else
@@ -1400,16 +1444,17 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # ~135 rows, four pages, 16 points, 15 seconds; dozens of presses a day
     # is a few hundred points. Measured 2026-09-13, and decided against a
     # heuristic: moved-recently is not a hint for what moves next.
-    items = OrderedDict{String,Any}()
+    items = OrderedDict{String,Record}()
     spent = 0
-    for (lane, q) in ordered(cfg["lanes"], cfgtext, "lanes")
+    for (lane, q) in ordered(jdict(cfg, :lanes), cfgtext, "lanes")
         f = now_()
-        nodes, c, total = search(expand_lane(lane_query(lane, q, login), at))
+        nodes, c, total = search(expand_lane(lane_query(lane, String(q::AbstractString)::String,
+                                                        login), at))
         spent += c
         for n in nodes
             r = normalize(n, lane, login)
             r["fetched_at"] = f
-            items[String(n.url)] = r
+            items[jstr(n, :url, "")] = r
         end
         @printf(report(), "  %-9s %3d items (%d pts)%s\n", lane, length(nodes), c,
                 total > length(nodes) ? " - CUT at $(length(nodes)) of $total: the open work is not whole" : "")
@@ -1429,10 +1474,10 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
                             first(sprint(showerror, e), 120))
                     Any[]
                  end
-            u = String(n.url)
+            u = jstr(n, :url, "")
             haskey(items, u) && continue
-            items[u] = normalize(n, "imported", login)
-            items[u]["fetched_at"] = f
+            r = items[u] = normalize(n, "imported", login)
+            r["fetched_at"] = f
             kept += 1
         end
         @printf(report(), "  %-9s %3d items (of %d)\n", "imported", kept, length(imp))
@@ -1446,7 +1491,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # named is written and stays: the floor every row of that source is
     # done up to, and the one fact a rebuild of `fetched.json` needs and
     # could not get from GitHub. Rows the corpus has already are left alone.
-    explicit_, owners_, _ = Events.event_sources(get(cfge, "repos", String[]))
+    explicit_, owners_, _ = Events.event_sources(jstrs(cfge, :repos))
     sources = vcat(explicit_, [string(o, "/*") for o in owners_])
     named = source_since()
     first_sight = [l for l in sources if !haskey(named, l)]
@@ -1459,8 +1504,8 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
         end
         pts = Ref(0)
         for r in open_list(cfge, login; only = want, spent = pts)
-            u = String(r["url"])
-            (haskey(items, u) || haskey(prev_items, Symbol(u))) && continue
+            u = jstr(r, :url, "")
+            (haskey(items, u) || haskey(prev_items, u)) && continue
             r["fetched_at"] = f
             items[u] = r
             push!(backlog, u)
@@ -1500,7 +1545,10 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # its carried keys gone, or oscillated between the clock bringing it in
     # and the prune letting it go. The rows of the nine retired lanes stay
     # too, as they were; `in_pile` knows their names.
-    inbox = Dict{String,Any}(String(e["url"]) => e for e in poll(cfg, login, at))
+    inbox = Dict{String,Any}()
+    for e in poll(cfg, login, at)
+        inbox[jstr(e, :url, "")] = e
+    end
     # A lane row carries the thread's reason too, when there is one: a mention
     # on your own pull request is a mention, and the `reply` tag reads it.
     # Off the row it replaces when the inbox has no thread for it any more.
@@ -1516,8 +1564,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
         old = prev(url)
         lane = jstr(old, :lane, "carried")
         push!(carried, url)
-        if stale_by(get(inbox, url, nothing), old,
-                    get(get(state, url, Dict{String,Any}()), "done", nothing)) ||
+        if stale_by(get(inbox, url, nothing), old, jstr(get(state, url, nothing), :done)) ||
            (!covered(url, cfge) && !isover(old) && !in_pile(old))
             ask[url] = lane
         else
@@ -1527,7 +1574,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     brought = 0
     for (url, e) in inbox
         (haskey(items, url) || haskey(ask, url)) && continue
-        involved(get(e, "reason", nothing)) || continue
+        involved(jstr(e, :reason)) || continue
         ask[url] = jstr(e, :lane, "notifications")
         brought += 1
     end
@@ -1580,7 +1627,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
             # asked for itself - that row is the row, and the old name only
             # goes. A kept row under an old name that is never asked again
             # stays, as it was: a duplicate with old facts, until it is.
-            u = String(n.url)
+            u = jstr(n, :url, "")
             if u != asked
                 moved_ += 1
                 old = prev(asked)
@@ -1623,7 +1670,7 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # A kept row from before there was a stamp gets one now: no clock saw it
     # this run, and from here the clocks are read against it.
     for (url, r) in items
-        truthy(get(r, "fetched_at", nothing)) || (r["fetched_at"] = now_())
+        isempty(jstr(r, :fetched_at, "")) && (r["fetched_at"] = now_())
     end
 
     # **Every source names itself on first sight**, and a lane is a source:
@@ -1670,10 +1717,10 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
             r = items[url] = kept_row(old)
         end
         derive!(r, old, st, cfg, at; sources = sources)
-        pop!(r, "slept") && push!(slept, url)
-        pop!(r, "woken") && push!(woke, url => String(r["wake"]))
+        pop!(r, "slept") === true && push!(slept, url)
+        pop!(r, "woken") === true && push!(woke, url => jstr(r, :wake, ""))
         if old === nothing
-            r["moved_by"] == "opened" || push!(changes, (url, r, "new"))
+            jstr(r, :moved_by) == "opened" || push!(changes, (url, r, "new"))
         else
             d = change_of(old, r)
             isempty(d) || push!(changes, (url, r, d))
@@ -1706,16 +1753,17 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
                   now = stamp(at))
     yield()
     dropped = String[]
-    for (i, (url, e)) in enumerate(inbox_["items"])
+    inbox_items = inbox_["items"]::Dict{String,Any}
+    for (i, (url, e)) in enumerate(inbox_items)
         breathe(i)
         r = get(items, url, nothing)
         r === nothing && continue
-        jstr(e, :updated, "") <= String(r["fetched_at"]) || continue
+        jstr(e, :updated, "") <= jstr(r, :fetched_at, "") || continue
         seen_of(item_of(JSON.parse(json_dumps(r))), marks) === :done || continue
         push!(dropped, url)
     end
     for u in dropped
-        delete!(inbox_["items"], u)
+        delete!(inbox_items, u)
     end
     isempty(dropped) || @printf(report(), "  %-16s %4d rows asked about and done, dropped\n",
                                 "inbox", length(dropped))
@@ -1725,17 +1773,17 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     # (`thread_facts!`). Kept, it would never be consumed: no corpus row is
     # ever under that name, so it would be asked by url on every run, follow
     # the same redirect, and say "is now" in every report.
-    moved = [u for (u, _) in gone if haskey(inbox_["items"], u)]
+    moved = [u for (u, _) in gone if haskey(inbox_items, u)]
     for u in moved
-        delete!(inbox_["items"], u)
+        delete!(inbox_items, u)
     end
     isempty(moved) || @printf(report(), "  %-16s %4d rows under a name that moved, dropped\n",
                               "inbox", length(moved))
     append!(dropped, moved)
     # A value typed wrong is not a snooze, and nothing else says so.
     for (u, st) in state
-        v = get(st, "snooze", nothing)
-        truthy(v) && parse_snooze(String(v)) === nothing &&
+        v = jstr(st, :snooze, "")
+        !isempty(v) && parse_snooze(v) === nothing &&
             @printf(warning(), "  %-16s bad snooze value '%s'  (%s)\n", "snooze", v, u)
     end
 
@@ -1773,4 +1821,6 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
 end
 
 "How Python's `%s` renders the values that appear in a change line."
-pyrepr(v) = v === nothing ? "None" : v isa Bool ? (v ? "True" : "False") : string(v)
+pyrepr(@nospecialize(v))::String =
+    v === nothing ? "None" : v isa Bool ? (v ? "True" : "False") : v isa String ? v :
+    v isa Int ? string(v) : string(v)::String

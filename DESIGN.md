@@ -1173,6 +1173,20 @@ Each of the following returns success and the wrong answer:
   jobs array to an anonymous caller. Logs are HTML: drop `<time>` before
   stripping tags, decode numeric entities too.
 
+### Julia, read by `--trim`
+
+- **`@nospecialize(x) = default` does nothing.** An argument with a default
+  loses the mark on every method it makes (1.12 to the 1.14 nightly), so a
+  call holding an `Any` there is dynamic after all; `thread_facts!` and
+  `carry_mention!` are two methods written out for that. `@nospecialize x`
+  in the body does mark it.
+- **A value typed `Any` is a dynamic call wherever its type is a parameter.**
+  `"k" => v` builds a `Pair` of `v`'s type at run time, and `OrderedDict`'s
+  `setindex!` specializes on the value, where Base's `Dict{K,Any}` has a
+  method that does not. So a row the refresh builds (`Record`) is a
+  `Dict{String,Any}` filled key by key, and `String(s)` of an
+  `AbstractString` is asserted `::String` so the one dynamic call stops there.
+
 ## Decisions not to re-litigate
 
 - **No sweep heuristic.** "Moved recently" is not a hint for what moves next;

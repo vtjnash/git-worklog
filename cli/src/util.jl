@@ -169,14 +169,26 @@ end
 
 """Parse a GitHub/ISO timestamp. Everything GitHub emits is UTC, so the offset
 is dropped rather than modelled."""
-function ts(s)
-    (s === nothing || s === missing) && return nothing
-    m = match(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?", String(s))
+function ts(@nospecialize(s))
+    s isa AbstractString || return nothing
+    m = match(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?", s isa String ? s : String(s)::String)
     m === nothing && return nothing
     f = m[2]
     frac = f === nothing ? "" : "." * rpad(first(f, 3), 3, '0')
     DateTime(something(m[1]) * frac)
 end
+
+"""Two field values, compared as `==` compares them: the scalars JSON answers are
+told apart here, so a caller holding two `Any`s makes a static call, and
+anything else - a list, a number of another kind - through one dynamic call."""
+function same(@nospecialize(a), @nospecialize(b))::Bool
+    a === b && return true
+    a isa Union{Nothing,String,Int} && b isa Union{Nothing,String,Int} &&
+        return a isa String && b isa String && a == b
+    a isa Union{Nothing,String,Bool} && b isa Union{Nothing,String,Bool} && return false
+    _same(a, b)
+end
+_same(a, b) = (a == b) === true
 
 "`(at - t).days`, which floors, so a future timestamp is negative rather than
 rounded toward zero."
@@ -321,7 +333,7 @@ end
 # `@nospecialize` thread readers - is told them too.
 function jstr(@nospecialize(o), k::Symbol)::Union{Nothing,String}
     v = jget(o, k)
-    v isa String ? v : v isa AbstractString ? String(v) : nothing
+    v isa String ? v : v isa AbstractString ? String(v)::String : nothing
 end
 jstr(@nospecialize(o), k::Symbol, d::AbstractString)::String = something(jstr(o, k), String(d))
 function jint(@nospecialize(o), k::Symbol)::Union{Nothing,Int}
@@ -329,17 +341,40 @@ function jint(@nospecialize(o), k::Symbol)::Union{Nothing,Int}
     v isa Int ? v : v isa Integer && !(v isa Bool) ? Int(v) : nothing
 end
 jint(@nospecialize(o), k::Symbol, d::Int)::Int = something(jint(o, k), d)
+"A number, integer or not, as a `Float64`: a TOML value that may be written either way."
+function jfloat(@nospecialize(o), k::Symbol, d::Float64)::Float64
+    v = jget(o, k)
+    v isa Int ? Float64(v) : v isa Float64 ? v : d
+end
 jbool(@nospecialize(o), k::Symbol)::Union{Nothing,Bool} = (v = jget(o, k); v isa Bool ? v : nothing)
 jbool(@nospecialize(o), k::Symbol, d::Bool)::Bool = something(jbool(o, k), d)
 "The field if it is an object, else `nothing`: `jget` again, or a `j*` read, goes on from here."
 jobj(@nospecialize(o), k::Symbol) = (v = jget(o, k); v isa Union{AbstractDict,NamedTuple} ? v : nothing)
 """The field if it is an array, else an empty one - for a loop, which then needs
 no test. Always a `Vector{Any}`, so the loop is typed whatever was stored."""
-function jlist(@nospecialize(o), k::Symbol)::Vector{Any}
-    v = jget(o, k)
-    v isa Vector{Any} ? v : v isa AbstractVector ? _anylist(v) : Any[]
-end
+jlist(@nospecialize(o), k::Symbol)::Vector{Any} = anylist(jget(o, k))
+"`v` if it is an array, as a `Vector{Any}`; else an empty one. `jlist` of a value in hand."
+anylist(@nospecialize(v))::Vector{Any} =
+    v isa Vector{Any} ? v : v isa AbstractVector ? _anylist(v)::Vector{Any} : Any[]
 _anylist(v::AbstractVector) = collect(Any, v)
+"The field's strings, if it is an array: what is not a string is left out."
+function jstrs(@nospecialize(o), k::Symbol)::Vector{String}
+    out = String[]
+    for v in jlist(o, k)
+        v isa String ? push!(out, v) : v isa AbstractString && push!(out, String(v)::String)
+    end
+    out
+end
+"""The field if it is a table, else an empty one: a `Dict{String,Any}`, which is
+what TOML answers for every table in `config()` and `local.toml`, so what is read
+out of it next is one static call. Read only - the empty one is nobody's."""
+jdict(@nospecialize(o), k::Symbol)::Dict{String,Any} = asdict(jget(o, k))
+"""`jdict` of a value in hand. An object parsed from JSON, or any other table, is
+copied into one; the copy is nobody's either."""
+asdict(@nospecialize(v))::Dict{String,Any} =
+    v isa Dict{String,Any} ? v : v isa JSON.Object{String,Any} ? Dict{String,Any}(v) :
+    v isa AbstractDict ? _anydict(v)::Dict{String,Any} : Dict{String,Any}()
+_anydict(v::AbstractDict) = Dict{String,Any}(String(k) => x for (k, x) in v)
 "`jlist(o, :nodes)`, GraphQL's connection, of the object under `k`."
 jnodes(@nospecialize(o), k::Symbol)::Vector{Any} = jlist(jget(o, k), :nodes)
 
@@ -404,9 +439,9 @@ end
 "Iterate a parsed TOML table in the order its keys appear in the file."
 function ordered(tbl::AbstractDict, text::AbstractString, table::AbstractString)
     order = table_key_order(text, table)
-    ks = [k for k in order if haskey(tbl, k)]
-    append!(ks, sort([k for k in keys(tbl) if !(k in ks)]))
-    [k => tbl[k] for k in ks]
+    ks = String[k for k in order if haskey(tbl, k)]
+    append!(ks, sort(String[k for k in keys(tbl) if !(k in ks)]))
+    Pair{String,Any}[Pair{String,Any}(k, tbl[k]) for k in ks]
 end
 
 # --- the configuration, in two layers ----------------------------------------

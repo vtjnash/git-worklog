@@ -707,9 +707,7 @@ const AXIS_APPLIED_ONLY = (:repo, :label, :author)
 
 """`[filters] pinned_repos` from the config: the repos listed on the pane
 whether or not they are applied, as written there - a name or `owner/*`."""
-pinned_filter_repos(cfg = config()) =
-    String[String(r) for r in get(get(cfg, "filters", Dict{String,Any}()),
-                                  "pinned_repos", String[])]
+pinned_filter_repos(cfg = config()) = jstrs(jdict(cfg, :filters), :pinned_repos)
 
 """The repo axis in the order the pane lists it: the pinned repos first, in the
 order they were written, then the rest alphabetically.
@@ -1334,10 +1332,11 @@ function restore_view!(st)
     # one restored: `\`` is the way to the firehose from wherever you were.
     note_place!(st)
     said = apply_view!(st, v)
-    at = get(d, "at", Dict{String,Any}())
-    i = findfirst(x -> x.url == String(get(at, "item", "")), st.items)
+    at = jobj(d, :at)
+    item = jstr(at, :item, "")
+    i = findfirst(x -> x.url == item, st.items)
     i === nothing || (st.sel = i)
-    m = Symbol(String(get(at, "mode", "comments")))
+    m = Symbol(jstr(at, :mode, "comments"))
     m in VIEW_MODES && (st.mode = m)
     st.status = string("where you were: ", said)
     true
