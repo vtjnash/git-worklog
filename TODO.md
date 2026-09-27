@@ -59,6 +59,29 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
         the write to the reply, costs nothing uncontended. The reader needs
         none: it only puts replies on a `Channel` and routes notifications,
         which tmux never sends inside a reply.
+- [ ] **Review TermIFrame's callbacks: state the host reads, not functions it
+      hands in.** `iframe` takes four, and `mux_open` two, each typed `Any` -
+      a dynamic call under `--trim`, and each a reason for `TypedCallable`
+      that may not be one:
+      - `onwake` / `ondead`: the reader calls it on every `%output` and once
+        at the end, and the host only ever raises a wake (`wake!(ctrl)`).
+        It could be a level the client holds - a `Threads.Condition`, or a
+        flag plus the host's own `Event` - that the host waits on or checks.
+      - `onend`: called once, from `iframe_sync!` - on the host's loop
+        already, not the reader's - when the client is found dead; a string
+        it returns becomes the status. It could be `ended::Bool` (or a
+        `Base.Event`) that the host sees after a sync, doing its own once;
+        the "once, never from a later sync" rule is then the host's to keep.
+      - `suspend`: hands the terminal over for `^]a`. It could be
+        `iframe_input!` answering `:attach` and the host calling
+        `mux_attach` itself, as it does for `:pop`.
+      - `onerror`: a place to log. It could be errors kept on the iframe for
+        the host to take, or the one hook worth keeping.
+      And the settable globals, which the host sets once at init: `MUX_ENV`,
+      `MUX_PREFIX`, `SCRUB_PREFIXES` (`tmux.jl`) - the same shape `MUX_TAGS`
+      had before it became `mux_list`'s argument. Whether each is an
+      argument, a field of a per-host settings value, or fine as it is.
+      Keeps working with several panes visible at once (the item above).
 - [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is
