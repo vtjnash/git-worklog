@@ -1022,6 +1022,19 @@ Each of the following returns success and the wrong answer:
   listener - a listener is a browser that has to be running, and the pane
   outlives it. A session is tagged with the item's url as well as its ref,
   since the marks are keyed by url.
+- **A session's tags are strings on the server, and the list is the host's.**
+  `SESSION_TAGS` names them and `session_list` reads them into a `Session`;
+  TermIFrame keeps no list of its own. Every row carries `#{session_id}`,
+  `$N`: kept through a rename, never reused while the server lives, and
+  back at `$0` after a restart - which ends every session too.
+- **A trailing `;` is a command separator, in any argument.** `set @x 'y;'`
+  sets `y`, one command or several; `\;` is the character. `mux_tag!`
+  escapes it, and joins its `set`s into one `tmux` with `;` (3.2 ms a
+  process, measured).
+- **A control client has to attach to stay open.** `tmux -C` with any other
+  command runs it, says `%exit` and quits; and attaching to one of ours
+  clears its bell. The pipe TODO plans parks on a hidden session of its
+  own, where a session beside it kept `attached=0` and its bell.
   The hook runs under `/bin/sh` in a session of its own with no controlling
   terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
   rings `/proc/$PPID/fd/1`, its parent being `claude` and `claude`'s stdout
