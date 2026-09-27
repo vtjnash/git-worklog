@@ -55,6 +55,10 @@ struct Spot
     url::String
 end
 
+"One draft review in hand, as `mkbatch` makes it: whose, its node id, how many
+comments are in it, and whether leaving the item has put the question."
+const Batch = @NamedTuple{url::String, ref::String, review::String, n::Int, asked::Bool}
+
 """The browser's whole state.
 
 Keyword-constructed, with defaults: it has more than fifty fields, and the
@@ -207,7 +211,7 @@ Base.@kwdef mutable struct BState <: View
     # rather than asked for per frame, and kept after the cursor moves away -
     # that is the whole point of it: a draft you have walked off is the one that
     # gets forgotten.
-    batch::Any = nothing            # (url, ref, review, n) or nothing
+    batch::Union{Nothing,Batch} = nothing   # `mkbatch`, or nothing
     metapending::Union{Nothing,Task} = nothing
     sessions::Vector{NamedTuple} = NamedTuple[]  # live multiplexer sessions, as
                                           # of the last metadata fetch; asking

@@ -385,7 +385,7 @@ function apply_term!(tbl::AbstractDict{String}, probs::Vector{String},
         else
             try
                 st = term_style(value)
-                endswith(key, "_bg") && occursin(" ", st) &&
+                endswith(String(field), "_bg") && occursin(" ", st) &&
                     throw(ArgumentError("takes one colour and no attributes"))
                 setfield!(t, field, st)
             catch e

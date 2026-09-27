@@ -189,7 +189,7 @@ branch_tracks(path, branch::AbstractString) = first(follows(Tracking(path), bran
 function repo_path(name::AbstractString)
     d = get(load_repos(), String(name), nothing)
     d === nothing && return nothing
-    p = userpath(get(d, "worktree", ""))
+    p = userpath(jstr(d, :worktree, ""))
     isdir(p) ? p : nothing
 end
 
@@ -201,7 +201,7 @@ back to them unchanged.
 """
 function pinned_repos()
     [(name = k, path = String(get(v, "worktree", "")),
-      there = isdir(userpath(get(v, "worktree", ""))))
+      there = isdir(userpath(jstr(v, :worktree, ""))))
      for (k, v) in sort(collect(load_repos()); by = first)]
 end
 
@@ -258,29 +258,34 @@ rather than beside `name.git`.
 """
 function worktrees(path::AbstractString)
     out = NamedTuple{(:path, :branch, :head, :main),Tuple{String,String,String,Bool}}[]
-    cur, br, hd, prunable, bare, lead = "", "", "", false, false, true
-    function flush!()
-        isempty(cur) && return
-        (prunable || bare) ||
-            push!(out, (path = cur, branch = isempty(br) ? returning_branch(cur) : br,
-                        head = hd, main = lead))
-        lead = false
+    lines = split(git(path, "worktree", "list", "--porcelain"), "\n")
+    # Record by record, each from its `worktree` line to the next, and read by
+    # `worktree_entry` rather than by a `flush!` closure over the fields, which
+    # would box every one of them. The first record is the main worktree.
+    starts = findall(l -> startswith(l, "worktree "), lines)
+    for (k, s) in enumerate(starts)
+        e = k == length(starts) ? length(lines) : starts[k + 1] - 1
+        w = worktree_entry(view(lines, s:e))
+        w === nothing ||
+            push!(out, (path = w.path, branch = w.branch, head = w.head, main = k == 1))
     end
-    for l in split(git(path, "worktree", "list", "--porcelain"), "\n")
-        if startswith(l, "worktree ")
-            flush!(); cur = String(l[10:end]); br = ""; hd = ""; prunable = false; bare = false
-        elseif startswith(l, "branch ")
+    out
+end
+
+"One record of `git worktree list --porcelain`, or `nothing` for a prunable or
+bare one, which is no checkout to show."
+function worktree_entry(ls::AbstractVector{<:AbstractString})
+    cur, br, hd = String(ls[1][10:end]), "", ""
+    for l in ls
+        if startswith(l, "branch ")
             br = replace(String(l[8:end]), "refs/heads/" => "")
         elseif startswith(l, "HEAD ")
             hd = String(l[6:end])
-        elseif startswith(l, "prunable")
-            prunable = true
-        elseif l == "bare"
-            bare = true
+        elseif startswith(l, "prunable") || l == "bare"
+            return nothing
         end
     end
-    flush!()
-    out
+    (path = cur, branch = isempty(br) ? returning_branch(cur) : br, head = hd)
 end
 
 """The branch a detached worktree is on its way back to, or `""`.
@@ -964,7 +969,7 @@ asked about any particular row may want the cheap version first.
 function survey(; withdirty::Bool = true)
     ws, bs = Worktree[], Branch[]
     for (name, d) in sort(collect(load_repos()); by = first)
-        p = userpath(get(d, "worktree", ""))
+        p = userpath(jstr(d, :worktree, ""))
         isdir(p) || continue
         try
             wts = worktrees(p)

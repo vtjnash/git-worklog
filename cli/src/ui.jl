@@ -235,10 +235,11 @@ end
 
 bundle_key(url::AbstractString) = string("bundle:", url)
 
-"The cached bundle for `url`, or `nothing`."
+"The cached bundle for `url`, or `nothing` - for an entry that is not an object, too."
 function bundle_of(url::AbstractString)
     hit = cache_get(bundle_key(url), CACHE_KEEP[])
-    hit === nothing ? nothing : hit[1]
+    v = hit === nothing ? nothing : hit[1]
+    v isa AbstractDict ? v : nothing
 end
 
 """The row to show for `url`: the cached bundle when it is newer than `r` -

@@ -841,7 +841,7 @@ the two is later.
 `state` is updated in place as well, so the rows derived after this carry what
 was moved in the same run. Answers with the refs it handed over.
 """
-function adopt_pull_requests!(items, state, login::AbstractString)
+function adopt_pull_requests!(items, state::Dict{String,Any}, login::AbstractString)
     byb = Dict{Tuple{String,String},String}()
     for (u, st) in state
         (islocal(u) && truthy(get(st, "adopted", nothing))) || continue
@@ -1135,7 +1135,7 @@ end
 """A row kept from the last run without asking GitHub again, as this run's
 row: a copy, so that the derivation can compare it to itself and find nothing
 moved. `fetched_at` stays what it was, which is the whole point."""
-kept_row(old) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
+kept_row(old::AbstractDict) = OrderedDict{String,Any}(String(k) => v for (k, v) in pairs(old))
 
 """What a thread the notifications source saw contributes to the corpus row
 built for it: the reason. Off the inbox row, which

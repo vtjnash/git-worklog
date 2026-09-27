@@ -348,7 +348,8 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                    st.sel == 0 ? "\u21b5 import \u00b7 " : "\u21b5 read \u00b7 ",
                    "n/N node \u00b7 ",
                    "j/k line \u00b7 space/b page")
-    nb = st.batch === nothing ? "" : string("(", st.batch.n, ")")
+    b = st.batch
+    nb = b === nothing ? "" : string("(", b.n, ")")
     # `I import` is not in here, and is the only key that is not: its control is
     # the row at the top of the list, permanently on screen and saying what it
     # does. A second copy of it costs the row that the keys which have no such

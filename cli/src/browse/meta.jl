@@ -271,18 +271,19 @@ function collect_meta!(st::BState)
             # own: a draft being carried on another item must not be dropped for
             # one read off this one. The count comes from this session where
             # there is one, since a review read back does not carry it.
-            if st.batch === nothing || st.batch.url == st.metakey
+            inhand = st.batch
+            if inhand === nothing || inhand.url == st.metakey
                 i = findfirst(x -> x.url == st.metakey, st.all)
-                i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref,
-                                                    sm.pending,
-                                                    st.batch === nothing ? 0 : st.batch.n))
+                i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref, sm.pending,
+                                                    inhand === nothing ? 0 : inhand.n))
             end
         elseif haskey(st.drafts, st.metakey)
             # Gone: sent or discarded somewhere else. The row is left where it
             # is until the list is next rebuilt - this arrives while you are
             # reading, and nothing you are reading should move underneath you.
             undraft!(st.metakey); st.drafts = load_drafts()
-            st.batch === nothing || st.batch.url != st.metakey || (st.batch = nothing)
+            inhand = st.batch
+            inhand === nothing || inhand.url != st.metakey || (st.batch = nothing)
         end
     end
     st.metapending = nothing

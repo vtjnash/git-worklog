@@ -479,13 +479,15 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         if hit === nothing
             body, cs, cms, sts = fetch_thread!(it.url)
         else
-            body, cs = hit[1].body, hit[1].comments
+            # Read by kind, so a damaged entry is an empty thread rather than
+            # a `MethodError` in whichever reader meets it first.
+            v = hit[1]
+            body, cs = jobj(v, :body), jlist(v, :comments)
             # Absent on an entry written before the pushes, and then the state
             # events, were drawn in here. A thread kept for a week is worth
             # showing without them rather than dropped for want of a field
             # that is new.
-            cms = something(jget(hit[1], :commits), ())
-            sts = something(jget(hit[1], :events), ())
+            cms, sts = jlist(v, :commits), jlist(v, :events)
             stale = hit[2] > CACHE_FRESH[]
             asof = time() - hit[2]
         end
@@ -829,10 +831,12 @@ answers to either.
 function hunk_marks(n::Node)
     ms = get(n.meta, "cmarks", nothing)
     out = Dict{Int,Tuple{Int,Int}}()
-    (ms === nothing || !haskey(n.meta, "start")) && return out
-    up = get(n.meta, "up", 0)
-    newno = n.meta["start"] - up
-    oldno = get(n.meta, "ostart", n.meta["start"]) - up
+    # As `diff_nodes` writes it; the `isa` is the type from here on.
+    (ms isa Vector{Tuple{Int,Bool,Bool}} && haskey(n.meta, "start")) || return out
+    up = jint(n.meta, :up, 0)
+    start = jint(n.meta, :start, 0)
+    newno = start - up
+    oldno = jint(n.meta, :ostart, start) - up
     for (k, l) in enumerate(split(n.raw, "\n"))
         del, add = startswith(l, "-"), startswith(l, "+")
         for (line, right, done) in ms
@@ -938,9 +942,9 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         line === nothing && return nothing        # outdated: nothing to point at
         right = jstr(c, :side, "RIGHT") != "LEFT"
         for (i, n) in enumerate(hunks)
-            get(n.meta, "file", "") == path || continue
-            st_ = right ? n.meta["start"] : n.meta["ostart"]
-            ct = right ? n.meta["count"] : n.meta["ocount"]
+            jstr(n.meta, :file, "") == path || continue
+            st_ = jint(n.meta, right ? :start : :ostart, 0)
+            ct = jint(n.meta, right ? :count : :ocount, 0)
             st_ <= line <= st_ + max(ct, 1) - 1 && return i
         end
         nothing

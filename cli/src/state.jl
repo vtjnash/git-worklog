@@ -81,7 +81,7 @@ load_lines() = isfile(localfile()) ? String.(splitlines(read(localfile(), String
 
 """Line range of the `[\"url\"]` table, as `(header, first_line_after)`, or
 `nothing`. The body is `lines[header+1:after-1]`."""
-function block_span(lines, url)
+function block_span(lines::AbstractVector{<:AbstractString}, url)
     header = "[\"$url\"]"
     i = findfirst(l -> strip(l) == header, lines)
     i === nothing && return nothing

@@ -31,9 +31,10 @@ function hunk_numbers_at(st::BState, i::Int, w::Int, row::Int = st.nrow)
     idx == 0 && return nothing
     lines = split(n.raw, "\n")
     idx > length(lines) && return nothing
-    up = get(n.meta, "up", 0)
-    newno = n.meta["start"] - up
-    oldno = get(n.meta, "ostart", n.meta["start"]) - up
+    up = jint(n.meta, :up, 0)
+    start = jint(n.meta, :start, 0)
+    newno = start - up
+    oldno = jint(n.meta, :ostart, start) - up
     for (k, l) in enumerate(lines)
         del, add = startswith(l, "-"), startswith(l, "+")
         k == idx && return (old = oldno, new = newno, del = del)
@@ -280,7 +281,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
         r = submit(b)
         st.status = !isempty(r) ? r :
                     kind === :line ? string("added to the draft review (",
-                                            st.batch === nothing ? 1 : st.batch.n, ")") :
+                                            (bh = st.batch) === nothing ? 1 : bh.n, ")") :
                     "posted"
         # A draft is not on the thread yet, so there is nothing to re-read for
         # it - and re-reading would cost the fetch and show the same page.
@@ -296,12 +297,11 @@ of the batch rather than beside it so that nothing can hold one without the
 other - the pair is what makes "leave it" mean *not now* instead of *never*.
 """
 mkbatch(url, ref, review, n; asked::Bool = false) =
-    (url = String(url), ref = String(ref), review = String(review),
-     n = Int(n), asked = asked)
+    Batch((String(url), String(ref), String(review), Int(n), asked))
 
 "The draft review on this item, or `nothing` - a batch belongs to one item."
 batch_of(st::BState, it::Item) =
-    (st.batch !== nothing && st.batch.url == it.url) ? st.batch : nothing
+    ((b = st.batch) !== nothing && b.url == it.url) ? b : nothing
 
 """GitHub's suggestion block, filled with the lines it would replace.
 
@@ -1245,19 +1245,19 @@ the resolved-thread fold are stepped over - and only within the file, since the
 next file's numbering says nothing about this one.
 """
 function hunk_fence(nodes::Vector{Node}, i::Int)
-    file = nodes[i].meta["file"]
+    file = jstr(nodes[i].meta, :file, "")
     above, below = 0, typemax(Int)
     for j in (i - 1):-1:1
-        n = nodes[j]
-        (n.kind === :diff && haskey(n.meta, "file")) || continue
-        n.meta["file"] == file &&
-            (above = n.meta["start"] + n.meta["count"] - 1 + get(n.meta, "down", 0))
+        m = nodes[j].meta
+        (nodes[j].kind === :diff && haskey(m, "file")) || continue
+        jstr(m, :file, "") == file &&
+            (above = jint(m, :start, 0) + jint(m, :count, 0) - 1 + jint(m, :down, 0))
         break
     end
     for j in (i + 1):length(nodes)
-        n = nodes[j]
-        (n.kind === :diff && haskey(n.meta, "file")) || continue
-        n.meta["file"] == file && (below = n.meta["start"] - get(n.meta, "up", 0))
+        m = nodes[j].meta
+        (nodes[j].kind === :diff && haskey(m, "file")) || continue
+        jstr(m, :file, "") == file && (below = jint(m, :start, 0) - jint(m, :up, 0))
         break
     end
     (above, below)
@@ -1290,27 +1290,31 @@ function expand_hunk!(nodes::Vector{Node}, i::Int, it::Item, dir::Int, n::Int = 
     # carries `refs/pull/N/head`.
     ensure_commit!(repo, sha, it.number; remote = remote_for(repo, it.repo)) ||
         return "commit $(first(sha, 8)) is not in $repo and could not be fetched"
-    lines = file_at(repo, sha, node.meta["file"])
-    lines === nothing && return "$(node.meta["file"]) is absent at $(first(sha, 8))"
+    file = jstr(node.meta, :file, "")
+    lines = file_at(repo, sha, file)
+    lines === nothing && return "$file is absent at $(first(sha, 8))"
 
-    start, count = node.meta["start"], node.meta["count"]
-    up = node.meta["up"] + (dir < 0 ? n : 0)
-    down = node.meta["down"] + (dir > 0 ? n : 0)
+    # Typed as they are read: the meta is a `Dict{String,Any}`, and every sum
+    # below would otherwise be a dynamic call.
+    start, count = jint(node.meta, :start, 0), jint(node.meta, :count, 0)
+    want_up = jint(node.meta, :up, 0) + (dir < 0 ? n : 0)
+    want_down = jint(node.meta, :down, 0) + (dir > 0 ? n : 0)
     above, below = hunk_fence(nodes, i)
-    lo = max(1, above + 1, start - up)
-    hi = min(length(lines), below - 1, start + count - 1 + down)
-    node.meta["up"] = start - lo
-    node.meta["down"] = hi - (start + count - 1)
+    lo = max(1, above + 1, start - want_up)
+    hi = min(length(lines), below - 1, start + count - 1 + want_down)
+    up, down = start - lo, hi - (start + count - 1)     # what the fence left
+    node.meta["up"] = up
+    node.meta["down"] = down
 
     # Through `inert` like the hunk itself was: the file is the same bytes the
     # diff came from, read off a checkout instead of gh.
     pre = [string(" ", first(inert(lines[i]))) for i in lo:(start - 1)]
     post = [string(" ", first(inert(lines[i]))) for i in (start + count):hi]
-    node.raw = join(vcat(pre, split(node.meta["body"], "\n"), post), "\n")
+    node.raw = join(vcat(pre, split(jstr(node.meta, :body, ""), "\n"), post), "\n")
     node.cw = -1                                    # force a re-render
-    node.header = string(node.meta["file"], "  @@ ", start, ",", count, " @@",
-                         node.meta["up"] > 0 ? string("  ↑", node.meta["up"]) : "",
-                         node.meta["down"] > 0 ? string("  ↓", node.meta["down"]) : "",
+    node.header = string(file, "  @@ ", start, ",", count, " @@",
+                         up > 0 ? string("  ↑", up) : "",
+                         down > 0 ? string("  ↓", down) : "",
                          # What `attach_comments` put there, since this rebuilds
                          # the header from scratch and the tally is not derivable
                          # from the file and the range.

@@ -775,7 +775,7 @@ function nodelines(n::Node, w::Int)
     #
     # The references in it are links, row by row, once the rows are final:
     # prose and plain text, never a diff, whose lines are code.
-    repo = n.kind === :diff ? "" : String(get(n.meta, "repo", ""))
+    repo = n.kind === :diff ? "" : jstr(n.meta, :repo, "")
     out, srcs = String[], Tuple{Int,String}[]
     for (idx, l) in enumerate(lines)
         (first_of, src) = srcline[idx]
@@ -895,12 +895,12 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
         # about. Continuations are indented under the text, so the fold marker
         # still reads as belonging to one row.
         hls = awidth(full) <= iw ? [full] : awrap(full, iw - 2)
-        hsrc = get(n.meta, "src", astrip(n.header))
-        u = get(n.meta, "url", "")
+        hsrc = jstr(n.meta, :src, astrip(n.header))
+        u = jstr(n.meta, :url, "")
         # Room kept for the mark, and taken out of the rule rather than out of
         # the header: the words are the row.
         markw = marks ? awidth(COPYMARK) + 1 : 0
-        ago = at === nothing ? "" : ago_str(get(n.meta, "at", ""), at)
+        ago = at === nothing ? "" : ago_str(jstr(n.meta, :at, ""), at)
         for (k, hl) in enumerate(hls)
             txt = k == 1 ? hl : string("  ", hl)
             core = string(THEME.bold, isempty(u) ? txt : osc8(u, txt), THEME.reset)
