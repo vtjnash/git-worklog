@@ -463,6 +463,10 @@ function enter_session(target::AbstractString, branch::AbstractString,
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
     push_place!(ctrl, v)
+    # Its child has already failed - at once, a command not found, or since
+    # it was last looked at: the pane shows the screen it died on, and the
+    # footer's word for that is the report, not `started` or `back in`.
+    v.child.exited === nothing || return v.child.status
     said = if found === nothing
         string("started ", name)
     elseif taken

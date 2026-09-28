@@ -1013,6 +1013,21 @@ Each of the following returns success and the wrong answer:
   stops (the client's `wake`, which `mux_wait` answers `false` from then
   on), and a key that finds the client dead says `session ended` rather
   than going nowhere.
+- **A child that fails keeps its pane; one that exits cleanly does not.**
+  `mux_start` sets `remain-on-exit failed` (3.3+), so an agent whose command
+  was not found - `claudebox` exec'ing a Julia juliaup had since removed,
+  2026-09-28 - leaves `Pane is dead (status 127, …)` under what it said,
+  where it used to end its session before anything attached and `T` said
+  only `could not attach`. Set before the command runs: the session starts
+  on `cat` and `respawn-pane -k` puts the command in, since down the pipe
+  `new-session` and `set` are two round trips and an exec that fails is
+  over inside one. tmux writes its line on the bottom row and scrolls one
+  up to do it, and a resize to a box shorter than 24 rows pushes the top -
+  the child's only words, usually - into the history, so the sync reads a
+  dead pane's history too and drops the blank rows tmux left above its
+  line (`dead_screen`). The sync that finds it drops the client, as for a
+  child that has gone, and `iframe_close!` kills the session: once the
+  screen has been seen nothing is left running.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane

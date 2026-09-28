@@ -112,6 +112,11 @@ it has half.
 function pane_sync!(v::PaneView)
     h, w = displaysize(stdout)
     r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h)...)
+    # The child failed, and the server kept its screen to show why: said
+    # once, as the sync that found it is the only one to answer `true`, with
+    # what leaving does to it - the session goes with the view.
+    r && v.child.exited !== nothing &&
+        (v.child.status = string(v.child.name, " ", v.child.status, " · q clears it"))
     # The child has exited: a note's editor is read back, once.
     if v.child.client === nothing && v.note !== nothing
         n, v.note = v.note, nothing

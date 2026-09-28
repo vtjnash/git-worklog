@@ -500,6 +500,36 @@ end
     end
 end
 
+@testset "a session whose command failed shows why" begin
+    # `T` with an agent command that could not run said only "could not
+    # attach": the session had ended before anything looked at it. The server
+    # keeps a failed child's pane now, and it opens as it died.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the failed session test"
+    else
+        wt = mktempdir()
+        run(pipeline(`git -C $wt init -q -b topic`; stdout = devnull, stderr = devnull))
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        withenv("LINES" => "40", "COLUMNS" => "170") do
+            r = W.enter_session(wt, "topic", "", "", "", "failing", ctrl, :shell,
+                                (_, _) -> "echo boom; exit 3")
+            v = last(ctrl.stack)
+            @test v isa W.PaneView && v.child.exited == 3
+            @test occursin("status 3", r) && occursin("q clears it", r)
+            @test any(l -> occursin("boom", W.astrip(l)), v.child.frame)
+            name = v.child.name
+            @test W.mux_alive(name)
+            # Leaving it is the end of it: nothing is running to come back to.
+            @test W.handle!(v, Int('q'), ctrl) === :pop
+            pop!(ctrl.stack)
+            @test !W.mux_alive(name)
+        end
+        pop!(ctrl.stack)
+    end
+end
+
 @testset "a key whose subject is not on screen" begin
     # `f` opens the filter pane *and* moves the browser's focus to the list, and
     # the list is not drawn beside a child - the pane took those columns. So a

@@ -199,6 +199,8 @@ the thread beside it to the session's item. Keys that point into the thread
 Over a program that did not ask for the mouse - a shell, `less` - a drag
 selects as tmux's own copy mode does, wrapped lines joined, and letting go
 copies it to the clipboard; the wheel scrolls back.
+A program that fails - exits non-zero, or is not found - leaves the pane on
+the screen it died on, with its status; `q` clears it.
 Its shell sees the ssh agent and the `code` of whichever login most recently
 launched `wl`, however old the pane: `SSH_AUTH_SOCK`, `VSCODE_IPC_HOOK_CLI`
 and `code` on `PATH` are links under `$XDG_RUNTIME_DIR/wl/`, re-pointed at
