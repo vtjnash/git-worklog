@@ -561,6 +561,24 @@ end
     @test W.readraw(IOBuffer("\e[A")).bytes == UInt8['\e', '[', 'A']
     @test W.readraw(IOBuffer("\e[<0;40;12M")).bytes == collect(codeunits("\e[<0;40;12M"))
     @test W.readraw(IOBuffer("pasted text")).bytes == collect(codeunits("pasted text"))
+    # A report cut across two reads is read whole, whenever the rest arrives,
+    # and none of it reaches the child; what cannot become one goes on.
+    for (head, tail) in (("a\e]11;rgb:1e1e", "/1e1e/1e1e\e\\b"), ("a\e]11;#000000\e", "\\b"),
+                         ("a\e[?99", "7;1nb"))
+        io = Base.BufferStream()
+        write(io, head)
+        t = @async W.readraw(io)
+        sleep(0.1)
+        @test !istaskdone(t)
+        write(io, tail)
+        ev = fetch(t)
+        @test ev isa W.SchemeEvent && String(copy(ev.rest)) == "ab"
+    end
+    io = Base.BufferStream()
+    write(io, "\e]x")
+    @test W.readraw(io).bytes == collect(codeunits("\e]x"))
+    @test W.readraw(IOBuffer("\e")).bytes == UInt8['\e']
+    @test W.readraw(IOBuffer("\e[")).bytes == collect(codeunits("\e["))
 
     # Only a view that asks gets bytes; everything else still gets characters.
     @test W.wantsraw(W.PromptView("t", "", _ -> nothing)) === false

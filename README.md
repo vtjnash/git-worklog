@@ -335,7 +335,9 @@ the view. Hand-edited, both, and only ever read.
   `themes/`. Empty draws everything plain, with no escape sequences at all.
   Where the terminal says whether it is dark or light - VS Code's does, and
   tmux 3.6 passes it on - a name with `light` or `dark` in it is swapped for
-  its pair, and swapped back when the terminal's theme changes.
+  its pair, and swapped back when the terminal's theme changes. The
+  terminal's background colour is handed to the panes too, so nvim's
+  `'background'` matches the terminal (read as nvim starts).
 - `[lanes]` - the three searches for the open work, as `@me`, which GitHub
   reads as whoever holds the token. `sort:created-asc` on each is load-bearing
   (see DESIGN.md). A lane of the same key in your file replaces it; a new key

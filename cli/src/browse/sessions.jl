@@ -225,6 +225,12 @@ function code_kind(code::AbstractString)
     (scheme, occursin("remote-cli", p) ? "--openExternal" : "--open-url")
 end
 
+"""The terminal answered `OSC 11 ?` with `colour`: every pane of ours gets it,
+so that a child asking the same question - nvim, for `'background'` - hears
+the terminal's answer from tmux (`mux_bg!`)."""
+terminal_bg!(colour::AbstractString) =
+    mux_bin() === nothing || mux_bg!(SESSION_PREFIX, colour)
+
 """The editor to open a note in: `\$VISUAL`, then `\$EDITOR`, then `vi`.
 
 The same order `less` resolves for its own `v`, which is where the key comes
@@ -269,9 +275,9 @@ function edit_note(st::BState, it::Item, ctrl)
         # over from a previous `v` would be writing into a stale copy.
         mux_kill(name)
         fw = forwards!()
-        ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)); set = fw.env)
+        ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path));
+                            set = fw.env, pipe = SESSION_PREFIX)
         ok || return err
-        mux_pipe_open(SESSION_PREFIX)
         mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
         v = pane_view(name, string("note  ", it.ref), ctrl; note)
         if v === nothing
@@ -423,11 +429,12 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # them. What is handed over is for the new one.
     fw = forwards!()
     if found === nothing
-        ok, err = mux_start(name, target, mkcmd(target, branch); set = fw.env)
+        # The first session of ours, perhaps: the pipe is up from before its
+        # child starts, which is what has the terminal's background on the
+        # pane when the child asks, until the last one ends (`watch_sessions!`).
+        ok, err = mux_start(name, target, mkcmd(target, branch);
+                            set = fw.env, pipe = SESSION_PREFIX)
         ok || return err
-        # The first session of ours, perhaps: the pipe is up from here until
-        # the last one ends (`watch_sessions!`).
-        mux_pipe_open(SESSION_PREFIX)
     else
         mux_rename(found.name, name)
     end

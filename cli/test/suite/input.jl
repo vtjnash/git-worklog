@@ -286,6 +286,38 @@ end
     @test W.scheme_in(Vector{UInt8}(codeunits("\e[?997;2n"))).rest == UInt8[]
     @test W.scheme_in(UInt8['x']) isa W.RawEvent
 
+    # And the background colour, the answer to `OSC 11 ?`, for the panes: by
+    # either terminator, from either path, and beside a scheme report in one
+    # read - which is how the two answers to one startup arrive.
+    @test occursin(W.BG_QUERY, W.scheme_reports(true))
+    for t in ("\a", "\e\\")
+        io = IOBuffer(string("\e]11;rgb:1e1e/1e1e/1e1e", t, "j"))
+        ev = W.readevent(io)
+        @test ev isa W.SchemeEvent && ev.dark === nothing && ev.bg == "rgb:1e1e/1e1e/1e1e"
+        @test W.readevent(io) == W.KeyEvent(Int('j'))     # and nothing of it left
+    end
+    ev = W.scheme_in(Vector{UInt8}(codeunits("a\e[?997;2n\e]11;rgb:ffff/ffff/ffff\e\\b")))
+    @test ev isa W.SchemeEvent && ev.dark === false && ev.bg == "rgb:ffff/ffff/ffff"
+    @test String(copy(ev.rest)) == "ab"
+    ev = W.scheme_in(Vector{UInt8}(codeunits("\e]11;#000000\a")))
+    @test ev.dark === nothing && ev.bg == "#000000" && isempty(ev.rest)
+    # Another OSC is consumed and nothing, and the key after it is a key.
+    io = IOBuffer("\e]10;rgb:0/0/0\aj")
+    @test W.readevent(io) == W.KeyEvent(-1) && W.readevent(io) == W.KeyEvent(Int('j'))
+    # An answer cut across two reads is still one answer, read to its end
+    # whenever the rest arrives, and none of it is keys.
+    r = Base.BufferStream()
+    write(r, "\e]11;rgb:1e1e")
+    t = @async W.readevent(r)
+    sleep(0.1)
+    @test !istaskdone(t)
+    write(r, "/1e1e/1e1e\e\\j")
+    ev = fetch(t)
+    @test ev isa W.SchemeEvent && ev.bg == "rgb:1e1e/1e1e/1e1e"
+    @test W.readevent(r) == W.KeyEvent(Int('j'))
+    # What could not be handed on to tmux intact is not a colour.
+    @test W.scheme_in(Vector{UInt8}(codeunits("\e]11;a b\a"))) isa W.RawEvent
+
     # Paired by name, and a theme that names neither is the terminal's own.
     th(n) = joinpath(W.ROOT, "themes", n)
     @test W.scheme_theme(th("github-light-256.toml"), true) == th("github-dark-256.toml")
@@ -333,11 +365,12 @@ end
         W.CACHE_DIR[], W.CACHE_FRESH[] = keepdir, keepfresh
     end
 
-    # Off while the terminal is handed over, and asked again after.
+    # Off while the terminal is handed over, and asked again after - the
+    # background too, which may have changed with it.
     out = mktemp() do path, io
         redirect_stdout(() -> W.suspend(() -> nothing, ctrl), io)
         flush(io)
         read(path, String)
     end
-    @test occursin("\e[?2031l", out) && endswith(out, "\e[?2031h\e[?996n")
+    @test occursin("\e[?2031l", out) && endswith(out, string("\e[?2031h\e[?996n", W.BG_QUERY))
 end

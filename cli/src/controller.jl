@@ -139,6 +139,14 @@ for dark and `; 2 n` for light, the answer to `CSI ? 996 n` and, once
 from the 6.1 betas, which is VS Code's terminal; tmux from 3.6; the spec is
 contour's, "color palette update notifications").
 
+Or the terminal says what its background is: `OSC 11 ; rgb:... ST`, the
+answer to `OSC 11 ?`, asked beside `CSI ? 996 n` and again when the scheme
+flips. That colour is `bg` - `dark` is `nothing` for one of those, and `bg` is
+`""` for a scheme report - and it is not ours but the panes': tmux answers a
+child's own `OSC 11 ?` only from a colour somebody gave it, and a control
+client has no terminal to give it one (`mux_bg!`). nvim sets `'background'`
+from that answer.
+
 An event of its own and not a key, because it is not something anybody typed
 and no view binds it: the loop switches the theme and every view is drawn
 again. `rest` is what a raw read held besides the report - a pane's input is
@@ -146,16 +154,32 @@ read in whatever bursts it arrives in, and the report is taken out of it here
 rather than typed into the child - and it goes on to the view as the
 `RawEvent` it would have been."""
 struct SchemeEvent
-    dark::Bool
+    dark::Union{Nothing,Bool}
+    bg::String
     rest::Vector{UInt8}
 end
+SchemeEvent(dark::Bool, rest::Vector{UInt8}) = SchemeEvent(dark, "", rest)
+
+"""Ask for the terminal's background colour (`SchemeEvent`'s `bg`)."""
+const BG_QUERY = "\e]11;?\e\\"
 
 """The sequences that ask for `SchemeEvent`s - the current answer now, and
-each change as it happens - and that stop them. Off while the terminal is
-handed to a child (`suspend`), whose input a report would land in."""
-scheme_reports(on::Bool) = on ? "\e[?2031h\e[?996n" : "\e[?2031l"
+each change as it happens, and the background colour now - and that stop
+them. Off while the terminal is handed to a child (`suspend`), whose input a
+report would land in."""
+scheme_reports(on::Bool) = on ? string("\e[?2031h\e[?996n", BG_QUERY) : "\e[?2031l"
 
 const SCHEME_REPORT = r"\e\[\?997;([12])n"
+
+"""The answer to `BG_QUERY`, ended by `BEL` or `ST` as the terminal likes.
+The colour is what tmux will be handed back, so it is held to what could be
+one: printable, and short enough for tmux's own buffer (128 bytes)."""
+const BG_REPORT = r"\e\]11;([\x21-\x7e]{1,100})(?:\a|\e\\)"
+
+"""The scheme the terminal last reported, or `nothing` before it has: what
+tells a report that is a change from the first answer, which is when the
+background is worth asking for again."""
+const TERM_DARK = Ref{Union{Nothing,Bool}}(nothing)
 
 """One mouse report.
 
@@ -204,22 +228,43 @@ function readraw(io::IO)
     buf = UInt8[b]
     n = bytesavailable(io)
     n > 0 && append!(buf, read(io, n))
+    # A read that ends inside one of our reports waits for the rest of it,
+    # as `readevent` does for any sequence: the report is ours whenever it
+    # arrives, and its head alone would have gone to the child. What stops
+    # being able to become one goes on as the bytes it is.
+    while occursin(REPORT_UNFINISHED, String(copy(buf)))
+        push!(buf, read(io, UInt8))
+        n = bytesavailable(io)
+        n > 0 && append!(buf, read(io, n))
+    end
     scheme_in(buf)
 end
 
-"""A raw read as the event it is: the colour-scheme report is ours and not the
-child's, and is taken out of the bytes with whatever else came with it left in
-order. A report cut across two reads goes through as bytes, which the child
-ignores; a terminal writes one in a single write, and does not interleave it
-with a key."""
+"""A read that ends partway into a report `scheme_in` takes: `ESC [ ?` and
+on towards `997;1n`, or `ESC ]` and on towards `11;<colour>` and its
+terminator. Not a bare `ESC` or `ESC [`, which are keys: Escape, and the head
+of every arrow, arrive in one write and are never held for a report."""
+const REPORT_UNFINISHED =
+    r"\e(?:\[\?(?:9(?:9(?:7(?:;[12]?)?)?)?)?|\](?:1(?:1(?:;[\x21-\x7e]{0,100}\e?)?)?)?)$"
+
+"""A raw read as the event it is: the colour-scheme report and the background
+colour are ours and not the child's, and are taken out of the bytes with
+whatever else came with them left in order. A report cut across two reads
+is whole by the time it is here (`readraw`)."""
 function scheme_in(buf::Vector{UInt8})
     s = String(copy(buf))
     m = nothing
     for x in eachmatch(SCHEME_REPORT, s)
         m = x
     end
-    m === nothing && return RawEvent(buf)
-    SchemeEvent(m[1] == "1", Vector{UInt8}(codeunits(replace(s, SCHEME_REPORT => ""))))
+    b = nothing
+    for x in eachmatch(BG_REPORT, s)
+        b = x
+    end
+    m === nothing && b === nothing && return RawEvent(buf)
+    rest = replace(s, SCHEME_REPORT => "", BG_REPORT => "")
+    SchemeEvent(m === nothing ? nothing : m[1] == "1", b === nothing ? "" : String(b[1]),
+                Vector{UInt8}(codeunits(rest)))
 end
 
 """
@@ -260,6 +305,10 @@ function readevent(io::IO)
     # A bare 27 is Escape; 27 with bytes behind it heads a sequence.
     bytesavailable(io) == 0 && return KeyEvent(27)
     a = read(io, UInt8)
+    # `ESC ]` heads an OSC, as `ESC [` heads a CSI, and is read to its end
+    # whenever it arrives: the answer to `BG_QUERY` comes when the terminal
+    # sends it, and the part of it not yet here would otherwise be keys.
+    a == UInt8(']') && return read_osc(io)
     if a != UInt8('[') && a != UInt8('O')
         # ESC-prefixed: the terminal is sending Meta/Alt as "escape, then the
         # key". Which of the three spellings below arrives depends on the
@@ -290,6 +339,25 @@ function readevent(io::IO)
         return KeyEvent(-1)
     end
     read_csi(io)
+end
+
+"""The body of an OSC, with its `ESC ]` already read, to `BEL` or `ST`: the
+background colour as a `SchemeEvent`, and any other OSC as nothing. A body
+past any answer's length, or an `ESC` that is not `ST`, ends it where it is."""
+function read_osc(io::IO)
+    body = UInt8[0x1b, UInt8(']')]
+    while length(body) < 160 && !eof(io)
+        c = read(io, UInt8)
+        push!(body, c)
+        c == 0x07 && break
+        if c == 0x1b
+            eof(io) && break
+            push!(body, read(io, UInt8))
+            break
+        end
+    end
+    m = match(BG_REPORT, String(body))
+    m === nothing || m.offset != 1 ? KeyEvent(-1) : SchemeEvent(nothing, String(m[1]), UInt8[])
 end
 
 "The body of a CSI sequence, with its `ESC [` already read."
@@ -930,7 +998,15 @@ function run!(ctrl::Controller, root::View)
             else
                 armed = false
                 if ev isa SchemeEvent
-                    scheme!(ctrl, ev.dark)
+                    if ev.dark !== nothing
+                        scheme!(ctrl, ev.dark)
+                        # A flip, not the first answer - which came with a
+                        # background of its own - is a new background too.
+                        was = TERM_DARK[]
+                        TERM_DARK[] = ev.dark
+                        was === nothing || was == ev.dark || print(BG_QUERY)
+                    end
+                    isempty(ev.bg) || terminal_bg!(ev.bg)
                     ev = isempty(ev.rest) ? nothing : RawEvent(ev.rest)
                 end
                 act = ev === nothing ? :ok : safe_dispatch!(v, ev, ctrl)

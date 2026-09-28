@@ -1114,12 +1114,30 @@ Each of the following returns success and the wrong answer:
   the answer, now and on each change, is `CSI ? 997 ; 1|2 n` - xterm.js
   from the 6.1 betas, which VS Code tracks, and tmux from 3.6. Nothing
   waits for it: a terminal that does not know the question says nothing,
-  and the configured theme stands. Not OSC 11, which every xterm.js
-  answers but as an `ESC ]` string `readevent` would read as Escape and
-  then keys. A pane's input is raw, so `readraw` takes the report out of
-  it before the child sees it. The theme is `config.toml`'s or its pair by
-  name, and the browser's nodes, which hold the old escapes, are rebuilt
-  from the cache in place.
+  and the configured theme stands. Not OSC 11 for dark or light: that is a
+  colour to judge, and 997 says it outright. A pane's input is raw, so
+  `readraw` takes the report out of it before the child sees it. The theme
+  is `config.toml`'s or its pair by name, and the browser's nodes, which
+  hold the old escapes, are rebuilt from the cache in place.
+- **The terminal's background is asked for the panes, and tmux answers
+  them.** `OSC 11 ?` goes with `CSI ? 996 n`, and again when a 997 report
+  flips; the answer is `SchemeEvent`'s `bg`, whenever it arrives, and
+  nothing waits for it. `ESC ]` heads an OSC as `ESC [` heads a CSI, read to
+  its terminator by `read_osc` however many reads that takes, so its tail is
+  never keys; Alt-] is spent on that, and nothing bound it. A pane's raw
+  read that ends partway into either report reads on until it is one or
+  cannot be (`readraw`), so neither reaches the child in halves. It goes to tmux as `refresh-client -r %pane:` (`mux_bg!`):
+  tmux answers a child's `OSC 11 ?` only from a colour it holds, and with
+  only a control client attached it holds none and says nothing
+  (`input_osc_colour_reply`, 3.5a and 3.6) - so nvim took `dark` whatever
+  the terminal was. Seeded, tmux answers every query itself, at once and in
+  the child's terminator, and `CSI ? 996 n` from the same colour. A new pane
+  is seeded while it is still `cat`, with the pipe opened for it there
+  (`mux_start`'s `pipe`), because nvim asks as it starts; a running one when
+  the colour changes or the pipe opens. The seed counts only while a control
+  client is on the server, which is while wl is. A running child is not told
+  of a change: tmux sends 997 into a pane on a change of its style, not of
+  the seed.
 - A one-row field must hold one row: `showerror` embeds a newline, and one
   element holding a newline scrolls the screen and shifts every mouse click.
   `oneline`.
@@ -1292,14 +1310,16 @@ Each of the following returns success and the wrong answer:
   it is not tried again.
 - **The lanes stay GraphQL**; REST search could answer the three queries but
   not the bundle. GraphQL is slow per row (150-200ms a node), not per request.
-- **The terminal's dark or light is not forwarded into a pane.** tmux takes
-  `CSI ? 997 ; 1|2 n` as a key only from a real terminal client, and
-  `send-keys` would type it into the child instead. A control client's one
-  channel is `refresh-client -r %pane:` with an OSC 11 *colour*, from which
-  3.6+ guesses dark or light - so it is an invented colour or a second
-  query standing in for what a real client says outright. Neither is what
-  tmux does for a terminal, so the child gets no report through us. A
-  real client attached (`^]a`) reports it itself.
+- **The terminal's dark or light is not forwarded into a pane; its
+  background colour is.** tmux takes `CSI ? 997 ; 1|2 n` as a key only from
+  a real terminal client, and `send-keys` would type it into the child
+  instead. A control client's one channel is `refresh-client -r %pane:` with
+  an OSC 11 colour, and that is used, with the colour the terminal itself
+  answered - not one invented from 997 - which is what tmux asks a terminal
+  client for too. Not relayed per query, spotting `OSC 11 ?` in `%output`
+  and answering with `send-keys`: only a pane with a client reading its
+  output would be answered, and one tmux could answer too (a real client
+  attached, a `window-style` bg) would be answered twice.
 - **`p` uses a checkout**; there is no endpoint.
 - **`d` uses the checkout too, when one is pinned, and GitHub without.** Both
   ends are known - the head and where the base branch was, `headRefOid`
