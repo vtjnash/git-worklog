@@ -1010,6 +1010,17 @@ Each of the following returns success and the wrong answer:
   was dead and the pane said `session ended` over an empty frame with no
   reason kept. `wake!` queues one `WakeEvent` at a time (`woken`); a wake
   is a level. And a dead client carries `why`, which the status now says.
+- **A host that stops reading is paused, not dropped.** A terminal that
+  stops taking bytes - an ssh session nobody is reading - blocks `wl`'s write
+  to it and the whole process with it, reader too, and tmux drops a control
+  client whose output is five minutes old: the pane said `session ended: the
+  server said exit: too far behind` over a session still running. An iframe
+  attaches with `pause-after` (`PAUSE_AFTER`, a minute), so tmux pauses the
+  pane instead; the reader notes the `%pause` and wakes, and the next sync
+  continues it (`mux_continue!`) and reads the screen, which is all the resync
+  there is, the screen being the grid. The reader cannot continue it itself: a
+  reply nobody asked for would answer the next ask. Under `pause-after` the
+  output is `%extended-output`, which the parser reads as `%output`.
 - **A session ends after its last `%output`, not with it.** `%exit` comes
   alone, and a pane that re-read the session only when output woke it never
   looked again: a shell's `exit` line lands close enough to the end that the
