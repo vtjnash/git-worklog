@@ -628,8 +628,11 @@ last line of the child that ran the refresh then.
   `failed` table - `when why`, written by `sync!` on a `FAILED:` and deleted
   by the next answer - held on `BState.failing` and taken again when
   `fetched.json` lands; and a theme that did not load as written
-  (`THEME_NOTES`), in the same place behind both. `standing_note` is the
-  one reader of the three.
+  (`THEME_NOTES`), in the same place behind both; and behind those a tmux
+  server older than the tmux `wl` runs (`MUX_OLDER`, read when the command
+  pipe opens), which "may be missing features" and does not say which - the
+  list would be right until the next one. `standing_note` is the one reader
+  of the four.
 
   The `failed` table is how the browser's own operations get to say the one
   thing they have to: the launch poll in `ui()` runs before the first frame
@@ -939,7 +942,10 @@ addressed by a socket, so any binary sees the same ones and the user's own
 `tmux ls` lists these - and it would cost knowing what we are talking to:
 `capture-pane -e` keeps OSC 8 from 3.4 and drops the url in 3.1c. What it
 cannot pin is the *server*: where one is already running on the socket, its
-version renders `capture-pane` and evaluates the formats. `mux_cmd`, not a
+version renders `capture-pane`, evaluates the formats and decides what every
+command does - Ubuntu's 3.4, started before `wl`, took `refresh-client -r` as
+nothing, and nvim in a pane heard black on a white terminal (2026-09-28). So
+the footer says when the server is the older (`muxnote`). `mux_cmd`, not a
 path: the JLL's `Cmd` carries the library and terminfo paths, and the bare
 path fails with `libutf8proc.so.3: cannot open shared object file`.
 

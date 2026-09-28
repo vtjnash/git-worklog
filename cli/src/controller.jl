@@ -788,12 +788,21 @@ errnote() = isfile(errlog()) ?
 
 """What stands in the footer until it is dealt with: a logged error, else a
 source the poll cannot get an answer from, else a theme that did not load as
-written. All three are things the reader has to act on and none happens
-again by itself, which is what makes them the footer's rather than the
-status row's."""
+written, else a tmux server older than ours. All four are things the reader
+has to act on and none happens again by itself, which is what makes them the
+footer's rather than the status row's."""
 standing_note(at::DateTime = utcnow(), failing = ()) = (e = errnote(); !isempty(e) ? e :
                    (f = failnote(failing, at); !isempty(f) ? f :
-                    isempty(THEME_NOTES) ? "" : string("theme: ", first(THEME_NOTES))))
+                    !isempty(THEME_NOTES) ? string("theme: ", first(THEME_NOTES)) : muxnote()))
+
+"""The tmux server this is talking to, when it is older than the tmux `wl`
+runs (`MUX_OLDER`): the panes are the server's, and it may be missing features
+they count on. Which ones is not said - the list would only be right until the
+next one - and restarting the server on a newer tmux is the reader's call,
+since it ends every session on it, theirs too."""
+muxnote() = (v = MUX_OLDER[]; isempty(v[1]) ? "" :
+             string("tmux: the server is ", v[1], ", older than wl's ", v[2],
+                    ", and may be missing features"))
 
 """The first source whose last poll failed, and how many more there are.
 
