@@ -162,6 +162,8 @@ is what is passed in.
 """
 function pane_column(v::PaneView, w::Int, h::Int)
     note = something(iframe_note(v.child),
+        v.child.client === nothing ?
+            string(v.child.name, " · q to leave · K to kill it") :
         v.focus === :read ?
             string(v.child.name, " · reading · tab back to it",
                    " · esc/t/T the list · every other key is the browser's") :
@@ -403,17 +405,38 @@ function forward!(v::PaneView, k::Int, ctrl)
     :ok
 end
 
-"""What the prefix is for, spelled out. `^]?` asks for it.
-
-The iframe's own keys, with this program's two either side of them: what `^]tab`
-does here, and that a key this layer has no use for is the browser's.
-"""
+"""What the prefix is for, spelled out. `^]?` asks for it."""
 pane_keys(v::PaneView) =
     string(readable(v) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
-           iframe_keys(),
+           "^]q leave · ^]K kill · ^]a full screen · ^]r reread · ^]] literal",
            v.beside === nothing ? "" : " · anything else is the browser's")
 
-"""The keys after the prefix that are this program's rather than the iframe's.
+"""What the pane does with itself, as against its child: leave it running (`q`
+or escape), kill it (`K`), full screen (`a`), read it again (`r`). The keys
+after the prefix while the child is there, and the keys themselves once it has
+gone - one list, so the two cannot drift. `nothing` for any other key.
+"""
+function pane_key!(v::PaneView, k::Int, ctrl)
+    if k == Int('q') || k == 27
+        iframe_close!(v.child)
+        :pop
+    elseif k == Int('K')
+        iframe_close!(v.child)
+        mux_kill(v.child.name)
+        :pop
+    elseif k == Int('a')
+        full_screen!(v, ctrl)
+        :ok
+    elseif k == Int('r')
+        pane_sync!(v)
+        :ok
+    else
+        nothing
+    end
+end
+
+"""The key after the prefix: all of them this program's, `TermIFrame` having
+only found it.
 
 `^]tab` is the one this whole file exists for, and `^][` is the same thing under
 the hand: `]` and `[` are one key apart, so the roll is right pinky twice with
@@ -421,13 +444,15 @@ the left one never leaving control, where `^]tab` sends it back up to tab. It is
 the most-pressed key here and it was the slowest to type.
 
 Ctrl has to come *off* for the `[`. Held down it is `^]` then `^[`, and `^[` is
-escape, which the iframe reads as leaving the pane - a different thing, and one
+escape, which is leaving the pane - a different thing, and one
 that is no worse to have arrived at by accident: the session keeps running.
 
-`^]?` is the help, which has to be written here because the iframe cannot know
-what is drawn beside it.
-`:unhandled` gives the key back - to `TermIFrame` for its own (`IFRAME_KEYS`,
-which must not be shadowed), and to the browser for everything else.
+`q`, escape and tab leave the child running (tab where there is nothing beside
+it to read - a key that means "out of here" everywhere else should not be one
+the prefix has no answer for), `K` kills it, `a` is full screen, `r` rereads
+(`pane_key!`), `^]` or `]` sends the prefix itself through, and `^]?` is the
+help. Everything else goes to the browser, and without one beside it says the
+help.
 
 That last part is the rule, not a list: `^]` means "this one is not the
 child's", and the sensible place for a key this layer has no use for is the
@@ -448,11 +473,18 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         v.beside.focus = :detail
         v.child.status = ""
         :ok
-    elseif b == UInt8('?')
+    elseif b == UInt8('\t')
+        iframe_close!(v.child)
+        :pop
+    elseif b == IFRAME_PREFIX || b == UInt8(']')
+        h, w = displaysize(stdout)
+        iframe_send!(v.child, [IFRAME_PREFIX], iframe_box(pane_cols(v, w), h))
+        :ok
+    elseif (r = pane_key!(v, Int(b), ctrl)) !== nothing
+        r
+    elseif b == UInt8('?') || v.beside === nothing
         v.child.status = pane_keys(v)
         :ok
-    elseif v.beside === nothing || b in IFRAME_KEYS
-        :unhandled
     else
         # As a key code, which for one byte it is: control bytes and escape
         # arrive as the numbers the browser already binds. A multi-byte
@@ -509,17 +541,28 @@ end
 """Bytes as typed, straight through to the child.
 
 The geometry is this program's to supply - where the pane starts depends on
-whether a thread is drawn beside it - and everything after that is the iframe's:
-the mouse report moved into the child's box, the prefix held back across bursts,
-and the rest sent on unread.
+whether a thread is drawn beside it - and the iframe does the rest: the mouse
+report moved into the child's box, the prefix found across bursts, and the rest
+sent on unread. The key after a prefix comes back here (`pane_command!`), and
+what was read after it goes on to the child only while the child still has the
+keyboard: a key that moved it - to the thread, to another pane - took the
+bytes' destination with it.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     h, w = displaysize(stdout)
-    r = iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h);
-                      oncommand = b -> pane_command!(v, b, ctrl))
-    r === :attach || return r
-    full_screen!(v, ctrl)
-    :ok
+    r = iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h))
+    top() = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    while r isa UInt8
+        was = top()
+        a = pane_command!(v, r, ctrl)
+        a === :ok || return a
+        if v.focus !== :child || top() !== was
+            empty!(v.child.held)
+            return :ok
+        end
+        r = iframe_input!(v.child, UInt8[], pane_origin(v, w), iframe_box(pane_cols(v, w), h))
+    end
+    r === :gone ? :pop : :ok
 end
 
 """`^]a`, and `a` once the child has gone: the session full screen, the
@@ -589,22 +632,10 @@ function handle!(v::PaneView, k::Int, ctrl)
         return :ok
     end
     # The child has gone and its bytes have nowhere to go, so this view answers
-    # for itself. `q` and escape leave the session running - there is nothing
-    # left running here - and `K` is the one that ends it, uppercase because it
+    # for itself, with the keys that come after the prefix while it is there:
+    # `q` and escape leave, `K` is the one that ends it, uppercase because it
     # is the one that destroys something.
-    if k == Int('q') || k == 27
-        iframe_close!(v.child)
-        return :pop
-    elseif k == Int('K')
-        iframe_close!(v.child)
-        mux_kill(v.child.name)
-        return :pop
-    elseif k == Int('a')
-        full_screen!(v, ctrl)
-    elseif k == Int('r')
-        pane_sync!(v)
-    end
-    :ok
+    something(pane_key!(v, k, ctrl), :ok)
 end
 
 # --- where the work is ------------------------------------------------------

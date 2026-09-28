@@ -1081,7 +1081,13 @@ Each of the following returns success and the wrong answer:
   turns into `wake!`), the clipboard kept on the client and printed by the
   sync on the loop's task rather than by the reader mid-frame, the client
   gone after a sync (`pane_sync!` takes a note back from `PaneView.note`,
-  once), and `:attach` answered by `iframe_input!` for the pane to carry out.
+  once). And `oncommand` went the same way, which took the keys with it:
+  TermIFrame finds the prefix - it is in the raw stream beside pastes and
+  mouse reports, and a read can split it from its key - and `iframe_input!`
+  answers the key after it and keeps what was read after that. Every key
+  after `^]` is `wl`'s (`pane_command!`, `pane_key!`, the same list the pane
+  answers once its child has gone), and the rest of the read goes to the
+  child only if the key left it with the keyboard.
 - **A prefix is an argument, not a setting.** It is the first part of a
   name (`mux_name`) and what a listing filters by (`mux_sessions`,
   `mux_list`, the pipe's bell subscription), and `wl` passes its own,

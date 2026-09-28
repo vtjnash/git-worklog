@@ -189,7 +189,7 @@ end
         # Which is what a host acts on: its sync finds the client gone.
         W.iframe_sync!(f, box...)
         @test f.client === nothing && occursin("session ended", f.status)
-        @test W.iframe_input!(f, UInt8['x'], (1, 1), box) === :pop
+        @test W.iframe_input!(f, UInt8['x'], (1, 1), box) === :gone
 
         # And where the wake is lost, the first key says it and the next leaves.
         W.mux_start(n, pwd(), "sh -c 'sleep 1'")
@@ -200,7 +200,7 @@ end
         end
         @test W.iframe_input!(g, UInt8['x'], (1, 1), box) === :ok
         @test g.client === nothing && occursin("session ended", g.status)
-        @test W.iframe_input!(g, UInt8['x'], (1, 1), box) === :pop
+        @test W.iframe_input!(g, UInt8['x'], (1, 1), box) === :gone
         W.mux_kill(n)
     end
 end
