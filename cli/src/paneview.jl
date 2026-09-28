@@ -405,6 +405,106 @@ function forward!(v::PaneView, k::Int, ctrl)
     :ok
 end
 
+"""The keys after the prefix whose subject is the pane's own session.
+
+From inside a pane the thing being worked on is the session, and the thread
+beside it need not be on the same item: it is somewhere to read, and it goes
+wherever it was last pointed. So a key about *an item* - the four readings
+`d` `h` `p` `c`, and `e` `x` `s` `v` `;` `A` `M` `L` `R`, which mark, file,
+note or change one - moves the thread to the item the session is tagged with
+first ([`follow_pane!`](@ref)) and is answered there, on screen beside the
+pane. `t` and `T` are the pane's too, and go further: the subject is the
+session's worktree, not any item's (`pane_session!`).
+
+What stays the reader's is what points at a place in the thread - `o`, `y`,
+`l`, `C` (a line of the diff, a review thread), `[`, `j` and the rest of the
+cursor - and what is about no one item: `'`, `\``, `z`, `u`, `I`, `"`, `w`.
+Those mean whatever the thread on screen means, from either side. `^]tab` is
+the other way to the same keys, and there every one of them is the reader's,
+`t` and `T` leaving the pane as they do.
+"""
+const PANE_ITEM_KEYS = b"dhpcexsv;AMLR"
+
+"""The session this pane shows, as the server has it now, or `nothing`.
+
+Read live, one listing a key: the tags are re-written whenever the session is
+entered from anywhere, so a copy kept on the view would be the item it was
+opened on rather than the one it is on now.
+"""
+function pane_session(v::PaneView)
+    for s in session_list()
+        s.name == v.child.name && return s
+    end
+    nothing
+end
+
+"""Point the thread beside the pane at the item its session is tagged with,
+before a key about that item is handed over (`PANE_ITEM_KEYS`). `false`, with
+the reason in the pane's footer, when there is no such item to point at: a
+session opened on a worktree with no pull request, or an item this dashboard
+does not have. Nothing is forwarded then, since the thread's item is exactly
+the one the key was not about.
+
+The focus is the thread's own, put back: `select_item!` aims the keys at the
+list, which beside a pane is not drawn. And a draft review left behind asks,
+as walking off it anywhere does (`batch_prompt!`), with the key held back.
+"""
+function follow_pane!(v::PaneView, ctrl)
+    st = v.beside
+    s = pane_session(v)
+    if s === nothing || isempty(s.url)
+        v.child.status = "this session is on no item — ^][ reads beside it"
+        return false
+    end
+    cur = isempty(st.items) || st.sel == 0 ? "" : st.items[clamp(st.sel, 1, length(st.items))].url
+    cur == s.url && return true
+    i = findfirst(x -> x.url == s.url, st.all)
+    if i === nothing
+        v.child.status = string(s.item, " is not in this dashboard")
+        return false
+    end
+    focus = st.focus
+    r = select_item!(st, st.all[i])
+    st.focus = focus
+    isempty(r) || (v.child.status = r; return false)
+    # Walking off an item with a draft review on it asks, from here as from
+    # the list; and asked, the key waits for the answer rather than going on
+    # behind the question.
+    rearm_batch!(st, cur)
+    !batch_prompt!(st, ctrl, s.url)
+end
+
+"""`^]t` and `^]T`: the shell or the agent in the session's own worktree.
+
+Straight to the place, not through an item: the session is already in a
+checkout, which is the whole answer `item_worktree` would have looked for, so
+nothing is asked and nothing is checked out - and a session opened on a
+worktree with no item has somewhere to go too. Named and tagged as the session
+this was pressed in is, with its item, so the two sit on one row of `"`.
+"""
+function pane_session!(v::PaneView, kind::Symbol, ctrl)
+    s = pane_session(v)
+    if s === nothing || isempty(s.worktree)
+        v.child.status = "this session is in no worktree of ours"
+        return :ok
+    end
+    it = v.beside === nothing || isempty(s.url) ? nothing :
+         (i = findfirst(x -> x.url == s.url, v.beside.all); i === nothing ? nothing : v.beside.all[i])
+    num = it !== nothing ? string(it.number) :
+          (j = findlast('#', s.item); j === nothing ? "" : s.item[nextind(s.item, j):end])
+    cmd = kind === :agent ? agent_cmd() : get(ENV, "SHELL", "/bin/sh")
+    title = string(kind === :agent ? "agent  " : "",
+                   isempty(s.item) ? basename(rstrip(s.worktree, '/')) : s.item,
+                   isempty(s.branch) ? "" : string("  ", s.branch))
+    was = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    r = enter_session(s.worktree, s.branch, s.item, num, s.url, title, ctrl, kind, (_, _) -> cmd)
+    top = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    # Starting work on something is what the clock records, as from the list.
+    top !== was && !isempty(s.url) && touch!(s.url)
+    top isa PaneView && r isa String && (top.child.status = r)
+    :ok
+end
+
 """What the prefix is for, spelled out. `^]?` asks for it."""
 pane_keys(v::PaneView) =
     string(readable(v) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
@@ -451,19 +551,24 @@ that is no worse to have arrived at by accident: the session keeps running.
 it to read - a key that means "out of here" everywhere else should not be one
 the prefix has no answer for), `K` kills it, `a` is full screen, `r` rereads
 (`pane_key!`), `^]` or `]` sends the prefix itself through, and `^]?` is the
-help. Everything else goes to the browser, and without one beside it says the
-help - except `^]m`, which is the browser's mouse toggle and is answered here
-when there is no browser to answer it.
+help. `t` and `T` open the shell or the agent in the session's own worktree
+(`pane_session!`), with or without a browser beside it. Everything else goes
+to the browser, and without one beside it says the help - except `^]m`, which
+is the browser's mouse toggle and is answered here when there is no browser to
+answer it.
 
 That last part is the rule, not a list: `^]` means "this one is not the
 child's", and the sensible place for a key this layer has no use for is the
 other side of the screen - which is what makes `^]m` reach the mouse toggle,
-`^]o` the comments and `^]j` a line of the thread without leaving the child,
-none of them named here and none of them forgettable here either.
+`^]o` open the line under the thread's cursor and `^]j` move that cursor
+without leaving the child, none of them named here and none of them
+forgettable here either. What the list does decide is the subject: a key about
+an item is about the session's (`PANE_ITEM_KEYS`), and the thread is moved to
+it first, since from inside a pane the pane is what is being worked on.
 
-`^]t` and `^]T` go with them, which is how a shell reaches the agent on the same
-item and back; `enter_session` refuses to stack a second view on the session
-already showing, so the same-kind press says so rather than doubling the pane.
+A shell reaches the agent in the same checkout and back that way;
+`enter_session` refuses to stack a second view on the session already
+showing, so the same-kind press says so rather than doubling the pane.
 """
 function pane_command!(v::PaneView, b::UInt8, ctrl)
     if (b == UInt8('\t') || b == UInt8('[')) && readable(v)
@@ -494,9 +599,13 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         v.child.status = on ? "mouse on — ^]m gives it to the terminal" :
                               "mouse off — the terminal's own selection is back"
         :ok
+    elseif b == UInt8('t') || b == UInt8('T')
+        pane_session!(v, b == UInt8('T') ? :agent : :shell, ctrl)
     elseif b == UInt8('?') || v.beside === nothing
         v.child.status = pane_keys(v)
         :ok
+    elseif b in PANE_ITEM_KEYS
+        follow_pane!(v, ctrl) ? forward!(v, Int(b), ctrl) : :ok
     else
         # As a key code, which for one byte it is: control bytes and escape
         # arrive as the numbers the browser already binds. A multi-byte

@@ -478,7 +478,10 @@ leaves `quiet_bold` empty and drops the weight); not the cursor row, which
 stays lit on either side, since it says which item the reading pane is
 showing. A hosted pane's reading side
 keeps three (`tab` back, `esc`/`t`/`T` out); through `^]` it runs the other
-way. `tab` moves the keyboard between two things on screen everywhere, which
+way, and there the subject is the pane: a key about an item moves the thread
+to the session's item before it is answered (`PANE_ITEM_KEYS`), and `t`/`T`
+go by the session's worktree, while a key that points into the thread stays
+the thread's. `tab` moves the keyboard between two things on screen everywhere, which
 is why the merge composer cycles with `^x`.
 
 **A capital reaches GitHub; lowercase does not.** The line is *remote*, not

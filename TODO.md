@@ -47,19 +47,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
         comments; not the comments themselves - `o` is for those.
       - The query through `gh_graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
-- [ ] **`^]` keys act on the pane's own session, not the reader beside it.**
-      A key after the prefix that the pane does not answer goes to the
-      browser (`forward!`), and so acts on whatever item the thread on the
-      left is showing - which need not be the one the session was opened on.
-      From inside a pane the subject should be the pane: `^]t` the terminal
-      for the same worktree, `^]T` its agent, `^]h` the history of the item it
-      is tagged with, and so on, read off the session's tags (`worktree`,
-      `item`, `url`, `branch`; `mux_tag!` in `enter_session`). That is the
-      difference from `^]tab`, which moves the keys to the reader, where `t`
-      and `T` go on meaning the reader's item and its worktree. Which keys
-      follow the pane and which stay the reader's is the first thing to
-      decide - `^]m` is neither's, and `^]j` scrolling the thread is the
-      reader's by nature.
 - [ ] **Double-click a word, triple-click a line, in a pane.** To be
       reconsidered: a drag over a child that ignores the mouse is tmux's copy
       mode (`iframe_drag!`), but a click is nothing, as in tmux. tmux's own
@@ -84,6 +71,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - `^]q`, `^]K`, `^]a` and back, `^]r`, `^]]` into `cat -v`, `^]?`;
         `^]tab` with more typed in the same burst, which must not reach the
         child; `v` on an item, edit, quit the editor: the note is saved.
+      - With the thread beside a `T` pane moved to another item: `^]h` puts
+        it back on the agent's item, `^]t` opens the shell in the agent's
+        worktree without asking which copy, and `^]j` scrolls what is shown.
       - MANUAL.md 4 and 7 again, since their code moved: the clipboard is
         relayed by the sync now, not the reader, and a pane wakes through
         its own watch.

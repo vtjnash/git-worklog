@@ -350,6 +350,9 @@ end
             # a key this layer has no use for is the other side of the screen.
             v5 = W.pane_view(n, "demo", ctrl)
             push!(ctrl.stack, v5)
+            # On the item the thread is already reading: a key about an item is
+            # about the session's, which is the next testset.
+            W.mux_tag!(n; item = st.items[st.sel].ref, url = st.items[st.sel].url)
             was = st.mode
             st.mode = :diff
             @test W.onraw!(v5, [W.IFRAME_PREFIX, UInt8('h')], ctrl) === :ok
@@ -396,6 +399,104 @@ end
         end
         W.mux_kill(n)
         pop!(ctrl.stack)
+    end
+end
+
+@testset "^] keys are about the pane's own session" begin
+    # From inside a pane the subject is the pane: a key after the prefix that
+    # the pane does not answer went to the browser, and so acted on whatever
+    # item the thread beside it was showing - which need not be the one the
+    # session is working on.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the pane subject test"
+    else
+        keep = W.LOCAL[]
+        W.LOCAL[] = fresh_local()
+        wt = mktempdir()
+        run(pipeline(`git -C $wt init -q -b topic`; stdout = devnull, stderr = devnull))
+        a = W.Item(url = "https://github.com/o/r/pull/7", ref = "r#7", repo = "o/r",
+                   number = 7, title = "the one being read", state = "OPEN",
+                   act = "2026-09-01T00:00:00Z", moved_at = "2026-09-01T00:00:00Z")
+        b = W.Item(url = "https://github.com/o/r/pull/8", ref = "r#8", repo = "o/r",
+                   number = 8, title = "the one being worked on", state = "OPEN",
+                   act = "2026-09-02T00:00:00Z", moved_at = "2026-09-02T00:00:00Z")
+        st = W.BState([a, b], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = findfirst(x -> x.url == a.url, st.items)
+        st.focus = :detail
+        # Neither thread is anything to send `gh` after: the one the key will
+        # move the reader to is already "loaded", in the mode it will ask for.
+        st.loaded = string(b.url, ":comments"); st.metakey = b.url
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        n = "wl-test-subject-1"
+        W.mux_kill(n)
+        W.mux_start(n, wt, "sleep 120")
+        W.mux_tag!(n; worktree = wt, kind = :shell, item = b.ref, url = b.url, branch = "topic")
+        withenv("LINES" => "40", "COLUMNS" => "170") do
+            v = W.pane_view(n, "r#8", ctrl)
+            push!(ctrl.stack, v)
+            # `^]h` is the history of the session's item, and the thread moves to
+            # it to show it - the focus left where it was, on the thread.
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('h')], ctrl) === :ok
+            @test st.items[st.sel].url == b.url && st.mode === :comments
+            @test st.focus === :detail && v.focus === :child
+            # `^]e` marks it, not the item that was beside it.
+            st.sel = findfirst(x -> x.url == a.url, st.items)
+            st.loaded = string(b.url, ":", st.mode)
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('e')], ctrl) === :ok
+            @test W.done_at(b.url) !== nothing && W.done_at(a.url) === nothing
+            # Keys that point at a place in the thread stay the thread's, on
+            # whatever it shows: `^]j` does not move it back.
+            st.sel = findfirst(x -> x.url == a.url, st.items)
+            W.onraw!(v, [W.IFRAME_PREFIX, UInt8('j')], ctrl)
+            @test st.items[st.sel].url == a.url
+            # From the reading side every key is the reader's, which is what
+            # `^]tab` is for.
+            W.onraw!(v, [W.IFRAME_PREFIX, UInt8('\t')], ctrl)
+            @test v.focus === :read
+            W.handle!(v, Int('h'), ctrl)
+            @test st.items[st.sel].url == a.url
+            v.focus = :child
+
+            # `^]t` is the shell in the session's own worktree - this one - and
+            # `^]T` its agent, found there by worktree and not through an item.
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('t')], ctrl) === :ok
+            @test last(ctrl.stack) === v && occursin("already in", v.child.status)
+            ag = "wl-test-subject-agent"
+            W.mux_kill(ag)
+            W.mux_start(ag, wt, "sleep 120")
+            W.mux_tag!(ag; worktree = wt, kind = :agent, item = b.ref, url = b.url)
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('T')], ctrl) === :ok
+            top = last(ctrl.stack)
+            @test top isa W.PaneView && top !== v
+            s2 = W.pane_session(top)
+            @test s2 !== nothing && s2.kind == "agent" && s2.worktree == wt
+            @test occursin("back in", top.child.status)
+            # And back again, the same way.
+            @test W.onraw!(top, [W.IFRAME_PREFIX, UInt8('t')], ctrl) === :ok
+            @test W.pane_session(last(ctrl.stack)).kind == "shell"
+            for s in W.session_list()
+                s.worktree == wt && W.mux_kill(s.name)
+            end
+            while last(ctrl.stack) isa W.PaneView
+                W.iframe_close!(pop!(ctrl.stack).child)
+            end
+
+            # A session on no item has nothing for an item key to be about, and
+            # the thread is not moved to guess one.
+            W.mux_start(n, wt, "sleep 120")
+            W.mux_tag!(n; worktree = wt, kind = :shell)
+            v2 = W.pane_view(n, "t", ctrl)
+            push!(ctrl.stack, v2)
+            st.sel = findfirst(x -> x.url == a.url, st.items)
+            was = st.mode
+            @test W.onraw!(v2, [W.IFRAME_PREFIX, UInt8('d')], ctrl) === :ok
+            @test st.mode === was && occursin("no item", v2.child.status)
+            W.iframe_close!(pop!(ctrl.stack).child)
+        end
+        W.mux_kill(n)
+        W.LOCAL[] = keep
     end
 end
 
