@@ -171,10 +171,9 @@ function __init__()
         # A theme is decoration. Not being able to read one is not a reason for
         # the program to refuse to start, and `THEME` is already all empty.
     end
-    # The sessions this program owns are the ones named for it, and
-    # `WORKLOG_TMUX` is the variable its own documentation tells you to export.
-    # Both are TermIFrame's defaults to be told, not its business to guess.
-    MUX_PREFIX[] = "wl"
+    # `WORKLOG_TMUX` is the variable this program's own documentation tells
+    # you to export: TermIFrame's default name to be told, not its business
+    # to guess.
     MUX_ENV[] = "WORKLOG_TMUX"
 end
 

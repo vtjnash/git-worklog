@@ -35,13 +35,13 @@ end
     # view - all three, because each answers a different question and the list
     # is unreadable without any one of them. The rewriting of `.` and `:`, and
     # the parts being optional, are `mux_name`'s and are tested with it.
-    @test W.mux_name("julia", "master", "62841") == "wl-julia-master-62841"
-    @test W.mux_name("julia", "master", "62841"; kind = :agent) ==
+    @test W.mux_name(W.SESSION_PREFIX, "julia", "master", "62841") == "wl-julia-master-62841"
+    @test W.mux_name(W.SESSION_PREFIX, "julia", "master", "62841"; kind = :agent) ==
           "wl-julia-master-62841-agent"
-    @test W.mux_name("julia", "", "62841") == "wl-julia-62841"
+    @test W.mux_name(W.SESSION_PREFIX, "julia", "", "62841") == "wl-julia-62841"
     # Every one of them is under this program's prefix, which is what makes a
     # session ours to list and to kill.
-    @test all(startswith(n, "wl-") for n in W.mux_sessions())
+    @test all(startswith(n, "wl-") for n in W.mux_sessions(W.SESSION_PREFIX))
 
     if W.mux_bin() === nothing
         @info "no tmux; skipping the session lifecycle test"
@@ -52,7 +52,7 @@ end
         @test first(W.mux_start(n, pwd(), "sleep 120")) === true
         @test W.mux_alive(n) === true
         @test first(W.mux_start(n, pwd(), "sleep 120")) === true   # idempotent
-        @test n in W.mux_sessions()
+        @test n in W.mux_sessions(W.SESSION_PREFIX)
 
         # What a session *is* lives in its options, so that the name is free to
         # change under it. The worktree is the identity because the worktree is

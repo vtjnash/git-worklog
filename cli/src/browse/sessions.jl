@@ -263,7 +263,7 @@ function edit_note(st::BState, it::Item, ctrl)
     # the editor to check what it said.
     if mux_bin() !== nothing
         target = something(first(item_checkout(it)), ROOT)
-        name = mux_name(basename(rstrip(String(target), '/')), "", string(it.number); kind = :note)
+        name = mux_name(SESSION_PREFIX, basename(rstrip(String(target), '/')), "", string(it.number); kind = :note)
         # Never resumed, unlike a shell: this one is bound to a temp file that
         # holds the note as it was when the key was pressed, so an editor left
         # over from a previous `v` would be writing into a stale copy.
@@ -271,7 +271,7 @@ function edit_note(st::BState, it::Item, ctrl)
         fw = forwards!()
         ok, err = mux_start(name, target, string(noteeditor(), " ", shquote(path)); set = fw.env)
         ok || return err
-        mux_pipe_open()
+        mux_pipe_open(SESSION_PREFIX)
         mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
         v = pane_view(name, string("note  ", it.ref), ctrl; note)
         if v === nothing
@@ -417,7 +417,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
        last(ctrl.stack) isa PaneView && last(ctrl.stack).child.name == found.name
         return string("already in ", found.name)
     end
-    name = mux_name(basename(rstrip(String(target), '/')), branch, num; kind = kind)
+    name = mux_name(SESSION_PREFIX, basename(rstrip(String(target), '/')), branch, num; kind = kind)
     # Re-pointed whether the session is new or resumed: a resumed one was
     # handed the links at its start, and this is what puts a live socket under
     # them. What is handed over is for the new one.
@@ -427,7 +427,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
         ok || return err
         # The first session of ours, perhaps: the pipe is up from here until
         # the last one ends (`watch_sessions!`).
-        mux_pipe_open()
+        mux_pipe_open(SESSION_PREFIX)
     else
         mux_rename(found.name, name)
     end

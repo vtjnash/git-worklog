@@ -1025,6 +1025,15 @@ Each of the following returns success and the wrong answer:
   listener - a listener is a browser that has to be running, and the pane
   outlives it. A session is tagged with the item's url as well as its ref,
   since the marks are keyed by url.
+  The hook runs under `/bin/sh` in a session of its own with no controlling
+  terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
+  rings `/proc/$PPID/fd/1`, its parent being `claude` and `claude`'s stdout
+  the pane's pty - by descriptor, since a sandboxed `claude` has its own
+  `/dev/pts` in which that pty has no name and `ps -o tty=` says `?`
+  (2026-09-21) - and `/dev/$(ps -o tty= -p $PPID)` where there is no
+  `/proc`, the one `ps` spelling BSD and procps share.
+  `preferredNotifChannel` would do the same ring, but `auto` resolves to
+  nothing under tmux and the idle delay behind it is a global setting.
 - **A session's tags are strings on the server, and the list is the host's.**
   `SESSION_TAGS` names them and `session_list` reads them into a `Session`;
   TermIFrame keeps no list of its own. Every row carries `#{session_id}`,
@@ -1073,20 +1082,17 @@ Each of the following returns success and the wrong answer:
   sync on the loop's task rather than by the reader mid-frame, the client
   gone after a sync (`pane_sync!` takes a note back from `PaneView.note`,
   once), and `:attach` answered by `iframe_input!` for the pane to carry out.
-  The settable globals stay: `MUX_ENV`, `MUX_PREFIX` and `SCRUB_PREFIXES`
-  are concrete `Ref`s set once in `__init__`, one host to a process, and
-  `MUX_PIPE` is one per process for the same reason. `MUX_TAGS` became an
-  argument because the tags are the host's schema, which it types; these
-  are settings.
-  The hook runs under `/bin/sh` in a session of its own with no controlling
-  terminal, so `/dev/tty` fails (`No such device or address`, 2.1.277); it
-  rings `/proc/$PPID/fd/1`, its parent being `claude` and `claude`'s stdout
-  the pane's pty - by descriptor, since a sandboxed `claude` has its own
-  `/dev/pts` in which that pty has no name and `ps -o tty=` says `?`
-  (2026-09-21) - and `/dev/$(ps -o tty= -p $PPID)` where there is no
-  `/proc`, the one `ps` spelling BSD and procps share.
-  `preferredNotifChannel` would do the same ring, but `auto` resolves to
-  nothing under tmux and the idle delay behind it is a global setting.
+- **A prefix is an argument, not a setting.** It is the first part of a
+  name (`mux_name`) and what a listing filters by (`mux_sessions`,
+  `mux_list`, the pipe's bell subscription), and `wl` passes its own,
+  `SESSION_PREFIX`, beside `SESSION_TAGS`. Nothing holds a host to one: two
+  prefixes are two sets of sessions with their own behaviour. The pipe is
+  still one per process, opened for one prefix; a pipe for each is for
+  whenever a host has two. `MUX_PIPE` stays a global, and `MUX_ENV`, which
+  names the variable to export for another tmux binary. There is no
+  environment scrubbing: `SCRUB_PREFIXES` unset the `CLAUDE*` variables in
+  every pane, for a problem that came from running the suite inside an
+  agent, and the suite's harness is the place for that if it comes back.
 
 ### The terminal
 

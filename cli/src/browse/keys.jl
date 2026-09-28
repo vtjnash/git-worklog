@@ -126,7 +126,7 @@ two things about leaving worth knowing, and a screen showing either does not say
 it.
 """
 function quit_prompt!(st::BState, ctrl::Controller)
-    n = length(mux_sessions())
+    n = length(mux_sessions(SESSION_PREFIX))
     a = draft_answer(st, ctrl)
     answers = Pair{String,Any}["yY" => () -> :quit]
     a === nothing || push!(answers, last(a))

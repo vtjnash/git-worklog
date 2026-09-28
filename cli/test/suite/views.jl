@@ -637,7 +637,7 @@ end
 @testset "an agent in a session" begin
     # A shell and an agent in one worktree are two different things, so they
     # are two slots, distinguished by kind rather than by anything in the name.
-    @test W.mux_name("julia", "master", "62841"; kind = :agent) == "wl-julia-master-62841-agent"
+    @test W.mux_name(W.SESSION_PREFIX, "julia", "master", "62841"; kind = :agent) == "wl-julia-master-62841-agent"
 
     st = W.BState(W.loaditems(), "worklog")
     ctrl = W.Controller(); ctrl.running = true
@@ -666,11 +666,11 @@ end
         # pointed somewhere else exactly as a shell can be `cd`-ed.
         for kind in (:shell, :agent)
             wt = mktempdir()
-            n1 = W.mux_name(wt, "main", "1"; kind = kind)
+            n1 = W.mux_name(W.SESSION_PREFIX, wt, "main", "1"; kind = kind)
             W.mux_start(n1, wt, "sleep 120")
             W.mux_tag!(n1; worktree = wt, kind = kind, item = "a#1")
             @test W.mux_find(wt, kind).item == "a#1"
-            n2 = W.mux_name(wt, "main", "2"; kind = kind)
+            n2 = W.mux_name(W.SESSION_PREFIX, wt, "main", "2"; kind = kind)
             W.mux_rename(W.mux_find(wt, kind).name, n2)
             W.mux_tag!(n2; worktree = wt, kind = kind, item = "b#2")
             @test count(r -> r.worktree == wt, W.session_list()) == 1
@@ -742,7 +742,7 @@ end
         W.LOCAL[] = fresh_local()
         now = W.ts("2026-09-12T12:00:00Z")
         wt = mktempdir()
-        n = W.mux_name(wt, "main", string(it.number); kind = :agent)
+        n = W.mux_name(W.SESSION_PREFIX, wt, "main", string(it.number); kind = :agent)
         W.mux_kill(n)
         try
             @test first(W.mux_start(n, wt, "sleep 120"))
@@ -805,7 +805,7 @@ end
             # The last session of ours ending closes it, since it would keep a
             # server up for nothing - unless this server has others of ours.
             W.mux_kill(n)
-            if isempty(W.mux_sessions())
+            if isempty(W.mux_sessions(W.SESSION_PREFIX))
                 for _ in 1:60; W.mux_pipe() === nothing && break; sleep(0.05); end
                 @test W.mux_pipe() === nothing && c.dead
             end

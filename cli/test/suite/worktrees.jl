@@ -1203,7 +1203,7 @@ end
             # hidden one: it is still holding a process, and K is still how to
             # be rid of it.
             gone = mktempdir()
-            name = W.mux_name(basename(gone), "master", ""; kind = :shell)
+            name = W.mux_name(W.SESSION_PREFIX, basename(gone), "master", ""; kind = :shell)
             W.mux_start(name, gone, "sleep 120")
             W.mux_tag!(name; worktree = gone, kind = :shell, item = "")
             rm(gone; recursive = true)

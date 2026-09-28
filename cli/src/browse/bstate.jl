@@ -67,6 +67,10 @@ entered, which is what says the copy has since moved under it
 (`item_worktree`, rule 2)."""
 const SESSION_TAGS = ["worktree", "kind", "item", "url", "branch"]
 
+"""What a session of ours is named under, `wl-...`, and listed by: one started by
+hand is not this program's to list or to kill."""
+const SESSION_PREFIX = "wl"
+
 """One of our sessions: TermIFrame's row, with `SESSION_TAGS` read into fields
 of their own. `id` is the server's, which a rename does not change."""
 struct Session
@@ -85,7 +89,7 @@ Session(r::MuxRow) = Session(r.name, r.id, r.command, r.attached, r.bell,
                              r.tags[1], r.tags[2], r.tags[3], r.tags[4], r.tags[5])
 
 "Every session this program owns, now: one `tmux list-panes`."
-session_list() = Session[Session(r) for r in mux_list(SESSION_TAGS)]
+session_list() = Session[Session(r) for r in mux_list(SESSION_PREFIX, SESSION_TAGS)]
 
 """The browser's whole state.
 

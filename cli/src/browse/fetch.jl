@@ -554,7 +554,7 @@ function watch_sessions!(st::BState)
     mux_bin() === nothing && return
     @async begin
         try
-            isempty(mux_sessions()) || mux_pipe_open()
+            isempty(mux_sessions(SESSION_PREFIX)) || mux_pipe_open(SESSION_PREFIX)
         catch e
             logerror!(e, catch_backtrace(), "watch_sessions!")
         end
@@ -565,13 +565,13 @@ function watch_sessions!(st::BState)
                     mux_wait(c) || continue
                     if c.sessions
                         c.sessions = false
-                        isempty(mux_sessions()) && mux_pipe_close()
+                        isempty(mux_sessions(SESSION_PREFIX)) && mux_pipe_close()
                     end
                 else
                     sleep(SESSIONS_EVERY[])
                     if c === nothing
-                        none = isempty(mux_sessions())
-                        none || mux_pipe_open()
+                        none = isempty(mux_sessions(SESSION_PREFIX))
+                        none || mux_pipe_open(SESSION_PREFIX)
                         # Nothing of ours to have rung, and nothing standing to
                         # go quiet: one process a poll, not two.
                         none && isempty(st.rang) && continue

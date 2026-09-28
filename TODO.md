@@ -8,9 +8,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next
 
 - [ ] **Push TermIFrame before `wl`.** `wl`'s submodule points at
-      TermIFrame `3ae3b56` (the command pipe, and no callbacks), which with
-      `3b5984e` under it is only local: push TermIFrame's `main` first, or
-      a fresh clone has no such commit.
+      TermIFrame `bc3e9b3` (the command pipe, no callbacks, the prefix an
+      argument), which with `3b5984e` under it is only local: push
+      TermIFrame's `main` first, or a fresh clone has no such commit.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
       is fast enough for the suite. `report_package` for the errors it can
