@@ -8,7 +8,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next
 
 - [ ] **Push TermIFrame before `wl`.** `wl`'s submodule points at
-      TermIFrame `7fced41` (the command pipe, no callbacks, the prefix an
+      TermIFrame `a26b3cf` (the command pipe, no callbacks, the prefix an
       argument, the keys the host's), which with `3b5984e` under it is only
       local: push TermIFrame's `main` first, or a fresh clone has no such
       commit.

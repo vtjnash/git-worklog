@@ -657,7 +657,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
 | `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, the key vocabulary, the dialog box, `CHROME`, `suspend`, and the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`) |
-| `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client, `bordered`. Depends on `TermInput` for measuring, never the other way |
+| `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client and the command pipe over it, `bordered`, the iframe. Depends on `TermInput` for measuring, never the other way |
 | `cli/precompile/` | `WorklogPrecompile`: `Worklog` plus a `@compile_workload` of the browser's path. `bin/wl` loads it; the suite never does |
 
 Everything is one Julia module, so the browser calls the same functions the
@@ -669,7 +669,8 @@ definition, never into it**: a file that ends in `"""` strands a docstring,
 which is a legal no-op nothing complains about.
 
 **Splitting a file moves nothing; splitting a package is a design change.**
-`TermIFrame` went across as it was. `TermInput` did not: the editing model
+`TermIFrame` went across as it was, and lost its callbacks and its keys
+later the same way (*Decisions*). `TermInput` did not: the editing model
 came out from under the view, the callbacks became returned actions
 (`:ok`/`:unhandled`, nothing else - "finished" is the host's policy, not the
 widget's), and the keys this program owns became `:unhandled`.
@@ -1053,7 +1054,7 @@ Each of the following returns success and the wrong answer:
   clears its bell. So the command pipe (`mux_pipe_open`) parks on a hidden
   session of its own, `_wl-ctl-<pid>`, where a session beside it kept
   `attached=0` and its bell. A process is 3.2 ms a command, the pipe
-  ~0.03 ms. It is open while a `wl-` session is (`watch_sessions!` closes it
+  0.04 to 0.16 ms one at a time (3.5a). It is open while a `wl-` session is (`watch_sessions!` closes it
   on the `%sessions-changed` that leaves none), since opening one starts a
   server and holding one keeps it up; one-shot commands never open it.
   `switch-client` and the attach behind `mux_seen!` are spawned always: they
@@ -1074,31 +1075,6 @@ Each of the following returns success and the wrong answer:
   subscribes to the ids of our sessions with a bell standing (`bell_format`).
   That replaced listing them every two seconds. `%sessions-changed` comes
   for any session starting or ending, ours or not.
-- **TermIFrame takes no functions from its host.** A stored callback is a
-  field typed `Any` and a dynamic call under `--trim`, and each one the
-  iframe took was a thing the host could read instead: the client's `wake`
-  (an `Event` that resets as it is taken, which `watch_pane!` waits on and
-  turns into `wake!`), the clipboard kept on the client and printed by the
-  sync on the loop's task rather than by the reader mid-frame, the client
-  gone after a sync (`pane_sync!` takes a note back from `PaneView.note`,
-  once). And `oncommand` went the same way, which took the keys with it:
-  TermIFrame finds the prefix - it is in the raw stream beside pastes and
-  mouse reports, and a read can split it from its key - and `iframe_input!`
-  answers the key after it and keeps what was read after that. Every key
-  after `^]` is `wl`'s (`pane_command!`, `pane_key!`, the same list the pane
-  answers once its child has gone), and the rest of the read goes to the
-  child only if the key left it with the keyboard.
-- **A prefix is an argument, not a setting.** It is the first part of a
-  name (`mux_name`) and what a listing filters by (`mux_sessions`,
-  `mux_list`, the pipe's bell subscription), and `wl` passes its own,
-  `SESSION_PREFIX`, beside `SESSION_TAGS`. Nothing holds a host to one: two
-  prefixes are two sets of sessions with their own behaviour. The pipe is
-  still one per process, opened for one prefix; a pipe for each is for
-  whenever a host has two. `MUX_PIPE` stays a global, and `MUX_ENV`, which
-  names the variable to export for another tmux binary. There is no
-  environment scrubbing: `SCRUB_PREFIXES` unset the `CLAUDE*` variables in
-  every pane, for a problem that came from running the suite inside an
-  agent, and the suite's harness is the place for that if it comes back.
 
 ### The terminal
 
@@ -1355,6 +1331,31 @@ Each of the following returns success and the wrong answer:
   `I` import, `h` in the worktree list, `w` kept - is said beside each
   binding in `keys.jl`, `paneview.jl` and `sessions.jl`; the boxes and
   their TOML keys beside `SHOW` and `apply_view!` in `filters.jl`.
+- **TermIFrame takes no functions from its host.** A stored callback is a
+  field typed `Any` and a dynamic call under `--trim`, and each one the
+  iframe took was a thing the host could read instead: the client's `wake`
+  (an `Event` that resets as it is taken, which `watch_pane!` waits on and
+  turns into `wake!`), the clipboard kept on the client and printed by the
+  sync on the loop's task rather than by the reader mid-frame, the client
+  gone after a sync (`pane_sync!` takes a note back from `PaneView.note`,
+  once). And `oncommand` went the same way, which took the keys with it:
+  TermIFrame finds the prefix - it is in the raw stream beside pastes and
+  mouse reports, and a read can split it from its key - and `iframe_input!`
+  answers the key after it and keeps what was read after that. Every key
+  after `^]` is `wl`'s (`pane_command!`, `pane_key!`, the same list the pane
+  answers once its child has gone), and the rest of the read goes to the
+  child only if the key left it with the keyboard.
+- **A prefix is an argument, not a setting.** It is the first part of a
+  name (`mux_name`) and what a listing filters by (`mux_sessions`,
+  `mux_list`, the pipe's bell subscription), and `wl` passes its own,
+  `SESSION_PREFIX`, beside `SESSION_TAGS`. Nothing holds a host to one: two
+  prefixes are two sets of sessions with their own behaviour. The pipe is
+  still one per process, opened for one prefix; a pipe for each is for
+  whenever a host has two. `MUX_PIPE` stays a global, and `MUX_ENV`, which
+  names the variable to export for another tmux binary. There is no
+  environment scrubbing: `SCRUB_PREFIXES` unset the `CLAUDE*` variables in
+  every pane, for a problem that came from running the suite inside an
+  agent, and the suite's harness is the place for that if it comes back.
 
 ## Conventions
 
