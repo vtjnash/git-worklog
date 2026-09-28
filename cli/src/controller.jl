@@ -1295,8 +1295,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
     # Which terminal to give away is not known when the view is built, and is
     # known here: a composer is only ever driven from the loop that owns one.
     ta = getfield(v, :ta)
-    ta.suspend = f -> suspend(f, ctrl)
-    TermInput.handle!(ta, k) === :ok && return :ok
+    TermInput.handle!(ta, k; suspend = f -> suspend(f, ctrl)) === :ok && return :ok
     # What is left is every key that does not edit text, which the composer
     # hands back because none of it is a text box's to answer.
     if k == C_S                                     # submit
