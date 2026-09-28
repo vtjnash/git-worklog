@@ -1331,6 +1331,16 @@ Each of the following returns success and the wrong answer:
   `I` import, `h` in the worktree list, `w` kept - is said beside each
   binding in `keys.jl`, `paneview.jl` and `sessions.jl`; the boxes and
   their TOML keys beside `SHOW` and `apply_view!` in `filters.jl`.
+- **A hosted child is a session of its own, not a window or a pane of a
+  shared one** (2026-09-28). A pane sizes its child through its own control
+  client (`refresh-client -C`), which sizes that session's window and no
+  other; windows of one session are sized by the same clients, and panes of
+  one window split its area. And a session is the unit tmux keeps the seen
+  bit by (an attach is looking), that `^]a` or a hand's `tmux attach` shows
+  one child of, and that `kill-session` and `%exit` end: in a shared session
+  what was looked at would be whichever window is current, for everyone
+  attached. One control client could hear every child there, which is the
+  pull; it does not outweigh the rest.
 - **TermIFrame takes no functions from its host.** A stored callback is a
   field typed `Any` and a dynamic call under `--trim`, and each one the
   iframe took was a thing the host could read instead: the client's `wake`

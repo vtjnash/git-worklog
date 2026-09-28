@@ -196,6 +196,13 @@ filtered as wanted.
       per client that wakes the loop for all of them. Not built while
       `push_place!` closes the last pane before it opens the next.
 
+- [ ] **Split panes inside a hosted pane.** *Decide: whether it is wanted.*
+      A child is a session of its own (DESIGN, *Decisions*), and the pane
+      draws its active pane. Splits inside it would be panes of that
+      session's window, captured and drawn side by side in the box, with
+      their own cursors and mouse coordinates - more of TermIFrame, and not
+      a change to the one-session-per-child rule.
+
 ## The composer
 
 - [ ] **Undo in the composer.** *After the `^w` you did not mean bites.*
