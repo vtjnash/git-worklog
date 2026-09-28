@@ -92,7 +92,7 @@ error - and `err` then says why in a line, GitHub's `message` included.
 
 No retries and no status exceptions from HTTP.jl: the one retry policy is
 `retry_wait`'s, applied by `retrying`. The default protocol, which is HTTP/2
-by ALPN - `protocol = :h1` hangs in a trimmed binary (TODO, *Upstream*).
+by ALPN: trimmed, an HTTP/1.1 request with a body hangs (TODO, *Upstream*).
 """
 function github(method::AbstractString, path::AbstractString;
                 params = nothing, body = nothing,

@@ -96,17 +96,26 @@ under *Upstream* here.
       else here makes a trimmed `wl` run until this does. Check the nightly
       first; report it if it is still so.
 
-- [ ] **File: HTTP.jl's `protocol = :h1` hangs when trimmed.** HTTP.jl
-      2.8.0 on Julia 1.13.0, JuliaC 0.3.10: `HTTP.request("GET",
-      "https://api.github.com/zen"; protocol = :h1, status_exception =
-      false)` from an `@main` built with `--trim=safe` verifies with no
-      errors and then never returns; untrimmed it answers at once, and
-      trimmed without `protocol` (HTTP/2 by ALPN) it answers too. The
-      timeout, proxy, retry and cookie options are not it: each alone works.
-      Its own trim test of HTTP/1.1 over TLS
-      (`test/http_trim_client_h1_tls_request.jl`) is against a local server
-      with verification off, which may be why it passes. Check for an
-      existing issue at JuliaWeb/HTTP.jl, and file with the program.
+- [ ] **File: a trimmed Task's entry closure is not compiled, and nothing
+      says so.** Julia, 1.13.0 and 1.14.0-DEV.3217, JuliaC 0.3.10. Trim
+      compiles a task's closure only from a concretely typed `:new` of it
+      (`collectinvokes!`, `typeinfer.jl`); a closure that captures nothing,
+      or only singletons, or a variable not concretely inferred, is left out,
+      `--trim=safe` verifies clean, and the task dies at start with
+      `MethodError(f=<closure>, args=())`. Six lines reproduce it:
+      `Task(() -> println(...))`, `schedule`, `wait`. Nothing under
+      `test/trim/` starts a task. Drafts, the MWEs and the builds are in
+      `.worktrees/h1trim/` (`julia-issue.md`, `http-issue.md`).
+- [ ] **File: HTTP.jl hangs on any HTTP/1.1 request with a body when
+      trimmed** - which is what "`protocol = :h1` hangs" was: a GET without
+      a body over h1 works, and a POST over plain `http://` hangs with
+      `:auto`. `_roundtrip_incoming!` `@spawn`s the body writer as a closure
+      over `write_state::Union{Nothing,_RequestWriteState}` and a TCP-or-TLS
+      stream, the item above; the writer dies before its `try`, so nothing
+      marks the write done and the caller's `IOPoll.timedwait` loop, which
+      never looks at the task, spins forever. The server receives zero
+      bytes. Ours go over h2 by ALPN to api.github.com, so `wl` is clear of
+      it until a proxy or a server without h2 is in the way.
 
 - [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313
       (merged 2026-09-25, after v2.2.1) keeps a header's inline elements on

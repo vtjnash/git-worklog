@@ -1242,7 +1242,8 @@ Each of the following returns success and the wrong answer:
   it brings MbedTLS, whose callbacks do not trim. Not Downloads.jl: its
   libcurl glue does not trim. HTTP.jl's own retries are off - `retrying`
   over `retry_wait` is the one policy, for reads only - and the protocol is
-  its default, since `:h1` hangs trimmed (TODO, *Upstream*). `gh` stays for
+  its default: HTTP/2 by ALPN, since trimmed, an HTTP/1.1 request with a
+  body hangs (TODO, *Upstream*). `gh` stays for
   two things: `gh auth token`, the last place `token` looks, since gh may
   hold the token only in the keyring; and `gh pr checkout`, which is git.
 - **No sweep heuristic.** "Moved recently" is not a hint for what moves next;
