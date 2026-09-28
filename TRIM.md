@@ -115,9 +115,13 @@ each method.
       codes) and `parse_md` (14), from `term_md`. Term's to fix, not `wl`'s;
       worth a look at how much of it the program needs when trimmed.
 - [ ] **Pkg, loaded through Highlights.** 43 errors in Pkg's `REPLExt`
-      `__init__` and REPL's keymaps, in no call of `wl`'s: Pkg is loaded
-      because Highlights imports it (TODO, *Upstream*, "File Highlights'
-      `Pkg` import upstream"), and its REPL extension comes with it.
+      `__init__` and REPL's keymaps, in no call of `wl`'s. The extension loads
+      when Pkg and REPL both are: Pkg because Highlights imports it (TODO,
+      *Upstream*, "File Highlights' `Pkg` import upstream"), REPL because
+      `wl`, TermInput, Term, CodeTracking and UnicodeFun all do. Either half
+      removes it, and the Highlights fix is the one to wait for: taking REPL
+      out is parked (LATER, *Upstream*). A probe of `using Term` alone with
+      Term's REPL taken out verifies with no errors.
 
 ## Where the errors are
 

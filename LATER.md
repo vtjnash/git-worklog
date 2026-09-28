@@ -261,6 +261,20 @@ filtered as wanted.
       diff - nothing parses it back, so a migration is an ANSI parser at every
       boundary; and a `Face` cannot say `on 236`.
 
+- [ ] **Load no REPL.** *Blocked on a `Base.Terminals` worth depending on.*
+      REPL is what raw mode and key reading come from, in `wl`, TermInput
+      and Term, and it is what brings Pkg's `REPLExt` into a trimmed build
+      (TRIM, "Pkg, loaded through Highlights"). Tried on Term, 2026-09-28:
+      branch `no-repl` in `Term.jl/`, one local commit. It copies REPL's
+      `raw!` and `TerminalMenus.readkey` in, makes CodeTracking and UnicodeFun
+      (which load REPL themselves) extensions, and looks docstrings up only
+      with REPL loaded, since `Base.Docs.doc` has no methods without it; then
+      `using Term` on 1.14 loads none. Parked, because what it copies is the
+      part that needs replacing: `readkey` is why `wl` decodes keys itself.
+      `Base.Terminals` (1.12 on, not `public`) is REPL's module moved to Base
+      for its invalidations: a terminal is still an `AbstractPipe` over
+      `::IO` fields, so `raw!` does not trim either.
+
 - [ ] **Drop the underscore half of `escape_source`.** *Blocked on
       JuliaLang/julia#63081 (fix submitted, open) landing in a Julia this runs
       on.*
