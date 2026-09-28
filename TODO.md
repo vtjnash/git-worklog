@@ -8,10 +8,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next
 
 - [ ] **Push TermIFrame before `wl`.** `wl`'s submodule points at
-      TermIFrame `d4e4a1a` (the command pipe, no callbacks, the prefix an
-      argument, the keys the host's), which with `3b5984e` under it is only
-      local: push TermIFrame's `main` first, or a fresh clone has no such
-      commit.
+      TermIFrame `098f86c` (a drag is tmux's copy mode), which with
+      `70542f5` under it (copy mode's coordinates) is only local: push
+      TermIFrame's `main` first, or a fresh clone has no such commit.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
       is fast enough for the suite. `report_package` for the errors it can
@@ -48,6 +47,19 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
         comments; not the comments themselves - `o` is for those.
       - The query through `gh_graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
+- [ ] **`^]` keys act on the pane's own session, not the reader beside it.**
+      A key after the prefix that the pane does not answer goes to the
+      browser (`forward!`), and so acts on whatever item the thread on the
+      left is showing - which need not be the one the session was opened on.
+      From inside a pane the subject should be the pane: `^]t` the terminal
+      for the same worktree, `^]T` its agent, `^]h` the history of the item it
+      is tagged with, and so on, read off the session's tags (`worktree`,
+      `item`, `url`, `branch`; `mux_tag!` in `enter_session`). That is the
+      difference from `^]tab`, which moves the keys to the reader, where `t`
+      and `T` go on meaning the reader's item and its worktree. Which keys
+      follow the pane and which stay the reader's is the first thing to
+      decide - `^]m` is neither's, and `^]j` scrolling the thread is the
+      reader's by nature.
 - [ ] **Double-click a word, triple-click a line, in a pane.** To be
       reconsidered: a drag over a child that ignores the mouse is tmux's copy
       mode (`iframe_drag!`), but a click is nothing, as in tmux. tmux's own
@@ -75,6 +87,22 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - MANUAL.md 4 and 7 again, since their code moved: the clipboard is
         relayed by the sync now, not the reader, and a pane wakes through
         its own watch.
+- [ ] **A drag in a pane, and `^]m` with nothing beside it, in a real
+      terminal.** The suite drives the drag as SGR reports against the bundled
+      tmux and reads the clipboard off stdout. By hand, in a pane running a
+      shell and then `less`:
+      - A drag highlights as it goes, the cursor following its end and the
+        footer saying `copy mode`; letting go pastes elsewhere as what was
+        selected, a wrapped line whole and without the pane's border.
+      - Dragging past the top or bottom scrolls; the wheel during a drag
+        moves the view; after the copy the view stays put and a key returns
+        to live.
+      - A click alone does nothing, and `vi` or a `mouse on` tmux in the
+        pane still gets its own clicks and drags.
+      - With emacs and with vi `mode-keys`, the last cell highlighted is the
+        last one copied.
+      - `^]m` in a pane opened with no thread beside it: the terminal's own
+        selection back, the footer saying so, and `^]m` again takes it.
 
 ## Trim
 
