@@ -248,28 +248,22 @@ end
     b = String(W.frame_bytes("ab\ncd", "", (2, 1)))
     # Held by the terminal until the closing sequence, drawn with the cursor
     # hidden, and the cursor put where the view said and shown only then.
-    @test startswith(b, "\e[?2026h\e[?25l\e[H")
-    @test endswith(b, "\e[J\e[2;1H\e[?25h\e[?2026l")
-    @test occursin("ab\e[K\ncd\e[J", b)                  # rows cleared to the end
+    @test startswith(b, "\e[?2026h\e[?25l\e[1;1r")
+    @test endswith(b, "\e[r\e[2;1H\e[?25h\e[?2026l")
+    # Each row's line deleted before it is written, and only that line: the
+    # scroll region is the row. A line xterm.js deletes takes the markers of
+    # the links drawn on it; one overwritten or erased kept them all.
+    @test occursin("\e[1;1r\e[1H\e[Mab\e[2;2r\e[2H\e[Mcd\e[r", b)
+    @test !occursin("\e[K", b) && !occursin("\e[J", b) && !occursin('\n', b)
     # No cursor to show: it stays hidden, and nothing moves it.
     n = String(W.frame_bytes("ab", "", nothing))
-    @test endswith(n, "\e[J\e[?2026l") && !occursin("?25h", n)
+    @test endswith(n, "\e[Mab\e[r\e[?2026l") && !occursin("?25h", n)
     # The title goes after the frame and before the caret, inside the hold.
     t = String(W.frame_bytes("x", "\e]2;wl o/r#1\e\\", (1, 1)))
-    @test occursin("\e[J\e]2;wl o/r#1\e\\\e[1;1H\e[?25h", t)
-    # A row that filled its width gets no erase after it: the cursor is in
-    # the pending-wrap state, which Terminal.app keeps on the last column,
-    # and an erase from there took the border off. A short row keeps its
-    # erase, and a short last row the final one.
-    f = String(W.frame_bytes("ab\ncd", "", nothing; w = 2))
-    @test occursin("\e[Hab\ncd\e[?2026l", f) && !occursin("\e[K", f) && !occursin("\e[J", f)
-    f = String(W.frame_bytes("ab\nc", "", nothing; w = 2))
-    @test occursin("\e[Hab\nc\e[J", f)
-    f = String(W.frame_bytes("a\ncd", "", nothing; w = 2))
-    @test occursin("\e[Ha\e[K\ncd\e[?2026l", f)
-    # Measured as drawn: an SGR is no column.
-    f = String(W.frame_bytes("\e[1mab\e[0m\ncd", "", nothing; w = 2))
-    @test !occursin("\e[K", f)
+    @test occursin("\e[r\e]2;wl o/r#1\e\\\e[1;1H\e[?25h", t)
+    # Rows the frame did not bring, to the screen's height, are deleted too.
+    f = String(W.frame_bytes("ab", "", nothing; h = 3))
+    @test occursin("\e[Mab\e[2;2r\e[2H\e[M\e[3;3r\e[3H\e[M\e[r", f)
 end
 
 @testset "the terminal says dark or light, and the theme follows" begin

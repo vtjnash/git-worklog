@@ -1143,7 +1143,7 @@ Each of the following returns success and the wrong answer:
   `oneline`.
 - `capture-pane` says nothing about the cursor; `viewcursor` puts the
   terminal's where the child's is.
-- **A frame is one write** (`frame_bytes`): cursor hidden, home, the rows,
+- **A frame is one write** (`frame_bytes`): cursor hidden, the rows,
   the title, the caret and then the cursor shown, inside a synchronized
   output hold (`?2026`) that a terminal which knows it draws once. A
   `TTY` is unbuffered, so `print` with three arguments was three writes,
@@ -1164,13 +1164,23 @@ Each of the following returns success and the wrong answer:
   query or a `/` query being typed, and nowhere else - a `q` pasted into the
   list is not quitting, and a tab pasted into a composer is not moving the
   focus. A hosted pane's child decides for itself: see *tmux*.
-- **No erase after a row that filled its width.** The last column written
-  leaves the cursor pending a wrap, and terminals disagree where that is:
-  xterm.js counts it past the last column and an `\e[K` there erases
-  nothing; Terminal.app keeps it on the last column and the erase took the
-  right border off every row (2026-09-21; seen fixed the same day), under
-  tmux only not, since the server owns the cells. A full row gets a bare
-  newline.
+- **A row is drawn by deleting its line and writing it again**: the scroll
+  region set to that row alone, `\e[M`, the row; `\e[r` after the last. An
+  OSC 8 link leaves a marker on its line in xterm.js, freed only when the line
+  is deleted or trimmed, and the alternate screen trims nothing: overwritten
+  in place, a row kept every link it had ever held, and leaving the alternate
+  screen disposed them all, quadratic in the count - 5 s after 1000 frames of
+  30 links, 100 s after 4000 (`@xterm/headless` 6.1 beta). VS Code runs that
+  xterm in its pty host, and restarts a pty host that misses its heartbeat for
+  12 s, with every terminal in it: quitting `wl` or `^]a` over Remote-SSH
+  (2026-09-28). An `id=` on the link bounds the markers only by url and row,
+  which a scrolled thread outgrows; the delete bounds them by the screen. One
+  row at a time, so a terminal drawing mid-frame shows a row blank and nothing
+  moved; never a clear, which is a flicker on every key. It also retires the
+  erase after a row, which the pending wrap had made wrong: after a full row
+  xterm.js counts the cursor past the last column and Terminal.app on it,
+  where `\e[K` took the right border off every row (2026-09-21). Setting the
+  scroll region homes the cursor, pending or not.
 - **A hyperlink is not somewhere to write another one.** `linkify` runs on
   the finished frame; a url inside a comment header's OSC 8 payload
   terminated it early and the row came out 224 columns wide. It cuts the

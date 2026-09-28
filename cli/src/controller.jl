@@ -823,9 +823,9 @@ Three things about the write, none of them about what is in the frame:
     frame, the title and the cursor were three of those; between any two the
     terminal may draw. A `TTY` is unbuffered - `buffer_writes` is off on
     `stdout` - so the buffer is made here and handed over whole.
-  * **The cursor is hidden before `\e[H` and shown after the frame.** Shown
+  * **The cursor is hidden before the first row and shown after the frame.** Shown
     at the end of one frame, it was still shown at the start of the next,
-    and a terminal that drew between the home and the caret's row showed it
+    and a terminal that drew between the first row and the caret's row showed it
     at the top left on the way.
   * **Synchronized output**, DEC private mode 2026, around the whole thing:
     a terminal that knows it (kitty, wezterm, foot, alacritty, iTerm2,
@@ -836,32 +836,42 @@ Three things about the write, none of them about what is in the frame:
     terminal otherwise: a pty is four kilobytes on Linux, so a frame is
     several reads however it was written.
 
-`\e[K` after a row and `\e[J` after the last rather than a clear first: a
-clear is a blank frame the terminal may draw, which is a flicker on every
-key. **But not after a row that filled its width.** Writing the last column
-leaves the cursor in the pending-wrap state, and terminals disagree about
-where that is: xterm.js counts it past the last column, so an erase from
-there touches nothing, and Terminal.app keeps it *on* the last column, so
-the erase took the right border off every row and `\e[J` the corner - the
-frame drawn one column too wide there and nowhere else, since under tmux
-the server owns the cells. A row that is `w` wide has nothing to its right
-to erase, so no erase is sent; a shorter one - which the contract says
-never comes, and `safe_render`'s padding sees to - keeps its `\e[K`.
-`w` is the frame's width; `0` measures nothing and erases after every row.
+**Every row is its line deleted and written again**: the scroll region set to
+that row alone, `\e[M` there, and the row. A hyperlink leaves a marker on the
+line it was drawn on in xterm.js, which frees one only when its line is deleted
+or trimmed, and the alternate screen trims nothing - so a row overwritten in
+place, or erased, kept every link it ever held. Thirty links a frame was 30000
+markers after a thousand frames, and leaving the alternate screen disposed
+them all in time quadratic in the count: 5 s then, 100 s after four thousand
+(`@xterm/headless` 6.1 beta, 2026-09-28). VS Code runs that xterm in its pty
+host, and a pty host that misses its heartbeat for 12 s is restarted with every
+terminal in it - quitting `wl`, or `^]a`, over Remote-SSH. An `id` on the link
+only bounds it by url and row, which a scrolled thread outgrows. A delete
+bounds it by what is on the screen. One row at a time, so the terminal that
+draws mid-frame shows that row blank and nothing else moved, which is all an
+erase ever showed; never a clear, which is a blank frame and a flicker on every
+key.
+
+And it answers the pending wrap for free. Writing the last column leaves the
+cursor in the pending-wrap state, and terminals disagree about where that is:
+xterm.js counts it past the last column, Terminal.app keeps it *on* the last
+column, where an erase after a full row took the right border off every row.
+Nothing is erased after a row now, and the next row starts by setting the
+scroll region, which moves the cursor home wherever it was pending.
+
+`h` is the screen's height, and a frame shorter than it - which the contract
+says never comes - has its missing rows deleted as well; `0` is the frame's
+own.
 """
 function frame_bytes(frame::AbstractString, title::AbstractString,
-                     cur::Union{Nothing,Tuple{Int,Int}}; w::Int = 0)
+                     cur::Union{Nothing,Tuple{Int,Int}}; h::Int = 0)
     io = IOBuffer()
-    print(io, "\e[?2026h\e[?25l\e[H")
+    print(io, "\e[?2026h\e[?25l")
     rows = split(frame, '\n')
-    full = false
-    for (i, r) in enumerate(rows)
-        full = w > 0 && awidth(r) >= w
-        print(io, r)
-        i == length(rows) && break
-        print(io, full ? "\n" : "\e[K\n")
+    for i in 1:max(h, length(rows))
+        print(io, "\e[", i, ";", i, "r\e[", i, "H\e[M", get(rows, i, ""))
     end
-    print(io, full ? "" : "\e[J", title)
+    print(io, "\e[r", title)
     cur === nothing || print(io, "\e[", cur[1], ";", cur[2], "H\e[?25h")
     print(io, "\e[?2026l")
     take!(io)
@@ -960,7 +970,7 @@ function run!(ctrl::Controller, root::View)
                     logerror!(e, catch_backtrace(), "viewcursor")
                     nothing
                 end
-                write(stdout, frame_bytes(safe_render(v, w, h), title, cur; w))
+                write(stdout, frame_bytes(safe_render(v, w, h), title, cur; h))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
