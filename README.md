@@ -191,6 +191,9 @@ operation with `^x` and asks once before it sends; `⌥e` or `^o` opens
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
 ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`,
 and `^]m` gives the mouse to the terminal and back, thread beside it or not.
+Over a program that did not ask for the mouse - a shell, `less` - a drag
+selects as tmux's own copy mode does, wrapped lines joined, and letting go
+copies it to the clipboard; the wheel scrolls back.
 Its shell sees the ssh agent and the `code` of whichever login most recently
 launched `wl`, however old the pane: `SSH_AUTH_SOCK`, `VSCODE_IPC_HOOK_CLI`
 and `code` on `PATH` are links under `$XDG_RUNTIME_DIR/wl/`, re-pointed at

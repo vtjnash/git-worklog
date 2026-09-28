@@ -496,7 +496,7 @@ version = "2.2.1"
     julia_version = "1.10.0"
 
 [[deps.TermIFrame]]
-deps = ["TermInput", "tmux_jll"]
+deps = ["Base64", "TermInput", "tmux_jll"]
 path = "../TermIFrame.jl"
 uuid = "eb3a209b-12c7-484c-af99-a1186270a51f"
 version = "0.1.0"

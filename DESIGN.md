@@ -965,6 +965,18 @@ Each of the following returns success and the wrong answer:
   and a cut through one copy spared the other. `passthrough` keeps the
   unfinished tail per pane and reads the next line as its continuation.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
+- **A drag is copy mode, driven blind.** A control client cannot give tmux a
+  mouse event with a position (`send-keys -K` zeroes it, `-M` replays only a
+  bound one), and `capture-pane` reads `wp->base`, never the mode's screen.
+  So `iframe_drag!` drives the mode with `send -X` and the frame is painted
+  from its formats: `copy_cursor_y` is a view row, `selection_*_y` a grid
+  line (oldest history line 0), `mode-keys` whether the end cell is in.
+  `start-of-line` on a wrapped row's second half goes up a row, and
+  `cursor-right` past a line's end wraps to the next, so `copy_goto` asks
+  where a step down left it and moves across from there, clamped.
+- **One command to an ask.** A `;` list gets a reply block per command, and
+  `mux_ask` pairs replies by position - the next ask reads the list's second
+  answer.
 - **Whether a child wants bracketed paste is asked, not followed.** tmux
   keeps `?2004` as a pane flag; for a real client it sets the terminal to
   match and drops the markers (`KEYC_PASTE_START`, `input-keys.c`) for a
