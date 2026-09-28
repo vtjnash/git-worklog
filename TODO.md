@@ -49,6 +49,24 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - The query through `gh api graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
 
+## Unverified
+
+- [ ] **The command pipe, and the pane's keys, in a real terminal.** The
+      suite drives both against the bundled tmux, with no terminal and no
+      `claude`. By hand, bundled tmux and a server of the user's own:
+      - `T`, let the agent stop, go back to the list: the row turns unread
+        within about a second, with no `wl-` listing on a clock (the pipe's
+        subscription). `e` clears it.
+      - `tmux ls` shows `_wl-ctl-<pid>` while a session of ours is up; it
+        goes when the last one is killed (`^]K`), when `wl` quits, and when
+        `wl` is `kill -9`ed.
+      - `^]q`, `^]K`, `^]a` and back, `^]r`, `^]]` into `cat -v`, `^]?`;
+        `^]tab` with more typed in the same burst, which must not reach the
+        child; `v` on an item, edit, quit the editor: the note is saved.
+      - MANUAL.md 4 and 7 again, since their code moved: the clipboard is
+        relayed by the sync now, not the reader, and a pane wakes through
+        its own watch.
+
 ## Trim
 
 `juliac --trim=safe` over `wl`: the plan, the counts and how to reproduce
