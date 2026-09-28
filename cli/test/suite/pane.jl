@@ -370,6 +370,22 @@ end
             @test ctrl.mouse == before
             pop!(ctrl.stack)
             W.iframe_close!(v5.child)
+            # With nothing beside the child there is no browser for `^]m` to
+            # reach, and it said the keys instead - which left a shell in here
+            # no way to the terminal's own selection. It is answered here, and
+            # the browser's mirror of it kept, since that is what its footer
+            # and its copy marks read.
+            v6 = W.pane_view(n, "demo", ctrl; beside = nothing)
+            push!(ctrl.stack, v6)
+            W.onraw!(v6, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
+            @test ctrl.mouse != before && st.mouse == ctrl.mouse
+            @test occursin("mouse", v6.child.status)
+            @test W.mux_alive(n) && last(ctrl.stack) === v6
+            W.onraw!(v6, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
+            @test ctrl.mouse == before && st.mouse == ctrl.mouse
+            @test occursin("^]m", W.pane_keys(v6))
+            pop!(ctrl.stack)
+            W.iframe_close!(v6.child)
         end
         # With no room for two columns there is nothing to move to, so the key
         # keeps the meaning it always had.

@@ -189,7 +189,8 @@ operation with `^x` and asks once before it sends; `⌥e` or `^o` opens
 
 **A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
-ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`.
+ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`,
+and `^]m` gives the mouse to the terminal and back, thread beside it or not.
 Its shell sees the ssh agent and the `code` of whichever login most recently
 launched `wl`, however old the pane: `SSH_AUTH_SOCK`, `VSCODE_IPC_HOOK_CLI`
 and `code` on `PATH` are links under `$XDG_RUNTIME_DIR/wl/`, re-pointed at

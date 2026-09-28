@@ -409,7 +409,7 @@ end
 pane_keys(v::PaneView) =
     string(readable(v) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
            "^]q leave · ^]K kill · ^]a full screen · ^]r reread · ^]] literal",
-           v.beside === nothing ? "" : " · anything else is the browser's")
+           v.beside === nothing ? " · ^]m mouse" : " · anything else is the browser's")
 
 """What the pane does with itself, as against its child: leave it running (`q`
 or escape), kill it (`K`), full screen (`a`), read it again (`r`). The keys
@@ -452,7 +452,8 @@ it to read - a key that means "out of here" everywhere else should not be one
 the prefix has no answer for), `K` kills it, `a` is full screen, `r` rereads
 (`pane_key!`), `^]` or `]` sends the prefix itself through, and `^]?` is the
 help. Everything else goes to the browser, and without one beside it says the
-help.
+help - except `^]m`, which is the browser's mouse toggle and is answered here
+when there is no browser to answer it.
 
 That last part is the rule, not a list: `^]` means "this one is not the
 child's", and the sensible place for a key this layer has no use for is the
@@ -482,6 +483,17 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         :ok
     elseif (r = pane_key!(v, Int(b), ctrl)) !== nothing
         r
+    elseif b == UInt8('m') && v.beside === nothing
+        # The browser's `m`, which would have been reached through it: with
+        # nothing beside the child there is no browser to reach, and the
+        # terminal's own selection is the one thing a shell in here cannot be
+        # given any other way.
+        on = mouse!(ctrl, !ctrl.mouse)
+        st = beside_of(ctrl)
+        st === nothing || (st.mouse = on)
+        v.child.status = on ? "mouse on — ^]m gives it to the terminal" :
+                              "mouse off — the terminal's own selection is back"
+        :ok
     elseif b == UInt8('?') || v.beside === nothing
         v.child.status = pane_keys(v)
         :ok
