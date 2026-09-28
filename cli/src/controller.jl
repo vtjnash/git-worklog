@@ -297,7 +297,12 @@ function read_csi(io::IO)
     params, fin = UInt8[], 0x00
     while true
         c = read(io, UInt8)
-        if c >= 0x40 && c <= 0x7e
+        # A mouse report ends at `M` or `m` and nowhere else. xterm.js sends
+        # `<0;NaN;NaNm` for a button let go over a terminal it cannot place,
+        # and ended at the first byte that could end any other sequence - the
+        # `N` - the rest arrived as keys, `m` the mouse toggle among them.
+        mouse = !isempty(params) && params[1] == UInt8('<')
+        if mouse ? (c == UInt8('M') || c == UInt8('m')) : (c >= 0x40 && c <= 0x7e)
             fin = c
             break
         end

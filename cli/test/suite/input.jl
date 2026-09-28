@@ -106,6 +106,12 @@ end
     @test ev("\e[<64;5;5M").kind === :wheelup
     @test ev("\e[<65;5;5M").kind === :wheeldown
     @test ev("\e[<16;5;5M").mods == 4                # ctrl-click
+    # xterm.js's report for a terminal it cannot place: consumed whole, and
+    # not ended at the `N`, which left `aN;NaNm` - `m` the mouse toggle - to
+    # arrive as keys.
+    io = IOBuffer("\e[<0;NaN;NaNmq")
+    @test W.readevent(io) == W.KeyEvent(-1)
+    @test W.readevent(io) == W.KeyEvent(Int('q'))
     # Shift is the one modifier the vertical arrows carry a key of their own
     # for, since it is what extends a selection. Alt and ctrl are not it.
     @test ev("\e[1;2A") == W.KeyEvent(W.K_SUP)
