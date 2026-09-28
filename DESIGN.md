@@ -1051,8 +1051,8 @@ Each of the following returns success and the wrong answer:
   the pipe and joins them with `;` only into one process.
 - **A control client has to attach to stay open.** `tmux -C` with any other
   command runs it, says `%exit` and quits; and attaching to one of ours
-  clears its bell. So the command pipe (`mux_pipe_open`) parks on a hidden
-  session of its own, `_wl-ctl-<pid>`, where a session beside it kept
+  clears its bell. So the command pipe (`mux_pipe_open`) parks on a
+  session of its own, which `tmux ls` shows and `wl` does not list, `_wl-ctl-<pid>`, where a session beside it kept
   `attached=0` and its bell. A process is 3.2 ms a command, the pipe
   0.04 to 0.16 ms one at a time (3.5a). It is open while a `wl-` session is (`watch_sessions!` closes it
   on the `%sessions-changed` that leaves none), since opening one starts a
@@ -1071,7 +1071,7 @@ Each of the following returns success and the wrong answer:
 - **A subscription is about the attached session, unless its format loops.**
   `refresh-client -B name::fmt` is checked once a second and says
   `%subscription-changed` when the value differs; `#{S:...}` in the format
-  walks every session on the server, so the pipe, on its hidden session,
+  walks every session on the server, so the pipe, on its own session,
   subscribes to the ids of our sessions with a bell standing (`bell_format`).
   That replaced listing them every two seconds. `%sessions-changed` comes
   for any session starting or ending, ours or not.

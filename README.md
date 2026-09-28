@@ -210,8 +210,8 @@ session, so nothing has to be running to catch it. Looking (`T`) clears it,
 and so does every mark - `e`, `s`, `x`, `wl done` - the way a mark ends a
 woken snooze; `z` rings it back. While the browser is up tmux tells it, within
 a second, through one control-mode client it keeps for all its tmux commands -
-parked on a hidden session of its own, `_wl-ctl-<pid>`, which you may see in
-`tmux ls` and which goes when the browser does.
+parked on a session of its own, `_wl-ctl-<pid>`, which `tmux ls` shows and
+`wl` does not list, and which goes when the browser does.
 
 **VS Code** (`o`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is
