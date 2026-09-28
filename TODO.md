@@ -48,6 +48,15 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
         comments; not the comments themselves - `o` is for those.
       - The query through `gh_graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
+- [ ] **Double-click a word, triple-click a line, in a pane.** To be
+      reconsidered: a drag over a child that ignores the mouse is tmux's copy
+      mode (`iframe_drag!`), but a click is nothing, as in tmux. tmux's own
+      `DoubleClick1Pane` and `TripleClick1Pane` are `select-word` and
+      `select-line`, then a copy - the same `copy_goto` and
+      `copy_finish!` with one command between them. What it needs first is
+      the clicks counted, which `retarget_mouse` cannot: it has no clock, and
+      the time is the host's to pass (`at`), as the browser's double click
+      already is.
 
 ## Unverified
 
