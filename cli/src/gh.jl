@@ -1,10 +1,11 @@
-# The GraphQL half of the fetch.
+# GitHub, over HTTP.jl: the GraphQL lanes, and the one request everything
+# else here - REST reads and writes alike - goes through.
 #
-# `gh api graphql --input -` rather than a Julia HTTP client on purpose:
-# GitHub.jl exports no GraphQL and no search (checked: 151 exports, none of
-# them either), and the value here is not the transport, it is `gh`'s already
-# working credentials. The REST half genuinely does use GitHub.jl - see
-# events.jl.
+# One client, and not `gh` or GitHub.jl, because a subprocess per request does
+# not trim and neither does MbedTLS, and because GitHub.jl has no GraphQL - so
+# there used to be two of everything: two transports, two retry policies, two
+# ways a request failed. What `gh` was kept for was its credentials, and those
+# are still asked of it: `gh auth token` is the last place `token` looks.
 
 """A lane could not be fetched. Fatal for the lanes; a by-url fetch that fails
 keeps the rows it was refreshing as they were."""
@@ -12,6 +13,175 @@ struct FetchError <: Exception
     msg::String
 end
 Base.showerror(io::IO, e::FetchError) = print(io, e.msg)
+
+"""A request GitHub refused or never answered, as one line: `HTTP 403: …`
+with GitHub's own `message`, or the transport's error. Callers that can
+carry on without the answer catch this one and nothing else."""
+struct ApiError <: Exception
+    msg::String
+end
+Base.showerror(io::IO, e::ApiError) = print(io, e.msg)
+
+"Overridable so the source order can be tested without a real sandbox."
+const TOKEN_FILE = Ref("/run/claudebox-github/token")
+
+"`gh auth token`'s answer, once had: it is a subprocess, and the rest are reads."
+const GH_TOKEN = Ref("")
+
+"""
+    token() -> (token, source)
+
+Find a GitHub token, in order of decreasing authority.
+
+The sandbox host keeps `TOKEN_FILE` refreshed, so it beats the environment,
+which can hold a stale copy of an expired token. `gh auth token` comes last but
+matters most off the sandbox: there `gh` keeps its credential in its own config
+or the system keyring and exports nothing, so `gh auth status` succeeds while
+`GH_TOKEN` is unset - which looked like a broken tool rather than a missing
+lookup.
+
+Asked on every request rather than once a process, because the file is
+refreshed under a browser that stays open for days; only `gh`'s answer is
+kept, since asking it is a spawn. `gh` is looked for before it is run, for the
+reason `hermetic` empties `PATH`: a failed spawn leaves handles behind.
+"""
+function token()
+    f = TOKEN_FILE[]
+    if isfile(f)
+        t = strip(read(f, String))
+        isempty(t) || return (String(t), f)
+    end
+    for v in ("GH_TOKEN", "GITHUB_TOKEN")
+        t = strip(get(ENV, v, ""))
+        isempty(t) || return (String(t), "\$$v")
+    end
+    if isempty(GH_TOKEN[]) && Sys.which("gh") !== nothing
+        GH_TOKEN[] = try
+            String(strip(read(`gh auth token`, String)))
+        catch
+            ""
+        end
+    end
+    isempty(GH_TOKEN[]) || return (GH_TOKEN[], "gh auth token")
+    throw(ApiError("no GitHub token. Tried $f, \$GH_TOKEN, \$GITHUB_TOKEN and " *
+                   "`gh auth token`. Run `gh auth login`, or set GH_TOKEN."))
+end
+
+const API = "https://api.github.com"
+
+"A path segment or a query value, percent-encoded: a label can hold spaces and colons."
+uri_escape(s::AbstractString) =
+    join(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~" ?
+         string(c) : join(string("%", uppercase(string(b, base = 16, pad = 2)))
+                          for b in codeunits(string(c)))
+         for c in String(s))
+
+"""
+    github(method, path; params, body, accept, tok) -> (rc, text, err, date)
+
+One request to GitHub, which is every request this program makes of it.
+`path` is under `API`, or a whole url GitHub handed back. `params` is the
+query string, `body` is sent as JSON - a string as it is, being JSON already - and `tok` is the token when it is not
+`token()`'s - see `Events.pat`.
+
+Answers rather than throws, in the shape `gh` answered in, because what
+callers do with a failure differs: `rc` is `0` for a 2xx, the status for any
+other, and `1` when there was no response - no token, or the transport's
+error - and `err` then says why in a line, GitHub's `message` included.
+`date` is the response's `Date` header, `""` without one.
+
+No retries and no status exceptions from HTTP.jl: the one retry policy is
+`retry_wait`'s, applied by `retrying`. The default protocol, which is HTTP/2
+by ALPN - `protocol = :h1` hangs in a trimmed binary (TODO, *Upstream*).
+"""
+function github(method::AbstractString, path::AbstractString;
+                params = nothing, body = nothing,
+                accept::AbstractString = "application/vnd.github+json",
+                tok::Union{Nothing,AbstractString} = nothing)
+    t = if tok === nothing
+        try
+            token()[1]
+        catch e
+            e isa ApiError || rethrow()
+            return (1, "", e.msg, "")
+        end
+    else
+        String(tok)
+    end
+    url = startswith(path, "https://") ? String(path) : string(API, path)
+    if params !== nothing && !isempty(params)
+        url = string(url, occursin('?', url) ? "&" : "?",
+                     join((string(uri_escape(string(k)), "=", uri_escape(string(v)))
+                           for (k, v) in params), "&"))
+    end
+    hdrs = ["Authorization" => "Bearer $t", "Accept" => String(accept),
+            "User-Agent" => "worklog", "X-GitHub-Api-Version" => "2022-11-28"]
+    body === nothing || push!(hdrs, "Content-Type" => "application/json")
+    r = try
+        HTTP.request(String(method), url, hdrs,
+                     body === nothing ? nothing : body isa AbstractString ? String(body) : json_dumps(body);
+                     status_exception = false, retry = false, cookies = false)
+    catch e
+        e isa InterruptException && rethrow()
+        return (1, "", first(sprint(showerror, e), 300), "")
+    end
+    text = String(r.body)
+    date = String(HTTP.header(r, "Date", ""))
+    200 <= r.status < 300 && return (0, text, "", date)
+    msg = try
+        jstr(JSON.parse(text), :message, "")
+    catch
+        ""
+    end
+    (Int(r.status), text,
+     string("HTTP ", r.status, ": ", first(isempty(msg) ? strip(text) : msg, 300)), date)
+end
+
+"""
+    retrying(f) -> (rc, text, err, …)
+
+`f()` again, while what it failed with is worth another try: `retry_wait`
+says so, and how long. `f` answers as `github` does. For reads only - a POST
+that failed after GitHub acted on it would act twice.
+"""
+function retrying(f)
+    for attempt in 0:6
+        res = f()
+        res[1] == 0 && return res
+        err = first(isempty(res[3]) ? res[2] : res[3], 200)
+        w = attempt == 6 ? nothing : retry_wait(err, attempt)
+        w === nothing && return res
+        # Said before the wait and not after it. On the 5xx schedule that
+        # is a nicety; on the other one the wait is minutes, and a refresh
+        # that goes silent for four of them looks wedged.
+        @printf(report(), "    retry %d in %ds after: %s\n",
+                attempt + 1, round(Int, w), strip(err))
+        sleep(w)
+    end
+    error("unreachable")
+end
+
+"""
+    rest(method, path; params, body, accept, tok) -> (value, date)
+
+A REST request that has to have succeeded: the parsed JSON - or the text,
+for an `accept` that is not JSON - and the `Date` header, or an `ApiError`.
+A GET is retried as the lanes' pages are; a write is sent once.
+"""
+function rest(method::AbstractString, path::AbstractString; params = nothing, body = nothing,
+              accept::AbstractString = "application/vnd.github+json",
+              tok::Union{Nothing,AbstractString} = nothing)
+    ask() = github(method, path; params = params, body = body, accept = accept, tok = tok)
+    rc, text, err, date = method == "GET" ? retrying(ask) : ask()
+    rc == 0 || throw(ApiError(err))
+    v = !endswith(accept, "json") ? text : isempty(strip(text)) ? nothing : JSON.parse(text)
+    (v, date)
+end
+
+"""`POST /graphql` with a JSON body already made, answering as `github`
+does less the date: the one transport under `search` and `gh_graphql`, and
+the argument a test hands `search` in its place."""
+graphql_run(body::AbstractString) = github("POST", "/graphql"; body = body)[1:3]
 
 # **`mergeable` is not asked for, anywhere.** GitHub computes it lazily, and
 # asking is what schedules the computation - measured on the `mine` lane, a page
@@ -159,7 +329,7 @@ function fetch_url_map(urls; per::Int = 40)
                     "    ... on Issue {", ISSUE_FIELDS, "    }\n  }\n")
              for (i, u) in enumerate(us)]
     q = string("query {\n  rateLimit { cost remaining }\n", join(parts), "}\n")
-    rc, o, e = gh_run(["api", "graphql", "--input", "-"], json_dumps(["query" => q]))
+    rc, o, e = retrying(() -> graphql_run(json_dumps(["query" => q])))
     rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " *
                                 first(isempty(e) ? o : e, 300)))
     d = JSON.parse(o)
@@ -196,46 +366,16 @@ function fetch_url(url::AbstractString)
     ns[1]
 end
 
-"""Run `gh` with `input` on stdin, capturing both streams instead of raising.
-
-`ignorestatus` covers a `gh` that runs and fails; the `Sys.which` in front of it
-covers a `gh` that is not there to run, which is neither the same thing nor - on
-this path - merely a nicer error message.
-
-An `IOBuffer` on `stdin` is not handed to the child: `Base.setup_stdio` makes a
-pipe and starts a task to pour the buffer into it, and `run` waits for that task
-only through the `Process` it gets back. When the spawn *fails* there is no
-`Process`, so the throw leaves the writer task and its pipe behind with nothing
-holding a handle - and the process handle libuv already had the forked pid in
-goes into an asynchronous close beside them. Nothing this program owns can wait
-for either, which is exactly what `INFLIGHT` and `drain_fetches!` cannot help
-with, and it is why precompiling `WorklogPrecompile` - which takes `PATH` away
-on purpose - would sometimes end in "Waiting for background task / IO / timer to
-finish: pipe ... process ...". Looking first means the spawn is never attempted,
-so there is nothing left over to wait for.
-
-127 is what a shell says for a command it could not find, and the callers here
-all read a non-zero code as a failed request and the captured stderr as the
-reason - so this reports itself the same way a refused request does.
-"""
-function gh_run(args::Vector{String}, input::AbstractString = "")
-    Sys.which("gh") === nothing && return (127, "", "gh is not on PATH")
-    out, err = IOBuffer(), IOBuffer()
-    p = run(pipeline(ignorestatus(Cmd(["gh"; args]));
-                     stdin = IOBuffer(input), stdout = out, stderr = err))::Base.Process
-    (p.exitcode, String(take!(out)), String(take!(err)))
-end
-
 """One GraphQL document, with variables. Returns `data`, or throws.
 
-The writes in `events.jl` are REST because GitHub.jl speaks REST, but a pending
-review is not reachable that way: appending a thread to one and submitting it
-are mutations and nothing else. So they come back through here, which is the
-same `gh api graphql` the lanes already run on and the same credentials.
+What REST cannot reach comes through here: a pending review - appending a
+thread to one and submitting it are mutations and nothing else - the draft
+flag, the checks. Not retried: a mutation that failed after GitHub acted on it
+would act twice.
 """
 function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
     body = json_dumps(["query" => String(query), "variables" => vars])
-    rc, out, err = gh_run(["api", "graphql", "--input", "-"], body)
+    rc, out, err = graphql_run(body)
     rc == 0 || throw(FetchError(first(isempty(err) ? out : err, 300)))
     d = JSON.parse(out)
     errs = jlist(d, :errors)
@@ -276,8 +416,8 @@ end
 """What a page failure looks like when the endpoint, not the request, is at
 fault.
 
-`unexpected end of JSON input` is `gh` saying the body stopped early, which is a
-truncated response and not something a different query would fix - the lane it
+`unexpected end of JSON input` is what `gh`, which these went through until
+2026-09, said when the body stopped early, which is a truncated response and not something a different query would fix - the lane it
 kept failing on (`commented_pr`, ~400 results) succeeded on its own a minute
 later with the same string. It was invisible until the failure line stopped
 spending its width re-printing the query: the row said `unexpected ` and then
@@ -321,7 +461,7 @@ page of nothing - null nodes, or empty with a next page - ends the walk
 with what it has rather than asking again forever.
 """
 function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUERY,
-                run = gh_run)
+                run = graphql_run)
     out = Any[]
     seen = Set{String}()
     # Refs, since the closures below add to them: a captured variable that is
@@ -336,27 +476,12 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         spent_pages[] += 1
         body = json_dumps(["query" => query,
                            "variables" => ["q" => ask, "cursor" => cursor]])
-        stdout_ = ""
         # Long paginations reliably hit transient 5xx from the GraphQL
         # endpoint, and a whole refresh is enough requests in a burst to be
         # told so. Retry the page rather than losing the refresh.
-        for attempt in 0:6
-            rc, o, e = run(["api", "graphql", "--input", "-"], body)
-            if rc == 0
-                stdout_ = o
-                break
-            end
-            err = first(isempty(e) ? o : e, 200)
-            wait_ = attempt == 6 ? nothing : retry_wait(err, attempt)
-            wait_ === nothing &&
-                throw(FetchError("GraphQL failed for $(repr(q)): $err"))
-            # Said before the wait and not after it. On the 5xx schedule that
-            # is a nicety; on the other one the wait is minutes, and a refresh
-            # that goes silent for four of them looks wedged.
-            @printf(report(), "    retry %d in %ds after: %s\n",
-                    attempt + 1, round(Int, wait_), strip(err))
-            sleep(wait_)
-        end
+        rc, stdout_, e = retrying(() -> run(body))
+        rc == 0 || throw(FetchError("GraphQL failed for $(repr(q)): " *
+                                    first(isempty(e) ? stdout_ : e, 200)))
         d = JSON.parse(stdout_)
         errs = jlist(d, :errors)
         isempty(errs) ||

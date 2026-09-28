@@ -23,7 +23,7 @@ somebody asked on it was never seen. Facts do not compete.
 | file | owner | rule |
 |---|---|---|
 | `config.toml`, `themes/*.toml` | you | read, never written. The shared half of the config: every key with its default, naming nobody - the lanes say `@me` |
-| `data/config.toml` | you | your half, read on top of the shared one: login, theme, the repos you poll and pin. Written **once**, from `config.user.toml`, by the first `wl` that finds none (`seed_config!`), with `login` filled from `gh`; never again. The merge is two levels: a table merges key by key, anything under a key replaces whole. Tracked, in `data/`'s own repository |
+| `data/config.toml` | you | your half, read on top of the shared one: login, theme, the repos you poll and pin. Written **once**, from `config.user.toml`, by the first `wl` that finds none (`seed_config!`), with `login` filled from `/user`; never again. The merge is two levels: a table merges key by key, anything under a key replaces whole. Tracked, in `data/`'s own repository |
 | `data/local.toml` | you and the program | **never rewritten.** Every write goes through a line-based editor (`state.jl`) that changes the keys it names inside the block it names and leaves every other line byte-identical. Tracked, in `data/`'s own repository. One kind of block the poll writes whole: a notice, `["notice:<id>"]`, which dismissal removes whole (Marks) |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Must stay safe to delete: nothing that cannot be rebuilt from GitHub goes in it |
 | `data/cache/` | the browser | per-item reads with a TTL |
@@ -644,8 +644,8 @@ start without a terminal, which is before there is a frame.
 
 | | |
 |---|---|
-| `cli/src/gh.jl` | the GraphQL lanes, shelled through `gh api graphql` (GitHub.jl has neither GraphQL nor search) |
-| `cli/src/events.jl` | `Events`: the clocks, the by-url fetch, the token lookup |
+| `cli/src/gh.jl` | `github`, the one request to GitHub, over HTTP.jl; the token lookup; the GraphQL lanes |
+| `cli/src/events.jl` | `Events`: the clocks, the by-url fetch, the writes |
 | `cli/src/refresh.jl` | normalize, the wake table, the tags, the snapshot diff |
 | `cli/src/cli.jl` | the `wl <command>` surface and `USAGE` |
 | `cli/src/ui.jl` | `Item`, and the adopted branches and the notices synthesized from `local.toml` |
@@ -688,9 +688,9 @@ somebody adding a key; `drain_fetches!` at the end is the other half.
 `cli/test/aqua.jl` builds the image and fails, naming the handles, where a
 build would wait; Aqua's own `test_persistent_tasks` cannot, since loading
 the wrapper runs none of its workload. A spawn
-with a buffer on stdin must look for its binary first (`gh_run`), or the
-failed spawn leaves the writer task behind. **Nor reach the network**:
-GitHub.jl finds a token without `gh`, so `hermetic` takes the token away too.
+must look for its binary first (`token`'s `gh auth token`), or the failed
+spawn leaves handles behind. **Nor reach the network**: `token()` finds one
+without `gh`, so `hermetic` takes the token away too.
 `PrecompileTools` is kept: the macro is worth 0.6s a launch over a bare `let`,
 and Base has no equivalent.
 
@@ -759,7 +759,7 @@ No TTY, so the UI is tested by construction:
 - `--project=cli`, never the wrapper. `latency.jl` and `aqua.jl` build the
   image and spawn processes, and are deliberately not in the suite.
 - What none of this reaches - the terminal's own bytes and title, a resize,
-  the clipboard, a pane through a reconnect, `gh` against GitHub - is
+  the clipboard, a pane through a reconnect, requests against GitHub - is
   `cli/test/MANUAL.md`: steps, what passing looks like, and when each last
   did. A TODO item under *Unverified* moves there once it has been run.
 
@@ -832,7 +832,7 @@ Do not simplify any of these away.
     is pinned with `commitOID` to the head the checkout diffed to;
     `addPullRequestReviewThread` has no such field and inherits the draft's,
     so a thread numbered against another commit is refused, and the draft is
-    sent first. A diff gh served names no commit and takes the default.
+    sent first. A diff GitHub served names no commit and takes the default.
 16. `/repos/o/r/issues/N/comments` is oldest first and takes no `sort` or
     `direction` - those are `/repos/o/r/issues/comments`'s - so
     `per_page=1&direction=desc` answers with the *first* comment, silently.
@@ -1175,10 +1175,11 @@ Each of the following returns success and the wrong answer:
   `-c` without `-i` reads no rc *and* has `expand_aliases` off; `exec claude`
   looks up `exec`. Reading the alias is the point - a copy in `config.toml`
   would drift.
-- `gh_run` calls `Sys.which` before spawning: a failed spawn with an
-  `IOBuffer` on stdin leaves a pipe with an orphaned writer and a process
-  handle in async close that nothing owns, which is what hung precompilation.
-  `robustness.jl` counts libuv handles across the call.
+- `token` calls `Sys.which` before it runs `gh auth token`: a failed spawn
+  leaves a process handle in async close that nothing owns - and, with an
+  `IOBuffer` on stdin, as the lanes' `gh api graphql` had, a pipe with an
+  orphaned writer - which is what hung precompilation. `robustness.jl`
+  counts libuv handles across a request with no token and no `gh`.
 - Every git call runs under `LC_ALL=C`: `%(upstream:track)` is translated,
   and parses as no divergence in a translating locale.
 - `bin/wl` ignores SIGHUP in the shell, because an ignored disposition is the
@@ -1233,6 +1234,17 @@ Each of the following returns success and the wrong answer:
 
 ## Decisions not to re-litigate
 
+- **One client for GitHub, HTTP.jl** (2026-09-28). Every request - the
+  lanes' GraphQL, the poll's REST, the writes, the diff - is `github` in
+  `gh.jl`, which answers `(rc, text, err, date)` and never throws for a
+  status. Not `gh api`: a subprocess per request, and a subprocess does not
+  trim. Not GitHub.jl: no GraphQL, so it was always a second transport, and
+  it brings MbedTLS, whose callbacks do not trim. Not Downloads.jl: its
+  libcurl glue does not trim. HTTP.jl's own retries are off - `retrying`
+  over `retry_wait` is the one policy, for reads only - and the protocol is
+  its default, since `:h1` hangs trimmed (TODO, *Upstream*). `gh` stays for
+  two things: `gh auth token`, the last place `token` looks, since gh may
+  hold the token only in the keyring; and `gh pr checkout`, which is git.
 - **No sweep heuristic.** "Moved recently" is not a hint for what moves next;
   the bounded set re-asked whole is the open work itself.
 - **No source axis** (direct · participating · watching). Those are GitHub's
@@ -1258,20 +1270,19 @@ Each of the following returns success and the wrong answer:
   tmux does for a terminal, so the child gets no report through us. A
   real client attached (`^]a`) reports it itself.
 - **`p` uses a checkout**; there is no endpoint.
-- **`d` uses the checkout too, when one is pinned, and gh without.** Both
+- **`d` uses the checkout too, when one is pinned, and GitHub without.** Both
   ends are known - the head and where the base branch was, `headRefOid`
   and `baseRefOid` off the lanes - so the diff is `git diff` from their
   merge base, computed each time: two shas the checkout has are
   milliseconds and never stale, and there is nothing to key a cache by.
-  `gh pr diff` by number was a clock, fresh for two minutes whatever was
-  pushed inside them and a request every two minutes after; gh does no
-  caching of its own. A sha the checkout lacks is fetched once. Without a
+  GitHub's diff by number was a clock, fresh for two minutes whatever was
+  pushed inside them and a request every two minutes after. A sha the checkout lacks is fetched once. Without a
   base sha (an old record) the base *branch* answers, and must be fetched
   every time: a copy older than the fork point puts the base's own commits
   in the diff, and nothing local can tell that copy from a branch made off
   the current tip - both have the base as an ancestor of the head - so when
   the fetch fails and the base is an ancestor the checkout declines, since
-  gh's copy is the better answer than a wrong one.
+  GitHub's copy is the better answer than a wrong one.
 - **`^u` kills to the start of the line** (readline), not the whole line.
 - **The mouse is owned**, `m` gives it back.
 - **`Term.jl/` beside this checkout is ignored, not a submodule**; Term comes

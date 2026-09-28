@@ -1223,8 +1223,7 @@ function head_sha(it::Item)::String
     v = hit === nothing ? nothing : hit[1]
     v isa String && return v
     out = try
-        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefOid -q .headRefOid`,
-                   String))
+        jstr(jobj(rest("GET", "/repos/$(it.repo)/pulls/$(it.number)")[1], :head), :sha, "")
     catch
         ""
     end

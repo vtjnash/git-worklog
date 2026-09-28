@@ -10,8 +10,9 @@ index of the rest:
 
   * `theme.jl`   every colour the program prints, and the file under `themes/`
                  that `config.toml` names as the one to read them from
-  * `gh.jl`      the GraphQL search lanes, over `gh api graphql`
-  * `events.jl`  the activity poll, over GitHub.jl's REST
+  * `gh.jl`      the one request to GitHub, over HTTP.jl, and the GraphQL
+                 search lanes on it
+  * `events.jl`  the activity poll, and the writes, over its REST
   * `refresh.jl` the facts the tags are made of, the wake table, and the
                  snapshot diff
   * `marks.jl`   what you have done to an item: seen, touched, snoozed, drafted
@@ -49,6 +50,7 @@ module Worklog
 using Dates, Printf, SHA, Sockets, TOML
 import FileWatching
 import JSON
+import HTTP
 using OrderedCollections
 using TermIFrame
 # By name, so the pane can add the one method that knows where it is drawn.

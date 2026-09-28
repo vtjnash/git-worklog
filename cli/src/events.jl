@@ -12,72 +12,22 @@
 # item touched in the window, with its `updated_at` and comment count already in
 # the payload. Comment bodies are fetched only when you ask to read one.
 #
-# This is the one half of the fetch that is a plain REST call, so it uses
-# GitHub.jl rather than shelling to `gh`. It deliberately does NOT use
-# `GitHub.issues`, which pages by following Link headers - see `api_paged`.
+# This is the half of the fetch that is plain REST, through `rest` in gh.jl.
+# It pages by `page=` and never by following Link headers - see `api_paged`.
 module Events
 
 # cache.jl is included into the parent before this file.
 import ..cache_get, ..cache_put, ..cache_drop
-import ..gh_graphql
+import ..gh_graphql, ..rest, ..token, ..ApiError, ..TOKEN_FILE, ..GH_TOKEN, ..uri_escape
 
 using Dates, Printf, OrderedCollections
 import JSON
-import GitHub
 
 using ..Worklog: ROOT, datapath, stamp, ts, json_dumps, write_atomic
 # The seen bit itself is the corpus's, not the poll's - see `marks.jl`.
 using ..Worklog: load_done, mark_unread, nz, report, warning
 using ..Worklog: jstr, jint, jbool, jobj, jlist, jnodes, jpath, jdict, jstrs, jfloat, asdict, anylist
 import ..Worklog
-
-struct ApiError <: Exception
-    msg::String
-end
-Base.showerror(io::IO, e::ApiError) = print(io, e.msg)
-
-const _AUTH = Ref{Any}(nothing)
-
-"Overridable so the source order can be tested without a real sandbox."
-const TOKEN_FILE = Ref("/run/claudebox-github/token")
-
-"""
-    token() -> (token, source)
-
-Find a GitHub token, in order of decreasing authority.
-
-The sandbox host keeps `TOKEN_FILE` refreshed, so it beats the environment,
-which can hold a stale copy of an expired token. `gh auth token` comes last but
-matters most off the sandbox: there `gh` keeps its credential in its own config
-or the system keyring and exports nothing, so `gh auth status` succeeds while
-`GH_TOKEN` is unset - which looked like a broken tool rather than a missing
-lookup.
-"""
-function token()
-    f = TOKEN_FILE[]
-    if isfile(f)
-        t = strip(read(f, String))
-        isempty(t) || return (String(t), f)
-    end
-    for v in ("GH_TOKEN", "GITHUB_TOKEN")
-        t = strip(get(ENV, v, ""))
-        isempty(t) || return (String(t), "\$$v")
-    end
-    t = try
-        strip(read(`gh auth token`, String))
-    catch
-        ""
-    end
-    isempty(t) || return (String(t), "gh auth token")
-    throw(ApiError("no GitHub token. Tried $f, \$GH_TOKEN, \$GITHUB_TOKEN and " *
-                   "`gh auth token`. Run `gh auth login`, or set GH_TOKEN."))
-end
-
-function auth()
-    _AUTH[] === nothing || return _AUTH[]
-    tok, _ = token()
-    _AUTH[] = GitHub.authenticate(tok)
-end
 
 "Overridable for the same reason `TOKEN_FILE` is. Empty means `data/notifications.token`."
 const PAT_FILE = Ref("")
@@ -91,7 +41,7 @@ than denied by it. `ghp_`, `gho_` and `github_pat_` are a person's."""
 app_token(t::AbstractString) = startswith(t, "ghu_") || startswith(t, "ghs_")
 
 """
-    pat() -> (auth, source), or nothing
+    pat() -> (token, source), or nothing
 
 The token the notifications source polls with, and where it came from, or
 `nothing` when there is none - in which case that source is skipped and every
@@ -123,9 +73,9 @@ function pat()
         t, src = String(strip(read(f, String))), f
         isempty(t) && return nothing
     end
-    # `OAuth2` outright rather than `authenticate`, which asks `/user` to check
-    # the token: a bad one is reported by the poll, as `FAILED: 401`.
-    _PAT[] = (GitHub.OAuth2(t), src)
+    # Not checked against `/user` here: a bad one is reported by the poll, as
+    # `FAILED: HTTP 401`.
+    _PAT[] = (t, src)
 end
 
 """
@@ -137,21 +87,19 @@ as GitHub would write it, for the stamps that will be compared against ones
 GitHub wrote. See `utcnow` for which those are.
 """
 function server_now()
-    r = GitHub.gh_get(GitHub.DEFAULT_API, "/rate_limit"; auth = auth())
-    # GitHub.jl's retries answer `nothing` once they give up, not an error.
-    r === nothing && throw(ApiError("no answer from /rate_limit"))
-    d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
+    _, date = rest("GET", "/rate_limit")
+    d = Worklog.http_date(date)
     d === nothing && throw(ApiError("no Date header on /rate_limit"))
     d
 end
 
 """One request, one page. Always returns a vector, as the Python `_get` did.
 
-`auth` is an argument so the one endpoint the sandbox token cannot reach can be
-asked with the one that can - see `pat` - rather than through a second copy of
-this.
+`auth` is the token when it is not `token()`'s, so the one endpoint the
+sandbox token cannot reach can be asked with the one that can - see `pat` -
+rather than through a second copy of this.
 """
-api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth()) =
+api_get(endpoint::AbstractString; params = Dict{String,Any}(), auth = nothing) =
     api_get_dated(endpoint; params = params, auth = auth)[1]
 
 """
@@ -170,20 +118,14 @@ everything the page shows was already true. It used to be a `/rate_limit`
 request made beforehand for its header alone, one per poll; this is the same
 bound off the page itself, tighter by the request's own length.
 """
-function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), auth = auth())
+function api_get_dated(endpoint::AbstractString; params = Dict{String,Any}(), auth = nothing)
     # The monotonic clock: a length of time, not a time of day, and the wall
     # clock is not one - NTP steps it, a resumed VM lands wherever the host
     # says - so measured on the clock that cannot run backwards.
     t0 = time_ns()
-    r = try
-        GitHub.gh_get(GitHub.DEFAULT_API, endpoint; auth = auth, params = params)
-    catch e
-        throw(ApiError(first(sprint(showerror, e), 200)))
-    end
-    r === nothing && throw(ApiError("no answer from $endpoint"))
+    v, date = rest("GET", endpoint; params = params, tok = auth)
     elapsed = (time_ns() - t0) / 1e9
-    v = GitHub.JSON.parse(GitHub.http_payload(r, String))
-    d = Worklog.http_date(GitHub.HTTP.header(r, "Date", nothing))
+    d = Worklog.http_date(date)
     started = d === nothing ? nothing :
               d - Millisecond(round(Int, 1000 * elapsed)) - Second(1)
     (v isa Vector{Any} ? v : v isa AbstractVector ? anylist(v) : Any[v], started)
@@ -191,7 +133,7 @@ end
 
 """Page explicitly rather than by following Link headers.
 
-`GitHub.issues` (and `gh api --paginate`) walk `Link: rel="next"` over a list
+GitHub.jl's `issues` (and `gh api --paginate`) walk `Link: rel="next"` over a list
 that is being reordered underneath them. With the default descending
 `sort=updated`, an item touched mid-walk jumps to page 1 and shifts a whole page
 past the cursor, so entries are silently dropped: the same query returned 168
@@ -200,11 +142,11 @@ items on one attempt and 612 on the next. Ascending order is stable for a
 duplicate but never skip - and explicit paging plus a short-page stop makes the
 walk deterministic. Dedupe by id to absorb the duplicates that ordering allows.
 
-That is why this reaches for `gh_get_json` (a single request) instead of the
-library's own paginating helpers: correctness beats using the convenience API.
+That is why this asks one page at a time rather than following the links:
+correctness beats the convenience.
 """
 function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
-                   per_page::Int = 100, max_pages::Int = 60, auth = auth(),
+                   per_page::Int = 100, max_pages::Int = 60, auth = nothing,
                    started = Ref{Any}(nothing))
     out, seen = Any[], Set{Any}()
     for page in 1:max_pages
@@ -1308,7 +1250,7 @@ function poll(cfg, login, at::DateTime; verbose::Bool = true)
     cfge = jdict(cfg, :events)
     srcs = sources(cfg, login; verbose = verbose)
     isempty(srcs) && return OrderedDict{String,Any}[]
-    auth()          # Fail once, loudly. Without a token every repo fails the
+    token()         # Fail once, loudly. Without a token every repo fails the
                     # same way and the result degrades into a silently empty
                     # unread list rather than an error.
     items, got = sync!(srcs, at; login = login,
@@ -1594,8 +1536,7 @@ end
 function post_comment(url::AbstractString, body::AbstractString)
     r, n = _repo_num(url)
     _write() do
-        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/issues/$n/comments";
-                            auth = auth(), params = Dict("body" => String(body)))
+        rest("POST", "/repos/$r/issues/$n/comments"; body = Dict("body" => String(body)))
         _invalidate(url)
     end
 end
@@ -1769,9 +1710,8 @@ end
 function reply_review_comment(url::AbstractString, comment_id, body::AbstractString)
     r, n = _repo_num(url)
     _write() do
-        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/comments";
-                            auth = auth(),
-                            params = Dict("body" => String(body), "in_reply_to" => comment_id))
+        rest("POST", "/repos/$r/pulls/$n/comments";
+             body = Dict("body" => String(body), "in_reply_to" => comment_id))
         _invalidate(url)
     end
 end
@@ -1785,8 +1725,7 @@ function submit_review(url::AbstractString, event::AbstractString, body::Abstrac
     _write() do
         p = Dict{String,Any}("event" => String(event))
         isempty(strip(body)) || (p["body"] = String(body))
-        GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/reviews";
-                            auth = auth(), params = p)
+        rest("POST", "/repos/$r/pulls/$n/reviews"; body = p)
         _invalidate(url)
     end
 end
@@ -1796,22 +1735,14 @@ function toggle_label(url::AbstractString, label::AbstractString, add::Bool)
     r, n = _repo_num(url)
     _write() do
         if add
-            GitHub.gh_post_json(GitHub.DEFAULT_API, "/repos/$r/issues/$n/labels";
-                                auth = auth(), params = Dict("labels" => [String(label)]))
+            rest("POST", "/repos/$r/issues/$n/labels";
+                 body = Dict("labels" => [String(label)]))
         else
-            GitHub.gh_delete(GitHub.DEFAULT_API,
-                             "/repos/$r/issues/$n/labels/$(HTTP_escape(label))";
-                             auth = auth())
+            rest("DELETE", "/repos/$r/issues/$n/labels/$(uri_escape(label))")
         end
         _invalidate(url)
     end
 end
-
-"A label can contain spaces and colons, which have to survive the path."
-HTTP_escape(s::AbstractString) =
-    join(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~" ?
-         string(c) : string("%", uppercase(string(UInt8(c), base = 16, pad = 2)))
-         for c in String(s))
 
 """The open milestones of a repository: `(number, title, due)` rows, the due
 date cut to its day or empty. An hour in the cache: the list changes when a
@@ -1835,8 +1766,7 @@ off whichever it is on."""
 function set_milestone(url::AbstractString, number::Union{Nothing,Int})
     r, n = _repo_num(url)
     _write() do
-        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
-                        auth = auth(), params = Dict("milestone" => number))
+        rest("PATCH", "/repos/$r/issues/$n"; body = Dict("milestone" => number))
         _invalidate(url)
     end
 end
@@ -1846,9 +1776,8 @@ same endpoint either way; the verb is the difference."""
 function toggle_assignee(url::AbstractString, who::AbstractString, add::Bool)
     r, n = _repo_num(url)
     _write() do
-        f = add ? GitHub.gh_post_json : GitHub.gh_delete
-        f(GitHub.DEFAULT_API, "/repos/$r/issues/$n/assignees";
-          auth = auth(), params = Dict("assignees" => [String(who)]))
+        rest(add ? "POST" : "DELETE", "/repos/$r/issues/$n/assignees";
+             body = Dict("assignees" => [String(who)]))
         _invalidate(url)
     end
 end
@@ -1857,8 +1786,7 @@ end
 function set_title(url::AbstractString, title::AbstractString)
     r, n = _repo_num(url)
     _write() do
-        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
-                        auth = auth(), params = Dict("title" => String(title)))
+        rest("PATCH", "/repos/$r/issues/$n"; body = Dict("title" => String(title)))
         _invalidate(url)
     end
 end
@@ -1868,8 +1796,7 @@ both kinds, and a pull request closed this way is closed unmerged."""
 function set_open(url::AbstractString, open::Bool)
     r, n = _repo_num(url)
     _write() do
-        GitHub.gh_patch(GitHub.DEFAULT_API, "/repos/$r/issues/$n";
-                        auth = auth(), params = Dict("state" => open ? "open" : "closed"))
+        rest("PATCH", "/repos/$r/issues/$n"; body = Dict("state" => open ? "open" : "closed"))
         _invalidate(url)
     end
 end
@@ -1897,9 +1824,8 @@ and withdrawing does not remove it."""
 function toggle_reviewer(url::AbstractString, who::AbstractString, add::Bool; team::Bool = false)
     r, n = _repo_num(url)
     _write() do
-        f = add ? GitHub.gh_post_json : GitHub.gh_delete
-        f(GitHub.DEFAULT_API, "/repos/$r/pulls/$n/requested_reviewers";
-          auth = auth(), params = Dict((team ? "team_reviewers" : "reviewers") => [String(who)]))
+        rest(add ? "POST" : "DELETE", "/repos/$r/pulls/$n/requested_reviewers";
+             body = Dict((team ? "team_reviewers" : "reviewers") => [String(who)]))
         _invalidate(url)
     end
 end

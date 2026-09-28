@@ -292,7 +292,7 @@ end
 
 Comes off the item, which the search lanes now fill in - so the whole list of
 them is known without a single request, which is what makes a worktree or
-branch list possible at all. The `gh` call is only the fallback for a
+branch list possible at all. The request is only the fallback for a
 `facts.json` written before the field existed; an issue has no branch and a
 network hiccup should not stop a checkout from opening, so every failure is the
 same empty answer.
@@ -301,8 +301,7 @@ function pr_branch(it::Item)
     isempty(it.branch) || return it.branch
     it.is_pr || return ""
     try
-        strip(read(`gh pr view $(it.number) --repo $(it.repo) --json headRefName -q .headRefName`,
-                   String))
+        jstr(jobj(rest("GET", "/repos/$(it.repo)/pulls/$(it.number)")[1], :head), :ref, "")
     catch
         ""
     end

@@ -712,21 +712,14 @@ end
     @test occursin("1 control character in", W.astrip(rd[1].header))
     @test occursin("^[[1mz", rd[2].raw)
 
-    # And gh's refusal is answered by asking again with the flag it names,
-    # through a run that captures stderr - the message is a reason on a failed
-    # node, never a row printed onto the frame.
+    # And GitHub's diff is asked for once, by the pull request's path, and
+    # comes back with its escapes as they are; a failure's message is a reason
+    # on a failed node, never a row printed onto the frame.
     it = W.Item(url = "u", ref = "o/r#1", repo = "o/r", number = 1, title = "t")
-    calls = Vector{String}[]
-    refuse(args) = (push!(calls, args);
-                    "--allow-escape-sequences" in args ? (0, txt, "") :
-                    (1, "", "the diff contains terminal escape sequences; pass " *
-                            "--allow-escape-sequences to output it anyway\n"))
-    @test W.fetch_diff(it; run = refuse) == txt
-    @test length(calls) == 2 && calls[1] == ["pr", "diff", "1", "--repo", "o/r"]
-    @test calls[2] == [calls[1]; "--allow-escape-sequences"]
-    plain(args) = (push!(calls, args); (0, "diff --git a/a b/a\n", ""))
-    empty!(calls)
-    @test W.fetch_diff(it; run = plain) == "diff --git a/a b/a\n" && length(calls) == 1
+    calls = String[]
+    plain(path) = (push!(calls, path); (0, txt, ""))
+    @test W.fetch_diff(it; run = plain) == txt
+    @test calls == ["/repos/o/r/pulls/1"]
     @test_throws W.FetchError W.fetch_diff(it; run = _ -> (1, "", "no pull requests found"))
     failed = W.diff_nodes(it; fresh = true, run = _ -> (1, "", "no pull requests found"))
     @test get(failed[1].meta, "failed", false) && failed[1].raw == "no pull requests found"

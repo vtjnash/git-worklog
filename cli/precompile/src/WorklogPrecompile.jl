@@ -47,14 +47,14 @@ it.
 
 The process half is not hygiene, it is the difference between precompiling and
 hanging. `load_nodes!` and `load_meta!` start a fetch in an `@async` task the
-moment the selection moves to an item they have not loaded - `gh api graphql`
-for the thread and the metadata, `tmux list-panes` for the sessions - and a
-package that leaves live subprocesses behind stops precompilation dead with
+moment the selection moves to an item they have not loaded - a request to
+GitHub for the thread and the metadata, `tmux list-panes` for the sessions -
+and a package that leaves live subprocesses or connections behind stops precompilation dead with
 "waiting for IO to finish". Pinning `st.loaded` was not enough: a single `j`
 moves the selection and leaves the pin behind.
 
-So the binaries are taken away rather than the calls avoided. An empty `PATH`
-finds no `gh`, and `WORKLOG_TMUX` at a path that does not exist makes `mux_bin`
+So the binaries and the token are taken away rather than the calls avoided.
+An empty `PATH` finds no `gh`, and `WORKLOG_TMUX` at a path that does not exist makes `mux_bin`
 answer `nothing` without looking. Every fetch then fails instantly, in the
 ordinary way the program already handles, and there is nothing left running to
 wait for. That is a property of the *environment* rather than of which keys this
@@ -62,20 +62,22 @@ workload happens to press, which is what makes it survive somebody adding a key
 to it.
 
 "Nothing left running" is the half that had to be earned. A `run` that *tries*
-to spawn and fails is not free: `gh_run` fed stdin from an `IOBuffer`, and the
-writer task Base starts for that is reachable only through the `Process` a
-failed spawn never returns - so an empty `PATH` used to leave a live pipe and a
-half-closed process handle behind, and precompilation ended in "Waiting for
-background task / IO / timer to finish" often enough to be noticed. `gh_run`
-looks for `gh` before it spawns now; see its docstring in `gh.jl`.
+to spawn and fails is not free: the lanes' `gh` was fed stdin from an
+`IOBuffer`, and the writer task Base starts for that is reachable only through
+the `Process` a failed spawn never returns - so an empty `PATH` used to leave a
+live pipe and a half-closed process handle behind, and precompilation ended in
+"Waiting for background task / IO / timer to finish" often enough to be
+noticed. Every request is HTTP.jl's now, and the one `gh` left on that path,
+`gh auth token` in `token()`, is looked for before it is run.
 
-An empty `PATH` stops `gh`, not the network. The item pane's own requests -
-`itemmeta`, `fetch_bundle`'s `server_now` - go through GitHub.jl, and `token()`
+An empty `PATH` stops `gh`, not the network. Every request to GitHub - the
+thread, `itemmeta`, `fetch_bundle`'s `server_now` - asks `token()`, which
 finds a token without `gh` whenever the sandbox's token file or `GH_TOKEN` is
 there: the workload could make real requests while the image was built, on
-exactly the machines that have one. So the token is taken away too - the file at a
-path that does not exist, the variables unset, the cached auth dropped - and
-those requests fail on "no GitHub token" before they open a connection.
+exactly the machines that have one. So the token is taken away too - the file
+at a path that does not exist, the variables unset, `gh`'s kept answer
+dropped - and those requests fail on "no GitHub token" before they open a
+connection.
 
 Everything is restored in a `finally`, the `Ref`s to `""` rather than to what
 they held: `""` is what a freshly loaded module has, and the point is that
@@ -91,7 +93,7 @@ function hermetic(f)
         ENV["WORKLOG_TMUX"] = joinpath(d, "no-tmux-here")
         delete!(ENV, "GH_TOKEN"); delete!(ENV, "GITHUB_TOKEN")
         E.TOKEN_FILE[] = E.PAT_FILE[] = joinpath(d, "no-token-here")
-        E._AUTH[] = E._PAT[] = nothing
+        E._PAT[] = nothing; Worklog.GH_TOKEN[] = ""
         Worklog.DATA_DIR[] = d
         Worklog.CACHE_DIR[] = joinpath(d, "cache")
         Worklog.LOCAL[] = joinpath(d, "local.toml")
@@ -105,7 +107,7 @@ function hermetic(f)
             v === nothing ? delete!(ENV, k) : (ENV[k] = v)
         end
         E.TOKEN_FILE[], E.PAT_FILE[] = tokfile, patfile
-        E._AUTH[] = E._PAT[] = nothing
+        E._PAT[] = nothing; Worklog.GH_TOKEN[] = ""
         Worklog.LOGIN[] = ""
         Worklog.DATA_DIR[] = ""
         Worklog.CACHE_DIR[] = ""
@@ -416,7 +418,11 @@ for (f, sig) in (
         (Worklog.Events.event_sources, (Vector{String},)),
         (Core.kwcall, (NamedTuple{(:login, :ttl, :backfill),Tuple{String,Millisecond,Day}},
                        typeof(Worklog.Events.sync!), Vector{Worklog.Events.Source}, DateTime)),
-        (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},Worklog.Events.GitHub.OAuth2}},
+        # `auth` is the token string for the notifications source, and
+        # `nothing` - `token()`'s - for every other.
+        (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},Nothing}},
+                       typeof(Worklog.Events.api_get_dated), String)),
+        (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},String}},
                        typeof(Worklog.Events.api_get_dated), String)),
         (Worklog.readevent, (Base.TTY,)))
     precompile(f, sig) || @warn "worklog: precompile matched nothing" f sig

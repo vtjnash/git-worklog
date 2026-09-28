@@ -291,8 +291,8 @@ end
 # Python's `.get(k)`, which cannot tell a missing key from an explicit null and
 # does not need to: both mean "GitHub did not give us this".
 #
-# An object is a `JSON.Object` - what `JSON.parse`, `GitHub.JSON.parse` and the
-# cache answer - a `Dict` the program built, or a `NamedTuple` default; anything
+# An object is a `JSON.Object` - what `JSON.parse` and the cache
+# answer - a `Dict` the program built, or a `NamedTuple` default; anything
 # else - a null, a scalar, an array where an object was expected - has no
 # fields, rather than a `MethodError` on `get`.
 # One method each, `@nospecialize`, with the concrete containers the program
@@ -511,7 +511,7 @@ Answers whether it did.
 
 A copy and not a `TOML.print`: the template's comments are the manual for its
 keys, and a serialization would drop them. The one edit is `login`, filled
-from `gh api user` when it answers - the same `gh` the lanes go through - and
+from `/user` when it answers - asked with the token the lanes use - and
 left `""` otherwise, which `dispatch` refuses to run with, naming the file.
 Nothing else here is ever written by the program again.
 """
@@ -528,9 +528,9 @@ function seed_config!(; io::IO = stderr, whoami = gh_login)
     true
 end
 
-"Whose token `gh` holds, or `\"\"`."
+"Whose token `token()` finds, or `\"\"`."
 gh_login() = try
-    String(strip(read(`gh api user --jq .login`, String)))
+    String(jstr(rest("GET", "/user")[1], :login, ""))
 catch
     ""
 end

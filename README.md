@@ -47,7 +47,8 @@ them lack is a record of what *you* decided, and the facts a decision needs -
 
 ## Running it
 
-Needs `gh` logged in and `git`. `wl` runs the julia its manifest was
+Needs a GitHub token (see *Authentication*) and `git`; `gh`, logged in, is
+the easy way to have one, and is what `y` checks a pull request out with. `wl` runs the julia its manifest was
 resolved with - under juliaup, `cli/bin/wl` passes the channel itself
 (`1.14-nightly` for a `1.14.0-DEV` manifest, `1.12.6` for `1.12.6`), so it
 must be installed: `juliaup add 1.14-nightly`. `JULIAUP_CHANNEL` overrides
@@ -365,10 +366,11 @@ elsewhere.
 
 ## Authentication
 
-The searches shell out to `gh` and use whatever it is logged in as. The REST
-side looks for a token in `/run/claudebox-github/token`, then `$GH_TOKEN` /
+Every request to GitHub - the searches, the poll, the writes - is made with
+one token, looked for in `/run/claudebox-github/token`, then `$GH_TOKEN` /
 `$GITHUB_TOKEN`, then `gh auth token`, and fails once, naming every place it
-looked.
+looked. `gh` is asked only for the token, so a machine without it needs
+`GH_TOKEN` set, or the token in that file.
 
 `/notifications` needs a *person's* token (`gho_`, `ghp_`) - a GitHub App's
 (`ghu_`, `ghs_`) cannot read it. Off a sandbox, `gh auth token` is a `gho_`

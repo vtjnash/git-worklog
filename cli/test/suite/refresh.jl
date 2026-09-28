@@ -858,7 +858,7 @@ end
     made = vcat([stamp_(0) for _ in 1:50], [stamp_(i) for i in 1:80])   # 130 rows
     urls = ["https://github.com/o/r/issues/$i" for i in 1:130]
     asked = String[]
-    function fake(args, body)
+    function fake(body)
         d = W.JSON.parse(body)
         q = String(d.variables.q)
         push!(asked, q)
@@ -905,7 +905,7 @@ end
     @test length(nodes) == 130 && all(q -> q == q2, asked)
     # A page of nothing usable ends the walk with what it has, on a budget.
     empty!(asked)
-    nulls(args, body) = (0, W.json_dumps(Dict("data" => Dict(
+    nulls(body) = (0, W.json_dumps(Dict("data" => Dict(
         "rateLimit" => Dict("cost" => 1),
         "search" => Dict("issueCount" => 5, "nodes" => [nothing, nothing],
                          "pageInfo" => Dict("hasNextPage" => true, "endCursor" => "2"))))), "")

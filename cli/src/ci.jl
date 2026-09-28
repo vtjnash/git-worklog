@@ -36,13 +36,9 @@ function check_contexts(repo::AbstractString, number::Integer; ttl = 120.0, keep
       }
     }"""
     out = try
-        # Through `gh_run`, which looks for `gh` before it spawns one: see
-        # there for what a failed spawn with a buffer on stdin leaves behind.
-        rc, txt, err = gh_run(["api", "graphql", "-F", "owner=$owner", "-F", "name=$name",
-                               "-F", "num=$number", "-F", "query=@-"], q)
-        rc == 0 || error(first(isempty(err) ? txt : err, 300))
-        d = JSON.parse(txt)
-        cs = jnodes(jpath(d, :data, :repository, :pullRequest), :commits)
+        d = gh_graphql(q; vars = Dict{String,Any}("owner" => String(owner), "name" => String(name),
+                                                  "num" => Int(number)))
+        cs = jnodes(jpath(d, :repository, :pullRequest), :commits)
         roll = isempty(cs) ? nothing : jpath(first(cs), :commit, :statusCheckRollup)
         roll === nothing ? (state = "NONE", contexts = []) :
             (state = jstr(roll, :state, ""),

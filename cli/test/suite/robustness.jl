@@ -409,26 +409,32 @@ function count_spawn_handles()
 end
 
 @testset "a gh that is not there is looked for, not spawned" begin
-    # A `run` that fails to spawn is not free. `gh_run` feeds stdin from an
-    # `IOBuffer`, and `Base.setup_stdio` answers that with a pipe and a task to
-    # pour the buffer into it - reachable only through the `Process` that a
-    # failed spawn never returns. So an empty `PATH` used to leave a live pipe
-    # with an orphaned writer on it, and a `uv_process_t` already carrying the
-    # pid of the fork whose `exec` failed going into an asynchronous close.
-    # Neither is in `INFLIGHT`, so `drain_fetches!` could not wait for them, and
-    # precompiling `WorklogPrecompile` - which empties `PATH` on purpose - ended
-    # in "Waiting for background task / IO / timer to finish" naming both.
-    #
-    # Looking first is the whole fix, and this is what it has to keep true.
+    # A `run` that fails to spawn is not free: it leaves handles behind - a
+    # buffer on stdin holds a pipe and its writer task, and the process handle
+    # of the fork whose `exec` failed goes into an asynchronous close - and
+    # nothing is in `INFLIGHT` for `drain_fetches!` to wait on. Precompiling
+    # `WorklogPrecompile`, which empties `PATH` on purpose, ended in "Waiting
+    # for background task / IO / timer to finish" naming them, when the lanes
+    # went through `gh`. They go through HTTP.jl now, and `gh` is only the
+    # last place `token` looks; it is looked for there before it is run, and
+    # this is what that has to keep true: no token anywhere, no `gh`, and a
+    # request answers why without spawning anything.
     before = count_spawn_handles()
-    withenv("PATH" => "") do
-        rc, out, err = W.gh_run(["api", "graphql", "--input", "-"], "{\"query\":\"x\"}")
-        # 127 is what a shell says for a command it could not find, and every
-        # caller reads a non-zero code as a failed request and stderr as why.
-        @test rc == 127
-        @test isempty(out)
-        @test occursin("gh", err) && occursin("PATH", err)
-        @test W.retry_wait(err, 0) === nothing   # and it is not worth retrying
+    keept, keepg = W.TOKEN_FILE[], W.GH_TOKEN[]
+    W.TOKEN_FILE[] = joinpath(mktempdir(), "no-token-here"); W.GH_TOKEN[] = ""
+    try
+        withenv("PATH" => "", "GH_TOKEN" => nothing, "GITHUB_TOKEN" => nothing) do
+            rc, out, err = W.graphql_run("{\"query\":\"x\"}")
+            # Non-zero with the reason in the third place, as a refused
+            # request answers, and not worth retrying.
+            @test rc != 0
+            @test isempty(out)
+            @test occursin("no GitHub token", err)
+            @test W.retry_wait(err, 0) === nothing
+            @test_throws W.ApiError W.rest("GET", "/user")
+        end
+    finally
+        W.TOKEN_FILE[] = keept; W.GH_TOKEN[] = keepg
     end
     # Immediately, and not after a settle: the point is that nothing was
     # spawned, not that what was spawned tidied itself up. A failed spawn does

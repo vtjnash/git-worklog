@@ -95,10 +95,11 @@ each method.
       `/tmp`, so `ROOT` comes out as `/tmp/`. From the executable's path or
       `WORKLOG_DATA`'s parent instead, with `config.toml`, `themes/` and
       prefetch's `cli/bin/wl` under it.
-- [ ] **GitHub.jl for the REST calls.** 75 errors: `Events.auth` into
+- [x] **GitHub.jl for the REST calls.** 75 errors: `Events.auth` into
       GitHub.jl, JSON and URIs (60), and MbedTLS's own callbacks (15) -
-      GitHub.jl's own dependency; HTTP.jl had none. HTTP.jl 2 trims, so the
-      REST calls and `gh api` both move to it (TODO, *Trim*).
+      GitHub.jl's own dependency; HTTP.jl had none. Done after this was
+      measured: every request is HTTP.jl 2.8's (`github`, `gh.jl`), and
+      GitHub.jl, MbedTLS and `gh_run` are gone. Not re-measured.
 - [ ] **`sort!` with an untyped order.** 42 errors inside `Base.Sort`, from
       `thread` (20), `review_comments` (10), `poll` (6) and `activity_of`:
       a `by`/`lt` over rows typed `Any`. A key read with `jstr` first, or a

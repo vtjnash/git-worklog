@@ -46,7 +46,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       `repository.discussion(number:)`, the number off `subject.url`.
       - The title, who opened it, when, the first lines of the body, how many
         comments; not the comments themselves - `o` is for those.
-      - The query through `gh api graphql`, as the lanes' are, in the same
+      - The query through `gh_graphql`, as the lanes' are, in the same
         task and cache as the item above, which should land first.
 
 ## Unverified
@@ -72,32 +72,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 `juliac --trim=safe` over `wl`: the plan, the counts and how to reproduce
 them are in `TRIM.md`, under "The plan". What it needs from Julia itself is
 under *Upstream* here.
-
-- [ ] **HTTP.jl for GitHub, in place of GitHub.jl and `gh api`.** HTTP.jl 2
-      is already in the manifest (2.6.7, through GitHub.jl), and it trims:
-      a GET and a JSON POST to `api.github.com` with the plain
-      `HTTP.request` are 0 errors under `--trim=safe` on 1.14 and 1.13 (2.8.0,
-      over Reseau's TCP and TLS), and the trimmed binary runs on 1.13 with
-      certificates verified. Downloads.jl does not trim (16 errors, all in
-      its libcurl glue: callbacks through `invokelatest`, `Timer` and
-      `errormonitor` printing to `stderr::IO`); libcurl through `ccall` does,
-      but blocks the thread for each request. Measured 2026-09-28.
-      - Move to it: the GraphQL calls (`gh_run` under the lanes,
-        `fetch_url_map`, `search`, `gh_graphql`, `ci.jl`), `gh_login`'s
-        `gh api user`, the two `gh pr view --json head…` (`head_sha`,
-        `pr_branch`), and every GitHub.jl call in `events.jl`. Then GitHub.jl
-        goes, and MbedTLS with it - its 75 trim errors (`Events.auth` 60,
-        MbedTLS's callbacks 15); HTTP.jl itself had none there.
-      - The default protocol, not `protocol = :h1`, which hangs when trimmed
-        (the *Upstream* item). Keep the retry and backoff in `gh.jl`
-        (`retry_wait`) and set `retry = false`, so there is one policy.
-      - What stays: `gh auth token`, the last place `token()` looks, since
-        gh may hold the token only in the system keyring - without it the
-        token comes from the file or `GH_TOKEN`, which is a setup change to
-        say in the README; and `gh pr checkout`, which runs git and is a
-        subprocess either way.
-      - `gh.jl`'s opening comment and DESIGN's table say why `gh` was chosen
-        (its credentials; GitHub.jl has no GraphQL); both change with this.
 
 ## Upstream
 

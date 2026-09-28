@@ -650,27 +650,22 @@ function mention_by(@nospecialize(c), me::AbstractString)
     string("@", me, " by ", isempty(who) ? "?" : who, isempty(when) ? "" : string(", ", when))
 end
 
-"""The pull request's diff as `gh pr diff` answers it, or a `FetchError`.
+"""The pull request's diff as GitHub answers it, or a `FetchError`.
 
-Through `gh_run` rather than `read`, so gh's stderr is captured as the reason
-and never printed onto the frame - which is where it went, as a row under the
-diff, the one time gh refused one.
-
-That refusal is the diff carrying a terminal escape sequence, which gh will
-not write to a pipe without being told to; told to, it answers the same diff,
-and `inert` in `hunk_nodes` is what keeps the escape off the terminal. Asked
-for on the refusal and not up front: the flag is gh 2.9x, and a gh without it
-prints the diff verbatim and would refuse the flag on every diff.
+The pull request asked for as `application/vnd.github.diff`, which is what
+`gh pr diff` asked for too. `run(path)` answers as `github` does, and its
+reason is a failed node's, never a row printed onto the frame. A diff that
+carries a terminal escape sequence comes back verbatim - gh refused to write
+one to a pipe - and `inert` in `hunk_nodes` is what keeps it off the terminal.
 """
-function fetch_diff(it::Item; run = gh_run)
-    args = ["pr", "diff", string(it.number), "--repo", it.repo]
-    rc, out, err = run(args)
-    if rc != 0 && occursin("--allow-escape-sequences", err)
-        rc, out, err = run([args; "--allow-escape-sequences"])
-    end
+function fetch_diff(it::Item; run = diff_run)
+    rc, out, err = run(string("/repos/", it.repo, "/pulls/", it.number))
     rc == 0 || throw(FetchError(first(strip(isempty(err) ? out : err), 300)))
     out
 end
+
+diff_run(path::AbstractString) =
+    retrying(() -> github("GET", path; accept = "application/vnd.github.diff"))[1:3]
 
 """One node per hunk, not per file.
 
@@ -689,7 +684,7 @@ answer, under its key and its clock, is for an item with no checkout
 pinned, a head the checkout cannot get, or a base it cannot bring up to
 date - and for the `stale` flag, which a local answer has no use for.
 """
-function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
+function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
@@ -701,7 +696,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
     at_head = ""
     txt = try
         repo = repo_path(it.repo)
-        # `head_sha` asks gh for a head the lanes did not supply, which is
+        # `head_sha` asks GitHub for a head the lanes did not supply, which is
         # worth it only where a checkout could use the answer.
         head = repo === nothing ? it.head : head_sha(it)
         local_ = repo === nothing || isempty(head) ? nothing :
@@ -723,7 +718,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = gh_run)
             end
         end
     catch e
-        return [failednode("no diff (not a PR, or gh failed)",
+        return [failednode("no diff (not a PR, or GitHub failed)",
                            first(sprint(showerror, e), 200))]
     end
     ns = hunk_nodes(txt, string(it.url, "/files"); head = at_head)
