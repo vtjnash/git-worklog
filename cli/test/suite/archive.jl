@@ -437,7 +437,7 @@ end
     ctrl = W.Controller(); ctrl.running = true
     row(name, kinds...) = W.WorktreeRow("o/r", "/x/" * name, name, name, false, false,
                                         0, 0, "", false, false, nothing,
-                                        [W.SessionRow(name * string(k), k, false, false)
+                                        [W.SessionRow(name * string(k), k, false, false, "")
                                          for k in kinds])
     rows = [row("idle"), row("shell", :shell), row("note", :note), row("agent", :agent, :note)]
     v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
@@ -650,4 +650,40 @@ end
     finally
         W.LOCAL[] = REPOS_SANDBOX
     end
+end
+
+@testset "a worktree's sessions say what their panes are titled" begin
+    items = W.loaditems()
+    ctrl = W.Controller(); ctrl.running = true
+    ses(k, title) = W.SessionRow(string("wl-", k), k, false, false, title)
+    row(name, ss...) = W.WorktreeRow("o/r", "/x/" * name, name, name, false, false,
+                                     0, 0, "", false, false, nothing, collect(ss))
+    rows = [row("quiet", ses(:shell, "")),
+            row("busy", ses(:agent, "\u2733 Count to forty"), ses(:shell, "me@box: ~/x")),
+            row("cleared", ses(:agent, W.CLEARED_TITLE)),
+            row("last")]
+    v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
+                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0))
+    # A line under the row per titled session, in the letters' order; none for
+    # a pane that never set one. The row that makes a worktree is one line.
+    @test W.row_heights(v) == [1, 3, 2, 1, 1]
+    out = W.astrip(W.render(v, 120, 30))
+    @test occursin("T  \u2733 Count to forty", out) && occursin("t  me@box: ~/x", out)
+    @test findfirst("t  me@box", out) < findfirst("T  \u2733 Count", out)
+    @test occursin(string(W.CLEARED_TITLE, "  /cleared"), out)
+    # The whole of the cursor's row is on screen: in a box of three lines, the
+    # three-line row is the window.
+    @test W.listwindow([1, 3, 2, 1, 1], 2, 1, 3) == (2, 2, 2:2)
+    @test W.listwindow([1, 3, 2, 1, 1], 3, 1, 3) == (3, 3, 3:4)
+    @test W.listwindow([1, 1, 1], 1, 1, 10) == (1, 1, 1:3)
+    # The selection lights all of the row's lines.
+    v.sel = 2
+    lit = [l for l in split(W.render(v, 120, 30), "\n") if occursin(W.THEME.select_bg, l)]
+    @test length(lit) == 3
+    # And a click on a title is a click on its worktree: the border, the
+    # header, row one, then row two's three lines.
+    click(y) = W.onmouse!(v, W.MouseEvent(:press, 1, 10, y, 0), ctrl, 100.0 + y)
+    v.sel = 1; click(6); @test v.sel == 2
+    v.sel = 1; click(7); @test v.sel == 3
+    v.sel = 1; click(2); @test v.sel == 1
 end

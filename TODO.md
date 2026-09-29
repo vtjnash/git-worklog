@@ -12,6 +12,14 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       `70542f5` under it (copy mode's coordinates) is only local: push
       TermIFrame's `main` first, or a fresh clone has no such commit.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
+- [ ] **A preview of the session under the cursor in `"`.** Once the cursor
+      rests on a row (the pane's `LOAD_AFTER` dwell), `capture-pane -e` its
+      session down the command pipe (about 0.1 ms) and draw the screen beside
+      the list where there are 150 columns, the split `t`/`T` use, and its
+      bottom rows under the list where there are not. The agent's session
+      when the row has one, else the shell's; `tab` is the modes', so a key
+      of its own if the other is wanted. Colours and links come through
+      `capture-pane -e` as the hosted pane's do (`iframe_sync!`).
 - [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
       is fast enough for the suite. `report_package` for the errors it can
       prove, and `report_opt` over the entry points (`dispatch`, `render`,

@@ -1082,6 +1082,17 @@ Each of the following returns success and the wrong answer:
   `/proc`, the one `ps` spelling BSD and procps share.
   `preferredNotifChannel` would do the same ring, but `auto` resolves to
   nothing under tmux and the idle delay behind it is a global setting.
+- **A pane's title is the child's, and says what it is doing.** OSC 0/2 sets
+  `#{pane_title}`; a pane that never set one is titled with the host name,
+  which `TITLE_FORMAT` reads as none. tmux refuses a title with a control
+  character in it and keeps the one before (3.5a), but a comma is kept, so
+  it goes last in every format and the split is limited. `claude` titles its
+  pane `✳ Claude Code` as it starts and again on `/clear`, and the
+  conversation's topic from the first prompt (2.1.284) - which is `/cleared`
+  (`CLEARED_TITLE`). There is no busy mark in it: sampled every 0.4 s through
+  a twelve-second turn, the title did not change. Busy would take a hook
+  writing a second escape into the pty beside `claude`'s own redraws, which,
+  unlike the one-byte bell, a write of its can cut through; not done.
 - **A session's tags are strings on the server, and the list is the host's.**
   `SESSION_TAGS` names them and `session_list` reads them into a `Session`;
   TermIFrame keeps no list of its own. Every row carries `#{session_id}`,

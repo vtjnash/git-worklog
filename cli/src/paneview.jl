@@ -788,6 +788,7 @@ struct SessionRow
     kind::Symbol
     attached::Bool
     bell::Bool                      # rang since anyone looked: see `AGENT_SETTINGS`
+    title::String                   # the pane's, as its child set it: see `title_words`
 end
 
 """One place work can happen, and what is happening in it.
@@ -869,7 +870,8 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
         # session as an empty one: a shell is what a session is unless it says
         # otherwise.
         kind = Symbol(isempty(r.kind) ? "shell" : r.kind)
-        push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached, r.bell))
+        push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached, r.bell,
+                                                          r.title))
         isempty(r.url) || push!(get!(on, k, Tuple{String,String}[]), (String(kind), r.url))
     end
     ws, bs = survey(; withdirty = withdirty)
@@ -1049,16 +1051,40 @@ knows the other.
 """
 function session_marks(sessions)
     out = ""
-    for (kind, ch) in ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
+    for (kind, ch) in SESSION_LETTERS
         i = findfirst(x -> x.kind === kind, sessions)
-        out *= i === nothing ? " " :
-               sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
-               sessions[i].bell ? string(THEME.rang_mark, ch, THEME.reset) :
-                                  string(THEME.dim, ch, THEME.reset)
+        out *= i === nothing ? " " : session_mark(sessions[i], ch)
     end
     out
 end
 session_marks(r::WorktreeRow) = session_marks(r.sessions)
+
+"The slots of `session_marks`, in order: what each kind of session is drawn as."
+const SESSION_LETTERS = ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
+
+"One session's letter, in the colour that says whether it is waiting on you."
+session_mark(s, ch::Char) =
+    s.attached ? string(THEME.settled, ch, THEME.reset) :
+    s.bell ? string(THEME.rang_mark, ch, THEME.reset) :
+             string(THEME.dim, ch, THEME.reset)
+
+"""A line per session under a worktree row, for each whose pane has a title:
+its letter again, and the title. What an agent is doing is the one thing the
+three letters cannot say, and `claude` says it there - the conversation's
+topic, or that there is none yet (`title_words`). Indented to the worktree's
+name, so the row's own columns still read down the list."""
+function session_lines(r::WorktreeRow, iw::Int)
+    pad = WT_RUN + 1 + WT_CHG + 1
+    out = String[]
+    for (kind, ch) in SESSION_LETTERS, s in r.sessions
+        s.kind === kind || continue
+        words = title_words(s.kind, s.title)
+        isempty(words) && continue
+        push!(out, string(" "^pad, session_mark(s, ch), "  ",
+                          afit(words, max(1, iw - pad - 3))))
+    end
+    out
+end
 
 "`+2/-1` against upstream, or nothing to say."
 function track_mark(ahead::Int, behind::Int)
@@ -1100,17 +1126,29 @@ end
 "The order `tab` goes through the modes; shift-tab goes back through it."
 const WT_MODES = (:worktrees, :active, :branches)
 
-"""Scroll so the cursor is on screen, and report the window to draw.
+"""Scroll so the cursor's row is on screen, and report the window to draw.
 
-Both lists share it: the geometry of a list of rows in a box does not depend on
-what the rows are.
+Rows of `hs` lines each - a worktree's sessions' titles go under it - so the
+window is of rows and the box of lines: the last row in it may be cut, never
+the cursor's, unless it is taller than the box. Both lists share it: the
+geometry of a list of rows in a box does not depend on what the rows are.
 """
-function listwindow(n::Int, sel::Int, top::Int, inner::Int)
+function listwindow(hs::Vector{Int}, sel::Int, top::Int, inner::Int)
+    n = length(hs)
     sel = clamp(sel, 1, max(1, n))
     top = clamp(top, 1, max(1, n))
     sel < top && (top = sel)
-    sel >= top + inner && (top = sel - inner + 1)
-    (sel, top, top:min(n, top + inner - 1))
+    # Down until the whole of the cursor's row fits, or it is the top one.
+    while top < sel && sum(@view hs[top:sel]) > inner
+        top += 1
+    end
+    last_ = top - 1
+    used = 0
+    while last_ < n && used < inner
+        last_ += 1
+        used += hs[last_]
+    end
+    (sel, top, top:last_)
 end
 
 """What is changed here: staged, unstaged, or both.
@@ -1176,9 +1214,16 @@ function br_line(r::BranchRow, iw::Int)
            apad(afit(label, br_label(iw)), br_label(iw)))
 end
 
-"A row of whichever list is shown, by what the row is."
-row_line(r::WorktreeRow, iw::Int) = wt_line(r, iw)
-row_line(r::BranchRow, iw::Int) = br_line(r, iw)
+"""The lines of a row of whichever list is shown, by what the row is: a
+worktree's, and under it the titles of its sessions; a branch's, one."""
+row_lines(r::WorktreeRow, iw::Int) = vcat([wt_line(r, iw)], session_lines(r, iw))
+row_lines(r::BranchRow, iw::Int) = [br_line(r, iw)]
+
+"""How many lines each row the cursor can be on takes, the row that makes a
+new worktree included: what `row_lines` draws, at any width, since a title is
+cut to fit and never wrapped."""
+row_heights(v) = vcat(Int[length(row_lines(r, 80)) for r in shown(v)],
+                      fill(1, nshown(v) - length(shown(v))))
 
 """The row that names the columns, which is also the key to the marks.
 
@@ -1214,7 +1259,7 @@ the branch list draws, and none of the session or change marks appear in it.
 """
 list_legend(branches::Bool) = branches ?
     "\u25cf checked out somewhere \u00b7 \u00b1upstream is +ahead/-behind" :
-    "t shell \u00b7 T agent \u00b7 v note (green: in, yellow: rang) \u00b7 + staged \u00b7 * unstaged"
+    "t shell \u00b7 T agent \u00b7 v note (green: in, lit: rang) \u00b7 + staged \u00b7 * unstaged"
 
 function render(v::WorktreeView, w::Int, h::Int)
     # Fixed columns, so the eye can run down the branch and the marks rather
@@ -1226,15 +1271,18 @@ function render(v::WorktreeView, w::Int, h::Int)
     branches = v.mode === :branches
     rs = shown(v)
     n = nshown(v)
-    sel, top, win = listwindow(n, cursor(v)..., inner)
+    sel, top, win = listwindow(row_heights(v), cursor(v)..., inner)
     setcursor!(v, sel, top)
     body = [list_header(branches, iw)]
     for i in win
-        line = i > length(rs) ?
-            string(THEME.dim, "+ new worktree …", THEME.reset) :
-            row_line(rs[i], iw)
-        push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
+        lines = i > length(rs) ?
+            [string(THEME.dim, "+ new worktree …", THEME.reset)] :
+            row_lines(rs[i], iw)
+        for line in lines
+            push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
+        end
     end
+    body = first(body, inner + 1)
     # `rs`, not `body`: the header is always in there, and so in the whole
     # list is the row that adds one, so an empty list is one that has no rows
     # rather than one that drew nothing.
@@ -1273,8 +1321,16 @@ function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64
     v.lastclick = (at, ev.x, ev.y)
     # The same window `render` drew: the border, then the column header, then
     # the rows from `top`.
-    _, top, win = listwindow(n, cursor(v)..., max(1, h - 5))
-    i = ev.y - 3 + top
+    hs = row_heights(v)
+    _, top, win = listwindow(hs, cursor(v)..., max(1, h - 5))
+    # A row's own lines are all of it: a click on a session's title is a
+    # click on its worktree.
+    y, i = ev.y - 2, 0
+    y >= 1 || return :ok
+    for j in win
+        y <= hs[j] && (i = j; break)
+        y -= hs[j]
+    end
     i in win || return :ok
     setcursor!(v, i)
     dbl ? handle!(v, 13, ctrl) : :ok

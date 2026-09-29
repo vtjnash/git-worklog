@@ -225,6 +225,14 @@ a second, through one control-mode client it keeps for all its tmux commands -
 parked on a session of its own, `_wl-ctl-<pid>`, which `tmux ls` shows and
 `wl` does not list, and which goes when the browser does.
 
+**What a session is doing** is its pane's title, where the child set one:
+`claude` names it after the conversation's topic, and a shell may set its own.
+It goes on a line under the worktree's row in `"`, one per titled session
+beside its letter, on the `running` lines of the item pane, and on the border
+of a `t` or `T` pane after the session's name. An agent titled `✳ Claude Code`
+has no conversation - just started, or `/clear`ed - and is marked `/cleared`:
+ready for a prompt, with nothing of its own going on.
+
 **VS Code** (`o`) opens the item's checkout - the worktree on its branch
 when there is one - and under `d` or `p` the file at the line the cursor is
 on. The *diff* at that line is more than `code`'s command line can say, so

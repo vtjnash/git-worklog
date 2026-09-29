@@ -72,7 +72,9 @@ hand is not this program's to list or to kill."""
 const SESSION_PREFIX = "wl"
 
 """One of our sessions: TermIFrame's row, with `SESSION_TAGS` read into fields
-of their own. `id` is the server's, which a rename does not change."""
+of their own. `id` is the server's, which a rename does not change; `title` is
+the pane's, as its child set it (`MuxRow`), which an agent names its
+conversation in (`CLEARED_TITLE`)."""
 struct Session
     name::String
     id::String
@@ -84,9 +86,27 @@ struct Session
     item::String
     url::String
     branch::String
+    title::String
 end
 Session(r::MuxRow) = Session(r.name, r.id, r.command, r.attached, r.bell,
-                             r.tags[1], r.tags[2], r.tags[3], r.tags[4], r.tags[5])
+                             r.tags[1], r.tags[2], r.tags[3], r.tags[4], r.tags[5],
+                             r.title)
+
+"""What `claude` titles its pane when it has no conversation: as it starts, and
+again on `/clear`; the first prompt retitles it with the conversation's topic
+(measured, 2.1.284). So an agent titled this is `/cleared` - started or
+cleared, waiting for its first prompt with nothing of its own going on. A
+resumed conversation has its topic from the start, and is not."""
+const CLEARED_TITLE = "\u2733 Claude Code"
+
+"""What a session's title says, drawn: the child's own words, and `/cleared`
+after an agent's that has no conversation. Empty for a pane that never set one."""
+function title_words(kind::Symbol, title::AbstractString)
+    isempty(title) && return ""
+    kind === :agent && title == CLEARED_TITLE &&
+        return string(THEME.dim, title, THEME.reset, "  /cleared")
+    String(title)
+end
 
 "Every session this program owns, now: one `tmux list-panes`."
 session_list() = Session[Session(r) for r in mux_list(SESSION_PREFIX, SESSION_TAGS)]

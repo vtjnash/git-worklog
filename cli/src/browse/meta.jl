@@ -635,14 +635,20 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # that is some other item's (`taken_in`): the key takes it over, and an
     # empty `running` read as nothing running when another item's agent was
     # in the very copy `T` was about to land in (2026-09-22).
+    # Each with its pane's title where the child set one: an agent's is its
+    # conversation's topic, or that it is `/cleared` with none (`title_words`).
     live = [r for r in st.sessions if r.item == it.ref]
     if !isempty(live) || !isempty(st.taken)
         push!(out, string(THEME.dim, "running", THEME.reset))
         for r in sort(live; by = x -> x.kind)
-            push!(out, string("  ", r.kind != "agent" ? "shell  t to open" :
-                              r.bell ? string("agent  ", THEME.waiting, "waiting on you",
-                                              THEME.reset, " · T to see") :
-                              "agent  T to watch"))
+            agent = r.kind == "agent"
+            words = title_words(agent ? :agent : :shell, r.title)
+            push!(out, afit(string("  ", agent ? "agent  " : "shell  ",
+                                   agent && r.bell ? string(THEME.waiting, "waiting on you",
+                                                            THEME.reset, " · ") : "",
+                                   isempty(words) ? "" : string(words, " · "),
+                                   !agent ? "t to open" : r.bell ? "T to see" : "T to watch"),
+                            w))
         end
         for r in sort(st.taken; by = x -> x.kind)
             k = r.kind == "agent" ? "agent" : "shell"

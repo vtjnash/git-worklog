@@ -700,8 +700,9 @@ end
 
     # A tag comes back from tmux as the string it was set with, so that is what
     # a row carries and what the pane reads.
-    row(kind, ref; bell = false) = W.Session("wl-x", "\$1", "sh", false, bell, "/tmp/x",
-                                             String(kind), ref, "", "")
+    row(kind, ref; bell = false, title = "") =
+        W.Session("wl-x", "\$1", "sh", false, bell, "/tmp/x", String(kind), ref, "", "",
+                  title)
     st.sessions = W.Session[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
     # Matched on the item the session was tagged with, so the pane never has to
@@ -718,6 +719,19 @@ end
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
+    # The pane's title where the child set one: an agent's topic, and an
+    # agent with no conversation yet is `/cleared`. A shell's is its own words,
+    # `/cleared` or not being an agent's to be.
+    st.sessions = [row(:agent, tasked.ref; title = "\u2733 Count to forty")]
+    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    @test occursin("agent  \u2733 Count to forty · T to watch", lines)
+    st.sessions = [row(:agent, tasked.ref; title = W.CLEARED_TITLE, bell = true)]
+    lines = W.astrip(join(W.meta_lines(st, tasked, 70), "\n"))
+    @test occursin(string("waiting on you · ", W.CLEARED_TITLE, "  /cleared · T to see"), lines)
+    st.sessions = [row(:shell, tasked.ref; title = W.CLEARED_TITLE)]
+    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    @test occursin(string("shell  ", W.CLEARED_TITLE, " · t to open"), lines)
+    @test !occursin("/cleared", lines)
     # Another item's session in the copy this item would open in is said,
     # with the key that takes it over: an empty `running` read as nothing
     # running when an agent was there on another item, and `T` landed in it.
