@@ -111,10 +111,9 @@ function start_meta!(st::BState, it::Item, how::Symbol)
              checks = it.is_pr ?
                  check_contexts(it.repo, it.number; ttl = ttl, keep = keep) : nothing,
              sessions = rows,
-             taken = isnotice(it) ? Session[] :
-                     taken_in(it, item_place(it; items = st.all), rows))
+             copy = isnotice(it) ? "" : item_place(it; items = st.all))
         catch e
-            (meta = nothing, checks = nothing, sessions = Session[], taken = Session[],
+            (meta = nothing, checks = nothing, sessions = Session[], copy = "",
              err = first(sprint(showerror, e), 120))
         finally
             wake!(st.wake)
@@ -255,7 +254,7 @@ function collect_meta!(st::BState)
             (st.metastale = true)
     end
     hasproperty(r, :sessions) && (st.sessions = r.sessions)
-    hasproperty(r, :taken) && (st.taken = r.taken)
+    hasproperty(r, :copy) && (st.itemcopy = r.copy)
     # A draft left on this pull request by an earlier session, which nothing
     # here would otherwise know about. This is also the only thing that ever
     # contradicts the `drafts` lane: the mark is written by this program as it
@@ -637,24 +636,33 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # in the very copy `T` was about to land in (2026-09-22).
     # Each with its pane's title where the child set one: an agent's is its
     # conversation's topic, or that it is `/cleared` with none (`title_words`).
+    # No key after it: `t` and `T` are on the help, and a hint at the end of
+    # the line was what the title's end was cut for.
+    # Whose a session is is its tag, which the last `t` or `T` into it wrote:
+    # read off the sessions as they are now, not as the metadata found them,
+    # or a `T` that took one over left it listed as the other item's.
     live = [r for r in st.sessions if r.item == it.ref]
-    if !isempty(live) || !isempty(st.taken)
+    taken = st.metakey == it.url ? taken_in(it, st.itemcopy, st.sessions) : Session[]
+    if !isempty(live) || !isempty(taken)
         push!(out, string(THEME.dim, "running", THEME.reset))
         for r in sort(live; by = x -> x.kind)
             agent = r.kind == "agent"
             words = title_words(agent ? :agent : :shell, r.title)
-            push!(out, afit(string("  ", agent ? "agent  " : "shell  ",
-                                   agent && r.bell ? string(THEME.waiting, "waiting on you",
-                                                            THEME.reset, " · ") : "",
-                                   isempty(words) ? "" : string(words, " · "),
-                                   !agent ? "t to open" : r.bell ? "T to see" : "T to watch"),
+            wait_ = agent && r.bell ? string(THEME.waiting, "waiting on you", THEME.reset) : ""
+            push!(out, afit(string("  ", agent ? "agent" : "shell",
+                                   isempty(wait_) ? "" : string("  ", wait_),
+                                   isempty(words) ? "" : string(isempty(wait_) ? "  " : " · ",
+                                                                words)),
                             w))
         end
-        for r in sort(st.taken; by = x -> x.kind)
-            k = r.kind == "agent" ? "agent" : "shell"
-            push!(out, string("  ", k, "  ", THEME.waiting, r.item, "'s", THEME.reset,
-                              ", in this item's copy · ", k == "agent" ? "T" : "t",
-                              " takes it over"))
+        # Whose, in the colour of something waiting on a decision, and then
+        # what it is doing; the questions `t` and `T` ask say the rest.
+        for r in sort(taken; by = x -> x.kind)
+            agent = r.kind == "agent"
+            words = title_words(agent ? :agent : :shell, r.title)
+            push!(out, afit(string("  ", agent ? "agent" : "shell", "  ", THEME.waiting,
+                                   r.item, "'s", THEME.reset,
+                                   isempty(words) ? "" : string(" · ", words)), w))
         end
     end
     while !isempty(out) && isempty(strip(astrip(last(out))))

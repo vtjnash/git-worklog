@@ -162,14 +162,27 @@ end
             @test W.enter_session(issue2, ctrl, :shell, (_, _) -> "sleep 120", say) == ""
             ch = last(ctrl.stack)
             @test ch isa W.ChooseView
-            row = W.astrip(ch.options[2][1])
-            # `wt#9` whole: the ref is not this repository's spelling, and a
+            row = split(W.astrip(ch.options[2][1]), '\n')
+            # The place, then a line a session: its kind and the item it is
+            # on - `wt#9` whole, the ref not this repository's spelling, and a
             # ref from another repository keeps its name. One of this
             # repository's is the number alone, `#9`.
-            @test occursin("side", row) && occursin(" t ", row) && occursin(" wt#9 ", row)
-            @test occursin(" #9 ", W.astrip(W.checkout_option(
+            @test occursin("side", row[1]) && occursin(pr.branch, row[1])
+            @test row[2] == "    shell  wt#9"
+            @test occursin("\n    shell  #9", W.astrip(W.checkout_option(
                 (path = side, branch = pr.branch, main = false), W.session_list(), "o/wt")))
-            @test !occursin("running", row) && W.awidth(row) <= 72
+            @test all(l -> W.awidth(l) <= 72, row)
+            # What a session's pane is titled goes after the item it is on;
+            # a session with neither is its kind alone. In the letters' order.
+            ses(kind, item, title) = W.Session("wl-" * kind, "\$9", "sh", false, false, side,
+                                               kind, item, "", "", title)
+            opt = W.checkout_option((path = side, branch = pr.branch, main = true),
+                                    [ses("agent", "wt#7", W.CLEARED_TITLE),
+                                     ses("shell", "", "")], "o/wt")
+            ls = split(W.astrip(opt), '\n')
+            @test length(ls) == 3 && endswith(ls[1], "main")
+            @test ls[2] == "    shell"
+            @test ls[3] == string("    agent  #7 · ", W.CLEARED_TITLE, "  /cleared")
             @test !occursin("#9", W.astrip(ch.options[1][1]))
             # Picking it re-points the shell: the session is on this item now
             # and not on the last one, so rule 2 answers for this one alone and

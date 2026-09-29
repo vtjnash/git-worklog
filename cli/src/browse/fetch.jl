@@ -558,7 +558,11 @@ opened as soon as there is a session to open it for: one started by another
 Either way a change in who rang is a wake - compared against what `refilter!`
 last read, so a change it already took, `e` silencing a bell or `T` looking,
 wakes nothing, and a wake that reached a view with no list in it comes again.
-Not started where there is no tmux to ask.
+So is a change in what a session's pane is titled, which the pipe is told of
+as it is of a bell, or a session coming or going: the item pane's `running`
+lines read `st.sessions`, which was otherwise listed only as an item's
+metadata loaded, and went on showing the title an agent had before its first
+prompt. Not started where there is no tmux to ask.
 """
 function watch_sessions!(st::BState)
     mux_bin() === nothing && return
@@ -587,9 +591,15 @@ function watch_sessions!(st::BState)
                         none && isempty(st.rang) && continue
                     end
                 end
-                rang_urls() == st.rang && continue
-                st.rerang = true
-                wake!(st.wake)
+                # One listing for both questions: who rang, and what each is
+                # titled - an agent names its conversation at the first
+                # prompt, and the item pane's `running` lines say it.
+                rows = session_list()
+                re = sessions_changed(rows, st.sessions)
+                re && (st.relisted = rows)
+                rang = rang_urls(rows) != st.rang
+                rang && (st.rerang = true)
+                (re || rang) && wake!(st.wake)
             catch e
                 logerror!(e, catch_backtrace(), "watch_sessions!")
                 return
@@ -598,9 +608,20 @@ function watch_sessions!(st::BState)
     end
 end
 
-"Take the sessions again once one rang, or went quiet, behind the frame."
+"""Did the sessions change in a way the item pane shows: one came or went, a
+pane was retitled, or a session was re-tagged onto another item or copy? By
+id, which a rename does not change."""
+sessions_changed(rows::Vector{Session}, was::Vector{Session}) =
+    Dict(r.id => (r.title, r.item, r.kind, r.worktree) for r in rows) !=
+    Dict(r.id => (r.title, r.item, r.kind, r.worktree) for r in was)
+
+"""Take the sessions again once one rang, or went quiet, or changed what the
+item pane says of it, behind the frame. The last is the pane's alone, so it
+costs no refilter."""
 function rerang!(st::BState)
-    st.rerang || return false
+    re = st.relisted
+    re === nothing || (st.sessions = re; st.relisted = nothing)
+    st.rerang || return re !== nothing
     # Lowered after the refilter, not before: it yields reading the file and
     # the sessions, and a poll landing in between compares against the `rang`
     # it has not yet replaced and raises the flag again for a change this is

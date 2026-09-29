@@ -225,6 +225,9 @@ Base.@kwdef mutable struct BState <: View
                                     # looking, off the sessions (`rang_urls`)
     rerang::Bool = false   # `watch_sessions!` saw that set change; the next
                            # wake takes the sessions again
+    relisted::Union{Nothing,Vector{Session}} = nothing  # the sessions as
+                           # listed when one was retitled or retagged, or came
+                           # or went; the next wake shows them
     drafts::Dict{String,String} = Dict{String,String}()    # url -> when a review
                                     # was last written to on it and not sent;
                                     # the one lane GitHub cannot be asked for
@@ -266,11 +269,13 @@ Base.@kwdef mutable struct BState <: View
     batch::Union{Nothing,Batch} = nothing   # `mkbatch`, or nothing
     metapending::Union{Nothing,Task} = nothing
     sessions::Vector{Session} = Session[]  # live multiplexer sessions, as
-                                          # of the last metadata fetch; asking
-                                          # costs a process, and `render` is pure
-    taken::Vector{Session} = Session[]  # of those, the other items' in the
-                                          # copy `t`/`T` would open in - which
-                                          # they take over (`item_place`)
+                                          # of the last metadata fetch or the
+                                          # last change heard since (`relisted`);
+                                          # asking costs a process, and `render`
+                                          # is pure
+    itemcopy::String = ""  # the copy `t`/`T` would open in for the item the
+                           # metadata is of (`item_place`): what `taken_in`
+                           # reads the sessions against as the pane is drawn
     anchor::Int = 0        # row a drag started on
     lastclick::Tuple{Float64,Int,Int} = (0.0, 0, 0)   # when and where the last
                            # press landed, which is all a double click is: the

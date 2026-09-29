@@ -920,6 +920,29 @@ end
     W.handle!(v4, Int('5'), ctrl)
     @test v4.query == "5"
 
+    # An option can be several lines: drawn under it, in the digit's column,
+    # and lit with it; the filter reads them too; the cursor moves an option at
+    # a time and the whole of its option stays in the box; and a click on a
+    # line under an option is a click on that option.
+    many = Tuple{String,Any}[(string("opt ", i, i % 2 == 0 ? "\n  under $i\n  more $i" : ""), i)
+                             for i in 1:12]
+    mv = W.ChooseView("t", "", many, identity; numbered = true)
+    mbox = W.astrip(W.render(mv, 160, 50))
+    @test occursin("2  opt 2", mbox) && occursin("     under 2", mbox)
+    @test findfirst("more 2", mbox) < findfirst("opt 3", mbox)
+    @test mv.omap[1:5] == [1, 2, 2, 2, 3]
+    small = W.ChooseView("t", "", many, identity)
+    small.sel = 12
+    sbox = W.astrip(W.render(small, 160, 15))          # a box of five lines
+    @test occursin("opt 12", sbox) && occursin("more 12", sbox)
+    @test small.omap == [11, 12, 12, 12, 0]             # the last option, whole
+    got = Ref(0); small.onpick = x -> (got[] = x)
+    under = first(small.orows) + findfirst(==(12), small.omap)   # "  under 12"
+    @test W.onmouse!(small, W.MouseEvent(:press, 1, 10, under, 0), ctrl, 1.0) === :ok
+    @test small.sel == 12
+    small.query = "under 4"
+    @test [o[2] for o in W.shown(small)] == [4]
+
     # A click on a row moves the cursor there, a double click picks it, the
     # wheel moves it, and a click outside the box cancels - read off where
     # the last render put the rows, since the box is centred.

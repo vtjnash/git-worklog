@@ -191,8 +191,10 @@ function onmouse!(v::ChooseView, ev::MouseEvent, ctrl::Controller, at::Float64 =
     dbl = doubled(v.lastclick, ev, at)
     v.lastclick = (at, ev.x, ev.y)
     ev.y in v.boxrows || return :pop
-    i = ev.y - first(v.orows) + v.top
-    (ev.y in v.orows && 1 <= i <= length(opts)) || return :ok
+    # By the row's option, not its offset: an option can be several rows.
+    ev.y in v.orows || return :ok
+    i = get(v.omap, ev.y - first(v.orows) + 1, 0)
+    1 <= i <= length(opts) || return :ok
     v.sel = i
     dbl ? handle!(v, 13, ctrl) : :ok
 end

@@ -724,29 +724,44 @@ end
     # `/cleared` or not being an agent's to be.
     st.sessions = [row(:agent, tasked.ref; title = "\u2733 Count to forty")]
     lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
-    @test occursin("agent  \u2733 Count to forty · T to watch", lines)
+    @test occursin("agent  \u2733 Count to forty", lines) && !occursin("T to", lines)
     st.sessions = [row(:agent, tasked.ref; title = W.CLEARED_TITLE, bell = true)]
     lines = W.astrip(join(W.meta_lines(st, tasked, 70), "\n"))
-    @test occursin(string("waiting on you · ", W.CLEARED_TITLE, "  /cleared · T to see"), lines)
+    @test occursin(string("agent  waiting on you · ", W.CLEARED_TITLE, "  /cleared"), lines)
     st.sessions = [row(:shell, tasked.ref; title = W.CLEARED_TITLE)]
     lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
-    @test occursin(string("shell  ", W.CLEARED_TITLE, " · t to open"), lines)
+    @test occursin(string("shell  ", W.CLEARED_TITLE), lines) && !occursin("t to open", lines)
+    # A retitle the watcher heard reaches the pane on the next wake, without
+    # the metadata being read again; and costs no refilter.
+    st.sessions = [row(:agent, tasked.ref; title = W.CLEARED_TITLE)]
+    now_ = [row(:agent, tasked.ref; title = "\u2733 Count to forty")]
+    @test W.sessions_changed(now_, st.sessions) && !W.sessions_changed(now_, now_)
+    @test W.sessions_changed(W.Session[], st.sessions)          # one went away
+    @test W.sessions_changed([row(:agent, "someone/else#1")], [row(:agent, tasked.ref)])
+    st.relisted = now_; st.rerang = false
+    @test W.rerang!(st) && st.relisted === nothing && st.sessions === now_
+    @test occursin("Count to forty", W.astrip(join(W.meta_lines(st, tasked, 60), "\n")))
+    @test !W.rerang!(st)
     @test !occursin("/cleared", lines)
     # Another item's session in the copy this item would open in is said,
     # with the key that takes it over: an empty `running` read as nothing
     # running when an agent was there on another item, and `T` landed in it.
-    # `taken_in` is the fetch's; the pane draws what it was handed.
+    # Read off the sessions as the pane is drawn, against the copy the fetch
+    # found, so a `T` that takes one over is the item's own at the next wake.
     theirs = row(:agent, "someone/else#1")
     @test isempty(W.taken_in(tasked, "", [theirs]))
     @test W.taken_in(tasked, "/tmp/x", [theirs, row(:shell, tasked.ref)]) == [theirs]
     @test isempty(W.taken_in(tasked, "/tmp/x", [row(:shell, "")]))   # untagged: nobody's
-    st.taken = [theirs]
-    lines = join(W.meta_lines(st, tasked, 40), "\n")
-    @test occursin("running", lines) && occursin("someone/else#1's", lines)
-    @test occursin("T takes it over", lines)
-    st.taken = [row(:shell, "someone/else#1")]
-    @test occursin("t takes it over", join(W.meta_lines(st, tasked, 40), "\n"))
-    st.taken = W.Session[]
+    st.metakey = tasked.url; st.itemcopy = "/tmp/x"
+    st.sessions = [row(:agent, "someone/else#1"; title = "\u2733 Fix the thing")]
+    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    @test occursin("running", lines)
+    @test occursin("agent  someone/else#1's · \u2733 Fix the thing", lines)
+    @test !occursin("takes it over", lines)
+    st.sessions = [row(:agent, tasked.ref; title = "\u2733 Fix the thing")]   # taken over
+    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    @test occursin("agent  \u2733 Fix the thing", lines) && !occursin("'s", lines)
+    st.sessions = W.Session[]; st.itemcopy = ""
     # And the line the questions carry for it, kind-aware.
     @test W.taken_note(tasked, "/tmp/x", :agent, [theirs]) ==
           "someone/else#1's agent is running here \u00b7 going in takes the agent over"

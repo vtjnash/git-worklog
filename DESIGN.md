@@ -1132,7 +1132,17 @@ Each of the following returns success and the wrong answer:
   walks every session on the server, so the pipe, on its own session,
   subscribes to the ids of our sessions with a bell standing (`bell_format`).
   That replaced listing them every two seconds. `%sessions-changed` comes
-  for any session starting or ending, ours or not.
+  for any session starting or ending, ours or not. A second subscription,
+  `titles_format`, is our sessions' pane titles, so an agent naming its
+  conversation wakes the browser as a bell does, and the item pane's
+  `running` lines are listed again (`sessions_changed`) - they were read only
+  as the item's metadata loaded, and kept the title from before the first
+  prompt. A tag is not subscribed to: the tags are this program's, so a
+  session re-tagged here hands the browser the new list (`relist!`). Whose a
+  session is is its `item` tag, which the last `t` or `T` into it wrote, and
+  the pane reads which are taken over (`taken_in`) off the list as it is
+  drawn - worked out with the metadata, a `T` that took one over left it
+  listed as the other item's.
 
 ### The terminal
 

@@ -279,6 +279,7 @@ function edit_note(st::BState, it::Item, ctrl)
                             set = fw.env, pipe = SESSION_PREFIX)
         ok || return err
         mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
+        relist!(ctrl)
         v = pane_view(name, string("note  ", it.ref), ctrl; note)
         if v === nothing
             # Still running means the attach really failed. Gone means the
@@ -391,6 +392,16 @@ function mux_find(worktree::AbstractString, kind::Symbol, rows = session_list())
     nothing
 end
 
+"""Hand the browser the sessions as they are once this process has re-tagged
+one. Whose a session is is its tag, and the item pane's `running` block reads
+it (`sessions_changed`); the pipe hears a pane retitled and not a tag written,
+so a tag written here is said here. One listing, adopted on the next wake."""
+function relist!(ctrl)
+    st = beside_of(ctrl)
+    st === nothing || (st.relisted = session_list())
+    nothing
+end
+
 """Find or start the session of `kind` in `target`, and show it.
 
 One path for both kinds, because a session of either is a *place*: the shell in
@@ -466,6 +477,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # title carries whose it was for as long as this entry lasts, and the
     # report leads with it.
     taken = found !== nothing && !isempty(found.item) && !isempty(ref) && found.item != ref
+    relist!(ctrl)
     v = pane_view(name, taken ? string(title, "  \u00b7 was ", found.item, "'s") : title, ctrl)
     v === nothing && return "could not attach to " * name
     pane_sync!(v)
@@ -828,32 +840,39 @@ function checkout_session!(it::Item, target::AbstractString, wbranch::AbstractSt
     r isa String ? string("checked out ", now, " \u00b7 ", r) : r
 end
 
-"""One line for a checkout, in the list of places this item could be worked on.
+"""A checkout, as an option in the list of places this item could be worked on.
 
-The branch is what tells two copies of one repo apart, and a live session is
-what says somebody is already in there - both of which are reasons to pick a
-row, so both are on it. The sessions are the worktree list's marks, `tTv`, with
-the item they were opened on beside them - `#62452` for one of this repository,
-the whole ref for one of another - so a reader who has seen `"` already knows
-them, and can see that the shell in this copy is on something else. Picking the
-row re-points that session at this item, which is what `enter_session` does
+The first line is the place: the copy's name and the branch it is on, which is
+what tells two copies of one repository apart, and `main` for the one every
+other was made from. Under it a line for each session running there - its kind,
+in the colour that says whether it is waiting on you (`session_mark`), the
+item it was opened on - `#62452` for one of this repository, the whole ref for
+one of another - and what its pane is titled (`title_words`) - so the reason to
+pick a row, or not to, is a sentence and not a column of letters. Picking the
+row re-points those sessions at this item, which is what `enter_session` does
 with every session it resumes; the other item then has nothing running on it.
 
-Second, and fixed width: the box is 72 columns inside, and a phrase hung off
-the end of the row - "· agent + shell running" - was cut at "age" or "she" on
-every row that had one, which is the one column the row was there to show.
+Each on a line of its own, so nothing is cut to make room for the rest: a
+phrase hung off the end of one row was cut at "age" or "she" on every row that
+had one, and a title after the marks at the first few words.
 """
 function checkout_option(w, rows, repo::AbstractString)
     here = [r for r in rows if !isempty(r.worktree) && wtkey(r.worktree) == wtkey(w.path)]
-    live = [(kind = Symbol(isempty(r.kind) ? "shell" : r.kind),
-             attached = r.attached, bell = r.bell) for r in here]
     stem = string(last(split(String(repo), '/')), '#')
-    on = unique(String[startswith(r.item, stem) ? chop(r.item; head = length(stem) - 1, tail = 0) :
-                       r.item for r in here if !isempty(r.item)])
-    string(apad(afit(basename(rstrip(String(w.path), '/')), 24), 24), "  ",
-           session_marks(live), " ", apad(afit(join(on, " "), 8), 8), "  ",
-           apad(amid(isempty(w.branch) ? "(detached)" : w.branch, 26), 26), "  ",
-           w.main ? "main" : "    ")
+    short(ref) = startswith(ref, stem) ? chop(ref; head = length(stem) - 1, tail = 0) : ref
+    lines = [string(apad(afit(basename(rstrip(String(w.path), '/')), 26), 26), "  ",
+                    apad(amid(isempty(w.branch) ? "(detached)" : w.branch, 38), 38), "  ",
+                    w.main ? "main" : "")]
+    for (kind, _) in SESSION_LETTERS, r in here
+        Symbol(isempty(r.kind) ? "shell" : r.kind) === kind || continue
+        parts = String[]
+        isempty(r.item) || push!(parts, short(r.item))
+        words = title_words(kind, r.title)
+        isempty(words) || push!(parts, words)
+        push!(lines, string("    ", session_mark(r, rpad(String(kind), 5)),
+                            isempty(parts) ? "" : string("  ", join(parts, " \u00b7 "))))
+    end
+    join(lines, '\n')
 end
 
 """Ask which checkout to work in, then work in it.

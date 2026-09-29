@@ -1062,8 +1062,9 @@ session_marks(r::WorktreeRow) = session_marks(r.sessions)
 "The slots of `session_marks`, in order: what each kind of session is drawn as."
 const SESSION_LETTERS = ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
 
-"One session's letter, in the colour that says whether it is waiting on you."
-session_mark(s, ch::Char) =
+"""One session's letter, or its kind spelled out, in the colour that says
+whether it is waiting on you."""
+session_mark(s, ch::Union{Char,AbstractString}) =
     s.attached ? string(THEME.settled, ch, THEME.reset) :
     s.bell ? string(THEME.rang_mark, ch, THEME.reset) :
              string(THEME.dim, ch, THEME.reset)
@@ -1125,31 +1126,6 @@ end
 
 "The order `tab` goes through the modes; shift-tab goes back through it."
 const WT_MODES = (:worktrees, :active, :branches)
-
-"""Scroll so the cursor's row is on screen, and report the window to draw.
-
-Rows of `hs` lines each - a worktree's sessions' titles go under it - so the
-window is of rows and the box of lines: the last row in it may be cut, never
-the cursor's, unless it is taller than the box. Both lists share it: the
-geometry of a list of rows in a box does not depend on what the rows are.
-"""
-function listwindow(hs::Vector{Int}, sel::Int, top::Int, inner::Int)
-    n = length(hs)
-    sel = clamp(sel, 1, max(1, n))
-    top = clamp(top, 1, max(1, n))
-    sel < top && (top = sel)
-    # Down until the whole of the cursor's row fits, or it is the top one.
-    while top < sel && sum(@view hs[top:sel]) > inner
-        top += 1
-    end
-    last_ = top - 1
-    used = 0
-    while last_ < n && used < inner
-        last_ += 1
-        used += hs[last_]
-    end
-    (sel, top, top:last_)
-end
 
 """What is changed here: staged, unstaged, or both.
 

@@ -20,6 +20,17 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       when the row has one, else the shell's; `tab` is the modes', so a key
       of its own if the other is wanted. Colours and links come through
       `capture-pane -e` as the hosted pane's do (`iframe_sync!`).
+- [ ] **Move the picker, and the other dialogs, into TermInput.** A picker
+      is `<select>` beside TermInput's `<input>` (`LineInput`) and `<textarea>`
+      (`TextArea`), so the name still fits. `ChooseView` becomes a thin view
+      over a `TermInput.Choice`, as `PromptView` is over `LineInput`: pure
+      `render(w, h)` and `handle!(key)` answering `:ok`/`:unhandled`, colours
+      from `CHROME` rather than `THEME`, and multi-line options with it.
+      `listwindow` and `numkey` go too, and the query becomes a real
+      `LineInput` instead of the backspace, `^u` and `^w` written out by hand.
+      `ConfirmView` (named keys, everything else no) is the same kind of thing.
+      Its mouse handling (`mouse.jl`) comes along, with the double click's
+      time as an argument.
 - [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
       is fast enough for the suite. `report_package` for the errors it can
       prove, and `report_opt` over the entry points (`dispatch`, `render`,

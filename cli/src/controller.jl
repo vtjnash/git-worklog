@@ -1133,10 +1133,49 @@ onpaste!(v::PromptView, s::AbstractString, ::Controller) =
 
 # --- a picker, as a view ----------------------------------------------------
 
+"""Scroll so the cursor's row is on screen, and report the window to draw.
+
+Rows of `hs` lines each - a worktree's sessions' titles go under it, a
+picker's option has lines of its own - so the window is of rows and the box of
+lines: the last row in it may be cut, never the cursor's, unless it is taller
+than the box. Every list shares it: the geometry of a list of rows in a box
+does not depend on what the rows are.
+"""
+function listwindow(hs::Vector{Int}, sel::Int, top::Int, inner::Int)
+    n = length(hs)
+    sel = clamp(sel, 1, max(1, n))
+    top = clamp(top, 1, max(1, n))
+    sel < top && (top = sel)
+    # Down until the whole of the cursor's row fits, or it is the top one.
+    while top < sel && sum(@view hs[top:sel]) > inner
+        top += 1
+    end
+    # And up while the rows above fit in what the list would leave empty at
+    # its foot: a list scrolled to its end, or narrowed under a scrolled top,
+    # fills the box rather than ending half way down it.
+    while top > 1 && sum(@view hs[(top - 1):n]) <= inner
+        top -= 1
+    end
+    last_ = top - 1
+    used = 0
+    while last_ < n && used < inner
+        last_ += 1
+        used += hs[last_]
+    end
+    (sel, top, top:last_)
+end
+
+
 """Pick one of a list, narrowing by typing.
 
 The filter is what makes it usable rather than a nicety: there are a couple of
 hundred labels across these repos, and scrolling to one is not picking it.
+
+An option's label may be several lines, `\n` between them: the first is the
+option, and the ones under it are more about it - what is running in a
+checkout, one line a session - drawn under it, lit with it, and matched by the
+filter with it. The cursor moves an option at a time and the whole of the one
+it is on stays in the box (`listwindow`).
 """
 mutable struct ChooseView <: View
     title::String
@@ -1148,12 +1187,17 @@ mutable struct ChooseView <: View
     onpick::Any                           # (value) -> Nothing; not called on cancel
     numbered::Bool                        # are the first ten on keys of their own?
     boxrows::UnitRange{Int}               # where the last render put the box, and
-    orows::UnitRange{Int}                 # the option rows in it, for the mouse
+    orows::UnitRange{Int}                 # the option rows in it, for the mouse -
+    omap::Vector{Int}                     # and which option each of those is, 0
+                                          # for a blank one under the last
     lastclick::Tuple{Float64,Int,Int}
 end
 ChooseView(title, note, options, onpick; numbered::Bool = false) =
     ChooseView(String(title), String(note), options, "", 1, 1, onpick, numbered,
-               1:0, 1:0, (0.0, 0, 0))
+               1:0, 1:0, Int[], (0.0, 0, 0))
+
+"The lines of an option's label: the option, then what is said under it."
+optlines(label::AbstractString) = split(label, '\n')
 
 """The key that picks row `i` straight off, or `' '` for a row past the tenth.
 
@@ -1166,7 +1210,7 @@ afford.
 numkey(i::Int) = i < 1 || i > 10 ? ' ' : i == 10 ? '0' : Char('0' + i)
 
 shown(v::ChooseView) = isempty(v.query) ? v.options :
-    [o for o in v.options if occursin(lowercase(v.query), lowercase(o[1]))]
+    [o for o in v.options if occursin(lowercase(v.query), lowercase(astrip(o[1])))]
 
 # The box the two dialogs below are drawn in is `TermInput.dialogbox`: the same
 # `head`/`row`/`foot`/`hint` a composer is built out of, so a picker and a
@@ -1176,25 +1220,26 @@ shown(v::ChooseView) = isempty(v.query) ? v.options :
 function render(v::ChooseView, w::Int, h::Int)
     opts = shown(v)
     b = dialogbox(w; width = 76)
-    bh = clamp(length(opts), 1, max(1, h - 10))
-    v.sel = clamp(v.sel, 1, max(1, length(opts)))
-    v.top = clamp(v.top, 1, max(1, length(opts)))
-    v.sel < v.top && (v.top = v.sel)
-    v.sel > v.top + bh - 1 && (v.top = v.sel - bh + 1)
-    v.top = clamp(v.top, 1, max(1, length(opts) - bh + 1))
+    hs = Int[length(optlines(o[1])) for o in opts]
+    bh = clamp(sum(hs; init = 0), 1, max(1, h - 10))
+    v.sel, v.top, win = listwindow(hs, v.sel, v.top, bh)
 
     out = [b.head(v.title)]
     isempty(v.note) || push!(out, b.row(v.note, THEME.dim))
     push!(out, b.row(string("/ ", v.query, THEME.caret, " ", THEME.caret_off)))
-    for i in v.top:(v.top + bh - 1)
-        if i > length(opts)
-            push!(out, b.row(""))
-        else
-            # The digit, or a space where it has run out, so the names stay
-            # in one column whether or not the row has a key of its own.
-            label = v.numbered ? string(numkey(i), "  ", opts[i][1]) : opts[i][1]
-            push!(out, b.row(label, i == v.sel ? THEME.focus : THEME.dim))
-        end
+    v.omap = Int[]
+    for i in win, (j, l) in enumerate(optlines(opts[i][1]))
+        length(v.omap) < bh || break
+        # The digit, or a space where it has run out, so the names stay in one
+        # column whether or not the row has a key of its own; and the lines
+        # under an option in that column too.
+        label = !v.numbered ? l : string(j == 1 ? numkey(i) : ' ', "  ", l)
+        push!(out, b.row(label, i == v.sel ? THEME.focus : THEME.dim))
+        push!(v.omap, i)
+    end
+    while length(v.omap) < bh
+        push!(out, b.row(""))
+        push!(v.omap, 0)
     end
     isempty(opts) && (out[end] = b.row("nothing matches", THEME.dim))
     push!(out, b.foot())
