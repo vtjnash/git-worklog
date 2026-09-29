@@ -61,6 +61,10 @@ import TermIFrame: retarget_mouse
 # be handed to a child, and its composer is one more thing that holds text.
 using TermInput
 import TermInput: suspend, text
+# Public in `TermInput` and not exported: the buffer operations the views call
+# on a widget's buffer, the box `help.jl` draws in, and the pattern the
+# escape-aware walkers step over.
+import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
 import REPL
 import InteractiveUtils
 import Markdown

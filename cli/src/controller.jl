@@ -1146,8 +1146,12 @@ mutable struct ChooseView <: View
     onpick::Any                           # (value) -> Nothing; not called on cancel
     ChooseView(c::Choice, options, onpick) = new(c, options, onpick)
 end
+# The hint is the widget's keys and then this view's: `↵` and escape come back
+# from a `Choice`, and what they do here is pick and close.
 ChooseView(title, note, options, onpick; numbered::Bool = false) =
-    ChooseView(Choice(title, note, [o[1] for o in options]; numbered),
+    ChooseView(Choice(title, note, [o[1] for o in options]; numbered,
+                      hint = string(numbered ? "0-9 picks · " : "", CHOICE_HINT,
+                                    " · ↵ pick · esc cancel")),
                Tuple{String,Any}[(String(o[1]), o[2]) for o in options], onpick)
 
 # The title, the note, the cursor and the rest are the widget's, read through

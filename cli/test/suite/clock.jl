@@ -307,7 +307,7 @@ end
             sv.onpick(:close)
             cv = pop!(ctrl.stack)
             @test cv isa W.ConfirmView && startswith(cv.title, string("Close ", pr.ref))
-            @test pr.title in cv.notes && any(occursin("unmerged", n) for n in cv.notes)
+            @test pr.title in split(cv.note, '\n') && any(occursin("unmerged", n) for n in split(cv.note, '\n'))
         end
         oi = findfirst(x -> x.state == "OPEN" && !x.is_pr, st.items)
         if oi !== nothing

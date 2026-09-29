@@ -36,7 +36,7 @@
     @test W.handle!(w, 27, ctrl) === :ok         # the editor stays put
     q = last(ctrl.stack)
     @test q isa W.ConfirmView && occursin("Discard", q.title)
-    @test any(n -> occursin("Comment on r#1", n), q.notes)
+    @test any(n -> occursin("Comment on r#1", n), split(q.note, '\n'))
     # Any other key goes back to writing, with every character still there.
     @test W.handle!(q, Int('n'), ctrl) === :pop
     pop!(ctrl.stack)

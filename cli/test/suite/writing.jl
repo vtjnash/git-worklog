@@ -39,7 +39,7 @@ composer(v) = v isa W.SideView ? v.inner : v
     W.handle!(st, Int('j'), ctrl)
     v = last(ctrl.stack)
     @test v isa W.ConfirmView && v.title == "Draft review"
-    @test any(n -> occursin("3 comments are written and not sent", n), v.notes)
+    @test any(n -> occursin("3 comments are written and not sent", n), split(v.note, '\n'))
     # `A` is the answer, because `A` is what submits a review from the item
     # itself: a question about a draft should not need a key of its own.
     @test occursin("A submits it now", v.hint)
@@ -93,7 +93,7 @@ composer(v) = v isa W.SideView ? v.inner : v
     @test W.handle!(st, Int('q'), ctrl) === :ok
     v2 = last(ctrl.stack)
     @test v2 isa W.ConfirmView && v2.title == "Quit"
-    @test any(n -> occursin("1 comment is written and not sent", n), v2.notes)
+    @test any(n -> occursin("1 comment is written and not sent", n), split(v2.note, '\n'))
     # And `y` gets out, however often the draft has been mentioned before. This
     # is the fix: the draft question used to be asked in front of this one and
     # re-armed itself, so a held draft made quitting unreachable.
@@ -117,7 +117,7 @@ composer(v) = v isa W.SideView ? v.inner : v
     @test isempty(ctrl.stack)
     W.quit_prompt!(st, ctrl)
     v4 = last(ctrl.stack)
-    @test !any(n -> occursin("written and not sent", n), v4.notes)
+    @test !any(n -> occursin("written and not sent", n), split(v4.note, '\n'))
     @test W.handle!(v4, Int('y'), ctrl) === :quit
     empty!(ctrl.stack)
     st.batch = nothing
@@ -625,8 +625,8 @@ end
     cv = last(ctrl.stack)
     @test cv isa W.ConfirmView && cv.title == string("Merge ", it.ref, "?")
     @test any(n -> occursin("create a merge commit", n) &&
-                   occursin("3 commits into master", n), cv.notes)
-    @test any(n -> occursin("Merge pull request #7", n), cv.notes)
+                   occursin("3 commits into master", n), split(cv.note, '\n'))
+    @test any(n -> occursin("Merge pull request #7", n), split(cv.note, '\n'))
     @test occursin("esc goes back to the message", cv.hint)
     # And `esc` goes back to it with the words still in it. A question that cost
     # you what you had written would be the worse mistake of the two.
@@ -656,9 +656,9 @@ end
     @test W.handle!(rv, W.C_S, ctrl) === :pop         # nothing written, and allowed
     deleteat!(ctrl.stack, findlast(x -> composer(x) === rv, ctrl.stack))
     rc = last(ctrl.stack)
-    @test any(n -> occursin("3 commits onto master", n), rc.notes)
-    @test any(n -> occursin("replayed as they were written", n), rc.notes)
-    @test !any(n -> occursin("“", n), rc.notes)       # there is no message to quote
+    @test any(n -> occursin("3 commits onto master", n), split(rc.note, '\n'))
+    @test any(n -> occursin("replayed as they were written", n), split(rc.note, '\n'))
+    @test !any(n -> occursin("“", n), split(rc.note, '\n'))       # there is no message to quote
     empty!(ctrl.stack); W.push_view!(ctrl, st)
 
     # What GitHub would refuse is said instead of attempted, because a refusal

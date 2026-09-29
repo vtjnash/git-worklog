@@ -394,11 +394,14 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                      string("↑ /", st.lastsearch, " · ") : "") :
                 string(found, unit,
                        st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
-        line = curline(st.query.buf)
+        trail = string("   ", tally, st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop")
+        # The field scrolls sideways rather than being cut at the screen's
+        # edge, which is where the cursor is while typing - so it gets what the
+        # tally leaves, and never so little that the query is what is lost.
+        fw = max(w - 1 - awidth(trail), min(w - 1, 20))
         string(THEME.bold, "/", THEME.reset,
-               TermInput.drawcursor(line, TermInput.displaycolumn(line, st.query.buf.col)),
-               THEME.dim, "   ", tally,
-               st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", THEME.reset)
+               TermInput.drawfield(TermInput.text(st.query), TermInput.column(st.query), fw),
+               THEME.dim, trail, THEME.reset)
     elseif !isempty(st.search) && isempty(msg)
         # Only when there is nothing to say. A live search is *standing*
         # information - it is re-derived every frame and the query is on screen

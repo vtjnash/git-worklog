@@ -338,9 +338,9 @@ end
                 cv = top()
                 @test cv isa W.ConfirmView
                 @test cv.title == string("Check out ", pr.branch, " in main?")
-                @test cv.notes[1] == "main is on master"
-                @test "clean" in cv.notes
-                @test occursin(string("gh pr checkout ", pr.number), cv.notes[end])
+                @test split(cv.note, '\n')[1] == "main is on master"
+                @test "clean" in split(cv.note, '\n')
+                @test occursin(string("gh pr checkout ", pr.number), split(cv.note, '\n')[end])
                 @test occursin("w another place", cv.hint)
                 for (w, h) in ((80, 24), (165, 50))
                     ls = split(W.render(cv, w, h), "\n")
@@ -359,7 +359,7 @@ end
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test any(n -> occursin("M a.txt", n), cv.notes)
+                @test any(n -> occursin("M a.txt", n), split(cv.note, '\n'))
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView
                 @test occursin("started", string(said[]))
@@ -428,7 +428,7 @@ end
                 ch = top(); @test ch isa W.ChooseView
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
+                @test split(cv.note, '\n')[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
                 @test W.handle!(cv, Int('w'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.ChooseView
                 drop!(top())
@@ -476,7 +476,7 @@ end
                 ch = top(); @test ch isa W.ChooseView
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == "main is on master"
+                @test split(cv.note, '\n')[1] == "main is on master"
                 said[] = nothing
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("back in", string(said[]))
@@ -539,11 +539,11 @@ end
                 @test occursin(string("#", pr.number), W.astrip(ch.options[1][1]))
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 # And whose sessions are in there, since `y` or `n` takes
                 # the shell over: pr's agent and shell both, the shell named
                 # as the one going.
-                @test cv.notes[2] == string(pr.ref, "'s agent and ", pr.ref, "'s shell are running here",
+                @test split(cv.note, '\n')[2] == string(pr.ref, "'s agent and ", pr.ref, "'s shell are running here",
                                             " \u00b7 going in takes the shell over")
                 touch(fail); said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
@@ -589,7 +589,7 @@ end
                 @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("checked out " * pr2.branch, string(said[]))
@@ -603,7 +603,7 @@ end
                 @test occursin(string("#", pr2.number), W.astrip(ch.options[1][1]))
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
+                @test split(cv.note, '\n')[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
                 said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("checked out " * pr.branch, string(said[]))
@@ -615,7 +615,7 @@ end
                 ch = top(); @test ch isa W.ChooseView
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test cv.notes[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
+                @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() === shown
                 @test shell_of() == [pr.ref]
@@ -777,15 +777,15 @@ end
                 @test W.make_checkout!(ffpr, ctrl, :shell, sleep120, say, dest7; items = known) == ""
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Fast-forward ff in main-ff?"
-                @test cv.notes[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
+                @test split(cv.note, '\n')[1] == "ff is 1 commit behind wt#40's head, pushed from somewhere else"
                 # The status between: the head the copy is on, and where the
                 # branch stands to its upstream - behind, and never having had
                 # the tip, which is a force push refused.
-                @test cv.notes[2] == string("head  ", first(f1, 7), " ff one")
-                @test cv.notes[3] == "1 behind origin/ff \u00b7 a force push would be refused: origin/ff has commits ff never had"
-                @test cv.notes[4] == "clean"
-                @test cv.notes[end - 1] == "y runs git merge --ff-only there"
-                @test cv.notes[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
+                @test split(cv.note, '\n')[2] == string("head  ", first(f1, 7), " ff one")
+                @test split(cv.note, '\n')[3] == "1 behind origin/ff \u00b7 a force push would be refused: origin/ff has commits ff never had"
+                @test split(cv.note, '\n')[4] == "clean"
+                @test split(cv.note, '\n')[end - 1] == "y runs git merge --ff-only there"
+                @test split(cv.note, '\n')[end] == "fetches move origin/ff, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 @test isempty(asked())
                 W.git(main, "config", "push.useForceIfIncludes", "true")
                 # `n` goes in as it is, and the place is looked at: the agent
@@ -994,8 +994,8 @@ end
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Check out lease in main?"
-                @test occursin("gh pr checkout 43", cv.notes[end - 1])
-                @test cv.notes[end] == "fetches move origin/lease, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
+                @test occursin("gh pr checkout 43", split(cv.note, '\n')[end - 1])
+                @test split(cv.note, '\n')[end] == "fetches move origin/lease, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 for (w, h) in ((80, 24), (165, 50))
                     ls = split(W.render(cv, w, h), "\n")
                     @test length(ls) == h && all(W.awidth(l) == w for l in ls)
@@ -1008,7 +1008,7 @@ end
                 @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
-                @test occursin("gh pr checkout 43", cv.notes[end])
+                @test occursin("gh pr checkout 43", split(cv.note, '\n')[end])
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
 
                 # An adopted branch is nobody's to fetch: the question names
@@ -1021,7 +1021,7 @@ end
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Check out mine in main?"
-                @test cv.notes[end] == "y runs git checkout mine there"
+                @test split(cv.note, '\n')[end] == "y runs git checkout mine there"
                 said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView
@@ -1387,7 +1387,7 @@ end
             @test W.checkout_offer(B, at(alice), "master", ctrl, :shell, (_, _) -> "sleep 120", say;
                                    picked = true, items = prs) == ""
             cv = last(ctrl.stack); @test cv isa W.ConfirmView
-            @test cv.notes[1] == "alice is on alice/master \u00b7 wt#60's"
+            @test split(cv.note, '\n')[1] == "alice is on alice/master \u00b7 wt#60's"
             W.pop_view!(ctrl, cv)
         end
         # A fork's `master` is not the project's: the name is here, on the
