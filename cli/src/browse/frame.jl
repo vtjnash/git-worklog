@@ -282,9 +282,15 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # import row, which is the only row that is not an item - two
             # thousand dimmed rows were what made the unread ones invisible
             # among them. In the quiet list the weight is the theme's
-            # `quiet_bold`, which may be nothing: see `quietrow`.
+            # `quiet_bold`, which may be nothing: see `quietrow`. A row whose
+            # agent rang with nobody looking is unread and in `rang` as well,
+            # the colour of its `T`'s badge in the checkout picker: the one
+            # unread row that is somebody waiting on you. Kept in the quiet
+            # list too, since the list is quiet exactly while you are in some
+            # other pane and not hearing it.
             styled = string(seen_of(it_, marks) === :unread ?
                                 (quiet ? THEME.quiet_bold : THEME.bold) : "",
+                            it_.url in marks.rang ? THEME.rang : "",
                             txt, THEME.reset)
             (isempty(st.search) || st.searchin !== :list) ||
                 (styled = hlspan(styled, findhits(astrip(styled), st.search),

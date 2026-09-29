@@ -210,9 +210,9 @@ necessarily yours. When nothing answers, the status line says `no live ssh
 agent` as the pane opens.
 
 **An agent that stopped while you were elsewhere** makes its item unread -
-`why  unread: agent`, on the list and in `wl unread` - and shows as a yellow
-`T` in the worktree list and as `waiting on you` under `running` in the item
-pane. `T` runs `claude` with `--settings` holding the contents of
+`why  unread: agent`, on the list and in `wl unread` - and shows as its row
+drawn in the theme's `rang` in the list (orange in the 256-colour themes,
+yellow on the eight), its `T` on a badge of that colour in the worktree list, and `waiting on you` under `running` in the item pane. `T` runs `claude` with `--settings` holding the contents of
 `cli/claude-settings.json` - the JSON, not the path, since a sandboxed `claude`
 sees the worktree and its config directory and not this checkout: a `Stop`
 hook and a permission-prompt hook that ring the terminal bell, which tmux

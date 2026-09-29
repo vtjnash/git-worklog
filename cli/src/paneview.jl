@@ -1038,9 +1038,9 @@ const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
 """The three session slots of one row: a shell, an agent and a note, each
 present or not.
 
-Green is one you are in; yellow is one that rang while you were not - the agent
-stopped, or is asking - and is waiting on you until you look, since tmux clears
-the bell on the attach. Grey is there and quiet.
+Green is one you are in; a badge (`rang_mark`) is one that rang while you were
+not - the agent stopped, or is asking - and is waiting on you until you look,
+since tmux clears the bell on the attach. Grey is there and quiet.
 
 Over anything with `kind`, `attached` and `bell` - the row's `SessionRow`s, or
 the sessions of one worktree straight off `session_list` - so the checkout picker
@@ -1053,7 +1053,7 @@ function session_marks(sessions)
         i = findfirst(x -> x.kind === kind, sessions)
         out *= i === nothing ? " " :
                sessions[i].attached ? string(THEME.settled, ch, THEME.reset) :
-               sessions[i].bell ? string(THEME.waiting, ch, THEME.reset) :
+               sessions[i].bell ? string(THEME.rang_mark, ch, THEME.reset) :
                                   string(THEME.dim, ch, THEME.reset)
     end
     out

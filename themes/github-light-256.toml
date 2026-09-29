@@ -53,6 +53,12 @@ blocked = "160"
 waiting = "94"
 accent  = "26"
 
+# An agent that rang with nobody looking - the one thing on the screen that is
+# somebody waiting on you now, so louder than `waiting`: its row of the list in
+# `rang`, and its session's `T` as a badge in `rang_mark`.
+rang      = "bold 166"
+rang_mark = "bold 231 on 166"
+
 # --- the diff ----------------------------------------------------------------
 # Foregrounds, though GitHub's diff is backgrounds: a line here is styled to the
 # end of its text and not to the end of the pane, so a tinted row would stop

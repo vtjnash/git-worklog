@@ -59,6 +59,11 @@ Base.@kwdef mutable struct Theme
     blocked::String = ""
     waiting::String = ""
     accent::String = ""
+    # An agent that rang with nobody looking: a row of the list, and the `T`
+    # of its session, drawn as a badge. Louder than `waiting`, which is a
+    # state; this is somebody waiting on you now.
+    rang::String = ""
+    rang_mark::String = ""
     # The diff, the one surface where the colour is the content.
     diff_add::String = ""
     diff_del::String = ""

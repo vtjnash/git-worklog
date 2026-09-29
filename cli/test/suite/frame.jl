@@ -784,6 +784,18 @@ end
     @test occursin(W.THEME.bold, row(unread))
     @test !occursin(W.THEME.bold, row(read_))
     @test !occursin(W.THEME.dim, row(read_))       # nor dim, which is the whole point
+    # A bell standing on an item is unread and in `rang`, as its `T`'s badge
+    # is in the checkout picker; the rows without one are not.
+    @test !occursin(W.THEME.rang, row(unread))
+    st.rang = Set([read_.url])
+    lines = split(W.render(st, 150, 40), "\n")
+    @test occursin(W.THEME.rang, row(read_)) && occursin(W.THEME.bold, row(read_))
+    @test !occursin(W.THEME.rang, row(unread))
+    st.focus = :detail                             # and kept in the quiet list
+    lines = split(W.render(st, 150, 40), "\n")
+    @test occursin(W.THEME.rang, row(read_)) && occursin(W.THEME.quiet, row(read_))
+    st.focus = :list; st.rang = Set{String}()
+    lines = split(W.render(st, 150, 40), "\n")
     # The cursor is a background now, the way the reading pane's line is: bold
     # is spoken for, and a bright-white bold row among bold rows is not a
     # cursor. It covers the row rather than the words on it.
