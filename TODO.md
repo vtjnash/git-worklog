@@ -7,10 +7,9 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next
 
-- [ ] **Push TermIFrame before `wl`.** `wl`'s submodule points at
-      TermIFrame `098f86c` (a drag is tmux's copy mode), which with
-      `70542f5` under it (copy mode's coordinates) is only local: push
-      TermIFrame's `main` first, or a fresh clone has no such commit.
+- [ ] when snooze runs, it seems not to come back with a "new since" tag which means I can't easily actually tell if anything moved since snooze. Perhaps we should separately track since-read and since-snooze, and draw different markers for each of those in the history. we'll need to decide if `p` is relative to read, snooze, or max of those.
+- [ ] "A drag in a pane" was verified, but "dragging past the top or bottom scrolls" didn't work quite right: it scrolled only on mouse movement, at the speed of mouse movement, rather than being a steady continuous rate until the mouse returned into range.
+- [ ] A code span Term wrapped across two lines loses its background.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
       rests on a row (the pane's `LOAD_AFTER` dwell), `capture-pane -e` its
@@ -31,58 +30,19 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       `ConfirmView` (named keys, everything else no) is the same kind of thing.
       Its mouse handling (`mouse.jl`) comes along, with the double click's
       time as an argument.
-- [ ] **Run JET over `Worklog`.** A script like `aqua.jl`, or a testset if it
-      is fast enough for the suite. `report_package` for the errors it can
-      prove, and `report_opt` over the entry points (`dispatch`, `render`,
-      `handle!`) for runtime dispatch - read knowing that the thread readers
-      (`activity_list`, the node builders, `thread_seen`, `event_at`,
-      `bk_failed`) are `@nospecialize` on purpose. Fix what is real; note
-      what is deliberate where it is.
-- [ ] **A reader for a release or a commit comment.** A quick summary in the
-      pane and the link to GitHub for the rest: notices are rare, so this is
-      not a thread view. Today the pane is the block's own facts, no fetch.
-      - Keep the subject's API url in the block: `sync!` writes an `api` key
-        off `subject.url`, and `latest_comment_url` for a commit. A block
-        from before has none, and stays as it is until its thread notifies
-        again.
-      - Fetch it in the task `comment_nodes` already runs for the pane, one
-        request, cached with the thread's window; a failure leaves today's
-        pane. `R` re-reads it rather than being refused.
-      - A release: `GET /repos/o/r/releases/<id>` - the name, the tag, the
-        first lines of the notes. Its `html_url` is the exact page, for the
-        pane's link (not the block's), which answers LATER's release-link
-        question at no cost to the poll.
-      - A commit comment: `GET /repos/o/r/comments/<id>` - who, when, the
-        file and line, the body. Not the commit's own message.
-      - An advisory, a CI run, an invitation: nothing on the thread to ask
-        about; unchanged.
-      - Tests with the fetch passed in: each type's summary, a failed fetch,
-        and no request until the notice is opened.
-- [ ] **A reader for a discussion.** The same quick summary, and harder: REST
-      has no endpoint for a repository's discussions, so it is GraphQL,
-      `repository.discussion(number:)`, the number off `subject.url`.
-      - The title, who opened it, when, the first lines of the body, how many
-        comments; not the comments themselves - `o` is for those.
-      - The query through `gh_graphql`, as the lanes' are, in the same
-        task and cache as the item above, which should land first.
-- [ ] **Double-click a word, triple-click a line, in a pane.** To be
-      reconsidered: a drag over a child that ignores the mouse is tmux's copy
-      mode (`iframe_drag!`), but a click is nothing, as in tmux. tmux's own
-      `DoubleClick1Pane` and `TripleClick1Pane` are `select-word` and
-      `select-line`, then a copy - the same `copy_goto` and
-      `copy_finish!` with one command between them. What it needs first is
-      the clicks counted, which `retarget_mouse` cannot: it has no clock, and
-      the time is the host's to pass (`at`), as the browser's double click
-      already is.
-
+- [ ] changes to make for views:
+      * 'my work' (2) should be only my PRs
+      * 4-9 haven't seemed useful, 1-3 and 0 have been good
+      * ready-to-merge doesn't seem functional (nothing tagged)
+      * add an "approved to merge" view?
+      * add a "second look" view? I thought we tried to design for this a long time ago, but then I think we might have dropped it and it might need a second-look itself (haha).
+      * improve the text around "lane" and "tag" vocab, since it isn't obvious what those mean to someone who hasn't read the source code
+        - might want to add a "help" message footer to the filters pane which gives a description of the item under the cursor
+- [ ] Is it worthwhile to prefix keys with numbers for repeating (e.g. 6j for down 6), for kjnN? But we might want numbers for other hotkeys.
+  
 ## Unverified
 
-- [ ] **`refreshing …` at the foot of a stale thread.** Open an item whose
-      thread was cached more than `CACHE_FRESH` ago: the last node reads
-      `refreshing …` until the re-read lands a second or so later and takes
-      it away. `R` on a fresh thread adds none; a re-read that fails (no
-      network) takes it away and the border says `re-read failed`.
-- [ ] **The command pipe, and the pane's keys, in a real terminal.** The
+- [x] **The command pipe, and the pane's keys, in a real terminal.** The
       suite drives both against the bundled tmux, with no terminal and no
       `claude`. By hand, bundled tmux and a server of the user's own:
       - `T`, let the agent stop, go back to the list: the row turns unread
@@ -125,12 +85,6 @@ under *Upstream* here.
 
 ## Upstream
 
-- [ ] **Report the 1.14 `LazyLibrary` regression.** A trimmed executable
-      whose JLL loads a lazy dependency dies at load: `InitError(:libevent_jll,
-      MethodError(dlopen, ("…/libcrypto.so.3", 0x44)))`. Four lines,
-      `using libevent_jll` and an `@main`, with `--trim=unsafe-warn`: dies on
-      the 1.14 nightly, runs on 1.13. `dlopen(string(ll.path::Any))` in
-      `libdl.jl`.
 - [ ] **File: `@nospecialize` on an argument with a default does nothing.**
       `f(a, @nospecialize(b) = nothing) = b` gives both of `f`'s methods a
       `nospecialize` mask of `0` - on 1.12.6, 1.13.0 and the 1.14 nightly -
@@ -157,18 +111,6 @@ under *Upstream* here.
       `wait`. Nothing under `test/trim/` starts a task. Drafts, the MWEs
       and the builds are in `.worktrees/h1trim/` (`julia-issue.md`,
       `http-issue.md`).
-- [ ] **File: HTTP.jl hangs on any HTTP/1.1 request with a body when
-      trimmed** - which is what "`protocol = :h1` hangs" was: a GET without
-      a body over h1 works, and a POST over plain `http://` hangs with
-      `:auto`. `_roundtrip_incoming!` `@spawn`s the body writer as a closure
-      over `write_state::Union{Nothing,_RequestWriteState}` and a TCP-or-TLS
-      stream: the item above, and past it a capture that cannot be trimmed,
-      since a `Union` closure splits and no one body can be attached. The
-      writer dies before its `try`, so nothing marks the write done, and
-      the caller's `IOPoll.timedwait` loop, which never looks at the task,
-      spins forever. The server receives zero
-      bytes. Ours go over h2 by ALPN to api.github.com, so `wl` is clear of
-      it until a proxy or a server without h2 is in the way.
 
 - [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313
       (merged 2026-09-25, after v2.2.1) keeps a header's inline elements on
@@ -195,12 +137,6 @@ under *Upstream* here.
       test in "a comment is drawn as GitHub draws a comment", and drop the
       bullet from DESIGN's "Julia's Markdown". If it lands as something else
       - a marker for no alignment - map that to `:l` in `for_term` instead.
-
-- [ ] **Code spans before emphasis, once Julia has it.**
-      JuliaLang/julia#63364 (open) matches code spans before emphasis, so
-      `` *a `abc*` b* `` is italic around a code span. Nothing here works
-      around it; when it is in the nightly, add that case to the `render_md`
-      tests and drop the bullet from DESIGN's "Julia's Markdown".
 
 - [ ] **File Highlights' `Pkg` import upstream.** `Highlights` 0.6 imports `Pkg`
       at load time for one `Pkg.Registry.reachable_registries()` in

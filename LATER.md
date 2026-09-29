@@ -203,6 +203,45 @@ filtered as wanted.
       their own cursors and mouse coordinates - more of TermIFrame, and not
       a change to the one-session-per-child rule.
 
+- [ ] **A reader for a release or a commit comment.** A quick summary in the
+      pane and the link to GitHub for the rest: notices are rare, so this is
+      not a thread view. Today the pane is the block's own facts, no fetch.
+      - Keep the subject's API url in the block: `sync!` writes an `api` key
+        off `subject.url`, and `latest_comment_url` for a commit. A block
+        from before has none, and stays as it is until its thread notifies
+        again.
+      - Fetch it in the task `comment_nodes` already runs for the pane, one
+        request, cached with the thread's window; a failure leaves today's
+        pane. `R` re-reads it rather than being refused.
+      - A release: `GET /repos/o/r/releases/<id>` - the name, the tag, the
+        first lines of the notes. Its `html_url` is the exact page, for the
+        pane's link (not the block's), which answers LATER's release-link
+        question at no cost to the poll.
+      - A commit comment: `GET /repos/o/r/comments/<id>` - who, when, the
+        file and line, the body. Not the commit's own message.
+      - An advisory, a CI run, an invitation: nothing on the thread to ask
+        about; unchanged.
+      - Tests with the fetch passed in: each type's summary, a failed fetch,
+        and no request until the notice is opened.
+
+- [ ] **A reader for a discussion.** The same quick summary, and harder: REST
+      has no endpoint for a repository's discussions, so it is GraphQL,
+      `repository.discussion(number:)`, the number off `subject.url`.
+      - The title, who opened it, when, the first lines of the body, how many
+        comments; not the comments themselves - `o` is for those.
+      - The query through `gh_graphql`, as the lanes' are, in the same
+        task and cache as the item above, which should land first.
+
+- [ ] **Double-click a word, triple-click a line, in a pane.** To be
+      reconsidered: a drag over a child that ignores the mouse is tmux's copy
+      mode (`iframe_drag!`), but a click is nothing, as in tmux. tmux's own
+      `DoubleClick1Pane` and `TripleClick1Pane` are `select-word` and
+      `select-line`, then a copy - the same `copy_goto` and
+      `copy_finish!` with one command between them. What it needs first is
+      the clicks counted, which `retarget_mouse` cannot: it has no clock, and
+      the time is the host's to pass (`at`), as the browser's double click
+      already is.
+
 ## The composer
 
 - [ ] **Undo in the composer.** *After the `^w` you did not mean bites.*
