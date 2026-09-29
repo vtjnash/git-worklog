@@ -445,9 +445,10 @@ end
 
 `TermInput.CHROME` is their one hook for it, and `TermIFrame` reads the same
 one - the box a hosted program is drawn in and the box a composer is drawn in
-are the same box as far as a theme is concerned. Three roles cover it: a title
-and a focused border are `bold`, everything else about a border is `dim`, and
-the reset is the reset. With no theme all three are empty, and the boxes come
+are the same box as far as a theme is concerned. Four roles cover it: a title
+and a focused border are `bold`, everything else about a border is `dim`, the
+option under a picker's cursor is `focus`, and the reset is the reset. With no
+theme all four are empty, and the boxes come
 out as bare characters, which is the whole of what "drawing plain" means for
 something that is drawn in line-art.
 
@@ -456,7 +457,7 @@ composer. `TermInput` keeps that as reverse video whatever a theme says,
 because it is the only thing on screen saying where typing will go.
 """
 chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
-                                   reset = THEME.reset); nothing)
+                                   focus = THEME.focus, reset = THEME.reset); nothing)
 
 """Term's output, with its escapes taken back off when there is no theme.
 

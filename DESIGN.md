@@ -662,7 +662,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
-| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, the key vocabulary, the dialog box, `CHROME`, `suspend`, and the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`) |
+| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box, `CHROME`, `suspend`, and the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`) |
 | `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client and the command pipe over it, `bordered`, the iframe. Depends on `TermInput` for measuring, never the other way |
 | `cli/precompile/` | `WorklogPrecompile`: `Worklog` plus a `@compile_workload` of the browser's path. `bin/wl` loads it; the suite never does |
 

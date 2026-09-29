@@ -51,15 +51,11 @@ window is the one that catches the gesture people actually make.
 const DOUBLECLICK = Ref(0.5)
 
 """Is this press the second half of a double click - near enough the last
-one, and soon enough after it?
-
-One column of slack, because a hand moves between the two presses and a gesture
-that has to land on the same cell twice is one that mostly does not.
-"""
+one, and soon enough after it? (`TermInput.doubled` says how near.)"""
 function doubled!(st::BState, ev::MouseEvent, at::Float64)
-    (t, x, y) = st.lastclick
+    dbl = doubled(st.lastclick, ev, at)
     st.lastclick = (at, ev.x, ev.y)
-    at - t <= DOUBLECLICK[] && ev.y == y && abs(ev.x - x) <= 1
+    dbl
 end
 
 function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time();
@@ -179,22 +175,9 @@ end
 
 "Is this press the second half of a double click on `last`?"
 doubled(last::Tuple{Float64,Int,Int}, ev::MouseEvent, at::Float64) =
-    at - last[1] <= DOUBLECLICK[] && ev.y == last[3] && abs(ev.x - last[2]) <= 1
+    TermInput.doubled(last, ev.x, ev.y, at, DOUBLECLICK[])
 
 function onmouse!(v::ChooseView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
-    opts = shown(v)
-    if ev.kind === :wheelup || ev.kind === :wheeldown
-        v.sel = clamp(v.sel + (ev.kind === :wheelup ? -3 : 3), 1, max(1, length(opts)))
-        return :ok
-    end
-    ev.kind === :press || return :ok
-    dbl = doubled(v.lastclick, ev, at)
-    v.lastclick = (at, ev.x, ev.y)
-    ev.y in v.boxrows || return :pop
-    # By the row's option, not its offset: an option can be several rows.
-    ev.y in v.orows || return :ok
-    i = get(v.omap, ev.y - first(v.orows) + 1, 0)
-    1 <= i <= length(opts) || return :ok
-    v.sel = i
-    dbl ? handle!(v, 13, ctrl) : :ok
+    r = TermInput.click!(getfield(v, :c), ev.kind, ev.x, ev.y, at; window = DOUBLECLICK[])
+    r === :unhandled ? :pop : r === :pick ? handle!(v, 13, ctrl) : :ok
 end

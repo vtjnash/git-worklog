@@ -1133,220 +1133,84 @@ onpaste!(v::PromptView, s::AbstractString, ::Controller) =
 
 # --- a picker, as a view ----------------------------------------------------
 
-"""Scroll so the cursor's row is on screen, and report the window to draw.
-
-Rows of `hs` lines each - a worktree's sessions' titles go under it, a
-picker's option has lines of its own - so the window is of rows and the box of
-lines: the last row in it may be cut, never the cursor's, unless it is taller
-than the box. Every list shares it: the geometry of a list of rows in a box
-does not depend on what the rows are.
-"""
-function listwindow(hs::Vector{Int}, sel::Int, top::Int, inner::Int)
-    n = length(hs)
-    sel = clamp(sel, 1, max(1, n))
-    top = clamp(top, 1, max(1, n))
-    sel < top && (top = sel)
-    # Down until the whole of the cursor's row fits, or it is the top one.
-    while top < sel && sum(@view hs[top:sel]) > inner
-        top += 1
-    end
-    # And up while the rows above fit in what the list would leave empty at
-    # its foot: a list scrolled to its end, or narrowed under a scrolled top,
-    # fills the box rather than ending half way down it.
-    while top > 1 && sum(@view hs[(top - 1):n]) <= inner
-        top -= 1
-    end
-    last_ = top - 1
-    used = 0
-    while last_ < n && used < inner
-        last_ += 1
-        used += hs[last_]
-    end
-    (sel, top, top:last_)
-end
-
-
 """Pick one of a list, narrowing by typing.
 
-The filter is what makes it usable rather than a nicety: there are a couple of
-hundred labels across these repos, and scrolling to one is not picking it.
-
-An option's label may be several lines, `\n` between them: the first is the
-option, and the ones under it are more about it - what is running in a
-checkout, one line a session - drawn under it, lit with it, and matched by the
-filter with it. The cursor moves an option at a time and the whole of the one
-it is on stays in the box (`listwindow`).
+The list, its query, its cursor and its box are `TermInput.Choice`, and a
+click on it is `TermInput.click!` (`mouse.jl`). What is here is what is this
+program's: the value each option stands for, the callback the pick goes to, and
+being a `View` the stack can hold - which is also what escape means, closing it.
 """
 mutable struct ChooseView <: View
-    title::String
-    note::String
+    c::Choice
     options::Vector{Tuple{String,Any}}    # (what is shown, what is returned)
-    query::String
-    sel::Int
-    top::Int
     onpick::Any                           # (value) -> Nothing; not called on cancel
-    numbered::Bool                        # are the first ten on keys of their own?
-    boxrows::UnitRange{Int}               # where the last render put the box, and
-    orows::UnitRange{Int}                 # the option rows in it, for the mouse -
-    omap::Vector{Int}                     # and which option each of those is, 0
-                                          # for a blank one under the last
-    lastclick::Tuple{Float64,Int,Int}
+    ChooseView(c::Choice, options, onpick) = new(c, options, onpick)
 end
 ChooseView(title, note, options, onpick; numbered::Bool = false) =
-    ChooseView(String(title), String(note), options, "", 1, 1, onpick, numbered,
-               1:0, 1:0, Int[], (0.0, 0, 0))
+    ChooseView(Choice(title, note, [o[1] for o in options]; numbered),
+               Tuple{String,Any}[(String(o[1]), o[2]) for o in options], onpick)
 
-"The lines of an option's label: the option, then what is said under it."
-optlines(label::AbstractString) = split(label, '\n')
+# The title, the note, the cursor and the rest are the widget's, read through
+# the view as `PromptView`'s are.
+Base.getproperty(v::ChooseView, f::Symbol) =
+    f in fieldnames(ChooseView) ? getfield(v, f) : getproperty(getfield(v, :c), f)
+Base.setproperty!(v::ChooseView, f::Symbol, x) =
+    f in fieldnames(ChooseView) ? setfield!(v, f, x) : setproperty!(getfield(v, :c), f, x)
 
-"""The key that picks row `i` straight off, or `' '` for a row past the tenth.
+"What is typed to narrow the list."
+query(v::ChooseView) = TermInput.query(getfield(v, :c))
+query!(v::ChooseView, s::AbstractString) = (TermInput.query!(getfield(v, :c), s); v)
 
-`1`-`9` and then `0`, which is where a decade of terminals put the tenth of
-anything. Only for a list that is the same list every time and is reached by
-memory rather than by reading - the views - and it costs those ten the ability
-to be narrowed by typing a digit, which is a trade the built-in names can
-afford.
-"""
-numkey(i::Int) = i < 1 || i > 10 ? ' ' : i == 10 ? '0' : Char('0' + i)
+"The options the query leaves showing."
+shown(v::ChooseView) = v.options[TermInput.matches(getfield(v, :c))]
 
-shown(v::ChooseView) = isempty(v.query) ? v.options :
-    [o for o in v.options if occursin(lowercase(v.query), lowercase(astrip(o[1])))]
+render(v::ChooseView, w::Int, h::Int) = TermInput.render(getfield(v, :c), w, h)
 
-# The box the two dialogs below are drawn in is `TermInput.dialogbox`: the same
-# `head`/`row`/`foot`/`hint` a composer is built out of, so a picker and a
-# composer on the same screen cannot end up 76 and 72 columns wide. `centred`
-# puts one in the middle of the screen and pads it out to a whole frame.
-
-function render(v::ChooseView, w::Int, h::Int)
-    opts = shown(v)
-    b = dialogbox(w; width = 76)
-    hs = Int[length(optlines(o[1])) for o in opts]
-    bh = clamp(sum(hs; init = 0), 1, max(1, h - 10))
-    v.sel, v.top, win = listwindow(hs, v.sel, v.top, bh)
-
-    out = [b.head(v.title)]
-    isempty(v.note) || push!(out, b.row(v.note, THEME.dim))
-    push!(out, b.row(string("/ ", v.query, THEME.caret, " ", THEME.caret_off)))
-    v.omap = Int[]
-    for i in win, (j, l) in enumerate(optlines(opts[i][1]))
-        length(v.omap) < bh || break
-        # The digit, or a space where it has run out, so the names stay in one
-        # column whether or not the row has a key of its own; and the lines
-        # under an option in that column too.
-        label = !v.numbered ? l : string(j == 1 ? numkey(i) : ' ', "  ", l)
-        push!(out, b.row(label, i == v.sel ? THEME.focus : THEME.dim))
-        push!(v.omap, i)
-    end
-    while length(v.omap) < bh
-        push!(out, b.row(""))
-        push!(v.omap, 0)
-    end
-    isempty(opts) && (out[end] = b.row("nothing matches", THEME.dim))
-    push!(out, b.foot())
-    push!(out, b.hint(v.numbered ? "0-9 picks · ↑/↓ move · ↵ pick · esc cancel" :
-                                   "↑/↓ move · ↵ pick · esc cancel"))
-    # Where the rows land, for a click: `centred` puts the box in the middle,
-    # and the options start after the head, the note and the query row.
-    blank = max(0, (h - length(out)) ÷ 2)
-    v.boxrows = (blank + 1):(blank + length(out))
-    orow = blank + 3 + (isempty(v.note) ? 0 : 1)
-    v.orows = orow:(orow + bh - 1)
-    centred(out, w, h)
-end
+"Pick the option at `i` of `options`, and close."
+pick!(v::ChooseView, i::Int) = (v.onpick(v.options[i][2]); :pop)
 
 function handle!(v::ChooseView, k::Int, ctrl::Controller)
-    k = unshift(k)
-    opts = shown(v)
-    if k == 27
-        return :pop
-    elseif k in (13, 10)
-        isempty(opts) && return :ok
-        v.onpick(opts[clamp(v.sel, 1, length(opts))][2])
-        return :pop
-    elseif k in (K_DOWN, 14)
-        v.sel = min(length(opts), v.sel + 1)
-    elseif k in (K_UP, 16)
-        v.sel = max(1, v.sel - 1)
-    elseif v.numbered && Int('0') <= k <= Int('9')
-        # Above `printable`, so the digit picks rather than narrowing. Nothing
-        # happens where there is no tenth row to pick.
-        i = k == Int('0') ? 10 : k - Int('0')
-        i <= length(opts) || return :ok
-        v.onpick(opts[i][2])
-        return :pop
-    elseif k in (127, 8)
-        isempty(v.query) || (v.query = v.query[1:prevind(v.query, end)]; v.sel = 1)
-    elseif k == C_U
-        v.query = ""; v.sel = 1
-    elseif k in (C_W, K_WORD_BACK)
-        v.query = String(first(v.query, word_start(v.query, length(v.query) + 1) - 1))
-        v.sel = 1
-    elseif printable(k)
-        v.query *= keychar(k); v.sel = 1
-    end
-    :ok
+    c = getfield(v, :c)
+    TermInput.handle!(c, k) === :ok && return :ok
+    unshift(k) == 27 && return :pop
+    i = TermInput.picked(c, k)
+    i == 0 ? :ok : pick!(v, i)
 end
 
 onpaste!(v::ChooseView, s::AbstractString, ::Controller) =
-    (v.query *= pasteline(s); v.sel = 1; :ok)
+    (TermInput.paste!(getfield(v, :c), pasteline(s)); :ok)
 
 # --- a yes or no, as a view -------------------------------------------------
 
 """Ask a question that named keys answer, and nothing else does.
 
-Not a `ChooseView` of two entries: there the answer is already under the cursor
-and `↵` takes it, which is exactly the reflex a question like this exists to
-interrupt. Here the answering key is one you would not be holding - `y` by
-default, named on screen - and *everything* else is no, including the key that
-opened the question and the enter that would have picked something in a picker.
-
-An answer is `"keys" => f`, where the string is every key that gives that answer
-(`"yY"`, so shift does not matter) and `f` says what it was worth: `:quit` ends
-the run, anything else closes the question and goes back to what asked it. More
-than one answer is how a question offers the thing you would rather do than say
-yes - and each is a key you have to reach for on purpose.
-
-`notes` is a line or several: what is at stake, one fact to a row.
+The question, its keys and its box are `TermInput.Confirm`. An answer here is
+`"keys" => f`, where the string is every key that gives that answer and `f`
+says what it was worth: `:quit` ends the run, anything else closes the question
+and goes back to what asked it. More than one answer is how a question offers
+the thing you would rather do than say yes - and each is a key you have to reach
+for on purpose.
 """
 struct ConfirmView <: View
-    title::String
-    notes::Vector{String}
-    hint::String
-    answers::Vector{Pair{String,Any}}
+    c::Confirm
+    answers::Vector{Any}
 end
-noterows(s::AbstractString) = isempty(s) ? String[] : [String(s)]
-noterows(v) = String[String(r) for r in v if !isempty(r)]
 ConfirmView(title, notes, answers::AbstractVector{<:Pair};
-            hint::AbstractString = "y confirms \u00b7 any other key cancels") =
-    ConfirmView(String(title), noterows(notes), String(hint),
-                Pair{String,Any}[String(k) => f for (k, f) in answers])
+            hint::AbstractString = "y confirms · any other key cancels") =
+    ConfirmView(Confirm(title, notes, [first(a) for a in answers]; hint),
+                Any[last(a) for a in answers])
 ConfirmView(title, notes, onyes; kw...) =
     ConfirmView(title, notes, ["yY" => onyes]; kw...)
 
-function render(v::ConfirmView, w::Int, h::Int)
-    b = dialogbox(w; width = 76)
-    out = [b.head(v.title)]
-    # A note is prose - the lease line, why a branch is behind - and prose
-    # that outgrows the box is wrapped, not cut at the width.
-    for n in v.notes, l in awrap(n, b.iw)
-        push!(out, b.row(l, THEME.dim))
-    end
-    push!(out, b.foot())
-    push!(out, b.hint(v.hint))
-    centred(out, w, h)
-end
+Base.getproperty(v::ConfirmView, f::Symbol) =
+    f in fieldnames(ConfirmView) ? getfield(v, f) : getproperty(getfield(v, :c), f)
+
+render(v::ConfirmView, w::Int, h::Int) = TermInput.render(getfield(v, :c), w, h)
 
 function handle!(v::ConfirmView, k::Int, ctrl::Controller)
-    # Escape is an answer when a question names one for it, and not otherwise.
-    # It is the key a dialog appearing produces from the fingers, so a question
-    # that means something particular by it - the draft question means "put me
-    # back where I was" - has to say so in its hint; every other question here
-    # takes it as the dismissal it looks like.
-    (printable(k) || k == 27) || return :pop
-    for (keys, answer) in v.answers
-        keychar(k) in keys && return answer() === :quit ? :quit : :pop
-    end
-    :pop
+    i = TermInput.answer(getfield(v, :c), k)
+    i == 0 && return :pop
+    v.answers[i]() === :quit ? :quit : :pop
 end
 
 """`^x`, which `TermInput` does not name because nothing in a text area binds it.

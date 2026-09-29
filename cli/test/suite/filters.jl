@@ -546,7 +546,7 @@ end
     @test W.toggle_filter!(st, ctrl)
     cv = last(ctrl.stack)
     @test cv isa W.ChooseView && length(cv.options) == length(st.repos)
-    cv.query = "libuv"
+    W.query!(cv, "libuv")
     @test !isempty(W.shown(cv)) && all(occursin("libuv", o[1]) for o in W.shown(cv))
     # Picking one applies it, and it is then a row of its own in the pane.
     cv.onpick("libuv/libuv")
@@ -918,7 +918,7 @@ end
     # And an unnumbered picker takes digits as a query, the way it always has.
     v4 = W.ChooseView("t", "", Tuple{String,Any}[("one", 1)], identity)
     W.handle!(v4, Int('5'), ctrl)
-    @test v4.query == "5"
+    @test W.query(v4) == "5"
 
     # An option can be several lines: drawn under it, in the digit's column,
     # and lit with it; the filter reads them too; the cursor moves an option at
@@ -940,7 +940,7 @@ end
     under = first(small.orows) + findfirst(==(12), small.omap)   # "  under 12"
     @test W.onmouse!(small, W.MouseEvent(:press, 1, 10, under, 0), ctrl, 1.0) === :ok
     @test small.sel == 12
-    small.query = "under 4"
+    W.query!(small, "under 4")
     @test [o[2] for o in W.shown(small)] == [4]
 
     # A click on a row moves the cursor there, a double click picks it, the

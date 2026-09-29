@@ -115,7 +115,7 @@ end
         # weight a border is drawn in either: the two widget packages take
         # those from `TermInput.CHROME`, which this sets too.
         @test !occursin(r"\e\[[0-9;]*m", f)
-        @test TermInput.CHROME[] == (strong = "", quiet = "", reset = "")
+        @test TermInput.CHROME[] == (strong = "", quiet = "", focus = "", reset = "")
         # Still a frame, though: the geometry is not the theme's business.
         @test all(W.awidth(l) == 150 for l in split(f, "\n"))
         # Hyperlinks are not colour and stay - OSC 8 is how a url is followed,
@@ -179,7 +179,7 @@ end
 
         @test isempty(W.load_theme!(THEME_DEFAULT))
         @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
-                                     reset = W.THEME.reset)
+                                     focus = W.THEME.focus, reset = W.THEME.reset)
         @test t.md_h1 == "bold blue" && t.md_quote == "blue"
         @test t.md_codeblock_bg == "#303030"      # Term reads it as on_<colour>
         @test t.box === :ROUNDED                   # a name, not a colour
