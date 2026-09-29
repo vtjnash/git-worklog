@@ -331,6 +331,21 @@ function newmark_node(n::Int)
     nd
 end
 
+"""The last node of a stale thread opened from the cache: the re-read is coming,
+and what it brings lands here, below the newest thing shown. The border says
+`reloading …` too, but only once the re-read starts, a second after the thread
+went up, and away in the margin; this is where the eye is when it looks for
+the new part. Added where a thread lands (`collect_pending!`); the re-read
+replaces it with the thread as it is, and one that fails takes it away."""
+function refreshing_node()
+    nd = Node(string(THEME.dim, "refreshing \u2026", THEME.reset), "", :plain, true)
+    nd.meta["refreshing"] = true
+    nd.meta["src"] = "refreshing \u2026"
+    nd
+end
+
+isrefreshing(n::Node) = get(n.meta, "refreshing", false) === true
+
 """One entry of the activity list: what it is, when, and the record it came from
 - a comment, a review or a state change as read, or for a push the run of
 commits. `c` stays untyped, as its readers are (`activity_list`); `kind` and

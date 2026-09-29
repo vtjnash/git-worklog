@@ -19,7 +19,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       (`activity_list`, the node builders, `thread_seen`, `event_at`,
       `bk_failed`) are `@nospecialize` on purpose. Fix what is real; note
       what is deliberate where it is.
-- [ ] Add a placeholder <refreshing> notice as the bottom node when opening an item history, in addition to the one in the margin, roughly where we expect new content to fill in (but only on open, not on explicit refresh)
 - [ ] **A reader for a release or a commit comment.** A quick summary in the
       pane and the link to GitHub for the rest: notices are rare, so this is
       not a thread view. Today the pane is the block's own facts, no fetch.
@@ -59,6 +58,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified
 
+- [ ] **`refreshing …` at the foot of a stale thread.** Open an item whose
+      thread was cached more than `CACHE_FRESH` ago: the last node reads
+      `refreshing …` until the re-read lands a second or so later and takes
+      it away. `R` on a fresh thread adds none; a re-read that fails (no
+      network) takes it away and the border says `re-read failed`.
 - [ ] **The command pipe, and the pane's keys, in a real terminal.** The
       suite drives both against the bundled tmux, with no terminal and no
       `claude`. By hand, bundled tmux and a server of the user's own:

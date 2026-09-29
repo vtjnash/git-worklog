@@ -390,6 +390,8 @@ function collect_pending!(st::BState)
         # reading it. The cached copy stayed on screen and stays there; only the
         # stamp on the border says the re-read did not land.
         st.reloadfailed = true
+        # Nothing more is coming, so nothing is refreshing.
+        filter!(!isrefreshing, st.nodes)
         return true
     end
     st.nodes = ns
@@ -409,7 +411,15 @@ function collect_pending!(st::BState)
         end
     end
     clearsel!(st)          # either way, it indexed rows that are gone
-    arm_refresh!(st)
+    # A stale thread from the cache says at its foot that the re-read just
+    # armed is coming. Only on open: `R` and the debounce ask fresh, and what
+    # they land is the thread as it is; the one quiet landing that is stale
+    # is a theme change's rebuild, with the re-read still to come. A copy,
+    # since a second view may have joined the same fetch and holds the same
+    # vector.
+    stale = !isempty(ns) && get(ns[1].meta, "stale", false) === true
+    arm_refresh!(st) && stale && endswith(st.loaded, ":comments") &&
+        (st.nodes = vcat(ns, refreshing_node()))
     note_mention!(st, st.loaded, ns)
     true
 end

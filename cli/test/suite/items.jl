@@ -335,6 +335,36 @@ end
     @test W.collect_pending!(st2)
     @test st2.nodes[1].header == "asked for" && st2.nrow == 1 && st2.ntop == 1
 
+    # A stale thread opened from the cache ends on a placeholder where the
+    # re-read's news will land; the re-read replaces it, and one that fails
+    # takes it away, since nothing more is coming.
+    st4 = mkstate(); st4.wake = nothing
+    thread4 = string(st4.items[1].url, ":comments")
+    stalen() = (n = W.Node("cached", "b", :plain, true); n.meta["stale"] = true; n)
+    st4.quiet = false; st4.pendkey = thread4
+    st4.pending = fin(@async [stalen()])
+    @test W.collect_pending!(st4)
+    @test length(st4.nodes) == 2 && W.isrefreshing(st4.nodes[end])
+    @test occursin("refreshing", st4.nodes[end].header)
+    st4.quiet = true; st4.pendkey = thread4
+    st4.pending = fin(@async [W.Node("re-read", "b", :plain, true)])
+    @test W.collect_pending!(st4)
+    @test !any(W.isrefreshing, st4.nodes)
+    st4.quiet = false; st4.pendkey = thread4
+    st4.pending = fin(@async [stalen()])
+    @test W.collect_pending!(st4) && W.isrefreshing(st4.nodes[end])
+    st4.quiet = true; st4.pendkey = thread4
+    st4.pending = fin(@async [W.failednode("could not load thread", "boom")])
+    @test W.collect_pending!(st4)
+    @test st4.nodes[1].header == "cached" && !any(W.isrefreshing, st4.nodes)
+    # Not on a fresh thread, nor on the diff, which says it on its border.
+    st4.quiet = false; st4.pendkey = thread4
+    st4.pending = fin(@async [W.Node("fresh", "b", :plain, true)])
+    @test W.collect_pending!(st4) && length(st4.nodes) == 1
+    st4.quiet = false; st4.pendkey = string(st4.items[1].url, ":diff")
+    st4.pending = fin(@async [stalen()])
+    @test W.collect_pending!(st4) && length(st4.nodes) == 1
+
     # ...to the top of it the first time. After that it goes back to wherever
     # the reader was, which is what `place` is: the line you were on, per item
     # and per mode, since a thread and a diff are two readings of one item.
