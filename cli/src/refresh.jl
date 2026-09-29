@@ -1051,7 +1051,8 @@ function derive!(r, @nospecialize(old), @nospecialize(st), cfg, at::DateTime;
     # key it had when nothing moved, or nothing, for a row from before there
     # was one. `opened` where the arrival was yours (`opened_by_you`), for a
     # row first seen before there was that word too: nobody else has done
-    # anything since, or a key would have moved it.
+    # anything since, or a key would have moved it. And the bool it rose on
+    # where yours was first seen with only that set (`own_bool_key`).
     if old === nothing
         r["moved_at"], moved_by = first_seen_at(r), "new"
     else
@@ -1060,6 +1061,9 @@ function derive!(r, @nospecialize(old), @nospecialize(st), cfg, at::DateTime;
         isempty(moved_by) && (moved_by = moved_key(r))
     end
     moved_by == "new" && opened_by_you(r, login) && (moved_by = "opened")
+    # Yours, and red on first sight: the failure is the one thing somebody
+    # else did, and it has no time to be listed by, so it is the word.
+    old === nothing && moved_by == "new" && (moved_by = own_bool_key(r, login))
     r["moved_by"] = moved_by
     r["new"] = old === nothing
     # And the head as of the mark, after `moved_at`, which it is read against.
@@ -1123,6 +1127,22 @@ reads as seen until somebody else moves it.
 """
 opened_by_you(r, login::AbstractString) =
     jstr(r, :author) == login && !any(k -> truthy(jget(r, Symbol(k))), track_keys(r))
+
+"""The bool key of the wake table that moved a row of yours on first sight,
+or `"new"`.
+
+`opened_by_you` with one key set, where every key set is a bool: your pull
+request first seen with CI already red. Opening it was yours and the failure
+was not, so the row is unread - but `new` says everything on it is news, and
+the pane lists keys by time, which a bool has none of, so the key it rose on
+is the only thing that can say `CI failed`. A dated key set as well is
+somebody else's act with its own word, and the row stays `new`.
+"""
+function own_bool_key(r, login::AbstractString)
+    jstr(r, :author) == login || return "new"
+    set = filter(k -> truthy(jget(r, Symbol(k))), track_keys(r))
+    length(set) == 1 && !haskey(TIMED_KEYS, only(set)) ? only(set) : "new"
+end
 
 """What moved between `old` and `r`, said for a person, or `""`.
 

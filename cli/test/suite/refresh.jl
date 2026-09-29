@@ -497,6 +497,21 @@ end
     asked = merge(W.kept_row(own), Dict{String,Any}("review_requested_at" => "2026-09-11T00:00:00Z"))
     W.derive!(asked, nothing, Dict{String,Any}(), cfg, at)
     @test asked["moved_by"] == "new"
+    # Red before the first look: the failure is theirs, and said as what it
+    # is rather than `new`, which has nothing of yours to be news about.
+    red = merge(W.kept_row(own), Dict{String,Any}("ci" => "FAILURE", "ci_failed" => true))
+    W.derive!(red, nothing, Dict{String,Any}(), cfg, at)
+    @test red["new"] == true && red["moved_by"] == "ci_failed"
+    @test red["moved_at"] == own["moved_at"]
+    # With a dated key beside it, that is somebody's act with a word of its own.
+    both = merge(W.kept_row(red), Dict{String,Any}("review_requested_at" => "2026-09-11T00:00:00Z"))
+    W.derive!(both, nothing, Dict{String,Any}(), cfg, at)
+    @test both["moved_by"] == "new"
+    # And somebody else's, red on arrival, is new like any other.
+    theirs = merge(W.kept_row(row), Dict{String,Any}("ci" => "FAILURE", "ci_failed" => true))
+    delete!(theirs, "moved_at")
+    W.derive!(theirs, nothing, Dict{String,Any}(), cfg, at)
+    @test theirs["moved_by"] == "new"
     # A row first seen as `new` before there was `opened` is caught up while
     # nothing has moved it, and stops being when somebody does.
     was = merge(W.kept_row(own), Dict{String,Any}("moved_by" => "new"))
@@ -2271,6 +2286,7 @@ end
     # first, since the stamp they set is the newest thing on the row.
     @test W.moved_words(mk(; moved_by = "ci_failed", their_comment_at = "2026-09-12T09:00:00Z"),
                         read) == ["CI failed", "comment"]
+    @test W.moved_words(mk(; moved_by = "ci_failed"), read) == ["CI failed"]
     @test W.moved_words(mk(; moved_by = "their_head", head_at = "2026-09-12T07:00:00Z",
                             head_by = "alice"), read) == ["pushed"]
     # A row never in front of you is new, whatever is on it; one that

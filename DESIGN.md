@@ -300,7 +300,11 @@ The rules behind the table, each of which cost a bug:
   and `seen_of` reads it as seen - no stamp written, the floor not asked -
   until somebody else moves it and the key replaces the word. `done = ""`,
   a woken snooze and a bell still say unread. The poll's light row says it
-  as near as it can: yours, no comments, no notification `reason`.
+  as near as it can: yours, no comments, no notification `reason`. Yours
+  first seen with a bool and nothing else set - CI already red - is that
+  key (`own_bool_key`), unread and said `CI failed`: as `new` the pane had
+  no other word for it, since a bool has no time to be listed by, and the
+  row kept `new` until a dated key moved it (julia#63474).
 - **Every key says what it is, not what it was.** A push is a **sha**, not a
   clock: a rebase rewrites the committer date and a force-push of an older
   commit walks it backwards. A review is the **time the newest one arrived**,
