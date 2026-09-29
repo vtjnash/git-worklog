@@ -394,7 +394,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                      string("↑ /", st.lastsearch, " · ") : "") :
                 string(found, unit,
                        st.hidden > 0 ? string(" (+", st.hidden, " folded)") : "", " · ")
-        string(THEME.bold, "/", THEME.reset, st.search, THEME.caret, " ", THEME.caret_off,
+        line = curline(st.query.buf)
+        string(THEME.bold, "/", THEME.reset,
+               TermInput.drawcursor(line, TermInput.displaycolumn(line, st.query.buf.col)),
                THEME.dim, "   ", tally,
                st.hidden > 0 ? "↵ opens them" : "↵ keep", " · esc drop", THEME.reset)
     elseif !isempty(st.search) && isempty(msg)

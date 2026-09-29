@@ -288,6 +288,8 @@ Base.@kwdef mutable struct BState <: View
     redos::Vector{Redo} = Redo[]   # what `z` took back, newest last, for `Z`;
                                    # emptied by the next action (`push_undo!`)
     search::String = ""    # the live query; "" when no search is running
+    query::LineInput = LineInput("")   # the query's editor while it is typed;
+                           # `search` is what it holds, and what is read
     searchin::Symbol = :list  # the pane it was started in, and belongs to
     lastsearch::String = ""   # the last query kept in the detail pane, which
                               # enter on an empty `/` (or up) searches again

@@ -20,6 +20,22 @@
     W.handle!(st, Int('/'), ctrl); W.handle!(st, 27, ctrl)
     @test isempty(st.search) && length(st.items) == n0 # dropped
 
+    # The query is a `LineInput`: it edits the way every other field does,
+    # moving within it and killing and yanking as well as typing at the end.
+    W.handle!(st, Int('/'), ctrl)
+    type!(st, "uv")
+    W.handle!(st, W.C_A, ctrl); type!(st, "lib")
+    @test st.search == "libuv" && 0 < length(st.items) < n0
+    W.handle!(st, W.C_K, ctrl)
+    @test st.search == "lib"
+    W.handle!(st, W.C_Y, ctrl)
+    @test st.search == "libuv"
+    @test occursin("/libuv", W.astrip(W.render(st, 150, 40)))
+    W.handle!(st, 27, ctrl)
+    W.handle!(st, Int('/'), ctrl)                      # and starts empty again
+    @test W.text(st.query) == ""
+    W.handle!(st, 27, ctrl)
+
     # A bare number jumps, but only once it is finished being typed.
     st = mkstate()
     want = fixture_item("a number above 999, for the `/` jump")

@@ -163,7 +163,8 @@ function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
     if st.typing
         h, w = displaysize(stdout)
         iw = st.diw > 0 ? st.diw : layout(w, h, st.nmeta).riw
-        st.search *= pasteline(s)
+        TermInput.paste!(st.query, pasteline(s))
+        st.search = text(st.query)
         research!(st, iw)
     else
         st.status = "a paste is text and not keys \u2014 / to search with it"
@@ -226,32 +227,27 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # drawn on rather than keys that do nothing.
     st.focus === :detail && st.lmode !== :filters || (k = unshift(k))
     # While the query is being typed it takes every key, so that `/julia` is a
-    # search and not four commands. Enter keeps it, escape drops it.
+    # search and not four commands. Enter keeps it, escape drops it, and `↑` in
+    # the detail pane brings back the last one; the rest is `LineInput`'s, so it
+    # edits the way every other field does.
     if st.typing
         if k in (13, 10)
             commit_search!(st, iw)
         elseif k == 27
             st.search = ""; st.typing = false
             st.searchin === :list && refilter!(st)
-        elseif k in (127, 8)
-            isempty(st.search) || (st.search = st.search[1:prevind(st.search, end)];
-                                   research!(st, iw))
-        elseif k == C_U
-            st.search = ""; research!(st, iw)
         elseif k == K_UP && st.searchin === :detail
+            settext!(st.query.buf, st.lastsearch)
             st.search = st.lastsearch; research!(st, iw)
-        elseif k in (C_W, K_WORD_BACK)
-            st.search = String(first(st.search,
-                                     word_start(st.search, length(st.search) + 1) - 1))
-            research!(st, iw)
-        elseif printable(k)
-            st.search *= keychar(k); research!(st, iw)
+        elseif TermInput.handle!(st.query, k) === :ok && text(st.query) != st.search
+            st.search = text(st.query); research!(st, iw)
         end
         return :ok
     end
     if k == Int('/')
         st.typing = true
         st.search = ""
+        settext!(st.query.buf, "")
         st.searchin = st.focus === :detail ? :detail : :list
         st.hidden = 0
         st.searchin === :list && refilter!(st)
