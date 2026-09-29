@@ -629,7 +629,7 @@ end
         # before is the child's and is sent first.
         @test W.onraw!(v2, UInt8[0x61, W.IFRAME_PREFIX, UInt8('r'), 0x62], ctrl) === :ok
         sleep(0.4)
-        @test occursin("ab", join(W.mux_capture(v2.child.client; escapes = false)))
+        @test occursin("ab", join(TermIFrame.mux_capture(v2.child.client; escapes = false)))
 
         # With no browser underneath there is nowhere to pass a key on to, so
         # an unknown one after the prefix says what the prefix takes instead.

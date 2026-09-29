@@ -53,8 +53,9 @@ import JSON
 import HTTP
 using OrderedCollections
 using TermIFrame
-# By name, so the pane can add the one method that knows where it is drawn.
-import TermIFrame: retarget_mouse
+# By name, being public and not exported: the method the pane adds that knows
+# where it is drawn, and the box every pane is drawn in.
+import TermIFrame: retarget_mouse, bordered
 # The composer, the line prompt, the key vocabulary they bind and the
 # escape-aware measuring under all of it. `suspend` and `text` are extended
 # here rather than shadowed: this program's terminal is one more thing that can

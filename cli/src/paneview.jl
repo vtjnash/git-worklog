@@ -111,7 +111,7 @@ it has half.
 """
 function pane_sync!(v::PaneView)
     h, w = displaysize(stdout)
-    r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h)...)
+    r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h))
     # The child failed, and the server kept its screen to show why: said
     # once, as the sync that found it is the only one to answer `true`, with
     # what leaving does to it - the session goes with the view.
@@ -683,7 +683,7 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
         a = pane_command!(v, r, ctrl)
         a === :ok || return a
         if v.focus !== :child || top() !== was
-            empty!(v.child.held)
+            iframe_discard!(v.child)
             return :ok
         end
         r = iframe_input!(v.child, UInt8[], pane_origin(v, w), iframe_box(pane_cols(v, w), h))
@@ -1271,7 +1271,7 @@ function render(v::WorktreeView, w::Int, h::Int)
            onnew(v) ? "↵ make a worktree, for a branch that is here or a new one · tab active · q back" :
                       string("↵/t shell · T agent · h item · a adopt · K kill · tab ",
                              v.mode === :active ? "branches" : "active", " · r refresh · q back")
-    rows = vcat(bordered(body, w, h - 2, String(v.mode), true),
+    rows = vcat(bordered(body, w, h - 2, String(v.mode)),
                 [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
                  string(THEME.dim, afit(isempty(v.status) ? keys : v.status, w),
                         THEME.reset)])

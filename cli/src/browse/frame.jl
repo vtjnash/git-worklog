@@ -102,7 +102,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                         string("  ", THEME.bold, sr[2] - sr[1] + 1, " selected",
                                THEME.reset))
 
-    footer!(bordered([r.text for r in rvis], rw, rh, rtitle, focused;
+    footer!(bordered([r.text for r in rvis], rw, rh, rtitle; focused,
                      gutter = [r.gutter for r in rvis]),
             pane_stamp(st, at))
 end
@@ -315,10 +315,11 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 
-    left = bordered([r.text for r in lvis], lw, lh, ltitle, st.focus === :list)
+    left = bordered([r.text for r in lvis], lw, lh, ltitle;
+                    focused = st.focus === :list)
     L.mh > 0 && append!(left, footer!(bordered(first(mlines, L.mh - 2), lw, L.mh,
-                                   it === nothing ? "meta" : string("meta  ", it.ref),
-                                   false), meta_stamp(st, it, at)))
+                                   it === nothing ? "meta" : string("meta  ", it.ref);
+                                   focused = false), meta_stamp(st, it, at)))
     right = detail_pane(st, it, rw, rh, st.focus === :detail, at)
 
     # The footnote rows link themselves, in `nodelines`. What is left for

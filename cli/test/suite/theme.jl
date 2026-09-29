@@ -128,7 +128,7 @@ end
         @test W.rearm("a\e[0mb", W.THEME.code_bg) == "a\e[0mb"
         # A bordered box is bare line art, which is what drawing plain means
         # for something drawn in characters rather than in words.
-        @test TermIFrame.bordered(["x"], 20, 3, "t", true)[1] == "╭─ t ──────────────╮"
+        @test TermIFrame.bordered(["x"], 20, 3, "t")[1] == "╭─ t ──────────────╮"
     finally
         W.load_theme!(THEME_DEFAULT)
     end

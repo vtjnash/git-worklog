@@ -976,14 +976,14 @@ end
     @test W.load_stamp(t - 86400, now) == "loaded 2026-09-23 14:02"
 
     # Into the bottom border, right-aligned, and the box keeps its size.
-    box = W.TermIFrame.bordered(["a"], 40, 4, "t", false)
+    box = W.TermIFrame.bordered(["a"], 40, 4, "t"; focused = false)
     was = W.awidth.(box)
     W.footer!(box, "loaded 14:02")
     @test W.awidth.(box) == was
     @test endswith(W.astrip(box[end]), "─ loaded 14:02 ─╯")
     @test startswith(W.astrip(box[end]), "╰─")
     # A label that does not fit leaves the border alone.
-    tiny = W.TermIFrame.bordered(["a"], 10, 3, "t", false)
+    tiny = W.TermIFrame.bordered(["a"], 10, 3, "t"; focused = false)
     @test W.footer!(copy(tiny), "loaded 2026-09-23 14:02") == tiny
 
     # In the frame: the thread landed from a copy made at `t`, and a key that

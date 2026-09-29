@@ -71,10 +71,10 @@ end
         # own libraries on the loader path, and the `Cmd` is what carries them.
         sock = "wlnested"
         nested(a...) = try
-            strip(read(W.mux_cmd("-L", sock, a...), String))
+            strip(read(TermIFrame.mux_cmd("-L", sock, a...), String))
         catch; "" end
         killnested() = try
-            run(pipeline(W.mux_cmd("-L", sock, "kill-server"); stderr = devnull))
+            run(pipeline(TermIFrame.mux_cmd("-L", sock, "kill-server"); stderr = devnull))
         catch; end
         killnested()
         n = "wl-test-nestedtmux"
@@ -158,11 +158,11 @@ end
             wheel(b) = collect(codeunits(string("\e[<", b, ";", ox + 5, ";", oy + 5, "M")))
 
             W.onraw!(v, wheel(64), ctrl)
-            @test v.child.scroll == W.WHEEL_ROWS
+            @test v.child.scroll == TermIFrame.WHEEL_ROWS
             @test W.astrip(first(v.child.frame)) != live
             # The window moved by exactly what the wheel says it moved by.
             @test parse(Int, W.astrip(first(v.child.frame))) ==
-                  parse(Int, live) - W.WHEEL_ROWS
+                  parse(Int, live) - TermIFrame.WHEEL_ROWS
             # No cursor while looking at the past: it is not on these rows.
             @test W.viewcursor(v, 100, 30) === nothing
             # And the note says where you are, over anything else it might say.
@@ -177,13 +177,13 @@ end
             # different one, so they scroll rather than falling through.
             for b in (64 + 4, 64 + 16)
                 v.child.scroll = 0
-                @test W.iframe_wheel!(v.child, b) === true && v.child.scroll == W.WHEEL_ROWS
+                @test TermIFrame.iframe_wheel!(v.child, b) === true && v.child.scroll == TermIFrame.WHEEL_ROWS
             end
             v.child.scroll = 0
 
             # It stops at the top of the history rather than running past it.
-            for _ in 1:(v.child.history ÷ W.WHEEL_ROWS + 20)
-                W.iframe_wheel!(v.child, 64)
+            for _ in 1:(v.child.history ÷ TermIFrame.WHEEL_ROWS + 20)
+                TermIFrame.iframe_wheel!(v.child, 64)
             end
             @test v.child.scroll == v.child.history
 
@@ -204,7 +204,7 @@ end
             # wreckage of its own redraws, so this refuses - which is also why
             # a nested tmux gets nothing from it.
             v.child.alt = true
-            @test W.iframe_wheel!(v.child, 64) === false && v.child.scroll == 0
+            @test TermIFrame.iframe_wheel!(v.child, 64) === false && v.child.scroll == 0
             v.child.alt = false
 
             # And a child that *did* ask still gets the report, unchanged in
