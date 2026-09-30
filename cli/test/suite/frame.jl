@@ -397,11 +397,11 @@ end
     @test occursin("A paragraph long enough that it has to be wrapped across several rows", txt)
     @test length(split(txt, "\n")) < 4               # fewer lines out than rows in
 
-    # A code block is a box, and Term pads a box to the width it is given - so
-    # the wide render used for the source map must never reach a copy.
+    # A code block is drawn padded to the pane, and the padding is not part
+    # of what a copy of it gives back.
     n = W.Node("h", "prose\n\n```\nshort line\nanother\n```\n", :md, true)
     W.nodelines(n, 60)
-    @test maximum(W.awidth(sr) for (_, sr) in n.srcs) < 120
+    @test [sr for (_, sr) in n.srcs if !isempty(sr)] == ["prose", "short line", "another"]
 
     # The selection survives a redraw and shows in the pane title.
     f = W.render(st, 160, 50)

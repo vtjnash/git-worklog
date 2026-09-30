@@ -225,11 +225,11 @@ end
     @test W.viewcursor(c, 80, 24) === nothing        # no client, nothing to show
 end
 
-@testset "shapes Term cannot render" begin
+@testset "shapes that once took a comment down" begin
     md(src, w) = join((r.text for r in W.render_md(src, w)), "\n")
-    # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
-    # own recursion passes `inline` to whatever is inside a list or a quote. One
-    # table in one bullet used to drop the whole comment back to raw text.
+    # A table inside a list or a quote: Term's recursion passed it a keyword
+    # its table method did not take, and one table in one bullet dropped the
+    # whole comment back to raw text.
     isfile(W.errlog()) && rm(W.errlog())
     empty!(W.ERRSEEN)
     for src in ("| a | b |\n|---|---|\n| 1 | 2 |\n",
@@ -243,20 +243,18 @@ end
     # in the footer that had room only to say a MethodError had happened.
     @test !isfile(W.errlog())
 
-    # A table at the top level is left where it is, because Term renders it
-    # properly there - box drawing and all.
+    # A table is a box, at the top level and nested alike.
     @test occursin("\u2500", md("| a | b |\n|---|---|\n| 1 | 2 |\n", 60))
 
-    # Nested, it keeps every cell.
+    # Nested, it keeps every cell, and is drawn at its indent.
     nested = md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
+    @test occursin("\n  │ aaa │ bbb │", W.astrip(nested))
 
     # A code span in a table's *header* is the third shape, and the quiet one:
-    # `parse_md(::Markdown.Table)` passes `inline = true` for the body rows and
-    # not for the header, so a span there came out a code *block* - a panel
-    # three lines tall and `width - 12` across. The table then sized itself to
-    # that cell and its borders were wrapped mid-line. Term 2.2.1 passes it
-    # (FedeClaudi/Term.jl#309); `for_term` wrapped each cell in a paragraph.
+    # Term drew a span there as a code *block* - a panel three lines tall and
+    # `width - 12` across - and the table sized itself to that cell and had
+    # its borders wrapped mid-line (FedeClaudi/Term.jl#309).
     plain = split(rstrip(md("| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     spans = split(rstrip(md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     @test length(plain) == 5              # border, header, rule, row, border
@@ -264,10 +262,10 @@ end
     @test occursin("f(::T)", W.astrip(spans[2]))
     @test all(W.awidth(l) <= 60 for l in spans)
 
-    # An empty list item is the other shape that takes a whole comment down:
-    # `parse_md(::Markdown.List)` indexes [1] on every item, and Julia parses
-    # `- a`/`-`/`- b` into items of length [1, 0, 1]. Ordered or not, nested or
-    # top level, and a lone `-` is enough.
+    # An empty list item is the other shape that took a whole comment down:
+    # Julia parses `- a`/`-`/`- b` into items of length [1, 0, 1], and Term
+    # indexed [1] on every one. Ordered or not, nested or top level, and a lone
+    # `-` is enough.
     isfile(W.errlog()) && rm(W.errlog())
     empty!(W.ERRSEEN)
     for src in ("- a\n-\n- b\n", "1. one\n2.\n3. three\n", "-\n",
@@ -277,8 +275,7 @@ end
     end
     @test !isfile(W.errlog())
     # Drawn rather than dropped: the bullet was typed, so it is drawn, and an
-    # ordered list is not renumbered behind the user's back. Term 2.2.1 does
-    # this itself (FedeClaudi/Term.jl#305); `for_term` used to.
+    # ordered list is not renumbered behind the user's back.
     out = W.astrip(md("1. one\n2.\n3. three\n", 60))
     @test occursin("one", out) && occursin("three", out)
     @test occursin(r"1\.\s+one", out) && occursin(r"2\.", out) && occursin(r"3\.\s+three", out)

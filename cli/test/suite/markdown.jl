@@ -1,7 +1,9 @@
-# Term, and the four shapes it renders wrongly or not at all. Every one of
-# these was a real comment that came out mangled.
+# A comment's markdown, drawn as GitHub draws it. Every one of these was a real
+# comment that came out mangled - most of them by Term, which drew markdown
+# until TermInput did - and the assertions are about what GitHub shows, so
+# they hold whatever draws it.
 
-@testset "fenced code blocks are lifted out of Term" begin
+@testset "fenced code blocks are lifted out into nodes of their own" begin
     segs = W.split_fences("before\n\n```julia\nf(x)\n  g\n```\n\nafter")
     @test [(k, sm) for (k, sm, _) in segs] == [(:text, ""), (:code, "julia"), (:text, "")]
     @test segs[2][3] == "f(x)\n  g"
@@ -26,7 +28,7 @@
     @test all(W.awidth(r.text) <= 96 for r in rs)
     @test !any(occursin("│", W.astrip(r.text)) || occursin("└", W.astrip(r.text)) for r in rs)
 
-    # A plain node must not double its braces: it never reaches Term.
+    # A plain node must not double its braces: it is not markdown at all.
     n = W.Node("h", "f() { Dict{String,Int}() }", :plain, true)
     @test W.astrip(join(W.nodelines(n, 80), "")) == "f() { Dict{String,Int}() }"
 end
@@ -55,10 +57,11 @@ end
     # And the background never reaches the plain text.
     @test !occursin("[48;5;238m", plain("call `x` here", 70))
 
-    # A span Term split carries its background onto the next line, and the
-    # spans after it on that line stay right side out. Paired line by line,
-    # the closing delimiter of `ErrorEx|ception` opened a span and the prose up
-    # to the next one was drawn on the background (julia#63360).
+    # A span the wrap split carries its background onto the next row, and the
+    # spans after it on that row stay right side out. When a span was found by
+    # its delimiters after Term wrapped it, the closing one of `ErrorEx|ception`
+    # opened a span and the prose up to the next was drawn on the background
+    # (julia#63360).
     function shaded(ls)             # (text on the background, text off it)
         on, off, bg = IOBuffer(), IOBuffer(), false
         for l in ls, m in eachmatch(r"(\e\[[0-9;]*m)|([^\e]+)", l)
@@ -112,22 +115,20 @@ end
     @test esc("`keep_me` but not_this") == "`keep_me` but not\\_this"
     @test esc("") == ""
 
-    # Braces written as prose survive too: Term's markup is `{...}`, and
-    # apply_style deletes anything shaped like a tag. Term escapes them itself
-    # since 2.2.1, so `escape_source` leaves them be: escaped twice, they
-    # printed doubled.
+    # Braces written as prose survive too. Term's markup was `{...}`, and it
+    # deleted anything shaped like a tag, then doubled what it escaped; the
+    # braces are text to the renderer now, and `escape_source` leaves them be.
     @test render("a Tuple{Type{S{N}}} sig") == "a Tuple{Type{S{N}}} sig"
     @test render("mixed Set{Int} and `Vector{T}` here") == "mixed Set{Int} and `Vector{T}` here"
     @test render("a { lone brace") == "a { lone brace"
     @test esc("a {b}") == "a {b}"
     @test startswith(render("**bold {x}** _it {y}_ [link {l}](http://x)"), "bold {x} it {y} link {l} ")
-    # A code span in emphasis is a code span, not the `Markdown.Code(...)` it
-    # printed as before Term 2.2.1 recursed into bold and italic (seen on
-    # julia#62889).
+    # A code span in emphasis is a code span, not the `Markdown.Code(...)` Term
+    # once printed it as (seen on julia#62889).
     @test render("**Why `JL_GC_PUSHARGS` frames are the hard case.**") ==
           "Why `JL_GC_PUSHARGS` frames are the hard case."
     @test render("_a `b` c_") == "a `b` c"
-    # And `wl show`, which is Term without the pane.
+    # And `wl show`, which is the same rows without the pane.
     @test rstrip(W.astrip(only(W.render_md("a Dict{String,Int} and `T{S}`", 80)).text)) ==
           "a Dict{String,Int} and `T{S}`"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
@@ -225,8 +226,8 @@ end
 @testset "a comment is drawn as GitHub draws a comment" begin
     lines(t, w = 80) = [rstrip(W.astrip(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
     # A newline is a line break, which is what GitHub's own renderer makes of
-    # it in a comment (`<br>`); Term 2.2.1 made it a space, and a comment
-    # wrapped by hand was reflowed.
+    # it in a comment (`<br>`); read as a space, a comment wrapped by hand is
+    # reflowed.
     @test filter(!isempty, lines("the quick brown fox\njumps over\nthe **lazy\ndog**")) ==
           ["the quick brown fox", "jumps over", "the lazy", "dog"]
     # A blank line is still a paragraph, and a long line still wraps.
@@ -245,8 +246,8 @@ end
     head = only(filter(l -> occursin("Advisory", l), rows))
     @test occursin(r"│ Advisory +│", head)                      # left, not right
 
-    # What Term 2.2.1 fixed, which `for_term` used to work around: an empty
-    # list item keeps its bullet, and a code span in a header stays one row.
+    # An empty list item keeps its bullet, and a code span in a table's header
+    # stays one row - both were Term's to get wrong once.
     @test count(l -> occursin("•", l), lines("- a\n-\n- b")) == 3
     rows = filter(l -> occursin("│", l), lines("| `code` | b |\n|---|---|\n| 1 | 2 |"))
     @test length(rows) == 2 && occursin("`code`", rows[1])
@@ -254,4 +255,32 @@ end
     # beside the bullet.
     @test lines("- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |")[3:4] ==
           ["  ╭───┬───╮", "  │ a │ b │"]
+end
+
+@testset "what Term could not draw" begin
+    lines(t, w = 60) = [rstrip(W.astrip(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
+    # A table wider than the pane is fitted to it, its widest column narrowed
+    # and its cells wrapped rather than cut; Term drew every column at its
+    # widest cell and let the pane's wrapping break the box (FedeClaudi/Term.jl#314).
+    wide = "| key | value |\n|---|---|\n| a | " * "several words "^8 * "|\n| b | c |"
+    n = W.Node("h", wide, :md, true)
+    ls = W.nodelines(n, 40)
+    @test all(l -> W.awidth(l) == 40, ls)
+    @test count(l -> occursin("several", l), ls) > 1
+    @test startswith(W.astrip(ls[1]), "╭") && startswith(W.astrip(ls[end]), "╰")
+    # A copy of a wrapped list item is the item as written, marker and all.
+    n = W.Node("h", "- " * "an item long enough to be wrapped "^3, :md, true)
+    W.nodelines(n, 40)
+    @test length(n.srcs) > 1 && allequal(sr for (_, sr) in n.srcs)
+    @test [p for (p, _) in n.srcs] == [0; ones(Int, length(n.srcs) - 1)]
+    @test startswith(n.srcs[1][2], "• an item")
+    # A code block inside a list is drawn at the item's indent, its background
+    # padded to the pane, rather than as a panel beside the bullet.
+    W.load_theme!(THEME_DEFAULT)
+    ls = W.nodelines(W.Node("h", "- item\n\n  ```\n  x = 1\n  ```", :md, true), 40)
+    code = only(filter(l -> occursin("x = 1", W.astrip(l)), ls))
+    @test startswith(W.astrip(code), "     x = 1")
+    @test occursin(W.MD_STYLE[].codeblock[1], code) && W.awidth(code) == 40
+    # A quote keeps its bar on every row it wraps to.
+    @test all(l -> startswith(l, "│"), lines("> " * "quoted words "^10, 40))
 end
