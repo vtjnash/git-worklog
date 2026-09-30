@@ -38,7 +38,7 @@
     @test [rstrip(W.astrip(l)) for l in ls] == ["function f(x)", "        return x", "end"]
     @test [sr for (_, sr) in c.srcs] == ["function f(x)", "\treturn x", "end"]
     if VERSION >= v"1.12"
-        @test occursin(W.MD_STYLE[].faces[:keyword][1] * "function", ls[1])
+        @test occursin(faceesc(W.MD_STYLE[].faces[:keyword])[1] * "function", ls[1])
     end
     # A language nothing highlights is drawn as it was.
     ns = W.body_nodes("a", "```python\ndef f(): pass\n```", "", true)
@@ -53,9 +53,10 @@ end
     lines(t, w) = W.nodelines(W.Node("h", t, :md, true), w)
     plain(t, w) = strip(join([W.astrip(l) for l in lines(t, w)], " "))
 
+    bg_on, bg_off = faceesc(W.MD_STYLE[].code)
     ls = lines("call `Sockets.bind` and `false` here", 70)
-    @test count(l -> occursin(W.THEME.code_bg, l), ls) >= 1
-    @test sum(count(W.THEME.code_bg, l) for l in ls) == 2          # one per span
+    @test count(l -> occursin(bg_on, l), ls) >= 1
+    @test sum(count(bg_on, l) for l in ls) == 2          # one per span
     # The backticks stay, so a copy keeps the formatting the author wrote.
     @test plain("call `Sockets.bind` and `false` here", 70) ==
           "call `Sockets.bind` and `false` here"
@@ -65,7 +66,7 @@ end
         for t in ("call `Sockets.bind` here",
                   "a `span with several words that will not fit on one line at all` yes",
                   "unclosed `backtick here", "no code at all here")
-            @test all(l -> count(W.THEME.code_bg, l) == count(W.THEME.code_bg_off, l),
+            @test all(l -> count(bg_on, l) == count(bg_off, l),
                       lines(t, w))
         end
     end
@@ -82,8 +83,8 @@ end
         on, off, bg = IOBuffer(), IOBuffer(), false
         for l in ls, m in eachmatch(r"(\e\[[0-9;]*m)|([^\e]+)", l)
             if m[1] !== nothing
-                m[1] == W.THEME.code_bg && (bg = true)
-                m[1] in (W.THEME.code_bg_off, W.THEME.reset) && (bg = false)
+                m[1] == bg_on && (bg = true)
+                m[1] in (bg_off, W.THEME.reset) && (bg = false)
             else
                 write(bg ? on : off, m[2])
             end
@@ -296,7 +297,7 @@ end
     ls = W.nodelines(W.Node("h", "- item\n\n  ```\n  x = 1\n  ```", :md, true), 40)
     code = only(filter(l -> occursin("x = 1", W.astrip(l)), ls))
     @test startswith(W.astrip(code), "     x = 1")
-    @test occursin(W.MD_STYLE[].codeblock[1], code) && W.awidth(code) == 40
+    @test occursin(faceesc(W.MD_STYLE[].codeblock)[1], code) && W.awidth(code) == 40
     # A heading with a code span in it is one row; Term drew `## a `b` c` as
     # three centred lines (FedeClaudi/Term.jl#313).
     @test filter(!isempty, lines("## a `b` c")) == ["a `b` c"]

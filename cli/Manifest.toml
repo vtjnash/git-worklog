@@ -4,7 +4,7 @@ environment_id = "b1a7f0de-4c2e-4f8a-9c31-7d5e6a2b9c04"
 environment_name = "Worklog"
 julia_version = "1.14.0-DEV"
 manifest_format = "2.1"
-project_hash = "901d8c78b25d00f9a33194f2c74b3b6862b7950f"
+project_hash = "0b50159e80154b9ff56ce7874a6ec022e5b4b912"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -287,7 +287,7 @@ version = "0.1.0"
     julia_version = "1.10.0"
 
 [[deps.TermInput]]
-deps = ["InteractiveUtils", "Markdown", "REPL"]
+deps = ["InteractiveUtils", "Markdown", "REPL", "StyledStrings"]
 path = "../TermInput.jl"
 uuid = "e53b28ee-00f8-475a-85b8-1918fdda0ee8"
 version = "0.1.0"
@@ -333,7 +333,7 @@ version = "1.11.0"
     julia_version = "1.14.0-DEV"
 
 [[deps.Worklog]]
-deps = ["Base64", "Dates", "FileWatching", "HTTP", "InteractiveUtils", "JSON", "Markdown", "OrderedCollections", "Printf", "SHA", "Sockets", "TOML", "TermIFrame", "TermInput"]
+deps = ["Base64", "Dates", "FileWatching", "HTTP", "InteractiveUtils", "JSON", "Markdown", "OrderedCollections", "Printf", "SHA", "Sockets", "StyledStrings", "TOML", "TermIFrame", "TermInput"]
 path = "."
 uuid = "b1a7f0de-4c2e-4f8a-9c31-7d5e6a2b9c04"
 version = "0.1.0"

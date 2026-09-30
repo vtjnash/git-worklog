@@ -168,19 +168,28 @@ end
                                      focus = W.THEME.focus, reset = W.THEME.reset,
                                      box = TermInput.BOXES.ROUNDED)
         st = W.MD_STYLE[]
-        # The same spec language as every role, each an (on, off) pair.
-        @test st.h1 == W.parse_style("bold blue") && st.blockquote == W.parse_style("blue")
-        @test st.codeblock == W.parse_style("on 236")
-        @test st.strike == ("\e[9m", "\e[29m")
+        # The same spec language as every role, each a face.
+        @test st.h1 == W.parse_face("bold blue") && st.blockquote == W.parse_face("blue")
+        @test st.h1 == W.Face(weight = :bold, foreground = W.SimpleColor(:blue))
+        # An index past the sixteen is the RGB xterm gives it, and the sixteen
+        # are names, so the terminal's palette still has them.
+        @test st.codeblock == W.Face(background = W.SimpleColor(0x30, 0x30, 0x30))
+        @test W.parse_face("on 9") == W.parse_face("on bright red")
+        @test W.parse_face("16") == W.Face(foreground = W.SimpleColor(0, 0, 0))
+        @test W.parse_face("231") == W.Face(foreground = W.SimpleColor(255, 255, 255))
+        @test W.parse_face("67") == W.Face(foreground = W.SimpleColor(95, 135, 175))
+        @test W.parse_face("#9FA8DA") == W.Face(foreground = W.SimpleColor(0x9f, 0xa8, 0xda))
+        @test st.strike == W.Face(strikethrough = true)
         @test st.box === TermInput.BOXES.ROUNDED              # a name, not a colour
-        @test st.faces[:string] == W.parse_style("green")
+        @test st.faces[:string] == W.parse_face("green")
         # A code span is the two roles it always was.
-        @test st.code == (W.THEME.code_bg, W.THEME.code_bg_off)
-        @test st.code_tick == (W.THEME.dim, W.THEME.dim_off)
+        t = W.TOML.parsefile(THEME_DEFAULT)
+        @test st.code == W.parse_face(t["code_bg"]) && st.code_tick == W.parse_face(t["dim"])
         # And it reaches a comment body.
         rs = W.render_md("# head\n\n> said", 40)
-        @test startswith(rs[1].text, st.h1[1] * "head" * st.h1[2])
-        @test startswith(rs[3].text, st.blockquote[1] * "│ ")
+        h1 = faceesc(st.h1)
+        @test startswith(rs[1].text, h1[1] * "head" * h1[2])
+        @test startswith(rs[3].text, faceesc(st.blockquote)[1] * "│ ")
         # Every shipped theme loads with nothing to say.
         for f in readdir(joinpath(W.ROOT, "themes"); join = true)
             @test isempty(W.load_theme!(f))
@@ -212,7 +221,7 @@ end
         @test TermInput.CHROME[].box === TermInput.BOXES.ROUNDED
         # And with no theme all of it is empty.
         @test isempty(W.load_theme!(""))
-        @test W.MD_STYLE[].h1 == ("", "") && isempty(W.MD_STYLE[].faces)
+        @test W.MD_STYLE[].h1 == W.Face() && isempty(W.MD_STYLE[].faces)
         # So a rendered comment body is plain text: no style asked for is no
         # escape written.
         md(s) = join((rstrip(r.text) for r in W.render_md(s, 60)), "\n")

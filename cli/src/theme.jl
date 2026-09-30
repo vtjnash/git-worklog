@@ -21,7 +21,9 @@
 #
 # **ANSI and 256.** The eight named colours, their eight bright forms, and the
 # 256-colour cube by index - which is what a terminal can be relied on to have.
-# The spec language is in `parse_style`.
+# The spec language is in `spec_parts`. Markdown is drawn in StyledStrings
+# faces, where an index past the sixteen is the RGB xterm gives it: drawn as
+# RGB on a terminal with truecolor, and as the index again without.
 
 """
     Theme
@@ -145,9 +147,11 @@ function hex2rgb(word::AbstractString)
 end
 
 """
-    parse_style(spec) -> (on, off)
+    spec_parts(spec) -> Vector{Pair{Symbol,Any}}
 
-One theme value becomes the escape that begins it and the escape that ends it.
+One theme value as what it asks for, in order: `:attr => "bold"`, and
+`:fg`/`:bg` => a colour - an ANSI index `0`-`15` for a name, `bright` or not,
+`(:x256, n)` for a 256-colour index, and `(:rgb, (r, g, b))` for a hex.
 
 The spec is words, in any order:
 
@@ -168,8 +172,8 @@ Throws `ArgumentError` on anything it cannot read, naming the word: a theme file
 is hand-written, and a misspelt colour that quietly rendered as nothing would be
 a role that had silently stopped working.
 """
-function parse_style(spec::AbstractString)
-    on, off = Int[], Int[]
+function spec_parts(spec::AbstractString)
+    parts = Pair{Symbol,Any}[]
     bg = bright = false
     for word in split(lowercase(spec))
         if word == "on"
@@ -181,35 +185,99 @@ function parse_style(spec::AbstractString)
             bright = true
             continue
         end
-        i = findfirst(a -> first(a) == word, ATTRS)
-        if i !== nothing
+        if any(a -> first(a) == word, ATTRS)
             (bg || bright) &&
                 throw(ArgumentError(string("`", word, "` is an attribute, not a colour")))
-            code, done = last(ATTRS[i])
-            push!(on, code)
-            push!(off, done)
+            push!(parts, :attr => String(word))
             continue
         end
         j = findfirst(==(word), ANSI_COLORS)
-        if startswith(word, "#")
+        color = if startswith(word, "#")
             bright && throw(ArgumentError("`bright` takes a colour name, not a hex"))
-            append!(on, (bg ? 48 : 38, 2, hex2rgb(word)...))
+            (:rgb, hex2rgb(word))
         elseif j !== nothing
-            push!(on, (bg ? 40 : 30) + (j - 1) + (bright ? 60 : 0))
+            (j - 1) + (bright ? 8 : 0)
         elseif all(isdigit, word) && 0 <= parse(Int, word) <= 255
             # 256 colour by index. `bright 3` would be two ways of saying the
             # same thing - 8-15 of the cube *are* the bright eight - so it is
             # refused rather than silently ignored.
             bright && throw(ArgumentError("`bright` takes a colour name, not an index"))
-            append!(on, (bg ? 48 : 38, 5, parse(Int, word)))
+            (:x256, parse(Int, word))
         else
             throw(ArgumentError(string("no colour named `", word, "`")))
         end
-        push!(off, bg ? 49 : 39)
+        push!(parts, (bg ? :bg : :fg) => color)
         bg = bright = false
     end
     (bg || bright) && throw(ArgumentError("ends with no colour after it"))
+    parts
+end
+
+"""
+    parse_style(spec) -> (on, off)
+
+One theme value becomes the escape that begins it and the escape that ends it,
+for a role drawn by the escapes themselves. The spec is `spec_parts`'.
+"""
+function parse_style(spec::AbstractString)
+    on, off = Int[], Int[]
+    for (kind, v) in spec_parts(spec)
+        if kind === :attr
+            code, done = last(ATTRS[findfirst(a -> first(a) == v, ATTRS)])
+            push!(on, code)
+            push!(off, done)
+            continue
+        end
+        bg = kind === :bg
+        if v isa Int
+            push!(on, (bg ? 40 : 30) + v % 8 + (v >= 8 ? 60 : 0))
+        elseif first(v) === :x256
+            append!(on, (bg ? 48 : 38, 5, last(v)))
+        else
+            append!(on, (bg ? 48 : 38, 2, last(v)...))
+        end
+        push!(off, bg ? 49 : 39)
+    end
     isempty(on) ? ("", "") : (sgr(on), sgr(unique(off)))
+end
+
+"""The colour a 256-colour index stands for, as xterm draws it: the sixteen
+by name, so the terminal's palette still decides them, and the cube and the
+greys as RGB."""
+function x256color(n::Int)
+    n < 16 && return SimpleColor(Symbol(n < 8 ? "" : "bright_", ANSI_COLORS[n % 8 + 1]))
+    if n < 232
+        level(k) = k == 0 ? 0 : 55 + 40k
+        c = n - 16
+        return SimpleColor(UInt8(level(c ÷ 36)), UInt8(level(c ÷ 6 % 6)), UInt8(level(c % 6)))
+    end
+    g = UInt8(8 + 10 * (n - 232))
+    SimpleColor(g, g, g)
+end
+
+"""
+    parse_face(spec) -> Face
+
+One theme value as the StyledStrings `Face` markdown is drawn in. The spec is
+`spec_parts`'; a 256-colour index is the RGB xterm gives it, which StyledStrings
+draws as that index again on a terminal without truecolor.
+"""
+function parse_face(spec::AbstractString)
+    kw = Dict{Symbol,Any}()
+    for (kind, v) in spec_parts(spec)
+        if kind === :attr
+            v == "bold" ? (kw[:weight] = :bold) :
+            v == "dim" ? (kw[:weight] = :light) :
+            v == "italic" ? (kw[:slant] = :italic) :
+            v == "underline" ? (kw[:underline] = true) :
+            v == "reverse" ? (kw[:inverse] = true) : (kw[:strikethrough] = true)
+            continue
+        end
+        c = v isa Int ? x256color(v) :
+            first(v) === :x256 ? x256color(last(v)) : SimpleColor(UInt8.(last(v))...)
+        kw[kind === :bg ? :background : :foreground] = c
+    end
+    Face(; kw...)
 end
 
 """Re-arm `on` after everything in `after` that would have ended it.
@@ -233,8 +301,8 @@ end
 # --- markdown and code ------------------------------------------------------
 #
 # Every comment body is markdown, drawn by `TermInput.markdown_rows` in a
-# `MarkdownStyle`: one `(on, off)` pair per thing it styles, and a highlighter's
-# faces by name. The `[markdown]` table of a theme file is that style and the
+# `MarkdownStyle`: one StyledStrings `Face` per thing it styles, and a
+# highlighter's faces by name. The `[markdown]` table of a theme file is that style and the
 # `[code]` table those faces, written in the same spec language as everything
 # else, so a theme is one file. `MD_STYLE` is built from them on every load.
 #
@@ -314,7 +382,7 @@ function apply_markdown!(fields::Dict{Symbol,Any}, tbl::AbstractDict{String},
             push!(probs, string(where_, ": `", key, "` wants a string"))
         else
             try
-                fields[MD_KEYS[key]] = parse_style(value)
+                fields[MD_KEYS[key]] = parse_face(value)
             catch e
                 push!(probs, string(where_, ": `", key, " = \"", value, "\"` ",
                                     e isa ArgumentError ? e.msg :
@@ -328,7 +396,7 @@ end
 """Apply the `[code]` table into `faces`: a face's name to its colour. A name
 Julia's highlighter does not paint with is reported, as the tree-sitter
 captures Term's highlighter took are."""
-function apply_code!(faces::Dict{Symbol,Tuple{String,String}}, tbl::AbstractDict{String},
+function apply_code!(faces::Dict{Symbol,Face}, tbl::AbstractDict{String},
                      probs::Vector{String}, where_::AbstractString)
     for (key, value) in tbl
         if !(key in CODE_FACES)
@@ -337,7 +405,7 @@ function apply_code!(faces::Dict{Symbol,Tuple{String,String}}, tbl::AbstractDict
             push!(probs, string(where_, ": `code.", key, "` wants a string"))
         else
             try
-                faces[Symbol(key)] = parse_style(value)
+                faces[Symbol(key)] = parse_face(value)
             catch e
                 push!(probs, string(where_, ": `code.", key, " = \"", value, "\"` ",
                                     e isa ArgumentError ? e.msg :
@@ -435,20 +503,23 @@ function load_theme!(path::AbstractString = themefile())
     end
     BOX[] = TermInput.BOXES.ROUNDED
     fields = Dict{Symbol,Any}()
-    faces = Dict{Symbol,Tuple{String,String}}()
-    read_theme!(probs, fields, faces, path)
+    faces = Dict{Symbol,Face}()
+    roles = Dict{Symbol,Face}()
+    read_theme!(probs, fields, faces, path, roles)
     # A code span is two of the roles; everything else in markdown is the
     # `[markdown]` table's.
-    MD_STYLE[] = TermInput.MarkdownStyle(; code = (THEME.code_bg, THEME.code_bg_off),
-                                         code_tick = (THEME.dim, THEME.dim_off),
+    MD_STYLE[] = TermInput.MarkdownStyle(; code = get(roles, :code_bg, Face()),
+                                         code_tick = get(roles, :dim, Face()),
                                          fields..., faces)
     chrome!()
     probs
 end
 
-"The file itself, into `THEME` and the two tables; see `load_theme!`."
+"""The file itself, into `THEME`, the two tables, and `roles` - each role as a
+face too, for the ones markdown is drawn in; see `load_theme!`."""
 function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
-                     faces::Dict{Symbol,Tuple{String,String}}, path::AbstractString)
+                     faces::Dict{Symbol,Face}, path::AbstractString,
+                     roles::Dict{Symbol,Face} = Dict{Symbol,Face}())
     isempty(path) && return probs
     if !isfile(path)
         push!(probs, string("no theme file at ", path, " - drawing without colour"))
@@ -487,6 +558,7 @@ function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
                 # The closer, for the roles that have somewhere to put one.
                 closer = Symbol(role, "_off")
                 hasfield(Theme, closer) && setfield!(THEME, closer, off)
+                roles[role] = parse_face(value)
             catch e
                 push!(probs, string(basename(path), ": `", key, " = \"", value, "\"` ",
                                     e isa ArgumentError ? e.msg :

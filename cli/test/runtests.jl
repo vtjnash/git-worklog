@@ -15,6 +15,14 @@ using Worklog
 import TermInput, TermIFrame
 const W = Worklog
 
+"""What a markdown face writes before and after a word, as StyledStrings has it
+for this terminal: `(on, off)`, for finding a style in a rendered row."""
+function faceesc(f)
+    s = TermInput.emit([TermInput.Run("x", [f])])
+    i = findfirst('x', s)
+    (s[1:prevind(s, i)], s[nextind(s, i):end])
+end
+
 # The standing error warning takes the footer's second row, so a log left over
 # from a previous run would fail every test that asserts what is written there.
 # Clearing it is deliberate: running the suite is a developer action, and the

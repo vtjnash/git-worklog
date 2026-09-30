@@ -49,6 +49,7 @@ module Worklog
 
 using Dates, Printf, SHA, Sockets, TOML
 import FileWatching
+import StyledStrings: Face, SimpleColor
 import JSON
 import HTTP
 using OrderedCollections
