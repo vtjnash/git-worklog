@@ -369,6 +369,13 @@ end
         @test W.apply_snooze!(st, it, "2w", now) == "snoozed until 2026-09-26 12:00"
         @test W.get_field(it.url, "snooze") == "2026-09-26T12:00:00Z"
         @test st.wakes[it.url] == "2026-09-26T12:00:00Z"
+        # And what it stamped beside what it stamped over, for the thread's
+        # two rules once it wakes - which `z` puts back with the rest.
+        @test W.get_field(it.url, "snooze_done") == W.get_field(it.url, "done")
+        W.handle!(st, Int('z'), ctrl)
+        @test W.get_field(it.url, "snooze_done") === nothing
+        W.handle!(st, Int('Z'), ctrl)
+        @test W.get_field(it.url, "snooze_done") == W.get_field(it.url, "done")
         # Now that there is one, clearing is offered and says when it wakes.
         W.handle!(st, Int('s'), ctrl)
         v2 = pop!(ctrl.stack)

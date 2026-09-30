@@ -191,6 +191,34 @@ end
         @test !any(n -> get(n.meta, "newmark", false) === true,
                    W.comment_nodes(it, W.utcnow()))
 
+        # A snooze stamps the seen bit and its wake takes the stamp away, which
+        # left no rule at all. Now the look is the stamp the snooze wrote over,
+        # and the snooze has a rule of its own below it: read on the 2nd,
+        # snoozed on the 3rd, woken.
+        rules(ns) = [(unstyled(n.header), unstyled(ns[j + 1].header))
+                     for (j, n) in enumerate(ns) if get(n.meta, "newmark", false) === true]
+        W.set_blocks!([u => W.snooze_stamps("2026-09-02T00:00:00Z", "2026-09-03T12:00:00Z")])
+        W.set_done(u, "")
+        rs = rules(W.comment_nodes(it, W.utcnow()))
+        @test length(rs) == 2
+        @test occursin("new since you last looked  4 entries", rs[1][1])
+        @test occursin("pushed 2 commits", rs[1][2])
+        @test occursin("new since the snooze  2 entries", rs[2][1])
+        @test occursin("pushed 1 commit", rs[2][2])
+        # Before it woke the stamp is the snooze's own, and says the same.
+        W.set_done(u, "2026-09-03T12:00:00Z")
+        @test rules(W.comment_nodes(it, W.utcnow())) == rs
+        # Where both fall on the same entry, one rule says both.
+        W.set_blocks!([u => W.snooze_stamps("2026-09-02T00:00:00Z", "2026-09-02T01:00:00Z")])
+        W.set_done(u, "")
+        rs = rules(W.comment_nodes(it, W.utcnow()))
+        @test length(rs) == 1 && occursin("you last looked, and the snooze", rs[1][1])
+        # A look since the snooze is past it, and there is one rule again.
+        W.set_done_mark(u, "2026-09-04T12:00:00Z", "9999999999")
+        rs = rules(W.comment_nodes(it, W.utcnow()))
+        @test length(rs) == 1 && occursin("new since you last looked  1 entry", rs[1][1])
+        W.set_blocks!([u => ["snooze_done" => nothing, "snooze_read" => nothing]])
+
         # With no stamp, the floor of its source is where it was read up to -
         # the list reads it so, and a plain `e` that the floor covers writes no
         # stamp at all - so the rule is drawn from it. It used to read the

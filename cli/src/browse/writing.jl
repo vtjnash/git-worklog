@@ -966,8 +966,13 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # have read the thing; it takes the wake away and leaves the done stamp.
     # And the agent's bell with the stamp, as the woken snooze goes.
     rang = val === nothing ? String[] : agent_seen!(it.url)
+    prevstamps = [k => get_field(it.url, k) for k in ("snooze_done", "snooze_read")]
     if val !== nothing
-        set_done(it.url, something(moved_of(it), stamp(at)))
+        stamped = something(moved_of(it), stamp(at))
+        # What the stamp was, beside what it is now, for the thread's rules
+        # once the snooze has gone; see `thread_rules`.
+        set_done(it.url, stamped)
+        set_blocks!([it.url => snooze_stamps(prevread, stamped)])
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
@@ -977,8 +982,9 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_fields(it.url, ["snooze" => prev, "last_snooze" => prevlast])
         set_touched(it.url, prevtouch)
         set_done(it.url, prevread)
+        set_blocks!([it.url => prevstamps])
         agent_ring!(rang)
-    end; keys = ["snooze", "last_snooze", "touched", "done"],
+    end; keys = ["snooze", "last_snooze", "touched", "done", "snooze_done", "snooze_read"],
          redo = () -> (val === nothing || agent_seen!(it.url); nothing)))
     # The seen axis is over the stamp just written and the `snoozed` tag over
     # the wake, so the row has to be able to leave or arrive on the strength of

@@ -510,7 +510,13 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         # Putting something to sleep is the end of looking at it. It goes unread
         # again the moment it moves, or the moment the wake comes - which is
         # why this is a stamp and not a claim about wanting to see it.
-        cmd == "snooze" && value !== nothing && mark_done_moved([u], at)
+        if cmd == "snooze" && value !== nothing
+            before = mark_at(u, "done")
+            mark_done_moved([u], at)
+            # Remembered as `s` remembers it; see `thread_rules`.
+            stamped = mark_at(u, "done")
+            stamped === nothing || set_blocks!([u => snooze_stamps(before, stamped)])
+        end
     end
     0
 end

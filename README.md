@@ -123,7 +123,7 @@ GitHub.**
 | `n`/`N` | next/previous node, or search match |
 | `/` | search; a bare number in the list jumps to that item past any filter, the same way `"` does. In the detail it is a regex (a half-typed one is taken literally), case-insensitive unless it starts `\C`, and `/` then `↵` or `↑` searches for the last one again. The query edits like any other field: the arrows, `^a`/`^e`, `^w`, `^k`, `^y` |
 | `e` | done ↔ not done: the same key, and the same word, as the GitHub inbox and Gmail. A done item that moves is not done again |
-| `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first** |
+| `s` | snooze: `3d`, `2w`, `6mo`, a date. Wakes then, **or when it moves, whichever is first**; the thread then has a rule where you last looked and a second, `new since the snooze`, over what moved while it slept |
 | `x` | file it away (and back). A filed item that moves is unread again, in the `filed away` box |
 | `v` | edit the note in `$VISUAL`/`$EDITOR`; `o` opens the checkout in VS Code (`code`) - under `d` or `p`, the diff of the file at the line the cursor is on; on a commit in a push or a range-diff, that commit |
 | `;` | set a field - a picker: the tracking level (`normal` ↔ `loose`, this machine), then the milestone, an assignee, a reviewer, the state (draft ↔ ready; close and reopen, which ask first), the title - which reach GitHub; assignee and reviewer toggle, as `L` does |

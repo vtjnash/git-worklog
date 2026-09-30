@@ -323,13 +323,39 @@ answer that can disagree with this one.
 It is a node rather than a decoration so that `n`/`N` reaches it, folding above
 it works, and `collect_pending!` has something to open the pane on.
 """
-function newmark_node(n::Int)
-    nd = Node(faced("new since you last looked", THEME.waiting) * "  " *
+function newmark_node(n::Int; why::AbstractString = "you last looked",
+                      face::Face = THEME.waiting)
+    nd = Node(faced(string("new since ", why), face) * "  " *
               faced(string(n, n == 1 ? " entry" : " entries"), THEME.dim),
               "", :plain, true)
     nd.meta["newmark"] = true
-    nd.meta["src"] = "--- new since you last looked ---"
+    nd.meta["src"] = string("--- new since ", why, " ---")
     nd
+end
+
+"""
+    thread_rules(it) -> (read, snoozed)
+
+The two stamps a thread draws a rule under: where you last looked, and where
+the last snooze put it to sleep - each `nothing` for no rule.
+
+The first is the done stamp, `done_upto`, except where the stamp is the
+snooze's own or the wake has since said unread with none: a snooze stamps the
+seen bit to put the row away, and was the rule's place until it woke and took
+the stamp with it, which left a thread that had moved under its snooze with no
+rule at all. There it is the stamp the snooze wrote over, `snooze_read`, the
+floor for none. The second is the snooze's stamp, `snooze_done`, while it is
+newer than the first - a look since the snooze is past it and says it all.
+"""
+function thread_rules(it::Item)
+    upto = done_upto(it)
+    sn = get_field(it.url, "snooze_done")
+    (sn === nothing || !truthy(sn)) && return (upto, nothing)
+    if upto === nothing || upto == sn
+        v = get_field(it.url, "snooze_read")
+        upto = v === nothing ? floor_of(it, source_since()) : truthy(v) ? String(v) : nothing
+    end
+    (upto, upto === nothing || sn > upto ? String(sn) : nothing)
 end
 
 """The last node of a stale thread opened from the cache: the re-read is coming,
@@ -535,7 +561,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     # the stamp is not news to you, and a rule over it alone said there was some.
     # The stamp or the floor, as the list reads it: the stamp alone left no rule
     # on a row read by construction, which the list called unread all the same.
-    upto = done_upto(it)
+    # And a second rule where a snooze put it away, when that is later than
+    # the last look: what moved while it slept (`thread_rules`).
+    upto, snoozed = thread_rules(it)
     # And nothing for a thread opened since, by somebody else: the floor is
     # older than all of it, the opening post included, which is drawn first
     # and is no entry for the rule to go above. Under it the rule stood over
@@ -546,8 +574,20 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     mk = seen === nothing ? nothing :
          findfirst(e -> e.at > seen && (isempty(me) || entry_by(e) != me), evs)
     mark = mk === nothing ? 0 : mk
+    # The snooze's rule, from its own stamp, never above the look's - and one
+    # rule where the two fall on the same entry, saying both.
+    smk = snoozed === nothing || (opened > snoozed && (isempty(me) || who0 != me)) ? nothing :
+          findfirst(e -> e.at > snoozed && (isempty(me) || entry_by(e) != me), evs)
+    smark = smk === nothing ? 0 : smk
     for (k, e) in enumerate(evs)
-        k == mark && push!(ns, newmark_node(length(evs) - mark + 1))
+        if k == mark
+            push!(ns, newmark_node(length(evs) - mark + 1;
+                                   why = k == smark ? "you last looked, and the snooze" :
+                                                      "you last looked"))
+        elseif k == smark
+            push!(ns, newmark_node(length(evs) - smark + 1; why = "the snooze",
+                                   face = THEME.accent))
+        end
         if e.kind === :push
             push!(ns, push_node(e.c, it.url))
             continue

@@ -202,6 +202,16 @@ and what brought the row back - `woke <when>`, `until <when> · moved before
 the wake`, or `until <when> · cleared`. The one thing that wakes an item
 that GitHub did not do and the row does not show already.
 
+**A snooze keeps where it stamped, for the thread.** The thread's rule is the
+done stamp, and a snooze writes that stamp and its wake takes it away - so a
+thread that woke had no rule, and nothing said what had moved while it slept.
+`s` and `wl snooze` keep the stamp they wrote (`snooze_done`) and the one they
+wrote over (`snooze_read`), both outliving the snooze as `last_snooze` does,
+and the thread draws two rules (`thread_rules`): `new since you last looked`
+at the stamp - the one the snooze wrote over, where the stamp is the snooze's
+or gone - and `new since the snooze` at the snooze's, while it is the later.
+`p` still measures from `done_head`, which a snooze never writes.
+
 **An agent's bell is a seen bit tmux holds, and every mark clears it.** The
 agent in a `T` pane rings as its turn ends or as it asks
 (`cli/claude-settings.json`), and tmux keeps the bell while nobody is

@@ -16,6 +16,14 @@
 #                   or a movement before it is what brought the row back.
 #                   The one thing that wakes an item that GitHub did not
 #                   do and the row does not show already
+#   * `snooze_done` the done stamp the last snooze wrote, and `snooze_read`
+#                   the one it wrote over - `""` for none, absent for the
+#                   floor - both kept after the snooze has gone, as
+#                   `last_snooze` is. A snooze stamps the seen bit and its
+#                   wake says unread with no stamp at all, so without them
+#                   the thread had nowhere to draw "new since you last
+#                   looked" once it woke, and nothing to say what moved
+#                   while it slept (`thread_rules`)
 #
 # And beside them, yours rather than written for you, `snooze`: a wake *time*,
 # which `seen_of` reads as a second reason for the item to be unread beside
@@ -335,6 +343,14 @@ function mark_woken(woke)
     isempty(ups) || set_blocks!(collect(ups))
     length(ups)
 end
+
+"""The keys that remember a snooze being put on: the done stamp it writes,
+`stamped`, and the one it writes over, `before` - the raw value, so `nothing`
+(the floor answers) stays absent and `""` (unread) stays said. Read back by
+`thread_rules`."""
+snooze_stamps(before, stamped) =
+    ["snooze_done" => String(stamped),
+     "snooze_read" => before === nothing ? nothing : String(before)]
 
 """The keys a mark writes to end a snooze whose wake has passed: the snooze
 gone, and the wake kept as `last_snooze`; see `woken_by`."""
