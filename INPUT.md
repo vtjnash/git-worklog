@@ -130,9 +130,9 @@ copy in the same commit.
        reads keys some other way produces them itself". The module docstring
        and README say the no-loop rule is the widgets', and list the helpers.
 2. [x] **(host)** `wl` imports them; its `KeyEvent` and friends go.
-3. [ ] **Paste.** `paste!(::LineInput)` drops control characters as well as
+3. [x] **Paste.** `paste!(::LineInput)` drops control characters as well as
        line breaks, and so `Choice`'s does.
-4. [ ] **(host)** `pasteline` goes.
+4. [x] **(host)** `pasteline` goes.
 5. [ ] **Terminal modes.** `enter_terminal` and `leave_terminal`, the
        latter guarded as `run!`'s `finally` is, since the commonest way out
        is a terminal that has gone away. `suspend` takes the value `enter`

@@ -163,7 +163,7 @@ function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
     if st.typing
         h, w = displaysize(stdout)
         iw = st.diw > 0 ? st.diw : layout(w, h, st.nmeta).riw
-        TermInput.paste!(st.query, pasteline(s))
+        TermInput.paste!(st.query, s)
         st.search = text(st.query)
         research!(st, iw)
     else

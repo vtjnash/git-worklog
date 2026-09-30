@@ -114,11 +114,6 @@ onpaste!(::View, ::AbstractString, ::Any) = :ok
 """A mouse report, `TermInput`'s `MouseEvent`, for a view that takes one."""
 onmouse!(::View, ::MouseEvent, ::Any) = :ok
 
-"""A paste for a one-line field: its breaks become spaces, the one it ends on
-goes, and nothing that is not a character is kept."""
-pasteline(s::AbstractString) =
-    filter(!iscntrl, TermInput.oneline(rstrip(String(s), ('\r', '\n'))))
-
 """Input that was never decoded, for a view that asked to forward it."""
 struct RawEvent
     bytes::Vector{UInt8}
@@ -915,7 +910,7 @@ function handle!(v::ChooseView, k::Int, ctrl::Controller)
 end
 
 onpaste!(v::ChooseView, s::AbstractString, ::Controller) =
-    (TermInput.paste!(getfield(v, :c), pasteline(s)); :ok)
+    (TermInput.paste!(getfield(v, :c), s); :ok)
 
 # --- a yes or no, as a view -------------------------------------------------
 
