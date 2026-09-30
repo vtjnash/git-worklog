@@ -249,9 +249,7 @@ end
 
 A row shows a *contiguous* piece of `src`: the wrapping only ever cut the line,
 it never rewrote it. So the piece can be found by looking for it, and neither
-`awrap` nor `unwrap_map` has to be taught to report offsets - which for
-`unwrap_map` would have meant recording spans through an alignment that compares
-whitespace-collapsed text, where the offsets do not survive.
+`awrap` nor `markdown_rows` has to be taught to report offsets.
 
 `from` carries a cursor along the logical line so that a row repeating text from
 earlier in the same line lands on its own copy. `indent` is the depth padding

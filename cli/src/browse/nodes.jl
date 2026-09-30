@@ -2,19 +2,13 @@
 # below) them a foldable detail pane showing either the comment thread, rendered
 # as markdown, or the diff.
 #
-# Markdown comes from Term.jl and nothing else does. Two things about it are
-# worth knowing: `parse_md` emits Term's own {tag} markup rather than ANSI, so
-# its output has to go through `apply_style` or the tags show up literally in
-# the pane; and it measures that markup instead of what prints, so no layout is
-# left to it - the panes are drawn by hand and every width is measured with
-# `awidth`, against the escapes that actually reach the terminal.
+# Markdown is drawn by `TermInput.markdown_rows`, which measures what prints,
+# so no width here is left to anything but `awidth`, against the escapes that
+# actually reach the terminal.
 #
 # `render` is kept pure - state and a size in, a string out - so the whole UI
 # can be snapshot tested without a TTY, which is the only way any of it got
 # verified here.
-
-import Term
-using Term: apply_style
 
 "A foldable block - a comment, the issue body, or one file of a diff."
 mutable struct Node

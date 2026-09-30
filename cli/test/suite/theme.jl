@@ -115,7 +115,8 @@ end
         # weight a border is drawn in either: the two widget packages take
         # those from `TermInput.CHROME`, which this sets too.
         @test !occursin(r"\e\[[0-9;]*m", f)
-        @test TermInput.CHROME[] == (strong = "", quiet = "", focus = "", reset = "")
+        @test Base.structdiff(TermInput.CHROME[], NamedTuple{(:box,)}) ==
+              (strong = "", quiet = "", focus = "", reset = "")
         # Still a frame, though: the geometry is not the theme's business.
         @test all(W.awidth(l) == 150 for l in split(f, "\n"))
         # Hyperlinks are not colour and stay - OSC 8 is how a url is followed,
@@ -179,7 +180,8 @@ end
 
         @test isempty(W.load_theme!(THEME_DEFAULT))
         @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
-                                     focus = W.THEME.focus, reset = W.THEME.reset)
+                                     focus = W.THEME.focus, reset = W.THEME.reset,
+                                     box = TermInput.BOXES.ROUNDED)
         @test t.md_h1 == "bold blue" && t.md_quote == "blue"
         @test t.md_codeblock_bg == "#303030"      # Term reads it as on_<colour>
         @test t.box === :ROUNDED                   # a name, not a colour
@@ -211,11 +213,11 @@ end
         @test isempty(W.load_theme!(""))
         @test t.md_h1 == W.TERM_PLAIN && Term.CodeTheme["string"] == W.TERM_PLAIN
         @test t.md_code == W.MD_CODE_SENTINEL_HEX
-        # Which is what makes a rendered comment body plain text: Term wraps
-        # what it renders in a tag whatever the tag says, so the escapes it
-        # prints anyway come back off.
-        @test W.render_md("a `x` and **bold**", 60) == "a `x` and bold"
-        @test !occursin('\e', W.render_md("# head\n\n- a `list`\n", 60))
+        # And a rendered comment body is plain text: no style asked for is no
+        # escape written.
+        md(s) = join((rstrip(r.text) for r in W.render_md(s, 60)), "\n")
+        @test md("a `x` and **bold**") == "a `x` and bold"
+        @test !occursin('\e', md("# head\n\n- a `list`\n"))
     finally
         W.load_theme!(THEME_DEFAULT)
     end

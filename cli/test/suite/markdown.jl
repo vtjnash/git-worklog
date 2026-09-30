@@ -41,17 +41,16 @@ end
     # The backticks stay, so a copy keeps the formatting the author wrote.
     @test plain("call `Sockets.bind` and `false` here", 70) ==
           "call `Sockets.bind` and `false` here"
-    # Nothing leaks the sentinel colour, at any width.
+    # Nothing is left in force at the end of a row, at any width: a span the
+    # wrap split is closed on one row and opened again on the next.
     for w in (24, 40, 70, 120)
         for t in ("call `Sockets.bind` here",
                   "a `span with several words that will not fit on one line at all` yes",
                   "unclosed `backtick here", "no code at all here")
-            @test !any(occursin(W.MD_CODE_SENTINEL, l) for l in lines(t, w))
+            @test all(l -> count(W.THEME.code_bg, l) == count(W.THEME.code_bg_off, l),
+                      lines(t, w))
         end
     end
-    # A span Term split has no pair on one line, so it falls back quietly.
-    split_ = lines("a `span with several words that will not fit on one line at all` yes", 30)
-    @test !any(occursin(W.MD_CODE_SENTINEL, l) for l in split_)
     @test occursin("`span with several words", plain("a `span with several words that will not fit on one line at all` yes", 30))
     # And the background never reaches the plain text.
     @test !occursin("[48;5;238m", plain("call `x` here", 70))
@@ -86,10 +85,9 @@ end
     end
     # Some width in that range does split a span, or the loop proved nothing.
     @test any(w -> any(l -> isodd(count('`', W.astrip(l))), lines(para, w)), 24:4:140)
-    # A blank line ends a paragraph, and a span left open does not cross it.
-    d = W.CODE_DELIM
-    on, off = shaded(split(W.style_code_spans("a $(d)b\n\nc $(d)d$(d) e"), '\n'))
-    @test on == "`b`d`" && off == "a c  e"
+    # A backtick left open is text, and does not reach across a paragraph.
+    on, off = shaded(lines("a `b\n\nc `d` e", 80))
+    @test on == "`d`" && occursin("a `b", off)
 end
 
 @testset "markup does not eat the text" begin
@@ -130,7 +128,7 @@ end
           "Why `JL_GC_PUSHARGS` frames are the hard case."
     @test render("_a `b` c_") == "a `b` c"
     # And `wl show`, which is Term without the pane.
-    @test W.astrip(W.term_md(W.for_term(W.parse_gfm("a Dict{String,Int} and `T{S}`")), 80)) ==
+    @test rstrip(W.astrip(only(W.render_md("a Dict{String,Int} and `T{S}`", 80)).text)) ==
           "a Dict{String,Int} and `T{S}`"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 
@@ -252,6 +250,8 @@ end
     @test count(l -> occursin("•", l), lines("- a\n-\n- b")) == 3
     rows = filter(l -> occursin("│", l), lines("| `code` | b |\n|---|---|\n| 1 | 2 |"))
     @test length(rows) == 2 && occursin("`code`", rows[1])
-    # And a table in a list is still its source, not a box beside the bullet.
-    @test any(l -> occursin(r"\|\s+a\s+\|", l), lines("- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |"))
+    # And a table in a list is a box at the list's indent, not one centred
+    # beside the bullet.
+    @test lines("- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |")[3:4] ==
+          ["  ╭───┬───╮", "  │ a │ b │"]
 end

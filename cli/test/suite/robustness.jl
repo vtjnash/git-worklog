@@ -226,6 +226,7 @@ end
 end
 
 @testset "shapes Term cannot render" begin
+    md(src, w) = join((r.text for r in W.render_md(src, w)), "\n")
     # `parse_md(::Markdown.Table)` takes `width` and nothing else, but Term's
     # own recursion passes `inline` to whatever is inside a list or a quote. One
     # table in one bullet used to drop the whole comment back to raw text.
@@ -235,7 +236,7 @@ end
                 "- point\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n",
                 "> | a | b |\n> |---|---|\n> | 1 | 2 |\n",
                 "- a\n    - b\n\n      | x | y |\n      |---|---|\n      | 1 | 2 |\n")
-        out = W.render_md(src, 60)
+        out = md(src, 60)
         @test occursin("a", out) || occursin("x", out)
     end
     # A failure now goes to the log, with its backtrace, rather than a sentence
@@ -244,10 +245,10 @@ end
 
     # A table at the top level is left where it is, because Term renders it
     # properly there - box drawing and all.
-    @test occursin("\u2500", W.render_md("| a | b |\n|---|---|\n| 1 | 2 |\n", 60))
+    @test occursin("\u2500", md("| a | b |\n|---|---|\n| 1 | 2 |\n", 60))
 
     # Nested, it keeps every cell.
-    nested = W.render_md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
+    nested = md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
 
     # A code span in a table's *header* is the third shape, and the quiet one:
@@ -256,8 +257,8 @@ end
     # three lines tall and `width - 12` across. The table then sized itself to
     # that cell and its borders were wrapped mid-line. Term 2.2.1 passes it
     # (FedeClaudi/Term.jl#309); `for_term` wrapped each cell in a paragraph.
-    plain = split(rstrip(W.render_md("| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
-    spans = split(rstrip(W.render_md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
+    plain = split(rstrip(md("| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
+    spans = split(rstrip(md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     @test length(plain) == 5              # border, header, rule, row, border
     @test length(spans) == length(plain)  # and the span did not grow the header
     @test occursin("f(::T)", W.astrip(spans[2]))
@@ -271,14 +272,14 @@ end
     empty!(W.ERRSEEN)
     for src in ("- a\n-\n- b\n", "1. one\n2.\n3. three\n", "-\n",
                 "- outer\n    -\n    - inner\n", "> - a\n> -\n")
-        out = W.render_md(src, 60)
+        out = md(src, 60)
         @test !occursin("BoundsError", out)
     end
     @test !isfile(W.errlog())
     # Drawn rather than dropped: the bullet was typed, so it is drawn, and an
     # ordered list is not renumbered behind the user's back. Term 2.2.1 does
     # this itself (FedeClaudi/Term.jl#305); `for_term` used to.
-    out = W.astrip(W.render_md("1. one\n2.\n3. three\n", 60))
+    out = W.astrip(md("1. one\n2.\n3. three\n", 60))
     @test occursin("one", out) && occursin("three", out)
     @test occursin(r"1\.\s+one", out) && occursin(r"2\.", out) && occursin(r"3\.\s+three", out)
 end

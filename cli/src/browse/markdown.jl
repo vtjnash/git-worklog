@@ -1,7 +1,8 @@
-# A comment body becomes rows of styled text. Term does the markdown and this
-# does everything Term cannot be trusted with: escaping what would read as its
-# markup, code spans, the wrap map, and the fold state a row belongs to - and,
-# at the end, the bordered pane those rows are drawn in.
+# A comment body becomes rows of styled text. `TermInput.markdown_rows` draws
+# the markdown, rows and source map together; this parses it the way GitHub
+# does, pulls the links out to footnotes, links the references in the rows,
+# and keeps the fold state a row belongs to - and, at the end, the bordered pane
+# those rows are drawn in.
 
 """
     inert(text) -> (text, n)
@@ -500,242 +501,58 @@ function escape_source(md::AbstractString)
     String(take!(out))
 end
 
-# Term styles a code span's *delimiters* and not what is between them, and the
-# default is a pale yellow - the loudest thing on a screen of prose, for what is
-# usually a variable name. Setting the theme to a colour nothing else emits
-# makes the delimiters findable afterwards, which is the only way to reach the
-# span itself.
-#
-# Not a theme role, and the one colour in the program that is not: it is a
-# handshake with Term's own theme, which `load_theme!` sets to
-# `MD_CODE_SENTINEL_HEX` whatever else the theme says, and it is never on screen
-# - `style_code_spans` has replaced every one of them before the row is drawn.
-# A theme that set `md_code` would not recolour a code span, it would stop one
-# being drawn, which is why the `[term]` table refuses that one field.
-const MD_CODE_SENTINEL = sgr((38, 2, hex2rgb(MD_CODE_SENTINEL_HEX)...))
-const CODE_DELIM = MD_CODE_SENTINEL * "`" * "\e[39m"
+"""The styles a comment body is drawn in, from the theme's roles.
 
-"""Draw a code span as a quiet background instead of loud punctuation.
+Built per render from `THEME`, which a theme load replaces whole: a code span on
+`code_bg` with its backticks `dim`, a code block on the same background, and a
+link's label as a link is drawn."""
+md_style() = TermInput.MarkdownStyle(
+    code = (THEME.code_bg, THEME.code_bg_off),
+    code_tick = (THEME.dim, THEME.dim_off),
+    codeblock = (THEME.code_bg, THEME.code_bg_off),
+    link = (THEME.link, THEME.link_off))
 
-The backticks stay, dimmed. They could go - the background marks the span on its
-own - but they are part of what a copy produces, and pasting `Sockets.bind` back
-into a comment without them loses the formatting the author put there.
-
-Term wraps before this sees the text, so a span it split has its opening
-delimiter on one line and its closing one on the next. Whether a span is open
-is carried from line to line: the first line is drawn from the delimiter to its
-end, the next from its start - its indent aside - to the delimiter, each ending
-its own background so the pane's padding is not drawn on. Paired line by line
-instead, the next line's first delimiter opened a span rather than closing
-one, and every span after it on that line was drawn inside out - the prose
-between two spans on the background, and the code without (julia#63360, split
-in `ErrorException`). A blank line ends a paragraph, and any span with it.
 """
-function style_code_spans(str::AbstractString)
-    occursin(CODE_DELIM, str) || return String(str)
-    # Dim and no more: a reset here would end the background the span is drawn
-    # on, which is what `dim_off` exists for.
-    tick = string(THEME.dim, "`", THEME.dim_off)
-    inside(s) = rearm(String(s), THEME.code_bg)
-    out = IOBuffer()
-    open = false
-    for (i, line) in enumerate(split(str, '\n'))
-        i == 1 || write(out, '\n')
-        isempty(strip(astrip(line))) && (open = false)
-        parts = split(line, CODE_DELIM)
-        for (k, part) in enumerate(parts)
-            if k > 1
-                # The delimiter before this part: it closes a span or opens one.
-                write(out, open ? string(tick, THEME.code_bg_off) :
-                                  string(THEME.code_bg, tick))
-                open = !open
-                write(out, open ? inside(part) : part)
-            elseif open
-                # Carried over from the line above: the indent stays off it.
-                m = something(match(r"^(\s*)(.*)$"s, part))    # matches anything
-                write(out, something(m[1]), THEME.code_bg, inside(something(m[2])))
-            else
-                write(out, part)
-            end
-        end
-        open && write(out, THEME.code_bg_off)
-    end
-    # Term can also wrap *between* the colour and the backtick it applies to,
-    # leaving the sentinel alone on a line with no pair to find. Anything still
-    # carrying it becomes dim, so a stray delimiter is quiet rather than
-    # magenta.
-    replace(String(take!(out)), MD_CODE_SENTINEL => THEME.dim)
-end
+    render_md(body, w) -> Vector{TermInput.MDRow}
 
-"""Rewrite the parsed markdown into what Term should render.
-
-One walk of the tree, for two shapes where what Term draws is not what GitHub
-does.
-
-**A line break in a paragraph.** GitHub draws a newline in a comment as a line
-break (`<br>`: its own renderer, in `gfm` mode, says so), and a comment
-hand-wrapped at 72 columns is meant to be read that way. Julia's `Markdown`
-keeps the newline in the text since 1.14, and Term turns it into a space since
-2.2.1 (FedeClaudi/Term.jl#311), which is right for a document and reflowed
-every comment. Each one becomes a `LineBreak`, which Term draws as one.
-
-**A table inside a list or a block quote.** Term draws it (it threw before
-2.2.1, FedeClaudi/Term.jl#306), but centred on the full width beside the bullet
-or inside the quote marks, its box split from the text around it. Nested, it
-becomes code - its own markdown source - which keeps every cell and loses only
-the box drawing. At the top level Term renders it properly, so it
-is left alone.
-"""
-for_term(x, nested::Bool = false) = x
-for_term(t::Markdown.Table, nested::Bool) =
-    nested ? Markdown.Code("", strip(sprint(Markdown.plain, Markdown.MD(t)))) : t
-for_term(md::Markdown.MD, nested::Bool = false) =
-    Markdown.MD([for_term(c, nested) for c in md.content])
-for_term(l::Markdown.List, nested::Bool) =
-    Markdown.List([Any[for_term(b, true) for b in item] for item in l.items],
-                  l.ordered, l.loose)
-for_term(q::Markdown.BlockQuote, nested::Bool) =
-    Markdown.BlockQuote([for_term(c, true) for c in q.content])
-for_term(a::Markdown.Admonition, nested::Bool) =
-    Markdown.Admonition(a.category, a.title, [for_term(c, true) for c in a.content])
-for_term(p::Markdown.Paragraph, nested::Bool) = Markdown.Paragraph(hard_breaks(p.content))
-
-"Inline content with each newline in its text a `LineBreak`; see `for_term`."
-function hard_breaks(xs::AbstractVector)
-    out = Any[]
-    for x in xs
-        if x isa AbstractString
-            for (i, piece) in enumerate(split(x, '\n'))
-                i == 1 || push!(out, Markdown.LineBreak())
-                isempty(piece) || push!(out, String(piece))
-            end
-        elseif x isa Markdown.Bold
-            push!(out, Markdown.Bold(hard_breaks(x.text)))
-        elseif x isa Markdown.Italic
-            push!(out, Markdown.Italic(hard_breaks(x.text)))
-        else
-            push!(out, x)
-        end
-    end
-    out
-end
-
-"""Markdown to ANSI at one width.
-
-Term is handed *markup*, not ANSI: `apply_style` here would bake in escape codes
-that Term then counts toward the line width, wrapping content that already fits.
-Its brace escape is undone by `term_md`, or Julia type signatures would reach
-the screen as `Tuple{{Type{{S{{N, Tup}}}`.
+A comment body as rows of exactly `w` columns, each with the line it was
+written as: parsed as GitHub would (`escape_source`, `parse_gfm`) and drawn by
+`markdown_rows`, with a newline in a paragraph a line break, as GitHub draws
+one in a comment.
 
 A bad comment must not take the pane down, but the reason has to be visible:
 swallowing it once hid that markdown was not rendering at all, for want of an
 `import Term`. It goes to `errors.log` rather than the footer, which only ever
 had room for the first sentence - long enough to say a `MethodError` had
 happened and not which method, and gone again on the next status. The log keeps
-the backtrace, and the standing warning keeps pointing at it.
+the backtrace, and the standing warning keeps pointing at it. The rows are then
+the raw text, wrapped.
 """
 function render_md(body::AbstractString, w::Int)
     try
-        a = term_md(for_term(parse_gfm(escape_source(body))), max(20, w))
-        plain_term(style_code_spans(a))
+        markdown_rows(parse_gfm(escape_source(body)), w; style = md_style(), breaks = true)
     catch e
         logerror!(e, catch_backtrace(), "render_md")
-        String(body)          # the raw text; this path bypasses Term entirely
+        rs = TermInput.MDRow[]
+        for l in split(String(body), '\n'), (k, x) in enumerate(awrap(String(l), w))
+            push!(rs, TermInput.MDRow(apad(x, w), rstrip(l), k == 1))
+        end
+        rs
     end
-end
-
-"Wide enough that no paragraph wraps, narrow enough that a padded box is cheap."
-const WIDE_MD = 2000
-
-"""
-    unwrap_map(narrow, wide) -> Vector{Tuple{Bool,String}}
-
-For each display line, whether it starts a written line and what that line says.
-
-Term wraps prose itself, at whatever width it is handed, so a paragraph is
-already in pieces before `awrap` ever sees it - `awrap` only ever gets the lines
-Term declined to wrap. Rendering a second time at a width nothing reaches gives
-the unwrapped form, but that render cannot be shown: a code block or a table is
-a box, and Term pads the box out to the full width.
-
-So render twice and align the two. Each wide line is matched against as many
-narrow lines as it takes to reproduce it, ignoring where the spaces fell. What
-fails to match - the boxes, which are the same shape at both widths - stands for
-itself, and the walk carries on in step.
-"""
-function unwrap_map(narrow::Vector{String}, wide::Vector{String})
-    norm(s) = replace(strip(astrip(s)), r"\s+" => " ")
-    plain(s) = rstrip(astrip(s))
-    out = Vector{Tuple{Bool,String}}(undef, length(narrow))
-    i, j = 1, 1
-    while i <= length(narrow)
-        if isempty(norm(narrow[i]))
-            # A blank row stands for itself, and takes a blank on the wide side
-            # with it: letting one be swallowed into the next paragraph's group
-            # puts the two walks out of step for the rest of the comment.
-            out[i] = (true, ""); i += 1
-            j <= length(wide) && isempty(norm(wide[j])) && (j += 1)
-            continue
-        end
-        if j > length(wide)
-            out[i] = (true, plain(narrow[i])); i += 1; continue
-        end
-        target = norm(wide[j])
-        if isempty(target)
-            j += 1; continue
-        end
-        acc, k, hit = "", i, false
-        while k <= length(narrow)
-            piece = norm(narrow[k])
-            isempty(piece) && break
-            # Term breaks a long token - a URL, usually - with no space at the
-            # break, so rejoining with one does not reproduce the wide line.
-            # Try it both ways and take whichever the wide line agrees with.
-            cand = if isempty(acc)
-                piece
-            elseif startswith(target, string(acc, " ", piece))
-                string(acc, " ", piece)
-            else
-                string(acc, piece)
-            end
-            startswith(target, cand) || break
-            acc = cand; k += 1
-            acc == target && (hit = true; break)
-        end
-        if hit
-            # The wide line is only worth having when it *joined* several narrow
-            # ones - that is the unwrapping. Matched one-to-one they are the
-            # same content, and the narrow one is the copy without the padding:
-            # a code block is a box, and Term pads the box out to whatever width
-            # it was given, so the wide side of a gdb log was handing a yank
-            # nineteen hundred columns of spaces with a border on the end.
-            src = k - i == 1 ? plain(narrow[i]) : plain(wide[j])
-            for t in i:(k - 1)
-                out[t] = (t == i, src)
-            end
-            i = k; j += 1
-        else
-            out[i] = (true, plain(narrow[i])); i += 1; j += 1
-        end
-    end
-    out
 end
 
 "Render a node's body at width `w`, cached - markdown is too slow to redo per frame."
 function nodelines(n::Node, w::Int)
     n.cw == w && return n.cache
-    local txt::String
+    txt = ""
     srcline = Tuple{Bool,String}[]     # per line of txt: starts a written line?
+    mdrows = TermInput.MDRow[]
     if n.kind === :md
         body, urls = delink(n.raw)
         n.urls = urls
-        if isempty(strip(body))
-            txt = ""
-        else
-            txt = render_md(body, w)
-            srcline = unwrap_map(String.(split(txt, "\n")),
-                                 String.(split(render_md(body, WIDE_MD), "\n")))
-        end
+        # Rows already, at this width and each with its line: nothing below
+        # wraps them again.
+        isempty(strip(body)) || (mdrows = render_md(body, w))
     elseif n.kind === :diff
         # The marks go on here rather than into the node's text: the line a
         # review comment hangs off is worth seeing in the hunk, and it is not
@@ -752,9 +569,6 @@ function nodelines(n::Node, w::Int)
                     for (k, l) in enumerate(raw)), "\n")
         srcline = [(true, rstrip(l)) for l in raw]
     else
-        # Not `esc`: a plain node never reaches Term, so doubling its braces is
-        # doubling them on screen. It showed `Dict{{String,Int}}` in a code
-        # block, and had been doing the same to Buildkite logs all along.
         # A tab is drawn as its columns here too - a log, a range-diff - and
         # `src` is taken off the raw line, with the tab, the same as a diff's.
         raw = String.(split(n.raw, "\n"))
@@ -762,21 +576,20 @@ function nodelines(n::Node, w::Int)
         srcline = [(true, rstrip(astrip(l))) for l in raw]
     end
     lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
-    # A diff or a plain block is already one line per line of its source, so
-    # only markdown needs the alignment above.
-    isempty(srcline) && (srcline = [(true, rstrip(astrip(l))) for l in lines])
 
-    # Wrap here rather than trusting Term, which emitted 232 display columns for
-    # a requested width of 90 on any line holding inline code.
-    #
+    # A diff or a plain block is one line per line of its source, wrapped here.
     # Every row records the written line behind it, and whether it is the first
-    # row of it. Both wraps - Term's and ours - are ours to undo when copying;
-    # neither is something the reader chose.
+    # row of it: the wrap is ours to undo when copying, not something the
+    # reader chose.
     #
     # The references in it are links, row by row, once the rows are final:
     # prose and plain text, never a diff, whose lines are code.
     repo = n.kind === :diff ? "" : jstr(n.meta, :repo, "")
     out, srcs = String[], Tuple{Int,String}[]
+    for r in mdrows
+        push!(out, autolink(r.text, repo))
+        push!(srcs, (r.first ? 0 : 1, r.src))
+    end
     for (idx, l) in enumerate(lines)
         (first_of, src) = srcline[idx]
         ws = awidth(l) <= w ? [l] : awrap(l, w)

@@ -218,8 +218,7 @@ A row carries colours of its own, and the escape that ends one of them - a
 reset, or a background going back to the default - ends the background laid over
 the top of it as well. So a highlight applied naively stops at the first styled
 word on the line, and the cure is to put it back after each of them. `hlrow`
-does this to a whole row and `style_code_spans` to the inside of one code span,
-which is why it lives here with the escapes rather than in either of them.
+does this to a whole row, which is why it lives here with the escapes.
 
 Answers with `s` untouched when there is nothing to re-arm, which is also what
 keeps it safe with no theme loaded: `replace(s, "" => "")` inserts at every
@@ -247,8 +246,8 @@ end
 # map rather than a conversion.
 #
 # Two fields are not colours and are taken as names: `box` and `tb_box` choose
-# the box *characters*, which is also where the dialog and the pane borders get
-# theirs - `TermInput.boxstyle()` follows `TERM_THEME[].box`.
+# the box *characters*, and `box` is also what the dialog and the pane borders
+# are drawn with - `chrome!` hands it to `TermInput.CHROME`.
 #
 # And one field is refused: `md_code` is the sentinel `style_code_spans` finds
 # the code-span delimiters by. It is never on screen, and a theme that set it
@@ -457,20 +456,8 @@ composer. `TermInput` keeps that as reverse video whatever a theme says,
 because it is the only thing on screen saying where typing will go.
 """
 chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
-                                   focus = THEME.focus, reset = THEME.reset); nothing)
-
-"""Term's output, with its escapes taken back off when there is no theme.
-
-The last half-inch of drawing plain. Term always wraps what it renders in a
-tag, and its plainest style - `TERM_PLAIN` - is a real style that prints
-`\\e[22m`, so a palette set to nothing still leaves a body speckled with
-attribute resets. With no theme that is noise in a pipe rather than restraint,
-so it comes off.
-
-Only in that case: with a theme loaded this is the identity, and the escapes it
-would otherwise be stripping are the colours somebody asked for.
-"""
-plain_term(s::AbstractString) = isempty(THEME.reset) ? astrip(s) : String(s)
+                                   focus = THEME.focus, reset = THEME.reset,
+                                   box = TermInput.boxstyle(Term.TERM_THEME[].box)); nothing)
 
 """Which file the colours come from, or `""` for none.
 

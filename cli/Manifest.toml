@@ -509,10 +509,14 @@ version = "0.1.0"
     julia_version = "1.10.0"
 
 [[deps.TermInput]]
-deps = ["InteractiveUtils", "REPL", "Term"]
+deps = ["InteractiveUtils", "Markdown", "REPL"]
 path = "../TermInput.jl"
 uuid = "e53b28ee-00f8-475a-85b8-1918fdda0ee8"
 version = "0.1.0"
+weakdeps = ["JuliaSyntaxHighlighting"]
+
+    [deps.TermInput.extensions]
+    TermInputHighlightExt = "JuliaSyntaxHighlighting"
 
     [deps.TermInput.syntax]
     julia_version = "1.10.0"

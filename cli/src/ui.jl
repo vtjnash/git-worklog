@@ -731,29 +731,15 @@ end
 "A comment body, parsed as GitHub would: see `GFM_FLAVOR`."
 parse_gfm(s::AbstractString) = Markdown.parse(String(s); flavor = GFM_FLAVOR)
 
-"""Markdown to styled text at `width`, by Term: its markup consumed, and its
-brace escape with it. `parse_md` escapes every `{` as `{{`, in prose and in
-code, and only Term's own `print` collapses it; safe to do here only because
-`apply_style` has already read the markup."""
-term_md(md, width::Int) =
-    replace(Term.apply_style(string(Term.TermMarkdown.parse_md(md; width))),
-            "{{" => "{", "}}" => "}")
-
 """Print one markdown body: links lifted to numbered footnotes, the rest
-rendered by Term, wrapped to the terminal."""
+drawn by `render_md`, wrapped to the terminal."""
 function show_md(raw)
     txt = strip(replace(String(raw), "\r\n" => "\n"))
     isempty(txt) && return
     w = max(40, min(displaysize(stdout)[2] - 4, 100))
     body, urls = delink(txt)
-    out = try
-        plain_term(term_md(for_term(parse_gfm(body)), w))
-    catch e
-        @warn "markdown render failed, showing raw text" exception = e maxlog = 1
-        body
-    end
-    for l in split(out, "\n")
-        println("  ", l)
+    for r in render_md(body, w)
+        println("  ", rstrip(r.text, ' '))
     end
     for (i, u) in enumerate(urls)
         println("  ", THEME.dim, "[", i, "]", THEME.reset, " ", osc8(u, u))
