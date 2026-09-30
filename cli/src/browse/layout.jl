@@ -407,7 +407,7 @@ OSC 52, which is the one copy that works from inside a terminal somebody else
 owns - over ssh, and through tmux. It is disabled by default in some terminals,
 which is why every caller also says in the footer what it put there.
 """
-clip(text::AbstractString) = print("\e]52;c;", Base64.base64encode(text), "\a")
+clip(term, text::AbstractString) = write(term, string("\e]52;c;", Base64.base64encode(text), "\a"))
 
 """Every place `q` appears in `text`, as ranges of plain characters.
 

@@ -19,8 +19,8 @@ and each is explained where it is defined.
     render(v, w, h) -> String          the whole frame, no trailing newline
     handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit
     onmouse!(v, ev, ctrl) -> Symbol    the same, for a MouseEvent
-    onwake!(v) -> Bool                 adopt background results; true to redraw
-    onresize!(v)                       the terminal changed shape; the frame is redrawn regardless
+    onwake!(v, ctrl) -> Bool           adopt background results; true to redraw
+    onresize!(v, ctrl)                 the terminal changed shape; the frame is redrawn regardless
     wantsraw(v) -> Bool                take input undecoded, as bytes
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
     onpaste!(v, text, ctrl) -> Symbol  a bracketed paste, as text; ignored by default
@@ -31,8 +31,8 @@ and each is explained where it is defined.
 """
 abstract type View end
 
-onwake!(::View) = false
-onresize!(::View) = nothing
+onwake!(::View, ::Any) = false
+onresize!(::View, ::Any) = nothing
 
 """Bring what a view shows up to date with what it has selected, after any
 event, whichever view the event went to. Returns whether the frame changed.
@@ -179,17 +179,17 @@ arms the reader, and handed over as `raw`."""
 readinput(io::IO, raw::Bool) = raw ? readraw(io) : readevent(io)
 
 mutable struct Controller
-    term::Union{Nothing,HeldTerminal}   # while `run!` holds it
+    term::HeldTerminal          # what everything is written to and sized by;
+                                # entered while `run!` runs, and nothing done before
     events::Channel{Any}
     reader::Union{Nothing,InputReader{Bool}}  # `readinput`, onto `events`
     stack::Vector{View}
     running::Bool
-    mouse::Bool                 # what `m` last asked for; `term.mouse` follows it
     title::String               # what the terminal's title bar was last told
     woken::Bool                 # a `WakeEvent` is on `events` and not yet taken
 end
-Controller() = Controller(nothing, Channel{Any}(64), nothing, View[], false, false,
-                          "", false)
+Controller(term::HeldTerminal = HeldTerminal(stdin, stdout)) =
+    Controller(term, Channel{Any}(64), nothing, View[], false, "", false)
 
 """Called from a background task to ask for a redraw once its work has landed.
 
@@ -335,9 +335,8 @@ puts back - a second copy here would be one to keep in step - and the held
 terminal is told, so that `suspend` and `leave_terminal` put back what is on.
 """
 function mouse!(ctrl::Controller, on::Bool)
-    ctrl.mouse = on
-    ctrl.term === nothing || (ctrl.term.mouse = on)
-    print(mouse_reporting(on))
+    ctrl.term.mouse = on
+    write(ctrl.term, mouse_reporting(on))
     on
 end
 
@@ -407,8 +406,8 @@ end
 Give the terminal back for the duration of `f`, then take it again - the
 controller's held terminal, handed to `TermInput.suspend`, which undoes what
 `enter_terminal` did because anything holding raw mode has this problem; and
-the scheme reports, which are this program's. With no terminal held - a test -
-the sequences are written all the same.
+the scheme reports, which are this program's. With nothing entered - a test -
+only the cursor and the reports are written.
 
 **Only safe to call from the event loop.** The reader task is parked between
 events rather than sitting in `read`, which is what makes this work at all - a
@@ -417,13 +416,12 @@ user typed into it. The loop does not re-arm the reader until it has finished
 handling the event, and running the editor happens inside that handling.
 """
 function suspend(f, ctrl::Controller)
-    print(scheme_reports(false))
+    write(ctrl.term, scheme_reports(false))
     try
-        ctrl.term === nothing ? suspend(f, nothing; mouse = ctrl.mouse, paste = true) :
-                                suspend(f, ctrl.term)
+        suspend(f, ctrl.term)
     finally
         # And asked again: the scheme may have changed while it was away.
-        print(scheme_reports(true))
+        write(ctrl.term, scheme_reports(true))
     end
 end
 
@@ -581,7 +579,7 @@ at exit; the process is ending, so it is let go and left to die with it rather
 than being interrupted mid-read.
 """
 function run!(ctrl::Controller, root::View)
-    if !(stdin isa Base.TTY)
+    if !(ctrl.term.in isa Base.TTY)
         println(stderr, "wl: this view needs a terminal; stdin is not a TTY")
         return 1
     end
@@ -593,12 +591,11 @@ function run!(ctrl::Controller, root::View)
     # back; one without keeps the last one until its shell's prompt writes the
     # next, which every common prompt does. What it says is set per frame,
     # below. Bracketed paste is on for the whole run, so a paste is text.
-    ctrl.term = enter_terminal(stdin, stdout; altscreen = true, title = true,
-                               mouse = true, paste = true)
-    ctrl.mouse = true
+    ctrl.term = enter_terminal(ctrl.term.in, ctrl.term.out; altscreen = true,
+                               title = true, mouse = true, paste = true)
     # Asked and not waited for: the answer is an event like any other, and a
     # terminal that does not know the question says nothing at all.
-    print(scheme_reports(true))
+    write(ctrl.term, scheme_reports(true))
     ctrl.running = true
     unwatch_winch = watch_winch!(ctrl)
     # One event per `arm!`, parked between them, which is what lets `suspend`
@@ -655,7 +652,7 @@ function run!(ctrl::Controller, root::View)
                 # they are running queues the next one rather than being lost.
                 ctrl.woken = false
                 dirty = try
-                    onwake!(v)
+                    onwake!(v, ctrl)
                 catch e
                     logerror!(e, catch_backtrace(), "onwake!")
                     true                      # redraw, to show the warning
@@ -664,7 +661,7 @@ function run!(ctrl::Controller, root::View)
                 # Redrawn whatever the view says: the screen is not the shape
                 # the last frame was.
                 try
-                    onresize!(v)
+                    onresize!(v, ctrl)
                 catch e
                     logerror!(e, catch_backtrace(), "onresize!")
                 end
@@ -678,7 +675,7 @@ function run!(ctrl::Controller, root::View)
                         # background of its own - is a new background too.
                         was = TERM_DARK[]
                         TERM_DARK[] = ev.dark
-                        was === nothing || was == ev.dark || print(BG_QUERY)
+                        was === nothing || was == ev.dark || write(ctrl.term, BG_QUERY)
                     end
                     isempty(ev.bg) || terminal_bg!(ev.bg)
                     ev = isempty(ev.rest) ? nothing : RawEvent(ev.rest)
@@ -713,11 +710,12 @@ function run!(ctrl::Controller, root::View)
         # us here with a stack trace about giving back a terminal that no longer
         # exists. `leave_terminal` is guarded the same way.
         try
-            print(scheme_reports(false))
+            write(ctrl.term, scheme_reports(false))
         catch
         end
         leave_terminal(ctrl.term)
-        ctrl.term = nothing
+        # Somewhere to write still, with nothing left to undo.
+        ctrl.term = HeldTerminal(ctrl.term.in, ctrl.term.out)
     end
     0
 end

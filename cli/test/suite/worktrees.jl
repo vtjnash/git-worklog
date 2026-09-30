@@ -1126,10 +1126,10 @@ end
         v2 = W.worktree_view(items)
         @test all(!(r.staged || r.unstaged) for r in v2.rows)          # not walked yet
         wait(v2.pending)
-        @test W.onwake!(v2)
+        @test W.onwake!(v2, ctrl)
         @test W.worktree_rows(items)[1].unstaged         # and now it is known
         @test any((r.staged || r.unstaged) for r in v2.rows)
-        @test !W.onwake!(v2)                          # nothing left pending
+        @test !W.onwake!(v2, ctrl)                          # nothing left pending
         W.git(main, "checkout", "--quiet", "--", "a.txt")
 
         # `h` leaves for the item, and reports rather than moving when the

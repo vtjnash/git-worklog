@@ -190,13 +190,13 @@ has neither. So is everything that needs an issue or a pull request - `C`,
 `A`, `M`, `L`, `;`, `R` - or a checkout or a block to keep a note in - `t`,
 `T`, `v` - the way an adopted branch's `d` is (`not_pr`). `o` opens the link.
 """
-function notice_key!(st::BState, it::Item, k::Int)
+function notice_key!(st::BState, it::Item, k::Int, ctrl)
     if k in (Int('e'), Int('x'))
         st.status = dismiss_notice!(st, it)
     elseif k == Int('s')
         st.status = "a notice has no snooze \u2014 e dismisses it"
     elseif k == Int('o')
-        st.status = open_web(weblink(it))
+        st.status = open_web(ctrl.term, weblink(it))
     elseif k in (Int('C'), Int('A'), Int('M'), Int('L'), Int(';'), Int('R'),
                  Int('t'), Int('T'), Int('v'))
         st.status = string("nothing to ", Char(k), " on - this is ", not_pr(it),

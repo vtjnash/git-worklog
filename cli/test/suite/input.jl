@@ -178,10 +178,8 @@ end
 
     # Off while the terminal is handed over, and asked again after - the
     # background too, which may have changed with it.
-    out = mktemp() do path, io
-        redirect_stdout(() -> W.suspend(() -> nothing, ctrl), io)
-        flush(io)
-        read(path, String)
-    end
+    buf = IOBuffer()
+    W.suspend(() -> nothing, W.Controller(W.HeldTerminal(IOBuffer(), buf)))
+    out = String(take!(buf))
     @test occursin("\e[?2031l", out) && endswith(out, string("\e[?2031h\e[?996n", W.BG_QUERY))
 end

@@ -533,7 +533,7 @@ end
                 # Nothing is written yet: the note lands when the editor exits.
                 @test W.get_field(it.url, "note") === nothing
                 for _ in 1:60
-                    sleep(0.25); W.pane_sync!(v)
+                    sleep(0.25); W.pane_sync!(v, ctrl)
                     v.child.client === nothing && break
                 end
                 @test v.child.client === nothing
@@ -550,7 +550,7 @@ end
                 # Once only: a second sync must not read the file again and
                 # undo an edit made in between.
                 @test v.note === nothing
-                @test !W.pane_sync!(v)
+                @test !W.pane_sync!(v, ctrl)
                 @test W.get_field(it.url, "note") === nothing
                 pop!(ctrl.stack)
             end

@@ -906,7 +906,7 @@ end
     end
     # The default answer to a resize is nothing to do but redraw, which the
     # loop does regardless.
-    @test W.onresize!(mkstate()) === nothing
+    @test W.onresize!(mkstate(), W.Controller()) === nothing
 end
 
 @testset "a wake is a level, and never blocks the task that raises it" begin

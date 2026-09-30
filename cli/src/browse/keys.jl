@@ -37,8 +37,8 @@ it answered, and what comes back is whether the frame is now wrong. Starting a
 load is not in here: the controller runs `settle!` after this, as after every
 event, and a held load's wake is retried there.
 """
-onwake!(st::BState) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
-                      reload_data!(st) | rerang!(st)
+onwake!(st::BState, ::Any) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
+                             reload_data!(st) | rerang!(st)
 
 """
     browse(items, title, unread)
@@ -161,7 +161,7 @@ end
 pasted into a list is not the keys it happens to spell."""
 function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
     if st.typing
-        h, w = displaysize(stdout)
+        h, w = displaysize(ctrl.term)
         iw = st.diw > 0 ? st.diw : layout(w, h, st.nmeta).riw
         TermInput.paste!(st.query, s)
         st.search = text(st.query)
@@ -214,7 +214,7 @@ function needs_repo!(st::BState, ctrl::Controller, it::Item, action;
 end
 
 function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     L = layout(w, h, st.nmeta)
     # From the last frame, not from `layout`: those agree in the browser and do
     # not when a hosted pane has taken half the screen. `lpage` is the item
@@ -263,7 +263,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # Handled up here rather than with the other actions so it still works
         # in the filter pane - a terminal that cannot report the mouse has to be
         # escapable from wherever you happen to be standing.
-        st.mouse = mouse!(ctrl, !ctrl.mouse)
+        st.mouse = mouse!(ctrl, !ctrl.term.mouse)
         clearsel!(st)
         st.status = st.mouse ? "mouse on — drag to select, y to copy" :
                                "mouse off — the terminal's own selection is back"
@@ -412,7 +412,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     # A notice answers the keys that mean something for one here, and refuses
     # the ones that would reach for a thread, a checkout or a mark it has not
     # got; the rest - the readings, `y`, `w` - fall through as for any row.
-    isnotice(it) && notice_key!(st, it, k) && return :ok
+    isnotice(it) && notice_key!(st, it, k, ctrl) && return :ok
 
     # Context expansion and the editor both need a local checkout, asked for
     # the first time it is needed: `needs_repo!`.
@@ -527,7 +527,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         else
             string(count(==('\n'), txt) + 1, " lines")
         end
-        clip(txt)
+        clip(ctrl.term, txt)
         st.status = string("copied ", note)
     elseif k == Int('l')
         i = curnode(st, iw)

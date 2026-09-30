@@ -400,7 +400,7 @@ function step!(ctrl, ev; w = 170, h = 50)
     Worklog.settle_all!(ctrl)
     Worklog.drain_fetches!()
     top = last(ctrl.stack)
-    Worklog.onwake!(top)
+    Worklog.onwake!(top, ctrl)
     Worklog.frame_bytes(Worklog.safe_render(top, w, h), "", Worklog.viewcursor(top, w, h); h)
     nothing
 end

@@ -87,7 +87,7 @@ a notice. Through `code --openExternal` where `code` is the server's (a
 Remote-SSH terminal, whose browser is on the far side), else the desktop's
 own opener where there is a display to open it on, else copied - the link
 has to reach a browser somehow, and `y` is the last resort anyway."""
-function open_web(url::AbstractString)
+function open_web(term, url::AbstractString)
     fw = forwards!()
     code, _ = code_cli(fw)
     if !isempty(code) && last(code_kind(code)) == "--openExternal"
@@ -103,7 +103,7 @@ function open_web(url::AbstractString)
         catch
         end
     end
-    clip(url)
+    clip(term, url)
     string("copied ", url, " \u00b7 nothing here to open it in")
 end
 
@@ -290,7 +290,7 @@ function edit_note(st::BState, it::Item, ctrl)
             mux_kill(name)
             return "could not attach to " * name
         end
-        pane_sync!(v)
+        pane_sync!(v, ctrl)
         push_place!(ctrl, v)
         return "editing the note — it is saved when the editor exits" * gone_suffix(fw.gone)
     end
@@ -480,7 +480,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     relist!(ctrl)
     v = pane_view(name, taken ? string(title, "  \u00b7 was ", found.item, "'s") : title, ctrl)
     v === nothing && return "could not attach to " * name
-    pane_sync!(v)
+    pane_sync!(v, ctrl)
     push_place!(ctrl, v)
     # Its child has already failed - at once, a command not found, or since
     # it was last looked at: the pane shows the screen it died on, and the

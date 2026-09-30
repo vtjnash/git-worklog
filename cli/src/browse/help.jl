@@ -108,7 +108,7 @@ function render(v::HelpView, w::Int, h::Int)
 end
 
 function handle!(v::HelpView, k::Int, ctrl::Controller)
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     page = help_page(h)
     n = length(help_rows(dialogbox(w; width = 96).iw))
     k = unshift(k)

@@ -25,7 +25,7 @@
         # `displaysize` is what the child is sized from, and with no tty that
         # is LINES and COLUMNS, so the resize path is drivable here.
         withenv("LINES" => "24", "COLUMNS" => "80") do
-            @test W.pane_sync!(v) === true
+            @test W.pane_sync!(v, ctrl) === true
             @test v.child.sized == W.iframe_box(80, 24)
             @test length(v.child.frame) == 21           # the height it was just given
             @test occursin("green", join(v.child.frame))
@@ -35,7 +35,7 @@
         end
         # A different size re-sizes the child, not just the box drawn round it.
         withenv("LINES" => "40", "COLUMNS" => "120") do
-            W.pane_sync!(v)
+            W.pane_sync!(v, ctrl)
             @test v.child.sized == W.iframe_box(120, 40)
             @test length(v.child.frame) == 37
             ls = split(W.render(v, 120, 40), "\n")
@@ -90,7 +90,7 @@ end
         ctrl = W.Controller(); ctrl.running = true
         v = W.pane_view(n, "nested", ctrl)
         withenv("LINES" => "30", "COLUMNS" => "100") do
-            sleep(2.5); W.pane_sync!(v)
+            sleep(2.5); W.pane_sync!(v, ctrl)
             inmode() = nested("display-message", "-p", "-t", "=in:", "#{pane_in_mode}")
             if nested("show", "-gv", "mouse") != "on"
                 @info "nested tmux did not come up; skipping"
@@ -147,7 +147,7 @@ end
             # enough until it was not, and a `seq` that had not finished left
             # every assertion below measuring an empty history.
             for _ in 1:40
-                W.pane_sync!(v)
+                W.pane_sync!(v, ctrl)
                 v.child.history > 100 && break
                 sleep(0.25)
             end
@@ -235,7 +235,7 @@ end
         @test v !== nothing && v.beside === st
         push!(ctrl.stack, v)
         withenv("LINES" => "40", "COLUMNS" => "170") do
-            W.pane_sync!(v)
+            W.pane_sync!(v, ctrl)
             # The child has the keyboard, and that is what `wantsraw` says.
             @test v.focus === :child
             @test W.wantsraw(v) === true
@@ -254,7 +254,7 @@ end
             @test W.mux_alive(n) === true          # and it did not leave, either
             # Both are named in `^]?`, which is the exhaustive list and has the
             # room to be one.
-            @test occursin("^]tab or ^][", W.pane_keys(v))
+            @test occursin("^]tab or ^][", W.pane_keys(v, ctrl))
             # The standing row under the child carries `^][` and not `^]tab`,
             # and spends what that saves on `^]K` - which is the one key here
             # that cannot be undone and was reachable only through `^]?`. `tab`
@@ -363,14 +363,14 @@ end
             # `^]m` was the ask that made this worth doing: toggling the mouse
             # capture over the pane is the browser's `m`, and nothing here had
             # to know that.
-            before = ctrl.mouse
+            before = ctrl.term.mouse
             W.onraw!(v5, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
-            @test ctrl.mouse != before
+            @test ctrl.term.mouse != before
             # The browser's answer shows where the key was pressed: its own
             # footer is not on screen here.
             @test occursin("mouse", v5.child.status)
             W.onraw!(v5, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
-            @test ctrl.mouse == before
+            @test ctrl.term.mouse == before
             pop!(ctrl.stack)
             W.iframe_close!(v5.child)
             # With nothing beside the child there is no browser for `^]m` to
@@ -381,12 +381,12 @@ end
             v6 = W.pane_view(n, "demo", ctrl; beside = nothing)
             push!(ctrl.stack, v6)
             W.onraw!(v6, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
-            @test ctrl.mouse != before && st.mouse == ctrl.mouse
+            @test ctrl.term.mouse != before && st.mouse == ctrl.term.mouse
             @test occursin("mouse", v6.child.status)
             @test W.mux_alive(n) && last(ctrl.stack) === v6
             W.onraw!(v6, [W.IFRAME_PREFIX, UInt8('m')], ctrl)
-            @test ctrl.mouse == before && st.mouse == ctrl.mouse
-            @test occursin("^]m", W.pane_keys(v6))
+            @test ctrl.term.mouse == before && st.mouse == ctrl.term.mouse
+            @test occursin("^]m", W.pane_keys(v6, ctrl))
             pop!(ctrl.stack)
             W.iframe_close!(v6.child)
         end
@@ -394,7 +394,7 @@ end
         # keeps the meaning it always had.
         withenv("LINES" => "24", "COLUMNS" => "80") do
             v4 = W.pane_view(n, "demo", ctrl)
-            @test W.readable(v4) === false
+            @test W.readable(v4, ctrl) === false
             @test W.onraw!(v4, [W.IFRAME_PREFIX, UInt8('\t')], ctrl) === :pop
         end
         W.mux_kill(n)

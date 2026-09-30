@@ -83,15 +83,16 @@
 
     # suspend runs the body and puts the screen back. The sequences are
     # `TermInput`'s; what is asserted here is that the controller's terminal and
-    # its mouse are what get handed over.
+    # its mouse are what get handed over, and written where it writes.
     ran = Ref(false)
-    out = mktemp() do path, io
-        redirect_stdout(() -> W.suspend(() -> ran[] = true, ctrl), io)
-        flush(io)
-        read(path, String)
-    end
+    buf = IOBuffer()
+    held = W.Controller(W.enter_terminal(IOBuffer(), buf; altscreen = true, mouse = true))
+    take!(buf)
+    W.suspend(() -> ran[] = true, held)
+    out = String(take!(buf))
     @test ran[]
     @test occursin("\e[?1049l", out) && occursin("\e[?1049h", out)
+    @test occursin(W.mouse_reporting(false), out) && endswith(out, W.scheme_reports(true))
 end
 
 @testset "a send that fails keeps the words" begin

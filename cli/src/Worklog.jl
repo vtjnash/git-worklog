@@ -69,7 +69,8 @@ import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
 # And the two reports `readevent` decodes, as patterns, which `scheme_in` takes
 # out of a pane's undecoded input; and the question that asks for the second.
 import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT
-# And what `enter_terminal` returns, which the controller holds while it runs.
+# And what `enter_terminal` returns: the controller's terminal, entered while it
+# runs, and where everything the program draws is written.
 import TermInput: HeldTerminal
 import InteractiveUtils
 import Markdown

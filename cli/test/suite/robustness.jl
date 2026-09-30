@@ -55,7 +55,7 @@
         @test v.beside === st                      # taken from the stack
 
         withenv("LINES" => "24", "COLUMNS" => "200") do
-            W.pane_sync!(v)
+            W.pane_sync!(v, ctrl)
             # The child is sized to its own column, not to the screen.
             @test v.child.sized == W.iframe_box(last(W.split_box(200)), 24)
             ls = split(W.render(v, 200, 24), "\n")
@@ -68,7 +68,7 @@
 
         # Narrow: no split, and the child gets the screen back.
         withenv("LINES" => "24", "COLUMNS" => "100") do
-            W.pane_sync!(v)
+            W.pane_sync!(v, ctrl)
             @test v.child.sized == W.iframe_box(100, 24)
             ls = split(W.render(v, 100, 24), "\n")
             @test length(ls) == 24 && all(W.awidth(l) == 100 for l in ls)
@@ -304,7 +304,7 @@ end
         # printed as the control characters they are.
         n1 = "wl-test-mouse-off"; W.mux_kill(n1)
         W.mux_start(n1, pwd(), "sh -c 'printf \"prompt> \"; sleep 60'")
-        v1 = W.pane_view(n1, "sh", ctrl); sleep(1.0); W.pane_sync!(v1)
+        v1 = W.pane_view(n1, "sh", ctrl); sleep(1.0); W.pane_sync!(v1, ctrl)
         @test v1.child.wantsmouse === false
         @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'M'), 100, 24))
         @test isempty(W.retarget_mouse(v1, sgr(0, 20, 5, 'm'), 100, 24))
@@ -331,7 +331,7 @@ end
         # program does it.
         n2 = "wl-test-mouse-on"; W.mux_kill(n2)
         W.mux_start(n2, pwd(), "sh -c 'printf \"\\033[?1006h\\033[?1002h\"; sleep 60'")
-        v2 = W.pane_view(n2, "app", ctrl); sleep(1.0); W.pane_sync!(v2)
+        v2 = W.pane_view(n2, "app", ctrl); sleep(1.0); W.pane_sync!(v2, ctrl)
         @test v2.child.wantsmouse === true
 
         # Screen (20,5) with no split: origin (3,2), so the child sees (18,4).

@@ -81,7 +81,7 @@ see as much as any output - and the loop's sync finds what changed.
 """
 function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl), note::Union{Nothing,NoteEdit} = nothing)
-    f = iframe(name, title)
+    f = iframe(name, title; out = ctrl.term.out)
     f === nothing && return nothing
     watch_pane!(f.client, ctrl)
     PaneView(f, beside, :child, note)
@@ -109,8 +109,8 @@ comes from `displaysize` here for the same reason `handle!` reads it there, and
 the child is sized to its own column rather than to the screen: beside a thread
 it has half.
 """
-function pane_sync!(v::PaneView)
-    h, w = displaysize(stdout)
+function pane_sync!(v::PaneView, ctrl)
+    h, w = displaysize(ctrl.term)
     r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h))
     # The child failed, and the server kept its screen to show why: said
     # once, as the sync that found it is the only one to answer `true`, with
@@ -135,16 +135,16 @@ end
 
 Both are adopted: either can change what is on screen and neither says which.
 """
-function onwake!(v::PaneView)
-    a = pane_sync!(v)
-    b = v.beside === nothing ? false : onwake!(v.beside)
+function onwake!(v::PaneView, ctrl)
+    a = pane_sync!(v, ctrl)
+    b = v.beside === nothing ? false : onwake!(v.beside, ctrl)
     a || b
 end
 
 """The screen changed shape: the child is told its new box now, not at the
 next wake or key. The reading side beside it keeps nothing keyed on a width
 that the next frame does not check."""
-onresize!(v::PaneView) = (pane_sync!(v); nothing)
+onresize!(v::PaneView, ctrl) = (pane_sync!(v, ctrl); nothing)
 
 """Screen position of the child's top-left cell, 1-based `(col, row)`.
 
@@ -238,7 +238,7 @@ much as the same rule the pane follows: two columns nobody can read is worse
 than one, and a composer is the half that has to stay usable.
 """
 function push_beside!(ctrl, st::BState, v::View)
-    _, w = displaysize(stdout)
+    _, w = displaysize(ctrl.term)
     first(split_box(w)) == 0 ? push_view!(ctrl, v) :
                                push_view!(ctrl, SideView(v, st, :inner))
 end
@@ -291,7 +291,7 @@ it is a reason to take the caret out of a half-written comment; there is no
 click that would give it back, only `tab`.
 """
 function onmouse!(v::SideView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     lw, _ = split_box(w)
     (lw == 0 || ev.x > lw) && return :ok
     onmouse!(v.beside, ev, ctrl, at; L = beside_layout(lw, h))
@@ -302,7 +302,7 @@ end
 The composer itself has nothing to wake for - it holds text and nothing else -
 so this is the reading side's alone.
 """
-onwake!(v::SideView) = onwake!(v.beside)
+onwake!(v::SideView, ctrl) = onwake!(v.beside, ctrl)
 
 """
     handle!(v::SideView, k, ctrl)
@@ -375,9 +375,9 @@ wide enough that it was drawn. Below `SPLIT_MIN` the child has the whole
 screen, and a focus nobody can see is worse than no focus at all - so there
 `^]tab` keeps the meaning it always had.
 """
-function readable(v::PaneView)
+function readable(v::PaneView, ctrl)
     v.beside === nothing && return false
-    _, w = displaysize(stdout)
+    _, w = displaysize(ctrl.term)
     first(split_box(w)) > 0
 end
 
@@ -511,8 +511,8 @@ function pane_session!(v::PaneView, kind::Symbol, ctrl)
 end
 
 """What the prefix is for, spelled out. `^]?` asks for it."""
-pane_keys(v::PaneView) =
-    string(readable(v) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
+pane_keys(v::PaneView, ctrl) =
+    string(readable(v, ctrl) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
            "^]q leave · ^]K kill · ^]a full screen · ^]r reread · ^]] literal",
            v.beside === nothing ? " · ^]m mouse" : " · anything else is the browser's")
 
@@ -533,7 +533,7 @@ function pane_key!(v::PaneView, k::Int, ctrl)
         full_screen!(v, ctrl)
         :ok
     elseif k == Int('r')
-        pane_sync!(v)
+        pane_sync!(v, ctrl)
         :ok
     else
         nothing
@@ -576,7 +576,7 @@ A shell reaches the agent in the same checkout and back that way;
 showing, so the same-kind press says so rather than doubling the pane.
 """
 function pane_command!(v::PaneView, b::UInt8, ctrl)
-    if (b == UInt8('\t') || b == UInt8('[')) && readable(v)
+    if (b == UInt8('\t') || b == UInt8('[')) && readable(v, ctrl)
         # The keys go to the thread; the child keeps running and keeps being
         # drawn. Aimed at the detail rather than at the item list, because the
         # list is not what is on screen here.
@@ -588,7 +588,7 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         iframe_close!(v.child)
         :pop
     elseif b == IFRAME_PREFIX || b == UInt8(']')
-        h, w = displaysize(stdout)
+        h, w = displaysize(ctrl.term)
         iframe_send!(v.child, [IFRAME_PREFIX], iframe_box(pane_cols(v, w), h))
         :ok
     elseif (r = pane_key!(v, Int(b), ctrl)) !== nothing
@@ -598,7 +598,7 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         # nothing beside the child there is no browser to reach, and the
         # terminal's own selection is the one thing a shell in here cannot be
         # given any other way.
-        on = mouse!(ctrl, !ctrl.mouse)
+        on = mouse!(ctrl, !ctrl.term.mouse)
         st = beside_of(ctrl)
         st === nothing || (st.mouse = on)
         v.child.status = on ? "mouse on — ^]m gives it to the terminal" :
@@ -607,7 +607,7 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
     elseif b == UInt8('t') || b == UInt8('T')
         pane_session!(v, b == UInt8('T') ? :agent : :shell, ctrl)
     elseif b == UInt8('?') || v.beside === nothing
-        v.child.status = pane_keys(v)
+        v.child.status = pane_keys(v, ctrl)
         :ok
     elseif b in PANE_ITEM_KEYS
         follow_pane!(v, ctrl) ? forward!(v, Int(b), ctrl) : :ok
@@ -658,7 +658,7 @@ would have been alone - see the `SideView` method.
 """
 function onmouse!(v::PaneView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
     v.beside === nothing && return :ok
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     lw = first(split_box(w))
     (lw == 0 || ev.x > lw) && return :ok
     onmouse!(v.beside, ev, ctrl, at; L = beside_layout(lw, h))
@@ -675,7 +675,7 @@ keyboard: a key that moved it - to the thread, to another pane - took the
 bytes' destination with it.
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     r = iframe_input!(v.child, bytes, pane_origin(v, w), iframe_box(pane_cols(v, w), h))
     top() = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
     while r isa UInt8
@@ -696,7 +696,7 @@ terminal handed over for it, and the pane re-read at whatever size the screen
 is when it comes back."""
 function full_screen!(v::PaneView, ctrl)
     mux_attach(v.child.name; suspend = g -> suspend(g, ctrl))
-    pane_sync!(v)
+    pane_sync!(v, ctrl)
     nothing
 end
 
@@ -1014,7 +1014,7 @@ function dirty_pass!(v::WorktreeView)
     end
 end
 
-function onwake!(v::WorktreeView)
+function onwake!(v::WorktreeView, ::Any)
     t = v.pending                   # a local, so the test below narrows it
     t === nothing && return false
     istaskdone(t) || return false
@@ -1285,7 +1285,7 @@ end
 moves the cursor. The worktree list's half of what `mouse.jl` says of the
 pickers, here because the view is."""
 function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
-    h, w = displaysize(stdout)
+    h, w = displaysize(ctrl.term)
     n = nshown(v)
     if ev.kind === :wheelup || ev.kind === :wheeldown
         d = ev.kind === :wheelup ? -3 : 3

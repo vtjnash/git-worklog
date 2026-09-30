@@ -61,7 +61,7 @@ end
 function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 = time();
                      L = nothing)
     if L === nothing
-        h, w = displaysize(stdout)
+        h, w = displaysize(ctrl.term)
         L = layout(w, h, st.nmeta)
     end
     p = hitpane(L, ev.x, ev.y)
@@ -89,7 +89,7 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             # copy from the keyboard.
             if !wheel && doubled!(st, ev, at) && st.sel == was && st.sel > 0
                 it = st.items[st.sel]
-                clip(weblink(it))
+                clip(ctrl.term, weblink(it))
                 st.status = string("copied ", it.ref, " \u00b7 ", shortlink(weblink(it), 60))
             end
         end
@@ -133,7 +133,7 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             # the row ending in one rather than by working out where `rows`
             # would have drawn it.
             txt = node_text(st.nodes, r.node, L.riw)
-            clip(txt)
+            clip(ctrl.term, txt)
             st.status = string("copied ", count(==('\n'), txt) + 1, " lines")
             st.anchor = 0
         else
@@ -147,7 +147,7 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             u = link_at(st, r, col)
             isempty(u) && dbl && (u = word_at(st, r, col))
             if !isempty(u)
-                clip(u)
+                clip(ctrl.term, u)
                 st.status = string("copied ", shortlink(u, 60))
                 st.anchor = 0          # copying is not the start of a selection
             end
