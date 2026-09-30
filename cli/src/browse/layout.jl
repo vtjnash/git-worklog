@@ -232,7 +232,7 @@ nthind(s::AbstractString, k::Int) = nextind(s, 0, k)
 
 A row shows a *contiguous* piece of `src`: the wrapping only ever cut the line,
 it never rewrote it. So the piece can be found by looking for it, and neither
-`awrap` nor `markdown_rows` has to be taught to report offsets.
+`rowwrap` nor `markdown_rows` has to be taught to report offsets.
 
 `from` carries a cursor along the logical line so that a row repeating text from
 earlier in the same line lands on its own copy. `indent` is the depth padding

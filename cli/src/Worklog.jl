@@ -58,15 +58,14 @@ using TermIFrame
 # where it is drawn, and the box every pane is drawn in.
 import TermIFrame: retarget_mouse, bordered
 # The composer, the line prompt, the key vocabulary they bind and the
-# escape-aware measuring under all of it. `suspend` and `text` are extended
+# measuring of rows of faces under all of it. `suspend` and `text` are extended
 # here rather than shadowed: this program's terminal is one more thing that can
 # be handed to a child, and its composer is one more thing that holds text.
 using TermInput
 import TermInput: suspend, text
 # Public in `TermInput` and not exported: the buffer operations the views call
-# on a widget's buffer, the box `help.jl` draws in, and the pattern the
-# escape-aware walkers step over.
-import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
+# on a widget's buffer, and the box `help.jl` draws in.
+import TermInput: settext!, curline, insertblock!, dialogbox, centred
 # And a row of faces, which is what everything here draws: an annotated string,
 # faces over ranges of its text, and the cuts and the concatenation that keep
 # them. Called `Styled` here, since a `Row` is the detail pane's own.

@@ -155,7 +155,7 @@ The two places that read a pane's text - `dead_screen` finding blank rows, and
 - [x] 6. **(worklog)** Every row builder to annotated strings, file by file,
       the measuring calls to step 1's. `render` returns rows, not a joined
       string. Suite green after each file.
-- [ ] 7. **(TermInput)** The escape-string helpers go - `awidth`, `afit`,
+- [x] 7. **(TermInput)** The escape-string helpers go - `awidth`, `afit`,
       `apad`, `ahead`, `atail`, `amid`, `awrap`, `awraplines`, `astrip` - with
       their tests and their README section, and `ESCAPE` moves to TermIFrame,
       the one package still reading escapes.

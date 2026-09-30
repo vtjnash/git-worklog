@@ -355,14 +355,14 @@ end
 
 
 @testset "a branch is told apart at the end of its column" begin
-    # `amid` is TermIFrame's and is tested there. What is this program's is
+    # `rowmid` is TermInput's and is tested there. What is this program's is
     # which columns use it: a branch is the thing that tells two copies of one
     # repo apart, so it is the one that must not be cut at the tail.
     # `users/vtjnash/tsa-tryheld-state` and `...-other` both drew as
     # `users/vtjnash/tsa-tryheld…` in the twenty-six the chooser has.
     a, b = "users/vtjnash/tsa-tryheld-state", "users/vtjnash/tsa-tryheld-other"
     for w in (W.WT_BRANCH, W.BR_NAME, 26)
-        @test W.amid(a, w) != W.amid(b, w)
+        @test W.rowmid(a, w) != W.rowmid(b, w)
     end
     mk(branch) = W.WorktreeRow("o/r", "/tmp/wt", "wt", branch, false, false, 0, 0,
                                "2026-09-01", false, false, nothing, W.SessionRow[])
@@ -372,7 +372,7 @@ end
     # And `shortlink` is the same idiom over the same code.
     @test W.shortlink("x", 58) == "x"
     u = "https://x.invalid/" * "a"^80
-    @test W.shortlink(u, 58) == W.amid(u, 58)
+    @test W.shortlink(u, 58) == String(W.rowmid(u, 58))
 end
 
 @testset "a one-row field holds one row" begin

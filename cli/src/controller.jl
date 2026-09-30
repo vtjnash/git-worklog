@@ -505,7 +505,7 @@ end
 
 """The footer's standing warning, or `""` when the log has been deleted."""
 # Named relatively, and the useful half first. The absolute path is long enough
-# that `afit` cut the sentence before "delete", leaving a warning that said
+# that `rowfit` cut the sentence before "delete", leaving a warning that said
 # something was wrong and not what to do about it - and the file sits in the
 # directory `wl` is run from, so its name is enough to find it.
 errnote() = isfile(errlog()) ?

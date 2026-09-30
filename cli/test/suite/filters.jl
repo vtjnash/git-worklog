@@ -1110,7 +1110,7 @@ end
     @test occursin("/the", foot())
     # The keys row is still what shows with neither. Asserted on a key from the
     # middle of it rather than the end: both rows are longer than 150 columns
-    # and `afit` cuts them, so what is at the end is a fact about this width
+    # and `rowfit` cuts them, so what is at the end is a fact about this width
     # rather than about which row is being drawn.
     st.search = ""
     @test occursin("x archive", foot())
