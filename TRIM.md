@@ -27,7 +27,7 @@ is under "Reproducing".
   on 1.14, all in `process.jl`), and everything `wl` does goes through `gh`,
   `git` or `tmux` (TODO, *Upstream*).
 
-- Every row is drawn by StyledStrings now (FACES.md), and printing one does
+- Every row is drawn by StyledStrings now, and printing one does
   not trim either. Measured 2026-09-30 on 1.14.0-DEV.3217 with a program
   that builds rows with `TermInput`'s `faced`, `linked`, `rowcat`,
   `verbatim`, `rowfit` and `rowwrap` and writes them with `frame_bytes`:

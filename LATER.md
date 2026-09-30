@@ -309,9 +309,12 @@ filtered as wanted.
       that does not strip markup, a "not markup" flag on `Panel`, and `awrap`'s
       escape replay (what #119 was closed without).
 
-- [ ] **StyledStrings for the roles.** *Planned: FACES.md.*
-      Markdown is drawn in faces already; the roles, the rows and TermInput's
-      widgets follow, a hosted pane's rows staying verbatim.
+- [ ] **Copy mode's screen from tmux.** *Blocked on tmux_jll reaching 3.6.*
+      `capture-pane -M` (tmux 3.6) reads copy mode's screen, selection drawn;
+      tmux_jll is 3.5a, so TermIFrame paints the selection itself, rewriting
+      the escapes of a pane's rows in `paint_selection!`/`reverse_cells` - the
+      one place anything edits them. With `-M`, both go, and a pane's rows are
+      tmux's from end to end.
 
 - [ ] **Load no REPL.** *Blocked on a `Base.Terminals` worth depending on.*
       REPL is what raw mode comes from, in TermInput - `wl` no longer loads
