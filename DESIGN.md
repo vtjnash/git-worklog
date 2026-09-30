@@ -1217,8 +1217,13 @@ Each of the following returns success and the wrong answer:
   query or a `/` query being typed, and nowhere else - a `q` pasted into the
   list is not quitting, and a tab pasted into a composer is not moving the
   focus. A hosted pane's child decides for itself: see *tmux*.
-- **A row is drawn by deleting its line and writing it again**: the scroll
-  region set to that row alone, `\e[M`, the row; `\e[r` after the last. An
+- **A row is drawn by deleting its line and writing it again**: `\e[M` at
+  the row, `\e[L` to put a blank line back, the row; `\e[r` once before the
+  first. **Not a scroll region of the one row**: a region is two lines at the
+  least, tmux ignores one a line tall, and the delete under it pulled the
+  whole screen up - each row was written over the frame before's row twice
+  as far down, and a pane's verbatim row, which stops at its last written
+  cell, showed that frame at half height past its end (2026-09-30). An
   OSC 8 link leaves a marker on its line in xterm.js, freed only when the line
   is deleted or trimmed, and the alternate screen trims nothing: overwritten
   in place, a row kept every link it had ever held, and leaving the alternate
@@ -1232,8 +1237,8 @@ Each of the following returns success and the wrong answer:
   moved; never a clear, which is a flicker on every key. It also retires the
   erase after a row, which the pending wrap had made wrong: after a full row
   xterm.js counts the cursor past the last column and Terminal.app on it,
-  where `\e[K` took the right border off every row (2026-09-21). Setting the
-  scroll region homes the cursor, pending or not.
+  where `\e[K` took the right border off every row (2026-09-21). Each row
+  starts with the cursor put at its line, pending or not.
 - **A hyperlink is not somewhere to write another one.** `linkify` runs on
   the finished rows; when links were escapes, a url inside a comment
   header's OSC 8 payload terminated it early and the row came out 224
