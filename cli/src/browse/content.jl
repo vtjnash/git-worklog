@@ -89,13 +89,13 @@ end
 Break prose apart from fenced code blocks: `(:text, "", prose)` and
 `(:code, language, contents)`.
 
-Term draws a fenced block as a bordered panel. It once sized the panel to the
-block's *longest line*, so a pasted 250-column log broke the pane's wrapping;
-2.2 wraps inside the panel at the width it is handed. It is lifted out all the
-same, for what a panel cannot be here: a node of its own, so a long log folds,
-which is what a long log wants to be; drawn without a border, so a copy pastes
-as the code and not as box drawing; and the pane's full width, where the panel
-spends sixteen columns on its indent and padding.
+A fenced block is lifted out of the markdown into a node of its own, so a long
+log folds, which is what a long log wants to be; drawn without a border or a
+background, so a copy pastes as the code and nothing else; and at the pane's
+full width, where a code block inside markdown is indented two. It keeps its
+language, and is coloured as the same block inside markdown would be (Term,
+which drew markdown until TermInput did, drew it as a bordered panel sized to
+its longest line, and a pasted 250-column log broke the pane's wrapping).
 """
 function split_fences(md::AbstractString)
     out = Tuple{Symbol,String,String}[]
@@ -164,14 +164,16 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
         if kind === :details
             body_nodes!(ns, summary, content, url, false, depth + 1)
         elseif kind === :code
-            # Its own node, and never through Term: plain text wraps like
-            # everything else, and a block with no border cannot have a broken
-            # one. Folded when it is long enough to be in the way.
+            # Its own node, drawn as plain text: it wraps like everything
+            # else, and a block with no border cannot have a broken one - but
+            # in its language's colours, where it has a highlighter. Folded
+            # when it is long enough to be in the way.
             nl = count(==('\n'), content) + 1
             c = Node(string(isempty(summary) ? "code" : summary, "  ",
                             nl, nl == 1 ? " line" : " lines"),
                      content, :plain, nl <= 12, depth + 1)
             isempty(url) || (c.meta["url"] = url)
+            c.meta["lang"] = summary
             push!(ns, c)
         else
             # Prose after a block is the comment carrying on, not a thing of its

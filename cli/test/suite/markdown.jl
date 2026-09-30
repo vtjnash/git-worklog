@@ -28,6 +28,22 @@
     @test all(W.awidth(r.text) <= 96 for r in rs)
     @test !any(occursin("│", W.astrip(r.text)) || occursin("└", W.astrip(r.text)) for r in rs)
 
+    # A lifted block is drawn in its language's colours where it has a
+    # highlighter, as the same block inside markdown is; a copy is the code.
+    W.load_theme!(THEME_DEFAULT)
+    ns = W.body_nodes("a", "```julia\nfunction f(x)\n\treturn x\nend\n```", "", true)
+    c = only(n for n in ns if n.kind === :plain)
+    @test c.meta["lang"] == "julia"
+    ls = W.nodelines(c, 60)
+    @test [rstrip(W.astrip(l)) for l in ls] == ["function f(x)", "        return x", "end"]
+    @test [sr for (_, sr) in c.srcs] == ["function f(x)", "\treturn x", "end"]
+    if VERSION >= v"1.12"
+        @test occursin(W.MD_STYLE[].faces[:keyword][1] * "function", ls[1])
+    end
+    # A language nothing highlights is drawn as it was.
+    ns = W.body_nodes("a", "```python\ndef f(): pass\n```", "", true)
+    @test W.nodelines(only(n for n in ns if n.kind === :plain), 60) == ["def f(): pass"]
+
     # A plain node must not double its braces: it is not markdown at all.
     n = W.Node("h", "f() { Dict{String,Int}() }", :plain, true)
     @test W.astrip(join(W.nodelines(n, 80), "")) == "f() { Dict{String,Int}() }"

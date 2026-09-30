@@ -560,8 +560,14 @@ function nodelines(n::Node, w::Int)
     else
         # A tab is drawn as its columns here too - a log, a range-diff - and
         # `src` is taken off the raw line, with the tab, the same as a diff's.
+        # A fenced block lifted out of a comment carries its language, and is
+        # coloured as the same block inside markdown would be; `src` stays
+        # the raw line.
         raw = String.(split(n.raw, "\n"))
-        txt = join((detab(l) for l in raw), "\n")
+        lang = jstr(n.meta, :lang, "")
+        drawn = haskey(n.meta, "lang") ?
+            TermInput.highlighted_lines(lang, n.raw, MD_STYLE[]) : raw
+        txt = join((detab(l) for l in drawn), "\n")
         srcline = [(true, rstrip(astrip(l))) for l in raw]
     end
     lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
