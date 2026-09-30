@@ -110,18 +110,20 @@ each method.
       `mux_cmd`. The same work as here, in those repositories; and their
       subprocesses (`mux_spawn`, 88 of the subprocess errors) wait on Base
       like everything else.
-- [ ] **Term's markup, reached through `show_md`.** 91 errors inside Term:
+- [x] **Term's markup, reached through `show_md`.** 91 errors inside Term:
       `apply_style` (72, `Term.Colors` and `Term.Style` over untyped markup
-      codes) and `parse_md` (14), from `term_md`. Term's to fix, not `wl`'s;
-      worth a look at how much of it the program needs when trimmed.
-- [ ] **Pkg, loaded through Highlights.** 43 errors in Pkg's `REPLExt`
+      codes) and `parse_md` (14), from `term_md`. Done after this was
+      measured: markdown is `TermInput.markdown_rows`, and Term is gone. Not
+      re-measured.
+- [x] **Pkg, loaded through Highlights.** 43 errors in Pkg's `REPLExt`
       `__init__` and REPL's keymaps, in no call of `wl`'s. The extension loads
       when Pkg and REPL both are: Pkg because Highlights imports it (TODO,
       *Upstream*, "File Highlights' `Pkg` import upstream"), REPL because
       `wl`, TermInput, Term, CodeTracking and UnicodeFun all do. Either half
       removes it, and the Highlights fix is the one to wait for: taking REPL
       out is parked (LATER, *Upstream*). A probe of `using Term` alone with
-      Term's REPL taken out verifies with no errors.
+      Term's REPL taken out verifies with no errors. Done after this was
+      measured: Term went, and Highlights and Pkg with it. Not re-measured.
 
 ## Where the errors are
 

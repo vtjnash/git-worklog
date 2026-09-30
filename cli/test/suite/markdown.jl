@@ -281,6 +281,9 @@ end
     code = only(filter(l -> occursin("x = 1", W.astrip(l)), ls))
     @test startswith(W.astrip(code), "     x = 1")
     @test occursin(W.MD_STYLE[].codeblock[1], code) && W.awidth(code) == 40
+    # A heading with a code span in it is one row; Term drew `## a `b` c` as
+    # three centred lines (FedeClaudi/Term.jl#313).
+    @test filter(!isempty, lines("## a `b` c")) == ["a `b` c"]
     # A quote keeps its bar on every row it wraps to.
     @test all(l -> startswith(l, "│"), lines("> " * "quoted words "^10, 40))
 end

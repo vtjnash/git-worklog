@@ -147,7 +147,7 @@ end
 """A thread's worth of nodes, likewise invented.
 
 The markdown renderer is the expensive half of the browser - `nodelines` hands a
-body to Term - so a comment with a code span, a list and a long paragraph is
+body to `markdown_rows` - so a comment with a code span, a list and a long paragraph is
 worth more here than ten plain ones. The diff node is its own path.
 """
 function sample_nodes()

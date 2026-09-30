@@ -9,7 +9,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 - [ ] when snooze runs, it seems not to come back with a "new since" tag which means I can't easily actually tell if anything moved since snooze. Perhaps we should separately track since-read and since-snooze, and draw different markers for each of those in the history. we'll need to decide if `p` is relative to read, snooze, or max of those.
 - [ ] "A drag in a pane" was verified, but "dragging past the top or bottom scrolls" didn't work quite right: it scrolled only on mouse movement, at the speed of mouse movement, rather than being a steady continuous rate until the mouse returned into range.
-- [ ] A code span Term wrapped across two lines loses its background.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
       rests on a row (the pane's `LOAD_AFTER` dwell), `capture-pane -e` its
@@ -101,55 +100,16 @@ under *Upstream* here.
       and the builds are in `.worktrees/h1trim/` (`julia-issue.md`,
       `http-issue.md`).
 
-- [ ] **Take Term's header fix once it is released.** FedeClaudi/Term.jl#313
-      (merged 2026-09-25, after v2.2.1) keeps a header's inline elements on
-      one line; on 2.2.1 `## a `b` c` renders as three centred lines. Bump
-      Term, and add the header case to the `render_md` tests.
-
-- [ ] **Take Term's table fitting once it is released.**
-      FedeClaudi/Term.jl#314 (open) makes `parse_md(::Markdown.Table)` fit
-      the width it is handed, wrapping cells rather than truncating, and
-      reads the table's box, style and row rules from the theme
-      (`md_table_box`, `md_table_style`, `md_table_compact`). Bump Term; set
-      `md_table_box = :MINIMAL_HEAVY_HEAD` and `md_table_compact = true`
-      where `load_theme!` sets Term's theme, which is GitHub's look; add a
-      test that JuliaLang/julia#63195's second table fits the pane at 60 and
-      100 columns with every word of every cell present; and drop the table
-      bullet from DESIGN's "Term.jl" section. Check whether a table nested in
-      a list still needs `for_term`'s move to code once it is not padded to
-      the width.
-
 - [ ] **Drop `parse_gfm` once Julia aligns a plain column left.**
       JuliaLang/julia#63365 (open, RFC) makes `default_align` `:l`. When it
       is in the nightly this runs on, delete `gfm_table`, `GFM_FLAVOR` and
       `parse_gfm` (`ui.jl`), call `Markdown.parse` again, keep the alignment
       test in "a comment is drawn as GitHub draws a comment", and drop the
       bullet from DESIGN's "Julia's Markdown". If it lands as something else
-      - a marker for no alignment - map that to `:l` in `for_term` instead.
-
-- [ ] **File Highlights' `Pkg` import upstream.** `Highlights` 0.6 imports `Pkg`
-      at load time for one `Pkg.Registry.reachable_registries()` in
-      `available_language_jlls` (`languages.jl:40`), a discovery helper nothing
-      calls on the way to highlighting. Measured with Highlights 0.6.2 under
-      Term 2.2 on julia nightly, this sandbox: `import Pkg` alone is 0.28-0.30s;
-      `import Term` is 0.91s cold and 0.56-0.67s with `Pkg` already loaded, so
-      the import is 0.25-0.35s of every launch of everything that highlights
-      anything. The fix upstream is `Base.require`-on-demand or an extension on
-      `Pkg`. Still on master and still unfiled as of 2026-09-21
-      (JuliaDocs/Highlights.jl has no issue on it). File it.
-
-- [ ] **Offer Term a code palette that is part of its theme.** `Term.CodeTheme`
-      is a hard-coded `Dict` that `set_theme` never touches; the `Theme` fields
-      that look like they do that (`string`, `number`, `operator`, `type`…)
-      drive only the old regex highlighter. `term_code_plain!` and the `[code]`
-      table in `theme.jl` write into the `Dict` in place, which works only
-      because the binding is `const` and the contents are anybody's. Offer a
-      patch from the `Term.jl/` clone.
+      - a marker for no alignment - `markdown_rows` already draws anything
+      that is not `:r` or `:c` left.
 
 ## Reading
-
-- [ ] **A code span Term wrapped across two lines loses its background.** The
-      second line gets a dim backtick and no background.
 
 - [ ] **A search match on a url footnote is marked loosely.** The footnote row
       shows an elided form of the url, so the match is placed against text that

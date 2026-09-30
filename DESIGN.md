@@ -505,10 +505,10 @@ built at top level captures the theme before it is read, so `rev_mark`,
 `ci_color`, `range_mark` are functions. A role drawn inside another colour
 needs its `<role>_off` closer, or it ends the background it was drawn on.
 Adding a role is a field in `Theme` and a line in every theme file; the suite
-asserts both directions. Term's two palettes - `TERM_THEME[]` and the
-`CodeTheme` `Dict` that tree-sitter highlighting actually reads, unreachable
-from `set_theme` - are set from the same file. With no theme, Term's own
-resets are stripped too.
+asserts both directions. How markdown is drawn - `[markdown]` and `[code]` -
+is set from the same file, into `MD_STYLE`, and so are the box and weights the
+widget packages draw in (`CHROME`); with no theme all of it is empty, and a
+comment body carries no escapes either.
 
 **A row index is only meaningful against the width it was measured at.**
 Beside a hosted pane or a composer the detail is half the screen; `detail_pane`
@@ -666,7 +666,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
-| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box, `CHROME`, `suspend`, and the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`) |
+| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box and `BOXES`, `CHROME`, `suspend`, the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`), and `markdown_rows`, which draws every comment body |
 | `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client and the command pipe over it, `bordered`, the iframe. Depends on `TermInput` for measuring, never the other way |
 | `cli/precompile/` | `WorklogPrecompile`: `Worklog` plus a `@compile_workload` of the browser's path. `bin/wl` loads it; the suite never does |
 
@@ -731,8 +731,11 @@ diff <(grep '^\[\[deps\.' cli/Manifest.toml | sort) \
      <(grep '^\[\[deps\.' cli/precompile/Manifest.toml | sort)   # one line
 ```
 
-`Term` 2.2 costs 0.35s of every launch through `Highlights` importing `Pkg`;
-taken for the tree-sitter renderer.
+Launch, by `cli/test/latency.jl` on 2026-09-30 in this sandbox: the wrapper
+loads in 0.76s, and the first thread is drawn at 1.10s. With Term (at
+`de1b582`, measured the same way the same day) it was 1.31s and 1.84s: Term
+brought Highlights, which imports Pkg, and a tree-sitter grammar, for a
+renderer that highlighted one language.
 
 ## Testing
 
@@ -856,36 +859,26 @@ Do not simplify any of these away.
     `notice_web` builds the link from exactly this, and the thread's
     `html_url`s are all the repository's.
 
-### Term.jl (v2.2.1, pinned)
-
-- Braces are markup. Since 2.2.1 `parse_md` escapes every brace as `{{`, in
-  prose and in code, and only Term's own `print` collapses it; `term_md`
-  collapses it after `apply_style`. Before, prose braces were deleted and
-  `escape_source` doubled them; it must not now, or they print doubled.
-  FedeClaudi/Term.jl#304.
-- A newline in a paragraph is a space since 2.2.1 (#311), for Julia 1.14's
-  `Markdown`, which keeps it. GitHub draws it as a line break in a comment,
-  so `for_term` makes each one a `LineBreak`.
-- `parse_md` does not wrap a line containing inline code; `awrap` does. #247
-  is open on Term's own wrapping.
-- `Panel` measures markup, not what prints; not used for layout. A `{`
-  somebody typed into a composer is not a tag.
-- `parse_md` wraps at the width it is handed, so a paragraph arrives in
-  pieces; `nodelines` renders a second time at a width nothing reaches and
-  aligns the two, which is what makes a copy paste as paragraphs. The wide
-  line is only the better source when it *joined* several narrow ones.
-- A table ignores the width: every column is as wide as its longest cell,
-  and `Table` truncates a cell rather than wrap it, so a long cell makes the
-  box wider than the pane and the pane's wrapping breaks it (julia#63195).
-  Its box and row rules are fixed in `parse_md`, not the theme. Not fixed
-  here: FedeClaudi/Term.jl#314 (open) fits the table and adds the theme
-  fields.
-- A table nested in a list or a quote renders since 2.2.1 (#306), but
-  centred beside the bullet; `for_term` still makes it code. An empty list
-  item (#305) and a code span in a table header (#309) are Term's again.
-
 ### Julia's Markdown
 
+`markdown_rows` draws the tree the stdlib parses, so what the stdlib gets
+wrong reaches the screen unless it is corrected before the parse
+(`escape_source`), in the parse (`GFM_FLAVOR`), or where the renderer reads it.
+
+- A newline in a paragraph is kept in the text from 1.14, and `breaks = true`
+  draws it as a line break, which is what GitHub does in a comment. Before
+  1.14 there is no newline to act on, and a comment wrapped by hand is
+  reflowed - `cli/Project.toml` still allows 1.11.
+- Two spaces at the end of a line stay in the text as `"  \n"` rather than
+  becoming a `LineBreak` (a backslash does become one); the renderer reads
+  them as a break either way.
+- A list is marked `loose` whenever a blank line follows it, which is every
+  list with a paragraph after it. The renderer believes `loose` only when an
+  item has more than one block, since GitHub draws that list tight.
+- A double backtick opens maths, not a code span: ``` ``a`b`` ``` is a
+  `LaTeX`, drawn as its source between `$`. Not worked around.
+- An empty list item is an empty vector, which Term indexed into; the
+  renderer draws its bullet.
 - `Markdown.parse` opens emphasis on an underscore inside a word, which
   CommonMark forbids; it takes two to pair, so `deliver_result and
   connect_to_peer` loses both. `escape_source` escapes them outside code.
@@ -1388,8 +1381,19 @@ Each of the following returns success and the wrong answer:
   GitHub's copy is the better answer than a wrong one.
 - **`^u` kills to the start of the line** (readline), not the whole line.
 - **The mouse is owned**, `m` gives it back.
-- **`Term.jl/` beside this checkout is ignored, not a submodule**; Term comes
-  from the registry.
+- **Markdown is drawn by TermInput, from the stdlib's tree** (2026-09-30).
+  Term drew it until then, and most of the markdown code here worked around
+  the layer in the middle, where Term turned the tree into `{…}` markup and
+  the markup into escapes: the brace escape, a sentinel colour to find a code
+  span by, a second render at 2000 columns aligned against the first to
+  recover a paragraph for a copy, nested tables made into code, and Term's
+  resets stripped when there was no theme. `markdown_rows` draws from the
+  tree, rows of the pane's width that each carry the line they came from, so
+  none of that exists. Not a parser of our own: the stdlib's is what
+  `escape_source` and `gfm_table` already correct, and a second parser is a
+  second set of those. Highlighting is Julia's own highlighter from 1.12, a
+  stub before it and for every other language - which is all Term did too,
+  since tree-sitter's Julia grammar was the only one it had.
 - **The config merges two levels deep, and the login is `@me`.** A deeper
   merge would make `[events] repos` in your file additions to a shared list
   with no way to take one out, and a `[views."name"]` of the same name a

@@ -296,14 +296,15 @@ filtered as wanted.
 - [ ] **StyledStrings.** *After the ANSI measuring question, which is the same
       parser from the other end.*
       For text this program composes it would replace every `_off` closer. For
-      text that arrives as escapes - Term's output, `capture-pane -e`, git's
-      diff - nothing parses it back, so a migration is an ANSI parser at every
+      text that arrives as escapes - `capture-pane -e`, git's diff - nothing
+      parses it back, so a migration is an ANSI parser at every
       boundary; and a `Face` cannot say `on 236`.
 
 - [ ] **Load no REPL.** *Blocked on a `Base.Terminals` worth depending on.*
-      REPL is what raw mode and key reading come from, in `wl`, TermInput
-      and Term, and it is what brings Pkg's `REPLExt` into a trimmed build
-      (TRIM, "Pkg, loaded through Highlights"). Tried on Term, 2026-09-28:
+      REPL is what raw mode and key reading come from, in `wl` and
+      TermInput, and it was what brought Pkg's `REPLExt` into a trimmed build
+      while Term loaded Pkg (TRIM, "Pkg, loaded through Highlights"). Tried on
+      Term, 2026-09-28, before `wl` stopped depending on it:
       branch `no-repl` in `Term.jl/`, one local commit. It copies REPL's
       `raw!` and `TerminalMenus.readkey` in, makes CodeTracking and UnicodeFun
       (which load REPL themselves) extensions, and looks docstrings up only
