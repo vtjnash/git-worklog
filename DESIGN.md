@@ -1158,8 +1158,8 @@ Each of the following returns success and the wrong answer:
   them.** `OSC 11 ?` goes with `CSI ? 996 n`, and again when a 997 report
   flips; the answer is `SchemeEvent`'s `bg`, whenever it arrives, and
   nothing waits for it. `ESC ]` heads an OSC as `ESC [` heads a CSI, read to
-  its terminator by `read_osc` however many reads that takes, so its tail is
-  never keys; Alt-] is spent on that, and nothing bound it. A pane's raw
+  its terminator by TermInput's `readevent` however many reads that takes, so
+  its tail is never keys; Alt-] is spent on that, and nothing bound it. A pane's raw
   read that ends partway into either report reads on until it is one or
   cannot be (`readraw`), so neither reaches the child in halves. It goes to tmux as `refresh-client -r %pane:` (`mux_bg!`):
   tmux answers a child's `OSC 11 ?` only from a colour it holds, and with
@@ -1178,14 +1178,14 @@ Each of the following returns success and the wrong answer:
   `oneline`.
 - `capture-pane` says nothing about the cursor; `viewcursor` puts the
   terminal's where the child's is.
-- **A frame is one write** (`frame_bytes`): cursor hidden, the rows,
-  the title, the caret and then the cursor shown, inside a synchronized
-  output hold (`?2026`) that a terminal which knows it draws once. A
-  `TTY` is unbuffered, so `print` with three arguments was three writes,
-  and the cursor shown at the end of one frame was at the top left for
-  the start of the next.
-- **No frame while input is waiting** (`input_waiting`). A paste reaches a
-  composer as one key per character, and a frame after each was ~14 kB per
+- **A frame is one write** (TermInput's `frame_bytes`): cursor hidden, the
+  rows, the title, the caret and then the cursor shown, inside a
+  synchronized output hold (`?2026`) that a terminal which knows it draws
+  once. A `TTY` is unbuffered, so `print` with three arguments was three
+  writes, and the cursor shown at the end of one frame was at the top left
+  for the start of the next.
+- **No frame while input is waiting** (TermInput's `input_waiting`). A paste
+  reaches a composer as one key per character, and a frame after each was ~14 kB per
   character to render, write and draw: 2700 characters took 5.6 s under tmux
   and about typing speed in a real terminal (2026-09-25). The loop skips the
   draw while bytes already read sit in stdin's buffer, and draws once they
@@ -1257,7 +1257,21 @@ Each of the following returns success and the wrong answer:
   because Julia does not need a decoder to throw anything away.
 - `REPL.TerminalMenus.readkey` cannot see a mouse report and drops any
   sequence it does not know as a bare `Escape`. `readevent` consumes what it
-  cannot parse. Three spellings of Alt-arrow are decoded.
+  cannot parse, as `K_NONE`. Three spellings of Alt-arrow are decoded.
+- **The reader is parked between events** (TermInput's `InputReader`): it
+  reads one event per `arm!` and is waiting on its token, not on the tty,
+  while the loop handles it - so `suspend` hands `$EDITOR` every key, where
+  a reader looping on `read` raced the child for each one and kept those it
+  won. The loop arms it only once the event before is handled, and never
+  twice for one: a wake does not use the token up. Which read the next event
+  gets - `readevent`, or `readraw` for a hosted pane - is the loop's to say,
+  since it knows what is on top and the parked reader does not.
+- **Leaving the terminal never throws.** The commonest way out of `run!` is
+  the terminal having gone away, which the reader says as an `EndEvent`,
+  and then every write in the `finally` is to a closed descriptor;
+  `leave_terminal` tries each half apart, so raw mode is still given back
+  when nothing can be written, and no exception about handing back a
+  terminal replaces the one that brought the loop there.
 
 ### Processes
 
@@ -1394,6 +1408,17 @@ Each of the following returns success and the wrong answer:
   second set of those. Highlighting is Julia's own highlighter from 1.12, a
   stub before it and for every other language - which is all Term did too,
   since tree-sitter's Julia grammar was the only one it had.
+- **The terminal's plumbing is TermInput's; the loop is ours** (2026-09-30).
+  The key decoder, the modes and their undoing, the reader task and the frame
+  writer were 450 lines of `controller.jl` that any other host of the widgets
+  would write again, or replace with `readkey` and be wrong. They moved as
+  they were, each usable alone and none owning the loop. What stayed is the
+  loop and its policy: the view stack and its dispatch, wakes, `settle!`, the
+  error log, what a scheme report does to the theme, `mouse!`, the raw path
+  a hosted pane forwards (`readraw`, `scheme_in` - TermIFrame's business if
+  it moves anywhere), and the SIGWINCH watch, which is a libuv signal handle,
+  an `AsyncCondition` and a task: too large a piece for a widget package
+  until it is clear where it belongs (LATER).
 - **The config merges two levels deep, and the login is `@me`.** A deeper
   merge would make `[events] repos` in your file additions to a shared list
   with no way to take one out, and a `[views."name"]` of the same name a

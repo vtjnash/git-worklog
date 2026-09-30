@@ -159,9 +159,10 @@ filtered as wanted.
       - **Set and unset** beside `scheme_reports`, in all three places - at
         start, around `suspend` (a child's stdin must not get reports), and
         in `run!`'s `finally`. One `reports(on)` for both modes.
-      - **Decode** `CSI 48 ; rows ; cols ; ypx ; xpx t` in `readevent` as a
-        `ResizeEvent`, and strip it on the raw path where `scheme_in` strips
-        the scheme report, so a hosted pane's child never reads it.
+      - **Decode** `CSI 48 ; rows ; cols ; ypx ; xpx t` in TermInput's
+        `readevent` as a `ResizeEvent`, and strip it on the raw path where
+        `scheme_in` strips the scheme report, so a hosted pane's child never
+        reads it.
         `displaysize` stays the source of the size; the report is only when.
       - **Know it is supported** by the report the terminal sends as soon as
         the mode is set - that one is the proof. Stop the SIGWINCH watch on
@@ -268,14 +269,29 @@ filtered as wanted.
         testset driving the sequences above. A `TermInput.jl` commit plus the
         pointer bump here.
 
-- [ ] **`TermInput` and Term's `InputBox` are not the same widget.** *After
-      `readevent` has moved to the package.*
+- [ ] **`TermInput` and Term's `InputBox` are not the same widget.** *Decide
+      whether it is still wanted, now that `wl` does not load Term.*
       `InputBox` appends keystrokes with no cursor, because `readkey` cannot
       tell Left from Escape-`[`-`D`. Unifying wants, in order: a decoder good
-      enough to have a cursor behind it (`readevent`, still in `controller.jl` -
-      it is a pure function of a byte stream and could go to the package; what
-      should stay is who owns stdin), `TextBuffer` under `InputBox`, then the
-      frame, where markup measurement is the open question.
+      enough to have a cursor behind it (TermInput's `readevent`, since
+      2026-09-30), `TextBuffer` under `InputBox`, then the frame, where markup
+      measurement is the open question.
+
+- [ ] **A widget inline, under the REPL prompt.** *After a host asks for it.*
+      A widget drawn at its natural height below the prompt, without the
+      alternate screen, and a `request(widget)` over it for a REPL user. It
+      builds on what moved into TermInput on 2026-09-30 - `enter_terminal`
+      with `altscreen` off, `readevent`, `InputReader` - and should find
+      nothing left to write but the inline frame (`frame_bytes` is full
+      screen) and the loop.
+
+- [ ] **Where SIGWINCH is heard.** *Decide.* `watch_winch!` is a libuv
+      signal handle, an `AsyncCondition` and a task that puts a
+      `ResizeEvent` on the controller's channel. It stayed in `wl` when the
+      rest of the terminal plumbing moved to TermInput, because it is a large
+      piece to put in a widget package; TermInput's README tells a host to
+      listen for it itself. Wanted as `InputReader` is shaped: it puts on a
+      channel the host owns, and takes no callback.
 
 ## Upstream
 
@@ -301,8 +317,8 @@ filtered as wanted.
       boundary; and a `Face` cannot say `on 236`.
 
 - [ ] **Load no REPL.** *Blocked on a `Base.Terminals` worth depending on.*
-      REPL is what raw mode and key reading come from, in `wl` and
-      TermInput, and it was what brought Pkg's `REPLExt` into a trimmed build
+      REPL is what raw mode comes from, in TermInput - `wl` no longer loads
+      it itself, since raw mode went there with `enter_terminal` - and it was what brought Pkg's `REPLExt` into a trimmed build
       while Term loaded Pkg (TRIM, "Pkg, loaded through Highlights"). Tried on
       Term, 2026-09-28, before `wl` stopped depending on it:
       branch `no-repl` in `Term.jl/`, one local commit. It copies REPL's
