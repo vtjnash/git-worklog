@@ -69,8 +69,6 @@ import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
 import REPL
 import InteractiveUtils
 import Markdown
-# Only for the theme's `[term]` and `[code]` palettes, which are Term's globals.
-import Term
 using Base64
 
 const ROOT = normpath(joinpath(@__DIR__, "..", ".."))

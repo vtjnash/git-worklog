@@ -501,23 +501,12 @@ function escape_source(md::AbstractString)
     String(take!(out))
 end
 
-"""The styles a comment body is drawn in, from the theme's roles.
-
-Built per render from `THEME`, which a theme load replaces whole: a code span on
-`code_bg` with its backticks `dim`, a code block on the same background, and a
-link's label as a link is drawn."""
-md_style() = TermInput.MarkdownStyle(
-    code = (THEME.code_bg, THEME.code_bg_off),
-    code_tick = (THEME.dim, THEME.dim_off),
-    codeblock = (THEME.code_bg, THEME.code_bg_off),
-    link = (THEME.link, THEME.link_off))
-
 """
     render_md(body, w) -> Vector{TermInput.MDRow}
 
 A comment body as rows of exactly `w` columns, each with the line it was
 written as: parsed as GitHub would (`escape_source`, `parse_gfm`) and drawn by
-`markdown_rows`, with a newline in a paragraph a line break, as GitHub draws
+`markdown_rows` in the theme's `MD_STYLE`, with a newline in a paragraph a line break, as GitHub draws
 one in a comment.
 
 A bad comment must not take the pane down, but the reason has to be visible:
@@ -530,7 +519,7 @@ the raw text, wrapped.
 """
 function render_md(body::AbstractString, w::Int)
     try
-        markdown_rows(parse_gfm(escape_source(body)), w; style = md_style(), breaks = true)
+        markdown_rows(parse_gfm(escape_source(body)), w; style = MD_STYLE[], breaks = true)
     catch e
         logerror!(e, catch_backtrace(), "render_md")
         rs = TermInput.MDRow[]

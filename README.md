@@ -363,7 +363,10 @@ the view. Hand-edited, both, and only ever read.
 
 **Themes** name colours by role - `blocked`, `settled`, `diff_add`,
 `cursor_bg` - in words: `"bold white"`, `"black on yellow"`, `"on 236"`.
-`default-ansi.toml` uses the terminal's own sixteen colours;
+Two tables in the same words say how a comment's markdown is drawn:
+`[markdown]` (headings, emphasis, quotes, tables, admonitions, and the `box`
+every box is drawn with) and `[code]` (the faces Julia's highlighter paints a
+code block with - `keyword`, `string`, `comment`). `default-ansi.toml` uses the terminal's own sixteen colours;
 `github-light-256.toml` and `github-dark-256.toml` are GitHub's palette pinned
 to the 256-colour cube.
 

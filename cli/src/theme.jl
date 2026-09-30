@@ -119,7 +119,7 @@ const ROLES = Tuple(f for f in fieldnames(Theme)
 `"bold dim"` must not print `22;22`.
 """
 const ATTRS = ("bold" => (1, 22), "dim" => (2, 22), "italic" => (3, 23),
-               "underline" => (4, 24), "reverse" => (7, 27))
+               "underline" => (4, 24), "reverse" => (7, 27), "strike" => (9, 29))
 
 "The eight, in the order the ANSI codes put them."
 const ANSI_COLORS = ("black", "red", "green", "yellow", "blue", "magenta",
@@ -151,16 +151,16 @@ One theme value becomes the escape that begins it and the escape that ends it.
 
 The spec is words, in any order:
 
-  * an attribute - `bold`, `dim`, `italic`, `underline`, `reverse`
+  * an attribute - `bold`, `dim`, `italic`, `underline`, `reverse`, `strike`
   * a colour - one of the eight ANSI names, `bright <name>` for the high eight,
     `0`-`255` for a 256-colour index, or `#rrggbb` / `#rgb` for a direct one
   * `on` in front of a colour, making it the background
 
 So `"bold white"`, `"black on yellow"`, `"on 236"`, `"bright red"`, `"244"`,
 `"#9FA8DA"`. The first three kinds are what a terminal can be relied on to
-have, and what the shipped theme is written in; hex is here because Term's own
-palette is written in it, and a theme that wants to keep Term's colours has to
-be able to say them.
+have, and what the shipped theme is written in; hex is here for a colour a
+theme wants exactly, whatever the terminal's palette says - GitHub's own, or
+the ones Term used to draw markdown in.
 An empty spec is no colour, which is a theme's way of saying a role should not
 be drawn at all.
 
@@ -230,168 +230,91 @@ function rearm(s::AbstractString, on::AbstractString,
     replace(s, (x => x * on for x in after if !isempty(x))...)
 end
 
-# --- the other palette ------------------------------------------------------
+# --- markdown and code ------------------------------------------------------
 #
-# Term draws the markdown in every comment body, and it has a palette of its
-# own: `Term.TERM_THEME[]` is a mutable global of seventy fields - the six
-# heading levels, the block quote, the footnote, the table, the admonitions, and
-# the ten token colours its tree-sitter highlighter paints a code span with.
-# None of that was ever this program's to choose, so a dashboard themed down to
-# the last dim timestamp went on drawing headings in Term's indigo.
+# Every comment body is markdown, drawn by `TermInput.markdown_rows` in a
+# `MarkdownStyle`: one `(on, off)` pair per thing it styles, and a highlighter's
+# faces by name. The `[markdown]` table of a theme file is that style and the
+# `[code]` table those faces, written in the same spec language as everything
+# else, so a theme is one file. `MD_STYLE` is built from them on every load.
 #
-# The `[term]` table in the theme file is that palette, written in the same
-# spec language as everything else and translated on the way in - Term's
-# language is the same vocabulary under different spelling, `on_red` for a
-# background and `bright_red` for the high eight, so the translation is a word
-# map rather than a conversion.
+# A code *span* is the two roles `code_bg` and `dim` - its background, and its
+# backticks - since those were roles before the tables were ours.
 #
-# Two fields are not colours and are taken as names: `box` and `tb_box` choose
-# the box *characters*, and `box` is also what the dialog and the pane borders
-# are drawn with - `chrome!` hands it to `TermInput.CHROME`.
-#
-# And one field is refused: `md_code` is the sentinel `style_code_spans` finds
-# the code-span delimiters by. It is never on screen, and a theme that set it
-# would not recolour a code span, it would stop one being drawn.
+# Two keys are not colours and are taken as names from `TermInput.BOXES`: `box`
+# is what every box is drawn with - the dialogs, the panes, `CHROME[].box` -
+# and `md_table_box` is a table's.
 
-"The one field of Term's theme this program owns. See `MD_CODE_SENTINEL`."
-const TERM_SENTINEL_FIELD = :md_code
+"""The `[markdown]` table's keys, and the `MarkdownStyle` field each sets.
 
-"""The colour nothing else emits, which is how a code span is found again.
+The names are Term's where Term had one that said what it was - `md_h1`,
+`md_quote`, the admonitions - and say the element where it had none."""
+const MD_KEYS = Dict{String,Symbol}(
+    "md_h1" => :h1, "md_h2" => :h2, "md_h3" => :h3,
+    "md_h4" => :h4, "md_h5" => :h5, "md_h6" => :h6,
+    "md_bold" => :bold, "md_italic" => :italic, "md_strike" => :strike,
+    "md_codeblock" => :codeblock, "md_link" => :link, "md_quote" => :blockquote,
+    "md_admonition_note" => :note, "md_admonition_tip" => :tip,
+    "md_admonition_warning" => :warning, "md_admonition_danger" => :danger,
+    "md_admonition_info" => :info,
+    "md_table_header" => :table_head, "md_table_rule" => :table_rule,
+    "md_rule" => :rule, "md_latex" => :latex, "md_footnote" => :footnote,
+    "md_html" => :html)
 
-Term styles a code span's *delimiters* with `md_code`, and `style_code_spans`
-turns them into a background - so it has to know what they were painted with.
-Written once, here: it is set into Term's theme as this hex and matched in
-Term's output as the escape Term makes of it, and the two being the same
-literal in two files is how they would come apart.
-"""
-const MD_CODE_SENTINEL_HEX = "#ff00ff"
+"""The faces the `[code]` table may name: what Julia's highlighter paints with,
+by name without its `julia_`. A face with no colour falls back as
+`TermInput`'s `FACE_FALLBACK` says - `string_delim` to `string`, a bracket to
+`parentheses` - so a theme names the few it cares about."""
+const CODE_FACES = Set{String}(vcat(
+    ["keyword", "funcdef", "funcall", "macro", "string", "string_delim", "char",
+     "char_delim", "cmd", "cmd_delim", "regex", "backslash_literal", "symbol",
+     "singleton_identifier", "number", "bool", "comment", "operator",
+     "comparator", "assignment", "opassignment", "broadcast", "type", "typedec",
+     "builtin", "label", "error", "parentheses", "unpaired_parentheses"],
+    [string("rainbow_", k, "_", n) for k in ("paren", "bracket", "curly") for n in 1:6]))
 
-"""What Term's palette is set to when no theme is loaded.
+"""What comment bodies are drawn in, built by `load_theme!` from the
+`[markdown]` and `[code]` tables and the code-span roles. Empty with no theme,
+which draws with no escapes at all."""
+const MD_STYLE = Ref(TermInput.MarkdownStyle())
 
-`"default"` and not `""`: an empty style would be interpolated into Term's
-markup as `{}`, which is not a tag. This is the other half of drawing plain -
-without it a program with no theme would still print Term's colours through
-every comment body it rendered.
-"""
-const TERM_PLAIN = "default"
+"The box the dialogs and panes are drawn with: the theme's `box`."
+const BOX = Ref(TermInput.BOXES.ROUNDED)
 
-"""One of our specs in Term's own style language.
-
-The vocabulary is the same and the spelling is not: a background is `on_red`
-rather than `on red`, and the high eight are `bright_red` rather than
-`bright red`. A 256-colour index above 15 has no spelling at all in Term, so it
-goes as the hex the xterm palette defines it as - exact for the colour cube and
-the greys, which is where those indices are worth using.
-"""
-function term_style(spec::AbstractString)
-    out = String[]
-    bg = bright = false
-    for word in split(lowercase(spec))
-        if word == "on"
-            bg = true
-            continue
-        elseif word == "bright"
-            bright = true
-            continue
-        end
-        if any(a -> first(a) == word, ATTRS)
-            (bg || bright) &&
-                throw(ArgumentError(string("`", word, "` is an attribute, not a colour")))
-            push!(out, word)
-            continue
-        end
-        colour = if word in ANSI_COLORS
-            bright ? string("bright_", word) : word
-        elseif startswith(word, "#")
-            hex2rgb(word)   # thrown away, but it validates the spelling here too
-            word
-        elseif all(isdigit, word) && 0 <= parse(Int, word) <= 255
-            bright && throw(ArgumentError("`bright` takes a colour name, not an index"))
-            xterm_hex(parse(Int, word))
-        else
-            throw(ArgumentError(string("no colour named `", word, "`")))
-        end
-        push!(out, bg ? string("on_", colour) : colour)
-        bg = bright = false
+"""A box by name, into `set`, or a sentence about why not: the names are
+`TermInput.BOXES`', and an unknown one is reported rather than drawn as some
+other box without a word."""
+function theme_box!(set, value, key::AbstractString, probs::Vector{String},
+                    where_::AbstractString)
+    name = value isa AbstractString ? Symbol(uppercase(String(value))) : :_
+    if haskey(TermInput.BOXES, name)
+        set(TermInput.BOXES[name])
+    else
+        push!(probs, string(where_, ": no box `", value, "` for `", key, "` - they are ",
+                            join(keys(TermInput.BOXES), ", ")))
     end
-    (bg || bright) && throw(ArgumentError("ends with no colour after it"))
-    isempty(out) ? TERM_PLAIN : join(out, " ")
-end
-
-"""A 256-colour index as the hex the xterm palette defines it as.
-
-The low sixteen are the terminal's own and are named rather than converted -
-turning `red` into `#800000` is exactly the fighting-your-terminal this theme
-exists not to do. Above them the palette is arithmetic: a 6×6×6 cube on the
-levels 0, 95, 135, 175, 215, 255, and then 24 greys from 8 in steps of 10.
-"""
-function xterm_hex(i::Int)
-    i < 8 && return ANSI_COLORS[i + 1]
-    i < 16 && return string("bright_", ANSI_COLORS[i - 7])
-    hex(r, g, b) = string("#", string(r; base = 16, pad = 2),
-                          string(g; base = 16, pad = 2), string(b; base = 16, pad = 2))
-    if i < 232
-        n = i - 16
-        level = (0, 95, 135, 175, 215, 255)
-        return hex(level[n ÷ 36 + 1], level[(n ÷ 6) % 6 + 1], level[n % 6 + 1])
-    end
-    v = 8 + 10 * (i - 232)
-    hex(v, v, v)
-end
-
-"""Set every colour in Term's palette to `TERM_PLAIN`, and the sentinel back.
-
-Every field that holds a style string, which is all of them but the theme's own
-name, the two box names and one width. Done before the `[term]` table is read
-so that a table naming half the fields leaves the other half plain rather than
-leaving Term's defaults showing through.
-"""
-function term_plain!()
-    t = Term.TERM_THEME[]
-    for f in fieldnames(typeof(t))
-        f in (:name, TERM_SENTINEL_FIELD) && continue
-        getfield(t, f) isa String && setfield!(t, f, TERM_PLAIN)
-    end
-    setfield!(t, TERM_SENTINEL_FIELD, MD_CODE_SENTINEL_HEX)
     nothing
 end
 
-"""Apply the `[term]` table, and answer with what was wrong with it.
+"""Apply the `[markdown]` table into `fields`, and answer with what was wrong.
 
-A field that holds a `Symbol` - `box`, `tb_box` - takes the *name* of one of
-Term's boxes rather than a colour, and an unknown one is reported rather than
-left to throw the first time something is drawn in it.
-
-A field whose name ends in `_bg` is interpolated by Term as `on_<value>`, so it
-takes a bare colour and nothing else: `"236"`, not `"on 236"` and not
-`"bold 236"`.
-"""
-function apply_term!(tbl::AbstractDict{String}, probs::Vector{String},
-                     where_::AbstractString)
-    t = Term.TERM_THEME[]
+A key not in `MD_KEYS` is reported, which is also what a theme written for
+Term hears about the names that went with it - `tb_style`, `emphasis`,
+`text_accent`."""
+function apply_markdown!(fields::Dict{Symbol,Any}, tbl::AbstractDict{String},
+                         probs::Vector{String}, where_::AbstractString)
     for (key, value) in tbl
-        field = Symbol(key)
-        if field === TERM_SENTINEL_FIELD
-            push!(probs, string(where_, ": `", key, "` is the code-span sentinel, ",
-                                "not a colour - see MD_CODE_SENTINEL"))
-        elseif !hasfield(typeof(t), field)
-            push!(probs, string(where_, ": Term has no `", key, "`"))
+        if key == "box"
+            theme_box!(b -> (BOX[] = b), value, key, probs, where_)
+        elseif key == "md_table_box"
+            theme_box!(b -> (fields[:box] = b), value, key, probs, where_)
+        elseif !haskey(MD_KEYS, key)
+            push!(probs, string(where_, ": no markdown style `", key, "`"))
         elseif !(value isa AbstractString)
             push!(probs, string(where_, ": `", key, "` wants a string"))
-        elseif getfield(t, field) isa Symbol
-            box = Symbol(uppercase(String(value)))
-            haskey(Term.Boxes.BOXES, box) ?
-                setfield!(t, field, box) :
-                push!(probs, string(where_, ": Term has no box `", value, "` - ",
-                                    "they are the names in `Term.Boxes.BOXES`"))
-        elseif !(getfield(t, field) isa String)
-            push!(probs, string(where_, ": `", key, "` is not a colour"))
         else
             try
-                st = term_style(value)
-                endswith(String(field), "_bg") && occursin(" ", st) &&
-                    throw(ArgumentError("takes one colour and no attributes"))
-                setfield!(t, field, st)
+                fields[MD_KEYS[key]] = parse_style(value)
             catch e
                 push!(probs, string(where_, ": `", key, " = \"", value, "\"` ",
                                     e isa ArgumentError ? e.msg :
@@ -402,39 +325,24 @@ function apply_term!(tbl::AbstractDict{String}, probs::Vector{String},
     probs
 end
 
-"""Set every colour in Term's code palette to `TERM_PLAIN`.
-
-In place, because `Term.CodeTheme` is a `const` binding to a `Dict` - the
-binding is Term's and the contents are anybody's, which is the only reason this
-palette can be themed at all.
-"""
-term_code_plain!() =
-    (for k in keys(Term.CodeTheme)
-         Term.CodeTheme[k] = TERM_PLAIN
-     end; nothing)
-
-"""Apply the `[code]` table: tree-sitter capture names to colours.
-
-The names are **not** validated, and cannot be: they are the grammar's captures
-rather than a list Term owns, `code_style` walks them up the dotted hierarchy
-(`keyword.return` falls back to `keyword`, and anything unmatched to `text`),
-and a theme naming one Term does not ship is how a capture that currently falls
-back gets a colour of its own. So a misspelling here is silent - the one place
-in this file where that is true, and the theme file says so.
-"""
-function apply_code!(tbl::AbstractDict{String}, probs::Vector{String},
-                     where_::AbstractString)
+"""Apply the `[code]` table into `faces`: a face's name to its colour. A name
+Julia's highlighter does not paint with is reported, as the tree-sitter
+captures Term's highlighter took are."""
+function apply_code!(faces::Dict{Symbol,Tuple{String,String}}, tbl::AbstractDict{String},
+                     probs::Vector{String}, where_::AbstractString)
     for (key, value) in tbl
-        if !(value isa AbstractString)
+        if !(key in CODE_FACES)
+            push!(probs, string(where_, ": no code face `", key, "`"))
+        elseif !(value isa AbstractString)
             push!(probs, string(where_, ": `code.", key, "` wants a string"))
-            continue
-        end
-        try
-            Term.CodeTheme[String(key)] = term_style(value)
-        catch e
-            push!(probs, string(where_, ": `code.", key, " = \"", value, "\"` ",
-                                e isa ArgumentError ? e.msg :
-                                first(sprint(showerror, e), 120)))
+        else
+            try
+                faces[Symbol(key)] = parse_style(value)
+            catch e
+                push!(probs, string(where_, ": `code.", key, " = \"", value, "\"` ",
+                                    e isa ArgumentError ? e.msg :
+                                    first(sprint(showerror, e), 120)))
+            end
         end
     end
     probs
@@ -446,8 +354,8 @@ end
 one - the box a hosted program is drawn in and the box a composer is drawn in
 are the same box as far as a theme is concerned. Four roles cover it: a title
 and a focused border are `bold`, everything else about a border is `dim`, the
-option under a picker's cursor is `focus`, and the reset is the reset. With no
-theme all four are empty, and the boxes come
+option under a picker's cursor is `focus`, and the reset is the reset - and
+the box is `[markdown]`'s `box`. With no theme all four are empty, and the boxes come
 out as bare characters, which is the whole of what "drawing plain" means for
 something that is drawn in line-art.
 
@@ -457,7 +365,7 @@ because it is the only thing on screen saying where typing will go.
 """
 chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
                                    focus = THEME.focus, reset = THEME.reset,
-                                   box = TermInput.boxstyle(Term.TERM_THEME[].box)); nothing)
+                                   box = BOX[]); nothing)
 
 """Which file the colours come from, or `""` for none.
 
@@ -514,10 +422,10 @@ problems come back as sentences and `__init__` prints them.
 
 Every field is cleared first: loading a second theme must not leave the first
 one's colours behind in the roles the second does not name. The same goes for
-the three palettes that are not ours - Term's, the highlighter's, and the
-weights the widget packages draw their boxes in - each of which is set from
-here on every load, so that "the theme" means one file and not four globals
-that drifted apart.
+what is built from it for the packages - the markdown style, and the weights
+and the box the widget packages draw in - each of which is set from here on
+every load, so that "the theme" means one file and not three globals that
+drifted apart.
 """
 function load_theme!(path::AbstractString = themefile())
     LOADED_THEME[] = String(path)
@@ -525,9 +433,22 @@ function load_theme!(path::AbstractString = themefile())
     for f in fieldnames(Theme)
         setfield!(THEME, f, "")
     end
-    term_plain!()
-    term_code_plain!()
+    BOX[] = TermInput.BOXES.ROUNDED
+    fields = Dict{Symbol,Any}()
+    faces = Dict{Symbol,Tuple{String,String}}()
+    read_theme!(probs, fields, faces, path)
+    # A code span is two of the roles; everything else in markdown is the
+    # `[markdown]` table's.
+    MD_STYLE[] = TermInput.MarkdownStyle(; code = (THEME.code_bg, THEME.code_bg_off),
+                                         code_tick = (THEME.dim, THEME.dim_off),
+                                         fields..., faces)
     chrome!()
+    probs
+end
+
+"The file itself, into `THEME` and the two tables; see `load_theme!`."
+function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
+                     faces::Dict{Symbol,Tuple{String,String}}, path::AbstractString)
     isempty(path) && return probs
     if !isfile(path)
         push!(probs, string("no theme file at ", path, " - drawing without colour"))
@@ -546,11 +467,15 @@ function load_theme!(path::AbstractString = themefile())
     THEME.no_bg = "\e[49m"
     for (key, value) in tbl
         role = Symbol(key)
-        if role === :term || role === :code
-            # Term's two palettes, which are tables rather than roles.
-            apply = role === :term ? apply_term! : apply_code!
-            value isa AbstractDict ? apply(value, probs, basename(path)) :
+        if role === :markdown || role === :code
+            # Tables rather than roles: what markdown is drawn in.
+            if !(value isa AbstractDict)
                 push!(probs, string(basename(path), ": `", key, "` wants a table"))
+            elseif role === :markdown
+                apply_markdown!(fields, value, probs, basename(path))
+            else
+                apply_code!(faces, value, probs, basename(path))
+            end
         elseif !(role in ROLES)
             push!(probs, string(basename(path), ": no colour role `", key, "`"))
         elseif !(value isa AbstractString)
@@ -569,6 +494,5 @@ function load_theme!(path::AbstractString = themefile())
             end
         end
     end
-    chrome!()
     probs
 end

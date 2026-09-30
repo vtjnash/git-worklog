@@ -92,41 +92,39 @@ caret     = "reverse"
 link = "underline"
 url  = "67"
 
-# --- Term's own palette ------------------------------------------------------
+# --- markdown ----------------------------------------------------------------
 # As in the light file: GitHub renders headings in the text colour and lets
 # size carry the level, which a terminal cannot, so the weight carries it
 # instead - bold, then bold muted, then muted, with h2 underlined for the rule
 # GitHub draws beneath it.
-[term]
+[markdown]
 md_h1 = "bold 255"
 md_h2 = "bold 255 underline"
 md_h3 = "bold 255"
 md_h4 = "bold 245"
 md_h5 = "bold 245"
 md_h6 = "245"
+md_bold = "bold"
+md_italic = "italic"
+md_strike = "strike"
 md_quote = "245"
 md_footnote = "69"
 md_latex = "172 italic"
-emphasis = "bold"
-emphasis_light = "italic"
-text_accent = "255"
-text = ""
-line = ""
-link = "underline 69"
+md_html = "245"
+md_link = "underline 69"
+md_rule = "239"
 
-# A code block Term draws itself, inside a list or a quote: canvas.subtle,
-# which on dark is *lighter* than the canvas rather than darker.
-md_codeblock_bg = "234"
+# A code block inside a list or a quote: canvas.subtle, which on dark is
+# *lighter* than the canvas rather than darker, in the code's own text colour.
+md_codeblock = "255 on 234"
 
-# Tables and admonition boxes. The border is GitHub's #3d444d, one step up from
+# Tables and admonitions. The border is GitHub's #3d444d, one step up from
 # the nearest index for the same reason the light file goes one step down.
 md_table_header = "bold 255"
-tb_style = "239"
-tb_header = "bold 255"
-tb_columns = ""
-tb_footer = ""
-# Note, Tip, Important, Warning, Caution - GitHub's five alerts, in Term's five
-# names, with `info` taking the purple that Important is.
+md_table_rule = "239"
+# Note, Tip, Important, Warning, Caution - GitHub's five alerts, in the five
+# names Julia's admonitions have, with `info` taking the purple that
+# Important is.
 md_admonition_note = "69"
 md_admonition_info = "141"
 md_admonition_warning = "172"
@@ -135,24 +133,24 @@ md_admonition_tip = "71"
 
 # Box characters, not colours.
 box = "ROUNDED"
-tb_box = "MINIMAL_HEAVY_HEAD"
+md_table_box = "ROUNDED"
 
-# --- code, which is a third palette ------------------------------------------
+# --- code --------------------------------------------------------------------
 # Primer's dark syntax colours: keyword #ff7b72, string #a5d6ff, constant
 # #79c0ff, entity #d2a8ff, variable #ffa657, comment #9198a1. The keyword takes
 # 210 (#ff8787) and not the marginally nearer 209 (#ff875f), which is an
 # orange: with the variables and the numbers already warm, a keyword that drifts
 # that way stops being a different token at a glance.
 [code]
-text = "255"
 keyword = "210"
-boolean = "111"
-constant = "111"
-function = "183"
+bool = "111"
+symbol = "111"
+funcdef = "183"
+funcall = "183"
 macro = "183"
 operator = "210"
-punctuation = "245"
+parentheses = "245"
 string = "153"
-character = "153"
+char = "153"
 comment = "245"
 number = "111"

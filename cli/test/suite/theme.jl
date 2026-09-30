@@ -107,16 +107,18 @@ end
         # there is nothing left cancelling colours nobody emitted.
         ENV["COLUMNS"], ENV["LINES"] = "150", "40"
         st = mkstate()
-        # Plain nodes, because Term draws a markdown body and Term's escapes are
-        # not this program's to turn off - the question here is about the frame.
-        st.nodes = [W.Node("alice  2026-08-01   first", "a paragraph", :plain, true)]
+        # A markdown body, with what would be styled in it: with no theme
+        # asked for, none of it is.
+        st.nodes = [W.Node("alice  2026-08-01   first",
+                           "# a heading\n\na paragraph, **bold**, `code`\n\n> quoted",
+                           :md, true)]
         f = W.render(st, 150, 40)
         # Not one SGR escape anywhere on the screen - not a colour, and not the
         # weight a border is drawn in either: the two widget packages take
         # those from `TermInput.CHROME`, which this sets too.
         @test !occursin(r"\e\[[0-9;]*m", f)
-        @test Base.structdiff(TermInput.CHROME[], NamedTuple{(:box,)}) ==
-              (strong = "", quiet = "", focus = "", reset = "")
+        @test TermInput.CHROME[] == (strong = "", quiet = "", focus = "", reset = "",
+                                     box = TermInput.BOXES.ROUNDED)
         # Still a frame, though: the geometry is not the theme's business.
         @test all(W.awidth(l) == 150 for l in split(f, "\n"))
         # Hyperlinks are not colour and stay - OSC 8 is how a url is followed,
@@ -140,8 +142,8 @@ end
     # Both directions. A role added to `Theme` with no line here would be drawn
     # as nothing by the theme the program ships with, and a line here that is
     # not a role is a typo that has been printing a warning at every startup.
-    # The two tables are the other palettes - Term's and the highlighter's -
-    # and are checked in their own testset below.
+    # The two tables are how markdown is drawn, and are checked in their own
+    # testset below.
     roles = sort([k for k in keys(tbl) if !(tbl[k] isa AbstractDict)])
     @test roles == sort([String(r) for r in W.ROLES])
     @test isempty(W.load_theme!(THEME_DEFAULT))
@@ -159,61 +161,59 @@ end
     @test !any(occursin("38;2", getfield(W.THEME, f)) for f in fieldnames(W.Theme))
 end
 
-@testset "the other two palettes are Term's, and the theme reaches them" begin
-    t = Term.TERM_THEME[]
+@testset "markdown and code are the theme's, in its own words" begin
     try
-        # Markdown, in Term's own language: same vocabulary, different spelling.
-        @test W.term_style("bold white") == "bold white"
-        @test W.term_style("black on yellow") == "black on_yellow"
-        @test W.term_style("bright red") == "bright_red"
-        @test W.term_style("#9FA8DA") == "#9fa8da"
-        # A 256 index has no name in Term above the low sixteen, so it goes as
-        # the hex the xterm palette defines it as - and the low sixteen stay
-        # named, because turning `red` into a hex is exactly the fighting with
-        # the terminal's palette this avoids.
-        @test W.term_style("1") == "red" && W.term_style("9") == "bright_red"
-        @test W.term_style("236") == "#303030"     # the greys: 8 + 10k
-        @test W.term_style("196") == "#ff0000"     # the cube: 0 95 135 175 215 255
-        @test W.term_style("on 236") == "on_#303030"
-        # Nothing is `default` and not "", which would reach Term as `{}`.
-        @test W.term_style("") == W.TERM_PLAIN == "default"
-
         @test isempty(W.load_theme!(THEME_DEFAULT))
         @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
                                      focus = W.THEME.focus, reset = W.THEME.reset,
                                      box = TermInput.BOXES.ROUNDED)
-        @test t.md_h1 == "bold blue" && t.md_quote == "blue"
-        @test t.md_codeblock_bg == "#303030"      # Term reads it as on_<colour>
-        @test t.box === :ROUNDED                   # a name, not a colour
-        @test Term.CodeTheme["string"] == "green"
-        # The sentinel is this program's, whatever the theme says.
-        @test t.md_code == W.MD_CODE_SENTINEL_HEX
+        st = W.MD_STYLE[]
+        # The same spec language as every role, each an (on, off) pair.
+        @test st.h1 == W.parse_style("bold blue") && st.blockquote == W.parse_style("blue")
+        @test st.codeblock == W.parse_style("on 236")
+        @test st.strike == ("\e[9m", "\e[29m")
+        @test st.box === TermInput.BOXES.ROUNDED              # a name, not a colour
+        @test st.faces[:string] == W.parse_style("green")
+        # A code span is the two roles it always was.
+        @test st.code == (W.THEME.code_bg, W.THEME.code_bg_off)
+        @test st.code_tick == (W.THEME.dim, W.THEME.dim_off)
+        # And it reaches a comment body.
+        rs = W.render_md("# head\n\n> said", 40)
+        @test startswith(rs[1].text, st.h1[1] * "head" * st.h1[2])
+        @test startswith(rs[3].text, st.blockquote[1] * "│ ")
+        # Every shipped theme loads with nothing to say.
+        for f in readdir(joinpath(W.ROOT, "themes"); join = true)
+            @test isempty(W.load_theme!(f))
+        end
 
-        # And what a bad line in either table looks like.
+        # And what a bad line in either table looks like - including the names
+        # Term's palette had and this one does not.
         dir = mktempdir()
         bad = joinpath(dir, "bad.toml")
         write(bad, """
-            [term]
-            md_code = "red"
+            [markdown]
             md_h1 = "chartreuse"
-            md_codeblock_bg = "bold red"
             box = "TRAPEZOID"
-            nosuchfield = "red"
+            tb_style = "blue"
+            emphasis_light = "yellow"
             [code]
             string = "chartreuse"
+            boolean = "magenta"
             """)
         probs = W.load_theme!(bad)
         @test length(probs) == 6
-        @test any(p -> occursin("sentinel", p), probs)
-        @test any(p -> occursin("Term has no `nosuchfield`", p), probs)
-        @test any(p -> occursin("Term has no box `TRAPEZOID`", p), probs)
-        @test any(p -> occursin("one colour and no attributes", p), probs)
+        @test any(p -> occursin("md_h1", p) && occursin("chartreuse", p), probs)
+        @test any(p -> occursin("no box `TRAPEZOID`", p), probs)
+        @test any(p -> occursin("no markdown style `tb_style`", p), probs)
+        @test any(p -> occursin("no markdown style `emphasis_light`", p), probs)
         @test any(p -> occursin("code.string", p), probs)
-        # And with no theme both palettes go plain, the sentinel excepted.
+        @test any(p -> occursin("no code face `boolean`", p), probs)
+        # The box a bad name did not set is the default, not the last theme's.
+        @test TermInput.CHROME[].box === TermInput.BOXES.ROUNDED
+        # And with no theme all of it is empty.
         @test isempty(W.load_theme!(""))
-        @test t.md_h1 == W.TERM_PLAIN && Term.CodeTheme["string"] == W.TERM_PLAIN
-        @test t.md_code == W.MD_CODE_SENTINEL_HEX
-        # And a rendered comment body is plain text: no style asked for is no
+        @test W.MD_STYLE[].h1 == ("", "") && isempty(W.MD_STYLE[].faces)
+        # So a rendered comment body is plain text: no style asked for is no
         # escape written.
         md(s) = join((rstrip(r.text) for r in W.render_md(s, 60)), "\n")
         @test md("a `x` and **bold**") == "a `x` and bold"
