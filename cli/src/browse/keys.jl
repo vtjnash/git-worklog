@@ -273,6 +273,12 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # and the import row included.
         push_view!(ctrl, HelpView())
         return :ok
+    elseif k in (10, C_K) && st.lmode === :items && !isempty(st.items)
+        # `^j`/`^k` step the item list from wherever the keyboard is, so a
+        # thread can be read one after the next without `tab` back and forth.
+        # `^j` is a line feed, which a terminal in raw mode sends for nothing
+        # but `^j` - `↵` is a carriage return - so it is not `↵` here.
+        st.sel = clamp(st.sel + (k == 10 ? 1 : -1), 1, length(st.items))
     elseif st.focus === :list && st.lmode === :filters
         frows = filter_rows(st)
         nf = length(frows)
@@ -292,7 +298,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
                           g[something(findfirst(>(st.frow), g), length(g))] :
                           g[something(findlast(<(st.frow), g), 1)]
             end
-        elseif k in (13, 10);           toggle_filter!(st, ctrl)
+        elseif k == 13;           toggle_filter!(st, ctrl)
         elseif k == Int('c')
             st.filters = Filters(); refilter!(st; keeprow = false)
         end
@@ -307,7 +313,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(0, st.sel - lpage)
         elseif k in (Int('g'), K_HOME);      st.sel = min(1, length(st.items))
         elseif k in (Int('G'), K_END);       st.sel = length(st.items)
-        elseif k in (13, 10)
+        elseif k == 13
             # The row that is not an item does the one thing it is for; every
             # other row hands the keys to the pane beside it.
             st.sel == 0 ? import_action(st, ctrl, at) : (st.focus = :detail)
@@ -319,7 +325,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # still see what is selected.
         k in (Int('j'), K_DOWN, Int('k'), K_UP, Int(' '), 6, K_PGDN, Int('b'), 2,
               K_PGUP, Int('g'), K_HOME, Int('G'), K_END, Int('n'), Int('N'),
-              13, 10) && clearsel!(st)
+              13) && clearsel!(st)
         if k in (Int('J'), K_SDOWN, Int('K'), K_SUP)
             # The keyboard half of a drag: the anchor is wherever the cursor
             # already was, and every press moves the far end of the range. Not
@@ -349,7 +355,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         elseif k == Int('N')
             (isempty(st.search) || st.searchin !== :detail) ? jumpnode(st, -1, iw) :
                                                               jumpmatch(st, -1, iw)
-        elseif k in (13, 10)
+        elseif k == 13
             i = curnode(st, iw)
             # Prose that carries on after a block has no fold of its own, so
             # `↵` inside it folds the comment it is part of, which is the thing

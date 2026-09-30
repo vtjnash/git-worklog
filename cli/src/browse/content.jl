@@ -788,7 +788,7 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
     end
     isempty(hdr) ||
         push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
-    isempty(ns) || ctl == 0 || pushfirst!(ns, ctlnode(ctl))
+    isempty(ns) || uninert(ctl) || pushfirst!(ns, ctlnode(ctl))
     ns
 end
 
@@ -825,10 +825,23 @@ The first row, not the last: a long diff pushes the bottom off the screen, and
 this is a fact about what follows and a reason to read it differently. A plain
 node with no `file`, which is what `[`/`]`, `C` and `attach_comments` all step
 over.
+
+Carriage returns alone are a file's line endings, and said as that, in the
+quieter face; an escape or a bell is somebody's bytes aimed at a terminal, and
+a character that prints nothing can make a line read as other than it is.
 """
-ctlnode(n::Int) =
-    Node(faced(string(n, n == 1 ? " control character" : " control characters",
-                      " in this diff, drawn as ^[ ^G ^M"), THEME.blocked), "", :plain, true)
+function ctlnode(n)
+    plural(k, one) = string(k, " ", one, k == 1 ? "" : "s")
+    parts = String[]
+    n.cr == 0 || push!(parts, n.ctl == 0 && n.other == 0 ?
+        string(plural(n.cr, "carriage return"), ", drawn as ^M: some line endings are \\r") :
+        string(plural(n.cr, "carriage return"), " (^M)"))
+    n.ctl == 0 || push!(parts, string(plural(n.ctl, "control character"), " (^[ ^G ...)"))
+    n.other == 0 || push!(parts, string(plural(n.other, "other unprintable character"),
+                                        ", left as they are"))
+    face = n.ctl == 0 && n.other == 0 ? THEME.waiting : THEME.blocked
+    Node(faced(string(join(parts, " · "), " in this diff"), face), "", :plain, true)
+end
 
 """
     hunk_marks(n) -> Dict{Int,Tuple{Int,Int}}
@@ -1174,7 +1187,7 @@ function rangediff_nodes(txt::AbstractString)
         push!(ns, n)
     end
     flush!()
-    isempty(ns) || ctl == 0 || pushfirst!(ns, ctlnode(ctl))
+    isempty(ns) || uninert(ctl) || pushfirst!(ns, ctlnode(ctl))
     ns
 end
 

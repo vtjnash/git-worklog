@@ -5,11 +5,18 @@ they are is in DESIGN.md; what is blocked or undecided is in LATER.md. An item
 leaves by being done - or, under *Unverified*, by being run in a real terminal,
 when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
-## Next
+## Next quick issues
 
 - [ ] when snooze runs, it seems not to come back with a "new since" tag which means I can't easily actually tell if anything moved since snooze. Perhaps we should separately track since-read and since-snooze, and draw different markers for each of those in the history. we'll need to decide if `p` is relative to read, snooze, or max of those.
+- [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own).
+      None open (2026-09-30); the JLL is 3.5.1 and 3.7c is the latest release.
+      The recipe change is `version = v"3.7.3"` and the tarball's sha256
+      `7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf`; a PR
+      needs a fork of Yggdrasil, which this sandbox cannot make.
+  
+## Bigger tasks
+
 - [ ] "A drag in a pane" was verified, but "dragging past the top or bottom scrolls" didn't work quite right: it scrolled only on mouse movement, at the speed of mouse movement, rather than being a steady continuous rate until the mouse returned into range.
-- [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own)
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
       rests on a row (the pane's `LOAD_AFTER` dwell), `capture-pane -e` its
       session down the command pipe (about 0.1 ms) and draw the screen beside
@@ -27,7 +34,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       * improve the text around "lane" and "tag" vocab, since it isn't obvious what those mean to someone who hasn't read the source code
         - might want to add a "help" message footer to the filters pane which gives a description of the item under the cursor
 - [ ] Is it worthwhile to prefix keys with numbers for repeating (e.g. 6j for down 6), for kjnN? But we might want numbers for other hotkeys.
-  
+
 ## Unverified
 
 - [x] **The command pipe, and the pane's keys, in a real terminal.** The
@@ -48,6 +55,15 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       - MANUAL.md 4 and 7 again, since their code moved: the clipboard is
         relayed by the sync now, not the reader, and a pane wakes through
         its own watch.
+- [ ] **A right or middle click, in a real terminal.** Drags stopped being
+      reported after one, in the list and in a pane alike, until `m` was
+      pressed twice; the loop now turns reporting off and on itself on such a
+      press (`menu_press`), which is `m` twice. Unconfirmed as the cause: by
+      hand, right-click (menu and all), then drag in the list, in a shell pane
+      and in a `T` pane.
+- [ ] **Shift- and ctrl-PgUp/PgDn in a shell pane, in a real terminal**: a
+      page back through the history, none of `5~` at the prompt; in `less` or
+      `vim` they are the child's.
 - [ ] **A drag in a pane, and `^]m` with nothing beside it, in a real
       terminal.** The suite drives the drag as SGR reports against the bundled
       tmux and reads the clipboard off stdout. By hand, in a pane running a

@@ -109,6 +109,30 @@ end
     @test length(ls) == 24 && all(width(l) == 90 for l in ls)
 end
 
+@testset "a right or middle press turns the mouse off and on" begin
+    # After one, a terminal stopped reporting drags until `m` was pressed
+    # twice; the loop does that itself, and only for those presses.
+    @test W.menu_press(W.MouseEvent(:press, 2, 5, 5, 0))
+    @test W.menu_press(W.MouseEvent(:press, 1, 5, 5, 0))
+    @test !W.menu_press(W.MouseEvent(:press, 0, 5, 5, 0))
+    @test !W.menu_press(W.MouseEvent(:release, 2, 5, 5, 0))
+    raw(s) = W.RawEvent(Vector{UInt8}(codeunits(s)))
+    @test W.menu_press(raw("ab\e[<2;10;4Mcd"))
+    @test W.menu_press(raw("\e[<18;10;4M"))                    # ctrl held
+    @test !W.menu_press(raw("\e[<2;10;4m"))                    # a release
+    @test !W.menu_press(raw("\e[<0;10;4M\e[<32;11;4M"))        # a left drag
+    @test !W.menu_press(raw("\e[<65;10;4M"))                   # the wheel
+    @test !W.menu_press(W.KeyEvent(13))
+    buf = IOBuffer()
+    held = W.Controller(W.enter_terminal(IOBuffer(), buf; mouse = true))
+    take!(buf)
+    W.rearm_mouse!(held)
+    @test String(take!(buf)) == string(W.mouse_reporting(false), W.mouse_reporting(true))
+    held.term.mouse = false
+    W.rearm_mouse!(held)
+    @test isempty(take!(buf))                                  # `m` gave it back
+end
+
 @testset "the terminal says dark or light, and the theme follows" begin
     # The report is an event of its own - `readevent`'s, which TermInput
     # tests, and from the raw path here, where it is taken out of a pane's

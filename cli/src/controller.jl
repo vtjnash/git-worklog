@@ -340,6 +340,25 @@ function mouse!(ctrl::Controller, on::Bool)
     on
 end
 
+"""Is this a press of the right or middle button - one a terminal may open a
+menu on - decoded or in a pane's raw bytes?
+
+After one, a terminal has been seen to stop reporting drags - presses still
+came, a drag selected nothing, in the list and in a pane alike - until `m` was
+pressed twice, which turns reporting off and on. So the loop does that itself
+on such a press (`rearm_mouse!`): the sequences are a few bytes, and a terminal
+in good order is only told again what it was already doing.
+"""
+menu_press(ev::MouseEvent) = ev.kind === :press && ev.button in (1, 2)
+menu_press(ev::RawEvent) =
+    any(m -> (b = parse(Int, m[1]); b & 0x60 == 0 && b & 3 in (1, 2)),
+        eachmatch(r"\e\[<(\d{1,4});\d+;\d+M", String(copy(ev.bytes))))
+menu_press(::Any) = false
+
+"The mouse reporting turned off and on again, while it is on; see `menu_press`."
+rearm_mouse!(ctrl::Controller) =
+    ctrl.term.mouse && write(ctrl.term, string(mouse_reporting(false), mouse_reporting(true)))
+
 """Is this view a dialog, or a place?
 
 A **dialog** answers a question and hands the keys back to whatever asked - a
@@ -679,6 +698,7 @@ function run!(ctrl::Controller, root::View)
                     isempty(ev.bg) || terminal_bg!(ev.bg)
                     ev = isempty(ev.rest) ? nothing : RawEvent(ev.rest)
                 end
+                menu_press(ev) && rearm_mouse!(ctrl)
                 act = ev === nothing ? :ok : safe_dispatch!(v, ev, ctrl)
                 act === :quit && break
                 # Pop the view that asked, not whatever is on top: a view may

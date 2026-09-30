@@ -28,6 +28,22 @@
     @test st.nrow == length(W.rows(st.nodes, W.layout(160, 50, st.nmeta).riw))
     W.handle!(st, W.K_HOME, ctrl)
     @test st.nrow == 1
+
+    # `^j`/`^k` are the next and previous item from the detail too, and `^j`
+    # is not `↵`: it folds nothing, and leaves the keyboard where it was.
+    st = mkstate()
+    st.focus = :detail
+    open_ = [n.open for n in st.nodes]
+    W.handle!(st, 10, ctrl)
+    @test st.sel == 2 && st.focus === :detail
+    W.handle!(st, W.C_K, ctrl)
+    @test st.sel == 1 && st.focus === :detail
+    W.handle!(st, W.C_K, ctrl)
+    @test st.sel == 1                               # the first item, not the import row
+    st = mkstate()
+    st.focus = :list
+    W.handle!(st, 10, ctrl)
+    @test st.sel == 2 && st.focus === :list        # not `↵`, which reads the item
 end
 
 @testset "the sessions this program owns" begin

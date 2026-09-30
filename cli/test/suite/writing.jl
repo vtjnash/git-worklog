@@ -459,7 +459,9 @@ end
     W.handle!(st, Int('A'), ctrl)
     ch = last(ctrl.stack)
     @test ch isa W.ChooseView
-    @test [o[2] for o in W.shown(ch)] == ["APPROVE", "REQUEST_CHANGES", "COMMENT"]
+    @test [o[2] for o in W.shown(ch)] == ["APPROVE", "REQUEST_CHANGES", "COMMENT", "APPROVE_NOW"]
+    # Numbered, and `5` is the draft sent: with no draft it picks nothing.
+    @test W.handle!(ch, Int('5'), ctrl) === :ok && last(ctrl.stack) === ch
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)   # what run! does
     # The verdict is a question and stays a question; the body it opens is a
@@ -482,7 +484,7 @@ end
     st.batch = W.mkbatch(st.items[st.sel].url, st.items[st.sel].ref, "PRR_1", 2)
     W.handle!(st, Int('A'), ctrl)
     ch = last(ctrl.stack)
-    @test [o[2] for o in W.shown(ch)][end] == "DISCARD"
+    @test [o[2] for o in W.shown(ch)][5:end] == ["SEND_NOW", "DISCARD"]
     W.handle!(ch, W.K_DOWN, ctrl); W.handle!(ch, W.K_DOWN, ctrl)
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)

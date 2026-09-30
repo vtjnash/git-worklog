@@ -116,7 +116,7 @@ GitHub.**
 | key | |
 |---|---|
 | `?` | this table, on screen |
-| `j`/`k` `g`/`G` `space`/`b` | move, and the arrow, Home/End and page keys likewise; `tab` moves the keyboard between panes |
+| `j`/`k` `g`/`G` `space`/`b` | move, and the arrow, Home/End and page keys likewise; `tab` moves the keyboard between panes; `^j`/`^k` are the next and previous item from either |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
 | `h` `d` `p` `c` | the thread - its history, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks |
 | `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
@@ -177,12 +177,16 @@ listed first regardless, a name or `owner/*`.
 range - under `d`, or under `p` on its right side, which is the head now;
 `^r` in the composer drops in a suggestion block. Comments accumulate in
 a draft review on GitHub, pinned to the commit the diff was read at; `A`
-sends it, and leaving the item asks whether to. Once the branch has moved
+sends it - `1`-`3` a verdict with a body to write, `4` an approval with
+none, `5` the draft as it stands, `6` throws it away - and leaving the item
+asks whether to. Once the branch has moved
 under an open draft, the next `C` says to send the draft first.
 Existing review threads hang off the hunk they point into, resolved ones
 folded, and the line each is on carries `💬` in the margin, over the border.
 A control character in a diff is drawn as `^[`, `^G`, `^M` rather than sent
-to the terminal, and a row at the top says how many there were; a tab is
+to the terminal, and a row at the top says how many there were - carriage
+returns apart, since alone they are only `\r\n` line endings - and how many
+other characters print nothing, a bidi override or a zero-width space; a tab is
 drawn to the next stop of eight, and stays a tab in what `y` copies and `^r`
 suggests.
 

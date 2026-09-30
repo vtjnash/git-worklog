@@ -318,18 +318,29 @@ function suggestion(lines::Vector{String})
     string("```suggestion\n", join(lines, "\n"), "\n```")
 end
 
-"""Submit a review: pick the verdict, then write the body."""
+"""Submit a review: pick the verdict, then write the body.
+
+Numbered, the same as the views and snooze, since it is the same list every
+time: the three verdicts, each with a body to write, then the two that go at
+once with none - an approval, and the held draft sent as a comment review, its
+line comments being the review - and last the way out of a draft. The second
+of those and the last exist only over a draft, so they come after the standing
+four: `5` is always the draft sent, or nothing.
+"""
 function review_action(st::BState, ctrl::Controller, it::Item)
     it.is_pr || (st.status = "not a pull request"; return)
     held = batch_of(st, it)
+    comments = held === nothing ? "" :
+        string(held.n, held.n == 1 ? " comment" : " comments")
     opts = [("approve", "APPROVE"), ("request changes", "REQUEST_CHANGES"),
-            ("comment", "COMMENT")]
-    held === nothing || push!(opts, ("discard the draft and its comments", "DISCARD"))
+            ("comment", "COMMENT"), ("approve now, with no body", "APPROVE_NOW")]
+    held === nothing ||
+        push!(opts, (string("send the draft's ", comments, " now, with no body"), "SEND_NOW"),
+                    ("discard the draft and its comments", "DISCARD"))
     push_view!(ctrl, ChooseView(
         string("Review ", it.ref),
         held === nothing ? it.title :
-            string("sends the draft review and its ", held.n,
-                   held.n == 1 ? " comment" : " comments"),
+            string("sends the draft review and its ", comments),
         opts, ev -> begin
         if ev == "DISCARD"
             r = Events.discard_pending(it.url, held.review)
@@ -337,6 +348,10 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
             return
         end
+        # No composer: what the composer's `^s` would have sent, with nothing
+        # written in it.
+        ev == "APPROVE_NOW" && (send_review!(st, it, held, "APPROVE", ""); return)
+        ev == "SEND_NOW" && (send_review!(st, it, held, "COMMENT", ""); return)
         # Beside the diff, the same as `c` and `M`: a review body is written
         # about the commits it lands, and the verdict picker in front of it is
         # a question rather than a page to write on.
@@ -354,20 +369,27 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                               ev == "APPROVE" ? "the approval" : "the draft") :
                        "GitHub requires a body for this",
             b -> begin
-                # The draft is the review once there is one: submitting a second
-                # one beside it would leave the comments unsent and unmentioned.
-                r = held === nothing ? Events.submit_review(it.url, ev, b) :
-                                       Events.submit_pending(it.url, held.review, ev, b)
-                st.status = isempty(r) ?
-                    string("submitted: ", replace(lowercase(ev), "_" => " "),
-                           held === nothing ? "" :
-                           string(" with ", held.n, held.n == 1 ? " comment" : " comments")) : r
-                isempty(r) && (touch!(it.url); st.batch = nothing;
-                               undraft!(it.url); st.drafts = load_drafts();
-                               reread!(st))
+                r = send_review!(st, it, held, ev, b)
                 isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
             end; allow_empty = optional))
-    end))
+    end; numbered = true))
+end
+
+"""Send one review with verdict `ev` and body `b`, and say so: `""` when it
+landed, else GitHub's refusal, which is the status too."""
+function send_review!(st::BState, it::Item, held, ev::AbstractString, b::AbstractString)
+    # The draft is the review once there is one: submitting a second one beside
+    # it would leave the comments unsent and unmentioned.
+    r = held === nothing ? Events.submit_review(it.url, ev, b) :
+                           Events.submit_pending(it.url, held.review, ev, b)
+    st.status = isempty(r) ?
+        string("submitted: ", replace(lowercase(ev), "_" => " "),
+               held === nothing ? "" :
+               string(" with ", held.n, held.n == 1 ? " comment" : " comments")) : r
+    isempty(r) && (touch!(it.url); st.batch = nothing;
+                   undraft!(it.url); st.drafts = load_drafts();
+                   reread!(st))
+    r
 end
 
 """What GitHub says about whether this can be merged, as one phrase.

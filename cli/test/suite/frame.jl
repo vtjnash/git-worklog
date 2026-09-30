@@ -694,7 +694,7 @@ end
           " same\n-old \e[31mred\e[0m\n+new \x07bell\r\n"
     ns = W.hunk_nodes(txt, "http://x")
     @test length(ns) == 2
-    @test occursin("4 control characters", unstyled(ns[1].header))
+    @test occursin("1 carriage return (^M) · 3 control characters", unstyled(ns[1].header))
     @test ns[1].kind === :plain && !haskey(ns[1].meta, "file")   # stepped over
     @test ns[2].raw == " same\n-old ^[[31mred^[[0m\n+new ^Gbell^M\n"
     @test ns[2].meta["body"] == ns[2].raw                        # what C measures
@@ -703,12 +703,20 @@ end
     # A clean diff carries no such row.
     @test !any(n -> occursin("control", unstyled(n.header)),
                W.hunk_nodes("diff --git a/a.jl b/a.jl\n@@ -1 +1 @@\n-a\n+b\n", "u"))
-    @test W.inert("a\tb\nc") == ("a\tb\nc", 0)
-    @test W.inert("\x7f\u0085") == ("^?^E", 2)                    # DEL, and C1
+    @test W.inert("a\tb\nc") == ("a\tb\nc", (cr = 0, ctl = 0, other = 0))
+    @test W.inert("\x7f\u0085") == ("^?^E", (cr = 0, ctl = 2, other = 0))   # DEL, and C1
+    # A carriage return is counted apart, and alone it is line endings, said
+    # quietly; what prints nothing and is no control is counted and left.
+    @test W.inert("a\r\nb\r\n") == ("a^M\nb^M\n", (cr = 2, ctl = 0, other = 0))
+    crlf = W.ctlnode(last(W.inert("a\r\n")))
+    @test occursin("line endings are \\r", unstyled(crlf.header))
+    @test W.inert("a\u200bb\xff") == ("a\u200bb\xff", (cr = 0, ctl = 0, other = 2))
+    @test occursin("2 other unprintable characters",
+                   unstyled(W.ctlnode(last(W.inert("\u200b\ufeff"))).header))
 
     # The range-diff parser draws the same row for the same reason.
     rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n    -\e[1mz\n")
-    @test occursin("1 control character in", unstyled(rd[1].header))
+    @test occursin("1 control character (", unstyled(rd[1].header))
     @test occursin("^[[1mz", rd[2].raw)
 
     # And GitHub's diff is asked for once, by the pull request's path, and

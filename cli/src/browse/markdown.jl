@@ -5,11 +5,14 @@
 # those rows are drawn in.
 
 """
-    inert(text) -> (text, n)
+    inert(text) -> (text, (cr, ctl, other))
 
 The C0 and C1 control characters of `text` drawn as caret notation - `^[` for
-an escape, `^G` for a bell - and how many there were. Tab and newline are kept:
-they are what a line is made of, not what one can do to the terminal.
+an escape, `^G` for a bell - and how many there were: the carriage returns,
+the rest of them, and the characters that print nothing and are not controls
+(a bidi override, a zero-width space, a byte that is no character), which are
+left as they are and only counted. Tab and newline are kept: they are what a
+line is made of, not what one can do to the terminal.
 
 A diff is bytes somebody else wrote, and this program prints it. An escape in
 one is not a byte on the screen but a command to the terminal the frame is
@@ -18,28 +21,38 @@ print the diff at all - "the diff contains terminal escape sequences; pass
 --allow-escape-sequences to output it anyway" - which is the right answer for
 a pipe and the wrong one for a reader, who came for the diff. So it is asked
 for anyway and made inert here, the way gh itself draws it on a terminal,
-and the count goes on a row at the top so that what follows is read as a
+and the counts go on a row at the top so that what follows is read as a
 diff somebody put a control character in.
 
 `\r` is neutralized with the rest - a CRLF file's diff shows `^M` at every
 line end, which is what `git diff` in a pager shows too, and a bare `\r` on a
-row of the frame would overdraw the row.
+row of the frame would overdraw the row - and counted apart, since a file
+with CRLF line endings is a thing to mention and not a thing to worry about.
 """
 function inert(s::AbstractString)
-    n = 0
-    io = IOBuffer()             # not `sprint() do`, whose closure would box `n`
+    cr = ctl = other = 0
+    io = IOBuffer()             # not `sprint() do`, whose closure would box these
     for c in s
+        if !isvalid(c)
+            other += 1
+            print(io, c)
+            continue
+        end
         cp = UInt32(c)
         if (cp < 0x20 && c != '\t' && c != '\n') || cp == 0x7f ||
            0x80 <= cp <= 0x9f
-            n += 1
+            c == '\r' ? (cr += 1) : (ctl += 1)
             print(io, '^', cp == 0x7f ? '?' : Char((cp & 0x1f) + 0x40))
         else
+            c == '\t' || c == '\n' || isprint(c) || (other += 1)
             print(io, c)
         end
     end
-    (String(take!(io)), n)
+    (String(take!(io)), (cr = cr, ctl = ctl, other = other))
 end
+
+"Whether `inert` counted anything."
+uninert(n) = n.cr == 0 && n.ctl == 0 && n.other == 0
 
 """
     detab(line, tab = 8) -> Styled
