@@ -88,7 +88,7 @@ From `cli/src/controller.jl` unless said otherwise.
 
 | now in `wl` | in TermInput | notes |
 |---|---|---|
-| `KeyEvent`, `PasteEvent`, `MouseEvent`, `EndEvent` | the same | `EndEvent` goes with the reader (step 4) |
+| `KeyEvent`, `PasteEvent`, `MouseEvent`, `EndEvent` | the same | `EndEvent` goes with the reader (step 6) |
 | `readevent`, `read_csi`, `read_osc`, `read_paste`, `decode_csi`, `decode_mouse` | `readevent` and its internals | moved as they are: the byte framing, the three spellings of Alt, the `ESC ESC [` arrow, the mouse report that ends only at `M`/`m`, the paste read to its end marker |
 | `KeyEvent(-1)` for an unknown sequence | a named code, `K_NONE` | consumed and never bound, as now |
 | `SchemeEvent`, `SCHEME_REPORT`, `BG_REPORT`, `BG_QUERY`, `scheme_reports` | the same | the reports have to be parsed inside `readevent` or they arrive as keys; what a host does with dark/light stays the host's |
@@ -124,12 +124,12 @@ TermInput steps are commits in TermInput's style; each **(host)** step is a
 `worklog:` commit that bumps the submodule to what it needs and deletes `wl`'s
 copy in the same commit.
 
-1. [ ] **Events and the decoder.** `readevent`, the four event types and
+1. [x] **Events and the decoder.** `readevent`, the four event types and
        `SchemeEvent`, `K_NONE`, the tests. The `Keys` docstring's "producing
        them is the host's" becomes "`readevent` produces them; a host that
        reads keys some other way produces them itself". The module docstring
        and README say the no-loop rule is the widgets', and list the helpers.
-2. [ ] **(host)** `wl` imports them; its `KeyEvent` and friends go.
+2. [x] **(host)** `wl` imports them; its `KeyEvent` and friends go.
 3. [ ] **Paste.** `paste!(::LineInput)` drops control characters as well as
        line breaks, and so `Choice`'s does.
 4. [ ] **(host)** `pasteline` goes.
@@ -156,6 +156,15 @@ copy in the same commit.
   wants it.
 - **SIGWINCH stays in `wl`** until it is clear where a libuv signal watch
   belongs.
+- **`K_NONE` is `-1`**, the code `wl` already used: below every other code
+  and not bytes anybody could type, so `printable` is false for it without a
+  case of its own.
+- **`SchemeEvent` keeps `rest`**, always empty from `readevent`, so that
+  `wl`'s `scheme_in` can go on building one from a raw read.
+  `scheme_reports` is exported beside `mouse_reporting`; `BG_QUERY`,
+  `SCHEME_REPORT` and `BG_REPORT` are public and not exported, since only a
+  host reading raw input wants them. `TERM_DARK`, which tells a flip from
+  the first answer, stays `wl`'s: it is policy about when to ask again.
 
 ## Not doing
 

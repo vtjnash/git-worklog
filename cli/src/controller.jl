@@ -83,9 +83,6 @@ function stacktitle(stack::Vector{View})
     "wl"
 end
 
-struct KeyEvent
-    code::Int
-end
 struct WakeEvent end
 
 """The terminal changed shape.
@@ -109,19 +106,13 @@ handed back on the way out.
 """
 struct EndEvent end
 
-"""A bracketed paste: what arrived between `ESC [ 200 ~` and `ESC [ 201 ~`.
-
-Text and never keys. Bracketed paste is on for the whole run so that a paste
-cannot be read as commands - a `q` in it is not quitting and a tab in it is
-not moving the focus - and a view with nowhere to put text ignores it.
-"""
-struct PasteEvent
-    text::String
-end
-
-"""Somewhere to put a paste, for a view that has one. The default is to do
-nothing with it, which is the point of it not being keys."""
+"""Somewhere to put a paste - `TermInput`'s `PasteEvent`, with bracketed paste on
+for the whole run - for a view that has one. The default is to do nothing with
+it, which is the point of it not being keys."""
 onpaste!(::View, ::AbstractString, ::Any) = :ok
+
+"""A mouse report, `TermInput`'s `MouseEvent`, for a view that takes one."""
+onmouse!(::View, ::MouseEvent, ::Any) = :ok
 
 """A paste for a one-line field: its breaks become spaces, the one it ends on
 goes, and nothing that is not a character is kept."""
@@ -133,87 +124,16 @@ struct RawEvent
     bytes::Vector{UInt8}
 end
 
-"""The terminal says whether its colours are dark or light: `CSI ? 997 ; 1 n`
-for dark and `; 2 n` for light, the answer to `CSI ? 996 n` and, once
-`CSI ? 2031 h` is set, sent again by itself whenever that changes (xterm.js
-from the 6.1 betas, which is VS Code's terminal; tmux from 3.6; the spec is
-contour's, "color palette update notifications").
-
-Or the terminal says what its background is: `OSC 11 ; rgb:... ST`, the
-answer to `OSC 11 ?`, asked beside `CSI ? 996 n` and again when the scheme
-flips. That colour is `bg` - `dark` is `nothing` for one of those, and `bg` is
-`""` for a scheme report - and it is not ours but the panes': tmux answers a
-child's own `OSC 11 ?` only from a colour somebody gave it, and a control
-client has no terminal to give it one (`mux_bg!`). nvim sets `'background'`
-from that answer.
-
-An event of its own and not a key, because it is not something anybody typed
-and no view binds it: the loop switches the theme and every view is drawn
-again. `rest` is what a raw read held besides the report - a pane's input is
-read in whatever bursts it arrives in, and the report is taken out of it here
-rather than typed into the child - and it goes on to the view as the
-`RawEvent` it would have been."""
-struct SchemeEvent
-    dark::Union{Nothing,Bool}
-    bg::String
-    rest::Vector{UInt8}
-end
-SchemeEvent(dark::Bool, rest::Vector{UInt8}) = SchemeEvent(dark, "", rest)
-
-"""Ask for the terminal's background colour (`SchemeEvent`'s `bg`)."""
-const BG_QUERY = "\e]11;?\e\\"
-
-"""The sequences that ask for `SchemeEvent`s - the current answer now, and
-each change as it happens, and the background colour now - and that stop
-them. Off while the terminal is handed to a child (`suspend`), whose input a
-report would land in."""
-scheme_reports(on::Bool) = on ? string("\e[?2031h\e[?996n", BG_QUERY) : "\e[?2031l"
-
-const SCHEME_REPORT = r"\e\[\?997;([12])n"
-
-"""The answer to `BG_QUERY`, ended by `BEL` or `ST` as the terminal likes.
-The colour is what tmux will be handed back, so it is held to what could be
-one: printable, and short enough for tmux's own buffer (128 bytes)."""
-const BG_REPORT = r"\e\]11;([\x21-\x7e]{1,100})(?:\a|\e\\)"
-
 """The scheme the terminal last reported, or `nothing` before it has: what
 tells a report that is a change from the first answer, which is when the
 background is worth asking for again."""
 const TERM_DARK = Ref{Union{Nothing,Bool}}(nothing)
 
-"""One mouse report.
-
-`kind` is `:press`, `:drag`, `:release`, `:wheelup` or `:wheeldown`; `x` and `y`
-are 1-based screen columns and rows, as the terminal counts them, so they index
-the frame `render` just drew.
-"""
-struct MouseEvent
-    kind::Symbol
-    button::Int
-    x::Int
-    y::Int
-    mods::Int          # bit 0 shift, bit 1 alt, bit 2 ctrl
-end
-
-onmouse!(::View, ::MouseEvent, ::Any) = :ok
-
-# --- input decoding ---------------------------------------------------------
+# --- raw input ------------------------------------------------------------
 #
-# Input used to come from `REPL.TerminalMenus.readkey`, which had to go for two
-# reasons. It cannot see a mouse report at all - `\e[<0;40;12M` is not a key -
-# and it drops any sequence it does not recognise on the floor as a bare Escape,
-# leaving the tail in the buffer to arrive as separate keystrokes. That is what
-# made Shift-Tab (`CSI Z`) read as Escape-then-Z and close the browser. Nothing
-# else used TerminalMenus, so the dependency went with it; `REPL.Terminals` is
-# still what puts the tty in raw mode.
-#
-# Everything here is a pure function of a byte stream, so it can be driven from
-# an IOBuffer in a test rather than needing a terminal.
-
-# The key codes themselves are `TermInput.Keys` - the vocabulary went with the
-# widgets that bind it, and this is the half that produces it. `C_W`, the two
-# word rules and everything a composer is made of come back the same way.
-
+# Decoding is `TermInput`'s `readevent`, which also reads the scheme and
+# background reports as `SchemeEvent`s. What is here is the other way in: the
+# bytes undecoded, for a view that forwards them, with those reports taken out.
 
 """Read what is there, without looking at any of it.
 
@@ -265,193 +185,6 @@ function scheme_in(buf::Vector{UInt8})
     rest = replace(s, SCHEME_REPORT => "", BG_REPORT => "")
     SchemeEvent(m === nothing ? nothing : m[1] == "1", b === nothing ? "" : String(b[1]),
                 Vector{UInt8}(codeunits(rest)))
-end
-
-"""
-    readevent(io) -> KeyEvent | MouseEvent
-
-Read one input event. Blocks for the first byte, and - once `ESC [` has been
-seen and a sequence is therefore certain - for the rest of that sequence.
-
-An unrecognised sequence becomes `KeyEvent(-1)`, which no view binds. The point
-is that it is *consumed*: a half-read sequence is worse than an ignored one,
-because its tail arrives as plausible-looking keystrokes.
-"""
-function readevent(io::IO)
-    b = read(io, UInt8)
-    if b >= 0x80
-        # Whatever arrived, carried as the bytes it was. Assembling the sequence
-        # here - rather than handing each byte on separately - is what keeps
-        # every view dealing in characters: left as bytes, an accented letter
-        # inserted three separate nothings. But it is assembled and not
-        # *decoded*, because a codepoint cannot hold what a terminal can send:
-        # see `K_BASE`.
-        #
-        # The framing is Julia's, so a sequence stored in a buffer is read back
-        # out of it as the same one `Char`. `0xF8` and above lead nothing, a
-        # continuation byte with no lead is itself, and a sequence whose
-        # continuation never came is its lead byte alone - which is why the next
-        # byte is looked at and not taken.
-        n = b >= 0xf8 ? 0 : b >= 0xf0 ? 3 : b >= 0xe0 ? 2 : b >= 0xc0 ? 1 : 0
-        k = Int(b)
-        for _ in 1:n
-            eof(io) && break
-            (peek(io, UInt8) & 0xc0) == 0x80 || break
-            k = (k << 8) | Int(read(io, UInt8))
-        end
-        return KeyEvent(k)
-    end
-    b == 0x1b || return KeyEvent(Int(b))
-    # A bare 27 is Escape; 27 with bytes behind it heads a sequence.
-    bytesavailable(io) == 0 && return KeyEvent(27)
-    a = read(io, UInt8)
-    # `ESC ]` heads an OSC, as `ESC [` heads a CSI, and is read to its end
-    # whenever it arrives: the answer to `BG_QUERY` comes when the terminal
-    # sends it, and the part of it not yet here would otherwise be keys.
-    a == UInt8(']') && return read_osc(io)
-    if a != UInt8('[') && a != UInt8('O')
-        # ESC-prefixed: the terminal is sending Meta/Alt as "escape, then the
-        # key". Which of the three spellings below arrives depends on the
-        # terminal and its settings, and they are all in use - Terminal.app
-        # sends `ESC b` for Alt-Left, iTerm in Esc+ mode sends `ESC ESC [ D`,
-        # and everything sends `ESC DEL` for Alt-Backspace.
-        a == 0x7f && return KeyEvent(K_WORD_BACK)
-        a == UInt8('b') && return KeyEvent(K_WORD_LEFT)
-        a == UInt8('f') && return KeyEvent(K_WORD_RIGHT)
-        # `ESC d` is kill-word, the mirror of alt-backspace. The composer binds
-        # both, and the difference between them is the whole reason readline
-        # has two.
-        a == UInt8('d') && return KeyEvent(K_WORD_KILL)
-        # The REPL binds `\ee` to edit_input - the same move this makes, so the
-        # same key. (`^Q` there opens a numbered frame from the last backtrace,
-        # which is a different thing entirely.)
-        a == UInt8('e') && return KeyEvent(K_EDIT)
-        if a == 0x1b && bytesavailable(io) > 0
-            # `ESC ESC [ D`: the second ESC opens the arrow's own sequence, so
-            # it is the head of a CSI and not a byte to step over.
-            c = read(io, UInt8)
-            if c == UInt8('[') || c == UInt8('O')
-                ev = read_csi(io)
-                ev isa KeyEvent && ev.code == K_LEFT && return KeyEvent(K_WORD_LEFT)
-                ev isa KeyEvent && ev.code == K_RIGHT && return KeyEvent(K_WORD_RIGHT)
-            end
-        end
-        return KeyEvent(-1)
-    end
-    read_csi(io)
-end
-
-"""The body of an OSC, with its `ESC ]` already read, to `BEL` or `ST`: the
-background colour as a `SchemeEvent`, and any other OSC as nothing. A body
-past any answer's length, or an `ESC` that is not `ST`, ends it where it is."""
-function read_osc(io::IO)
-    body = UInt8[0x1b, UInt8(']')]
-    while length(body) < 160 && !eof(io)
-        c = read(io, UInt8)
-        push!(body, c)
-        c == 0x07 && break
-        if c == 0x1b
-            eof(io) && break
-            push!(body, read(io, UInt8))
-            break
-        end
-    end
-    m = match(BG_REPORT, String(body))
-    m === nothing || m.offset != 1 ? KeyEvent(-1) : SchemeEvent(nothing, String(m[1]), UInt8[])
-end
-
-"The body of a CSI sequence, with its `ESC [` already read."
-function read_csi(io::IO)
-    params, fin = UInt8[], 0x00
-    while true
-        c = read(io, UInt8)
-        # A mouse report ends at `M` or `m` and nowhere else. xterm.js sends
-        # `<0;NaN;NaNm` for a button let go over a terminal it cannot place,
-        # and ended at the first byte that could end any other sequence - the
-        # `N` - the rest arrived as keys, `m` the mouse toggle among them.
-        mouse = !isempty(params) && params[1] == UInt8('<')
-        if mouse ? (c == UInt8('M') || c == UInt8('m')) : (c >= 0x40 && c <= 0x7e)
-            fin = c
-            break
-        end
-        push!(params, c)
-        length(params) > 32 && return KeyEvent(-1)    # not a sequence we emit
-    end
-    fin == UInt8('~') && params == b"200" && return read_paste(io)
-    decode_csi(String(params), Char(fin))
-end
-
-"""The rest of a bracketed paste, its start marker already read: everything up
-to the end marker, which is waited for - once the start has arrived the end is
-certain, however many reads the text between takes."""
-function read_paste(io::IO)
-    buf = UInt8[]
-    stop = b"\e[201~"
-    while !(length(buf) >= length(stop) && view(buf, length(buf)-length(stop)+1:length(buf)) == stop)
-        eof(io) && return PasteEvent(String(buf))
-        push!(buf, read(io, UInt8))
-    end
-    PasteEvent(String(resize!(buf, length(buf) - length(stop))))
-end
-
-function decode_csi(params::String, fin::Char)
-    startswith(params, "<") && (fin == 'M' || fin == 'm') &&
-        return decode_mouse(params[2:end], fin == 'M')
-    # `CSI 1;3D` is Alt-Left: the second parameter carries the modifiers, as
-    # 1 + shift + 2·alt + 4·ctrl. Either alt or ctrl on an arrow means the word,
-    # which is what both of them do everywhere else.
-    parts = split(params, ';')
-    mod = length(parts) >= 2 ? something(tryparse(Int, String(parts[2])), 1) : 1
-    byword = (mod - 1) & 0x06 != 0
-    # Shift is the one modifier the vertical arrows carry a meaning for, and it
-    # is the same one it has in every list anybody has ever selected in.
-    shifted = (mod - 1) & 0x01 != 0
-    fin == 'A' && return KeyEvent(shifted ? K_SUP : K_UP)
-    fin == 'B' && return KeyEvent(shifted ? K_SDOWN : K_DOWN)
-    fin == 'C' && return KeyEvent(byword ? K_WORD_RIGHT : K_RIGHT)
-    fin == 'D' && return KeyEvent(byword ? K_WORD_LEFT : K_LEFT)
-    fin == 'H' && return KeyEvent(K_HOME)
-    fin == 'F' && return KeyEvent(K_END)
-    fin == 'Z' && return KeyEvent(K_STAB)
-    fin == 'n' && params in ("?997;1", "?997;2") && return SchemeEvent(params[end] == '1', UInt8[])
-    if fin == '~'
-        # `CSI 5 ~` and `CSI 5 ; 2 ~` are the same key, modified.
-        n = tryparse(Int, String(first(split(params, ';'))))
-        n == 1 && return KeyEvent(K_HOME)
-        n == 3 && return KeyEvent(K_DEL)
-        n == 4 && return KeyEvent(K_END)
-        n == 5 && return KeyEvent(K_PGUP)
-        n == 6 && return KeyEvent(K_PGDN)
-        n == 7 && return KeyEvent(K_HOME)
-        n == 8 && return KeyEvent(K_END)
-    end
-    KeyEvent(-1)
-end
-
-"""Decode the body of an SGR mouse report (`CSI < b ; x ; y M|m`).
-
-The button byte packs the button in its low two bits, the modifiers above them,
-motion at 32 and the wheel at 64 - so a wheel notch is button 64/65 and a drag
-is the button number plus 32. `m` as the final byte means release; the wheel
-only ever reports `M`.
-"""
-function decode_mouse(body::AbstractString, pressed::Bool)
-    p = split(body, ';')
-    length(p) == 3 || return KeyEvent(-1)
-    b, x, y = tryparse(Int, p[1]), tryparse(Int, p[2]), tryparse(Int, p[3])
-    (b === nothing || x === nothing || y === nothing) && return KeyEvent(-1)
-    kind = if b & 64 != 0
-        (b & 3) == 0 ? :wheelup : (b & 3) == 1 ? :wheeldown : :other
-    elseif !pressed
-        :release
-    elseif b & 32 != 0
-        :drag
-    else
-        :press
-    end
-    kind === :other && return KeyEvent(-1)
-    mods = ((b & 4) != 0 ? 1 : 0) | ((b & 8) != 0 ? 2 : 0) | ((b & 16) != 0 ? 4 : 0)
-    MouseEvent(kind, b & 3, x, y, mods)
 end
 
 mutable struct Controller

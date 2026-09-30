@@ -23,8 +23,8 @@ index of the rest:
                  `local.toml`, which holds every block anything here writes
   * `ui.jl`      the `Item` type, the lists it is loaded from, and the entry
                  that opens the browser on them
-  * `controller.jl` the view stack that owns stdin, the decoder that turns its
-                 bytes into `TermInput.Keys`, and the views it prompts with
+  * `controller.jl` the view stack that owns stdin, reading it with
+                 `TermInput.readevent`, and the views it prompts with
   * `browse/`    the browser itself: filters, panes, threads, diffs, writing
   * `paneview.jl` a `TermIFrame` session drawn in a pane, with a thread beside it
   * `cli.jl`     the `wl <command>` surface
@@ -66,6 +66,9 @@ import TermInput: suspend, text
 # on a widget's buffer, the box `help.jl` draws in, and the pattern the
 # escape-aware walkers step over.
 import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
+# And the two reports `readevent` decodes, as patterns, which `scheme_in` takes
+# out of a pane's undecoded input; and the question that asks for the second.
+import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT
 import REPL
 import InteractiveUtils
 import Markdown

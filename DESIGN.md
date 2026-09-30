@@ -662,7 +662,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/marks.jl`, `state.jl` | what you did to an item; the line-based `local.toml` editor |
 | `cli/src/util.jl`, `pyjson.jl` | `oneline`, `table_key_order`; JSON written the way the Python port did |
 | `cli/src/fetched.jl` | `fetched.json` |
-| `cli/src/controller.jl` | owns stdin; input decoding (`readevent`); the `View` protocol; dialogs |
+| `cli/src/controller.jl` | owns stdin, read with `TermInput.readevent`; the `View` protocol; dialogs |
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
