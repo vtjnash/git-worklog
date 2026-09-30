@@ -309,15 +309,9 @@ filtered as wanted.
       that does not strip markup, a "not markup" flag on `Panel`, and `awrap`'s
       escape replay (what #119 was closed without).
 
-- [ ] **StyledStrings for the roles.** *After the ANSI measuring question,
-      which is the same parser from the other end.*
-      Markdown is drawn in faces already: TermInput's `MarkdownStyle` is
-      `Face`s, and the theme's words become one through `parse_face`, an index
-      past the sixteen as its xterm RGB. The roles are still escape pairs, so
-      under truecolor a markdown `on 236` is 24-bit and a role's is the index.
-      For text this program composes, faces would replace every `_off` closer.
-      For text that arrives as escapes - `capture-pane -e`, git's diff - nothing
-      parses it back, so a migration is an ANSI parser at every boundary.
+- [ ] **StyledStrings for the roles.** *Planned: FACES.md.*
+      Markdown is drawn in faces already; the roles, the rows and TermInput's
+      widgets follow, a hosted pane's rows staying verbatim.
 
 - [ ] **Load no REPL.** *Blocked on a `Base.Terminals` worth depending on.*
       REPL is what raw mode comes from, in TermInput - `wl` no longer loads
