@@ -547,6 +547,22 @@ function failnote(fs, at::DateTime)
            " \u2014 stands until it answers", isempty(f.why) ? "" : string(" \u00b7 ", f.why))
 end
 
+"""Input has ended; say so in the error log when it was not the terminal.
+
+End of file and an I/O error are the terminal going away, which is how a
+session usually ends and nothing to warn about. Anything else is a read that
+failed - a bug in a decoder - and the run is over either way, so it goes where
+every other error goes: the log, whose warning the next launch shows, since
+this one has no footer left to show it in. Returns whether it logged.
+"""
+function ended!(ev::EndEvent)
+    (ev.why === nothing || ev.why isa EOFError || ev.why isa Base.IOError) && return false
+    # The reader keeps the error and not where it was thrown, so the entry is
+    # the error alone.
+    logerror!(ev.why, Base.StackTraces.StackFrame[], "reading input")
+    true
+end
+
 """
     run!(ctrl, root)
 
@@ -627,6 +643,7 @@ function run!(ctrl::Controller, root::View)
             if ev isa EndEvent
                 # Nothing to ask and nobody to ask: leave through the `finally`
                 # below, which is what hands the terminal back.
+                ended!(ev)
                 break
             elseif ev isa WakeEvent
                 # Cleared before the collectors run, so a wake that lands while

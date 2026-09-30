@@ -138,6 +138,16 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     @test W.errnote() == ""
     @test !occursin("delete it to clear", W.render(st, 120, 40))
 
+    # Input ending is the terminal going away, and says nothing; a read that
+    # failed otherwise ends the run too, and is logged for the next launch.
+    @test !W.ended!(W.EndEvent(EOFError()))
+    @test !W.ended!(W.EndEvent(Base.IOError("read: i/o error", -5)))
+    @test !W.ended!(W.EndEvent())
+    @test !isfile(W.errlog())
+    @test W.ended!(W.EndEvent(ErrorException("decoder exploded")))
+    @test occursin("decoder exploded", read(W.errlog(), String))
+    rm(W.errlog())
+
     # A theme that did not load as written stands in the same place, behind a
     # logged error: it is a line to fix, not a thing that just happened, and
     # `__init__` ran before there was a screen to say it on.
