@@ -2,21 +2,20 @@
 # below) them a foldable detail pane showing either the comment thread, rendered
 # as markdown, or the diff.
 #
-# Markdown is drawn by `TermInput.markdown_rows`, which measures what prints,
-# so no width here is left to anything but `awidth`, against the escapes that
-# actually reach the terminal.
+# Everything is drawn as rows of faces - `Styled`, TermInput's `Row` - and
+# measured by their text, so no width here is left to anything but `rowwidth`.
 #
-# `render` is kept pure - state and a size in, a string out - so the whole UI
+# `render` is kept pure - state and a size in, rows out - so the whole UI
 # can be snapshot tested without a TTY, which is the only way any of it got
 # verified here.
 
 "A foldable block - a comment, the issue body, or one file of a diff."
 mutable struct Node
-    header::String
+    header::Styled
     raw::String
     kind::Symbol            # :md | :diff | :plain
     open::Bool
-    cache::Vector{String}   # rendered at `cw`; markdown is far too slow per frame
+    cache::Vector{Styled}   # rendered at `cw`; markdown is far too slow per frame
     cw::Int
     urls::Vector{String}    # link targets pulled out of the body
     meta::Dict{String,Any}  # hunk file and ranges, expansion counts
@@ -29,7 +28,7 @@ mutable struct Node
                             # content here actually has
 end
 Node(h, raw, kind, open, depth = 0) =
-    Node(h, raw, kind, open, String[], -1, String[], Dict{String,Any}(),
+    Node(row(h), String(raw), kind, open, Styled[], -1, String[], Dict{String,Any}(),
          Tuple{Int,String}[], depth)
 
 """Is this node prose carrying on from the block above it?

@@ -42,11 +42,11 @@ function inert(s::AbstractString)
 end
 
 """
-    detab(line, tab = 8) -> String
+    detab(line, tab = 8) -> Styled
 
 `line` with each tab drawn as the spaces to the next stop of `tab` columns,
-counted in display columns from the start of the line and past the escapes
-in it.
+counted in display columns from the start of the line, the spaces in the faces
+the tab was in.
 
 A tab is the one character whose width is not its own: `textwidth('\\t')` is
 0, and the terminal moves the cursor to the next stop. So a line measured
@@ -60,56 +60,49 @@ tab, so `y` copies one and `^r`'s suggestion carries one, which for a Makefile
 is the difference between a suggestion that applies and one that does not.
 """
 function detab(s::AbstractString, tab::Int = 8)
-    occursin('\t', s) || return String(s)
-    io, col, i = IOBuffer(), 0, firstindex(s)
-    while i <= lastindex(s)
-        m = match(ESCAPE, SubString(s, i))
-        if m !== nothing
-            write(io, m.match); i += ncodeunits(m.match)
-            continue
-        end
-        c = s[i]
+    x = row(s)
+    str = x.string
+    occursin('\t', str) || return x
+    parts = Styled[]
+    col, seg = 0, 1
+    for (i, c) in pairs(str)
         if c == '\t'
+            i > seg && push!(parts, row(SubString(x, seg, prevind(str, i))))
             n = tab - col % tab
-            write(io, " "^n); col += n
+            push!(parts, Styled(" "^n, Ann[Ann((1:n, a.label, a.value)) for a in anns(x)
+                                           if i in a.region]))
+            col += n; seg = i + 1
         else
-            write(io, c); col += textwidth(c)
+            col += textwidth(c)
         end
-        i = nextind(s, i)
     end
-    String(take!(io))
+    seg <= ncodeunits(str) && push!(parts, row(SubString(x, seg)))
+    isempty(parts) ? row("") : reduce(*, parts)
 end
 
-"""One line of a diff, coloured by what it is - and, given `words`, the
+"""One line of a diff, in the face of what it is - and, given `words`, the
 ranges of it - string indices - that changed against the line it is paired
-with, drawn in the word role over the line's own colour."""
+with, in the word role over the line's own face."""
 function diffline(l, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
-    startswith(l, "@@") && return THEME.diff_hunk * l * THEME.reset
+    startswith(l, "@@") && return faced(l, THEME.diff_hunk)
     (startswith(l, "+++") || startswith(l, "---") || startswith(l, "index ")) &&
-        return THEME.diff_meta * l * THEME.reset
-    startswith(l, "+") &&
-        return string(THEME.diff_add,
-                      markwords(l, words, THEME.diff_add_word, THEME.diff_add_word_off),
-                      THEME.reset)
-    startswith(l, "-") &&
-        return string(THEME.diff_del,
-                      markwords(l, words, THEME.diff_del_word, THEME.diff_del_word_off),
-                      THEME.reset)
-    String(l)
+        return faced(l, THEME.diff_meta)
+    startswith(l, "+") && return faced(markwords(l, words, THEME.diff_add_word), THEME.diff_add)
+    startswith(l, "-") && return faced(markwords(l, words, THEME.diff_del_word), THEME.diff_del)
+    row(l)
 end
 
-"`l` with `on`/`off` around each of `ranges` - index ranges into `l`, in order."
-function markwords(l::AbstractString, ranges::Vector{UnitRange{Int}}, on, off)
-    (isempty(ranges) || isempty(on)) && return String(l)
-    io, i = IOBuffer(), firstindex(l)
+"`l` with `face` over each of `ranges` - index ranges into `l`, in order."
+function markwords(l::AbstractString, ranges::Vector{UnitRange{Int}}, face::Face)
+    x = row(l)
+    face == Face() && return x
     for r in ranges
-        write(io, SubString(l, i, prevind(l, first(r))), on, SubString(l, r), off)
-        i = nextind(l, last(r))
+        isempty(r) && continue
+        x = overlaid(x, first(r):(last(r) + ncodeunits(l[last(r)]) - 1), face)
     end
-    write(io, SubString(l, i))
-    String(take!(io))
+    x
 end
 
 # --- what changed inside a line ---------------------------------------------
@@ -332,19 +325,19 @@ first.
 Two thirds head and one third tail: the head is the site, the repo and the
 number, and the tail is the anchor that says which of them this one is.
 """
-shortlink(u::AbstractString, w::Int = 58) = amid(u, w)
+shortlink(u::AbstractString, w::Int = 58) = String(rowmid(u, w))
 
-"""OSC 8 hyperlink, underlined so it reads as one.
+"""A hyperlink, in `link` so it reads as one: `text` with a `:link` over it,
+which StyledStrings writes as OSC 8.
 
-Zero width in a real terminal, so it is safe to apply after layout. The
-underline is not decoration: terminals differ on whether they mark hyperlinks
-themselves, and an unmarked link is one nobody discovers.
+Zero width in a real terminal, and an annotation here, so it takes no columns
+in any measure. The face is not decoration: terminals differ on whether they
+mark hyperlinks themselves, and an unmarked link is one nobody discovers.
 
 Note tmux only forwards OSC 8 from tmux 3.4; older versions strip it, and the
 link silently becomes plain text.
 """
-osc8(url, text) = string("\e]8;;", url, "\e\\", THEME.link, text, THEME.link_off,
-                         "\e]8;;\e\\")
+osc8(url, text) = linkrange(text, 1:ncodeunits(String(text)), url)
 
 """What GitHub links in prose without being asked: `#123`, `owner/repo#123`,
 a sha, `owner/repo@sha`. One pattern, so one pass cannot read its own output.
@@ -358,11 +351,8 @@ the prose.
 """
 const AUTOREF = r"(?<![\w/@.#&-])(?:([A-Za-z0-9][\w.-]*/[\w.-]+)(?:#(\d+)|@([0-9a-f]{7,40}))|#(\d+)|([0-9a-f]{7,40}))(?![\w-])"
 
-"Every escape, unanchored: what `autolink` cuts a row on."
-const ANYESC = r"\e\[[0-9;]*[A-Za-z]|\e\][^\e]*\e[\\]"
-
 "A url written out, left for `linkify`: a sha inside one is part of its path."
-const BAREURL = r"https?://[^\s\e]+"
+const BAREURL = r"https?://[^\s]+"
 
 """The url GitHub would give a reference `AUTOREF` matched, in `repo` unless
 it names its own - or `nothing` for a hex run that is not a sha."""
@@ -376,7 +366,7 @@ function autoref_url(m::RegexMatch, repo::AbstractString)
 end
 
 """
-    autolink(row, repo) -> String
+    autolink(row, repo) -> Styled
 
 A drawn row with its `#123`s and shas made hyperlinks, the way GitHub draws the
 same prose - a list of commits, "fixed by #52011", "reverted in 3f2a9c1".
@@ -394,42 +384,20 @@ Nothing inside a hyperlink already there, and nothing inside a url, which is
 repository's prose - a CI log, whose hex runs are tree hashes - and is left
 alone.
 """
-function autolink(row::AbstractString, repo::AbstractString)
-    isempty(repo) && return String(row)
-    occursin(r"[#0-9]", row) || return String(row)
-    io, at, inlink = IOBuffer(), firstindex(row), false
-    # `text` before `refs`, which calls it: a closure that names one defined
-    # after it captures it boxed, and calls it dynamically.
-    function text(s)
-        k = firstindex(s)
-        for m in eachmatch(AUTOREF, s)
-            u = autoref_url(m, repo)
-            u === nothing && continue
-            write(io, SubString(s, k, prevind(s, m.offset)), osc8(u, m.match))
-            k = m.offset + ncodeunits(m.match)
-        end
-        write(io, SubString(s, k))
+function autolink(r::AbstractString, repo::AbstractString)
+    x = row(r)
+    isempty(repo) && return x
+    str = x.string
+    occursin(r"[#0-9]", str) || return x
+    urls = UnitRange{Int}[matchbytes(str, u) for u in eachmatch(BAREURL, str)]
+    for m in eachmatch(AUTOREF, str)
+        any(u -> m.offset in u, urls) && continue
+        inlink(x, m.offset) && continue
+        u = autoref_url(m, repo)
+        u === nothing && continue
+        x = linkrange(x, matchbytes(str, m), u)
     end
-    function refs(seg)
-        k = firstindex(seg)
-        for u in eachmatch(BAREURL, seg)
-            text(SubString(seg, k, prevind(seg, u.offset)))
-            write(io, u.match)
-            k = u.offset + ncodeunits(u.match)
-        end
-        text(SubString(seg, k))
-    end
-    for m in eachmatch(ANYESC, row)
-        seg = SubString(row, at, prevind(row, m.offset))
-        inlink ? write(io, seg) : refs(seg)
-        write(io, m.match)
-        startswith(m.match, "\e]8;;") &&
-            (inlink = ncodeunits(m.match) > ncodeunits("\e]8;;\e\\"))
-        at = m.offset + ncodeunits(m.match)
-    end
-    seg = SubString(row, at)
-    inlink ? write(io, seg) : refs(seg)
-    String(take!(io))
+    x
 end
 
 """Protect text from the markup that would eat it, and spell what GitHub
@@ -523,8 +491,8 @@ function render_md(body::AbstractString, w::Int)
     catch e
         logerror!(e, catch_backtrace(), "render_md")
         rs = TermInput.MDRow[]
-        for l in split(String(body), '\n'), (k, x) in enumerate(awrap(String(l), w))
-            push!(rs, TermInput.MDRow(apad(x, w), rstrip(l), k == 1))
+        for l in split(String(body), '\n'), (k, x) in enumerate(rowwrap(String(l), w))
+            push!(rs, TermInput.MDRow(rowpad(x, w), rstrip(l), k == 1))
         end
         rs
     end
@@ -533,8 +501,8 @@ end
 "Render a node's body at width `w`, cached - markdown is too slow to redo per frame."
 function nodelines(n::Node, w::Int)
     n.cw == w && return n.cache
-    txt = ""
-    srcline = Tuple{Bool,String}[]     # per line of txt: starts a written line?
+    lines = Styled[]
+    srcline = Tuple{Bool,String}[]     # per line: starts a written line?
     mdrows = TermInput.MDRow[]
     if n.kind === :md
         body, urls = delink(n.raw)
@@ -553,9 +521,9 @@ function nodelines(n::Node, w::Int)
         marks = hunk_marks(n)
         words = hunk_words(raw)
         # `detab` after the words are marked, since the ranges index
-        # the line as written; and on the styled line, past its escapes.
-        txt = join((string(detab(diffline(l, words[k])), markof(get(marks, k, nothing)))
-                    for (k, l) in enumerate(raw)), "\n")
+        # the line as written; and on the styled line, under its faces.
+        lines = Styled[detab(diffline(l, words[k])) * markof(get(marks, k, nothing))
+                       for (k, l) in enumerate(raw)]
         srcline = [(true, rstrip(l)) for l in raw]
     else
         # A tab is drawn as its columns here too - a log, a range-diff - and
@@ -566,11 +534,13 @@ function nodelines(n::Node, w::Int)
         raw = String.(split(n.raw, "\n"))
         lang = jstr(n.meta, :lang, "")
         drawn = haskey(n.meta, "lang") ?
-            TermInput.highlighted_lines(lang, n.raw, MD_STYLE[]) : raw
-        txt = join((detab(l) for l in drawn), "\n")
-        srcline = [(true, rstrip(astrip(l))) for l in raw]
+            TermInput.highlighted_lines(lang, n.raw, MD_STYLE[]) :
+            get(n.meta, "range", false) === true ? rangeline.(raw) : row.(raw)
+        lines = Styled[detab(l) for l in drawn]
+        srcline = [(true, rstrip(l)) for l in raw]
     end
-    lines = isempty(txt) ? String[] : String.(split(txt, "\n"))
+    # An empty body is no rows, not one empty one.
+    (length(lines) == 1 && isempty(lines[1])) && (lines = Styled[]; srcline = srcline[1:0])
 
     # A diff or a plain block is one line per line of its source, wrapped here.
     # Every row records the written line behind it, and whether it is the first
@@ -580,21 +550,21 @@ function nodelines(n::Node, w::Int)
     # The references in it are links, row by row, once the rows are final:
     # prose and plain text, never a diff, whose lines are code.
     repo = n.kind === :diff ? "" : jstr(n.meta, :repo, "")
-    out, srcs = String[], Tuple{Int,String}[]
+    out, srcs = Styled[], Tuple{Int,String}[]
     for r in mdrows
         push!(out, autolink(r.text, repo))
         push!(srcs, (r.first ? 0 : 1, r.src))
     end
     for (idx, l) in enumerate(lines)
         (first_of, src) = srcline[idx]
-        ws = awidth(l) <= w ? [l] : awrap(l, w)
+        ws = rowwidth(l) <= w ? [l] : rowwrap(l, w)
         for (j, x) in enumerate(ws)
             push!(out, autolink(x, repo))
             push!(srcs, (first_of && j == 1 ? 0 : 1, src))
         end
     end
     if n.kind === :md && !isempty(n.urls)
-        push!(out, ""); push!(srcs, (0, ""))
+        push!(out, row("")); push!(srcs, (0, ""))
         for (i, u) in enumerate(n.urls)
             # The hyperlink is made *here*, where the url and the text standing
             # for it are both in hand, rather than by matching that text in the
@@ -603,8 +573,8 @@ function nodelines(n::Node, w::Int)
             # inside a link; identity has neither problem. It is also the only
             # way these are links at all beside a hosted pane, which draws the
             # detail on its own and never reaches `linkify`.
-            push!(out, string(THEME.dim, "[", i, "]", THEME.reset, " ", THEME.url,
-                              osc8(u, shortlink(u, max(20, w - 8))), THEME.reset))
+            push!(out, faced(string("[", i, "]"), THEME.dim) * " " *
+                       faced(osc8(u, shortlink(u, max(20, w - 8))), THEME.url))
             # The whole URL, not the elided form on screen: a shortened link is
             # the one thing on the row that is useless once pasted.
             push!(srcs, (0, string("[", i, "] ", u)))
@@ -618,8 +588,8 @@ end
 
 """One row of a pane.
 
-`text` is what prints. `src` is the written line behind it with the escapes
-removed, and `part` is 0 on the first display row of that line and 1 on every
+`text` is what prints, in its faces. `src` is the written line behind it, plain,
+and `part` is 0 on the first display row of that line and 1 on every
 continuation of it.
 
 Those last two are the whole point of owning the mouse. The terminal only ever
@@ -630,13 +600,13 @@ the lines as they were written.
 struct Row
     node::Int
     header::Bool
-    text::String
+    text::Styled
     src::String
     part::Int
-    gutter::String   # a mark drawn over the pane's left border on this row,
+    gutter::Styled   # a mark drawn over the pane's left border on this row,
                      # or nothing: a comment hanging off a line of a diff
 end
-Row(node, header, text, src, part) = Row(node, header, text, src, part, "")
+Row(node, header, text, src, part) = Row(node, header, text, src, part, row(""))
 
 """The mark drawn at the right-hand end of a header, and clicked to copy the
 node whole. Two joined squares, which is what everything else draws for this."""
@@ -679,7 +649,7 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
         if isbare(n)
             for (j, l) in enumerate(nodelines(n, iw))
                 (part, src) = n.srcs[j]
-                push!(out, Row(i, false, string(pad, l), src, part))
+                push!(out, Row(i, false, pad * l, src, part))
             end
             continue
         end
@@ -696,30 +666,29 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
         # has been said twice. `byline` is what is left - who and when, and
         # where a review comment was pointing - and only the two headers that
         # carry a peek have one.
-        full = string(n.open ? string("▾ ", get(n.meta, "byline", n.header)) :
-                               string("▸ ", n.header))
+        full = n.open ? "▾ " * row(get(n.meta, "byline", n.header)) : "▸ " * n.header
         # Wrapped, not cut: a header is a byline plus a peek at the body, and on
         # a narrow pane cutting it loses the half that says what the comment is
         # about. Continuations are indented under the text, so the fold marker
         # still reads as belonging to one row.
-        hls = awidth(full) <= iw ? [full] : awrap(full, iw - 2)
-        hsrc = jstr(n.meta, :src, astrip(n.header))
+        hls = rowwidth(full) <= iw ? [full] : rowwrap(full, iw - 2)
+        hsrc = jstr(n.meta, :src, String(n.header))
         u = jstr(n.meta, :url, "")
         # Room kept for the mark, and taken out of the rule rather than out of
         # the header: the words are the row.
-        markw = marks ? awidth(COPYMARK) + 1 : 0
+        markw = marks ? textwidth(COPYMARK) + 1 : 0
         ago = at === nothing ? "" : ago_str(jstr(n.meta, :at, ""), at)
         for (k, hl) in enumerate(hls)
-            txt = k == 1 ? hl : string("  ", hl)
-            core = string(THEME.bold, isempty(u) ? txt : osc8(u, txt), THEME.reset)
-            width = awidth(txt)
+            txt = k == 1 ? hl : "  " * hl
+            core = faced(isempty(u) ? txt : osc8(u, txt), THEME.bold)
+            width = rowwidth(txt)
             if k == length(hls)
                 # How long ago, after the words and before the rule, where
                 # there is room for it: a header that fills the pane keeps its
                 # words and says the date alone.
-                if !isempty(ago) && iw - width - markw >= awidth(ago) + 1
-                    core = string(core, " ", THEME.dim, ago, THEME.reset)
-                    width += 1 + awidth(ago)
+                if !isempty(ago) && iw - width - markw >= textwidth(ago) + 1
+                    core = core * " " * faced(ago, THEME.dim)
+                    width += 1 + textwidth(ago)
                 end
                 # A rule out to the edge of the pane on the last row of the
                 # header, so where one comment ends and the next begins is
@@ -728,19 +697,17 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
                 # was written in.
                 if n.depth == 0
                     gap = iw - width - 1 - markw
-                    gap > 2 && (core = string(core, " ", THEME.dim, "─"^gap,
-                                              THEME.reset);
+                    gap > 2 && (core = core * " " * faced("─"^gap, THEME.dim);
                                 width += 1 + gap)
                 end
                 # And the mark, right-aligned on the row a click has to land on.
                 # Only where it fits: a header that fills the pane keeps its
                 # words, and loses the offer.
                 if markw > 0 && iw - width >= markw
-                    core = string(core, " "^(iw - width - markw), " ",
-                                  THEME.dim, COPYMARK, THEME.reset)
+                    core = core * " "^(iw - width - markw) * " " * faced(COPYMARK, THEME.dim)
                 end
             end
-            push!(out, Row(i, true, string(pad, core), hsrc, k == 1 ? 0 : 1))
+            push!(out, Row(i, true, pad * core, hsrc, k == 1 ? 0 : 1))
         end
         if !n.open
             hide = n.depth
@@ -758,8 +725,8 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
             (part, src) = n.srcs[j]
             part == 0 && (k += 1)
             m = (hm === nothing || part != 0) ? nothing : get(hm, k, nothing)
-            g = (m === nothing || m[1] == 0) ? "" : string(THEME.accent, "💬")
-            push!(out, Row(i, false, string(pad, l), src, part, g))
+            g = (m === nothing || m[1] == 0) ? row("") : faced("💬", THEME.accent)
+            push!(out, Row(i, false, pad * l, src, part, g))
         end
     end
     out

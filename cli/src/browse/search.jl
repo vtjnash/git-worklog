@@ -66,7 +66,7 @@ function node_hits(st::BState, w::Int)
     isempty(st.search) && return Int[]
     q = searchre(st.search)
     [i for (i, n) in enumerate(st.nodes)
-     if occursin(q, astrip(n.header)) ||
+     if occursin(q, String(n.header)) ||
         any(occursin(q, src) for (_, src) in node_srcs(n, w))]
 end
 

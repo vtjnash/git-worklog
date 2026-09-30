@@ -170,7 +170,7 @@ end
     @test wide != narrow              # or this test proves nothing
 
     # Drawn alone, the keys measure against the browser's own width.
-    W.render(st, 170, 40)
+    frame(st, 170, 40)
     @test st.diw == L.riw
     W.handle!(st, Int('G'), ctrl)
     @test st.nrow == wide
@@ -210,7 +210,7 @@ end
     # The second paragraph of bob's comment, whole, at the browser's width.
     a = findlast(r -> r.node == 2 && r.part == 0, wide)
     b = length(wide)
-    W.render(st, 170, 40)
+    frame(st, 170, 40)
     st.nrow = b; st.anchor = a; st.sela, st.selb = a, b
     before = W.selection_text(st, st.diw)
     @test count(==('\n'), before) == 0 && startswith(before, "a long")
@@ -224,7 +224,7 @@ end
     @test st.nrow == st.sela && st.anchor == st.sela
     @test W.selection_text(st, st.diw) == before
     # And back again, once the composer closes.
-    W.render(st, 170, 40)
+    frame(st, 170, 40)
     @test st.diw == L.riw && (st.sela, st.selb) == (a, b)
     # A range dragged upwards keeps its ends the way round they were, and the
     # spacer row above a header - part of no written line - stays a row.
@@ -234,7 +234,7 @@ end
     @test st.sela == length(narrow)
     sp = findfirst(r -> r.node == 2 && r.header && r.part == 1 && isempty(r.src), narrow)
     st.nrow = sp; W.clearsel!(st)
-    W.render(st, 170, 40)
+    frame(st, 170, 40)
     @test st.nrow == findfirst(r -> r.node == 2, wide)
     # The same width is no change at all.
     W.rewrap!(st, L.riw, L.riw)
@@ -256,7 +256,7 @@ end
     ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
     ed = W.EditorView("Comment on julia#1", "", identity)
     v = W.SideView(ed, st, :inner)
-    W.render(v, 170, 40)
+    frame(v, 170, 40)
     lw, _ = W.split_box(170)
     @test st.diw == lw - 4
     B = W.beside_layout(lw, 40)
@@ -278,7 +278,7 @@ end
     # The keys stay with the composer.
     @test v.focus === :inner
     # A drag over the last two rows selects them, at this width.
-    W.render(v, 170, 40)
+    frame(v, 170, 40)
     n = length(narrow)
     top = st.ntop
     W.onmouse!(v, W.MouseEvent(:press, 0, B.rx + 10, B.ry + (n - 1 + st.hdr - top + 1), 0), ctrl)
@@ -290,7 +290,7 @@ end
     @test (st.nrow, W.selrange(st)) == before
     # Beside a hosted pane on the reading side, the same forwarding.
     pv = W.PaneView(W.IFrame("n", "sh"), st, :read)
-    W.render(pv, 170, 40)
+    frame(pv, 170, 40)
     W.clearsel!(st)
     W.onmouse!(pv, W.MouseEvent(:press, 0, B.rx + 10, B.ry + st.hdr + hdr2 - st.ntop + 1, 0), ctrl)
     @test st.nrow == hdr2
@@ -368,7 +368,7 @@ end
     @test W.handle!(v, W.K_DOWN, ctrl) === :pop
     # And the key is named on the screen, since a dialog nobody can answer is
     # worse than no dialog.
-    fr = W.astrip(W.render(v, 80, 24))
+    fr = unstyled(frame(v, 80, 24))
     @test occursin("Quit", fr) && occursin("y quits", fr)
     @test count(==('\n'), fr) == 23        # a whole frame, like every other view
     pop!(ctrl.stack)
@@ -436,7 +436,7 @@ end
     @test W.refresh_item!(st) == ""
     @test st.metakey == it.url && st.metapending !== nothing
     # It is in the footer, because a key nobody can find is a key nobody uses.
-    @test occursin("R reload", W.astrip(W.render(st, 150, 40)))
+    @test occursin("R reload", unstyled(frame(st, 150, 40)))
     # Nothing selected is not a failure, it is nothing to do.
     st.sel = 0
     @test occursin("nothing selected", W.refresh_item!(st))
@@ -454,7 +454,7 @@ end
     # so what is checked is everything around it.
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
     st = mkstate()
-    @test occursin("u update all", W.astrip(W.render(st, 150, 40)))
+    @test occursin("u update all", unstyled(frame(st, 150, 40)))
 
     # A second `u` joins the one in flight instead of starting a second refresh
     # against the same files.
@@ -465,7 +465,7 @@ end
         @test W.refresh_all!(st) == "already refreshing"
         # And the title bar says so, top right, while it runs.
         @test W.refreshing()
-        top = first(split(W.astrip(W.render(st, 150, 40)), "\n"))
+        top = first(split(unstyled(frame(st, 150, 40)), "\n"))
         @test endswith(top, "refreshing … ") && length(top) == 150
     finally
         put!(c, nothing); wait(t)
@@ -478,16 +478,16 @@ end
     # key replaces. With the title still in front of it.
     st.refreshed = "2026-09-18T13:56:13.000000+00:00"
     at = W.ts("2026-09-18T16:00:00Z")
-    top = first(split(W.astrip(W.render_frame(st, 150, 40, at)), "\n"))
+    top = first(split(unstyled(ansi(W.render_frame(st, 150, 40, at))), "\n"))
     @test endswith(top, "refreshed 2026-09-18 13:56  2h ago ")
     @test startswith(top, string(" ", st.items[st.sel].ref))
     # Nothing to say for a corpus never stamped - and not at the title's
     # expense on a narrow screen.
     st.refreshed = ""
-    top = first(split(W.astrip(W.render_frame(st, 150, 40, at)), "\n"))
+    top = first(split(unstyled(ansi(W.render_frame(st, 150, 40, at))), "\n"))
     @test !occursin("refreshed", top)
     st.refreshed = "2026-09-18T13:56:13.000000+00:00"
-    top = first(split(W.astrip(W.render_frame(st, 60, 40, at)), "\n"))
+    top = first(split(unstyled(ansi(W.render_frame(st, 60, 40, at))), "\n"))
     @test !occursin("refreshed", top) && startswith(top, string(" ", st.items[st.sel].ref))
     # It is read off the file with the rows: at launch, and when a refresh
     # lands under the browser.
@@ -723,13 +723,13 @@ end
     # agent with no conversation yet is `/cleared`. A shell's is its own words,
     # `/cleared` or not being an agent's to be.
     st.sessions = [row(:agent, tasked.ref; title = "\u2733 Count to forty")]
-    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    lines = unstyled(join(W.meta_lines(st, tasked, 60), "\n"))
     @test occursin("agent  \u2733 Count to forty", lines) && !occursin("T to", lines)
     st.sessions = [row(:agent, tasked.ref; title = W.CLEARED_TITLE, bell = true)]
-    lines = W.astrip(join(W.meta_lines(st, tasked, 70), "\n"))
+    lines = unstyled(join(W.meta_lines(st, tasked, 70), "\n"))
     @test occursin(string("agent  waiting on you · ", W.CLEARED_TITLE, "  /cleared"), lines)
     st.sessions = [row(:shell, tasked.ref; title = W.CLEARED_TITLE)]
-    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    lines = unstyled(join(W.meta_lines(st, tasked, 60), "\n"))
     @test occursin(string("shell  ", W.CLEARED_TITLE), lines) && !occursin("t to open", lines)
     # A retitle the watcher heard reaches the pane on the next wake, without
     # the metadata being read again; and costs no refilter.
@@ -740,7 +740,7 @@ end
     @test W.sessions_changed([row(:agent, "someone/else#1")], [row(:agent, tasked.ref)])
     st.relisted = now_; st.rerang = false
     @test W.rerang!(st) && st.relisted === nothing && st.sessions === now_
-    @test occursin("Count to forty", W.astrip(join(W.meta_lines(st, tasked, 60), "\n")))
+    @test occursin("Count to forty", unstyled(join(W.meta_lines(st, tasked, 60), "\n")))
     @test !W.rerang!(st)
     @test !occursin("/cleared", lines)
     # Another item's session in the copy this item would open in is said,
@@ -754,12 +754,12 @@ end
     @test isempty(W.taken_in(tasked, "/tmp/x", [row(:shell, "")]))   # untagged: nobody's
     st.metakey = tasked.url; st.itemcopy = "/tmp/x"
     st.sessions = [row(:agent, "someone/else#1"; title = "\u2733 Fix the thing")]
-    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    lines = unstyled(join(W.meta_lines(st, tasked, 60), "\n"))
     @test occursin("running", lines)
     @test occursin("agent  someone/else#1's · \u2733 Fix the thing", lines)
     @test !occursin("takes it over", lines)
     st.sessions = [row(:agent, tasked.ref; title = "\u2733 Fix the thing")]   # taken over
-    lines = W.astrip(join(W.meta_lines(st, tasked, 60), "\n"))
+    lines = unstyled(join(W.meta_lines(st, tasked, 60), "\n"))
     @test occursin("agent  \u2733 Fix the thing", lines) && !occursin("'s", lines)
     st.sessions = W.Session[]; st.itemcopy = ""
     # And the line the questions carry for it, kind-aware.
@@ -959,7 +959,7 @@ end
     # decides what the keys under it do - so the word is between the number
     # and the title, on the pane's header and the title bar both, with the
     # state in front once it is over.
-    say(it) = W.astrip(W.kind_phrase(it))
+    say(it) = unstyled(W.kind_phrase(it))
     issue = fixture_item("an issue")
     pr = fixture_item("yours, open, with a branch and labels")
     @test say(issue) == "issue" && say(pr) == "pull request"
@@ -967,17 +967,17 @@ end
     @test say(fixture_item("merged")) == "merged pull request"
     closed = fixture_item("closed")
     @test say(closed) == string("closed ", closed.is_pr ? "pull request" : "issue")
-    @test occursin(W.THEME.settled, W.kind_phrase(fixture_item("merged")))
-    @test occursin(W.THEME.blocked, W.kind_phrase(closed))
+    @test faceon(W.THEME.settled, W.kind_phrase(fixture_item("merged")))
+    @test faceon(W.THEME.blocked, W.kind_phrase(closed))
     @test say(W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
                      title = "a branch", branch = "wip")) == "branch"
     st = W.BState([issue, pr], "t")
-    frame(i) = (st.sel = i; st.loaded = string(st.items[i].url, ":", st.mode);
-                split(W.render(st, 150, 40), "\n"))
-    lines = frame(findfirst(x -> x.url == issue.url, st.items))
+    drawn(i) = (st.sel = i; st.loaded = string(st.items[i].url, ":", st.mode);
+                split(frame(st, 150, 40), "\n"))
+    lines = drawn(findfirst(x -> x.url == issue.url, st.items))
     # The title bar, and the header over the detail pane.
-    @test occursin(string(issue.ref, "  issue  ", first(issue.title, 20)), W.astrip(lines[1]))
-    @test any(l -> occursin(string(issue.ref, "  issue  "), W.astrip(l)), lines[2:6])
-    lines = frame(findfirst(x -> x.url == pr.url, st.items))
-    @test occursin(string(pr.ref, "  pull request  "), W.astrip(lines[1]))
+    @test occursin(string(issue.ref, "  issue  ", first(issue.title, 20)), unstyled(lines[1]))
+    @test any(l -> occursin(string(issue.ref, "  issue  "), unstyled(l)), lines[2:6])
+    lines = drawn(findfirst(x -> x.url == pr.url, st.items))
+    @test occursin(string(pr.ref, "  pull request  "), unstyled(lines[1]))
 end

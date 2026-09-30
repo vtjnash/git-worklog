@@ -27,6 +27,20 @@ is under "Reproducing".
   on 1.14, all in `process.jl`), and everything `wl` does goes through `gh`,
   `git` or `tmux` (TODO, *Upstream*).
 
+- Every row is drawn by StyledStrings now (FACES.md), and printing one does
+  not trim either. Measured 2026-09-30 on 1.14.0-DEV.3217 with a program
+  that builds rows with `TermInput`'s `faced`, `linked`, `rowcat`,
+  `verbatim`, `rowfit` and `rowwrap` and writes them with `frame_bytes`:
+  `--trim=safe` refuses, about ten errors, none in `TermInput`'s own code.
+  Base's `print(io, ::AnnotatedString)` goes through `Core.invoke_in_world`,
+  which the verifier does not implement, so StyledStrings' writer is never
+  compiled in; past that, StyledStrings reads the user's faces file on the
+  first print (`load_customisations!`, a dozen more) and merges faces from
+  annotations typed `Any` (`getface`); and `annotatedstring` of three or more
+  pieces maps over a `Vararg{Any}`. The `unsafe-warn` binary dies on the
+  first row. Nothing here can fix the first two; the frame writer could
+  print a row's regions itself, which is StyledStrings' writer again.
+
 An `unsafe-warn` binary turns each unresolved call into a `MethodError` when
 the line runs, so it is no middle ground for a program whose code paths are
 its command surface.

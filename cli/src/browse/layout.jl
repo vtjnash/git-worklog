@@ -192,58 +192,41 @@ function selection_text(st::BState, w::Int)
     join(out, "\n")
 end
 
-"""Lay a background over a whole row, re-arming it after every reset.
+"""Lay a background under a whole row: the row's own faces are merged over
+it, so a colour inside the row stays and the background runs under all of it -
+a search hit inside the cursor's row keeps its own, and the cursor's goes on
+round it."""
+hlrow(s::AbstractString, bg::Face) = faced(s, bg)
 
-A row carries its own colours, and the `\\e[0m` that ends one of them ends the
-background too - so a highlight applied naively stops at the first styled word
-on the line. `rearm` is the general form; the background going back to the
-default counts as an ending here as much as a reset does, which is what lets a
-search hit inside the cursor's row end without taking the cursor with it.
-"""
-hlrow(s::AbstractString, bg::AbstractString) =
-    isempty(bg) ? String(s) :
-    string(bg, rearm(s, bg, (THEME.reset, THEME.no_bg)), THEME.reset)
+"""Lay `quiet` under a whole row - the list while the keys are on the reading
+side. The cursor stays under it, and so does the weight where the theme gives
+`quiet_bold` one: the row is drawn with that in place of `bold` first, since
+`bold` in a 256-colour theme carries the full foreground and would come out
+white over any grey laid under it, and `bold` over the `dim` attribute is the
+pair terminals disagree about. So the list says the same things, quieter, and
+that it is not where the keys go."""
+quietrow(s::AbstractString) = faced(s, THEME.quiet)
 
-"""Lay `quiet` over a whole row, re-arming after every reset - the list while
-the keys are on the reading side. The cursor stays under it, and so does the
-weight where the theme gives `quiet_bold` one: the row is drawn with that in
-place of `bold` first, since `bold` in a 256-colour theme carries the full
-foreground and would come out white over any grey laid under it, and `bold`
-over the `dim` attribute is the pair terminals disagree about. So the list says
-the same things, quieter, and that it is not where the keys go."""
-quietrow(s::AbstractString) =
-    isempty(THEME.quiet) ? String(s) :
-    string(THEME.quiet, rearm(s, THEME.quiet, (THEME.reset, THEME.quiet_off)), THEME.reset)
-
-"""Lay a background over given ranges of a row's *plain* characters.
-
-The row carries escapes, so a character offset in the text it prints is not an
-offset into the string. This walks it, counting only what would appear, and ends
-each span with `\\e[49m` rather than a reset - so a match inside coloured text
-keeps its colour, and `hlrow` can still lay the cursor's background over the top.
-"""
-function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::AbstractString;
-               off::AbstractString = THEME.no_bg)
-    isempty(ranges) && return s
-    io, i, n, open_ = IOBuffer(), firstindex(s), 0, false
-    while i <= lastindex(s)
-        m = match(ESCAPE, SubString(s, i))
-        if m !== nothing
-            write(io, m.match); i += ncodeunits(m.match); continue
-        end
-        n += 1
-        inspan = false                  # a loop, not `any` over a closure: `n`
-        for r in ranges                 # changes, and a closure over it is boxed
-            n in r && (inspan = true; break)
-        end
-        inspan && !open_ && write(io, bg)
-        !inspan && open_ && write(io, off)
-        open_ = inspan
-        write(io, s[i]); i = nextind(s, i)
+"""Lay a background over given ranges of a row's characters, *over* what the
+row has there: a match inside coloured text is marked whatever its colour, and
+`hlrow` can still lay the cursor's background under the rest."""
+function hlspan(s::AbstractString, ranges::Vector{UnitRange{Int}}, bg::Face)
+    x = row(s)
+    isempty(ranges) && return x
+    str = x.string
+    n = length(str)
+    for r in ranges
+        lo, hi = max(first(r), 1), min(last(r), n)
+        lo > hi && continue
+        b = nthind(str, lo)
+        e = nthind(str, hi)
+        x = overlaid(x, b:(e + ncodeunits(str[e]) - 1), bg)
     end
-    open_ && write(io, off)
-    String(take!(io))
+    x
 end
+
+"The byte index of the `k`th character of `s`."
+nthind(s::AbstractString, k::Int) = nextind(s, 0, k)
 
 """Character range of a row's own text within the line it came from.
 
@@ -261,7 +244,7 @@ shows an elided URL; a row with a tab in it shows the tab as spaces (`detab`)
 - and the caller falls back to marking what is visible.
 """
 function row_span(row::Row, indent::Int, from::Int)
-    full = collect(astrip(row.text))
+    full = collect(String(row.text))
     length(full) > indent || return nothing
     body = collect(rstrip(String(full[(indent + 1):end])))
     hay, m = collect(row.src), length(body)
@@ -289,7 +272,7 @@ line in half and half of one is not what anybody pointed at. That is the same
 reason `row_span` exists, and it is what maps the column back.
 """
 function src_at(st::BState, r::Row, col::Int)
-    txt = astrip(r.text)
+    txt = String(r.text)
     isempty(txt) && return 0
     ind = 2 * st.nodes[clamp(r.node, 1, length(st.nodes))].depth
     # Display column to character index, walking widths rather than counting

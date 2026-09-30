@@ -53,6 +53,10 @@ resolved with - under juliaup, `cli/bin/wl` passes the channel itself
 (`1.14-nightly` for a `1.14.0-DEV` manifest, `1.12.6` for `1.12.6`), so it
 must be installed: `juliaup add 1.14-nightly`. `JULIAUP_CHANNEL` overrides
 it; without juliaup, whatever `julia` is on `PATH` runs (1.11 or newer).
+Before 1.12, StyledStrings, which writes every row, draws dim straight over
+bold without ending it, so a focused box's title and the border beside it,
+or a bold row beside a quiet one, are drawn in both; that is accepted, and
+1.12 draws them apart.
 tmux comes bundled (`tmux_jll`, 3.5.1) and is what `t` and `T` run;
 `WORKLOG_TMUX` names another binary. The sessions are on the ordinary socket,
 so your own `tmux ls` sees them. No tmux on Windows.

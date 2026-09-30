@@ -15,13 +15,47 @@ using Worklog
 import TermInput, TermIFrame
 const W = Worklog
 
-"""What a markdown face writes before and after a word, as StyledStrings has it
-for this terminal: `(on, off)`, for finding a style in a rendered row."""
+"""What StyledStrings writes for a row of faces, which is what the terminal is
+sent - and for a frame of them, a row to a line. What an assertion about a
+colour on the screen reads."""
+ansi(r::AbstractString) = sprint(print, r; context = :color => true)
+ansi(rows::AbstractVector) = join(ansi.(rows), "\n")
+
+"""What the screen says, as against how it looks: a row's text, or a string of
+escapes with them taken out."""
+const SGR_OSC = r"\e\[[0-9;:]*[A-Za-z]|\e\][^\e]*\e[\\]"
+unstyled(s::Base.AnnotatedString) = String(s)
+unstyled(s::AbstractString) = replace(String(s), SGR_OSC => "")
+
+"The columns `s` prints in: a row's by its text, a string of escapes past them."
+width(s::Base.AnnotatedString) = W.rowwidth(s)
+width(s::AbstractString) = textwidth(unstyled(s))
+
+"""A view drawn as the terminal would be sent it: `render`'s rows, written."""
+frame(v, w::Int, h::Int, args...) = ansi(W.render(v, w, h, args...))
+
+"""What a face writes before and after a word, as StyledStrings has it for this
+terminal: `(on, off)`, for finding a style in a rendered row."""
 function faceesc(f)
-    s = TermInput.emit([TermInput.Run("x", [f])])
+    s = ansi(TermInput.faced("x", f))
     i = findfirst('x', s)
     (s[1:prevind(s, i)], s[nextind(s, i):end])
 end
+
+"The escape a face begins with, on its own."
+esc(f) = faceesc(f)[1]
+
+"""The text an annotation of `s` is over: a region ends at its last byte, which
+is not an index of `s` where the last character is wider than one."""
+over(s, r::UnitRange{Int}) = (t = String(s); t[first(r):thisind(t, last(r))])
+
+"""What faces a row has, and over what: `text => face` for each, in order."""
+faces(s) = [over(s, a.region) => a.value for a in Base.annotations(s) if a.label === :face]
+
+"""Is `f` on `s`: laid over some of a row, or written in a string of escapes."""
+faceon(f, s::Base.AnnotatedString) =
+    any(a -> a.label === :face && a.value == f, Base.annotations(s))
+faceon(f, s::AbstractString) = occursin(esc(f), s)
 
 # The standing error warning takes the footer's second row, so a log left over
 # from a previous run would fail every test that asserts what is written there.

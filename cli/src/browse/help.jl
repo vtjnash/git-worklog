@@ -66,17 +66,17 @@ column of its own, and a description longer than the rest of the row continues
 under itself rather than under the key."""
 function help_rows(iw::Int)
     kw = 14                                         # the key column
-    out = Tuple{String,String}[]                    # (text, style)
+    out = Tuple{Styled,Face}[]                      # (text, style)
     for e in HELP
         if e isa String
-            push!(out, isempty(e) ? ("", "") : (e, THEME.bold))
+            push!(out, isempty(e) ? (row(""), Face()) : (row(e), THEME.bold))
         else
             k, what = e
-            lines = awrap(what, iw - kw - 2)
-            isempty(lines) && (lines = [""])
-            push!(out, (string(THEME.focus, apad(k, kw), THEME.reset, "  ", lines[1]), ""))
+            lines = rowwrap(what, iw - kw - 2)
+            isempty(lines) && (lines = [row("")])
+            push!(out, (faced(rowpad(k, kw), THEME.focus) * "  " * lines[1], Face()))
             for l in lines[2:end]
-                push!(out, (string(" "^(kw + 2), l), ""))
+                push!(out, (" "^(kw + 2) * l, Face()))
             end
         end
     end
@@ -94,7 +94,7 @@ function render(v::HelpView, w::Int, h::Int)
     n = length(rs)
     page = min(n, help_page(h))
     v.top = clamp(v.top, 1, max(1, n - page + 1))
-    out = [b.head("keys")]
+    out = Styled[b.head("keys")]
     for i in v.top:(v.top + page - 1)
         t, s = rs[i]
         push!(out, b.row(t, s))

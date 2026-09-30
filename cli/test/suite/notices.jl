@@ -171,7 +171,7 @@ end
         W.apply_view!(st, Dict{String,Any}())
         st.sel = findfirst(W.isnotice, st.items)
         # The pane says what it is; no request is made for one.
-        lines = W.astrip(join(W.meta_lines(st, nt, 60), "\n"))
+        lines = unstyled(join(W.meta_lines(st, nt, 60), "\n"))
         @test occursin("release", lines) && occursin("subscribed", lines)
         @test !occursin("track", lines)
         # `s` is refused, and the block stands.

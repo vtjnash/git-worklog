@@ -105,8 +105,8 @@ end
     @test got[] == "/usr/local/"
     @test W.handle!(W.PromptView("t", "", identity), 27, ctrl) === :pop
 
-    ls = split(W.render(p, 90, 24), "\n")
-    @test length(ls) == 24 && all(W.awidth(l) == 90 for l in ls)
+    ls = split(frame(p, 90, 24), "\n")
+    @test length(ls) == 24 && all(width(l) == 90 for l in ls)
 end
 
 @testset "the terminal says dark or light, and the theme follows" begin

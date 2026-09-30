@@ -126,33 +126,33 @@ The two places that read a pane's text - `dead_screen` finding blank rows, and
 
 ## Steps
 
-- [ ] 0. **(TermInput)** Auto-wrap off while `frame_bytes` writes, on again
+- [x] 0. **(TermInput)** Auto-wrap off while `frame_bytes` writes, on again
       at the end, and the docstring's pending-wrap paragraph rewritten for
       it. Test: a row wider than `w` leaves the next row where it was.
-- [ ] 1. **(TermInput)** `rowwidth`, and the fitting helpers for
+- [x] 1. **(TermInput)** `rowwidth`, and the fitting helpers for
       `AnnotatedString` - fit, pad, head, tail, middle, wrap - that keep
       annotations and never split a `:verbatim` range; grapheme-whole, as
       `wraprun` is. `markdown_rows`' `wraprun` becomes one of their callers,
       not a copy of them. Tests beside the escape-string ones they replace.
-- [ ] 2. **(TermInput)** `frame_bytes` takes `Vector{AnnotatedString}` and
+- [x] 2. **(TermInput)** `frame_bytes` takes `Vector{AnnotatedString}` and
       writes a verbatim range as above; the `String` method stays until the
       host has moved, then goes.
-- [ ] 3. **(TermInput)** `CHROME` as faces, and the widgets - `dialogbox`,
+- [x] 3. **(TermInput)** `CHROME` as faces, and the widgets - `dialogbox`,
       the text area, the line input, the picker - drawing annotated rows. The
       composer's cursor stays reverse video whatever a theme says; it becomes
       `Face(inverse = true)`.
-- [ ] 4. **(TermIFrame)** `iframe_rows` and `bordered` produce annotated
+- [x] 4. **(TermIFrame)** `iframe_rows` and `bordered` produce annotated
       rows, a pane's row as a `:verbatim` piece of the pane's width, the
       selection still painted before it is (see above). `bordered` stops
       measuring its lines: a line is verbatim or it is an annotated string,
       and an annotated one is fitted with step 1's helpers.
-- [ ] 5. **(worklog)** `Theme` as faces from `parse_face`; `parse_style`,
+- [x] 5. **(worklog)** `Theme` as faces from `parse_face`; `parse_style`,
       `ATTRS`, `sgr`, the `_off` fields and `reset`/`no_bg` go. `rearm`,
       `hlrow`, `hlspan` become a face annotated over a range. DESIGN.md's
       "A colour is a role, never an escape" paragraph loses its `_off`
       sentence, and the shipped themes' header comment ("There is no entry
       for the resets...") says what is true of faces instead.
-- [ ] 6. **(worklog)** Every row builder to annotated strings, file by file,
+- [x] 6. **(worklog)** Every row builder to annotated strings, file by file,
       the measuring calls to step 1's. `render` returns rows, not a joined
       string. Suite green after each file.
 - [ ] 7. **(TermInput)** The escape-string helpers go - `awidth`, `afit`,

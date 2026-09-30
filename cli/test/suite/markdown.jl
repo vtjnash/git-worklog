@@ -25,8 +25,8 @@
     wide = W.body_nodes("a", string("```\n", "x"^250, "\n```"), "", true)
     for n in wide; n.kind === :plain && (n.open = true); end
     rs = W.rows(wide, 96)
-    @test all(W.awidth(r.text) <= 96 for r in rs)
-    @test !any(occursin("│", W.astrip(r.text)) || occursin("└", W.astrip(r.text)) for r in rs)
+    @test all(width(r.text) <= 96 for r in rs)
+    @test !any(occursin("│", unstyled(r.text)) || occursin("└", unstyled(r.text)) for r in rs)
 
     # A lifted block is drawn in its language's colours where it has a
     # highlighter, as the same block inside markdown is; a copy is the code.
@@ -35,10 +35,10 @@
     c = only(n for n in ns if n.kind === :plain)
     @test c.meta["lang"] == "julia"
     ls = W.nodelines(c, 60)
-    @test [rstrip(W.astrip(l)) for l in ls] == ["function f(x)", "        return x", "end"]
+    @test [rstrip(unstyled(l)) for l in ls] == ["function f(x)", "        return x", "end"]
     @test [sr for (_, sr) in c.srcs] == ["function f(x)", "\treturn x", "end"]
     if VERSION >= v"1.12"
-        @test occursin(faceesc(W.MD_STYLE[].faces[:keyword])[1] * "function", ls[1])
+        @test occursin(faceesc(W.MD_STYLE[].faces[:keyword])[1] * "function", ansi(ls[1]))
     end
     # A language nothing highlights is drawn as it was.
     ns = W.body_nodes("a", "```python\ndef f(): pass\n```", "", true)
@@ -46,12 +46,12 @@
 
     # A plain node must not double its braces: it is not markdown at all.
     n = W.Node("h", "f() { Dict{String,Int}() }", :plain, true)
-    @test W.astrip(join(W.nodelines(n, 80), "")) == "f() { Dict{String,Int}() }"
+    @test unstyled(join(W.nodelines(n, 80), "")) == "f() { Dict{String,Int}() }"
 end
 
 @testset "inline code is a background, not a shout" begin
-    lines(t, w) = W.nodelines(W.Node("h", t, :md, true), w)
-    plain(t, w) = strip(join([W.astrip(l) for l in lines(t, w)], " "))
+    lines(t, w) = ansi.(W.nodelines(W.Node("h", t, :md, true), w))
+    plain(t, w) = strip(join([unstyled(l) for l in lines(t, w)], " "))
 
     bg_on, bg_off = faceesc(W.MD_STYLE[].code)
     ls = lines("call `Sockets.bind` and `false` here", 70)
@@ -84,7 +84,7 @@ end
         for l in ls, m in eachmatch(r"(\e\[[0-9;]*m)|([^\e]+)", l)
             if m[1] !== nothing
                 m[1] == bg_on && (bg = true)
-                m[1] in (bg_off, W.THEME.reset) && (bg = false)
+                m[1] in (bg_off, "\e[0m") && (bg = false)
             else
                 write(bg ? on : off, m[2])
             end
@@ -104,14 +104,14 @@ end
         @test !occursin('`', off)
     end
     # Some width in that range does split a span, or the loop proved nothing.
-    @test any(w -> any(l -> isodd(count('`', W.astrip(l))), lines(para, w)), 24:4:140)
+    @test any(w -> any(l -> isodd(count('`', unstyled(l))), lines(para, w)), 24:4:140)
     # A backtick left open is text, and does not reach across a paragraph.
     on, off = shaded(lines("a `b\n\nc `d` e", 80))
     @test on == "`d`" && occursin("a `b", off)
 end
 
 @testset "markup does not eat the text" begin
-    render(t) = strip(W.astrip(join(W.nodelines(W.Node("h", t, :md, true), 100), " ")))
+    render(t) = strip(unstyled(join(W.nodelines(W.Node("h", t, :md, true), 100), " ")))
     # Julia's Markdown opens emphasis on an intraword underscore and it takes
     # two to pair, so a single identifier was never the failing case.
     @test render("call deliver_result and connect_to_peer here") ==
@@ -146,7 +146,7 @@ end
           "Why `JL_GC_PUSHARGS` frames are the hard case."
     @test render("_a `b` c_") == "a `b` c"
     # And `wl show`, which is the same rows without the pane.
-    @test rstrip(W.astrip(only(W.render_md("a Dict{String,Int} and `T{S}`", 80)).text)) ==
+    @test rstrip(unstyled(only(W.render_md("a Dict{String,Int} and `T{S}`", 80)).text)) ==
           "a Dict{String,Int} and `T{S}`"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 
@@ -173,9 +173,19 @@ end
 
 @testset "a match cut by the wrap is marked on both rows" begin
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
-    # The highlight markers, made visible without astrip eating them first.
-    seen(f) = W.astrip(replace(replace(f, W.THEME.match_bg => "<"), W.THEME.no_bg => ">"))
-    detail(st) = [l for l in split(seen(W.render(st, 150, 40)), "\n") if occursin("<", l)]
+    # The highlight made visible: `<` and `>` round what is in `match_bg`.
+    function seen(r)
+        t = String(r)
+        io, i = IOBuffer(), 1
+        for m in sort([a.region for a in Base.annotations(r) if a.value == W.THEME.match_bg];
+                      by = first)
+            write(io, SubString(t, i, prevind(t, first(m))), "<", over(r, m), ">")
+            i = last(m) + 1
+        end
+        write(io, SubString(t, i))
+        String(take!(io))
+    end
+    detail(st) = [l for l in seen.(W.render(st, 150, 40)) if occursin("<", l)]
 
     st = mkstate()
     # Long enough to wrap in a 96-column pane, with the query spanning the break.
@@ -187,10 +197,10 @@ end
     body = [r for r in W.rows(st.nodes, iw) if !r.header]
     @test length(body) > 1                          # it really does wrap
     # The two words either side of the break.
-    tail = split(W.astrip(body[1].text))[end]
-    head = split(W.astrip(body[2].text))[1]
+    tail = split(unstyled(body[1].text))[end]
+    head = split(unstyled(body[2].text))[1]
     st.search = string(tail, " ", head)
-    @test !any(occursin(st.search, W.astrip(r.text)) for r in W.rows(st.nodes, iw))
+    @test !any(occursin(st.search, unstyled(r.text)) for r in W.rows(st.nodes, iw))
     marked = detail(st)
     @test length(marked) == 2                       # both halves marked
     joined = join(marked, "\n")
@@ -205,9 +215,9 @@ end
     st.search = "zzzz"
     @test isempty(detail(st))
     st.search = "gamma"
-    pane_of(f) = [String(first(l, 100)) for l in split(W.astrip(f), "\n")[2:end-2]]
+    pane_of(f) = [String(first(l, 100)) for l in split(unstyled(f), "\n")[2:end-2]]
     lit = deepcopy(st); lit.search = ""
-    @test pane_of(W.render(st, 150, 40)) == pane_of(W.render(lit, 150, 40))
+    @test pane_of(frame(st, 150, 40)) == pane_of(frame(lit, 150, 40))
 
     # Indented rows: the depth padding is not part of the source.
     st2 = mkstate()
@@ -226,22 +236,24 @@ end
 end
 
 @testset "span highlighting" begin
-    s = "\e[31mred\e[0m and green"
-    hl = W.hlspan(s, W.findhits(W.astrip(s), "green"), W.THEME.match_bg)
-    @test W.astrip(hl) == W.astrip(s)          # nothing printable is disturbed
-    @test occursin(W.THEME.match_bg * "green", hl)
-    @test endswith(hl, W.THEME.no_bg)                 # ends the background, not the colour
+    red = W.Face(foreground = W.SimpleColor(:red))
+    s = W.faced("red", red) * " and green"
+    hl = W.hlspan(s, W.findhits(unstyled(s), "green"), W.THEME.match_bg)
+    @test unstyled(hl) == unstyled(s)          # nothing printable is disturbed
+    # Over the match and nothing else, and the colour before it is its own.
+    @test faces(hl) == ["red" => red, "green" => W.THEME.match_bg]
     @test W.findhits("aXbXc", "x") == [2:2, 4:4]
     @test isempty(W.findhits("abc", ""))
     @test W.hlspan("plain", UnitRange{Int}[], W.THEME.match_bg) == "plain"
     # A match inside styled text keeps the style around it.
-    s2 = "\e[32mfoo bar baz\e[0m"
-    @test W.astrip(W.hlspan(s2, W.findhits(W.astrip(s2), "bar"),
-                            W.THEME.match_bg)) == "foo bar baz"
+    green = W.Face(foreground = W.SimpleColor(:green))
+    s2 = W.faced("foo bar baz", green)
+    @test faces(W.hlspan(s2, W.findhits(unstyled(s2), "bar"), W.THEME.match_bg)) ==
+          ["foo bar baz" => green, "bar" => W.THEME.match_bg]
 end
 
 @testset "a comment is drawn as GitHub draws a comment" begin
-    lines(t, w = 80) = [rstrip(W.astrip(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
+    lines(t, w = 80) = [rstrip(unstyled(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
     # A newline is a line break, which is what GitHub's own renderer makes of
     # it in a comment (`<br>`); read as a space, a comment wrapped by hand is
     # reflowed.
@@ -275,16 +287,16 @@ end
 end
 
 @testset "what Term could not draw" begin
-    lines(t, w = 60) = [rstrip(W.astrip(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
+    lines(t, w = 60) = [rstrip(unstyled(l)) for l in W.nodelines(W.Node("h", t, :md, true), w)]
     # A table wider than the pane is fitted to it, its widest column narrowed
     # and its cells wrapped rather than cut; Term drew every column at its
     # widest cell and let the pane's wrapping break the box (FedeClaudi/Term.jl#314).
     wide = "| key | value |\n|---|---|\n| a | " * "several words "^8 * "|\n| b | c |"
     n = W.Node("h", wide, :md, true)
     ls = W.nodelines(n, 40)
-    @test all(l -> W.awidth(l) == 40, ls)
+    @test all(l -> width(l) == 40, ls)
     @test count(l -> occursin("several", l), ls) > 1
-    @test startswith(W.astrip(ls[1]), "╭") && startswith(W.astrip(ls[end]), "╰")
+    @test startswith(unstyled(ls[1]), "╭") && startswith(unstyled(ls[end]), "╰")
     # A copy of a wrapped list item is the item as written, marker and all.
     n = W.Node("h", "- " * "an item long enough to be wrapped "^3, :md, true)
     W.nodelines(n, 40)
@@ -295,9 +307,9 @@ end
     # padded to the pane, rather than as a panel beside the bullet.
     W.load_theme!(THEME_DEFAULT)
     ls = W.nodelines(W.Node("h", "- item\n\n  ```\n  x = 1\n  ```", :md, true), 40)
-    code = only(filter(l -> occursin("x = 1", W.astrip(l)), ls))
-    @test startswith(W.astrip(code), "     x = 1")
-    @test occursin(faceesc(W.MD_STYLE[].codeblock)[1], code) && W.awidth(code) == 40
+    code = only(filter(l -> occursin("x = 1", unstyled(l)), ls))
+    @test startswith(unstyled(code), "     x = 1")
+    @test faceon(W.MD_STYLE[].codeblock, code) && width(code) == 40
     # A heading with a code span in it is one row; Term drew `## a `b` c` as
     # three centred lines (FedeClaudi/Term.jl#313).
     @test filter(!isempty, lines("## a `b` c")) == ["a `b` c"]

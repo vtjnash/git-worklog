@@ -12,92 +12,80 @@
 # being re-read, and a light-terminal theme wants a different green rather than
 # a different meaning.
 #
+# **A role is a face.** A StyledStrings `Face`, laid over the range of a row it
+# colours, and StyledStrings writes the row: a face ends only what it began, so
+# nothing here ends a colour, and a colour laid under a row is not cut short by
+# a colour inside it.
+#
 # **No theme named is no colour at all.** `config.toml`'s `theme` is the only
 # thing that turns colour on. An empty value, a missing key or a file that is
-# not there leaves every field `""` - including the resets, so that what is
-# printed carries no escapes whatsoever rather than escapes that cancel colours
-# nobody emitted. That is the plain-text mode, and it is reachable on purpose:
-# `theme = ""` is how you ask for one.
+# not there leaves every field the empty face, and an empty face writes
+# nothing, so what is printed carries no escapes whatsoever. That is the
+# plain-text mode, and it is reachable on purpose: `theme = ""` is how you ask
+# for one.
 #
 # **ANSI and 256.** The eight named colours, their eight bright forms, and the
 # 256-colour cube by index - which is what a terminal can be relied on to have.
-# The spec language is in `spec_parts`. Markdown is drawn in StyledStrings
-# faces, where an index past the sixteen is the RGB xterm gives it: drawn as
-# RGB on a terminal with truecolor, and as the index again without.
+# The spec language is in `spec_parts`. An index past the sixteen is the RGB
+# xterm gives it: drawn as RGB on a terminal with truecolor, and as the index
+# again without.
 
 """
     Theme
 
-The escape that begins each role, filled from the theme file by `load_theme!`.
+The face each role is drawn in, filled from the theme file by `load_theme!`. A
+field is what a colour *means* to this program - `waiting`, `blocked`,
+`diff_add` - and is named in the theme file, one word per field. `ROLES` is
+this list, derived from the struct rather than written twice.
 
-Three kinds of field, and the difference matters to whoever adds one:
-
-  * **A role.** Named in the theme file, one word per field. `ROLES` is this
-    list, derived from the struct rather than written twice.
-  * **A closer, `<role>_off`.** Filled with the escape that ends *exactly* what
-    its role began - `22` for a weight, `39` for a foreground, `49` for a
-    background - derived from the role's own spec rather than assumed, so a
-    theme that draws `dim` as a grey foreground closes it with `39` and not
-    with `22`. Only the roles that are drawn *inside* other colour need one: a
-    span that ends the row ends it with `reset`.
-  * **The structural two**, `reset` and `no_bg`, which end colour rather than
-    beginning it and so have nothing to choose. They are not the theme file's
-    business; they are empty when no theme is loaded and standard when one is.
+Nothing ends a role: a face is laid over a range, and ends where the range
+does, whatever is inside it. So there are no closers and no reset.
 """
 Base.@kwdef mutable struct Theme
-    reset::String = ""
-    no_bg::String = ""
     # Weight and quiet, which most of the screen is.
-    bold::String = ""
-    dim::String = ""
-    dim_off::String = ""
-    focus::String = ""
+    bold::Face = Face()
+    dim::Face = Face()
+    focus::Face = Face()
     # The list while the keys are on the reading side, and an unread row in it.
-    quiet::String = ""
-    quiet_off::String = ""
-    quiet_bold::String = ""
+    quiet::Face = Face()
+    quiet_bold::Face = Face()
     # The three verdicts, and a name or a place.
-    settled::String = ""
-    blocked::String = ""
-    waiting::String = ""
-    accent::String = ""
+    settled::Face = Face()
+    blocked::Face = Face()
+    waiting::Face = Face()
+    accent::Face = Face()
     # An agent that rang with nobody looking: a row of the list, and the `T`
     # of its session, drawn as a badge. Louder than `waiting`, which is a
     # state; this is somebody waiting on you now.
-    rang::String = ""
-    rang_mark::String = ""
+    rang::Face = Face()
+    rang_mark::Face = Face()
     # The diff, the one surface where the colour is the content.
-    diff_add::String = ""
-    diff_del::String = ""
+    diff_add::Face = Face()
+    diff_del::Face = Face()
     # What changed inside a changed line, drawn over the line's own colour.
-    diff_add_word::String = ""
-    diff_add_word_off::String = ""
-    diff_del_word::String = ""
-    diff_del_word_off::String = ""
-    diff_hunk::String = ""
-    diff_meta::String = ""
+    diff_add_word::Face = Face()
+    diff_del_word::Face = Face()
+    diff_hunk::Face = Face()
+    diff_meta::Face = Face()
     # Behind a header row in the diff, which is drawn to the edge of the pane
     # and so can carry one: a hunk, a hunk of a file that is new, and a review
     # comment hanging off a line.
-    diff_hunk_bg::String = ""
-    diff_file_bg::String = ""
-    diff_comment_bg::String = ""
+    diff_hunk_bg::Face = Face()
+    diff_file_bg::Face = Face()
+    diff_comment_bg::Face = Face()
     # Behind the header of each comment and review in the thread, as GitHub
     # boxes them: somebody's, and your own, which GitHub draws in blue.
-    thread_bg::String = ""
-    thread_mine_bg::String = ""
-    code_bg::String = ""
-    code_bg_off::String = ""
+    thread_bg::Face = Face()
+    thread_mine_bg::Face = Face()
+    code_bg::Face = Face()
     # Where the cursor, the selection, a search hit and the insertion point are.
-    cursor_bg::String = ""
-    select_bg::String = ""
-    match_bg::String = ""
-    caret::String = ""
-    caret_off::String = ""
+    cursor_bg::Face = Face()
+    select_bg::Face = Face()
+    match_bg::Face = Face()
+    caret::Face = Face()
     # Links.
-    link::String = ""
-    link_off::String = ""
-    url::String = ""
+    link::Face = Face()
+    url::Face = Face()
 end
 
 """The one theme the program draws in.
@@ -105,30 +93,21 @@ end
 A `const` binding to a mutable struct, and not a `Ref` of an immutable one, for
 the reason every call site is a bare field read: `THEME.dim` on a const global
 of concrete type is as cheap as the constant it replaced, and it is reloadable,
-which a `const` string was not - the theme is read at run time from the user's
+which a `const` would not be - the theme is read at run time from the user's
 file, and a constant would have baked in whatever was there when the package was
 precompiled.
 """
 const THEME = Theme()
 
 "The roles a theme file may name. Derived, so the struct is the only list."
-const ROLES = Tuple(f for f in fieldnames(Theme)
-                    if !(f in (:reset, :no_bg)) && !endswith(String(f), "_off"))
+const ROLES = fieldnames(Theme)
 
-"""The attributes, each with the code that ends it.
-
-`bold` and `dim` share `22`, which is why a closer is a set and not a list:
-`"bold dim"` must not print `22;22`.
-"""
-const ATTRS = ("bold" => (1, 22), "dim" => (2, 22), "italic" => (3, 23),
-               "underline" => (4, 24), "reverse" => (7, 27), "strike" => (9, 29))
+"The attributes a spec may name."
+const ATTRS = ("bold", "dim", "italic", "underline", "reverse", "strike")
 
 "The eight, in the order the ANSI codes put them."
 const ANSI_COLORS = ("black", "red", "green", "yellow", "blue", "magenta",
                      "cyan", "white")
-
-"One SGR escape from the codes that go in it."
-sgr(codes) = string("\e[", join(codes, ';'), "m")
 
 """`#rgb` or `#rrggbb` as the three numbers it stands for.
 
@@ -185,7 +164,7 @@ function spec_parts(spec::AbstractString)
             bright = true
             continue
         end
-        if any(a -> first(a) == word, ATTRS)
+        if word in ATTRS
             (bg || bright) &&
                 throw(ArgumentError(string("`", word, "` is an attribute, not a colour")))
             push!(parts, :attr => String(word))
@@ -213,34 +192,6 @@ function spec_parts(spec::AbstractString)
     parts
 end
 
-"""
-    parse_style(spec) -> (on, off)
-
-One theme value becomes the escape that begins it and the escape that ends it,
-for a role drawn by the escapes themselves. The spec is `spec_parts`'.
-"""
-function parse_style(spec::AbstractString)
-    on, off = Int[], Int[]
-    for (kind, v) in spec_parts(spec)
-        if kind === :attr
-            code, done = last(ATTRS[findfirst(a -> first(a) == v, ATTRS)])
-            push!(on, code)
-            push!(off, done)
-            continue
-        end
-        bg = kind === :bg
-        if v isa Int
-            push!(on, (bg ? 40 : 30) + v % 8 + (v >= 8 ? 60 : 0))
-        elseif first(v) === :x256
-            append!(on, (bg ? 48 : 38, 5, last(v)))
-        else
-            append!(on, (bg ? 48 : 38, 2, last(v)...))
-        end
-        push!(off, bg ? 49 : 39)
-    end
-    isempty(on) ? ("", "") : (sgr(on), sgr(unique(off)))
-end
-
 """The colour a 256-colour index stands for, as xterm draws it: the sixteen
 by name, so the terminal's palette still decides them, and the cube and the
 greys as RGB."""
@@ -258,9 +209,11 @@ end
 """
     parse_face(spec) -> Face
 
-One theme value as the StyledStrings `Face` markdown is drawn in. The spec is
+One theme value as the StyledStrings `Face` it is drawn in. The spec is
 `spec_parts`'; a 256-colour index is the RGB xterm gives it, which StyledStrings
-draws as that index again on a terminal without truecolor.
+draws as that index again on a terminal without truecolor, and the sixteen are
+names, so the terminal's own palette still decides them. `dim` is the light
+weight, which a terminal draws as dim.
 """
 function parse_face(spec::AbstractString)
     kw = Dict{Symbol,Any}()
@@ -278,24 +231,6 @@ function parse_face(spec::AbstractString)
         kw[kind === :bg ? :background : :foreground] = c
     end
     Face(; kw...)
-end
-
-"""Re-arm `on` after everything in `after` that would have ended it.
-
-A row carries colours of its own, and the escape that ends one of them - a
-reset, or a background going back to the default - ends the background laid over
-the top of it as well. So a highlight applied naively stops at the first styled
-word on the line, and the cure is to put it back after each of them. `hlrow`
-does this to a whole row, which is why it lives here with the escapes.
-
-Answers with `s` untouched when there is nothing to re-arm, which is also what
-keeps it safe with no theme loaded: `replace(s, "" => "")` inserts at every
-position rather than doing nothing.
-"""
-function rearm(s::AbstractString, on::AbstractString,
-               after = (THEME.reset,))
-    (isempty(on) || all(isempty, after)) && return String(s)
-    replace(s, (x => x * on for x in after if !isempty(x))...)
 end
 
 # --- markdown and code ------------------------------------------------------
@@ -416,24 +351,23 @@ function apply_code!(faces::Dict{Symbol,Face}, tbl::AbstractDict{String},
     probs
 end
 
-"""Hand the widget packages the weights they draw their boxes in.
+"""Hand the widget packages the faces they draw their boxes in.
 
 `TermInput.CHROME` is their one hook for it, and `TermIFrame` reads the same
 one - the box a hosted program is drawn in and the box a composer is drawn in
-are the same box as far as a theme is concerned. Four roles cover it: a title
-and a focused border are `bold`, everything else about a border is `dim`, the
-option under a picker's cursor is `focus`, and the reset is the reset - and
-the box is `[markdown]`'s `box`. With no theme all four are empty, and the boxes come
-out as bare characters, which is the whole of what "drawing plain" means for
-something that is drawn in line-art.
+are the same box as far as a theme is concerned. Three roles cover it: a title
+and a focused border are `bold`, everything else about a border is `dim`, and
+the option under a picker's cursor is `focus` - and the box is `[markdown]`'s
+`box`. With no theme all three are empty, and the boxes come out as bare
+characters, which is the whole of what "drawing plain" means for something that
+is drawn in line-art.
 
 Not their business and not set from here: the block that marks the cursor in a
 composer. `TermInput` keeps that as reverse video whatever a theme says,
 because it is the only thing on screen saying where typing will go.
 """
 chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
-                                   focus = THEME.focus, reset = THEME.reset,
-                                   box = BOX[]); nothing)
+                                   focus = THEME.focus, box = BOX[]); nothing)
 
 """Which file the colours come from, or `""` for none.
 
@@ -499,27 +433,23 @@ function load_theme!(path::AbstractString = themefile())
     LOADED_THEME[] = String(path)
     probs = String[]
     for f in fieldnames(Theme)
-        setfield!(THEME, f, "")
+        setfield!(THEME, f, Face())
     end
     BOX[] = TermInput.BOXES.ROUNDED
     fields = Dict{Symbol,Any}()
     faces = Dict{Symbol,Face}()
-    roles = Dict{Symbol,Face}()
-    read_theme!(probs, fields, faces, path, roles)
+    read_theme!(probs, fields, faces, path)
     # A code span is two of the roles; everything else in markdown is the
     # `[markdown]` table's.
-    MD_STYLE[] = TermInput.MarkdownStyle(; code = get(roles, :code_bg, Face()),
-                                         code_tick = get(roles, :dim, Face()),
+    MD_STYLE[] = TermInput.MarkdownStyle(; code = THEME.code_bg, code_tick = THEME.dim,
                                          fields..., faces)
     chrome!()
     probs
 end
 
-"""The file itself, into `THEME`, the two tables, and `roles` - each role as a
-face too, for the ones markdown is drawn in; see `load_theme!`."""
+"""The file itself, into `THEME` and the two tables; see `load_theme!`."""
 function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
-                     faces::Dict{Symbol,Face}, path::AbstractString,
-                     roles::Dict{Symbol,Face} = Dict{Symbol,Face}())
+                     faces::Dict{Symbol,Face}, path::AbstractString)
     isempty(path) && return probs
     if !isfile(path)
         push!(probs, string("no theme file at ", path, " - drawing without colour"))
@@ -531,11 +461,6 @@ function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
         push!(probs, string(basename(path), ": ", first(sprint(showerror, e), 200)))
         return probs
     end
-    # Only now, with a file that parsed: these are what make the colours above
-    # end, and they belong to a theme being loaded at all rather than to any
-    # role in it.
-    THEME.reset = "\e[0m"
-    THEME.no_bg = "\e[49m"
     for (key, value) in tbl
         role = Symbol(key)
         if role === :markdown || role === :code
@@ -553,12 +478,7 @@ function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
             push!(probs, string(basename(path), ": `", key, "` wants a string"))
         else
             try
-                on, off = parse_style(value)
-                setfield!(THEME, role, on)
-                # The closer, for the roles that have somewhere to put one.
-                closer = Symbol(role, "_off")
-                hasfield(Theme, closer) && setfield!(THEME, closer, off)
-                roles[role] = parse_face(value)
+                setfield!(THEME, role, parse_face(value))
             catch e
                 push!(probs, string(basename(path), ": `", key, " = \"", value, "\"` ",
                                     e isa ArgumentError ? e.msg :
@@ -568,3 +488,33 @@ function read_theme!(probs::Vector{String}, fields::Dict{Symbol,Any},
     end
     probs
 end
+
+# --- rows of faces ------------------------------------------------------------
+#
+# What everything here draws is a row of faces - `TermInput`'s `Row`, called
+# `Styled` in this program - and what little it does to one that `TermInput`
+# does not is here: a link over part of a row, and a tab drawn as its columns
+# under the faces the tab was in.
+
+"An annotation, as this Julia's `AnnotatedString` holds one."
+const Ann = @NamedTuple{region::UnitRange{Int}, label::Symbol, value::Any}
+
+"The annotations of `s`."
+anns(s::AbstractString) = s isa Base.AnnotatedString ?
+    Ann[Ann((a.region, a.label, a.value)) for a in Base.annotations(s)] : Ann[]
+
+"""`s` with bytes `r` of it a hyperlink to `url`, in `link` - the face every
+link is drawn in, over whatever the text had there."""
+function linkrange(s::AbstractString, r::UnitRange{Int}, url::AbstractString)
+    x = row(s)
+    (isempty(r) || isempty(url)) && return x
+    extra = Ann[Ann((r, :link, String(url)))]
+    THEME.link == Face() || pushfirst!(extra, Ann((r, :face, THEME.link)))
+    Styled(x.string, vcat(anns(x), extra))
+end
+
+"""The byte range of `s` a match covers, for `linkrange`."""
+matchbytes(s::AbstractString, m::RegexMatch) = m.offset:(m.offset + ncodeunits(m.match) - 1)
+
+"""Is byte `i` of `s` inside a hyperlink already?"""
+inlink(s::AbstractString, i::Int) = any(a -> a.label === :link && i in a.region, anns(s))

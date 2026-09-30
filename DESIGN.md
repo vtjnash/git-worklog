@@ -499,16 +499,31 @@ redoes what `z` undid and so can reach no further than `z` can.
 child process. `q` in a composer comes back to the message, because `q`
 elsewhere ends the program.
 
-**A colour is a role, never an escape.** Every SGR sequence comes from a
-field of `THEME`; a call site names what the colour means. A table of colours
-built at top level captures the theme before it is read, so `rev_mark`,
-`ci_color`, `range_mark` are functions. A role drawn inside another colour
-needs its `<role>_off` closer, or it ends the background it was drawn on.
+**A colour is a role, never an escape.** Every colour is a field of `THEME`,
+a StyledStrings `Face`; a call site names what the colour means, and lays it
+over the range of a row it covers (`faced`). A table of colours built at top
+level captures the theme before it is read, so `rev_mark`, `ci_color`,
+`range_mark` are functions. Nothing ends a role: a face ends where its range
+does, so a colour inside another cannot end the one under it, and a highlight
+is a face laid under a row (`hlrow`) or over a range of it (`hlspan`).
 Adding a role is a field in `Theme` and a line in every theme file; the suite
 asserts both directions. How markdown is drawn - `[markdown]` and `[code]` -
 is set from the same file, into `MD_STYLE`, and so are the box and weights the
-widget packages draw in (`CHROME`); with no theme all of it is empty, and a
-comment body carries no escapes either.
+widget packages draw in (`CHROME`); with no theme all of it is empty, and an
+empty face writes nothing, so no row carries an escape.
+
+**A row is faces over text** (2026-09-30): `Styled`, `TermInput`'s `Row`, an
+annotated string, and every row this program draws is one - measured by its
+text (`rowwidth`), cut and wrapped by `TermInput`'s `rowfit`, `rowpad`,
+`rowwrap`, which keep the faces over what they keep, and written by
+StyledStrings at the frame. A link is an annotation too (`linkrange`), so no
+text match can land inside one. What is not faces is a hosted pane's row:
+its child's escapes as tmux gave them, carried as a verbatim piece of the
+box's row, never parsed, measured or cut (`TermIFrame`). A theme decides
+colour and the stream does not, so whatever prints a row outside the frame
+asks for colour itself (`show_md`'s `IOContext(stdout, :color => true)`).
+Build rows with `*`, never `string`: `string` of a row keeps its text and
+drops its faces, without a word.
 
 **A row index is only meaningful against the width it was measured at.**
 Beside a hosted pane or a composer the detail is half the screen; `detail_pane`
@@ -666,7 +681,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
-| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box and `BOXES`, `CHROME`, `suspend`, the escape-aware measuring (`awidth`/`afit`/`apad`/`awrap`), and `markdown_rows`, which draws every comment body |
+| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box and `BOXES`, `CHROME`, `suspend`, rows of faces and their measuring (`rowwidth`/`rowfit`/`rowpad`/`rowwrap`, `verbatim`), the frame writer, and `markdown_rows`, which draws every comment body |
 | `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client and the command pipe over it, `bordered`, the iframe. Depends on `TermInput` for measuring, never the other way |
 | `cli/precompile/` | `WorklogPrecompile`: `Worklog` plus a `@compile_workload` of the browser's path. `bin/wl` loads it; the suite never does |
 
@@ -744,8 +759,11 @@ No TTY, so the UI is tested by construction:
 - `render(view, w, h)` is pure; `handle!(view, key, ctrl, at)` returns an
   action; `readevent(io)` is a pure function of a byte stream, driven from an
   `IOBuffer`; `onmouse!` takes screen coordinates after a render, since the
-  map goes through `layout` (or `beside_layout`) and `st.hdr`. Strip SGR and
-  OSC 8 before measuring.
+  map goes through `layout` (or `beside_layout`) and `st.hdr`. `render`
+  answers rows of faces; the suite's `frame` writes them as the terminal is
+  sent them, and asks what face is where of a row itself (`faces`,
+  `faceon`), since the escapes StyledStrings writes for one depend on the one
+  before it and on the terminal.
 - **Every path the program writes through is redirected at the top of the
   run** - `LOCAL`, `FETCHED`, `CACHE_DIR` - and the rule is that all of them
   go, not that each leak is fixed as found. A testset that repoints `LOCAL`
@@ -1153,7 +1171,7 @@ Each of the following returns success and the wrong answer:
   colour to judge, and 997 says it outright. A pane's input is raw, so
   `readraw` takes the report out of it before the child sees it. The theme
   is `config.toml`'s or its pair by name, and the browser's nodes, which
-  hold the old escapes, are rebuilt from the cache in place.
+  hold the old faces, are rebuilt from the cache in place.
 - **The terminal's background is asked for the panes, and tmux answers
   them.** `OSC 11 ?` goes with `CSI ? 996 n`, and again when a 997 report
   flips; the answer is `SchemeEvent`'s `bg`, whenever it arrives, and
@@ -1217,9 +1235,10 @@ Each of the following returns success and the wrong answer:
   where `\e[K` took the right border off every row (2026-09-21). Setting the
   scroll region homes the cursor, pending or not.
 - **A hyperlink is not somewhere to write another one.** `linkify` runs on
-  the finished frame; a url inside a comment header's OSC 8 payload
-  terminated it early and the row came out 224 columns wide. It cuts the
-  frame on OSC sequences and substitutes only between them.
+  the finished rows; when links were escapes, a url inside a comment
+  header's OSC 8 payload terminated it early and the row came out 224
+  columns wide. A link is an annotation now, and a match already inside one
+  - or inside a pane's verbatim row - is left alone.
 - **Inside a changed line, the words that changed are marked**, as GitHub
   marks them: a run of `-` lines followed by as many `+` lines is paired
   line for line, and an unequal pair of runs by likeness, each `-` line to
@@ -1233,8 +1252,8 @@ Each of the following returns success and the wrong answer:
   clearest edit there is, and `(`, `=` in common are not likeness - and
   under a half is a rewrite that marks nothing, which is also how a `-`
   line with no line like it is left alone in an unequal run. The
-  roles are backgrounds where the palette has them, closed by `49` alone so
-  the cursor row's background is re-armed over them like any other.
+  roles are backgrounds where the palette has them, laid over the line's
+  colour, and the cursor row's background goes under both.
 - **A diff is somebody else's bytes, printed.** An escape in one is a
   command to the terminal the frame is drawn on, and `gh pr diff` refuses
   to pipe one at all ("pass --allow-escape-sequences"), which was a row of

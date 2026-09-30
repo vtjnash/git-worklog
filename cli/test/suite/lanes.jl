@@ -127,7 +127,7 @@
         # sorts by what GitHub last said about it all the same.
         @test W.sortkey(b, st.touched, :moved) == b.act
         @test W.sortkey(b, st.touched, :moved) != "2026-09-02T12:00:00Z"
-        @test occursin("w sort", W.astrip(W.render(st, 200, 40)))
+        @test occursin("w sort", unstyled(frame(st, 200, 40)))
 
         # The later of the two clocks, which is what anything happening to an
         # item sorts by - your own work folded in - and the order your work
@@ -190,13 +190,13 @@
         # Both are tags in the filter pane, with their counts.
         st.lmode = :filters
         rows = W.filter_rows(st)
-        txt = W.astrip(join([string(r[3]) for r in rows], "\n"))
+        txt = unstyled(join([string(r[3]) for r in rows], "\n"))
         @test occursin("touched", txt) && occursin("waiting on an answer", txt)
         @test W.axis_counts(st).tags[:touched] == 3
 
         for (w, h) in ((80, 24), (200, 50))
-            ls = split(W.render(st, w, h), "\n")
-            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            ls = split(frame(st, w, h), "\n")
+            @test length(ls) == h && all(width(l) == w for l in ls)
         end
     finally
         W.LOCAL[] = keept
@@ -387,7 +387,7 @@ end
     done = W.Item(url = "https://example.invalid/x/y/pull/1", ref = "y#1", repo = "x/y",
                   number = 1, title = "t", state = "MERGED", lane = "nowhere",
                   moved_by = "state_at")
-    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 52)
+    says(it) = unstyled(join([l for l in W.meta_lines(st, it, 52)
                               if occursin("state", l) || occursin("why", l)], " "))
     @test occursin("unread: new", says(done)) && occursin("state     merged", says(done))
     @test !occursin("archives", says(done))

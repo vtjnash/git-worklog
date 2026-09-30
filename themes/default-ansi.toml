@@ -23,10 +23,9 @@
 # without turning the file off. A role this file does not name is empty too, so
 # a theme can be a handful of lines.
 #
-# There is no entry for the resets. They end a colour rather than beginning one,
-# so there is nothing to choose: the escape that closes a role is worked out
-# from the role's own value, which is why a `dim` drawn as a grey foreground
-# closes correctly and a `dim` drawn as `dim` does too.
+# There is no entry for a reset. A role is a face laid over what it colours, and
+# it ends where that does, whatever is drawn inside it - so there is nothing to
+# close, and a `dim` inside a background does not end the background.
 
 # --- weight and quiet --------------------------------------------------------
 # Most of the screen is one of these three. `bold` is the thing being read and

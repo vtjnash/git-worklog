@@ -738,11 +738,14 @@ function show_md(raw)
     isempty(txt) && return
     w = max(40, min(displaysize(stdout)[2] - 4, 100))
     body, urls = delink(txt)
+    # The theme decides colour, not the stream: a theme still colours `wl`
+    # piped into `less -R`, and `theme = ""` writes no faces to write.
+    io = IOContext(stdout, :color => true)
     for r in render_md(body, w)
-        println("  ", rstrip(r.text, ' '))
+        println(io, "  ", rstrip(r.text, ' '))
     end
     for (i, u) in enumerate(urls)
-        println("  ", THEME.dim, "[", i, "]", THEME.reset, " ", osc8(u, u))
+        println(io, "  ", faced(string("[", i, "]"), THEME.dim), " ", osc8(u, u))
     end
 end
 

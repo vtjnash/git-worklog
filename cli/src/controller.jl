@@ -16,7 +16,7 @@
 A screen. `render` and `handle!` are required; everything else has a default,
 and each is explained where it is defined.
 
-    render(v, w, h) -> String          the whole frame, no trailing newline
+    render(v, w, h) -> Vector{Styled}  the whole frame, `h` rows of faces
     handle!(v, key, ctrl) -> Symbol    :ok | :pop | :quit
     onmouse!(v, ev, ctrl) -> Symbol    the same, for a MouseEvent
     onwake!(v, ctrl) -> Bool           adopt background results; true to redraw
@@ -219,8 +219,8 @@ end
 wake!(::Nothing) = false
 
 """A view whose frame holds colours it worked out before now - rendered rows,
-headers built with the theme's escapes in them - drops them, because the theme
-just changed. Most views draw from `THEME` on every frame and need nothing."""
+headers built in the theme's faces - drops them, because the theme just
+changed. Most views draw from `THEME` on every frame and need nothing."""
 retheme!(::View) = nothing
 
 """Draw with the theme for a terminal whose colours are `dark` or light.
@@ -476,13 +476,12 @@ function safe_render(v::View, w::Int, h::Int)
         render(v, w, h)
     catch e
         line = logerror!(e, catch_backtrace(), "render")
-        rows = vcat([string(THEME.blocked, "this view could not be drawn",
-                            THEME.reset)], awrap(line, w),
-                    [""], awrap(standing_note(), w))
+        rows = vcat(Styled[faced("this view could not be drawn", THEME.blocked)],
+                    rowwrap(line, w), Styled[row("")], rowwrap(standing_note(), w))
         while length(rows) < h
-            push!(rows, "")
+            push!(rows, row(""))
         end
-        join([apad(r, w) for r in rows[1:h]], "\n")
+        Styled[rowpad(r, w) for r in rows[1:h]]
     end
 end
 
@@ -795,7 +794,7 @@ being a `View` the stack can hold - which is also what escape means, closing it.
 """
 mutable struct ChooseView <: View
     c::Choice
-    options::Vector{Tuple{String,Any}}    # (what is shown, what is returned)
+    options::Vector{Tuple{Styled,Any}}    # (what is shown, what is returned)
     onpick::Any                           # (value) -> Nothing; not called on cancel
     ChooseView(c::Choice, options, onpick) = new(c, options, onpick)
 end
@@ -805,7 +804,7 @@ ChooseView(title, note, options, onpick; numbered::Bool = false) =
     ChooseView(Choice(title, note, [o[1] for o in options]; numbered,
                       hint = string(numbered ? "0-9 picks · " : "", CHOICE_HINT,
                                     " · ↵ pick · esc cancel")),
-               Tuple{String,Any}[(String(o[1]), o[2]) for o in options], onpick)
+               Tuple{Styled,Any}[(row(o[1]), o[2]) for o in options], onpick)
 
 # The title, the note, the cursor and the rest are the widget's, read through
 # the view as `PromptView`'s are.

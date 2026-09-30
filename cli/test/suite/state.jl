@@ -179,7 +179,7 @@
     # The footer counts what is pending.
     st = mkstate()
     push!(st.undos, W.Undo("x", () -> nothing))
-    @test occursin("z undo(1)", W.astrip(W.render(st, 165, 40)))
+    @test occursin("z undo(1)", unstyled(frame(st, 165, 40)))
 end
 
 @testset "a write lands whole, or not at all" begin
@@ -288,7 +288,7 @@ end
     st = mkstate()
     it = st.items[st.sel]
     lines = W.meta_lines(st, it, 44)
-    plain = W.astrip(join(lines, "\n"))
+    plain = unstyled(join(lines, "\n"))
     # Everything cheap comes from facts.json and is there before any fetch.
     # The written-down block is headed by the file it is in, and the level is
     # named by the command's word; `;` is how it changes, so no command is named.
@@ -316,19 +316,19 @@ end
     # tomorrow's answer for the same row.
     if !isempty(it.created)
         at = W.ts(it.created) + W.Day(3) + W.Hour(1)
-        later = W.astrip(join(W.meta_lines(st, it, 44, at), "\n"))
+        later = unstyled(join(W.meta_lines(st, it, 44, at), "\n"))
         @test occursin(string(W.when_str(it.created), "  3d ago"), later)
-        @test occursin("10d ago", W.astrip(join(W.meta_lines(st, it, 44, at + W.Day(7)), "\n")))
+        @test occursin("10d ago", unstyled(join(W.meta_lines(st, it, 44, at + W.Day(7)), "\n")))
     end
     # A row with no timestamps - an unread thread the poll found, an adopted
     # branch - prints neither, rather than an empty pair of rows.
     bare = W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
                   title = "an adopted branch")
-    @test !occursin("created", W.astrip(join(W.meta_lines(st, bare, 44), "\n")))
+    @test !occursin("created", unstyled(join(W.meta_lines(st, bare, 44), "\n")))
     # Per-person review state needs a request; until it lands, it says so.
     @test st.meta === nothing
     it.is_pr && @test occursin("reviews", plain)
-    @test all(W.awidth(l) <= 44 for l in lines)
+    @test all(width(l) <= 44 for l in lines)
 
     # It sits under the list, and the detail keeps the full height.
     L = W.layout(160, 50, length(lines))
@@ -353,7 +353,7 @@ end
     # string: the wake and the filing are placed against `at` like every
     # other date on the pane.
     now = W.ts("2026-09-16T12:00:00Z")
-    says(key) = W.astrip(join([l for l in W.meta_lines(st, it, 60, now)
+    says(key) = unstyled(join([l for l in W.meta_lines(st, it, 60, now)
                                if occursin(key, l)], " "))
     keep = W.LOCAL[]; W.LOCAL[] = fresh_local()
     before = read(W.localfile(), String)

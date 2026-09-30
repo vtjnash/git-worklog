@@ -20,9 +20,9 @@ composer(v) = v isa W.SideView ? v.inner : v
     st.batch = W.mkbatch(it.url, it.ref, "PRR_x", 3)
     # It is visible while it accumulates, in both places that say what is going
     # on: the footer count and the metadata pane.
-    @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))
+    @test occursin("A review(3)", unstyled(frame(st, 160, 50)))
     @test any(l -> occursin("draft", l) && occursin("3 comments", l),
-              W.astrip.(W.meta_lines(st, it, 50)))
+              unstyled.(W.meta_lines(st, it, 50)))
     # And it belongs to one item, not to the browser.
     @test W.batch_of(st, it) !== nothing
     other = first(x for x in st.items if x.url != it.url)
@@ -51,7 +51,7 @@ composer(v) = v isa W.SideView ? v.inner : v
     pop!(ctrl.stack)
     @test st.batch !== nothing && st.batch.asked
     st.status = ""                       # the status row is the keys row's own
-    @test occursin("A review(3)", W.astrip(W.render(st, 160, 50)))   # still shown
+    @test occursin("A review(3)", unstyled(frame(st, 160, 50)))   # still shown
 
     # `Esc` takes the move back. The question exists because the cursor walked
     # off the item, so the key that means "no" has to be able to undo the thing
@@ -165,7 +165,7 @@ end
     # The reviews are in; the merge is still out, and says so.
     @test W.collect_meta!(st)
     @test st.meta !== nothing && st.merge === nothing && st.mergepending !== nothing
-    says() = W.astrip(join([l for l in W.meta_lines(st, W.Item(; url = it.url, ref = it.ref,
+    says() = unstyled(join([l for l in W.meta_lines(st, W.Item(; url = it.url, ref = it.ref,
                                 repo = it.repo, number = it.number, title = it.title,
                                 is_pr = true, state = "OPEN"), 60)
                             if occursin("mergeable", l)], " "))
@@ -178,7 +178,7 @@ end
     # With the CI beside it, the one thing the row repeats from the checks.
     ci = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
                 title = it.title, is_pr = true, state = "OPEN", ci = "FAILURE")
-    @test W.astrip(join([l for l in W.meta_lines(st, ci, 60) if occursin("mergeable", l)], " ")) ==
+    @test unstyled(join([l for l in W.meta_lines(st, ci, 60) if occursin("mergeable", l)], " ")) ==
           "mergeable behind master  CI failed"
     @test W.ci_word("SUCCESS") == "CI passed" && W.ci_word("PENDING") == "CI pending" &&
           W.ci_word("ERROR") == "CI failed" && W.ci_word("") == ""
@@ -192,7 +192,7 @@ end
     got = Ref("")
     v = W.EditorView("Comment on a.jl:10-12", "against abc1234", t -> got[] = t;
                      suggest = "```suggestion\nctx\nadded\n```")
-    @test occursin("^r suggestion", W.astrip(W.render(v, 90, 16)))
+    @test occursin("^r suggestion", unstyled(frame(v, 90, 16)))
     W.handle!(v, 18, ctrl)                                  # ^r
     # An empty composer takes the block whole, with a line under it to say why.
     @test W.text(v) == "```suggestion\nctx\nadded\n```\n"
@@ -209,7 +209,7 @@ end
 
     # Nowhere to put one is said rather than silently doing nothing.
     v2 = W.EditorView("Comment on julia#1", "the item itself", identity)
-    @test !occursin("^r", W.astrip(W.render(v2, 90, 16)))
+    @test !occursin("^r", unstyled(frame(v2, 90, 16)))
     W.handle!(v2, 18, ctrl)
     @test occursin("nothing to suggest", v2.status) && isempty(W.text(v2))
 end
@@ -582,7 +582,7 @@ end
     @test occursin("3 commits into master", ev.note)
     @test occursin("clean", ev.note)
     @test occursin("^x: create a merge commit", ev.note)
-    @test occursin("^x cycles", W.astrip(W.render(ev, 90, 20)))
+    @test occursin("^x cycles", unstyled(frame(ev, 90, 20)))
 
     # `tab` is the choice. Silently, because the message in the buffer is still
     # the one this program put there a keystroke ago.
@@ -648,7 +648,7 @@ end
     @test occursin("no message to write", rv.note)
     # One way to merge is no choice, so `tab` is not bound at all.
     @test rv.cycle === nothing
-    @test !occursin("^x cycles", W.astrip(W.render(rv, 90, 20)))
+    @test !occursin("^x cycles", unstyled(frame(rv, 90, 20)))
     @test !occursin("^x:", rv.note)
     # Onto and not into, in the composer and in the question alike: a rebase is
     # the one operation that makes no commit on the base branch.

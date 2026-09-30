@@ -21,8 +21,8 @@
     # The frame is padded to the screen even when the panes stop short of it.
     st = mkstate()
     for w in (110, 165, 200, 300)
-        ls = split(W.render(st, w, 20), "\n")
-        @test all(W.awidth(l) == w for l in ls)
+        ls = split(frame(st, w, 20), "\n")
+        @test all(width(l) == w for l in ls)
     end
 
     # Nothing is split below the threshold: two columns too narrow to use are
@@ -58,9 +58,9 @@
             W.pane_sync!(v, ctrl)
             # The child is sized to its own column, not to the screen.
             @test v.child.sized == W.iframe_box(last(W.split_box(200)), 24)
-            ls = split(W.render(v, 200, 24), "\n")
-            @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
-            @test occursin("MARKER", join(ls, "\n"))
+            ls = W.render(v, 200, 24)
+            @test length(ls) == 24 && all(width(l) == 200 for l in ls)
+            @test occursin("MARKER", String(join(ls, "\n")))
             # The detail pane is what sits beside it, at full height, so its
             # title is on the first row rather than a list's.
             @test occursin(String(st.mode), first(ls))
@@ -70,15 +70,15 @@
         withenv("LINES" => "24", "COLUMNS" => "100") do
             W.pane_sync!(v, ctrl)
             @test v.child.sized == W.iframe_box(100, 24)
-            ls = split(W.render(v, 100, 24), "\n")
-            @test length(ls) == 24 && all(W.awidth(l) == 100 for l in ls)
+            ls = W.render(v, 100, 24)
+            @test length(ls) == 24 && all(width(l) == 100 for l in ls)
         end
 
         # With no browser under it a pane still renders, undivided.
         alone = W.pane_view(n, "child", ctrl; beside = nothing)
         withenv("LINES" => "24", "COLUMNS" => "200") do
-            ls = split(W.render(alone, 200, 24), "\n")
-            @test length(ls) == 24 && all(W.awidth(l) == 200 for l in ls)
+            ls = W.render(alone, 200, 24)
+            @test length(ls) == 24 && all(width(l) == 200 for l in ls)
         end
         W.iframe_close!(alone.child); W.iframe_close!(v.child); W.mux_kill(n)
     end
@@ -103,8 +103,8 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     # A view that cannot draw itself says so where the frame would have been,
     # in exactly the shape every other frame has.
     for (w, h) in ((80, 24), (120, 40))
-        ls = split(W.safe_render(v, w, h), "\n")
-        @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        ls = W.safe_render(v, w, h)
+        @test length(ls) == h && all(width(l) == w for l in ls)
         @test occursin("could not be drawn", join(ls, "\n"))
     end
 
@@ -119,7 +119,7 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     @test occursin("delete it to clear", W.errnote())
     # The warning has to survive being fitted to the footer, or it says that
     # something is wrong without saying what to do.
-    @test W.awidth(W.errnote()) < 80
+    @test width(W.errnote()) < 80
     @test occursin("render exploded", read(W.errlog(), String))
     @test occursin("handle exploded", read(W.errlog(), String))
 
@@ -132,11 +132,11 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     # It is what the footer shows, ahead of the status.
     st = W.BState(W.loaditems(), "worklog")
     st.status = "something ordinary"
-    @test occursin("delete it to clear", W.render(st, 120, 40))
+    @test occursin("delete it to clear", frame(st, 120, 40))
 
     rm(W.errlog())
     @test W.errnote() == ""
-    @test !occursin("delete it to clear", W.render(st, 120, 40))
+    @test !occursin("delete it to clear", frame(st, 120, 40))
 
     # Input ending is the terminal going away, and says nothing; a read that
     # failed otherwise ends the run too, and is logged for the next launch.
@@ -154,7 +154,7 @@ W.onraw!(v::ExplodingView, b::Vector{UInt8}, ctrl) = (v.handles += 1; error("raw
     push!(W.THEME_NOTES, "no such colour 'blurple' for role blocked")
     try
         @test W.standing_note() == "theme: no such colour 'blurple' for role blocked"
-        @test occursin("blurple", W.render(st, 120, 40))
+        @test occursin("blurple", frame(st, 120, 40))
         W.logerror!(ErrorException("x"), backtrace(), "test")
         @test occursin("delete it to clear", W.standing_note())
         rm(W.errlog())
@@ -207,7 +207,7 @@ end
         W.mux_start(n, pwd(), "sleep 60")
         st.sessions = W.session_list()
         @test any(r -> r.name == n, st.sessions)
-        @test W.meta_lines(st, st.items[1], 40) isa Vector{String}
+        @test W.meta_lines(st, st.items[1], 40) isa Vector{W.Styled}
         W.mux_kill(n)
     end
 end
@@ -259,7 +259,7 @@ end
     # Nested, it keeps every cell, and is drawn at its indent.
     nested = md("- point\n\n  | aaa | bbb |\n  |---|---|\n  | 111 | 222 |\n", 60)
     @test all(occursin(x, nested) for x in ("aaa", "bbb", "111", "222"))
-    @test occursin("\n  │ aaa │ bbb │", W.astrip(nested))
+    @test occursin("\n  │ aaa │ bbb │", unstyled(nested))
 
     # A code span in a table's *header* is the third shape, and the quiet one:
     # Term drew a span there as a code *block* - a panel three lines tall and
@@ -269,8 +269,8 @@ end
     spans = split(rstrip(md("| a | `f(::T)` | c |\n|---|---|---|\n| 1 | 2 | 3 |\n", 60)), '\n')
     @test length(plain) == 5              # border, header, rule, row, border
     @test length(spans) == length(plain)  # and the span did not grow the header
-    @test occursin("f(::T)", W.astrip(spans[2]))
-    @test all(W.awidth(l) <= 60 for l in spans)
+    @test occursin("f(::T)", unstyled(spans[2]))
+    @test all(width(l) <= 60 for l in spans)
 
     # An empty list item is the other shape that took a whole comment down:
     # Julia parses `- a`/`-`/`- b` into items of length [1, 0, 1], and Term
@@ -286,7 +286,7 @@ end
     @test !isfile(W.errlog())
     # Drawn rather than dropped: the bullet was typed, so it is drawn, and an
     # ordered list is not renumbered behind the user's back.
-    out = W.astrip(md("1. one\n2.\n3. three\n", 60))
+    out = unstyled(md("1. one\n2.\n3. three\n", 60))
     @test occursin("one", out) && occursin("three", out)
     @test occursin(r"1\.\s+one", out) && occursin(r"2\.", out) && occursin(r"3\.\s+three", out)
 end
@@ -366,9 +366,9 @@ end
     end
     mk(branch) = W.WorktreeRow("o/r", "/tmp/wt", "wt", branch, false, false, 0, 0,
                                "2026-09-01", false, false, nothing, W.SessionRow[])
-    @test W.astrip(W.wt_line(mk(a), 100)) != W.astrip(W.wt_line(mk(b), 100))
+    @test unstyled(W.wt_line(mk(a), 100)) != unstyled(W.wt_line(mk(b), 100))
     br(name) = W.BranchRow("o/r", name, "2026-09-01", 0, 0, false, "", "", nothing)
-    @test W.astrip(W.br_line(br(a), 100)) != W.astrip(W.br_line(br(b), 100))
+    @test unstyled(W.br_line(br(a), 100)) != unstyled(W.br_line(br(b), 100))
     # And `shortlink` is the same idiom over the same code.
     @test W.shortlink("x", 58) == "x"
     u = "https://x.invalid/" * "a"^80
@@ -391,8 +391,8 @@ end
                    "a\nb\nc\nd")
         st.status = status
         for (w, h) in ((120, 40), (80, 24))
-            ls = split(W.render(st, w, h), "\n")
-            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            ls = split(frame(st, w, h), "\n")
+            @test length(ls) == h && all(width(l) == w for l in ls)
         end
     end
     st.status = ""

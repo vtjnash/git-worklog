@@ -55,11 +55,11 @@ end
     @test st.all[findfirst(x -> x.url == it.url, st.all)].labels == n.labels
     # The pane that shows labels shows it, and the axis that filters by them
     # can offer it.
-    @test occursin(l, W.astrip(join(W.meta_lines(st, n, 50), "\n")))
+    @test occursin(l, unstyled(join(W.meta_lines(st, n, 50), "\n")))
     @test l in st.labels
     # Taking it off again is the same move.
     @test W.replace_item!(st, W.withlabels(n, it.labels))
-    @test !occursin(l, W.astrip(join(W.meta_lines(st, it, 50), "\n")))
+    @test !occursin(l, unstyled(join(W.meta_lines(st, it, 50), "\n")))
     # And nothing is put back that was never here.
     @test !W.replace_item!(st, W.withlabels(
         W.Item(url = "nope", ref = "n#1", repo = "a/b", number = 1, title = "t"), [l]))
@@ -109,7 +109,7 @@ end
         # it out of st.items, and out of every filter, sort and count.
         r = mkstate()
         @test r.sel == 1                            # a list with work opens on work
-        drawn() = W.astrip(W.render(r, 160, 40))
+        drawn() = unstyled(frame(r, 160, 40))
         @test occursin("import an item by url", drawn())
         W.handle!(r, Int('k'), ctrl)
         @test r.sel == 0
@@ -495,7 +495,7 @@ end
         @test W.meta_waiting(st, it)
         pr = W.Item(; url = it.url, ref = it.ref, repo = it.repo, number = it.number,
                       title = it.title, is_pr = true, state = "OPEN")
-        said = W.astrip(join(W.meta_lines(st, pr, 60), "\n"))
+        said = unstyled(join(W.meta_lines(st, pr, 60), "\n"))
         @test occursin("loading", said) && !occursin("—", said)
         # Past the dwell, both start. `sleep` rather than a clock passed in,
         # because `load_nodes!` reads the clock itself: the debounce is measured
@@ -658,7 +658,7 @@ end
 @testset "the branch is on the pane, in the form git takes" begin
     st = mkstate()
     row(l) = something(findfirst(x -> startswith(x, "branch"), l), 0)
-    says(it) = (ls = W.astrip.(W.meta_lines(st, it, 60)); i = row(ls); i == 0 ? "" : ls[i])
+    says(it) = (ls = unstyled.(W.meta_lines(st, it, 60)); i = row(ls); i == 0 ? "" : ls[i])
     pr = W.Item(url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b", number = 1,
                 title = "t", is_pr = true, branch = "jn/fix", base = "master")
     # The lanes' half alone: the branch and where it is going.
@@ -681,8 +681,8 @@ end
     v1 = W.Item(url = pr.url, ref = "a#1", repo = "a/b", number = 1, title = "t",
                 is_pr = true, branch = "jn/fix", base = "v1.x")
     @test says(v1) == "branch    jn/fix → v1.x  not master"
-    raw = W.meta_lines(st, v1, 60)[row(W.astrip.(W.meta_lines(st, v1, 60)))]
-    @test occursin(string(W.THEME.waiting, "v1.x"), raw)
+    raw = W.meta_lines(st, v1, 60)[row(unstyled.(W.meta_lines(st, v1, 60)))]
+    @test ("v1.x" => W.THEME.waiting) in faces(raw)
     # Unknown - a cache entry from before the field, or no base repo - says
     # nothing rather than marking every base.
     st.meta = W.Events.item_meta(default = "")

@@ -30,12 +30,12 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     # long thread.
     rrows = Row[]
     if it !== nothing
-        htitle = string(osc8(weblink(it), string(THEME.bold, it.ref, THEME.reset)),
-                        "  ", kind_phrase(it), "  ", osc8(weblink(it), it.title))
-        for l in awrap(htitle, riw)
+        htitle = osc8(weblink(it), faced(it.ref, THEME.bold)) * "  " * kind_phrase(it) *
+                 "  " * osc8(weblink(it), it.title)
+        for l in rowwrap(htitle, riw)
             push!(rrows, Row(0, false, l, string(it.ref, "  ", it.title), 0))
         end
-        push!(rrows, Row(0, false, string(THEME.dim, "─"^riw, THEME.reset), "", 0))
+        push!(rrows, Row(0, false, faced("─"^riw, THEME.dim), "", 0))
     end
     # The mouse turns a screen row into an `nrow` by subtracting this, and only
     # here is it known - the item title wraps to however many rows it wraps to.
@@ -61,7 +61,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
             ind = 2 * st.nodes[r.node].depth
             sp = r.header ? nothing : row_span(r, ind, cursor)
             hs = if sp === nothing
-                findhits(astrip(r.text), re)
+                findhits(String(r.text), re)
             else
                 cursor = last(sp) + 1
                 out = UnitRange{Int}[]
@@ -87,8 +87,8 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         # as GitHub's do. Laid here and not in `rows`, and only where the cursor
         # is not: a background inside the row would outlast the cursor's.
         bg = insel ? THEME.select_bg : cur ? THEME.cursor_bg : header_bg(st, r)
-        isempty(bg) && continue
-        rrows[i + st.hdr] = Row(r.node, r.header, hlrow(apad(afit(r.text, riw), riw), bg),
+        bg == Face() && continue
+        rrows[i + st.hdr] = Row(r.node, r.header, hlrow(rowpad(rowfit(r.text, riw), riw), bg),
                                 r.src, r.part, r.gutter)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
@@ -97,10 +97,9 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
     rtitle = string(String(st.mode),
                     it === nothing ? "" : string("  ", it.ref),
                     total > 0 ? string("  ", st.ntop, "-",
-                                       min(total, st.ntop + rh - 3), "/", total) : "",
-                    sr === nothing ? "" :
-                        string("  ", THEME.bold, sr[2] - sr[1] + 1, " selected",
-                               THEME.reset))
+                                       min(total, st.ntop + rh - 3), "/", total) : "") *
+             (sr === nothing ? row("") :
+                  "  " * faced(string(sr[2] - sr[1] + 1, " selected"), THEME.bold))
 
     footer!(bordered([r.text for r in rvis], rw, rh, rtitle; focused,
                      gutter = [r.gutter for r in rvis]),
@@ -153,20 +152,22 @@ function meta_stamp(st::BState, it::Union{Nothing,Item}, at::DateTime)
 end
 
 """Write `label` into the bottom border of a box `bordered` drew, at the right
-end - the mirror of the title at the top left. The border's own colour is lifted
+end - the mirror of the title at the top left. The border's own face is lifted
 off the row rather than asked for again, so it is whatever weight the box was
 drawn in; a label that does not fit leaves the border as it was."""
-function footer!(box::Vector{String}, label::AbstractString)
+function footer!(box::Vector{Styled}, label::AbstractString)
     (isempty(label) || isempty(box)) && return box
     l = box[end]
-    cs = collect(astrip(l))
-    lw = awidth(label)
+    cs = collect(String(l))
+    lw = rowwidth(label)
     n = length(cs) - 5 - lw
     n >= 1 || return box
-    on = match(r"^(?:\e\[[0-9;]*m)*", l).match
-    off = match(r"(?:\e\[[0-9;]*m)*$", l).match
-    box[end] = string(on, cs[1], string(cs[2])^n, " ", off, THEME.dim, label, THEME.reset,
-                      on, " ", cs[2], cs[end], off)
+    # The face over the corner is the border's; the label is drawn dim in it.
+    edge = Styled(string(cs[1], string(cs[2])^n, " "), Ann[])
+    tail = Styled(string(" ", cs[2], cs[end]), Ann[])
+    bf = Face[a.value for a in anns(l) if a.label === :face && 1 in a.region]
+    f = isempty(bf) ? Face() : first(bf)
+    box[end] = faced(edge, f) * faced(faced(label, THEME.dim), f) * faced(tail, f)
     box
 end
 
@@ -179,12 +180,12 @@ the keys under it do: `d`, `p`, `M` and a review are a pull request's. Merged
 is settled and closed is blocked, the colours the state has everywhere else;
 open is dim, being the usual case."""
 function kind_phrase(it::Item)
-    islocal(it) && return string(THEME.dim, "branch", THEME.reset)
-    isnotice(it) && return string(THEME.dim, "notice", THEME.reset)
+    islocal(it) && return faced("branch", THEME.dim)
+    isnotice(it) && return faced("notice", THEME.dim)
     what = it.is_pr ? (it.draft ? "draft pull request" : "pull request") : "issue"
-    it.state == "MERGED" && return string(THEME.settled, "merged ", what, THEME.reset)
-    it.state == "CLOSED" && return string(THEME.blocked, "closed ", what, THEME.reset)
-    string(THEME.dim, what, THEME.reset)
+    it.state == "MERGED" && return faced("merged " * what, THEME.settled)
+    it.state == "CLOSED" && return faced("closed " * what, THEME.blocked)
+    faced(what, THEME.dim)
 end
 
 "The title bar: the item under the cursor, by repository and number - the
@@ -200,12 +201,12 @@ viewtitle(st::BState) =
 is drawn - or that `u`'s refresh is running. Empty when nothing has been
 fetched, and for a corpus from before the refresh stamped it."""
 function refresh_stamp(st::BState, at::DateTime)
-    refreshing() && return string(THEME.dim, "refreshing \u2026 ", THEME.reset)
+    refreshing() && return faced("refreshing \u2026 ", THEME.dim)
     w = when_str(st.refreshed, at)
-    isempty(w) ? "" : string(THEME.dim, "refreshed ", THEME.reset, w, " ")
+    isempty(w) ? row("") : faced("refreshed ", THEME.dim) * w * " "
 end
 
-"""The background a header row is drawn on, or `""`.
+"""The background a header row is drawn on, or the empty face.
 
 In the diff, a hunk is blue and a hunk of a new file grey, which is how GitHub
 marks where one region of a change ends and the next begins; a review comment
@@ -215,18 +216,18 @@ rule over what is new is none, being the timeline between the boxes rather
 than one of them. Not the blank row above a top-level header, which is spacing.
 """
 function header_bg(st::BState, r::Row)
-    (r.header && !(r.part == 1 && isempty(r.text))) || return ""
+    (r.header && !(r.part == 1 && isempty(r.text))) || return Face()
     n = st.nodes[r.node]
     n.kind === :diff && return get(n.meta, "newfile", false) === true ?
                                THEME.diff_file_bg : THEME.diff_hunk_bg
     st.mode === :diff && haskey(n.meta, "comment_id") && return THEME.diff_comment_bg
     st.mode === :comments && n.depth == 0 && haskey(n.meta, "mine") &&
         return n.meta["mine"] === true ? THEME.thread_mine_bg : THEME.thread_bg
-    ""
+    Face()
 end
 
 """
-    render_frame(st, w, h) -> String
+    render_frame(st, w, h) -> Vector{Styled}
 
 The whole screen, and what `render(::BState, w, h)` is. Pure. Side by side when
 the terminal is wide enough, stacked otherwise, so a narrow window degrades
@@ -249,9 +250,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         for (j, (axis, _, text)) in enumerate(frows)
             on = j == st.frow && st.focus === :list && axis !== :head
             push!(lrows, Row(j, true,
-                             string(axis === :head ? THEME.bold :
-                                    on ? THEME.focus : THEME.dim,
-                                    afit(text, liw), THEME.reset), text, 0))
+                             faced(rowfit(text, liw),
+                                   axis === :head ? THEME.bold : on ? THEME.focus : THEME.dim),
+                             text, 0))
         end
         lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
         ltitle = "filters"
@@ -259,8 +260,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # The import row leads, always: a list of two thousand rows is not
         # somewhere a control can be discovered at the bottom of.
         lrows = Row[Row(0, true,
-                        string(st.sel == 0 && st.focus === :list ? THEME.focus : THEME.dim,
-                               afit(NEWROW, liw), THEME.reset), NEWROW, 0)]
+                        faced(rowfit(NEWROW, liw),
+                              st.sel == 0 && st.focus === :list ? THEME.focus : THEME.dim),
+                        NEWROW, 0)]
         # One reading of the marks for the whole frame, so a list is not
         # half-woken across its own rows; the same answer `refilter!` sorted by.
         marks = Marks(st, at)
@@ -275,7 +277,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # The guest says it is one, where every row has a space to spare:
             # a row the filters in the title would not have shown, which the
             # next list asked for will not have.
-            txt = afit(string(it_.url == st.guest ? "+" : " ", it_.ref, " ", it_.title), liw)
+            txt = rowfit(string(it_.url == st.guest ? "+" : " ", it_.ref, " ", it_.title), liw)
             # Weight says whether it has been read, which is the one thing
             # about a row worth knowing before opening it and the one thing the
             # list never said: unread is bold, read is plain. Dim is left to the
@@ -288,20 +290,18 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # unread row that is somebody waiting on you. Kept in the quiet
             # list too, since the list is quiet exactly while you are in some
             # other pane and not hearing it.
-            styled = string(seen_of(it_, marks) === :unread ?
-                                (quiet ? THEME.quiet_bold : THEME.bold) : "",
-                            it_.url in marks.rang ? THEME.rang : "",
-                            txt, THEME.reset)
+            styled = faced(faced(txt, it_.url in marks.rang ? THEME.rang : Face()),
+                           seen_of(it_, marks) === :unread ?
+                               (quiet ? THEME.quiet_bold : THEME.bold) : Face())
             (isempty(st.search) || st.searchin !== :list) ||
-                (styled = hlspan(styled, findhits(astrip(styled), st.search),
+                (styled = hlspan(styled, findhits(String(styled), st.search),
                                  THEME.match_bg))
             # The cursor is a background now rather than a weight, since weight
             # is spoken for: bright-white bold among bold rows is not a cursor
             # anybody can find. Laid over the padded row the way the detail
-            # pane's is, and by the same `hlrow`, which re-arms the background
-            # after every reset the row carries - including the ones a search
-            # highlight leaves behind, which is why it goes on last.
-            on && (styled = hlrow(apad(styled, liw), THEME.cursor_bg))
+            # pane's is, and by the same `hlrow`, which lays the background
+            # under everything the row carries - a search hit keeps its own.
+            on && (styled = hlrow(rowpad(styled, liw), THEME.cursor_bg))
             # The whole list quieter while the keys are on the other side, on
             # top of everything else: the lit border says which side has them,
             # and a screen of equal weight had to be read for it.
@@ -379,7 +379,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # field makes the frame taller than the screen.
     note = standing_note(at, st.failing)
     msg = oneline(isempty(note) ? st.status : note)
-    foot1 = string(THEME.dim, afit(keys1, w), THEME.reset)
+    foot1 = faced(rowfit(keys1, w), THEME.dim)
     foot2 = if st.typing
         # The query line, with a block for the cursor: this view draws its own,
         # the terminal's being hidden for the whole run.
@@ -399,10 +399,10 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # The field scrolls sideways rather than being cut at the screen's
         # edge, which is where the cursor is while typing - so it gets what the
         # tally leaves, and never so little that the query is what is lost.
-        fw = max(w - 1 - awidth(trail), min(w - 1, 20))
-        string(THEME.bold, "/", THEME.reset,
-               TermInput.drawfield(TermInput.text(st.query), TermInput.column(st.query), fw),
-               THEME.dim, trail, THEME.reset)
+        fw = max(w - 1 - textwidth(trail), min(w - 1, 20))
+        faced("/", THEME.bold) *
+            TermInput.drawfield(TermInput.text(st.query), TermInput.column(st.query), fw) *
+            faced(trail, THEME.dim)
     elseif !isempty(st.search) && isempty(msg)
         # Only when there is nothing to say. A live search is *standing*
         # information - it is re-derived every frame and the query is on screen
@@ -411,127 +411,99 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # ("`claude` is not on PATH") never appeared at all, and the key looked
         # broken rather than refused.
         nmatch = st.searchin === :detail ? length(match_rows(st, riw)) : length(st.items)
-        string(THEME.bold, "/", st.search, THEME.reset, THEME.dim, "  ", nmatch,
-               st.searchin === :detail ?
-                   string(nmatch == 1 ? " match · " : " matches · n/N steps them · ") :
-                   (nmatch == 1 ? " item · " : " items · "),
-               "/ to search again", THEME.reset)
+        faced("/" * st.search, THEME.bold) *
+            faced(string("  ", nmatch,
+                         st.searchin === :detail ?
+                             string(nmatch == 1 ? " match · " : " matches · n/N steps them · ") :
+                             (nmatch == 1 ? " item · " : " items · "),
+                         "/ to search again"), THEME.dim)
     else
-        string(THEME.dim, afit(isempty(msg) ? keys2 : msg, w), THEME.reset)
+        faced(rowfit(isempty(msg) ? keys2 : msg, w), THEME.dim)
     end
-    foot2 = string(THEME.dim, afit(foot2, w), THEME.reset)
+    foot2 = faced(rowfit(foot2, w), THEME.dim)
     # Padded to the screen as well as laid out to it: the columns add up to `w`
     # by construction, and this is what keeps a frame the width of the terminal
     # if they ever stop.
-    body = [apad(r, w) for r in
-            (L.side ? [string(left[i], right[i])
-                       for i in 1:min(length(left), length(right))] :
-                      vcat(left, right))]
+    body = Styled[rowpad(r, w) for r in
+                  (L.side ? [left[i] * right[i] for i in 1:min(length(left), length(right))] :
+                            vcat(left, right))]
     # Row 1 is a title bar so that selecting the top line in tmux - which
     # scrolls the pane to make room for its own status line - never lands on
     # content. Everything real starts at row 2.
     bar = if it === nothing
-        string(" worklog  ", THEME.dim, length(st.items), " items", THEME.reset)
+        " worklog  " * faced(string(length(st.items), " items"), THEME.dim)
     else
         # The kind between the number and the title, as on the pane's own
         # header: it is the one thing about the item the number does not say.
-        string(" ", THEME.bold, osc8(weblink(it), it.ref), THEME.reset, "  ",
-               kind_phrase(it), "  ", THEME.bold, osc8(weblink(it), it.title), THEME.reset,
-               "  ", THEME.dim, "[", filter_summary(st.filters, st.sort), "]", THEME.reset)
+        " " * faced(osc8(weblink(it), it.ref), THEME.bold) * "  " * kind_phrase(it) * "  " *
+            faced(osc8(weblink(it), it.title), THEME.bold) * "  " *
+            faced(string("[", filter_summary(st.filters, st.sort), "]"), THEME.dim)
     end
     # The last refresh at the right-hand end, and the running one: a fact
     # about the whole list that stands, where the status row is one line the
     # next key replaces. Not at the title's expense - on a narrow screen the
     # stamp goes before the title does.
     tail = refresh_stamp(st, at)
-    room = w - awidth(tail)
-    room < 40 && (tail = ""; room = w)
+    room = w - rowwidth(tail)
+    room < 40 && (tail = row(""); room = w)
     # Clamp to the terminal rather than trusting the arithmetic: on a very short
     # terminal the pane minimums add up to more than there is room for, and a
     # frame taller than the screen scrolls the title bar off the top.
-    all_ = vcat([string(apad(afit(bar, room), room), tail)], body,
-                [apad(foot1, w), apad(foot2, w)])
+    all_ = vcat(Styled[rowpad(rowfit(bar, room), room) * tail], body,
+                Styled[rowpad(foot1, w), rowpad(foot2, w)])
     while length(all_) < h
-        push!(all_, " "^w)
+        push!(all_, row(" "^w))
     end
-    linkify(join(all_[1:h], "\n"), links)
+    Styled[linkify(r, links) for r in all_[1:h]]
 end
 
 """
-    linkify(frame, links) -> String
+    linkify(row, links) -> Styled
 
-Wrap a url *written in the prose* in an OSC 8 hyperlink, so it can be followed
-rather than only read.
+Make a url *written in the prose* a hyperlink, so it can be followed rather
+than only read.
 
-The footnote rows under a comment are not this function's work any more: they
-are built in `nodelines`, which holds the url and the text standing for it at
-the same moment and wraps one in the other by identity. Matching text is for
-what only the finished frame has, which is the body of a comment that linked a
-url to itself - the shape GitHub's own autolinking produces - where the url is
-both the target and the words. So a display form here is the url itself, and no
+The footnote rows under a comment are not this function's work: they are
+built in `nodelines`, which holds the url and the text standing for it at the
+same moment and links one to the other by identity. Matching text is for what
+only the finished frame has, which is the body of a comment that linked a url
+to itself - the shape GitHub's own autolinking produces - where the url is both
+the target and the words. So a display form here is the url itself, and no
 elided string is ever matched against anything.
 
-Done last, on the finished frame, because OSC 8 sequences are invisible to the
-terminal but not to Term's width accounting - injecting them into prose earlier
-would wrap lines that fit. The cost of being last is that a url Term wrapped is
-not one contiguous run of text and so is not found; it was not found before
-this either.
+Done last, on each finished row, where a url wrapped across two rows is not
+one run of text and so is not found; it was not found before this either.
 
-Only in what *prints*, though, which a plain `replace` over the frame was not.
-Every comment header is already an OSC 8 hyperlink to its own permalink, and a
-url written in one comment is very often the permalink of another - nanosoldier
-replies with a link to the `runbenchmarks()` comment that asked. Replacing
-inside that payload put a second `\e]8;;` in the middle of the first, which
-terminates the outer sequence early and prints the rest of the url as literal
-characters that nothing has measured: a row 224 columns wide in a 150-column
-terminal, which is the screen tearing.
+A link is an annotation over the text and not bytes in it, so nothing here can
+write one inside another: every comment header is a link to its own permalink,
+and a url written in one comment is very often the permalink of another -
+nanosoldier replies with a link to the `runbenchmarks()` comment that asked.
+When links were escapes, a second `\\e]8;;` inside the first terminated it early
+and printed the rest as characters nothing had measured - a row 224 columns
+wide in a 150-column terminal. Here a match that is already inside a link is
+left alone, and so is one inside a pane's verbatim row, which is its child's.
 
-So the frame is cut on its OSC sequences and nothing inside a hyperlink is
-substituted - neither the payload nor the text between its ends, which is where
-a link made in `nodelines` keeps the very url these patterns match. Cut on those
-alone and not on every escape, because a colour code splitting a url is a match
-that was already missed before this and is none of this function's business.
-
-**And the same tearing, from the other direction: a loop of `replace`s reads its
-own output.** The links are one per url per *node*, so a url cited in four
-comments - which is exactly what nanosoldier does, one report link per run -
-arrives here four times, and the second pass found the first pass's payload and
-hyperlinked that. One `replace` with every pattern at once is the fix, because
-that one is defined not to look at its own replacements; the list is
-deduplicated and taken longest first, so a url that is the head of another - an
-issue, and a comment on that issue - cannot take the match from it.
+The links are one per url per *node*, so a url cited in four comments arrives
+four times; the list is deduplicated and taken longest first, so a url that is
+the head of another - an issue, and a comment on that issue - cannot take the
+match from it.
 """
-const OSC = r"\e\][^\e]*\e[\\]"
-
-function linkify(frame::AbstractString, links)
-    isempty(links) && return frame
-    target = Dict{String,String}()
-    for (disp, full) in links
-        isempty(disp) || (target[String(disp)] = String(full))
+function linkify(r::AbstractString, links)
+    x = row(r)
+    isempty(links) && return x
+    str = x.string
+    targets = unique!(sort!([String(d) => String(u) for (d, u) in links if !isempty(d)];
+                            by = p -> (-length(first(p)), first(p))))
+    for (d, u) in targets
+        occursin(d, str) || continue
+        at = 1
+        while (f = findnext(d, str, at)) !== nothing
+            lo, hi = first(f), last(f) + ncodeunits(str[last(f)]) - 1
+            taken = any(a -> (a.label === :link || a.label === :verbatim) &&
+                             !isempty(intersect(a.region, lo:hi)), anns(x))
+            taken || (x = linkrange(x, lo:hi, u))
+            at = hi + 1
+        end
     end
-    pats = Pair{String,String}[]
-    # Longest first, so a display form that is the head of another cannot take
-    # the match from it: `replace` tries the patterns in order at each position.
-    for d in sort!(collect(keys(target)); by = x -> (-length(x), x))
-        push!(pats, d => osc8(target[d], d))
-    end
-    isempty(pats) && return frame
-    sub(s) = replace(s, pats...)
-    # Nothing is written inside a hyperlink that is already there - not in its
-    # payload, and not in the text between its ends, which is where a link made
-    # at construction keeps the very string these patterns match. Either one
-    # puts a second `\e]8;;` inside the first, which terminates the outer
-    # sequence early and prints the rest as characters nothing has measured.
-    out, at, inlink = IOBuffer(), firstindex(frame), false
-    for m in eachmatch(OSC, frame)
-        seg = SubString(frame, at, prevind(frame, m.offset))
-        write(out, inlink ? seg : sub(seg))
-        write(out, m.match)
-        # `\e]8;;\e\\` and nothing else closes one; anything longer opens one.
-        startswith(m.match, "\e]8;;") &&
-            (inlink = ncodeunits(m.match) > ncodeunits("\e]8;;\e\\"))
-        at = m.offset + ncodeunits(m.match)
-    end
-    write(out, sub(SubString(frame, at)))
-    String(take!(out))
+    x
 end

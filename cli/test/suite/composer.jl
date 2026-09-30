@@ -77,8 +77,8 @@
     # Whatever the state, the frame is the size it was asked for.
     v2 = W.EditorView("t", "", identity; initial = "0123456789abcdefghij")
     for (w, h) in ((80, 24), (120, 40), (60, 12))
-        ls = split(W.render(v2, w, h), "\n")
-        @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+        ls = split(frame(v2, w, h), "\n")
+        @test length(ls) == h && all(width(l) == w for l in ls)
     end
 
     # suspend runs the body and puts the screen back. The sequences are

@@ -67,6 +67,11 @@ import TermInput: suspend, text
 # on a widget's buffer, the box `help.jl` draws in, and the pattern the
 # escape-aware walkers step over.
 import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
+# And a row of faces, which is what everything here draws: an annotated string,
+# faces over ranges of its text, and the cuts and the concatenation that keep
+# them. Called `Styled` here, since a `Row` is the detail pane's own.
+import TermInput: Row as Styled, row, rowhead, rowtail, rowlines, rowwraplines,
+    overlaid, linked
 # And the two reports `readevent` decodes, as patterns, which `scheme_in` takes
 # out of a pane's undecoded input; and the question that asks for the second.
 import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT

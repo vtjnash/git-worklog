@@ -45,7 +45,7 @@
         # Where the item's facts are, with the way back out. Read across the
         # wrap: the row carries the date, how long ago, and the hint, and at
         # this width the hint is on the row under it.
-        lines = replace(W.astrip(join(W.meta_lines(st, it, 50), " ")), r"\s+" => " ")
+        lines = replace(unstyled(join(W.meta_lines(st, it, 50), " ")), r"\s+" => " ")
         @test occursin("archived", lines) && occursin("takes it back out", lines)
 
         # Filing it is the end of looking at it, so it is stamped done the way
@@ -130,7 +130,7 @@
 
         st = W.BState(vcat(W.loaditems(), collect(values(its))), "worklog")
         l = its["m#landed"]
-        says() = W.astrip(join([x for x in W.meta_lines(st, l, 50)
+        says() = unstyled(join([x for x in W.meta_lines(st, l, 50)
                                 if occursin("state", x) || occursin("why", x)], " "))
         # Merged and not yet looked at is news - a merge you did not do is
         # exactly the thing to be told about, so it stays in the unread lane.
@@ -161,7 +161,7 @@
         @test !W.mergedbyme(W.Item(url = "u4", ref = "m#4", repo = "o/m", number = 4,
                                    title = "t", merged_by = W.login()))
         st2 = W.BState(vcat(W.loaditems(), [mine, theirs, old]), "worklog")
-        line(x) = W.astrip(join([r for r in W.meta_lines(st2, x, 50)
+        line(x) = unstyled(join([r for r in W.meta_lines(st2, x, 50)
                                  if occursin("state", r) || occursin("why", r)], " "))
         @test occursin("you merged it", line(mine)) && !occursin("archives", line(mine))
         @test occursin("why       unread", line(theirs)) && !occursin("you merged it", line(theirs))
@@ -388,7 +388,7 @@ end
                 W.worktree_reload!(v)
                 v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
                 @test v.rows[v.sel].item !== nothing && v.rows[v.sel].item.url == pr.url
-                @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
+                @test occursin(pr.ref, unstyled(frame(v, 165, 24)))
                 for r in W.session_list()
                     W.wtkey(r.worktree) == W.wtkey(joinpath(root, "wt-agent")) && W.mux_kill(r.name)
                 end
@@ -446,7 +446,7 @@ end
     @test v.mode === :active
     # A note alone is not work going on.
     @test [r.name for r in W.shown(v)] == ["shell", "agent"]
-    out = W.astrip(W.render(v, 120, 24))
+    out = unstyled(frame(v, 120, 24))
     @test occursin("active", out) && occursin("agent", out) && !occursin("idle", out)
     # No row to make one here: that is the whole list's.
     @test !occursin("+ new worktree", out)
@@ -496,15 +496,15 @@ end
         @test W.handle!(v, 9, ctrl) === :ok && v.mode === :active
         @test W.handle!(v, 9, ctrl) === :ok && v.mode === :branches
         for (w, h) in ((80, 24), (120, 40), (165, 50))
-            ls = split(W.render(v, w, h), "\n")
-            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            ls = split(frame(v, w, h), "\n")
+            @test length(ls) == h && all(width(l) == w for l in ls)
         end
-        @test occursin("branches", W.astrip(W.render(v, 120, 24)))
+        @test occursin("branches", unstyled(frame(v, 120, 24)))
         # The branch list has marks of its own, so it has a legend of its own.
-        blegend = W.astrip(W.render(v, 120, 24))
+        blegend = unstyled(frame(v, 120, 24))
         @test occursin("checked out somewhere", blegend)
         @test !occursin("s shell", blegend)
-        @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
+        @test occursin(pr.ref, unstyled(frame(v, 165, 24)))
 
         # Each lens keeps its own cursor, so `tab` returns to where you were.
         v.sel = 2
@@ -590,18 +590,18 @@ end
         e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
                            1, 1, 1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing,
                            (0.0, 0, 0))
-        ls = split(W.render(e, 80, 24), "\n")
-        @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+        ls = split(frame(e, 80, 24), "\n")
+        @test length(ls) == 24 && all(width(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))
         e.mode = :active
-        @test occursin("nothing running", W.render(e, 80, 24))
+        @test occursin("nothing running", frame(e, 80, 24))
 
         # The row at the bottom makes one: a repo and a branch in one line,
         # then the place, the same as for a branch that has none.
         v.mode = :worktrees
         W.handle!(v, Int('G'), ctrl)
         @test W.onnew(v) && W.currow(v) === nothing
-        @test occursin("+ new worktree", W.astrip(W.render(v, 120, 40)))
+        @test occursin("+ new worktree", unstyled(frame(v, 120, 40)))
         @test W.handle!(v, 13, ctrl) === :ok
         pv = last(ctrl.stack)
         @test pv isa W.PromptView && W.text(pv) == string(pr.repo, " ")
@@ -644,8 +644,8 @@ end
     try
         v = W.worktree_view(items)
         @test isempty(v.rows)
-        ls = split(W.render(v, 80, 24), "\n")
-        @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+        ls = split(frame(v, 80, 24), "\n")
+        @test length(ls) == 24 && all(width(l) == 80 for l in ls)
         @test occursin("no worktrees", join(ls, "\n"))
     finally
         W.LOCAL[] = REPOS_SANDBOX
@@ -667,7 +667,7 @@ end
     # A line under the row per titled session, in the letters' order; none for
     # a pane that never set one. The row that makes a worktree is one line.
     @test W.row_heights(v) == [1, 3, 2, 1, 1]
-    out = W.astrip(W.render(v, 120, 30))
+    out = unstyled(frame(v, 120, 30))
     @test occursin("T  \u2733 Count to forty", out) && occursin("t  me@box: ~/x", out)
     @test findfirst("t  me@box", out) < findfirst("T  \u2733 Count", out)
     @test occursin(string(W.CLEARED_TITLE, "  /cleared"), out)
@@ -678,7 +678,7 @@ end
     @test W.listwindow([1, 1, 1], 1, 1, 10) == (1, 1, 1:3)
     # The selection lights all of the row's lines.
     v.sel = 2
-    lit = [l for l in split(W.render(v, 120, 30), "\n") if occursin(W.THEME.select_bg, l)]
+    lit = [l for l in split(frame(v, 120, 30), "\n") if faceon(W.THEME.select_bg, l)]
     @test length(lit) == 3
     # And a click on a title is a click on its worktree: the border, the
     # header, row one, then row two's three lines.

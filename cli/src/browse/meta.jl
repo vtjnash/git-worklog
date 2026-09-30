@@ -303,8 +303,8 @@ when_str(s::AbstractString) = (t = ts(s); t === nothing ? "" : local_str(t))
 3d ago`. The reader was doing the subtraction on every date the pane shows.
 Off `at`, the frame's clock, and worked out per frame - never kept on the
 item, which is the same rule as `age`."""
-when_str(s::AbstractString, at::DateTime) = (w = when_str(s); isempty(w) ? "" :
-    string(w, "  ", THEME.dim, ago_str(s, at), THEME.reset))
+when_str(s::AbstractString, at::DateTime) = (w = when_str(s); isempty(w) ? row("") :
+    w * "  " * faced(ago_str(s, at), THEME.dim))
 
 """What has moved since you read the item, newest first, in the pane's
 words - `pushed`, `comment`, `reviewed`, `review requested`, `assigned`,
@@ -399,84 +399,82 @@ arrive when `load_meta!` lands and say so until then.
 """
 function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
                     at::DateTime = utcnow())
-    it === nothing && return String[]
-    out = String[]
+    it === nothing && return Styled[]
+    out = Styled[]
     # One reading of the marks and one clock for the whole pane: every date on
     # it is placed against `at`, and the snooze is asleep or woken by it.
     marks = Marks(st, at)
-    head(t) = push!(out, string(THEME.bold, t, THEME.reset))
+    head(t) = push!(out, faced(t, THEME.bold))
     # A value longer than the pane wraps under itself, at the value column:
     # "asked, then quiet for 12 work days" and "blocked — a required review or
     # check is missing" were being cut at the pane's edge, and a fact cut is a
     # fact half-said. The pane grows by the row; `nmeta` is what the layout
     # reads, so the split follows.
-    kv(k, v) = if !isempty(string(v))
-        ls = awrap(string(v), max(4, w - 10))
-        push!(out, string(THEME.dim, rpad(k, 10), THEME.reset, ls[1]))
+    kv(k, v::AbstractString) = if !isempty(v)
+        ls = rowwrap(v, max(4, w - 10))
+        push!(out, faced(rpad(k, 10), THEME.dim) * ls[1])
         for l in ls[2:end]
-            push!(out, string(" "^10, l))
+            push!(out, " "^10 * l)
         end
     end
     wait_ = meta_waiting(st, it)
 
     if it.is_pr
         dec = it.review_decision
-        head(string("reviews", isempty(dec) ? "" :
-                    string("  ", dec == "APPROVED" ? THEME.settled :
+        head("reviews" * (isempty(dec) ? row("") :
+                    "  " * faced(lowercase(replace(dec, "_" => " ")),
+                                 dec == "APPROVED" ? THEME.settled :
                                  dec == "CHANGES_REQUESTED" ? THEME.blocked :
-                                 THEME.waiting,
-                           lowercase(replace(dec, "_" => " ")), THEME.reset)))
+                                 THEME.waiting)))
         m = st.meta
         if m === nothing
-            push!(out, string(THEME.dim, wait_ ? "  loading…" : "  —", THEME.reset))
+            push!(out, faced(wait_ ? "  loading…" : "  —", THEME.dim))
         else
             for r in m.reviews
                 (col, mark) = rev_mark(r.state)
-                push!(out, string("  ", col, mark, THEME.reset, " ",
-                                  afit(rpad(r.login, 16), max(4, w - 6)),
-                                  THEME.dim, first(when_str(r.at), 10), "  ", ago_str(r.at, at),
-                                  THEME.reset))
+                push!(out, "  " * faced(mark, col) * " " *
+                           rowfit(rpad(r.login, 16), max(4, w - 6)) *
+                           faced(string(first(when_str(r.at), 10), "  ", ago_str(r.at, at)),
+                                 THEME.dim))
             end
             for who in vcat(m.requested, ["@" * t for t in m.teams])
-                push!(out, string("  ", THEME.waiting, "○", THEME.reset, " ",
-                                  afit(rpad(who, 16), max(4, w - 6)),
-                                  THEME.dim, "requested", THEME.reset))
+                push!(out, "  " * faced("○", THEME.waiting) * " " *
+                           rowfit(rpad(who, 16), max(4, w - 6)) * faced("requested", THEME.dim))
             end
             isempty(m.reviews) && isempty(m.requested) && isempty(m.teams) &&
-                push!(out, string(THEME.dim, "  nobody yet", THEME.reset))
+                push!(out, faced("  nobody yet", THEME.dim))
         end
         it.unresolved > 0 &&
-            push!(out, string("  ", THEME.waiting, it.unresolved, " unresolved thread",
-                              it.unresolved == 1 ? "" : "s", THEME.reset))
-        push!(out, "")
+            push!(out, "  " * faced(string(it.unresolved, " unresolved thread",
+                                           it.unresolved == 1 ? "" : "s"), THEME.waiting))
+        push!(out, row(""))
 
         head("checks")
         c = st.checks
         if c === nothing
-            push!(out, string("  ", isempty(it.ci) ? (wait_ ? "loading…" : "—") :
-                              string(ci_color(it.ci), lowercase(it.ci), THEME.reset)))
+            push!(out, "  " * (isempty(it.ci) ? row(wait_ ? "loading…" : "—") :
+                               faced(lowercase(it.ci), ci_color(it.ci))))
         else
             tally = Dict{String,Int}()
             for x in c.contexts
                 k = uppercase(x.state)
                 tally[k] = get(tally, k, 0) + 1
             end
-            parts = [string(ci_color(k), get(Dict("SUCCESS" => "✓", "FAILURE" => "✗",
-                            "ERROR" => "✗", "PENDING" => "…"), k, "·"), " ", n, THEME.reset)
-                     for (k, n) in sort(collect(tally); by = first)]
-            push!(out, string("  ", isempty(parts) ?
-                                    string(THEME.dim, "none", THEME.reset) :
-                                    join(parts, "  ")))
+            parts = Styled[faced(string(get(Dict("SUCCESS" => "✓", "FAILURE" => "✗",
+                                   "ERROR" => "✗", "PENDING" => "…"), k, "·"), " ", n),
+                                 ci_color(k))
+                           for (k, n) in sort(collect(tally); by = first)]
+            push!(out, "  " * (isempty(parts) ? faced("none", THEME.dim) : join(parts, "  ")))
         end
-        push!(out, "")
+        push!(out, row(""))
     end
 
     if !isempty(it.labels)
         head("labels")
-        for l in awrap(join(it.labels, ", "), max(8, w - 2))
-            push!(out, string("  ", THEME.accent, l, THEME.reset))
+        for l in rowwrap(join(it.labels, ", "), max(8, w - 2))
+            push!(out, "  " * faced(l, THEME.accent))
         end
-        push!(out, "")
+        push!(out, row(""))
     end
 
     # How it got here, first: which search claimed the row - the filter axis
@@ -498,11 +496,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         fork = sm === nothing ? "" : sm.fork
         default = sm === nothing ? "" : sm.default
         offbase = !isempty(default) && !isempty(it.base) && it.base != default
-        kv("branch", string(isempty(fork) ? "" : string(fork, ":"), it.branch,
-                            isempty(it.base) ? "" :
-                            offbase ? string(" → ", THEME.waiting, it.base, THEME.reset,
-                                             THEME.dim, "  not ", default, THEME.reset) :
-                            string(" → ", it.base)))
+        kv("branch", string(isempty(fork) ? "" : string(fork, ":"), it.branch) *
+                     (isempty(it.base) ? row("") :
+                      offbase ? " → " * faced(it.base, THEME.waiting) *
+                                faced(string("  not ", default), THEME.dim) :
+                      row(string(" → ", it.base))))
     end
     # How old it is and when it last changed at all. Both are on the item
     # already and neither was on screen, so the age of what you are reading had
@@ -533,10 +531,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         mwait = merge_waiting(st, it)
         ci = ci_word(it.ci)
         kv("mergeable", ms === nothing ? (mwait ? "loading…" : "") :
-                        string(ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
-                                   string(THEME.blocked, merge_note(ms), THEME.reset) :
-                                   merge_note(ms),
-                               isempty(ci) ? "" : string("  ", THEME.dim, ci, THEME.reset)))
+                        (ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
+                             faced(merge_note(ms), THEME.blocked) : row(merge_note(ms))) *
+                        (isempty(ci) ? row("") : "  " * faced(ci, THEME.dim)))
     end
     # The tags, only while each holds: the tag axis in the filter pane is
     # these same words. `edits` and `ready` are the word alone - what they
@@ -546,25 +543,22 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # whose the last word is, that they pushed after your review, how long
     # the quiet has been.
     isempty(it.reply) ||
-        kv("reply", string(THEME.waiting, it.reply, THEME.reset))
+        kv("reply", faced(it.reply, THEME.waiting))
     isempty(it.review) ||
-        kv("review", string(THEME.waiting, it.review, THEME.reset))
+        kv("review", faced(it.review, THEME.waiting))
     # Only where `reply` is not already saying you were named.
     isempty(it.mentioned) || !isempty(it.reply) || kv("mentioned", it.mentioned)
-    isempty(it.edits) || push!(out, string(THEME.waiting, "edits", THEME.reset))
-    isempty(it.ready) || push!(out, string(THEME.waiting, "ready", THEME.reset))
+    isempty(it.edits) || push!(out, faced("edits", THEME.waiting))
+    isempty(it.ready) || push!(out, faced("ready", THEME.waiting))
     isempty(it.secondlook) ||
-        kv("quiet", string(THEME.waiting, it.secondlook, THEME.reset))
+        kv("quiet", faced(it.secondlook, THEME.waiting))
     b = batch_of(st, it)
     b === nothing ||
-        kv("draft", string(THEME.waiting, b.n,
-                           b.n == 1 ? " comment" : " comments", THEME.reset,
-                           "  ", THEME.dim, "c adds one \u00b7 A sends them",
-                           THEME.reset))
+        kv("draft", faced(string(b.n, b.n == 1 ? " comment" : " comments"), THEME.waiting) *
+                    "  " * faced("c adds one \u00b7 A sends them", THEME.dim))
     if haskey(st.archived, it.url)
         a = st.archived[it.url]
-        kv("archived", string(when_str(a, at), "  ", THEME.dim,
-                              "x takes it back out", THEME.reset))
+        kv("archived", when_str(a, at) * "  " * faced("x takes it back out", THEME.dim))
     elseif !isempty(it.state) && it.state != "OPEN"
         # Whether you were the one who merged it, beside the state: a merge
         # you pressed the button for is not news, and the pane is where that
@@ -572,18 +566,17 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         # under `local` - `unread: merged`. Nothing is offered here: filing
         # is `x`, which the footer names, and the same offer on every closed
         # row was a row of noise on the pane.
-        kv("state", string(lowercase(it.state),
-                           mergedbyme(it) ? string("  ", THEME.dim, "you merged it", THEME.reset) : ""))
+        kv("state", lowercase(it.state) *
+                    (mergedbyme(it) ? "  " * faced("you merged it", THEME.dim) : row("")))
     end
     it.draft && kv("state", "draft")
     # A notice is closed on the axis, and is not closed: what it is, and why
     # GitHub said so, which it has nowhere else to say.
     if isnotice(it)
-        kv("state", string(notice_word(it.notice), "  ", THEME.dim, "a notice \u00b7 e dismisses it",
-                           THEME.reset))
+        kv("state", notice_word(it.notice) * "  " * faced("a notice \u00b7 e dismisses it", THEME.dim))
         kv("reason", replace(it.reason, "_" => " "))
     end
-    push!(out, "")
+    push!(out, row(""))
 
     # What is written down about it, in `local.toml`: the block is the file's
     # block for this item, and the heading is the file's name.
@@ -609,18 +602,18 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # before the next refresh. That a row is unread under its snooze is the
     # `why` row's, with what moved.
     if asleep(it, marks)
-        kv("snoozed", string("until ", when_str(st.wakes[it.url], at)))
+        kv("snoozed", "until " * when_str(st.wakes[it.url], at))
     elseif haskey(st.snoozes, it.url) || haskey(st.wakes, it.url)
         # Off the snooze itself where one is still on file and woken - typed
         # by hand, and no refresh has written it down yet.
         wk = get(st.snoozes, it.url, get(st.wakes, it.url, ""))
-        kv("snoozed", wk <= marks.now ? string("woke ", when_str(wk, at)) :
-                      string("until ", when_str(wk, at), "  ", THEME.dim, "cleared", THEME.reset))
+        kv("snoozed", wk <= marks.now ? "woke " * when_str(wk, at) :
+                      "until " * when_str(wk, at) * "  " * faced("cleared", THEME.dim))
     end
     if !isempty(it.note)
-        push!(out, string(THEME.dim, "note", THEME.reset))
-        for l in awrap(it.note, max(8, w - 2))
-            push!(out, string("  ", l))
+        push!(out, faced("note", THEME.dim))
+        for l in rowwraplines(it.note, max(8, w - 2))
+            push!(out, "  " * l)
         end
     end
     # A session is its own record that something is running: named after the
@@ -644,28 +637,27 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     live = [r for r in st.sessions if r.item == it.ref]
     taken = st.metakey == it.url ? taken_in(it, st.itemcopy, st.sessions) : Session[]
     if !isempty(live) || !isempty(taken)
-        push!(out, string(THEME.dim, "running", THEME.reset))
+        push!(out, faced("running", THEME.dim))
         for r in sort(live; by = x -> x.kind)
             agent = r.kind == "agent"
             words = title_words(agent ? :agent : :shell, r.title)
-            wait_ = agent && r.bell ? string(THEME.waiting, "waiting on you", THEME.reset) : ""
-            push!(out, afit(string("  ", agent ? "agent" : "shell",
-                                   isempty(wait_) ? "" : string("  ", wait_),
-                                   isempty(words) ? "" : string(isempty(wait_) ? "  " : " · ",
-                                                                words)),
-                            w))
+            wait_ = agent && r.bell ? faced("waiting on you", THEME.waiting) : row("")
+            push!(out, rowfit("  " * (agent ? "agent" : "shell") *
+                              (isempty(wait_) ? row("") : "  " * wait_) *
+                              (isempty(words) ? "" : (isempty(wait_) ? "  " : " · ") * words),
+                              w))
         end
         # Whose, in the colour of something waiting on a decision, and then
         # what it is doing; the questions `t` and `T` ask say the rest.
         for r in sort(taken; by = x -> x.kind)
             agent = r.kind == "agent"
             words = title_words(agent ? :agent : :shell, r.title)
-            push!(out, afit(string("  ", agent ? "agent" : "shell", "  ", THEME.waiting,
-                                   r.item, "'s", THEME.reset,
-                                   isempty(words) ? "" : string(" · ", words)), w))
+            push!(out, rowfit("  " * (agent ? "agent" : "shell") * "  " *
+                              faced(string(r.item, "'s"), THEME.waiting) *
+                              (isempty(words) ? "" : " · " * words), w))
         end
     end
-    while !isempty(out) && isempty(strip(astrip(last(out))))
+    while !isempty(out) && isempty(strip(String(last(out))))
         pop!(out)
     end
     out

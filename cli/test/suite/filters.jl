@@ -650,7 +650,7 @@ end
     st.filters = W.Filters(); W.refilter!(st)
     rows = W.filter_rows(st)
     @test rows[1][1] === :reset
-    @test occursin("clear every filter", W.astrip(W.render(st, 160, 50)))
+    @test occursin("clear every filter", unstyled(frame(st, 160, 50)))
     # Nothing to clear, so the row says only what it is - and refuses.
     st.frow = 1
     @test W.toggle_filter!(st, ctrl) === false
@@ -726,7 +726,7 @@ end
     st = mkstate()
     # `↵` does three different things, so the footer names the one it would do
     # from where the cursor is rather than the one it does somewhere else.
-    hint(x) = (m = match(r"(\S+ \S+) \u00b7 n/N", W.astrip(W.render(x, 200, 40)));
+    hint(x) = (m = match(r"(\S+ \S+) \u00b7 n/N", unstyled(frame(x, 200, 40)));
                m === nothing ? "" : m[1])
     e = mkstate()
     @test hint(e) == "\u21b5 read"
@@ -735,7 +735,7 @@ end
     e.sel = 1; e.focus = :detail
     @test hint(e) == "\u21b5 fold"
 
-    line = W.astrip(W.render(st, 200, 40))
+    line = unstyled(frame(st, 200, 40))
     # Every key the list and the detail bind should be findable in the footer.
     for k in ("? help", "f filters", "d diff", "h thread", "c checks", "y copy",
               "/ search/jump", "n/N node", "j/k line", "space/b page",
@@ -757,7 +757,7 @@ end
     # And `g/G`, which gave its place to `?`: the help names it, and it is the
     # key least worth a footer's column.
     @test !occursin("g/G", line)
-    @test occursin("import an item by url", W.astrip(W.render(st, 200, 40)))
+    @test occursin("import an item by url", unstyled(frame(st, 200, 40)))
     # The navigation runs at the end, so a narrow screen keeps what is worth
     # reading rather than cutting it first.
     @test findfirst("d diff", line)[1] < findfirst("j/k line", line)[1]
@@ -877,7 +877,7 @@ end
     @test occursin("nowhere to go back to", st.status)
 
     # `\'` opens the list, and picking one applies it.
-    @test occursin("' views", W.astrip(W.render(st, 160, 50)))
+    @test occursin("' views", unstyled(frame(st, 160, 50)))
     W.handle!(st, Int('\''), ctrl)
     v = last(ctrl.stack)
     @test v isa W.ChooseView && v.title == "Views"
@@ -891,7 +891,7 @@ end
     # way to press something whose position you already know. `2` is the second
     # of them, `0` the tenth, and nothing else in the program numbers a picker.
     @test v.numbered
-    box = W.astrip(W.render(v, 160, 50))
+    box = unstyled(frame(v, 160, 50))
     @test occursin(string("1  ", v.options[1][1]), box)
     @test occursin(string("2  ", v.options[2][1]), box)
     @test occursin("0-9 picks", box)
@@ -899,7 +899,7 @@ end
     # eleventh keeps the column without a key.
     ten = W.ChooseView("t", "", Tuple{String,Any}[(string("row ", i), i) for i in 1:11],
                        identity; numbered = true)
-    tbox = W.astrip(W.render(ten, 160, 50))
+    tbox = unstyled(frame(ten, 160, 50))
     @test occursin("9  row 9", tbox) && occursin("0  row 10", tbox)
     @test occursin("   row 11", tbox)
     got = Ref(0); ten.onpick = x -> (got[] = x)
@@ -927,13 +927,13 @@ end
     many = Tuple{String,Any}[(string("opt ", i, i % 2 == 0 ? "\n  under $i\n  more $i" : ""), i)
                              for i in 1:12]
     mv = W.ChooseView("t", "", many, identity; numbered = true)
-    mbox = W.astrip(W.render(mv, 160, 50))
+    mbox = unstyled(frame(mv, 160, 50))
     @test occursin("2  opt 2", mbox) && occursin("     under 2", mbox)
     @test findfirst("more 2", mbox) < findfirst("opt 3", mbox)
     @test mv.omap[1:5] == [1, 2, 2, 2, 3]
     small = W.ChooseView("t", "", many, identity)
     small.sel = 12
-    sbox = W.astrip(W.render(small, 160, 15))          # a box of five lines
+    sbox = unstyled(frame(small, 160, 15))          # a box of five lines
     @test occursin("opt 12", sbox) && occursin("more 12", sbox)
     @test small.omap == [11, 12, 12, 12, 0]             # the last option, whole
     got = Ref(0); small.onpick = x -> (got[] = x)
@@ -947,7 +947,7 @@ end
     # wheel moves it, and a click outside the box cancels - read off where
     # the last render put the rows, since the box is centred.
     got[] = 0; ten.onpick = x -> (got[] = x); ten.sel = 1
-    ls = split(W.astrip(W.render(ten, 160, 50)), "\n")
+    ls = split(unstyled(frame(ten, 160, 50)), "\n")
     r7 = findfirst(l -> occursin("7  row 7", l), ls)
     @test r7 !== nothing && r7 in ten.orows && r7 == first(ten.orows) + 6
     click(y, at) = W.onmouse!(ten, W.MouseEvent(:press, 0, 60, y, 0), ctrl, at)
@@ -1100,7 +1100,7 @@ end
     ENV["COLUMNS"], ENV["LINES"] = "150", "40"
     st = mkstate()
     st.search = "the"; st.searchin = :list; W.refilter!(st)
-    foot() = W.astrip(last(split(W.render(st, 150, 40), "\n")))
+    foot() = unstyled(last(split(frame(st, 150, 40), "\n")))
     @test occursin("/the", foot()) && occursin("to search again", foot())
     st.status = "`claude` is not on PATH"
     @test occursin("claude", foot())

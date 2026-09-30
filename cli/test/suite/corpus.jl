@@ -49,14 +49,14 @@
             for (w, h) in ((80, 24), (150, 40), (300, 60)),
                 sel in (1, length(st.items) ÷ 2, length(st.items))
                 st.sel = sel
-                ls = split(W.render(st, w, h), "\n")
-                @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                ls = split(frame(st, w, h), "\n")
+                @test length(ls) == h && all(width(l) == w for l in ls)
             end
 
             # And the metadata pane draws for **every** row, which is where a
             # husk tells: the fields it has not got are read here by name.
             st.sel = 1
-            @test all(all(W.awidth(l) <= 60 for l in W.meta_lines(st, it, 60))
+            @test all(all(width(l) <= 60 for l in W.meta_lines(st, it, 60))
                       for it in all_)
         finally
             W.FETCHED[] = keep

@@ -125,8 +125,8 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             st.nodes[i].open = !st.nodes[i].open
             st.nrow = headerrow(st, i, L.riw)
             st.anchor = 0
-        elseif r.header && col >= L.riw - awidth(COPYMARK) &&
-               endswith(astrip(r.text), COPYMARK)
+        elseif r.header && col >= L.riw - textwidth(COPYMARK) &&
+               endswith(String(r.text), COPYMARK)
             # The mark at the end of a header, which copies the node whole. The
             # target is the mark and the space in front of it - two columns,
             # like the fold marker at the other end - and it is recognised by

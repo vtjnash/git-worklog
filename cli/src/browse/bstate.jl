@@ -102,10 +102,10 @@ const CLEARED_TITLE = "\u2733 Claude Code"
 """What a session's title says, drawn: the child's own words, and `/cleared`
 after an agent's that has no conversation. Empty for a pane that never set one."""
 function title_words(kind::Symbol, title::AbstractString)
-    isempty(title) && return ""
+    isempty(title) && return row("")
     kind === :agent && title == CLEARED_TITLE &&
-        return string(THEME.dim, title, THEME.reset, "  /cleared")
-    String(title)
+        return faced(title, THEME.dim) * "  /cleared"
+    row(title)
 end
 
 "Every session this program owns, now: one `tmux list-panes`."

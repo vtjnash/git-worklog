@@ -17,7 +17,7 @@ function ci_color(state::AbstractString)
     s == "SUCCESS" ? THEME.settled :
     s in ("FAILURE", "ERROR", "TIMED_OUT") ? THEME.blocked :
     s == "PENDING" ? THEME.waiting :
-    s in ("CANCELLED", "SKIPPED", "NEUTRAL") ? THEME.dim : ""
+    s in ("CANCELLED", "SKIPPED", "NEUTRAL") ? THEME.dim : Face()
 end
 
 """Checks for an item, with failing Buildkite jobs listed underneath.
@@ -37,7 +37,7 @@ function check_nodes(it::Item; fresh::Bool = false)
     seen_builds = Set{String}()
     for x in c.contexts
         col = ci_color(x.state)
-        n = Node(string(col, rpad(x.state, 9), THEME.reset, x.name), "", :plain, false)
+        n = Node(faced(rpad(x.state, 9), col) * x.name, "", :plain, false)
         isempty(x.url) || (n.meta["url"] = x.url)
         n.raw = isempty(x.url) ? "" : x.url
         push!(ns, n)
@@ -50,8 +50,8 @@ function check_nodes(it::Item; fresh::Bool = false)
         failed = bk_failed(bk_jobs(b))
         isempty(failed) && continue
         for j in failed
-            jn = Node(string(THEME.blocked, rpad(j.state, 10), THEME.reset, j.name,
-                             j.exit === nothing ? "" : string("  (exit ", j.exit, ")")),
+            jn = Node(faced(rpad(j.state, 10), THEME.blocked) * j.name *
+                      (j.exit === nothing ? "" : string("  (exit ", j.exit, ")")),
                       "press l to fetch this job's log", :plain, false, 1)
             jn.meta["bk"] = b
             jn.meta["job"] = j.id

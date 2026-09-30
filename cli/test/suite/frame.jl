@@ -6,10 +6,10 @@
     # hand-built item list would not exercise the widths that actual titles do.
     for (w, h) in ((80, 24), (110, 40), (160, 50), (100, 12), (200, 60), (72, 8))
         st = mkstate()
-        f = W.render(st, w, h)
+        f = frame(st, w, h)
         ls = split(f, "\n")
         @test length(ls) == h
-        @test all(W.awidth(l) == w for l in ls)
+        @test all(width(l) == w for l in ls)
     end
 end
 
@@ -34,16 +34,15 @@ end
     st.nodes = [asked, answered]
     for open in (false, true)
         answered.open = open
-        f = W.render(st, 150, 40)
+        f = frame(st, 150, 40)
         for l in split(f, "\n")
-            @test W.awidth(l) == 150
+            @test width(l) == 150
         end
         @test !occursin("\e]8;;\e]8;;", f)      # never one inside another
     end
     # And the substitution it was there to make still happens: a url in the body
     # is still a link, it is only the sequences around it that are left alone.
-    @test occursin(string("\e]8;;", u, "\e\\\e[4m", u),
-                   W.render(st, 150, 40))
+    @test count(string("\e]8;;", u, "\e\\"), frame(st, 150, 40)) >= 2
 
     # The same tearing from the other direction. The link list is one entry per
     # url per *node*, so a url cited in four comments - nanosoldier posts one
@@ -54,11 +53,11 @@ end
     short = W.shortlink(u, 60)
     line = string("see ", short, " twice")
     @test W.linkify(line, [short => u]) == W.linkify(line, [short => u, short => u])
-    @test W.awidth(W.linkify(line, [short => u, short => u])) == W.awidth(line)
+    @test width(W.linkify(line, [short => u, short => u])) == width(line)
     # Longest first, so a display form that is the head of another cannot take
     # the match from it and send the reader somewhere else.
     a, b = "https://x.invalid/a", "https://x.invalid/ab"
-    out = W.linkify("see https://x.invalid/ab here", [a => a, b => b])
+    out = ansi(W.linkify("see https://x.invalid/ab here", [a => a, b => b]))
     @test occursin(string("\e]8;;", b, "\e\\"), out)
     @test !occursin(string("\e]8;;", a, "\e\\"), out)
 
@@ -66,9 +65,9 @@ end
     # includes the text between its ends: a footnote row links itself, and its
     # label is the very string these patterns match.
     made = W.osc8("https://x.invalid/a", "https://x.invalid/a")
-    out = W.linkify(string("[1] ", made), ["https://x.invalid/a" => "https://x.invalid/a"])
-    @test out == string("[1] ", made)                 # left exactly as it was
-    @test !occursin("\e]8;;\e]8;;", out)
+    out = W.linkify("[1] " * made, ["https://x.invalid/a" => "https://x.invalid/a"])
+    @test out == "[1] " * made                        # left exactly as it was
+    @test !occursin("\e]8;;\e]8;;", ansi(out))
 
     # Two urls where one is the head of the other - an issue and a comment on
     # that issue is the everyday case - and both too long to be shown whole.
@@ -79,24 +78,24 @@ end
     cmt = string(iss, "#issuecomment-1701494121")
     @test W.shortlink(iss, 60) != W.shortlink(cmt, 60)
     @test endswith(W.shortlink(cmt, 60), "1701494121")   # the half that differs
-    @test W.awidth(W.shortlink(cmt, 60)) <= 60
+    @test width(W.shortlink(cmt, 60)) <= 60
     two = mkstate()
     two.nodes = W.body_nodes("alice  2026-08-01   two links",
                              string("see [the issue](", iss, ") and [the comment](", cmt, ")"),
                              "http://x", true)
     two.loaded = string(two.items[two.sel].url, ":", two.mode)
-    f = W.render(two, 150, 40)
+    f = frame(two, 150, 40)
     got = [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", f)]
     @test iss in got && cmt in got
     @test !occursin("\e]8;;\e]8;;", f)
-    for l in split(f, "\n"); @test W.awidth(l) == 150; end
+    for l in split(f, "\n"); @test width(l) == 150; end
 end
 
 @testset "a reference is a link, the way GitHub draws it" begin
     repo = "JuliaLang/julia"
     iss(n, r = repo) = string("https://github.com/", r, "/issues/", n)
     com(s, r = repo) = string("https://github.com/", r, "/commit/", s)
-    targets(s) = [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", s)]
+    targets(s) = [m[1] for m in eachmatch(r"\e\]8;;([^\e]+)\e", ansi(s))]
     al(s) = W.autolink(s, repo)
 
     @test targets(al("fixed by #52011, see also #7")) == [iss(52011), iss(7)]
@@ -112,9 +111,9 @@ end
         @test targets(al(s)) == []
     end
     # The text is the same text, and the columns the same columns.
-    row = string(W.THEME.dim, "0ab12cd4  2026-09-01T10:00  fix #12", W.THEME.reset)
-    @test W.astrip(al(row)) == W.astrip(row)
-    @test W.awidth(al(row)) == W.awidth(row)
+    row = W.faced("0ab12cd4  2026-09-01T10:00  fix #12", W.THEME.dim)
+    @test unstyled(al(row)) == unstyled(row)
+    @test width(al(row)) == width(row)
     @test targets(al(row)) == [com("0ab12cd4"), iss(12)]
     # Nothing inside a link already there, and nothing at all without a
     # repository to point into.
@@ -193,13 +192,13 @@ end
     st2 = mkstate()
     st2.nodes = [W.Node("someone  2026-09-02", "see https://example.com/x here", :md, true)]
     st2.loaded = string(st2.items[st2.sel].url, ":", st2.mode)
-    W.render(st2, 160, 50)
+    frame(st2, 160, 50)
     L = W.layout(160, 50, st2.nmeta)
     ctrl = W.Controller()
     rs = W.rows(st2.nodes, L.riw)
-    i = findfirst(x -> occursin("https://example.com/x", W.astrip(x.text)), rs)
+    i = findfirst(x -> occursin("https://example.com/x", unstyled(x.text)), rs)
     @test i !== nothing
-    c = first(findfirst("https://", W.astrip(rs[i].text))) + 4
+    c = first(findfirst("https://", unstyled(rs[i].text))) + 4
     W.onmouse!(st2, W.MouseEvent(:press, 0, L.rx + c, L.ry + 1 + st2.hdr + i - 1, 0), ctrl)
     @test occursin("copied", st2.status) && occursin("example.com/x", st2.status)
     # Copying is not the start of a selection: a drag from here selects nothing.
@@ -221,12 +220,12 @@ end
                             "It is in `typeinfer.jl:544`, at the widening.",
                             "https://x.invalid/c", true)
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
-    W.render(st, 150, 40)
+    frame(st, 150, 40)
     L = W.layout(150, 40, st.nmeta)
     ctrl = W.Controller()
     rs = W.rows(st.nodes, L.riw, true)
     body = findfirst(r -> occursin("typeinfer", r.src) && !r.header, rs)
-    txt = W.astrip(rs[body].text)
+    txt = unstyled(rs[body].text)
     at_word = first(findfirst("typeinfer", txt)) + 3
     r = rs[body]
     # The word is the run of non-space around the pointer, so a path or an
@@ -255,9 +254,9 @@ end
     # The mark is drawn at the end of a header, and only where the pane is
     # actually drawn - it is an offer to click, and `m` can hand the mouse back
     # to the terminal.
-    @test endswith(W.astrip(rs[1].text), W.COPYMARK)
-    @test !occursin(W.COPYMARK, W.astrip(W.rows(st.nodes, L.riw)[1].text))
-    @test all(W.awidth(r.text) <= L.riw for r in rs)
+    @test endswith(unstyled(rs[1].text), W.COPYMARK)
+    @test !occursin(W.COPYMARK, unstyled(W.rows(st.nodes, L.riw)[1].text))
+    @test all(width(r.text) <= L.riw for r in rs)
     st.status = ""
     click(L.rx + L.riw, y0, 300.0)                 # the mark, at the right edge
     @test st.status == string("copied ", count(==('\n'), W.node_text(st.nodes, 1, L.riw)) + 1,
@@ -285,12 +284,12 @@ end
                             "Try:\n\n```julia\nusing Downloads\nx = 1\n```\n\nand report back.",
                             "http://x", true)
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
-    W.render(st, 150, 40)
+    frame(st, 150, 40)
     for folded in (false, true)
         st.nodes[2].open = !folded
         rs2 = W.rows(st.nodes, L.riw, true)
         code = findfirst(r -> r.header && r.node == 2, rs2)
-        @test endswith(W.astrip(rs2[code].text), W.COPYMARK)    # nested, at the edge
+        @test endswith(unstyled(rs2[code].text), W.COPYMARK)    # nested, at the edge
         st.status = ""
         click(L.rx + L.riw, y0 + code - 1, folded ? 600.0 : 700.0)
         @test st.status == "copied 2 lines"
@@ -306,7 +305,7 @@ end
     # In the item list there is one thing worth copying, and a double click on
     # the row you are already on is how it is asked for.
     st2 = mkstate()
-    W.render(st2, 150, 40)
+    frame(st2, 150, 40)
     st2.focus = :list
     row = L.ly + 1 + 1 + st2.sel        # the import row leads, so +1
     st2.status = ""
@@ -320,7 +319,7 @@ end
 @testset "click maps to the row under it" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
-    W.render(st, 160, 50)
+    frame(st, 160, 50)
     L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
 
@@ -339,7 +338,7 @@ end
     # Clicking the detail pane's first content row lands on the first title row,
     # which is header, not content - so nrow stays put and focus moves.
     st2 = mkstate()
-    W.render(st2, 160, 50)
+    frame(st2, 160, 50)
     L = W.layout(160, 50, st2.nmeta)
     press2(x, y) = W.onmouse!(st2, W.MouseEvent(:press, 0, x, y, 0), ctrl)
     press2(L.rx + 10, L.ry + 1 + st2.hdr)          # first node row (its header)
@@ -357,7 +356,7 @@ end
     st3.nodes = [W.Node("someone  2026-09-02", "text", :md, true),
                  W.Node("code", "x = 1", :plain, true, 1)]
     st3.loaded = string(st3.items[st3.sel].url, ":", st3.mode)
-    W.render(st3, 160, 50)
+    frame(st3, 160, 50)
     j = findfirst(r -> r.node == 2 && r.header, W.rows(st3.nodes, L.riw))
     press3(x) = W.onmouse!(st3, W.MouseEvent(:press, 0, x, L.ry + st3.hdr + j, 0), ctrl)
     press3(L.rx + 2)
@@ -366,7 +365,7 @@ end
     @test !st3.nodes[2].open
 
     # Clicking past the end of the content, or on a border, changes nothing.
-    W.render(st2, 160, 50)
+    frame(st2, 160, 50)
     before = (st2.nrow, st2.sel, st2.focus)
     press2(L.rx + 10, L.ry + L.rh - 3)      # blank rows below the last node
     @test (st2.nrow, st2.sel, st2.focus) == before
@@ -381,7 +380,7 @@ end
 @testset "drag selects, and the copy is unwrapped" begin
     ENV["COLUMNS"], ENV["LINES"] = "160", "50"
     st = mkstate()
-    W.render(st, 160, 50)
+    frame(st, 160, 50)
     L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
     y0 = L.ry + 1 + st.hdr
@@ -404,7 +403,7 @@ end
     @test [sr for (_, sr) in n.srcs if !isempty(sr)] == ["prose", "short line", "another"]
 
     # The selection survives a redraw and shows in the pane title.
-    f = W.render(st, 160, 50)
+    f = frame(st, 160, 50)
     @test occursin("3 selected", f)
     @test W.selrange(st) == (2, 4)
 
@@ -442,15 +441,15 @@ end
 
     for w in (30, 40, 60, 96)
         rs = W.rows([n, nested], w)
-        @test all(W.awidth(r.text) <= w for r in rs)      # nothing overflows
+        @test all(width(r.text) <= w for r in rs)      # nothing overflows
         hdr = [r for r in rs if r.node == 1 && r.header]
         # Every word of the header survives somewhere.
-        joined = replace(W.astrip(join([r.text for r in hdr], " ")), r"[─]+" => "")
+        joined = replace(unstyled(join([r.text for r in hdr], " ")), r"[─]+" => "")
         @test all(occursin(word, joined) for word in split(long))
         @test !occursin("…", joined)                      # not truncated
         @test hdr[1].part == 0 && all(r.part == 1 for r in hdr[2:end])
-        @test occursin("▾", W.astrip(hdr[1].text))
-        length(hdr) > 1 && @test !any(occursin("▾", W.astrip(r.text)) for r in hdr[2:end])
+        @test occursin("▾", unstyled(hdr[1].text))
+        length(hdr) > 1 && @test !any(occursin("▾", unstyled(r.text)) for r in hdr[2:end])
     end
     @test length([r for r in W.rows([n, nested], 30) if r.node == 1 && r.header]) > 1
     @test length([r for r in W.rows([n, nested], 200) if r.node == 1 && r.header]) == 1
@@ -473,13 +472,13 @@ end
     # top-level header: the rule it draws needs something to be a rule under.
     rs0 = W.rows(ns, 60)
     @test length(rs0) == 9
-    @test count(r -> isempty(W.astrip(r.text)), rs0) == 1
+    @test count(r -> isempty(unstyled(r.text)), rs0) == 1
     # And it is a header continuation, so nothing that counts a node's body rows
     # counts the spacing it is drawn with.
-    blank = first(r for r in rs0 if isempty(W.astrip(r.text)))
+    blank = first(r for r in rs0 if isempty(unstyled(r.text)))
     @test blank.header && blank.part == 1 && isempty(blank.src)
     # A top-level header carries a rule out to the pane edge; ignore it here.
-    derule(x) = String(rstrip(replace(W.astrip(x), r"[─ ]+$" => "")))
+    derule(x) = String(rstrip(replace(unstyled(x), r"[─ ]+$" => "")))
     ns[1].open = false
     shown = [derule(r.text) for r in W.rows(ns, 60)]
     @test shown == ["▸ comment", "", "▾ sibling", "shown"]
@@ -492,10 +491,10 @@ end
     # one, which is what separates one comment from the next.
     ns[1].open = true; ns[2].open = true
     rs = W.rows(ns, 60)
-    top = first(r for r in rs if occursin("comment", W.astrip(r.text)))
-    nested = first(r for r in rs if occursin("folded", W.astrip(r.text)))
-    @test W.awidth(top.text) == 60
-    @test !occursin("─", W.astrip(nested.text))
+    top = first(r for r in rs if occursin("comment", unstyled(r.text)))
+    nested = first(r for r in rs if occursin("folded", unstyled(r.text)))
+    @test width(top.text) == 60
+    @test !occursin("─", unstyled(nested.text))
 end
 
 @testset "review comments land on their hunk" begin
@@ -515,17 +514,17 @@ end
     hs = [hunk("a.jl", 10, 5), hunk("b.jl", 100, 3)]
     out = W.attach_comments(copy(hs), [cmt(1, "a.jl", 12), cmt(2, "a.jl", 12; reply = 1),
                                        cmt(3, "b.jl", 101)], "http://x")
-    hdr(n) = W.astrip(n.header)
+    hdr(n) = unstyled(n.header)
     @test occursin("💬1", hdr(out[1]))                    # the hunk says so
     @test hdr(out[2]) == "alice  2026-08-01 10:00   a remark" && out[2].depth == 1
     # The peek is what makes a folded comment readable, and what makes an open
     # one say itself twice - so open, the header is the byline alone and the
     # words are on the row underneath it, once.
-    open_ = W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2))
+    open_ = unstyled(first(r.text for r in W.rows(out, 90) if r.node == 2))
     @test occursin("alice  2026-08-01 10:00", open_) && !occursin("a remark", open_)
     out[2].open = false
     @test occursin("a remark",
-                   W.astrip(first(r.text for r in W.rows(out, 90) if r.node == 2)))
+                   unstyled(first(r.text for r in W.rows(out, 90) if r.node == 2)))
     out[2].open = true
     @test out[3].depth == 2                               # the reply nests under it
     @test occursin("💬1", hdr(out[4]))                    # and the second hunk
@@ -537,7 +536,7 @@ end
     @test bucket !== nothing
     @test !out[bucket].open                               # folded, so they are away
     @test count(n -> n.depth == 1, out[bucket:end]) == 3
-    @test !any(occursin("a remark", W.astrip(r.text)) for r in W.rows(out, 90))
+    @test !any(occursin("a remark", unstyled(r.text)) for r in W.rows(out, 90))
 
     # A comment on a deleted line is anchored to the old side of the hunk.
     hs2 = [hunk("a.jl", 10, 5, 40, 6)]
@@ -556,21 +555,21 @@ end
                                "http://x")
     @test W.hunk_marks(marked[1]) == Dict(1 => (1, 0), 2 => (1, 0))
     body = [r for r in W.rows(marked, 70) if r.node == 1 && !r.header]
-    @test [W.astrip(r.text) for r in body] == ["-old", "+new"]
-    @test [W.astrip(r.gutter) for r in body] == ["💬", "💬"]
+    @test [unstyled(r.text) for r in body] == ["-old", "+new"]
+    @test [unstyled(r.gutter) for r in body] == ["💬", "💬"]
     @test all(isempty(r.gutter) for r in W.rows(marked, 70) if r.header)
     # Two threads on one line say their count at the end of the row, since the
     # gutter has room for the mark and not for a number.
     two = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
                             [cmt(1, "a.jl", 10), cmt(2, "a.jl", 10)], "http://x")
     tworows = [r for r in W.rows(two, 70) if r.node == 1 && !r.header]
-    @test W.astrip(tworows[2].text) == "+new  💬2" && W.astrip(tworows[2].gutter) == "💬"
+    @test unstyled(tworows[2].text) == "+new  💬2" && unstyled(tworows[2].gutter) == "💬"
     @test isempty(tworows[1].gutter)
     # On screen: the mark stands where the border was on that row, and the
     # border is there on the rows around it.
     st = mkstate(); st.mode = :diff; st.nodes = marked
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
-    pane = W.astrip.(W.detail_pane(st, st.items[st.sel], 60, 12, true))
+    pane = unstyled.(W.detail_pane(st, st.items[st.sel], 60, 12, true))
     at = findfirst(l -> occursin("-old", l), pane)
     @test at !== nothing && startswith(pane[at], "💬-old")
     @test startswith(pane[at + 1], "💬+new") && startswith(pane[at - 1], "│")
@@ -587,7 +586,7 @@ end
     done_ = W.attach_comments(copy([hunk("a.jl", 10, 2, 40, 2)]),
                               [cmt(1, "a.jl", 10)], "http://x", Set([1]))
     @test W.hunk_marks(done_[1]) == Dict(2 => (0, 1))
-    @test occursin("✓", [W.astrip(r.text) for r in W.rows(done_, 70) if r.node == 1][3])
+    @test occursin("✓", [unstyled(r.text) for r in W.rows(done_, 70) if r.node == 1][3])
     # `[`/`]` widens the hunk upwards, which moves every row and no line number
     # - so the marks are kept as line numbers and worked out against the hunk as
     # it now stands. Two rows of context above turn row 2 into row 4.
@@ -597,7 +596,7 @@ end
     @test W.hunk_marks(wide) == Dict(3 => (1, 0), 4 => (1, 0))
     # And the tally survives that rebuild, which throws the header away.
     wide.header = string(wide.meta["file"], "  @@ 10,2 @@", get(wide.meta, "tally", ""))
-    @test occursin("💬2", W.astrip(wide.header))
+    @test occursin("💬2", unstyled(wide.header))
 end
 
 @testset "a diff header says what it heads by its background" begin
@@ -620,21 +619,21 @@ end
         rs = W.rows(ns, 80)
         bgof(i) = W.header_bg(st, rs[findfirst(r -> r.node == i && r.header &&
                                                     !isempty(r.text), rs)])
-        @test bgof(1) == W.THEME.diff_hunk_bg != ""
-        @test bgof(2) == W.THEME.diff_comment_bg != ""
-        @test bgof(4) == W.THEME.diff_file_bg != ""
+        @test bgof(1) == W.THEME.diff_hunk_bg != W.Face()
+        @test bgof(2) == W.THEME.diff_comment_bg != W.Face()
+        @test bgof(4) == W.THEME.diff_file_bg != W.Face()
         # Not a body row, and not the blank row above a header.
-        @test all(W.header_bg(st, r) == "" for r in rs
+        @test all(W.header_bg(st, r) == W.Face() for r in rs
                   if !r.header || (r.part == 1 && isempty(r.text)))
         # And the cursor's outranks it, so the cursor still shows on a header.
         st.focus = :detail
         st.nrow = findfirst(r -> r.node == 1 && r.header, rs)
         st.loaded = string(st.items[st.sel].url, ":", st.mode)
-        out = W.render(st, 160, 50)
-        @test occursin(W.THEME.diff_file_bg, out) && occursin(W.THEME.cursor_bg, out)
+        out = frame(st, 160, 50)
+        @test faceon(W.THEME.diff_file_bg, out) && faceon(W.THEME.cursor_bg, out)
         # A comment in the history is not a diff's, and has none.
         st.mode = :comments
-        @test bgof(2) == ""
+        @test bgof(2) == W.Face()
     finally
         W.load_theme!(THEME_DEFAULT)
     end
@@ -669,17 +668,17 @@ end
         bgof(pred) = (i = findfirst(pred, ns);
                       W.header_bg(st, rs[findfirst(r -> r.node == i && r.header &&
                                                         !isempty(r.text), rs)]))
-        has(s) = n -> occursin(s, W.astrip(n.header))
-        @test bgof(has("opened this")) == W.THEME.thread_bg != ""
-        @test bgof(n -> n.depth == 0 && occursin("mine", n.raw)) == W.THEME.thread_mine_bg != ""
+        has(s) = n -> occursin(s, unstyled(n.header))
+        @test bgof(has("opened this")) == W.THEME.thread_bg != W.Face()
+        @test bgof(n -> n.depth == 0 && occursin("mine", n.raw)) == W.THEME.thread_mine_bg != W.Face()
         @test bgof(n -> n.depth == 0 && occursin("theirs", n.raw)) == W.THEME.thread_bg
         # The timeline between the boxes is not one, nor is a block inside one.
-        @test bgof(has("pushed")) == ""
-        @test bgof(has("closed")) == ""
-        @test bgof(has("code")) == ""
+        @test bgof(has("pushed")) == W.Face()
+        @test bgof(has("closed")) == W.Face()
+        @test bgof(has("code")) == W.Face()
         # And it is the thread's: the same nodes under `d` are not.
         st.mode = :diff
-        @test bgof(has("opened this")) == ""
+        @test bgof(has("opened this")) == W.Face()
     finally
         W.load_theme!(THEME_DEFAULT)
         W.CACHE_DIR[], W.CACHE_FRESH[] = keepdir, keepfresh
@@ -695,21 +694,21 @@ end
           " same\n-old \e[31mred\e[0m\n+new \x07bell\r\n"
     ns = W.hunk_nodes(txt, "http://x")
     @test length(ns) == 2
-    @test occursin("4 control characters", W.astrip(ns[1].header))
+    @test occursin("4 control characters", unstyled(ns[1].header))
     @test ns[1].kind === :plain && !haskey(ns[1].meta, "file")   # stepped over
     @test ns[2].raw == " same\n-old ^[[31mred^[[0m\n+new ^Gbell^M\n"
     @test ns[2].meta["body"] == ns[2].raw                        # what C measures
     @test ns[2].meta["start"] == 1 && ns[2].meta["count"] == 2   # ranges untouched
     @test !any(occursin(r"[\x00-\x08\x0b-\x1f\x7f]", r.src) for r in W.rows(ns, 80))
     # A clean diff carries no such row.
-    @test !any(n -> occursin("control", W.astrip(n.header)),
+    @test !any(n -> occursin("control", unstyled(n.header)),
                W.hunk_nodes("diff --git a/a.jl b/a.jl\n@@ -1 +1 @@\n-a\n+b\n", "u"))
     @test W.inert("a\tb\nc") == ("a\tb\nc", 0)
     @test W.inert("\x7f\u0085") == ("^?^E", 2)                    # DEL, and C1
 
     # The range-diff parser draws the same row for the same reason.
     rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n    -\e[1mz\n")
-    @test occursin("1 control character in", W.astrip(rd[1].header))
+    @test occursin("1 control character in", unstyled(rd[1].header))
     @test occursin("^[[1mz", rd[2].raw)
 
     # And GitHub's diff is asked for once, by the pull request's path, and
@@ -717,8 +716,8 @@ end
     # on a failed node, never a row printed onto the frame.
     it = W.Item(url = "u", ref = "o/r#1", repo = "o/r", number = 1, title = "t")
     calls = String[]
-    plain(path) = (push!(calls, path); (0, txt, ""))
-    @test W.fetch_diff(it; run = plain) == txt
+    answered(path) = (push!(calls, path); (0, txt, ""))
+    @test W.fetch_diff(it; run = answered) == txt
     @test calls == ["/repos/o/r/pulls/1"]
     @test_throws W.FetchError W.fetch_diff(it; run = _ -> (1, "", "no pull requests found"))
     failed = W.diff_nodes(it; fresh = true, run = _ -> (1, "", "no pull requests found"))
@@ -733,7 +732,10 @@ end
     @test W.detab("a\tb") == "a       b"
     @test W.detab("\tgcc\t-o") == "        gcc     -o"
     @test W.detab("abcdefgh\tx") == "abcdefgh        x"         # at a stop: a full one
-    @test W.detab("\e[31mab\e[0m\tc") == "\e[31mab\e[0m      c"   # escapes take no columns
+    # Faces take no columns, and the spaces a tab becomes are in its faces.
+    red = W.Face(foreground = W.SimpleColor(:red))
+    @test ansi(W.detab(W.faced("ab", red) * "\tc")) == ansi(W.faced("ab", red) * "      c")
+    @test ansi(W.detab(W.faced("a\tb", red))) == ansi(W.faced("a       b", red))
     @test W.detab("日本\tx") == "日本    x"                     # wide characters count two
     @test W.detab("plain") == "plain"
     txt = "diff --git a/Makefile b/Makefile\n@@ -1,2 +1,2 @@\n all:\n-\tgcc a.c\n+\tgcc -O2 a.c\n"
@@ -741,14 +743,15 @@ end
     rs = [r for r in W.rows(ns, 80) if r.node == 1 && !r.header]
     # The marker is column 0, as `git diff` on a terminal has it, so the stop
     # is seven spaces on.
-    @test W.astrip(rs[2].text) == "-       gcc a.c"
-    @test W.astrip(rs[3].text) == "+       gcc -O2 a.c"
+    @test unstyled(rs[2].text) == "-       gcc a.c"
+    @test unstyled(rs[3].text) == "+       gcc -O2 a.c"
     @test rs[3].src == "+\tgcc -O2 a.c"
     # The word marks are byte ranges of the line as written, and survive the
     # expansion that follows them.
-    @test occursin(string(W.THEME.diff_add_word, "-O2 ", W.THEME.diff_add_word_off), rs[3].text)
+    word = [t for (t, f) in faces(rs[3].text) if f == W.THEME.diff_add_word]
+    @test word == ["-O2 "]
     # And the widths agree with what the terminal will draw.
-    @test W.awidth(rs[3].text) == length("+       gcc -O2 a.c")
+    @test width(rs[3].text) == length("+       gcc -O2 a.c")
     # A plain node - a log, a range-diff - is drawn the same way and copies
     # the same way.
     p = W.Node("h", "x\ty\n\tz", :plain, true)
@@ -771,65 +774,67 @@ end
     unread, read_ = st.items[3], st.items[4]
     # Unread is what `seen_of` says: no stamp, or one from before it moved.
     st.done = Dict(read_.url => "2099-01-01T00:00:00Z")
-    f = W.render(st, 150, 40)
+    f = frame(st, 150, 40)
     lines = split(f, "\n")
     # Inside the list pane and nowhere else. The frame is drawn bold, the detail
     # beside it carries every weight there is, and the title bar names the
     # selected item too - so a row asked about the whole screen line would be
     # answered by any of the three. `│` is what a body row starts with, and the
     # cut at `leftw - 1` leaves the pane's own right border out of the answer.
-    row(it) = last(split(W.afit(first(l for l in lines if startswith(W.astrip(l), "│") &&
-                                      occursin(it.ref, first(W.astrip(l), W.leftw(150)))),
-                                W.leftw(150) - 1), W.THEME.reset; limit = 2))
-    @test occursin(W.THEME.bold, row(unread))
-    @test !occursin(W.THEME.bold, row(read_))
-    @test !occursin(W.THEME.dim, row(read_))       # nor dim, which is the whole point
+    # As rows of faces, the border's cut off: what is inside the list pane.
+    row(it) = (rs = W.render(st, 150, 40);
+               r = first(r for r in rs if startswith(String(r), "│") &&
+                                          occursin(it.ref, first(String(r), W.leftw(150))));
+               W.rowtail(W.rowhead(r, W.leftw(150) - 1), W.leftw(150) - 3))
+    @test faceon(W.THEME.bold, row(unread))
+    @test !faceon(W.THEME.bold, row(read_))
+    @test !faceon(W.THEME.dim, row(read_))       # nor dim, which is the whole point
     # A bell standing on an item is unread and in `rang`, as its `T`'s badge
     # is in the checkout picker; the rows without one are not.
-    @test !occursin(W.THEME.rang, row(unread))
+    @test !faceon(W.THEME.rang, row(unread))
     st.rang = Set([read_.url])
-    lines = split(W.render(st, 150, 40), "\n")
-    @test occursin(W.THEME.rang, row(read_)) && occursin(W.THEME.bold, row(read_))
-    @test !occursin(W.THEME.rang, row(unread))
+    lines = split(frame(st, 150, 40), "\n")
+    @test faceon(W.THEME.rang, row(read_)) && faceon(W.THEME.bold, row(read_))
+    @test !faceon(W.THEME.rang, row(unread))
     st.focus = :detail                             # and kept in the quiet list
-    lines = split(W.render(st, 150, 40), "\n")
-    @test occursin(W.THEME.rang, row(read_)) && occursin(W.THEME.quiet, row(read_))
+    lines = split(frame(st, 150, 40), "\n")
+    @test faceon(W.THEME.rang, row(read_)) && faceon(W.THEME.quiet, row(read_))
     st.focus = :list; st.rang = Set{String}()
-    lines = split(W.render(st, 150, 40), "\n")
+    lines = split(frame(st, 150, 40), "\n")
     # The cursor is a background now, the way the reading pane's line is: bold
     # is spoken for, and a bright-white bold row among bold rows is not a
     # cursor. It covers the row rather than the words on it.
-    @test occursin(W.THEME.cursor_bg, row(st.items[st.sel]))
-    @test !occursin(W.THEME.cursor_bg, row(unread)) &&
-          !occursin(W.THEME.cursor_bg, row(read_))
-    @test W.awidth(first(l for l in lines if occursin(W.THEME.cursor_bg, l))) == 150
+    @test faceon(W.THEME.cursor_bg, row(st.items[st.sel]))
+    @test !faceon(W.THEME.cursor_bg, row(unread)) &&
+          !faceon(W.THEME.cursor_bg, row(read_))
+    @test width(first(l for l in lines if faceon(W.THEME.cursor_bg, l))) == 150
     # And it stays lit with the keys on the reading side: it says which item
     # is being read, and the border says which side has the keys - as does the
     # whole list going dim, weight and cursor still under it.
     st.focus = :detail
-    lines = split(W.render(st, 150, 40), "\n")
-    @test occursin(W.THEME.cursor_bg, row(st.items[st.sel]))
-    @test occursin(W.THEME.quiet, row(read_)) && occursin(W.THEME.quiet, row(unread))
-    @test occursin(W.THEME.quiet, row(st.items[st.sel]))
+    lines = split(frame(st, 150, 40), "\n")
+    @test faceon(W.THEME.cursor_bg, row(st.items[st.sel]))
+    @test faceon(W.THEME.quiet, row(read_)) && faceon(W.THEME.quiet, row(unread))
+    @test faceon(W.THEME.quiet, row(st.items[st.sel]))
     # The ANSI theme has no `quiet_bold`: bold over dim is the pair terminals
     # disagree about, so the weight goes rather than being drawn wrong. A
     # 256-colour theme names one, and the unread row keeps it in place of
     # `bold`, which there carries a foreground of its own.
-    @test isempty(W.THEME.quiet_bold) && !occursin(W.THEME.bold, row(unread))
+    @test W.THEME.quiet_bold == W.Face() && !faceon(W.THEME.bold, row(unread))
     W.load_theme!(joinpath(W.ROOT, "themes", "github-dark-256.toml"))
     try
-        lines = split(W.render(st, 150, 40), "\n")
-        @test !isempty(W.THEME.quiet_bold) && W.THEME.quiet_bold != W.THEME.bold
-        @test occursin(W.THEME.quiet_bold, row(unread)) && !occursin(W.THEME.bold, row(unread))
-        @test !occursin(W.THEME.quiet_bold, row(read_)) && occursin(W.THEME.quiet, row(read_))
+        lines = split(frame(st, 150, 40), "\n")
+        @test W.THEME.quiet_bold != W.Face() && W.THEME.quiet_bold != W.THEME.bold
+        @test faceon(W.THEME.quiet_bold, row(unread)) && !faceon(W.THEME.bold, row(unread))
+        @test !faceon(W.THEME.quiet_bold, row(read_)) && faceon(W.THEME.quiet, row(read_))
     finally
         W.load_theme!(THEME_DEFAULT)
     end
     st.focus = :list
-    lines = split(W.render(st, 150, 40), "\n")
+    lines = split(frame(st, 150, 40), "\n")
     # The import row keeps its dim, being the one row that is not an item.
-    @test occursin(W.THEME.dim, first(l for l in lines if occursin("import an item",
-                                                           W.astrip(l))))
+    @test faceon(W.THEME.dim, first(l for l in lines if occursin("import an item",
+                                                           unstyled(l))))
 end
 
 @testset "? is the footer's other half" begin
@@ -851,10 +856,10 @@ end
     # README's table is in it - the table is the same list, kept by hand, and
     # this is what notices one falling behind the other.
     for (w, h) in ((80, 24), (120, 60), (200, 50), (60, 10))
-        f = W.render(v, w, h)
+        f = frame(v, w, h)
         ls = split(f, "\n")
         @test length(ls) == h
-        @test all(W.awidth(l) == w for l in ls)
+        @test all(width(l) == w for l in ls)
     end
     said = join((e isa String ? e : string(e[1], " ", e[2]) for e in W.HELP), "\n")
     table = false
@@ -881,7 +886,7 @@ end
     @test n > W.help_page(20)
     @test W.handle!(v, Int('j'), ctrl) === :ok && v.top == 2
     @test W.handle!(v, Int('G'), ctrl) === :ok && v.top == n - W.help_page(20) + 1
-    @test occursin(string(n, " of ", n), W.astrip(W.render(v, 120, 20)))
+    @test occursin(string(n, " of ", n), unstyled(frame(v, 120, 20)))
     @test W.handle!(v, Int('g'), ctrl) === :ok && v.top == 1
     @test W.handle!(v, Int(' '), ctrl) === :ok && v.top == 1 + W.help_page(20)
     @test W.handle!(v, Int('k'), ctrl) === :ok && v.top == W.help_page(20)
@@ -918,8 +923,9 @@ end
     a, b = "f(x₃) + x₃", "f(x₃) - y₃"
     _, ra, rb = W.word_marks(a, b)
     @test ra == [9:9, 11:12] && rb == [9:9, 11:12]
-    @test W.astrip(W.markwords(a, ra, "<", ">")) == "f(x₃) <+> <x₃>"
-    @test W.astrip(W.markwords(b, rb, "<", ">")) == "f(x₃) <-> <y₃>"
+    marked(l, rs) = first.(faces(W.markwords(l, rs, W.Face(inverse = true))))
+    @test marked(a, ra) == ["+", "x₃"]
+    @test marked(b, rb) == ["-", "y₃"]
     _, ra, rb = W.word_marks("s = x₃", "s = x₃y")
     @test ra == [5:6] && rb == [5:9]                         # `x₃` ends at 6, not byte 8
 
@@ -946,15 +952,19 @@ end
     # Drawn in the word role inside the line's colour, and closed by what
     # ends a background alone, so the cursor's background over the row is
     # re-armed by `hlrow` and the line's own colour runs on.
-    keep = W.THEME.diff_add, W.THEME.diff_add_word, W.THEME.diff_add_word_off, W.THEME.reset
-    W.THEME.diff_add = "\e[32m"; W.THEME.diff_add_word = "\e[48;5;22m"
-    W.THEME.diff_add_word_off = "\e[49m"; W.THEME.reset = "\e[0m"
+    keep = W.THEME.diff_add, W.THEME.diff_add_word
+    add, word = W.parse_face("green"), W.parse_face("on 22")
+    W.THEME.diff_add, W.THEME.diff_add_word = add, word
     try
-        @test W.diffline("+a = 10", [6:7]) == "\e[32m+a = \e[48;5;22m10\e[49m\e[0m"
-        @test W.diffline("+a = 10") == "\e[32m+a = 10\e[0m"
-        @test W.astrip(W.diffline("+a = 10", [6:7])) == "+a = 10"
+        @test faces(W.diffline("+a = 10", [6:7])) == ["+a = 10" => add, "10" => word]
+        @test faces(W.diffline("+a = 10")) == ["+a = 10" => add]
+        @test unstyled(W.diffline("+a = 10", [6:7])) == "+a = 10"
+        # The word's background over the line's colour, and the line's colour
+        # on after it.
+        @test ansi(W.diffline("+a = 10", [6:7])) ==
+              ansi(W.faced("+a = ", add) * W.faced(W.faced("10", word), add))
     finally
-        W.THEME.diff_add, W.THEME.diff_add_word, W.THEME.diff_add_word_off, W.THEME.reset = keep
+        W.THEME.diff_add, W.THEME.diff_add_word = keep
     end
     # A node of the two lines renders with the marks and copies without them.
     n = W.Node("a.jl  @@ 1,2 @@", "-a = 1\n+a = 10", :diff, true)
@@ -977,11 +987,11 @@ end
 
     # Into the bottom border, right-aligned, and the box keeps its size.
     box = W.TermIFrame.bordered(["a"], 40, 4, "t"; focused = false)
-    was = W.awidth.(box)
+    was = width.(box)
     W.footer!(box, "loaded 14:02")
-    @test W.awidth.(box) == was
-    @test endswith(W.astrip(box[end]), "─ loaded 14:02 ─╯")
-    @test startswith(W.astrip(box[end]), "╰─")
+    @test width.(box) == was
+    @test endswith(unstyled(box[end]), "─ loaded 14:02 ─╯")
+    @test startswith(unstyled(box[end]), "╰─")
     # A label that does not fit leaves the border alone.
     tiny = W.TermIFrame.bordered(["a"], 10, 3, "t"; focused = false)
     @test W.footer!(copy(tiny), "loaded 2026-09-23 14:02") == tiny
@@ -992,9 +1002,9 @@ end
     st.nodes = [W.Node("someone  2026-09-02", "text", :md, true)]
     st.loaded = string(st.items[st.sel].url, ":", st.mode)
     st.loadedat = t
-    @test occursin("loaded 14:02", W.astrip(W.render_frame(st, 160, 50, now)))
+    @test occursin("loaded 14:02", unstyled(ansi(W.render_frame(st, 160, 50, now))))
     st.quiet = true; st.pendkey = st.loaded
-    @test occursin("reloading", W.astrip(W.render_frame(st, 160, 50, now)))
-    ls = split(W.render_frame(st, 160, 50, now), "\n")
-    @test length(ls) == 50 && all(W.awidth(l) == 160 for l in ls)
+    @test occursin("reloading", unstyled(ansi(W.render_frame(st, 160, 50, now))))
+    ls = split(ansi(W.render_frame(st, 160, 50, now)), "\n")
+    @test length(ls) == 50 && all(width(l) == 160 for l in ls)
 end

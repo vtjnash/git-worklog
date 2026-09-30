@@ -127,8 +127,8 @@ end
             @test occursin(last(pr.branch, 6), ch.options[2][1])
             @test occursin("new worktree", ch.options[end][1])
             for (w, h) in ((80, 24), (165, 50))
-                ls = split(W.render(ch, w, h), "\n")
-                @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                ls = split(frame(ch, w, h), "\n")
+                @test length(ls) == h && all(width(l) == w for l in ls)
             end
 
             # Picking a row works there, and says so through `say`: the answer
@@ -162,16 +162,16 @@ end
             @test W.enter_session(issue2, ctrl, :shell, (_, _) -> "sleep 120", say) == ""
             ch = last(ctrl.stack)
             @test ch isa W.ChooseView
-            row = split(W.astrip(ch.options[2][1]), '\n')
+            row = split(unstyled(ch.options[2][1]), '\n')
             # The place, then a line a session: its kind and the item it is
             # on - `wt#9` whole, the ref not this repository's spelling, and a
             # ref from another repository keeps its name. One of this
             # repository's is the number alone, `#9`.
             @test occursin("side", row[1]) && occursin(pr.branch, row[1])
             @test row[2] == "    shell  wt#9"
-            @test occursin("\n    shell  #9", W.astrip(W.checkout_option(
+            @test occursin("\n    shell  #9", unstyled(W.checkout_option(
                 (path = side, branch = pr.branch, main = false), W.session_list(), "o/wt")))
-            @test all(l -> W.awidth(l) <= 72, row)
+            @test all(l -> width(l) <= 72, row)
             # What a session's pane is titled goes after the item it is on;
             # a session with neither is its kind alone. In the letters' order.
             ses(kind, item, title) = W.Session("wl-" * kind, "\$9", "sh", false, false, side,
@@ -179,11 +179,11 @@ end
             opt = W.checkout_option((path = side, branch = pr.branch, main = true),
                                     [ses("agent", "wt#7", W.CLEARED_TITLE),
                                      ses("shell", "", "")], "o/wt")
-            ls = split(W.astrip(opt), '\n')
+            ls = split(unstyled(opt), '\n')
             @test length(ls) == 3 && endswith(ls[1], "main")
             @test ls[2] == "    shell"
             @test ls[3] == string("    agent  #7 · ", W.CLEARED_TITLE, "  /cleared")
-            @test !occursin("#9", W.astrip(ch.options[1][1]))
+            @test !occursin("#9", unstyled(ch.options[1][1]))
             # Picking it re-points the shell: the session is on this item now
             # and not on the last one, so rule 2 answers for this one alone and
             # the other is back to asking.
@@ -343,8 +343,8 @@ end
                 @test occursin(string("gh pr checkout ", pr.number), split(cv.note, '\n')[end])
                 @test occursin("w another place", cv.hint)
                 for (w, h) in ((80, 24), (165, 50))
-                    ls = split(W.render(cv, w, h), "\n")
-                    @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                    ls = split(frame(cv, w, h), "\n")
+                    @test length(ls) == h && all(width(l) == w for l in ls)
                 end
                 @test isempty(asked())
                 # Anything but the three named keys is no shell at all.
@@ -536,7 +536,7 @@ end
                 # with, and gh's words lead the report.
                 @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                @test occursin(string("#", pr.number), W.astrip(ch.options[1][1]))
+                @test occursin(string("#", pr.number), unstyled(ch.options[1][1]))
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
@@ -600,7 +600,7 @@ end
                 write(want, pr.branch)
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                @test occursin(string("#", pr2.number), W.astrip(ch.options[1][1]))
+                @test occursin(string("#", pr2.number), unstyled(ch.options[1][1]))
                 ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
@@ -997,8 +997,8 @@ end
                 @test occursin("gh pr checkout 43", split(cv.note, '\n')[end - 1])
                 @test split(cv.note, '\n')[end] == "fetches move origin/lease, which breaks --force-with-lease \u00b7 git config --global push.useForceIfIncludes true fixes it"
                 for (w, h) in ((80, 24), (165, 50))
-                    ls = split(W.render(cv, w, h), "\n")
-                    @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+                    ls = split(frame(cv, w, h), "\n")
+                    @test length(ls) == h && all(width(l) == w for l in ls)
                 end
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 # With the setting on, nothing is said, and the question ends
@@ -1088,33 +1088,33 @@ end
         v = W.worktree_view(items)
         @test length(v.rows) == 2
         for (w, h) in ((80, 24), (120, 40), (165, 50))
-            ls = split(W.render(v, w, h), "\n")
-            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            ls = split(frame(v, w, h), "\n")
+            @test length(ls) == h && all(width(l) == w for l in ls)
         end
         # The row says which pull request the work in it is.
-        @test occursin(pr.ref, W.astrip(W.render(v, 165, 24)))
+        @test occursin(pr.ref, unstyled(frame(v, 165, 24)))
 
         # `tTv` and `+*` are as much as a three-column header can say, so the
         # legend under the list says the rest - and stays there. The letters are
         # the keys that open each slot, so the column is its own key.
         for (w, h) in ((80, 24), (165, 50))
-            leg = W.astrip(W.render(v, w, h))
+            leg = unstyled(frame(v, w, h))
             @test occursin("tTv", leg)
             @test occursin("t shell", leg) && occursin("T agent", leg)
             @test occursin("v note", leg) && occursin("* unstaged", leg)
         end
         # It is not the status line: a message does not take it away.
         v.status = "something happened"
-        shown = W.astrip(W.render(v, 165, 24))
+        shown = unstyled(frame(v, 165, 24))
         @test occursin("t shell", shown) && occursin("something happened", shown)
         v.status = ""
 
         # The tip date is drawn where there is room for it, and dropped where
         # taking eleven columns would cost the title instead.
-        wide = W.astrip(W.render(v, 165, 24))
+        wide = unstyled(frame(v, 165, 24))
         @test occursin("tip", wide)
         @test occursin(first(W.worktree_rows(items)[1].at, 10), wide)
-        narrow = W.astrip(W.render(v, 80, 24))
+        narrow = unstyled(frame(v, 80, 24))
         @test !occursin("tip", narrow)
         # What the room bought - and the tail of it, for the reason above.
         @test occursin(last(pr.branch, 6), narrow)
@@ -1160,7 +1160,7 @@ end
         @test st2.search == "zzzz-no-such-item"
         @test st2.guest == pr.url && length(st2.items) == 1
         @test occursin("filter hides it", st2.status)
-        @test occursin("+" * pr.ref, W.render_frame(st2, 160, 40))
+        @test occursin("+" * pr.ref, ansi(W.render_frame(st2, 160, 40)))
         # A refilter of the same list keeps it; asking for another list drops it.
         W.refilter!(st2)
         @test st2.guest == pr.url && st2.items[st2.sel].url == pr.url
@@ -1189,7 +1189,7 @@ end
             pop!(ctrl.stack)
             row = v5.rows[findfirst(r -> r.name == "side", v5.rows)]
             @test length(row.sessions) == 1 && row.sessions[1].kind === :shell
-            @test occursin("s", W.astrip(W.render(v5, 165, 24)))
+            @test occursin("s", unstyled(frame(v5, 165, 24)))
             # And the same worktree reached from its item is the same session,
             # because a session is keyed by where it is and not by what asked.
             n = length(W.session_list())
@@ -1223,7 +1223,7 @@ end
             v6 = W.worktree_view(items)
             orph = findfirst(r -> r.orphan, v6.rows)
             @test orph !== nothing && v6.rows[orph].name == basename(gone)
-            @test occursin("gone", W.astrip(W.render(v6, 120, 24)))
+            @test occursin("gone", unstyled(frame(v6, 120, 24)))
             v6.sel = orph
             # Nothing can be started in a directory that is not there.
             W.handle!(v6, Int('t'), ctrl)

@@ -186,7 +186,7 @@ end
 function render(v::PaneView, w::Int, h::Int)
     lw, tw = v.beside === nothing ? (0, w) : split_box(w)
     right = pane_column(v, tw, h)
-    lw == 0 && return join(right, "\n")
+    lw == 0 && return right
     # The detail pane alone, not the whole browser shrunk: a list beside a child
     # that holds the keys is a list nothing can be done with, and it would cost
     # the thread three quarters of its rows to sit there.
@@ -197,7 +197,7 @@ function render(v::PaneView, w::Int, h::Int)
     # Both sides are `h` rows, so they lay against each other a row at a time -
     # and the left is padded in case it gave back fewer, since a short frame
     # would pull the whole right column leftwards.
-    join([string(apad(get(left, i, ""), lw), right[i]) for i in 1:h], "\n")
+    Styled[rowpad(get(left, i, ""), lw) * right[i] for i in 1:h]
 end
 
 # --- a dialog drawn beside what it is about ---------------------------------
@@ -272,10 +272,9 @@ function render(v::SideView, w::Int, h::Int)
     # its block cursor while the keys are on the other side of the screen would
     # be two cursors saying neither side has them.
     v.inner isa EditorView && (v.inner.focused = v.focus === :inner)
-    right = split(render(v.inner, rw, h), "\n")
+    right = render(v.inner, rw, h)
     left = detail_pane(v.beside, side_item(v.beside), lw, h, v.focus === :read)
-    join([string(apad(get(left, i, ""), lw), get(right, i, ""))
-          for i in 1:h], "\n")
+    Styled[rowpad(get(left, i, ""), lw) * get(right, i, row("")) for i in 1:h]
 end
 
 """The mouse over the reading side, beside a composer.
@@ -1050,7 +1049,7 @@ draws the same three letters this list does, and a reader who has seen either
 knows the other.
 """
 function session_marks(sessions)
-    out = ""
+    out = row("")
     for (kind, ch) in SESSION_LETTERS
         i = findfirst(x -> x.kind === kind, sessions)
         out *= i === nothing ? " " : session_mark(sessions[i], ch)
@@ -1065,9 +1064,7 @@ const SESSION_LETTERS = ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
 """One session's letter, or its kind spelled out, in the colour that says
 whether it is waiting on you."""
 session_mark(s, ch::Union{Char,AbstractString}) =
-    s.attached ? string(THEME.settled, ch, THEME.reset) :
-    s.bell ? string(THEME.rang_mark, ch, THEME.reset) :
-             string(THEME.dim, ch, THEME.reset)
+    faced(string(ch), s.attached ? THEME.settled : s.bell ? THEME.rang_mark : THEME.dim)
 
 """A line per session under a worktree row, for each whose pane has a title:
 its letter again, and the title. What an agent is doing is the one thing the
@@ -1076,13 +1073,13 @@ topic, or that there is none yet (`title_words`). Indented to the worktree's
 name, so the row's own columns still read down the list."""
 function session_lines(r::WorktreeRow, iw::Int)
     pad = WT_RUN + 1 + WT_CHG + 1
-    out = String[]
+    out = Styled[]
     for (kind, ch) in SESSION_LETTERS, s in r.sessions
         s.kind === kind || continue
         words = title_words(s.kind, s.title)
         isempty(words) && continue
-        push!(out, string(" "^pad, session_mark(s, ch), "  ",
-                          afit(words, max(1, iw - pad - 3))))
+        push!(out, " "^pad * session_mark(s, ch) * "  " *
+                   rowfit(words, max(1, iw - pad - 3)))
     end
     out
 end
@@ -1134,8 +1131,8 @@ is in the middle of a commit, which is a different thing to have walked away
 from than a checkout that was merely edited - and `+*` says so at a glance.
 """
 function change_marks(r::WorktreeRow)
-    string(r.staged ? string(THEME.settled, "+", THEME.reset) : " ",
-           r.unstaged ? string(THEME.waiting, "*", THEME.reset) : " ")
+    (r.staged ? faced("+", THEME.settled) : row(" ")) *
+    (r.unstaged ? faced("*", THEME.waiting) : row(" "))
 end
 
 """The width the tip date costs on a worktree row, which is nothing when the
@@ -1156,16 +1153,15 @@ wt_label(iw::Int) = max(12, iw - WT_RUN - 1 - WT_CHG - 1 - WT_NAME - 1 -
 "One worktree row, drawn."
 function wt_line(r::WorktreeRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
-            r.orphan ? string(THEME.blocked, "worktree is gone", THEME.reset) :
-            isempty(r.repo) ? "" : string(THEME.dim, r.repo, THEME.reset)
-    string(session_marks(r), " ", change_marks(r), " ",
-           apad(afit(r.name, WT_NAME), WT_NAME), " ",
-           THEME.accent, apad(amid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
-                              WT_BRANCH), THEME.reset, " ",
-           wt_date(iw) == 0 ? "" :
-               string(THEME.dim, apad(first(r.at, WT_DATE), WT_DATE), THEME.reset, " "),
-           THEME.dim, apad(afit(track_mark(r), WT_TRACK), WT_TRACK), THEME.reset, " ",
-           apad(afit(label, wt_label(iw)), wt_label(iw)))
+            r.orphan ? faced("worktree is gone", THEME.blocked) :
+            isempty(r.repo) ? "" : faced(r.repo, THEME.dim)
+    session_marks(r) * " " * change_marks(r) * " " *
+        rowpad(rowfit(r.name, WT_NAME), WT_NAME) * " " *
+        faced(rowpad(rowmid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
+                     WT_BRANCH), THEME.accent) * " " *
+        (wt_date(iw) == 0 ? "" : faced(rowpad(first(r.at, WT_DATE), WT_DATE), THEME.dim) * " ") *
+        faced(rowpad(rowfit(track_mark(r), WT_TRACK), WT_TRACK), THEME.dim) * " " *
+        rowpad(rowfit(label, wt_label(iw)), wt_label(iw))
 end
 
 """One branch row, drawn.
@@ -1179,21 +1175,19 @@ br_label(iw::Int) = max(12, iw - 1 - 1 - BR_NAME - 1 - BR_REPO - 1 -
 
 function br_line(r::BranchRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
-            r.gone ? string(THEME.dim, "upstream is gone", THEME.reset) : ""
-    string(isempty(r.worktree) ? " " :
-           string(THEME.settled, "\u25cf", THEME.reset), " ",
-           THEME.accent, apad(amid(r.name, BR_NAME), BR_NAME), THEME.reset, " ",
-           THEME.dim, apad(afit(last(split(r.repo, '/')), BR_REPO), BR_REPO),
-           THEME.reset, " ",
-           THEME.dim, apad(first(r.at, BR_DATE), BR_DATE), THEME.reset, " ",
-           THEME.dim, apad(afit(track_mark(r), BR_TRACK), BR_TRACK), THEME.reset, " ",
-           apad(afit(label, br_label(iw)), br_label(iw)))
+            r.gone ? faced("upstream is gone", THEME.dim) : ""
+    (isempty(r.worktree) ? row(" ") : faced("\u25cf", THEME.settled)) * " " *
+        faced(rowpad(rowmid(r.name, BR_NAME), BR_NAME), THEME.accent) * " " *
+        faced(rowpad(rowfit(last(split(r.repo, '/')), BR_REPO), BR_REPO), THEME.dim) * " " *
+        faced(rowpad(first(r.at, BR_DATE), BR_DATE), THEME.dim) * " " *
+        faced(rowpad(rowfit(track_mark(r), BR_TRACK), BR_TRACK), THEME.dim) * " " *
+        rowpad(rowfit(label, br_label(iw)), br_label(iw))
 end
 
 """The lines of a row of whichever list is shown, by what the row is: a
 worktree's, and under it the titles of its sessions; a branch's, one."""
-row_lines(r::WorktreeRow, iw::Int) = vcat([wt_line(r, iw)], session_lines(r, iw))
-row_lines(r::BranchRow, iw::Int) = [br_line(r, iw)]
+row_lines(r::WorktreeRow, iw::Int) = vcat(Styled[wt_line(r, iw)], session_lines(r, iw))
+row_lines(r::BranchRow, iw::Int) = Styled[br_line(r, iw)]
 
 """How many lines each row the cursor can be on takes, the row that makes a
 new worktree included: what `row_lines` draws, at any width, since a title is
@@ -1211,15 +1205,15 @@ for a session that rang while you were away.
 """
 function list_header(branches::Bool, iw::Int)
     line = branches ?
-        string(apad("at", 2), " ", apad("branch", BR_NAME), " ",
-               apad("repo", BR_REPO), " ", apad("tip", BR_DATE), " ",
-               apad("\u00b1upstream", BR_TRACK), " ", apad("pull request", br_label(iw))) :
-        string(apad("tTv", WT_RUN), " ", apad("+*", WT_CHG), " ",
-               apad("worktree", WT_NAME), " ", apad("branch", WT_BRANCH), " ",
-               wt_date(iw) == 0 ? "" : string(apad("tip", WT_DATE), " "),
-               apad("\u00b1upstream", WT_TRACK), " ",
-               apad("pull request", wt_label(iw)))
-    string(THEME.dim, afit(line, iw), THEME.reset)
+        string(rowpad("at", 2), " ", rowpad("branch", BR_NAME), " ",
+               rowpad("repo", BR_REPO), " ", rowpad("tip", BR_DATE), " ",
+               rowpad("\u00b1upstream", BR_TRACK), " ", rowpad("pull request", br_label(iw))) :
+        string(rowpad("tTv", WT_RUN), " ", rowpad("+*", WT_CHG), " ",
+               rowpad("worktree", WT_NAME), " ", rowpad("branch", WT_BRANCH), " ",
+               wt_date(iw) == 0 ? "" : string(rowpad("tip", WT_DATE), " "),
+               rowpad("\u00b1upstream", WT_TRACK), " ",
+               rowpad("pull request", wt_label(iw)))
+    faced(rowfit(line, iw), THEME.dim)
 end
 
 """What the one-character columns mean, spelled out.
@@ -1249,36 +1243,34 @@ function render(v::WorktreeView, w::Int, h::Int)
     n = nshown(v)
     sel, top, win = listwindow(row_heights(v), cursor(v)..., inner)
     setcursor!(v, sel, top)
-    body = [list_header(branches, iw)]
+    body = Styled[list_header(branches, iw)]
     for i in win
-        lines = i > length(rs) ?
-            [string(THEME.dim, "+ new worktree …", THEME.reset)] :
-            row_lines(rs[i], iw)
+        lines = i > length(rs) ? Styled[faced("+ new worktree …", THEME.dim)] :
+                                 row_lines(rs[i], iw)
         for line in lines
-            push!(body, i == sel ? hlrow(apad(line, iw), THEME.select_bg) : line)
+            push!(body, i == sel ? hlrow(rowpad(line, iw), THEME.select_bg) : line)
         end
     end
     body = first(body, inner + 1)
     # `rs`, not `body`: the header is always in there, and so in the whole
     # list is the row that adds one, so an empty list is one that has no rows
     # rather than one that drew nothing.
-    isempty(rs) && push!(body, string(THEME.dim,
+    isempty(rs) && push!(body, faced(
         branches ? "no branches — none of the registered repos is here" :
         v.mode === :active ? "nothing running — t or T on a worktree starts something" :
                              "no worktrees — register a repo with e, t or T on an item",
-        THEME.reset))
+        THEME.dim))
     keys = branches ? "↵ its worktree, or make one · h item · a adopt · tab worktrees · r refresh · q back" :
            onnew(v) ? "↵ make a worktree, for a branch that is here or a new one · tab active · q back" :
                       string("↵/t shell · T agent · h item · a adopt · K kill · tab ",
                              v.mode === :active ? "branches" : "active", " · r refresh · q back")
     rows = vcat(bordered(body, w, h - 2, String(v.mode)),
-                [string(THEME.dim, afit(list_legend(branches), w), THEME.reset),
-                 string(THEME.dim, afit(isempty(v.status) ? keys : v.status, w),
-                        THEME.reset)])
+                Styled[faced(rowfit(list_legend(branches), w), THEME.dim),
+                       faced(rowfit(isempty(v.status) ? keys : v.status, w), THEME.dim)])
     while length(rows) < h
-        push!(rows, "")
+        push!(rows, row(""))
     end
-    join([apad(x, w) for x in rows[1:h]], "\n")
+    Styled[rowpad(x, w) for x in rows[1:h]]
 end
 
 """A click moves the cursor to the row and a double click is `↵`; the wheel

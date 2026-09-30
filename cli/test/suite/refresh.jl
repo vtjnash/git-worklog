@@ -372,7 +372,7 @@ end
         # it again when `fetched.json` lands - not at every frame.
         st = W.BState(W.Item[], "worklog")
         @test [f.label for f in st.failing] == ["o/r", "old/one", "z/z"]
-        @test occursin("the poll FAILED", W.render(st, 120, 40))
+        @test occursin("the poll FAILED", frame(st, 120, 40))
         # The next answer clears the source, and the reload carries that in.
         broken[] = false
         E.sync!(srcs, at + W.Minute(5); now = () -> at, watched = () -> Set{String}())
@@ -622,7 +622,7 @@ end
         # says how far off it is.
         snoozeline(x) = begin
             W.refilter!(st)
-            ls = W.astrip.(W.meta_lines(st, x, 60, now))
+            ls = unstyled.(W.meta_lines(st, x, 60, now))
             i = findfirst(l -> startswith(l, "snoozed"), ls)
             i === nothing && return ""
             j = i
@@ -1721,7 +1721,7 @@ end
     @test :second in W.tags_of(quiet, W.Marks(archived = Dict("u" => "2026-09-01T00:00:00Z")))
     # And the reason is shown where the item's facts are.
     @test any(l -> occursin("quiet", l) && occursin("3 work days", l),
-              W.astrip.(W.meta_lines(st, quiet, 60)))
+              unstyled.(W.meta_lines(st, quiet, 60)))
 end
 
 @testset "a reply owed is a fact about the thread, not about its state" begin
@@ -1778,7 +1778,7 @@ end
                   state = "CLOSED", reply = why)
     @test :reply in W.tags_of(owed)
     @test any(l -> occursin("reply", l) && occursin("2d ago", l),
-              W.astrip.(W.meta_lines(st, owed, 60)))
+              unstyled.(W.meta_lines(st, owed, 60)))
     v = first(d for (n, d) in W.views() if startswith(n, "unanswered"))
     @test v == Dict("tag" => ["reply"])
     W.apply_view!(st, v)
@@ -1875,7 +1875,7 @@ end
     st = mkstate()
     base = (url = "https://example.invalid/pr/1", ref = "a#1", repo = "a/b",
             number = 1, title = "t", is_pr = true)
-    says(it) = W.astrip(join([l for l in W.meta_lines(st, it, 60)
+    says(it) = unstyled(join([l for l in W.meta_lines(st, it, 60)
                               if occursin("mergeable", l)], " "))
     ms(; kw...) = W.Events.merge_info(; id = "x", oid = "o", state = "OPEN",
                                       mergeable = "MERGEABLE", status = "CLEAN",
@@ -1897,10 +1897,10 @@ end
     # rather than being cut at the edge: "blocked — a required review or check
     # is missing" is 46 columns, and the pane is often 40.
     st.merge = ms(; status = "BLOCKED")
-    ls = W.astrip.(W.meta_lines(st, W.Item(; base..., state = "OPEN"), 40))
+    ls = unstyled.(W.meta_lines(st, W.Item(; base..., state = "OPEN"), 40))
     i = findfirst(l -> startswith(l, "mergeable"), ls)
-    @test i !== nothing && startswith(ls[i + 1], " "^10 * "or check")
-    @test all(W.awidth(l) <= 40 for l in ls)
+    @test i !== nothing && startswith(ls[i + 1], " "^10) && !isspace(ls[i + 1][11])
+    @test all(width(l) <= 40 for l in ls)
     @test occursin("check is missing", ls[i + 1])
 end
 
@@ -1930,7 +1930,7 @@ end
     @test occursin("💬1", ns2[1].header) && occursin("✓1", ns2[1].header)
     # The open one is inline; the settled one is under a closed node of its own,
     # beneath the hunk it belongs to rather than in a pile at the end.
-    txt = [W.astrip(n.header) for n in ns2]
+    txt = [unstyled(n.header) for n in ns2]
     i = findfirst(h -> occursin("resolved", h), txt)
     @test i !== nothing && !ns2[i].open
     @test any(n -> occursin("still wondering", n.raw), ns2[1:i-1])
@@ -1951,7 +1951,7 @@ end
                              "body" => "settled, and adrift", "user" => Dict("login" => "b"),
                              "created_at" => "2026-01-04T00:00:00Z")]
     ns4 = W.attach_comments([deepcopy(hunk)], gone, "u", Set([4]))
-    heads = [W.astrip(n.header) for n in ns4]
+    heads = [unstyled(n.header) for n in ns4]
     j = findfirst(h -> occursin("on lines that have since changed", h) &&
                        !occursin("resolved", h), heads)
     k = findfirst(h -> occursin("resolved, on lines", h), heads)
@@ -2333,14 +2333,14 @@ end
     # On the pane: under `local`, unread with the words, read without.
     it = mk(; review_at = "2026-09-12T10:00:00Z", their_comment_at = "2026-09-12T09:00:00Z")
     st.done = Dict{String,String}(); st.sources = Dict{String,String}()
-    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
+    plain = unstyled(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       unread: new\n", plain)
     st.done = Dict(it.url => "2026-09-12T08:00:00Z")
-    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
+    plain = unstyled(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       unread: reviewed, comment\n", plain)
     @test first(findfirst("local", plain)) < first(findfirst("why  ", plain))
     st.done = Dict(it.url => "2026-09-12T10:00:00Z")
-    plain = W.astrip(join(W.meta_lines(st, it, 60, at), "\n"))
+    plain = unstyled(join(W.meta_lines(st, it, 60, at), "\n"))
     @test occursin("why       done\n", plain)
     @test !occursin("unread", plain)
     # And `wl unread` says the same words to an outside reader, against the
@@ -2353,7 +2353,7 @@ end
     # the word and the command.
     tagged = W.with(it; edits = "changes requested", ready = "approved and green",
                     reply = "mentioned you 2d ago; last word is theirs")
-    plain = W.astrip(join(W.meta_lines(st, tagged, 60, at), "\n"))
+    plain = unstyled(join(W.meta_lines(st, tagged, 60, at), "\n"))
     @test occursin("\nedits\n", plain) && occursin("\nready\n", plain)
     @test !occursin("changes requested\n", plain) && !occursin("approved and green", plain)
     @test occursin("reply     mentioned you 2d ago; last word is theirs", plain)

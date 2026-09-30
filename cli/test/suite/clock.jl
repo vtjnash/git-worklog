@@ -355,13 +355,13 @@ end
         # The rows have keys of their own, the same as the views: it is the same
         # list in the same order every time, so it is reached by memory.
         @test v.numbered
-        @test occursin("0-9 picks", W.astrip(W.render(v, 100, 30)))
+        @test occursin("0-9 picks", unstyled(frame(v, 100, 30)))
         # `2` is the second row and not the `3` of "3 days" - which is the trade
         # numbering makes, and the reason the order below has to be fixed.
         @test vals[1:3] == ["1d", "3d", "1w"]
         for (w, h) in ((80, 24), (165, 50))
-            ls = split(W.render(v, w, h), "\n")
-            @test length(ls) == h && all(W.awidth(l) == w for l in ls)
+            ls = split(frame(v, w, h), "\n")
+            @test length(ls) == h && all(width(l) == w for l in ls)
         end
 
         # A span is written *resolved* - the moment it ends - so the file says

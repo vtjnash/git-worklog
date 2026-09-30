@@ -30,21 +30,23 @@
             @test length(v.child.frame) == 21           # the height it was just given
             @test occursin("green", join(v.child.frame))
             @test occursin("\e[", join(v.child.frame))  # colour kept, not stripped
-            ls = split(W.render(v, 80, 24), "\n")
-            @test length(ls) == 24 && all(W.awidth(l) == 80 for l in ls)
+            ls = W.render(v, 80, 24)
+            @test length(ls) == 24 && all(width(l) == 80 for l in ls)
         end
         # A different size re-sizes the child, not just the box drawn round it.
         withenv("LINES" => "40", "COLUMNS" => "120") do
             W.pane_sync!(v, ctrl)
             @test v.child.sized == W.iframe_box(120, 40)
             @test length(v.child.frame) == 37
-            ls = split(W.render(v, 120, 40), "\n")
-            @test length(ls) == 40 && all(W.awidth(l) == 120 for l in ls)
+            ls = W.render(v, 120, 40)
+            @test length(ls) == 40 && all(width(l) == 120 for l in ls)
         end
 
-        # Every row is closed off, or an unterminated colour would run out of
-        # the content and into the border.
-        @test all(endswith(l, "\e[0m") for l in v.child.frame)
+        # Every row is closed off when it is written, or an unterminated colour
+        # would run out of the content and into the border: as tmux gave it,
+        # then a reset, then the column after the pane.
+        fb = String(TermInput.frame_bytes(W.render(v, 120, 40)))
+        @test occursin(string(v.child.frame[1], "\e[0m\e[", 3 + v.child.sized[1], "G"), fb)
 
         # `q` leaves the session running - that is what a session is for.
         @test W.handle!(v, Int('q'), ctrl) === :pop
@@ -153,25 +155,25 @@ end
             end
             @test v.child.wantsmouse === false        # a shell asked for nothing
             @test v.child.alt === false && v.child.history > 100
-            live = W.astrip(first(v.child.frame))
+            live = unstyled(first(v.child.frame))
             ox, oy = W.pane_origin(v, 100)
             wheel(b) = collect(codeunits(string("\e[<", b, ";", ox + 5, ";", oy + 5, "M")))
 
             W.onraw!(v, wheel(64), ctrl)
             @test v.child.scroll == TermIFrame.WHEEL_ROWS
-            @test W.astrip(first(v.child.frame)) != live
+            @test unstyled(first(v.child.frame)) != live
             # The window moved by exactly what the wheel says it moved by.
-            @test parse(Int, W.astrip(first(v.child.frame))) ==
+            @test parse(Int, unstyled(first(v.child.frame))) ==
                   parse(Int, live) - TermIFrame.WHEEL_ROWS
             # No cursor while looking at the past: it is not on these rows.
             @test W.viewcursor(v, 100, 30) === nothing
             # And the note says where you are, over anything else it might say.
             v.child.status = "something happened"
-            @test occursin("rows back", W.astrip(last(W.pane_column(v, 70, 30))))
+            @test occursin("rows back", unstyled(last(W.pane_column(v, 70, 30))))
             v.child.status = ""
 
             W.onraw!(v, wheel(65), ctrl)
-            @test v.child.scroll == 0 && W.astrip(first(v.child.frame)) == live
+            @test v.child.scroll == 0 && unstyled(first(v.child.frame)) == live
 
             # Shift- and ctrl-wheel are the same request refined, not a
             # different one, so they scroll rather than falling through.
@@ -197,8 +199,8 @@ end
                 string("\e[<0;", ox + 5, ";", oy + 5, "M"))), 100, 30))
             @test v.child.scroll == 0
 
-            ls = split(W.render(v, 100, 30), "\n")
-            @test length(ls) == 30 && all(W.awidth(l) == 100 for l in ls)
+            ls = W.render(v, 100, 30)
+            @test length(ls) == 30 && all(width(l) == 100 for l in ls)
 
             # On the alternate screen there is nothing behind the child but the
             # wreckage of its own redraws, so this refuses - which is also why
@@ -261,7 +263,7 @@ end
             # is what changes sides everywhere in this program, so a reader who
             # has `^][` will try it whether or not the row says so.
             v.focus = :child
-            row = W.astrip(last(W.pane_column(v, 100, 12)))
+            row = unstyled(last(W.pane_column(v, 100, 12)))
             @test occursin("^][ read beside it", row) && occursin("^]K kill", row)
             @test !occursin("^]tab", row)
             # A bare `[` is still the child's - only after the prefix is it ours.
@@ -274,8 +276,8 @@ end
             @test W.wantsraw(v) === false          # decoded keys now, not bytes
             @test W.mux_alive(n) === true          # and the child is still there
             @test st.focus === :detail             # aimed at the thread, not the list
-            ls = split(W.render(v, 170, 40), "\n")
-            @test length(ls) == 40 && all(W.awidth(l) == 170 for l in ls)
+            ls = W.render(v, 170, 40)
+            @test length(ls) == 40 && all(width(l) == 170 for l in ls)
 
             # Keys this view does not name are the thread's: `j` walks the
             # comments rather than reaching a shell that would beep at it.
@@ -518,7 +520,7 @@ end
             v = last(ctrl.stack)
             @test v isa W.PaneView && v.child.exited == 3
             @test occursin("status 3", r) && occursin("q clears it", r)
-            @test any(l -> occursin("boom", W.astrip(l)), v.child.frame)
+            @test any(l -> occursin("boom", unstyled(l)), v.child.frame)
             name = v.child.name
             @test W.mux_alive(name)
             # Leaving it is the end of it: nothing is running to come back to.
@@ -571,12 +573,12 @@ end
     # Decoded keys, not bytes: there is no child on either side of this one.
     @test W.wantsraw(v) === false
     # Both columns, a row at a time, and the frame is exactly the screen.
-    ls = split(W.render(v, 170, 40), "\n")
-    @test length(ls) == 40 && all(W.awidth(l) == 170 for l in ls)
+    ls = W.render(v, 170, 40)
+    @test length(ls) == 40 && all(width(l) == 170 for l in ls)
     # The left is the detail pane and the right is the composer, so the item is
     # readable while the message about it is written.
-    @test occursin("alice", W.astrip(join(ls, "\n")))
-    @test occursin(it.ref, W.astrip(join(ls, "\n")))
+    @test occursin("alice", unstyled(join(ls, "\n")))
+    @test occursin(it.ref, unstyled(join(ls, "\n")))
 
     # `tab` moves the keyboard across, which is what `tab` means everywhere in
     # this program - and is why the merge composer's cycle is `^x` and not this.

@@ -113,7 +113,7 @@ end
                                  "headline" => "after the review", "by" => "ann")]))
 
         ns = W.comment_nodes(it, W.utcnow())
-        heads = [W.astrip(n.header) for n in ns if n.depth == 0]
+        heads = [unstyled(n.header) for n in ns if n.depth == 0]
         # In the order they happened, pushes and comments alike.
         @test findfirst(h -> occursin("ann  2026-09-01", h), heads) <
               findfirst(h -> occursin("pushed 2 commits", h), heads) <
@@ -121,7 +121,7 @@ end
               findfirst(h -> occursin("pushed 1 commit", h), heads) <
               findfirst(h -> occursin("cat  2026-09-05", h), heads)
         # The run carries both shas, newest first, and nothing else does.
-        pn = ns[findfirst(n -> occursin("pushed 2 commits", W.astrip(n.header)), ns)]
+        pn = ns[findfirst(n -> occursin("pushed 2 commits", unstyled(n.header)), ns)]
         @test occursin("aaaaaaa2", pn.raw) && occursin("aaaaaaa1", pn.raw)
         @test findfirst("aaaaaaa2", pn.raw) < findfirst("aaaaaaa1", pn.raw)
         # Never read, so there is no rule: the whole thread is new and a rule
@@ -131,12 +131,12 @@ end
         # last commit's - and the header itself only the date. How long ago is
         # `rows`' to say, against the clock the frame is drawn at, and it is
         # not on the node: an age kept there would be the age at the fetch.
-        at_of(pat) = ns[findfirst(n -> occursin(pat, W.astrip(n.header)), ns)].meta["at"]
+        at_of(pat) = ns[findfirst(n -> occursin(pat, unstyled(n.header)), ns)].meta["at"]
         @test at_of("bob  2026-09-03") == "2026-09-03T10:00:00Z"
         @test at_of("pushed 2 commits") == "2026-09-02T09:30:00Z"
-        @test !any(n -> occursin("ago", W.astrip(n.header)), ns)
+        @test !any(n -> occursin("ago", unstyled(n.header)), ns)
         clock = W.ts("2026-09-06T10:00:00Z")
-        heads_at(at) = [W.astrip(r.text) for r in W.rows(ns, 100; at = at) if r.header]
+        heads_at(at) = [unstyled(r.text) for r in W.rows(ns, 100; at = at) if r.header]
         drawn = heads_at(clock)
         @test any(h -> occursin("bob  2026-09-03", h) && occursin(" 3d ago ", h), drawn)
         @test any(h -> occursin("pushed 2 commits", h) && occursin(" 4d ago ", h), drawn)
@@ -159,10 +159,10 @@ end
         ns = W.comment_nodes(it, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
         @test i !== nothing
-        @test occursin("new since you last looked", W.astrip(ns[i].header))
-        @test occursin("2 entries", W.astrip(ns[i].header))
-        before = [W.astrip(n.header) for n in ns[1:i-1]]
-        after = [W.astrip(n.header) for n in ns[i+1:end]]
+        @test occursin("new since you last looked", unstyled(ns[i].header))
+        @test occursin("2 entries", unstyled(ns[i].header))
+        before = [unstyled(n.header) for n in ns[1:i-1]]
+        after = [unstyled(n.header) for n in ns[i+1:end]]
         @test any(h -> occursin("bob  2026-09-03", h), before)
         @test any(h -> occursin("pushed 1 commit", h), after)
         @test any(h -> occursin("cat  2026-09-05", h), after)
@@ -176,8 +176,8 @@ end
             W.LOGIN[] = "ann"
             ns = W.comment_nodes(it, W.utcnow())
             i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
-            @test i !== nothing && occursin("1 entry", W.astrip(ns[i].header))
-            @test occursin("cat  2026-09-05", W.astrip(ns[i + 1].header))
+            @test i !== nothing && occursin("1 entry", unstyled(ns[i].header))
+            @test occursin("cat  2026-09-05", unstyled(ns[i + 1].header))
             W.LOGIN[] = "cat"
             W.set_done_mark(u, "2026-09-04T12:00:00Z", "9999999999")
             @test !any(n -> get(n.meta, "newmark", false) === true,
@@ -201,7 +201,7 @@ end
                          title = "a pull request", head = "9999999999", state = "OPEN")
         ns = W.comment_nodes(backlog, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
-        @test i !== nothing && occursin("2 entries", W.astrip(ns[i].header))
+        @test i !== nothing && occursin("2 entries", unstyled(ns[i].header))
         # Unless it was opened past the floor, by somebody else: all of it is
         # new, the opening post drawn first included, and a rule under that
         # post said the post was read (libuv#5295). Opened by you, the rule
@@ -237,8 +237,8 @@ end
                                     "body" => "why this is here", "html_url" => u),
             comments = [cmt(1, "ann", "2026-09-01T10:00:00Z", "first")]))
         ns = W.comment_nodes(it, W.utcnow())
-        @test any(n -> occursin("ann  2026-09-01", W.astrip(n.header)), ns)
-        @test !any(n -> occursin("pushed", W.astrip(n.header)), ns)
+        @test any(n -> occursin("ann  2026-09-01", unstyled(n.header)), ns)
+        @test !any(n -> occursin("pushed", unstyled(n.header)), ns)
     finally
         W.LOCAL[] = keep
     end
@@ -275,7 +275,7 @@ end
                       ev("merged", "dan", "2026-09-06T12:00:00Z";
                          into = "master", oid = "fd4b58c")]))
         ns = W.comment_nodes(it, W.utcnow())
-        heads = [W.astrip(n.header) for n in ns if n.depth == 0]
+        heads = [unstyled(n.header) for n in ns if n.depth == 0]
         # In order among the comments and the push; the close after the
         # comment it was made with, the merge last of all.
         @test findfirst(h -> occursin("bob  2026-09-03", h), heads) <
@@ -283,23 +283,23 @@ end
               findfirst(h -> occursin("reopened", h), heads) <
               findfirst(h -> occursin("cat  2026-09-05", h), heads) <
               findfirst(h -> occursin("merged", h), heads)
-        closed = ns[findfirst(n -> occursin("closed", W.astrip(n.header)), ns)]
-        merged = ns[findfirst(n -> occursin("merged", W.astrip(n.header)), ns)]
+        closed = ns[findfirst(n -> occursin("closed", unstyled(n.header)), ns)]
+        merged = ns[findfirst(n -> occursin("merged", unstyled(n.header)), ns)]
         # What closed it and why, where it went; who and when, as a comment
         # says them; and each in the state's own colour.
-        @test occursin("by r#11", W.astrip(closed.header)) &&
-              occursin("as not planned", W.astrip(closed.header))
-        @test occursin("bob  2026-09-03 10:00", W.astrip(closed.header))
-        @test occursin(W.THEME.blocked, closed.header)
+        @test occursin("by r#11", unstyled(closed.header)) &&
+              occursin("as not planned", unstyled(closed.header))
+        @test occursin("bob  2026-09-03 10:00", unstyled(closed.header))
+        @test faceon(W.THEME.blocked, closed.header)
         @test closed.meta["url"] == "https://github.com/o/r/pull/11"
-        @test occursin("into master", W.astrip(merged.header)) &&
-              occursin("fd4b58c", W.astrip(merged.header))
-        @test occursin(W.THEME.settled, merged.header)
+        @test occursin("into master", unstyled(merged.header)) &&
+              occursin("fd4b58c", unstyled(merged.header))
+        @test faceon(W.THEME.settled, merged.header)
         @test merged.meta["url"] == u && merged.meta["at"] == "2026-09-06T12:00:00Z"
         # A header and nothing under it: open, it still says the whole thing,
         # since there is no body for the rest to be read off.
         @test isempty(merged.raw) && merged.open
-        drawn = [W.astrip(r.text) for r in W.rows(ns, 100; at = W.ts("2026-09-07T12:00:00Z"))]
+        drawn = [unstyled(r.text) for r in W.rows(ns, 100; at = W.ts("2026-09-07T12:00:00Z"))]
         @test any(l -> occursin("merged", l) && occursin("into master", l) &&
                        occursin("1d ago", l), drawn)
         # A review among them: an approval with nothing said is a header
@@ -307,23 +307,23 @@ end
         ok = W.review_node(ev("review", "eve", "2026-09-05T11:00:00Z"; state = "approved",
                               body = "", url = "https://github.com/o/r/pull/9#pullrequestreview-1"), u)
         @test length(ok) == 1 && isempty(ok[1].raw) && ok[1].open
-        @test occursin("approved", W.astrip(ok[1].header)) && occursin("eve", W.astrip(ok[1].header))
-        @test occursin(W.THEME.settled, ok[1].header)
+        @test occursin("approved", unstyled(ok[1].header)) && occursin("eve", unstyled(ok[1].header))
+        @test faceon(W.THEME.settled, ok[1].header)
         @test ok[1].meta["url"] == "https://github.com/o/r/pull/9#pullrequestreview-1"
         no = W.review_node(ev("review", "fay", "2026-09-05T11:00:00Z"; state = "changes_requested",
                               body = "please add a test", url = ""), u)
-        @test occursin("changes requested", W.astrip(no[1].header)) &&
-              occursin("please add a test", W.astrip(no[1].header))
+        @test occursin("changes requested", unstyled(no[1].header)) &&
+              occursin("please add a test", unstyled(no[1].header))
         @test occursin("please add a test", no[1].raw) && no[1].meta["url"] == u
-        @test occursin(W.THEME.blocked, no[1].header)
+        @test faceon(W.THEME.blocked, no[1].header)
         # The merge is the newest thing shown, so it is what `e` reads up to.
         @test ns[1].meta["seen_up_to"] == "2026-09-06T12:00:00Z"
         # Read before the merge, and the rule lands above it alone.
         W.set_done_mark(u, "2026-09-05T12:00:00Z", "9999999999")
         ns = W.comment_nodes(it, W.utcnow())
         i = findfirst(n -> get(n.meta, "newmark", false) === true, ns)
-        @test i !== nothing && occursin("1 entry", W.astrip(ns[i].header))
-        @test occursin("merged", W.astrip(ns[i + 1].header))
+        @test i !== nothing && occursin("1 entry", unstyled(ns[i].header))
+        @test occursin("merged", unstyled(ns[i + 1].header))
     finally
         W.LOCAL[] = keep
     end
@@ -419,7 +419,7 @@ end
 """
     ns = W.rangediff_nodes(txt)
     @test length(ns) == 4
-    @test [W.astrip(n.header) for n in ns] ==
+    @test [unstyled(n.header) for n in ns] ==
           ["changed   1565527  change two", "gone      7005033  change four",
            "new       319d524  change four", "new       df0f13a  change one"]
     # A commit the rebase dropped keeps the sha it had, since the other column
@@ -429,18 +429,20 @@ end
 
     # The colour says which range a line is in, which is the whole question
     # here - the inner diff is a change both versions make.
-    @test startswith(W.rangeline("    ++TWOO"), W.THEME.diff_add)
-    @test startswith(W.rangeline("    -+TWO"), W.THEME.diff_del)
+    @test faces(W.rangeline("    ++TWOO")) == ["    ++TWOO" => W.THEME.diff_add]
+    @test faces(W.rangeline("    -+TWO")) == ["    -+TWO" => W.THEME.diff_del]
+    # And it is drawn so, on the node's rows, where the raw text is plain.
+    @test faces(first(W.nodelines(ns[1], 80))) == faces(W.rangeline(split(ns[1].raw, "\n")[1]))
     @test W.rangeline("     -two") == "     -two"
     @test W.rangeline("   ") == "   "          # too short to have a marker
-    @test W.astrip(W.rangeline("     @@")) == "     @@"
+    @test unstyled(W.rangeline("     @@")) == "     @@"
 
     # Past nine commits git right-aligns the numbers and every row gains a
     # leading space. Anchoring on the digit matched none of them.
     wide = W.rangediff_nodes(join([" -:  ------- >  $i:  abcdef$i commit $i" for i in 1:10],
                                   "\n") * "\n")
     @test length(wide) == 10
-    @test W.astrip(wide[10].header) == "new       abcdef10  commit 10"
+    @test unstyled(wide[10].header) == "new       abcdef10  commit 10"
 
     # A diff whose own content looks like a range-diff header. Not a contrived
     # case: this file is full of such lines, so reviewing a change to it was
@@ -458,10 +460,10 @@ end
 """
     tn = W.rangediff_nodes(trap)
     @test length(tn) == 1
-    @test W.astrip(tn[1].header) == "changed   b54f028  tweak"
+    @test unstyled(tn[1].header) == "changed   b54f028  tweak"
     # And the body it kept is all of it, the header-shaped rows included.
-    @test occursin("1565527", W.astrip(tn[1].raw))
-    @test occursin("NEWVALUE", W.astrip(tn[1].raw))
+    @test occursin("1565527", unstyled(tn[1].raw))
+    @test occursin("NEWVALUE", unstyled(tn[1].raw))
     # Four spaces is what says "body", so a header is never indented that far
     # and an inner diff line never is not.
     @test W.RANGE_PAIR !== nothing
@@ -471,7 +473,7 @@ end
     # A run of `=` commits keeps its header and folds.
     eq = W.rangediff_nodes("1:  aaaaaaa = 1:  bbbbbbb same commit\n")
     @test length(eq) == 1 && !eq[1].open
-    @test occursin("unchanged", W.astrip(eq[1].header))
+    @test occursin("unchanged", unstyled(eq[1].header))
     # Text that is not a range-diff at all yields nothing rather than one node
     # of noise.
     @test isempty(W.rangediff_nodes("fatal: not a git repository\n"))
@@ -546,23 +548,23 @@ end
         # - which is what `old...new` does and what an item with no base falls
         # back to - it is that commit plus all ten of somebody else's.
         ns = W.pushed_nodes(rebased)
-        @test occursin("rebased", W.astrip(ns[1].header))
-        @test occursin("onto 10 newer commits", W.astrip(ns[1].header))
+        @test occursin("rebased", unstyled(ns[1].header))
+        @test occursin("onto 10 newer commits", unstyled(ns[1].header))
         @test occursin(string(first(old, 8), " \u2192 ", first(newh, 8)),
-                       W.astrip(ns[1].header))
+                       unstyled(ns[1].header))
         @test count(n -> n.kind === :plain && !isempty(n.raw), ns) == 1
         @test length(ns) == 2                      # the lead, and one commit
         @test any(n -> occursin("TWOO", n.raw), ns)
-        @test !any(n -> occursin("master work", W.astrip(n.header)), ns)
+        @test !any(n -> occursin("master work", unstyled(n.header)), ns)
 
         # Without it, the ten come back - as the rows this change exists to
         # remove, and as a pane that says so rather than pretending otherwise.
         nobase = W.Item(url = u, ref = "r#4", repo = "o/r", number = 4, title = "t",
                         head = newh)
         ns = W.pushed_nodes(nobase)
-        @test occursin("rewritten", W.astrip(ns[1].header))   # no base, so no "onto"
+        @test occursin("rewritten", unstyled(ns[1].header))   # no base, so no "onto"
         @test occursin("no base branch to measure from", ns[1].raw)
-        @test count(n -> occursin("master work", W.astrip(n.header)), ns) == 10
+        @test count(n -> occursin("master work", unstyled(n.header)), ns) == 10
 
         # A push that only added to the branch is a plain diff instead, and
         # counts what arrived.
@@ -573,7 +575,7 @@ end
         W.set_done_mark(u, "2026-09-01T00:00:00Z", newh)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master"))
-        @test occursin("1 commit added", W.astrip(ns[1].header))
+        @test occursin("1 commit added", unstyled(ns[1].header))
         @test any(n -> n.kind === :diff && occursin("THREE", n.raw), ns)
 
         # Standing where you left it is a sentence too, and points at `h` for
@@ -590,7 +592,7 @@ end
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master",
                                    read_head = newh))
-        @test occursin("1 commit added", W.astrip(ns[1].header))
+        @test occursin("1 commit added", unstyled(ns[1].header))
         W.set_done_mark(u, "2026-09-01T00:00:00Z", ahead)
         ns = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                    title = "t", head = ahead, base = "master",

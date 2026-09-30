@@ -860,17 +860,17 @@ function checkout_option(w, rows, repo::AbstractString)
     here = [r for r in rows if !isempty(r.worktree) && wtkey(r.worktree) == wtkey(w.path)]
     stem = string(last(split(String(repo), '/')), '#')
     short(ref) = startswith(ref, stem) ? chop(ref; head = length(stem) - 1, tail = 0) : ref
-    lines = [string(apad(afit(basename(rstrip(String(w.path), '/')), 26), 26), "  ",
-                    apad(amid(isempty(w.branch) ? "(detached)" : w.branch, 38), 38), "  ",
+    lines = [rowcat(rowpad(rowfit(basename(rstrip(String(w.path), '/')), 26), 26), "  ",
+                    rowpad(rowmid(isempty(w.branch) ? "(detached)" : w.branch, 38), 38), "  ",
                     w.main ? "main" : "")]
     for (kind, _) in SESSION_LETTERS, r in here
         Symbol(isempty(r.kind) ? "shell" : r.kind) === kind || continue
-        parts = String[]
-        isempty(r.item) || push!(parts, short(r.item))
+        parts = Styled[]
+        isempty(r.item) || push!(parts, row(short(r.item)))
         words = title_words(kind, r.title)
         isempty(words) || push!(parts, words)
-        push!(lines, string("    ", session_mark(r, rpad(String(kind), 5)),
-                            isempty(parts) ? "" : string("  ", join(parts, " \u00b7 "))))
+        push!(lines, "    " * session_mark(r, rpad(String(kind), 5)) *
+                     (isempty(parts) ? "" : "  " * join(parts, " \u00b7 ")))
     end
     join(lines, '\n')
 end
@@ -892,7 +892,7 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
     rows === nothing && (rows = session_list())
-    opts = Tuple{String,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
+    opts = Tuple{Styled,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
     push!(opts, ("+ a new worktree …", ""))
     push_view!(ctrl, ChooseView(
         string(kind === :agent ? "Agent for " : "Shell for ", it.ref),

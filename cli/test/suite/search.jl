@@ -30,7 +30,7 @@
     @test st.search == "lib"
     W.handle!(st, W.C_Y, ctrl)
     @test st.search == "libuv"
-    @test occursin("/libuv", W.astrip(W.render(st, 150, 40)))
+    @test occursin("/libuv", unstyled(frame(st, 150, 40)))
     W.handle!(st, 27, ctrl)
     W.handle!(st, Int('/'), ctrl)                      # and starts empty again
     @test W.text(st.query) == ""
@@ -101,10 +101,10 @@
     W.refilter!(st)
     @test length(st.items) == before
 
-    f = W.render(st, 150, 40)
-    @test occursin(W.THEME.match_bg, f)                          # matches are marked
-    @test occursin("2 matches", W.astrip(f))            # and counted
-    @test all(W.awidth(l) == 150 for l in split(f, "\n"))
+    f = frame(st, 150, 40)
+    @test faceon(W.THEME.match_bg, f)                          # matches are marked
+    @test occursin("2 matches", unstyled(f))            # and counted
+    @test all(width(l) == 150 for l in split(f, "\n"))
 
     # Typing takes every key: `/d` is a search, not a jump to the diff pane.
     st = mkstate()
@@ -130,7 +130,7 @@ end
     st.search = "fox jumps over the lazy"
     across = W.match_rows(st, 30)
     @test length(across) == 1
-    @test !any(occursin(st.search, W.astrip(r.text)) for r in W.rows(st.nodes, 30))
+    @test !any(occursin(st.search, unstyled(r.text)) for r in W.rows(st.nodes, 30))
     st.search = "fox"
     @test length(W.match_rows(st, 30)) == 1        # one per line, not per row
     st.search = "nowhere"
@@ -149,7 +149,7 @@ end
     type!(st, "zarquon")
     @test isempty(W.match_rows(st, iw))            # no row shows it...
     @test st.hidden == 1                           # ...but it is known to be there
-    @test occursin("+1 folded", W.astrip(W.render(st, 150, 40)))
+    @test occursin("+1 folded", unstyled(frame(st, 150, 40)))
     W.handle!(st, 13, ctrl)
     @test st.nodes[2].open && occursin("opened 1 folded block", st.status)
     @test length(W.match_rows(st, iw)) == 1 && st.hidden == 0
@@ -213,7 +213,7 @@ end
     W.handle!(st, Int('/'), ctrl); W.handle!(st, 27, ctrl)
     @test isempty(st.search)
     W.handle!(st, Int('/'), ctrl)
-    @test occursin("↑ /bar", W.astrip(W.render(st, 150, 40)))
+    @test occursin("↑ /bar", unstyled(frame(st, 150, 40)))
     W.handle!(st, 13, ctrl)
     @test st.search == "bar\\(\\d+" && length(W.match_rows(st, iw)) == 1
     W.handle!(st, Int('/'), ctrl); W.handle!(st, W.K_UP, ctrl)

@@ -156,7 +156,7 @@ function body_nodes!(ns::Vector{Node}, header, body, url, open::Bool, depth::Int
                (k === :text ? split_fences(c) : [(k, sm, c)]
                 for (k, sm, c) in split_details(body))))
     lead = (!isempty(segs) && segs[1][1] === :text) ? segs[1][3] : ""
-    n = Node(String(header), lead, :md, open, depth)
+    n = Node(row(header), lead, :md, open, depth)
     isempty(url) || (n.meta["url"] = url)
     push!(ns, n)
     for (k, (kind, summary, content)) in enumerate(segs)
@@ -216,12 +216,12 @@ function push_node(@nospecialize(run), url::AbstractString)
     peek = strip(first(replace(jstr(cs[end], :headline, ""), r"\s+" => " "), 58))
     body = join((string(first(jstr(c, :oid, ""), 8), "  ", when_str(jstr(c, :at, "")), "  ",
                         oneline(jstr(c, :headline, ""))) for c in Iterators.reverse(cs)), "\n")
-    hd = string(THEME.settled, "↑ pushed ", n, n == 1 ? " commit" : " commits", THEME.reset)
-    nd = Node(string(hd, "  ", THEME.dim, who, when, THEME.reset, "   ", peek),
-              body, :plain, n <= 3)
-    nd.meta["byline"] = string(hd, "  ", THEME.dim, who, when, THEME.reset)
+    hd = faced(string("↑ pushed ", n, n == 1 ? " commit" : " commits"), THEME.settled) *
+         "  " * faced(string(who, when), THEME.dim)
+    nd = Node(hd * "   " * peek, body, :plain, n <= 3)
+    nd.meta["byline"] = hd
     nd.meta["src"] = string("pushed ", n, n == 1 ? " commit" : " commits",
-                            "  ", astrip(who), when)
+                            "  ", who, when)
     # The branch's own page, since a push is not a comment and has no anchor in
     # the thread to point at.
     nd.meta["url"] = string(url, "/commits")
@@ -269,9 +269,9 @@ function state_node(@nospecialize(e), url::AbstractString)
     # No `byline`: an open header is drawn as its byline in place of the peek,
     # and there is no body under this one for the rest to be read off - so the
     # whole of it stays on the header.
-    nd = Node(string(col, word, THEME.reset, "  ", THEME.dim,
-                     isempty(by) ? "" : string(by, "  "), when, THEME.reset,
-                     isempty(said) ? "" : string("   ", said)), "", :plain, true)
+    nd = Node(faced(word, col) * "  " *
+              faced(string(isempty(by) ? "" : string(by, "  "), when), THEME.dim) *
+              (isempty(said) ? "" : string("   ", said)), "", :plain, true)
     nd.meta["src"] = string(word, "  ", isempty(by) ? "" : string(by, "  "), when,
                             isempty(said) ? "" : string("  ", said))
     nd.meta["url"] = jstr(e, :closer_url, url)
@@ -292,18 +292,18 @@ function review_node(@nospecialize(e), url::AbstractString)
     (col, word) = state == "approved" ? (THEME.settled, "\u2713 approved") :
                   state == "changes_requested" ? (THEME.blocked, "\u2717 changes requested") :
                   state == "dismissed" ? (THEME.dim, "review dismissed") :
-                                         ("", "reviewed")
+                                         (Face(), "reviewed")
     by = jstr(e, :by, "")
     who = isempty(by) ? "" : string(by, "  ")
     when = when_str(jstr(e, :at, ""))
-    hd = string(col, word, THEME.reset, "  ", THEME.dim, who, when, THEME.reset)
+    hd = faced(word, col) * "  " * faced(string(who, when), THEME.dim)
     txt = strip(jstr(e, :body, ""))
     link = jstr(e, :url, "")
     link = isempty(link) ? String(url) : link
     ns = isempty(txt) ? [Node(hd, "", :plain, true)] : body_nodes(hd, txt, link, true)
     if !isempty(txt)
-        lead = isempty(strip(ns[1].raw)) && length(ns) > 1 ? ns[2].header : ns[1].raw
-        ns[1].header = string(hd, "   ", strip(first(replace(lead, r"\s+" => " "), 58)))
+        lead = isempty(strip(ns[1].raw)) && length(ns) > 1 ? String(ns[2].header) : ns[1].raw
+        ns[1].header = hd * "   " * strip(first(replace(lead, r"\s+" => " "), 58))
         ns[1].meta["byline"] = hd
     end
     ns[1].meta["src"] = string(word, "  ", who, when)
@@ -324,9 +324,8 @@ It is a node rather than a decoration so that `n`/`N` reaches it, folding above
 it works, and `collect_pending!` has something to open the pane on.
 """
 function newmark_node(n::Int)
-    nd = Node(string(THEME.waiting, "new since you last looked", THEME.reset,
-                     "  ", THEME.dim, n, n == 1 ? " entry" : " entries",
-                     THEME.reset),
+    nd = Node(faced("new since you last looked", THEME.waiting) * "  " *
+              faced(string(n, n == 1 ? " entry" : " entries"), THEME.dim),
               "", :plain, true)
     nd.meta["newmark"] = true
     nd.meta["src"] = "--- new since you last looked ---"
@@ -340,7 +339,7 @@ went up, and away in the margin; this is where the eye is when it looks for
 the new part. Added where a thread lands (`collect_pending!`); the re-read
 replaces it with the thread as it is, and one that fails takes it away."""
 function refreshing_node()
-    nd = Node(string(THEME.dim, "refreshing \u2026", THEME.reset), "", :plain, true)
+    nd = Node(faced("refreshing \u2026", THEME.dim), "", :plain, true)
     nd.meta["refreshing"] = true
     nd.meta["src"] = "refreshing \u2026"
     nd
@@ -576,16 +575,16 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
         # block has none, so it borrows the summary - "<details><summary>" is
         # not a useful thing to read on the header line.
         lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
-               made[2].header : made[1].raw
+               String(made[2].header) : made[1].raw
         peek = strip(first(replace(lead, r"\s+" => " "), 58))
-        made[1].header = string(who, "  ", when, loc, "   ", peek)
+        made[1].header = who * "  " * when * loc * "   " * peek
         # The header's peek is cut mid-word; copy the byline instead, since the
         # body itself is on the rows underneath it. `byline` is the same thing
         # for the screen rather than for the clipboard, so it keeps the colour
         # on the location - it is what the header reads as once the node is open
         # and the peek would be repeating the row below it.
-        made[1].meta["src"] = string(who, "  ", when, astrip(loc))
-        made[1].meta["byline"] = string(who, "  ", when, loc)
+        made[1].meta["src"] = string(who, "  ", when, String(loc))
+        made[1].meta["byline"] = who * "  " * when * loc
         # The time itself, for `rows` to say how long ago that was against
         # the frame's clock; the header carries only the date.
         made[1].meta["at"] = e.at
@@ -828,8 +827,8 @@ node with no `file`, which is what `[`/`]`, `C` and `attach_comments` all step
 over.
 """
 ctlnode(n::Int) =
-    Node(string(THEME.blocked, n, n == 1 ? " control character" : " control characters",
-                " in this diff, drawn as ^[ ^G ^M", THEME.reset), "", :plain, true)
+    Node(faced(string(n, n == 1 ? " control character" : " control characters",
+                      " in this diff, drawn as ^[ ^G ^M"), THEME.blocked), "", :plain, true)
 
 """
     hunk_marks(n) -> Dict{Int,Tuple{Int,Int}}
@@ -876,10 +875,9 @@ and `💬` at the end of the row as well is it said twice. Two or more say their
 count, and a settled thread its tick, dim.
 """
 markof(m::Union{Nothing,Tuple{Int,Int}}) =
-    m === nothing ? "" :
-    string(m[1] <= 1 ? "" : string("  ", THEME.accent, "💬", m[1], THEME.reset),
-           m[2] == 0 ? "" : string("  ", THEME.dim, "✓", m[2] == 1 ? "" : m[2],
-                                   THEME.reset))
+    m === nothing ? row("") :
+    (m[1] <= 1 ? row("") : "  " * faced(string("💬", m[1]), THEME.accent)) *
+    (m[2] == 0 ? row("") : "  " * faced(string("✓", m[2] == 1 ? "" : m[2]), THEME.dim))
 
 """Where a review comment was pointing: `file.jl:544`, or empty for a plain one.
 
@@ -889,9 +887,9 @@ number the comment has, and printing nothing there reads as a bug.
 """
 function comment_loc(c)
     p = jstr(c, :path, "")
-    isempty(p) && return ""
+    isempty(p) && return row("")
     ln = something(get(c, "line", nothing), get(c, "original_line", nothing), "?")
-    string("  ", THEME.accent, last(split(p, '/')), ":", ln, THEME.reset)
+    "  " * faced(string(last(split(p, '/')), ":", ln), THEME.accent)
 end
 
 """Header for one review comment, as it is drawn under its hunk: who, when and
@@ -1000,11 +998,10 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         # answered is why you can stop.
         # Kept as well as appended: `[`/`]` rebuilds this header from the file
         # and the range, and would otherwise drop the tally on the way past.
-        n.meta["tally"] = string(
-            isempty(live) ? "" : string("  ", THEME.accent, "💬", length(live), THEME.reset),
-            isempty(settled) ? "" : string("  ", THEME.dim, "✓", length(settled),
-                                           THEME.reset))
-        n.header = string(n.header, n.meta["tally"])
+        n.meta["tally"] =
+            (isempty(live) ? row("") : "  " * faced(string("💬", length(live)), THEME.accent)) *
+            (isempty(settled) ? row("") : "  " * faced(string("✓", length(settled)), THEME.dim))
+        n.header = n.header * n.meta["tally"]
         # And the line each thread points at, so the hunk says *where* it is
         # being talked about and not only that it is. Kept as the line number
         # and the side rather than as a row of the hunk, because `[`/`]` widens
@@ -1027,8 +1024,8 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
             # resolved is not the same as irrelevant, and the code it was about
             # is the thing that makes it readable at all. Closed, so it costs a
             # row rather than a screen.
-            h = Node(string(THEME.dim, "\u2713 ", length(settled), " resolved",
-                            length(settled) == 1 ? "" : " threads", THEME.reset),
+            h = Node(faced(string("\u2713 ", length(settled), " resolved",
+                                  length(settled) == 1 ? "" : " threads"), THEME.dim),
                      "", :plain, false, n.depth + 1)
             push!(out, h)
             for c in settled
@@ -1050,7 +1047,7 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         isempty(group) && continue
         # Folded, and folding now hides the run nested under it, so this really
         # does put them away.
-        push!(out, Node(string(THEME.dim, label, THEME.reset), "", :plain, false))
+        push!(out, Node(faced(label, THEME.dim), "", :plain, false))
         for c in group
             emit!(out, c, 1)
         end
@@ -1084,11 +1081,11 @@ round, and an unmarked line is a change both versions make and neither of them
 is the reason you are looking.
 """
 function rangeline(l::AbstractString)
-    ncodeunits(l) >= 5 || return String(l)
+    ncodeunits(l) >= 5 || return row(l)
     o = codeunit(l, 5)
-    o == UInt8('+') && return string(THEME.diff_add, l, THEME.reset)
-    o == UInt8('-') && return string(THEME.diff_del, l, THEME.reset)
-    occursin(r"^\s*@@", l) ? string(THEME.diff_meta, l, THEME.reset) : String(l)
+    o == UInt8('+') && return faced(l, THEME.diff_add)
+    o == UInt8('-') && return faced(l, THEME.diff_del)
+    occursin(r"^\s*@@", l) ? faced(l, THEME.diff_meta) : row(l)
 end
 
 """How `git range-diff` marks each pair of commits, and what it means here.
@@ -1148,7 +1145,9 @@ function rangediff_nodes(txt::AbstractString)
     txt, ctl = inert(txt)
     ns, buf = Node[], String[]
     flush!() = if !isempty(ns) && !isempty(buf)
-        ns[end].raw = join((rangeline(l) for l in buf), "\n")
+        # Coloured when it is drawn, by `rangeline`, line by line.
+        ns[end].raw = join(buf, "\n")
+        ns[end].meta["range"] = true
         empty!(buf)
     end
     for l in split(txt, "\n")
@@ -1161,19 +1160,17 @@ function rangediff_nodes(txt::AbstractString)
         # Every group but the last is required, and the last matches empty.
         oldsha, mark = something(m[2]), something(m[3])
         newsha, subj = something(m[5]), something(m[6])
-        (col, what) = something(range_mark(first(mark)), (THEME.reset, String(mark)))
+        (col, what) = something(range_mark(first(mark)), (Face(), String(mark)))
         # Which sha to show: the one that still exists. A commit the rebase
         # dropped has no new sha and a commit it added has no old one, and
         # `-------` is not something to put in front of a subject line.
         sha = newsha == "-------" ? oldsha : newsha
-        n = Node(string(col, rpad(what, 10), THEME.reset,
-                        THEME.dim, first(sha, 8), THEME.reset, "  ", subj),
-                 "", :plain, first(mark) != '=')
+        byline = faced(rpad(what, 10), col) * faced(first(sha, 8), THEME.dim)
+        n = Node(byline * "  " * subj, "", :plain, first(mark) != '=')
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", subj)
         # What `o` opens, anywhere on the node: the pair is one commit.
         n.meta["sha"] = String(sha)
-        n.meta["byline"] = string(col, rpad(what, 10), THEME.reset,
-                                  THEME.dim, first(sha, 8), THEME.reset)
+        n.meta["byline"] = byline
         push!(ns, n)
     end
     flush!()
@@ -1243,18 +1240,17 @@ function pushed_nodes(it::Item)
     # count did not change says so by not mentioning it, which is the common
     # case and the one where the count would be noise.
     said = kind === :diff ?
-           string(THEME.settled, mv.now - mv.then,
-                  mv.now - mv.then == 1 ? " commit" : " commits", " added",
-                  THEME.reset) :
-           string(THEME.waiting, mv.moved > 0 ? "rebased" : "rewritten", THEME.reset,
-                  mv.moved > 0 ?
-                  string(THEME.dim, "  onto ", mv.moved, " newer ",
-                         mv.moved == 1 ? "commit" : "commits", THEME.reset) : "",
-                  mv.then == mv.now ? "" :
-                  string(THEME.dim, "  ", mv.now, mv.now == 1 ? " commit" : " commits",
-                         ", was ", mv.then, THEME.reset))
-    lead = Node(string(said, "  ", THEME.dim, first(old, 8), " → ", first(new, 8),
-                       THEME.reset),
+           faced(string(mv.now - mv.then,
+                        mv.now - mv.then == 1 ? " commit" : " commits", " added"),
+                 THEME.settled) :
+           faced(mv.moved > 0 ? "rebased" : "rewritten", THEME.waiting) *
+           (mv.moved > 0 ?
+            faced(string("  onto ", mv.moved, " newer ",
+                         mv.moved == 1 ? "commit" : "commits"), THEME.dim) : row("")) *
+           (mv.then == mv.now ? row("") :
+            faced(string("  ", mv.now, mv.now == 1 ? " commit" : " commits",
+                         ", was ", mv.then), THEME.dim))
+    lead = Node(said * "  " * faced(string(first(old, 8), " → ", first(new, 8)), THEME.dim),
                 kind === :diff ?
                 "The head you saw is still in this branch's history and the base " *
                 "has not moved under it, so this is the plain diff from that head " *

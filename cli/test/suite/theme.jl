@@ -1,5 +1,5 @@
 # The colours, and the file they are read from. Three questions: whether a spec
-# becomes the escape it says, whether a bad line is reported rather than
+# becomes the face it says, whether a bad line is reported rather than
 # swallowed, and whether no theme really means no escapes - which is the one
 # that would have been easy to get almost right.
 #
@@ -12,26 +12,27 @@
 # nothing at all, and the files after this one need the colours they assert on.
 const THEME_DEFAULT = joinpath(W.ROOT, "themes", "default-ansi.toml")
 
-@testset "a theme value becomes an escape, and its closer" begin
-    ps(x) = W.parse_style(x)
-    @test ps("bold") == ("\e[1m", "\e[22m")
-    @test ps("dim") == ("\e[2m", "\e[22m")
-    @test ps("red") == ("\e[31m", "\e[39m")
-    @test ps("bright red") == ("\e[91m", "\e[39m")
-    @test ps("on yellow") == ("\e[43m", "\e[49m")
-    # 256 by index, in both positions.
-    @test ps("244") == ("\e[38;5;244m", "\e[39m")
-    @test ps("on 236") == ("\e[48;5;236m", "\e[49m")
-    @test ps("0") == ("\e[38;5;0m", "\e[39m") && ps("255")[1] == "\e[38;5;255m"
-    # Combined, in either order, and the closer ends exactly what was begun.
-    @test ps("bold white") == ("\e[1;37m", "\e[22;39m")
-    @test ps("black on yellow") == ("\e[30;43m", "\e[39;49m")
-    @test ps("on 24 bright white") == ("\e[48;5;24;97m", "\e[49;39m")
-    # `bold dim` shares a closer, and it is said once.
-    @test ps("bold dim") == ("\e[1;2m", "\e[22m")
-    @test ps("underline")[2] == "\e[24m" && ps("reverse")[2] == "\e[27m"
-    # No colour is a colour a theme may choose: the role is drawn plain.
-    @test ps("") == ("", "") && ps("   ") == ("", "")
+@testset "a theme value becomes a face" begin
+    pf(x) = W.parse_face(x)
+    c(x) = W.SimpleColor(x)
+    @test pf("bold") == W.Face(weight = :bold)
+    @test pf("dim") == W.Face(weight = :light)
+    @test pf("red") == W.Face(foreground = c(:red))
+    @test pf("bright red") == W.Face(foreground = c(:bright_red))
+    @test pf("on yellow") == W.Face(background = c(:yellow))
+    # 256 by index, in both positions: the RGB xterm gives it.
+    @test pf("244") == W.Face(foreground = W.SimpleColor(0x80, 0x80, 0x80))
+    @test pf("on 236") == W.Face(background = W.SimpleColor(0x30, 0x30, 0x30))
+    @test pf("0") == W.Face(foreground = c(:black))
+    # Combined, in either order.
+    @test pf("bold white") == W.Face(weight = :bold, foreground = c(:white))
+    @test pf("black on yellow") == pf("on yellow black") ==
+          W.Face(foreground = c(:black), background = c(:yellow))
+    @test pf("underline") == W.Face(underline = true) && pf("reverse") == W.Face(inverse = true)
+    # No colour is a colour a theme may choose: the role is drawn plain, and
+    # a face with nothing in it writes nothing.
+    @test pf("") == W.Face() && pf("   ") == W.Face()
+    @test ansi(W.faced("x", pf(""))) == "x"
 
     # Anything it cannot read is said, naming the word - a theme file is
     # hand-written and a misspelling that rendered as nothing would be a role
@@ -39,7 +40,7 @@ const THEME_DEFAULT = joinpath(W.ROOT, "themes", "default-ansi.toml")
     # `bold on red` is not here: it is legal, and means bold on a red ground.
     for bad in ("chartreuse", "256", "on bold", "on", "bright", "on on red",
                 "bright 3", "-1")
-        @test_throws ArgumentError W.parse_style(bad)
+        @test_throws ArgumentError W.parse_face(bad)
     end
 end
 
@@ -53,20 +54,19 @@ end
         """)
     try
         @test isempty(W.load_theme!(good))
-        @test W.THEME.dim == "\e[38;5;244m" && W.THEME.dim_off == "\e[39m"
-        @test W.THEME.settled == "\e[92m" && W.THEME.cursor_bg == "\e[48;5;17m"
+        @test W.THEME.dim == W.parse_face("244")
+        @test W.THEME.settled == W.parse_face("bright green")
+        @test W.THEME.cursor_bg == W.parse_face("on 17")
         # A role the file does not name is not drawn, and a partial theme is
         # therefore a legal one.
-        @test isempty(W.THEME.waiting) && isempty(W.THEME.accent)
-        # The two that are not the file's business, present because a theme is.
-        @test W.THEME.reset == "\e[0m" && W.THEME.no_bg == "\e[49m"
+        @test W.THEME.waiting == W.Face() && W.THEME.accent == W.Face()
 
         # Loading a second theme leaves nothing of the first behind: `settled`
         # is named here and `dim` is not, and both have to answer for this one.
         two = joinpath(dir, "two.toml")
         write(two, "settled = \"cyan\"\n")
         @test isempty(W.load_theme!(two))
-        @test W.THEME.settled == "\e[36m" && isempty(W.THEME.dim)
+        @test W.THEME.settled == W.parse_face("cyan") && W.THEME.dim == W.Face()
 
         # Every kind of bad line, each reported and none fatal.
         bad = joinpath(dir, "bad.toml")
@@ -81,8 +81,8 @@ end
         @test any(p -> occursin("blocke", p), probs)         # a misspelt role
         @test any(p -> occursin("wants a string", p), probs) # a number
         @test any(p -> occursin("chartreuse", p), probs)     # a misspelt colour
-        @test W.THEME.dim == "\e[2m"            # and the good line still took
-        @test isempty(W.THEME.blocked) && isempty(W.THEME.accent)
+        @test W.THEME.dim == W.parse_face("dim")   # and the good line still took
+        @test W.THEME.blocked == W.Face() && W.THEME.accent == W.Face()
 
         # A file that is not TOML at all is one problem, not a stack trace.
         broken = joinpath(dir, "broken.toml")
@@ -100,10 +100,10 @@ end
         @test length(W.load_theme!(joinpath(mktempdir(), "nope.toml"))) == 1
         @test isempty(W.load_theme!(""))
         for f in fieldnames(W.Theme)
-            @test isempty(getfield(W.THEME, f))
+            @test getfield(W.THEME, f) == W.Face()
         end
         # The payoff, and the thing a per-role default would have got wrong:
-        # not one SGR sequence reaches the screen. The resets are empty too, so
+        # not one SGR sequence reaches the screen. Nothing ends a face, so
         # there is nothing left cancelling colours nobody emitted.
         ENV["COLUMNS"], ENV["LINES"] = "150", "40"
         st = mkstate()
@@ -112,26 +112,25 @@ end
         st.nodes = [W.Node("alice  2026-08-01   first",
                            "# a heading\n\na paragraph, **bold**, `code`\n\n> quoted",
                            :md, true)]
-        f = W.render(st, 150, 40)
+        f = frame(st, 150, 40)
         # Not one SGR escape anywhere on the screen - not a colour, and not the
         # weight a border is drawn in either: the two widget packages take
         # those from `TermInput.CHROME`, which this sets too.
         @test !occursin(r"\e\[[0-9;]*m", f)
-        @test TermInput.CHROME[] == (strong = "", quiet = "", focus = "", reset = "",
+        @test TermInput.CHROME[] == (strong = W.Face(), quiet = W.Face(), focus = W.Face(),
                                      box = TermInput.BOXES.ROUNDED)
         # Still a frame, though: the geometry is not the theme's business.
-        @test all(W.awidth(l) == 150 for l in split(f, "\n"))
+        @test all(width(l) == 150 for l in split(f, "\n"))
         # Hyperlinks are not colour and stay - OSC 8 is how a url is followed,
         # not how it is decorated.
         @test occursin("\e]8;;", f)
         # And the row highlights, which are backgrounds rather than text, drop
-        # out cleanly instead of re-arming an empty string at every position.
-        @test W.hlrow("plain", W.THEME.cursor_bg) == "plain"
-        @test W.hlspan("plain", [1:2], W.THEME.match_bg) == "plain"
-        @test W.rearm("a\e[0mb", W.THEME.code_bg) == "a\e[0mb"
+        # out cleanly: an empty face laid over a row writes nothing.
+        @test ansi(W.hlrow("plain", W.THEME.cursor_bg)) == "plain"
+        @test ansi(W.hlspan("plain", [1:2], W.THEME.match_bg)) == "plain"
         # A bordered box is bare line art, which is what drawing plain means
         # for something drawn in characters rather than in words.
-        @test TermIFrame.bordered(["x"], 20, 3, "t")[1] == "╭─ t ──────────────╮"
+        @test ansi(TermIFrame.bordered(["x"], 20, 3, "t")[1]) == "╭─ t ──────────────╮"
     finally
         W.load_theme!(THEME_DEFAULT)
     end
@@ -156,17 +155,16 @@ end
         @test isempty(W.load_theme!(joinpath(W.ROOT, "themes", f)))
     end
     W.load_theme!(THEME_DEFAULT)
-    # It is the ANSI theme: the sixteen colours and the 256 cube, and nothing
-    # that assumes a terminal can do truecolour.
-    @test !any(occursin("38;2", getfield(W.THEME, f)) for f in fieldnames(W.Theme))
+    # It is the ANSI theme: the sixteen colours and the 256 cube, and no
+    # colour written as a hex a terminal has to have truecolour for.
+    @test !any(v -> v isa String && occursin('#', v), values(tbl))
 end
 
 @testset "markdown and code are the theme's, in its own words" begin
     try
         @test isempty(W.load_theme!(THEME_DEFAULT))
         @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
-                                     focus = W.THEME.focus, reset = W.THEME.reset,
-                                     box = TermInput.BOXES.ROUNDED)
+                                     focus = W.THEME.focus, box = TermInput.BOXES.ROUNDED)
         st = W.MD_STYLE[]
         # The same spec language as every role, each a face.
         @test st.h1 == W.parse_face("bold blue") && st.blockquote == W.parse_face("blue")
@@ -188,8 +186,8 @@ end
         # And it reaches a comment body.
         rs = W.render_md("# head\n\n> said", 40)
         h1 = faceesc(st.h1)
-        @test startswith(rs[1].text, h1[1] * "head" * h1[2])
-        @test startswith(rs[3].text, faceesc(st.blockquote)[1] * "│ ")
+        @test startswith(ansi(rs[1].text), h1[1] * "head" * h1[2])
+        @test startswith(ansi(rs[3].text), faceesc(st.blockquote)[1] * "│ ")
         # Every shipped theme loads with nothing to say.
         for f in readdir(joinpath(W.ROOT, "themes"); join = true)
             @test isempty(W.load_theme!(f))
@@ -224,7 +222,7 @@ end
         @test W.MD_STYLE[].h1 == W.Face() && isempty(W.MD_STYLE[].faces)
         # So a rendered comment body is plain text: no style asked for is no
         # escape written.
-        md(s) = join((rstrip(r.text) for r in W.render_md(s, 60)), "\n")
+        md(s) = join((rstrip(ansi(r.text)) for r in W.render_md(s, 60)), "\n")
         @test md("a `x` and **bold**") == "a `x` and bold"
         @test !occursin('\e', md("# head\n\n- a `list`\n"))
     finally
