@@ -173,10 +173,15 @@ function scheme_in(buf::Vector{UInt8})
                 Vector{UInt8}(codeunits(rest)))
 end
 
+"""One event from stdin, for the reader: undecoded when the view on top forwards
+its input (`wantsraw`), keys otherwise. Which is decided by the loop as it
+arms the reader, and handed over as `raw`."""
+readinput(io::IO, raw::Bool) = raw ? readraw(io) : readevent(io)
+
 mutable struct Controller
     term::Union{Nothing,HeldTerminal}   # while `run!` holds it
     events::Channel{Any}
-    reader::Union{Nothing,InputReader}  # puts its events on `events`
+    reader::Union{Nothing,InputReader{Bool}}  # `readinput`, onto `events`
     stack::Vector{View}
     running::Bool
     mouse::Bool                 # what `m` last asked for; `term.mouse` follows it
@@ -599,7 +604,7 @@ function run!(ctrl::Controller, root::View)
     # One event per `arm!`, parked between them, which is what lets `suspend`
     # hand stdin to a child. Whatever ends the reading - EOF because the
     # terminal closed, EIO because the pty is gone - comes as an `EndEvent`.
-    ctrl.reader = InputReader(ctrl.term, ctrl.events)
+    ctrl.reader = InputReader(readinput, ctrl.term, ctrl.events, Bool)
     try
         dirty, armed = true, false
         # Before the first frame too, so the browser's first thread is asked
@@ -638,7 +643,7 @@ function run!(ctrl::Controller, root::View)
             # The mode is decided here, where the top view is known, and not
             # in the reader, which is parked between events and would be
             # deciding it against whatever was on top last time.
-            armed || (arm!(ctrl.reader, wantsraw(v) ? readraw : readevent); armed = true)
+            armed || (arm!(ctrl.reader, wantsraw(v)); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
             if ev isa EndEvent
                 # Nothing to ask and nobody to ask: leave through the `finally`
