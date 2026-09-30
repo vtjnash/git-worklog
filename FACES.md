@@ -110,6 +110,15 @@ The two places that read a pane's text - `dead_screen` finding blank rows, and
   function in TermInput, `rowwidth`, says so, and the fitting and wrapping
   functions use it and never split a verbatim range: a row cut through a pane
   is cut before or after it.
+- **No theme is still no escape at all.** An empty theme is empty faces, and
+  an empty face writes nothing; the suite's "no theme is no colour at all"
+  tests keep asserting it, unchanged.
+- **The theme decides colour, not the stream.** StyledStrings writes escapes
+  only to an `IOContext` with `:color => true`, where `wl` today writes the
+  theme's escapes wherever it prints. Every print of styled text - the frame,
+  and the few lines printed outside it (`ui.jl`'s url list, the controller's
+  "this view could not be drawn") - says `:color => true` itself, so a theme
+  still colours `wl` piped into `less -R`, and `theme = ""` still does not.
 - **The frame is written from annotated rows.** `frame_bytes` takes rows,
   prints each with StyledStrings (`IOContext(io, :color => true)`), and a
   verbatim range as its text followed by the cursor move. The host joining
@@ -139,13 +148,22 @@ The two places that read a pane's text - `dead_screen` finding blank rows, and
       and an annotated one is fitted with step 1's helpers.
 - [ ] 5. **(worklog)** `Theme` as faces from `parse_face`; `parse_style`,
       `ATTRS`, `sgr`, the `_off` fields and `reset`/`no_bg` go. `rearm`,
-      `hlrow`, `hlspan` become a face annotated over a range.
+      `hlrow`, `hlspan` become a face annotated over a range. DESIGN.md's
+      "A colour is a role, never an escape" paragraph loses its `_off`
+      sentence, and the shipped themes' header comment ("There is no entry
+      for the resets...") says what is true of faces instead.
 - [ ] 6. **(worklog)** Every row builder to annotated strings, file by file,
       the measuring calls to step 1's. `render` returns rows, not a joined
       string. Suite green after each file.
 - [ ] 7. **(TermInput)** The escape-string helpers go - `awidth`, `afit`,
-      `apad`, `ahead`, `atail`, `amid`, `awrap`, `awraplines`, `astrip` - and
-      `ESCAPE` moves to TermIFrame, the one package still reading escapes.
+      `apad`, `ahead`, `atail`, `amid`, `awrap`, `awraplines`, `astrip` - with
+      their tests and their README section, and `ESCAPE` moves to TermIFrame,
+      the one package still reading escapes.
+
+Each step that changes a package's API - `frame_bytes`, `CHROME`,
+`bordered`, `iframe_rows` - changes that package's README in the same
+commit. After steps 5-7, `julia --project=cli/precompile cli/test/aqua.jl`
+too, since the precompile workload draws frames.
 - [ ] 8. **(TermIFrame, later)** When tmux_jll is 3.6 or newer: copy mode's
       screen by `capture-pane -M`, and `paint_selection!`/`reverse_cells` go.
 
@@ -159,8 +177,15 @@ annotated rows to strings at the frame until 6 is done.
 - **No width check on a pane's rows.** tmux sized them; auto-wrap off is
   the guard for the frame in which it has not caught up.
 - **1.10 stays.** StyledStrings is the registered package there, the stdlib
-  from 1.11. Before 1.12 it writes dim straight over bold, which a terminal
-  draws as both (see TermInput's README).
+  from 1.11.
+- **1.11 draws bold and dim run together, and that is accepted.** Before
+  1.12 StyledStrings writes dim straight over bold (`\e[1m` then `\e[2m`, no
+  `\e[22m`), which a terminal draws as both; with every row going through it,
+  that is a focused box's title beside its border and a bold row beside a
+  quiet one, not just a backtick in bold. `wl` stays on 1.11 with it, no
+  workaround is written, and `wl`'s README says so where it names 1.11. A
+  test that pins a weight change is `broken = VERSION < v"1.12"`, as
+  TermInput's markdown one is.
 
 ## For the agent doing this
 
