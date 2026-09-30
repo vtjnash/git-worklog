@@ -69,7 +69,8 @@ import TermInput: settext!, curline, insertblock!, dialogbox, centred, ESCAPE
 # And the two reports `readevent` decodes, as patterns, which `scheme_in` takes
 # out of a pane's undecoded input; and the question that asks for the second.
 import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT
-import REPL
+# And what `enter_terminal` returns, which the controller holds while it runs.
+import TermInput: HeldTerminal
 import InteractiveUtils
 import Markdown
 using Base64

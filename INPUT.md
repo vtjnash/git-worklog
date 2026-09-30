@@ -133,14 +133,14 @@ copy in the same commit.
 3. [x] **Paste.** `paste!(::LineInput)` drops control characters as well as
        line breaks, and so `Choice`'s does.
 4. [x] **(host)** `pasteline` goes.
-5. [ ] **Terminal modes.** `enter_terminal` and `leave_terminal`, the
+5. [x] **Terminal modes.** `enter_terminal` and `leave_terminal`, the
        latter guarded as `run!`'s `finally` is, since the commonest way out
        is a terminal that has gone away. `suspend` takes the value `enter`
        returns. Alternate screen and title optional.
-6. [ ] **The reader.** `InputReader` with `arm!` and `close`, and
+6. [x] **The reader.** `InputReader` with `arm!` and `close`, and
        `EndEvent` on EOF or EIO. Tested with a pipe.
-7. [ ] **`frame_bytes` and `input_waiting`**, with the frame tests.
-8. [ ] **(host)** `run!` is written with steps 5-7; `Controller` keeps its
+7. [x] **`frame_bytes` and `input_waiting`**, with the frame tests.
+8. [x] **(host)** `run!` is written with steps 5-7; `Controller` keeps its
        stack, its channel and its SIGWINCH watch, and loses its reader.
 9. [ ] **The README's program**, and the test that runs it.
 
@@ -165,6 +165,25 @@ copy in the same commit.
   `SCHEME_REPORT` and `BG_REPORT` are public and not exported, since only a
   host reading raw input wants them. `TERM_DARK`, which tells a flip from
   the first answer, stays `wl`'s: it is policy about when to ask again.
+- **`enter_terminal` returns a `HeldTerminal`**, public and not exported: a
+  host rarely names the type. Its `mouse` is the one field a host sets,
+  since the mouse is the one mode toggled during a run; `wl`'s `mouse!` sets
+  it beside `ctrl.mouse`, which the views read and which a test's
+  `Controller` has with no terminal held. Every mode defaults to off,
+  raw mode and the hidden cursor aside, so an inline host asks for nothing.
+  The `suspend(f, term; mouse, paste)` form stays beside `suspend(f, t)`, for
+  a host that set the terminal up itself - and for `wl`'s tests, which
+  suspend with no terminal held.
+- **`arm!(r, read = readevent)`**: which read the next event gets is an
+  argument, so `wl`'s `readraw` for a hosted pane is `arm!(r, readraw)` and
+  the reader knows nothing about raw input. Called with `invokelatest`,
+  because a host's read can be newer than the reader's task - which is how
+  a test's closure first came back as an `EndEvent`.
+- **`EndEvent` carries `why`**, the error that ended the read, since that
+  test showed a failing read is otherwise indistinguishable from EOF.
+- **`frame_bytes(frame, title = "", cursor = nothing; h = 0)`**, so the
+  README's program writes `frame_bytes(render(c, w, h))`.
+- **`wl` no longer depends on `REPL`**: raw mode was its last use.
 
 ## Not doing
 

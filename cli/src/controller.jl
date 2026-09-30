@@ -7,9 +7,10 @@
 # terminates on a non-TTY, spins the CPU, and adds latency to every key.
 #
 # Owning stdin for the whole run removes the choice. One reader task exists for
-# the lifetime of the process, and keys, mouse events and background wakeups
-# arrive on the same channel, so the loop can block on `take!` - no polling, no
-# sleep, and a fetch finishing redraws immediately rather than at the next tick.
+# the lifetime of the process - `TermInput`'s `InputReader` - and keys, mouse
+# events and background wakeups arrive on the same channel, so the loop can
+# block on `take!` - no polling, no sleep, and a fetch finishing redraws
+# immediately rather than at the next tick.
 
 """
 A screen. `render` and `handle!` are required; everything else has a default,
@@ -96,16 +97,6 @@ is drawn again at the new size, which is the whole of what a resize needs.
 """
 struct ResizeEvent end
 
-"""Input has ended: the terminal went away and nothing more will ever arrive.
-
-Its own event and not an exception, because the loop is parked on a channel and
-an exception in the reader task would leave it parked there forever - which is
-what a closed terminal used to do. The process is being wound up either way; the
-difference is whether the alternate screen, the mouse mode and raw mode are
-handed back on the way out.
-"""
-struct EndEvent end
-
 """Somewhere to put a paste - `TermInput`'s `PasteEvent`, with bracketed paste on
 for the whole run - for a view that has one. The default is to do nothing with
 it, which is the point of it not being keys."""
@@ -183,18 +174,17 @@ function scheme_in(buf::Vector{UInt8})
 end
 
 mutable struct Controller
-    term::Any
+    term::Union{Nothing,HeldTerminal}   # while `run!` holds it
     events::Channel{Any}
-    ready::Channel{Bool}        # loop -> reader: "read one event now", raw or not
-    reader::Union{Nothing,Task}
+    reader::Union{Nothing,InputReader}  # puts its events on `events`
     stack::Vector{View}
     running::Bool
-    mouse::Bool
+    mouse::Bool                 # what `m` last asked for; `term.mouse` follows it
     title::String               # what the terminal's title bar was last told
     woken::Bool                 # a `WakeEvent` is on `events` and not yet taken
 end
-Controller() = Controller(nothing, Channel{Any}(64), Channel{Bool}(1), nothing,
-                          View[], false, false, "", false)
+Controller() = Controller(nothing, Channel{Any}(64), nothing, View[], false, false,
+                          "", false)
 
 """Called from a background task to ask for a redraw once its work has landed.
 
@@ -336,10 +326,12 @@ than a setting: `m` gives it back when you want to select with the terminal, or
 when a terminal turns out not to speak SGR at all.
 
 The two sequences are `TermInput.mouse_reporting`, which is also what `suspend`
-puts back - a second copy here would be one to keep in step.
+puts back - a second copy here would be one to keep in step - and the held
+terminal is told, so that `suspend` and `leave_terminal` put back what is on.
 """
 function mouse!(ctrl::Controller, on::Bool)
     ctrl.mouse = on
+    ctrl.term === nothing || (ctrl.term.mouse = on)
     print(mouse_reporting(on))
     on
 end
@@ -408,8 +400,10 @@ end
     suspend(f, ctrl)
 
 Give the terminal back for the duration of `f`, then take it again - the
-controller's terminal and its mouse, handed to `TermInput.suspend`, which is
-where the sequences live because anything holding raw mode has this problem.
+controller's held terminal, handed to `TermInput.suspend`, which undoes what
+`enter_terminal` did because anything holding raw mode has this problem; and
+the scheme reports, which are this program's. With no terminal held - a test -
+the sequences are written all the same.
 
 **Only safe to call from the event loop.** The reader task is parked between
 events rather than sitting in `read`, which is what makes this work at all - a
@@ -420,7 +414,8 @@ handling the event, and running the editor happens inside that handling.
 function suspend(f, ctrl::Controller)
     print(scheme_reports(false))
     try
-        suspend(f, ctrl.term; mouse = ctrl.mouse, paste = true)
+        ctrl.term === nothing ? suspend(f, nothing; mouse = ctrl.mouse, paste = true) :
+                                suspend(f, ctrl.term)
     finally
         # And asked again: the scheme may have changed while it was away.
         print(scheme_reports(true))
@@ -552,86 +547,17 @@ function failnote(fs, at::DateTime)
            " \u2014 stands until it answers", isempty(f.why) ? "" : string(" \u00b7 ", f.why))
 end
 
-"""One frame as the bytes the terminal is sent, in one write.
-
-Three things about the write, none of them about what is in the frame:
-
-  * **One write.** `print(a, b, c)` on a `TTY` is a write per argument, and the
-    frame, the title and the cursor were three of those; between any two the
-    terminal may draw. A `TTY` is unbuffered - `buffer_writes` is off on
-    `stdout` - so the buffer is made here and handed over whole.
-  * **The cursor is hidden before the first row and shown after the frame.** Shown
-    at the end of one frame, it was still shown at the start of the next,
-    and a terminal that drew between the first row and the caret's row showed it
-    at the top left on the way.
-  * **Synchronized output**, DEC private mode 2026, around the whole thing:
-    a terminal that knows it (kitty, wezterm, foot, alacritty, iTerm2,
-    Windows Terminal, tmux 3.4 and up in its panes) holds the frame
-    until the closing sequence and draws it once, which is the end of a
-    torn frame at any size; one that does not ignores an unknown mode,
-    which is what the standard says to do. Nothing on this side can hold the
-    terminal otherwise: a pty is four kilobytes on Linux, so a frame is
-    several reads however it was written.
-
-**Every row is its line deleted and written again**: the scroll region set to
-that row alone, `\e[M` there, and the row. A hyperlink leaves a marker on the
-line it was drawn on in xterm.js, which frees one only when its line is deleted
-or trimmed, and the alternate screen trims nothing - so a row overwritten in
-place, or erased, kept every link it ever held. Thirty links a frame was 30000
-markers after a thousand frames, and leaving the alternate screen disposed
-them all in time quadratic in the count: 5 s then, 100 s after four thousand
-(`@xterm/headless` 6.1 beta, 2026-09-28). VS Code runs that xterm in its pty
-host, and a pty host that misses its heartbeat for 12 s is restarted with every
-terminal in it - quitting `wl`, or `^]a`, over Remote-SSH. An `id` on the link
-only bounds it by url and row, which a scrolled thread outgrows. A delete
-bounds it by what is on the screen. One row at a time, so the terminal that
-draws mid-frame shows that row blank and nothing else moved, which is all an
-erase ever showed; never a clear, which is a blank frame and a flicker on every
-key.
-
-And it answers the pending wrap for free. Writing the last column leaves the
-cursor in the pending-wrap state, and terminals disagree about where that is:
-xterm.js counts it past the last column, Terminal.app keeps it *on* the last
-column, where an erase after a full row took the right border off every row.
-Nothing is erased after a row now, and the next row starts by setting the
-scroll region, which moves the cursor home wherever it was pending.
-
-`h` is the screen's height, and a frame shorter than it - which the contract
-says never comes - has its missing rows deleted as well; `0` is the frame's
-own.
-"""
-function frame_bytes(frame::AbstractString, title::AbstractString,
-                     cur::Union{Nothing,Tuple{Int,Int}}; h::Int = 0)
-    io = IOBuffer()
-    print(io, "\e[?2026h\e[?25l")
-    rows = split(frame, '\n')
-    for i in 1:max(h, length(rows))
-        print(io, "\e[", i, ";", i, "r\e[", i, "H\e[M", get(rows, i, ""))
-    end
-    print(io, "\e[r", title)
-    cur === nothing || print(io, "\e[", cur[1], ";", cur[2], "H\e[?25h")
-    print(io, "\e[?2026l")
-    take!(io)
-end
-
-"""Has the terminal sent input that no event has been read from yet?
-
-What has already arrived and is in the stream's buffer, never a wait for more:
-Julia stops reading a stream nobody is waiting on, so this is the rest of the
-last read - a paste, up to what the pty delivered at once - and zero between
-keys typed by hand.
-"""
-input_waiting(io::IO) = bytesavailable(io) > 0
-
 """
     run!(ctrl, root)
 
 Own the terminal, then dispatch events until the stack empties.
 
-The reader task lives as long as the controller, which lives as long as the
-program - so it is never left running behind a view that has gone away. It is
-blocked in `readevent` at exit; the process is ending, so it is left to die with
-it rather than being interrupted mid-read.
+The terminal is `TermInput`'s to enter and leave, the events its reader's, and
+a frame its `frame_bytes`; what is here is the loop and its policy. The reader
+lives as long as the controller, which lives as long as the program - so it is
+never left running behind a view that has gone away. It is blocked in a read
+at exit; the process is ending, so it is let go and left to die with it rather
+than being interrupted mid-read.
 """
 function run!(ctrl::Controller, root::View)
     if !(stdin isa Base.TTY)
@@ -639,46 +565,25 @@ function run!(ctrl::Controller, root::View)
         return 1
     end
     push_view!(ctrl, root)
-    ctrl.term = REPL.Terminals.TTYTerminal(get(ENV, "TERM", "xterm"), stdin, stdout, stderr)
-    print("\e[?1049h\e[?25l")                       # alt screen, hide cursor
     # The terminal's title, which juliaup's launcher had set to `Julia` and
-    # nothing here set after: a tab, or under tmux the pane's title. Pushed
-    # first and popped on the way out, so a terminal with a title stack
-    # (xterm, VTE, kitty, wezterm, iTerm2, foot) gets its own back; one
-    # without keeps the last one until its shell's prompt writes the next,
-    # which every common prompt does. What it says is set per frame, below.
-    print("\e[22;2t")
-    REPL.Terminals.raw!(ctrl.term, true)
-    mouse!(ctrl, true)
-    print(bracketed_paste(true))
+    # nothing here set after: a tab, or under tmux the pane's title. Saved
+    # on the way in and put back on the way out (`title`), so a terminal with
+    # a title stack (xterm, VTE, kitty, wezterm, iTerm2, foot) gets its own
+    # back; one without keeps the last one until its shell's prompt writes the
+    # next, which every common prompt does. What it says is set per frame,
+    # below. Bracketed paste is on for the whole run, so a paste is text.
+    ctrl.term = enter_terminal(stdin, stdout; altscreen = true, title = true,
+                               mouse = true, paste = true)
+    ctrl.mouse = true
     # Asked and not waited for: the answer is an event like any other, and a
     # terminal that does not know the question says nothing at all.
     print(scheme_reports(true))
     ctrl.running = true
     unwatch_winch = watch_winch!(ctrl)
-    # The reader reads one event per token and then waits for the next, rather
-    # than looping on `read`. That is what lets `suspend` hand stdin to a child:
-    # between events this task is parked on `ready`, not on the tty.
-    ctrl.reader = @async begin
-        while ctrl.running
-            try
-                raw = take!(ctrl.ready)
-                ctrl.running || break
-                put!(ctrl.events, raw ? readraw(stdin) : readevent(stdin))
-            catch
-                break
-            end
-        end
-        # Whatever ended the reading - EOF because the terminal closed, EIO
-        # because the pty is gone, a `ready` closed at shutdown - the loop is
-        # blocked on its channel and nothing else is coming. Say so. Only when
-        # the controller still thinks it is running: at shutdown the loop has
-        # already left and there is nobody to tell.
-        ctrl.running && try
-            put!(ctrl.events, EndEvent())
-        catch
-        end
-    end
+    # One event per `arm!`, parked between them, which is what lets `suspend`
+    # hand stdin to a child. Whatever ends the reading - EOF because the
+    # terminal closed, EIO because the pty is gone - comes as an `EndEvent`.
+    ctrl.reader = InputReader(ctrl.term, ctrl.events)
     try
         dirty, armed = true, false
         # Before the first frame too, so the browser's first thread is asked
@@ -691,8 +596,8 @@ function run!(ctrl::Controller, root::View)
             # rendered, written and drawn per character - a paste came in at
             # about typing speed. `dirty` stays set, so the frame is drawn
             # once the input already here has run out.
-            if dirty && !input_waiting(stdin)
-                h, w = displaysize(stdout)
+            if dirty && !input_waiting(ctrl.term)
+                h, w = displaysize(ctrl.term)
                 # The title bar follows the selection: `wl JuliaLang/julia#1`
                 # while that is the item, `wl` on the import row. Only on a
                 # change, since a terminal redraws its tab for every OSC 2 it
@@ -707,7 +612,7 @@ function run!(ctrl::Controller, root::View)
                     logerror!(e, catch_backtrace(), "viewcursor")
                     nothing
                 end
-                write(stdout, frame_bytes(safe_render(v, w, h), title, cur; h))
+                write(ctrl.term, frame_bytes(safe_render(v, w, h), title, cur; h))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
@@ -717,7 +622,7 @@ function run!(ctrl::Controller, root::View)
             # The mode is decided here, where the top view is known, and not
             # in the reader, which is parked between events and would be
             # deciding it against whatever was on top last time.
-            armed || (put!(ctrl.ready, wantsraw(v)); armed = true)
+            armed || (arm!(ctrl.reader, wantsraw(v) ? readraw : readevent); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
             if ev isa EndEvent
                 # Nothing to ask and nobody to ask: leave through the `finally`
@@ -775,7 +680,7 @@ function run!(ctrl::Controller, root::View)
         end
     finally
         ctrl.running = false
-        isopen(ctrl.ready) && close(ctrl.ready)    # release the parked reader
+        close(ctrl.reader)                          # release the parked reader
         try
             unwatch_winch()
         catch
@@ -784,13 +689,13 @@ function run!(ctrl::Controller, root::View)
         # gone away - and then every one of these writes to a descriptor that is
         # closed. An exception thrown from a `finally` replaces whatever brought
         # us here with a stack trace about giving back a terminal that no longer
-        # exists.
+        # exists. `leave_terminal` is guarded the same way.
         try
-            ctrl.mouse && mouse!(ctrl, false)
-            REPL.Terminals.raw!(ctrl.term, false)
-            print(scheme_reports(false), bracketed_paste(false), "\e[?25h\e[?1049l\e[23;2t")
+            print(scheme_reports(false))
         catch
         end
+        leave_terminal(ctrl.term)
+        ctrl.term = nothing
     end
     0
 end

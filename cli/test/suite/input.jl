@@ -1,16 +1,8 @@
-# Bytes arriving and becoming keys is `TermInput.readevent`, and so are the key
-# vocabulary and the editing built on it, which are tested where they live
+# Bytes arriving and becoming keys is `TermInput.readevent`, a frame written is
+# its `frame_bytes`, and the key vocabulary and the editing built on it are its
+# too, all tested where they live
 # (`julia --project=TermInput.jl TermInput.jl/test/runtests.jl`). What is here is
 # what this program does with the events, and the views it wraps the widgets in.
-
-@testset "no frame while input is waiting" begin
-    # A paste is a key per character with the rest already waiting, which is
-    # what holds the frame until the last of them; a key typed alone is not.
-    io = IOBuffer("hi\e[A")
-    @test W.readevent(io) == W.KeyEvent(Int('h')) && W.input_waiting(io)
-    W.readevent(io)
-    @test W.readevent(io) == W.KeyEvent(W.K_UP) && !W.input_waiting(io)
-end
 
 @testset "a paste goes where text goes, and nowhere else" begin
     ctrl = W.Controller()
@@ -115,28 +107,6 @@ end
 
     ls = split(W.render(p, 90, 24), "\n")
     @test length(ls) == 24 && all(W.awidth(l) == 90 for l in ls)
-end
-
-@testset "a frame is one write, cursor hidden first and shown last" begin
-    b = String(W.frame_bytes("ab\ncd", "", (2, 1)))
-    # Held by the terminal until the closing sequence, drawn with the cursor
-    # hidden, and the cursor put where the view said and shown only then.
-    @test startswith(b, "\e[?2026h\e[?25l\e[1;1r")
-    @test endswith(b, "\e[r\e[2;1H\e[?25h\e[?2026l")
-    # Each row's line deleted before it is written, and only that line: the
-    # scroll region is the row. A line xterm.js deletes takes the markers of
-    # the links drawn on it; one overwritten or erased kept them all.
-    @test occursin("\e[1;1r\e[1H\e[Mab\e[2;2r\e[2H\e[Mcd\e[r", b)
-    @test !occursin("\e[K", b) && !occursin("\e[J", b) && !occursin('\n', b)
-    # No cursor to show: it stays hidden, and nothing moves it.
-    n = String(W.frame_bytes("ab", "", nothing))
-    @test endswith(n, "\e[Mab\e[r\e[?2026l") && !occursin("?25h", n)
-    # The title goes after the frame and before the caret, inside the hold.
-    t = String(W.frame_bytes("x", "\e]2;wl o/r#1\e\\", (1, 1)))
-    @test occursin("\e[r\e]2;wl o/r#1\e\\\e[1;1H\e[?25h", t)
-    # Rows the frame did not bring, to the screen's height, are deleted too.
-    f = String(W.frame_bytes("ab", "", nothing; h = 3))
-    @test occursin("\e[Mab\e[2;2r\e[2H\e[M\e[3;3r\e[3H\e[M\e[r", f)
 end
 
 @testset "the terminal says dark or light, and the theme follows" begin
