@@ -27,7 +27,14 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified
 
-Nothing at present.
+- [ ] **`T` asks first.** On an item with no agent: the prompt, `tab` to the
+      picker and back with the title changed, `↵` with words and the agent's
+      first turn starting on them, `↵` with none, escape. And `^]T` from a
+      shell pane: the shell's pane is gone from the stack after (`^]q` once
+      reaches the browser).
+- [ ] **The filter pane's foot.** The sentence follows the cursor, wraps in
+      three rows at a narrow list, is not there below 20 rows, and a click on
+      it toggles nothing.
 
 ## Trim
 
