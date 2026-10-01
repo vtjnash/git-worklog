@@ -29,6 +29,8 @@ function jumpnode(st::BState, dir::Int, w::Int)
 end
 
 render(st::BState, w::Int, h::Int) = render_frame(st, w, h)
+# The `/` query's caret, where the frame just drawn put it.
+viewcursor(st::BState, ::Int, ::Int) = st.typing ? st.caret : nothing
 
 """Adopt whatever woke us - a finished fetch, or a file somebody else wrote.
 

@@ -115,8 +115,9 @@ session_list() = Session[Session(r) for r in mux_list(SESSION_PREFIX, SESSION_TA
 
 Keyword-constructed, with defaults: it has more than fifty fields, and the
 positional form is a place where two of them get transposed silently. `render`
-mutates the scroll offsets and the two geometry readings (`hdr`, `nmeta`) that
-the mouse needs, so it is pure in what it returns but not in what it touches.
+mutates the scroll offsets and the geometry readings (`hdr`, `nmeta`, `caret`)
+that the mouse and the terminal's cursor need, so it is pure in what it returns
+but not in what it touches.
 """
 Base.@kwdef mutable struct BState <: View
     items::Vector{Item} = Item[]
@@ -246,6 +247,9 @@ Base.@kwdef mutable struct BState <: View
                            # an `nrow`, and only `render` knows how tall it got
     nmeta::Int = 0         # metadata lines the pane last drew; it sizes to its
                            # content, so the heights depend on it
+    caret::Union{Nothing,Tuple{Int,Int}} = nothing   # where the `/` query's
+                           # cursor was last drawn, `(row, col)`; the footer
+                           # row is wherever the frame's rows ran out
     diw::Int = 0           # the detail pane's inner width and page, as it was
     dpage::Int = 0         # last *drawn*. Not what `layout` would give: with a
                            # hosted pane beside it the detail gets half the

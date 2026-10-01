@@ -268,13 +268,24 @@ function render(v::SideView, w::Int, h::Int)
     lw, rw = split_box(w)
     lw == 0 && return render(v.inner, w, h)
     # Which side is lit, said the same way on both. The detail pane has always
-    # taken it as an argument; the composer carries it as a field, and drawing
-    # its block cursor while the keys are on the other side of the screen would
-    # be two cursors saying neither side has them.
+    # taken it as an argument; the composer carries it as a field, and while the
+    # keys are on the other side of the screen it draws a block where its
+    # cursor is and leaves the terminal's to the side that has them.
     v.inner isa EditorView && (v.inner.focused = v.focus === :inner)
     right = render(v.inner, rw, h)
     left = detail_pane(v.beside, side_item(v.beside), lw, h, v.focus === :read)
     Styled[rowpad(get(left, i, ""), lw) * get(right, i, row("")) for i in 1:h]
+end
+
+"""The composer's caret, over on its side of the split, while it has the keys.
+While the reading side has them the composer draws a block instead, and the
+reading side has nowhere to type."""
+function viewcursor(v::SideView, w::Int, h::Int)
+    lw, rw = split_box(w)
+    lw == 0 && return viewcursor(v.inner, w, h)
+    v.focus === :inner || return nothing
+    c = viewcursor(v.inner, rw, h)
+    c === nothing ? nothing : (c[1], lw + c[2])
 end
 
 """The mouse over the reading side, beside a composer.

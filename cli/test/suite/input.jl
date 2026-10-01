@@ -29,6 +29,45 @@
     st.typing = false; st.search = ""; W.refilter!(st)
 end
 
+@testset "the terminal's cursor goes where typing goes" begin
+    # What the screen has under it, where `viewcursor` puts it on the frame
+    # just drawn: the character starting at that column.
+    function under(v, w, h)
+        rs = W.render(v, w, h)
+        r, c = W.viewcursor(v, w, h)
+        acc = 1
+        for ch in unstyled(rs[r])
+            acc == c && return string(ch)
+            acc += textwidth(ch)
+        end
+        nothing
+    end
+    ed = W.EditorView("comment", "", identity; initial = "a remark")
+    @test under(ed, 100, 30) == " "
+    W.handle!(ed, TermInput.K_LEFT, W.Controller())
+    @test under(ed, 100, 30) == "k"
+    pr = W.PromptView("url", "", identity; initial = "https://x")
+    @test under(pr, 100, 30) == " "
+    # Beside a thread, the composer's caret is on its side of the split while
+    # it has the keys; while the thread has them, the composer draws a block
+    # and the terminal's cursor is hidden.
+    st = mkstate()
+    sv = W.SideView(W.EditorView("comment", "", identity; initial = "abc"), st, :inner)
+    lw, _ = W.split_box(170)
+    @test under(sv, 170, 40) == " " && W.viewcursor(sv, 170, 40)[2] > lw
+    sv.focus = :read
+    @test (W.render(sv, 170, 40); W.viewcursor(sv, 170, 40)) === nothing
+    @test occursin(ansi(TermInput.faced(" ", W.Face(inverse = true))), frame(sv, 170, 40))
+    # The browser's `/`, on whichever row the footer landed, and nowhere once
+    # the query is kept.
+    st.typing = true; st.searchin = :list
+    W.safe_dispatch!(st, W.PasteEvent("juli"), W.Controller())
+    TermInput.handle!(st.query, TermInput.K_LEFT)
+    @test under(st, 120, 30) == "i" && W.viewcursor(st, 120, 30)[1] == 30
+    st.typing = false; st.search = ""; W.refilter!(st)
+    @test (W.render(st, 120, 30); W.viewcursor(st, 120, 30)) === nothing
+end
+
 @testset "details blocks fold to their summary" begin
     seg(md) = [(k, sm) for (k, sm, _) in W.split_details(md)]
     @test seg("just prose") == [(:text, "")]

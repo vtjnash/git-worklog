@@ -1210,6 +1210,12 @@ Each of the following returns success and the wrong answer:
 - A one-row field must hold one row: `showerror` embeds a newline, and one
   element holding a newline scrolls the screen and shifts every mouse click.
   `oneline`.
+- **The cursor is the terminal's, wherever typing goes** (`viewcursor`, after
+  `render`): a composer's caret and a prompt's, a picker's query, the `/`
+  being typed, a hosted program's cursor. A drawn block cannot blink, ignores
+  the shape the user chose, and is not where an input method opens. There is
+  one, so a composer beside the thread while the thread has the keys draws a
+  block in reverse video where its caret is, and the terminal's is hidden.
 - `capture-pane` says nothing about the cursor; `viewcursor` puts the
   terminal's where the child's is.
 - **A frame is one write** (TermInput's `frame_bytes`): cursor hidden, the

@@ -59,12 +59,11 @@ onraw!(::View, ::Vector{UInt8}, ::Any) = :ok
 
 """Where the real cursor belongs on screen, 1-based `(row, col)`, or `nothing`.
 
-The terminal's cursor is hidden for the whole run because most views draw their
-own - a block in a query line owes nothing to where the terminal thinks it is.
-A view hosting another program is the exception: the child has a real cursor,
-and putting the terminal's own there beats painting a facsimile, which cannot
-blink, ignores whatever shape the user chose, and is one more thing to keep in
-step with the frame.
+Wherever typing goes: a composer's or a prompt's caret, a picker's query, the
+browser's `/` while it is typed, a hosted program's own cursor. The terminal's
+own beats painting a facsimile, which cannot blink, ignores whatever shape the
+user chose, and is not where an input method opens. `nothing` hides it, for a
+view with nowhere to type. Asked after `render`, of the frame it just drew.
 """
 viewcursor(::View, ::Int, ::Int) = nothing
 
@@ -641,14 +640,17 @@ function run!(ctrl::Controller, root::View)
                 t = stacktitle(ctrl.stack)
                 title = t == ctrl.title ? "" : (ctrl.title = t; string("\e]2;", t, "\e\\"))
                 # Asked after the frame is rendered, since rendering is what
-                # decides where a composer's caret is.
+                # decides where a composer's caret is - how far its box has
+                # scrolled, which side of a split has the keys, which row the
+                # browser's query landed on.
+                rows = safe_render(v, w, h)
                 cur = try
                     viewcursor(v, w, h)
                 catch e
                     logerror!(e, catch_backtrace(), "viewcursor")
                     nothing
                 end
-                write(ctrl.term, frame_bytes(safe_render(v, w, h), title, cur; h))
+                write(ctrl.term, frame_bytes(rows, title, cur; h))
                 dirty = false
             end
             # Arm only when the previous event is fully handled. A wakeup does
@@ -785,6 +787,7 @@ Base.setproperty!(v::PromptView, f::Symbol, x) =
     f in fieldnames(PromptView) ? setfield!(v, f, x) : setproperty!(getfield(v, :li), f, x)
 
 render(v::PromptView, w::Int, h::Int) = TermInput.render(getfield(v, :li), w, h)
+viewcursor(v::PromptView, w::Int, h::Int) = TermInput.caret(getfield(v, :li), w, h)
 
 function handle!(v::PromptView, k::Int, ctrl::Controller)
     TermInput.handle!(getfield(v, :li), k) === :ok && return :ok
@@ -842,6 +845,7 @@ query!(v::ChooseView, s::AbstractString) = (TermInput.query!(getfield(v, :c), s)
 shown(v::ChooseView) = v.options[TermInput.matches(getfield(v, :c))]
 
 render(v::ChooseView, w::Int, h::Int) = TermInput.render(getfield(v, :c), w, h)
+viewcursor(v::ChooseView, w::Int, h::Int) = TermInput.caret(getfield(v, :c), w, h)
 
 """Pick the option at `i` of `options`, and close. A `ranged` view hands over
 every option lit, in order, as a vector - `i` among them."""
@@ -978,6 +982,7 @@ Base.setproperty!(v::EditorView, f::Symbol, x) =
     f in fieldnames(EditorView) ? setfield!(v, f, x) : setproperty!(getfield(v, :ta), f, x)
 
 render(v::EditorView, w::Int, h::Int) = TermInput.render(getfield(v, :ta), w, h)
+viewcursor(v::EditorView, w::Int, h::Int) = TermInput.caret(getfield(v, :ta), w, h)
 
 onpaste!(v::EditorView, s::AbstractString, ::Controller) =
     (TermInput.paste!(getfield(v, :ta), s); :ok)

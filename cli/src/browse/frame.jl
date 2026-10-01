@@ -236,6 +236,8 @@ rather than truncating the detail into uselessness.
 function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # Zero is the import row, which is why this is not the usual clamp to 1.
     st.sel = clamp(st.sel, 0, length(st.items))
+    st.caret = nothing
+    qcol = 0               # the query's caret on the footer row, while it is typed
     it = st.sel == 0 ? nothing : st.items[st.sel]
     # The pane sizes to its content, so it is rendered before the heights are
     # settled; only its width is known this early, and only its width is needed.
@@ -381,8 +383,8 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     msg = oneline(isempty(note) ? st.status : note)
     foot1 = faced(rowfit(keys1, w), THEME.dim)
     foot2 = if st.typing
-        # The query line, with a block for the cursor: this view draws its own,
-        # the terminal's being hidden for the whole run.
+        # The query line, with the terminal's cursor in it: `viewcursor` puts
+        # it at the column the field says, on the row the footer lands on.
         #
         # The count of what is folded away belongs *here*, while there is still
         # a decision to make about it. After enter it is always zero, because
@@ -400,9 +402,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # edge, which is where the cursor is while typing - so it gets what the
         # tally leaves, and never so little that the query is what is lost.
         fw = max(w - 1 - textwidth(trail), min(w - 1, 20))
-        faced("/", THEME.bold) *
-            TermInput.drawfield(TermInput.text(st.query), TermInput.column(st.query), fw) *
-            faced(trail, THEME.dim)
+        f, fc = TermInput.field(TermInput.text(st.query), TermInput.column(st.query), fw)
+        qcol = 1 + fc
+        faced("/", THEME.bold) * f * faced(trail, THEME.dim)
     elseif !isempty(st.search) && isempty(msg)
         # Only when there is nothing to say. A live search is *standing*
         # information - it is re-derived every frame and the query is on screen
@@ -451,6 +453,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # frame taller than the screen scrolls the title bar off the top.
     all_ = vcat(Styled[rowpad(rowfit(bar, room), room) * tail], body,
                 Styled[rowpad(foot1, w), rowpad(foot2, w)])
+    qcol > 0 && length(all_) <= h && (st.caret = (length(all_), qcol))
     while length(all_) < h
         push!(all_, row(" "^w))
     end

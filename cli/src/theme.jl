@@ -362,9 +362,11 @@ the option under a picker's cursor is `focus` - and the box is `[markdown]`'s
 characters, which is the whole of what "drawing plain" means for something that
 is drawn in line-art.
 
-Not their business and not set from here: the block that marks the cursor in a
-composer. `TermInput` keeps that as reverse video whatever a theme says,
-because it is the only thing on screen saying where typing will go.
+Not their business and not set from here: where typing goes. That is the
+terminal's own cursor, in whatever shape the user gave it, and where a composer
+beside the thread does not have the keys, a block `TermInput` keeps as reverse
+video whatever a theme says, because it is the only thing on screen saying
+where typing will go when they come back.
 """
 chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
                                    focus = THEME.focus, box = BOX[]); nothing)
