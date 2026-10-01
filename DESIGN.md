@@ -698,7 +698,7 @@ start without a terminal, which is before there is a frame.
 | `cli/src/browse/` | the browser; `Worklog.jl`'s include list is the index |
 | `cli/src/theme.jl`, `themes/` | roles and the spec language |
 | `cli/src/repos.jl`, `ci.jl`, `cache.jl`, `paneview.jl` | checkouts and worktrees; Buildkite; the TTL cache; a `TermIFrame` beside the thread |
-| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, `listwindow`), the key vocabulary, the dialog box and `BOXES`, `CHROME`, `suspend`, rows of faces and their measuring (`rowwidth`/`rowfit`/`rowpad`/`rowwrap`, `verbatim`), the frame writer, and `markdown_rows`, which draws every comment body |
+| `TermInput.jl/` | submodule: `TextBuffer`, `TextArea`, `LineInput`, `Choice` and `Confirm` (the pickers and questions, and `listwindow`/`listmove`, the scroll every list shares), the key vocabulary, the dialog box and `BOXES`, `CHROME`, `suspend`, rows of faces and their measuring (`rowwidth`/`rowfit`/`rowpad`/`rowwrap`, `verbatim`), the frame writer, and `markdown_rows`, which draws every comment body |
 | `TermIFrame.jl/` | submodule: tmux sessions, the control-mode client and the command pipe over it, `bordered`, the iframe. Depends on `TermInput` for measuring, never the other way |
 | `cli/precompile/` | `WorklogPrecompile`: `Worklog` plus a `@compile_workload` of the browser's path. `bin/wl` loads it; the suite never does |
 

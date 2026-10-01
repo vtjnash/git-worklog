@@ -94,45 +94,43 @@ function render(v::HelpView, w::Int, h::Int)
     b = dialogbox(w; width = 96)
     rs = help_rows(b.iw)
     n = length(rs)
-    page = min(n, help_page(h))
-    v.top = clamp(v.top, 1, max(1, n - page + 1))
+    _, v.top, win = listwindow(n, v.top, v.top, help_page(h))
     out = Styled[b.head("keys")]
-    for i in v.top:(v.top + page - 1)
+    for i in win
         t, s = rs[i]
         push!(out, b.row(t, s))
     end
     push!(out, b.foot())
-    more = n > page
-    push!(out, b.hint(more ? string("j/k scroll · ", v.top + page - 1, " of ", n,
+    more = n > length(win)
+    push!(out, b.hint(more ? string("j/k scroll · ", last(win), " of ", n,
                                     " · any other key closes") :
                              "any key closes"))
     centred(out, w, h)
 end
 
-function handle!(v::HelpView, k::Int, ctrl::Controller)
+"""The rows of the page and how many fit: the bounds `j` and the wheel scroll
+it within. Scrolled as a list whose cursor is its top, which keeps it full."""
+function help_size(ctrl::Controller)
     h, w = displaysize(ctrl.term)
-    page = help_page(h)
-    n = length(help_rows(dialogbox(w; width = 96).iw))
-    k = unshift(k)
-    if k in (Int('j'), K_DOWN);          v.top += 1
-    elseif k in (Int('k'), K_UP);        v.top -= 1
-    elseif k in (Int(' '), 6, K_PGDN);   v.top += page
-    elseif k in (Int('b'), 2, K_PGUP);   v.top -= page
-    elseif k in (Int('g'), K_HOME);      v.top = 1
-    elseif k in (Int('G'), K_END);       v.top = n
-    else
-        return :pop
-    end
-    v.top = clamp(v.top, 1, max(1, n - min(n, page) + 1))
+    (length(help_rows(dialogbox(w; width = 96).iw)), help_page(h))
+end
+
+function scroll_help!(v::HelpView, to::Int, ctrl::Controller)
+    n, page = help_size(ctrl)
+    _, v.top, _ = listwindow(n, to, to, page)
     :ok
+end
+
+function handle!(v::HelpView, k::Int, ctrl::Controller)
+    n, page = help_size(ctrl)
+    to = listmove(unshift(k), v.top, n, page)
+    to === nothing ? :pop : scroll_help!(v, to, ctrl)
 end
 
 """The wheel scrolls it, as it scrolls every pane; a click anywhere closes it,
 which is what a click outside a box means everywhere."""
 function onmouse!(v::HelpView, ev::MouseEvent, ctrl::Controller)
-    if ev.kind === :wheelup;       v.top -= 3
-    elseif ev.kind === :wheeldown; v.top += 3
-    elseif ev.kind === :press;     return :pop
-    end
-    :ok
+    ev.kind === :press && return :pop
+    to = listmove(ev.kind, v.top, first(help_size(ctrl)))
+    to === nothing ? :ok : scroll_help!(v, to, ctrl)
 end

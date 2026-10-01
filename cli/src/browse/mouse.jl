@@ -76,7 +76,6 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
     (which, row, col) = p
     which === :meta && return :ok      # a readout, not a control
     wheel = ev.kind === :wheelup || ev.kind === :wheeldown
-    d = ev.kind === :wheelup ? -3 : 3
 
     if which === :list
         (wheel || ev.kind === :press) || return :ok
@@ -85,13 +84,13 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             # The foot is a readout of the row under the cursor, not a row.
             !wheel && row > L.lh - 2 - filter_help_h(L.lh) && return :ok
             nf = length(filter_rows(st))
-            st.frow = wheel ? clamp(st.frow + d, 1, nf) : clamp(st.top + row - 1, 1, nf)
+            st.frow = wheel ? listmove(ev.kind, st.frow, nf) : clamp(st.top + row - 1, 1, nf)
             wheel || toggle_filter!(st, ctrl)
         else
             # `- 2`, not `- 1`: the drawn list carries the import row in front
             # of item 1, and `st.top` counts drawn rows.
             was = st.sel
-            st.sel = wheel ? clamp(st.sel + d, 0, length(st.items)) :
+            st.sel = wheel ? listmove(ev.kind, st.sel, length(st.items); lo = 0) :
                              clamp(st.top + row - 2, 0, length(st.items))
             # A second click on the row you are already on copies its url. The
             # list has one thing worth copying and that is it; `y` is the same
@@ -113,7 +112,7 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
     if wheel
         st.focus = :detail
         clearsel!(st)
-        st.nrow = clamp(st.nrow + d, 1, length(rs))
+        st.nrow = listmove(ev.kind, st.nrow, length(rs))
         return :ok
     end
     # `ntop` indexes rows including the item-title block; `nrow` excludes it.

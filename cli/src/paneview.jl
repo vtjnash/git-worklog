@@ -1294,11 +1294,8 @@ pickers, here because the view is."""
 function onmouse!(v::WorktreeView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
     h, w = displaysize(ctrl.term)
     n = nshown(v)
-    if ev.kind === :wheelup || ev.kind === :wheeldown
-        d = ev.kind === :wheelup ? -3 : 3
-        setcursor!(v, clamp(cursor(v)[1] + d, 1, max(1, n)))
-        return :ok
-    end
+    to = listmove(ev.kind, cursor(v)[1], n)
+    to === nothing || (setcursor!(v, to); return :ok)
     ev.kind === :press || return :ok
     dbl = doubled(v.lastclick, ev, at)
     v.lastclick = (at, ev.x, ev.y)
@@ -1555,7 +1552,11 @@ end
 function handle!(v::WorktreeView, k::Int, ctrl)
     k = unshift(k)
     n = nshown(v)
-    move!(d) = setcursor!(v, clamp(cursor(v)[1] + d, 1, max(1, n)))
+    # A page is the rows the last frame had room for: rows here are of
+    # several lines, so the box's height is not a count of them.
+    h, _ = displaysize(ctrl.term)
+    page = length(listwindow(row_heights(v), cursor(v)..., max(1, h - 5))[3])
+    to = listmove(k, cursor(v)[1], n, page)
     r = currow(v)
     if k == Int('q') || k == 27
         return :pop
@@ -1566,10 +1567,7 @@ function handle!(v::WorktreeView, k::Int, ctrl)
         i = something(findfirst(==(v.mode), WT_MODES))  # the modes are these
         v.mode = WT_MODES[mod1(i + (k == 9 ? 1 : -1), length(WT_MODES))]
         v.status = ""
-    elseif k in (Int('j'), K_DOWN); move!(1)
-    elseif k in (Int('k'), K_UP);   move!(-1)
-    elseif k in (Int('g'), K_HOME); move!(-n)
-    elseif k in (Int('G'), K_END);  move!(n)
+    elseif to !== nothing; setcursor!(v, to)
     elseif k == Int('r')
         worktree_reload!(v)
         v.status = ""

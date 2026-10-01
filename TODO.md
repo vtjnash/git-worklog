@@ -7,8 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] Can we DRY some of the scrolling code by moving it into TermInput (where other clients might want it too)
-  
 ## Bigger tasks
 
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor

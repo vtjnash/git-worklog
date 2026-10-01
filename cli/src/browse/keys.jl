@@ -284,15 +284,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     elseif st.focus === :list && st.lmode === :filters
         frows = filter_rows(st)
         nf = length(frows)
-        if k in (Int('j'), K_DOWN);     st.frow = min(nf, st.frow + 1)
-        elseif k in (Int(' '), 6, K_PGDN); st.frow = min(nf, st.frow + lpage)
-        elseif k in (Int('k'), K_UP);   st.frow = max(1, st.frow - 1)
-        # The same four the item list has. The filter list is long enough to
-        # need them - it is every lane, every repo and every label seen -
-        # and `nf` is its bound the way `length(st.items)` is that list's.
-        elseif k in (Int('b'), 2, K_PGUP); st.frow = max(1, st.frow - lpage)
-        elseif k in (Int('g'), K_HOME); st.frow = 1
-        elseif k in (Int('G'), K_END);  st.frow = nf
+        # The pager's keys, as the item list has them. The filter list is long
+        # enough to need them - it is every lane, every repo and every label
+        # seen - and `nf` is its bound the way `length(st.items)` is that list's.
+        to = listmove(k, st.frow, nf, lpage)
+        if to !== nothing; st.frow = to
         elseif k in (Int('n'), Int('N'))
             g = filter_groups(frows)
             if !isempty(g)
@@ -309,12 +305,9 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # stops at the first item rather than on it: the top of the list is
         # where the work is, and the row above the top is asked for by moving
         # up off it.
-        if k in (Int('j'), K_DOWN);          st.sel = min(length(st.items), st.sel + 1)
-        elseif k in (Int('k'), K_UP);        st.sel = max(0, st.sel - 1)
-        elseif k in (Int(' '), 6, K_PGDN);   st.sel = min(length(st.items), st.sel + lpage)
-        elseif k in (Int('b'), 2, K_PGUP);   st.sel = max(0, st.sel - lpage)
-        elseif k in (Int('g'), K_HOME);      st.sel = min(1, length(st.items))
-        elseif k in (Int('G'), K_END);       st.sel = length(st.items)
+        to = listmove(k, st.sel, length(st.items), lpage; lo = 0)
+        if k in (Int('g'), K_HOME);          st.sel = min(1, length(st.items))
+        elseif to !== nothing;               st.sel = to
         elseif k == 13
             # The row that is not an item does the one thing it is for; every
             # other row hands the keys to the pane beside it.
@@ -322,12 +315,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end
     else
         n = length(rows(st.nodes, iw))
-        # Moving the cursor drops the selection. Listed rather than blanket, so
-        # that `y` - which falls through this branch to the actions below - can
-        # still see what is selected.
-        k in (Int('j'), K_DOWN, Int('k'), K_UP, Int(' '), 6, K_PGDN, Int('b'), 2,
-              K_PGUP, Int('g'), K_HOME, Int('G'), K_END, Int('n'), Int('N'),
-              13) && clearsel!(st)
+        # Moving the cursor drops the selection. Only those keys rather than
+        # every one, so that `y` - which falls through this branch to the
+        # actions below - can still see what is selected.
+        to = listmove(k, st.nrow, n, page)
+        (to !== nothing || k in (Int('n'), Int('N'), 13)) && clearsel!(st)
         if k in (Int('J'), K_SDOWN, Int('K'), K_SUP)
             # The keyboard half of a drag: the anchor is wherever the cursor
             # already was, and every press moves the far end of the range. Not
@@ -345,12 +337,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             st.nrow = clamp(st.nrow + (k in (Int('J'), K_SDOWN) ? 1 : -1), 1, n)
             st.sela, st.selb = st.anchor, st.nrow
             st.status = string(abs(st.selb - st.sela) + 1, " rows selected — y to copy")
-        elseif k in (Int('j'), K_DOWN);      st.nrow = min(n, st.nrow + 1)
-        elseif k in (Int('k'), K_UP);        st.nrow = max(1, st.nrow - 1)
-        elseif k in (Int(' '), 6, K_PGDN);   st.nrow = min(n, st.nrow + page)
-        elseif k in (Int('b'), 2, K_PGUP);   st.nrow = max(1, st.nrow - page)
-        elseif k in (Int('g'), K_HOME);      st.nrow = 1
-        elseif k in (Int('G'), K_END);       st.nrow = n
+        elseif to !== nothing;               st.nrow = to
         elseif k == Int('n')
             (isempty(st.search) || st.searchin !== :detail) ? jumpnode(st, 1, iw) :
                                                               jumpmatch(st, 1, iw)

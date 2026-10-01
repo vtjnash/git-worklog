@@ -748,12 +748,7 @@ end
 "Vertical slice with the cursor's node kept in view: the rows, and the top."
 function window(rs::Vector{Row}, cur, top, h)
     isempty(rs) && return (Row[], 1)
-    top = clamp(top, 1, max(1, length(rs)))
-    if cur !== nothing
-        cur < top && (top = cur)
-        cur > top + h - 1 && (top = cur - h + 1)
-    end
-    top = clamp(top, 1, max(1, length(rs) - h + 1))
-    (rs[top:min(end, top + h - 1)], top)
+    _, top, win = listwindow(length(rs), something(cur, top), top, h)
+    (rs[win], top)
 end
 
