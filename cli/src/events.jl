@@ -144,10 +144,17 @@ walk deterministic. Dedupe by id to absorb the duplicates that ordering allows.
 
 That is why this asks one page at a time rather than following the links:
 correctness beats the convenience.
+
+`confirm` asks an empty first page twice more, a second apart, before
+believing it; see below. Off for the reads of one item - its comments, its
+reviews - where empty is the usual answer and a wrong one is a thread drawn
+without them until the next read: on, a pull request with no review comments
+took two and a half seconds longer to open and to `R`, twice where it had no
+comments either (libuv#5287, 5.7s, 2026-10-01).
 """
 function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
                    per_page::Int = 100, max_pages::Int = 60, auth = nothing,
-                   started = Ref{Any}(nothing))
+                   started = Ref{Any}(nothing), confirm::Bool = true)
     out, seen = Any[], Set{Any}()
     for page in 1:max_pages
         rows, st = api_get_dated(endpoint; auth = auth, params = merge(params, Dict{String,Any}(
@@ -162,7 +169,7 @@ function api_paged(endpoint::AbstractString; params = Dict{String,Any}(),
                 push!(out, r)
             end
         end
-        if isempty(rows) && page == 1
+        if isempty(rows) && page == 1 && confirm
             # An empty first page has been observed spuriously, and the
             # short-page stop below then reports the whole repo as having no
             # activity: unread went 781 -> 170 with no error. A genuinely empty
@@ -1321,6 +1328,16 @@ function inbox_drop!(urls)
     n
 end
 
+"""What a task answered, or what it threw - and not the `TaskFailedException`
+`fetch` wraps it in, so a caller reading the error reads the request's."""
+function waited(t::Task)
+    try
+        fetch(t)
+    catch e
+        e isa TaskFailedException ? throw(e.task.exception) : rethrow()
+    end
+end
+
 """Fetch a thread live - the part email used to hand you.
 
 Returns `(body, comments, commits, events)`. The commits and the state events
@@ -1329,8 +1346,9 @@ then it was merged" is one sequence, and having the pushes arrive on a second
 cadence from a second cache is how it came to be read as two. Callers that
 only want the conversation destructure the first two and are none the wiser.
 
-The GraphQL half is started before the REST reads and waited on after them, so
-what a person waits for is the slower of the two rather than the sum. It is
+Every request is started before any is waited on - the GraphQL half, the
+issue, its comments and its review comments - so what a person waits for is
+the slowest of them rather than the sum. The GraphQL half is
 also the only part allowed to come back empty on failure: a pull request whose
 commits could not be read is a line missing from a list rather than a reason
 to show no thread at all.
@@ -1341,13 +1359,17 @@ function thread(url::AbstractString; limit::Int = 10)
     num = parts[end]
     none = (OrderedDict{String,Any}[], OrderedDict{String,Any}[])
     act = @async try; activity(url); catch; none; end
-    body = api_get("/repos/$owner_repo/issues/$num")[1]
-    cs = api_paged("/repos/$owner_repo/issues/$num/comments")
-    try
-        append!(cs, api_paged("/repos/$owner_repo/pulls/$num/comments"))
+    # Not a PR, or no review comments: an `ApiError` is none.
+    rcs = @async try
+        api_paged("/repos/$owner_repo/pulls/$num/comments"; confirm = false)
     catch e
-        e isa ApiError || rethrow()   # not a PR, or no review comments
+        e isa ApiError || rethrow()
+        Any[]
     end
+    ics = @async api_paged("/repos/$owner_repo/issues/$num/comments"; confirm = false)
+    body = api_get("/repos/$owner_repo/issues/$num")[1]
+    cs = waited(ics)
+    append!(cs, waited(rcs))
     sort!(cs; by = c -> c["created_at"])
     commits, events = try; fetch(act); catch; none; end
     (body, cs[max(1, end - limit + 1):end], commits, events)
@@ -2010,7 +2032,7 @@ function review_comments(url::AbstractString; ttl = 300.0)
     parts = split(url, '/')
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
-    cs = api_paged("/repos/$owner_repo/pulls/$num/comments")
+    cs = api_paged("/repos/$owner_repo/pulls/$num/comments"; confirm = false)
     sort!(cs; by = c -> String(get(c, "created_at", "")))
     cache_put(key, cs)
     cs
@@ -2082,6 +2104,10 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
     kind = is_pr ? "pulls" : "issues"
+    # Started before the head is asked and read after, so the two requests
+    # are the slower of them and not the sum, as in `thread`.
+    revs = is_pr ? @async(api_paged("/repos/$owner_repo/pulls/$num/reviews"; confirm = false)) :
+                   nothing
     head = api_get("/repos/$owner_repo/$kind/$num")[1]
     assignees = String[jstr(a, :login, "?") for a in jlist(head, :assignees)]
     # Per person, latest verdict first: `(state, at)`.
@@ -2106,7 +2132,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
         for t in jlist(head, :requested_teams)
             push!(teams, something(jstr(t, :slug), jstr(t, :name), "?"))
         end
-        for r in api_paged("/repos/$owner_repo/pulls/$num/reviews")
+        for r in waited(revs::Task)
             st = jstr(r, :state, "")
             who = jstr(jobj(r, :user), :login, "?")
             at = jstr(r, :submitted_at, "")

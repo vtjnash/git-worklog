@@ -7,12 +7,8 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own).
-      None open (2026-09-30); the JLL is 3.5.1 and 3.7c is the latest release.
-      The recipe change is `version = v"3.7.3"` and the tarball's sha256
-      `7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf`; a PR
-      needs a fork of Yggdrasil, which this sandbox cannot make.
-- [ ] for adopted branches, enable d and p anyways for the local diff
+- [ ] Can we DRY some of the scrolling code by moving it into TermInput (where other clients might want it too)
+- [ ] when starting an agent, ask the initial prompt before starting Claude, to pass on the command line as the final argument. enter starts it, but also make the config have a list of agent configurations to start, and tab switches to the picker, and starts with the first in the list
   
 ## Bigger tasks
 
@@ -24,15 +20,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       when the row has one, else the shell's; `tab` is the modes', so a key
       of its own if the other is wanted. Colours and links come through
       `capture-pane -e` as the hosted pane's do (`iframe_sync!`).
-- [ ] changes to make for views:
-      * 'my work' (2) should be only my PRs
-      * 4-9 haven't seemed useful, 1-3 and 0 have been good
-      * ready-to-merge doesn't seem functional (nothing tagged)
-      * add an "approved to merge" view?
-      * add a "second look" view? I thought we tried to design for this a long time ago, but then I think we might have dropped it and it might need a second-look itself (haha).
-      * improve the text around "lane" and "tag" vocab, since it isn't obvious what those mean to someone who hasn't read the source code
-        - might want to add a "help" message footer to the filters pane which gives a description of the item under the cursor
 - [ ] Is it worthwhile to prefix keys with numbers for repeating (e.g. 6j for down 6), for kjnN? But we might want numbers for other hotkeys.
+- [ ] upgrade tmux_jll to latest in Yggdrasil: JuliaPackaging/Yggdrasil#14980
+      (3.7c, with `jemalloc_jll` on Apple, which 3.7c's configure wants
+      there, tmux#5385), open 2026-10-01; done when it merges and registers.
+- [ ] try rewriting the Term API on top of TermInput now, just to see if it is possible
 
 ## Unverified
 
