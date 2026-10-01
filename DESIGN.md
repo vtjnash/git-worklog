@@ -424,8 +424,8 @@ applied** - an offset was tried and deleted the same hour.
 
 ## Tags
 
-The refresh derives each as a sentence or `""` - `reply`, `edits`, `ready`
-and `review` in `apply_state!`, `second` in `derive!` - and the browser shows
+The refresh derives each as a sentence or `""` - `reply`, `edits`, `ready`,
+`approved` and `review` in `apply_state!`, `second` in `derive!` - and the browser shows
 them as the tag axis. None reads the state except to be empty on finished
 work, and the one that reads another is `second`, which is withheld from the
 pile (`in_pile`: a clock lane with no `reply` owed):
@@ -433,7 +433,8 @@ pile (`in_pile`: a clock lane with no `reply` owed):
 | tag | rule |
 |---|---|
 | `edits` | changes requested, unresolved threads, red CI, or the label |
-| `ready` | approved, green, not a draft |
+| `ready` | approved, green, not a draft. Approved is GitHub's `reviewDecision` where the repository requires a review, and otherwise the reviews' (`verdict_of`): null there, julia's and libuv's, and until 2026-10-01 that left `ready` on no row at all |
+| `approved` | approved, not a draft, CI not green: the other half of an approval, so the two are two lists |
 | `review` | asked, and not reviewed since their last push |
 | `reply` | mentioned within `reply_days` and the last comment is not yours - open or closed. Deliberately narrow: plain `commented:` never qualifies, because where you are effectively the maintainer that is forty items a week |
 | `mentioned` | you were ever named on it: a notification whose reason was `mention` or `team_mention`, or an `@you` by somebody else in a thread the browser loaded. A **latch** on the row in `fetched.json` (`items` and the inbox), never unset, because GitHub's reason is the latest notification's and a comment after the mention turns it into `comment`. The wide list `reply` is the narrow, recent slice of |

@@ -108,6 +108,7 @@ Base.@kwdef struct Item
     edits::String = ""     # why it wants edits - changes requested, threads,
                            # red CI, the label - empty when it does not
     ready::String = ""     # approved and green, empty otherwise
+    approved::String = ""  # approved and not green yet, empty otherwise
     review::String = ""    # why you owe a review: asked and not done, or they
                            # pushed after you did. Empty on your own
     merged_by::String = "" # who merged it, empty unless it is merged. The one
@@ -206,6 +207,7 @@ function item_of(@nospecialize(r))
             mentioned = jstr(r, :mentioned, ""),
             edits = jstr(r, :edits, ""),
             ready = jstr(r, :ready, ""),
+            approved = jstr(r, :approved, ""),
             review = jstr(r, :review, ""),
             draft = jbool(r, :draft, false),
             fetched = jstr(r, :fetched_at, ""))

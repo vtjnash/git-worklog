@@ -173,7 +173,15 @@ function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)
         rec["draft"] = jget(n, :isDraft)
-        rec["review_decision"] = jget(n, :reviewDecision)
+        # **GitHub's verdict where it keeps one, else the reviews'.**
+        # `reviewDecision` is null on a repository whose branch protection
+        # requires no review - julia and libuv both - so an approval there
+        # never read as one and `ready` was empty on every row (2026-10-01).
+        # The reviews already fetched say the same thing: see `verdict_of`.
+        # Still null on a row the bulk lanes returned, which has no reviews.
+        dec = jget(n, :reviewDecision)
+        rec["review_decision"] = dec !== nothing ? dec :
+            verdict_of(reviews, jstr(jobj(n, :author), :login, ""))
         rec["head_at"] = jget(commit, :committedDate)
         # **Who put the head there**, which decides whether a push is news.
         # The committer and not the author: somebody rebasing your branch leaves
@@ -283,6 +291,28 @@ function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString
         rec["ci_failed"] = (mine && ci == "FAILURE") ? true : nothing
     end
     rec
+end
+
+"""The verdict GitHub would give if the repository required a review, from
+`reviews(last: 20)`: `CHANGES_REQUESTED` when anybody's standing review asks
+for changes, else `APPROVED` when anybody's approves, else `nothing`.
+
+A reviewer's standing review is their last that took a side - a `COMMENTED`
+one leaves the earlier verdict where it was, as on GitHub, and a `DISMISSED`
+one withdraws it. The author's own are not counted, since GitHub does not let
+one stand.
+"""
+function verdict_of(reviews, author::AbstractString)
+    stand = Dict{String,String}()
+    for r in reviews
+        who = jstr(jobj(r, :author), :login, "")
+        (isempty(who) || who == author) && continue
+        s = jstr(r, :state, "")
+        s in ("APPROVED", "CHANGES_REQUESTED") ? (stand[who] = s) :
+            s == "DISMISSED" && delete!(stand, who)
+    end
+    any(==("CHANGES_REQUESTED"), values(stand)) ? "CHANGES_REQUESTED" :
+        any(==("APPROVED"), values(stand)) ? "APPROVED" : nothing
 end
 
 # How closely you are tracking an item decides what counts as it having moved -
@@ -596,6 +626,7 @@ function apply_state!(r, @nospecialize(st), cfg, at::DateTime)
     r["reply"] = reply_owed(r, cfg, at)
     r["edits"] = edits_owed(r)
     r["ready"] = ready_to_merge(r)
+    r["approved"] = approved_waiting(r)
     r["review"] = review_owed(r)
     r["track"] = resolve_track(st, r)
     r["note"] = jget(st, :note)
@@ -647,6 +678,18 @@ function ready_to_merge(r)
     truthy(jget(r, :draft)) && return ""
     jstr(r, :review_decision) == "APPROVED" && jstr(r, :ci) == "SUCCESS" || return ""
     "approved and green"
+end
+
+"""Approved, not a draft, and CI not green: `ready` but for the checks, or
+`\"\"`. The other half of approved rather than all of it, so the two tags
+are two lists - a view of either is not the other with more rows."""
+function approved_waiting(r)
+    isover(r) && return ""
+    truthy(jget(r, :draft)) && return ""
+    jstr(r, :review_decision) == "APPROVED" || return ""
+    ci = jstr(r, :ci, "")
+    ci == "SUCCESS" && return ""
+    isempty(ci) ? "approved, no CI" : string("approved, CI ", lowercase(ci))
 end
 
 """Why a review is owed by you, or `""`: somebody asked, and either you have not

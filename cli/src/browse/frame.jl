@@ -256,7 +256,19 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
                                    axis === :head ? THEME.bold : on ? THEME.focus : THEME.dim),
                              text, 0))
         end
-        lvis, st.top = window(lrows, st.frow, st.top, lh - 2)
+        # What the row under the cursor means, at the foot: the labels are a
+        # few words of this program's vocabulary, and a sentence is wanted
+        # only for the row being decided about. See `filter_help`.
+        fh = filter_help_h(lh)
+        lvis, st.top = window(lrows, st.frow, st.top, lh - 2 - fh)
+        if fh > 0
+            (axis, val, _) = frows[st.frow]
+            help = rowwrap(filter_help(axis, val), liw)
+            lvis = vcat(lvis, fill(Row(0, false, row(""), "", 0), lh - 2 - fh - length(lvis)),
+                        [Row(0, false, faced("─"^liw, THEME.dim), "", 0)],
+                        [Row(0, false, faced(rowfit(l, liw), THEME.dim), "", 0)
+                         for l in first(vcat(help, fill(row(""), fh - 1)), fh - 1)])
+        end
         ltitle = "filters"
     else
         # The import row leads, always: a list of two thousand rows is not

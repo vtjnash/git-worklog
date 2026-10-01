@@ -100,16 +100,16 @@ mine     = "is:open is:pr author:@me archived:false sort:created-asc"
 review   = "is:open is:pr review-requested:@me archived:false sort:created-asc"
 assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 
-# Named filter sets for `'` in the browser. Ten are built in - notification
-# firehose, my work, open items, waiting on me, waiting on them, ready to merge,
-# needs edits mine, unanswered, snoozed, everything - and a table here adds one,
+# Named filter sets for `'` in the browser. Eight are built in - notification
+# firehose, my work, open items, ready to merge, approved, second look theirs,
+# second look mine, everything - and a table here adds one,
 # or replaces a built-in of the same name. Every axis the view does not name is cleared when
 # it is applied, so a name always means the same list. `'` then the last entry
 # copies the TOML for whatever filter you are looking at, to paste into
 # `data/config.toml`; the browser never writes that file.
 #
-# The axes: `show` (not-done, done, filed), `state` (open, closed), `tag` (reply, review, edits,
-# ready, second, touched, drafts, snoozed), `kind` (pr, issue, notice - a
+# The axes: `show` (not-done, done, filed), `state` (open, closed), `tag` (reply, mentioned,
+# review, edits, ready, approved, second, touched, drafts, snoozed), `kind` (pr, issue, notice - a
 # notification that is neither, a release or a CI run, which is `closed` on
 # `state`), `lane`, `repo`, `label`, `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll

@@ -39,8 +39,9 @@
 #   * **tag** - the things worth asking that are not any of the above, and
 #     several can be true of one row: a question waiting on you (`reply
 #     owed`), a review you were asked for (`review owed`), a pull request that
-#     wants edits (`needs edits`) or is waiting on a button (`ready`), work
-#     that has gone quiet (`waiting on an answer`), work you have acted on (`touched`),
+#     wants edits (`needs edits`), is waiting on a button (`ready`) or on CI
+#     after an approval (`approved`), work that has gone quiet (`second
+#     look`), work you have acted on (`touched`),
 #     words you have written and not sent (`drafts`), and work you put down
 #     for a while (`snoozed`).
 #   * **kind**, **lane**, **repo**, **label**, **author** - facts on the row.
@@ -133,7 +134,9 @@ beside the others, and over the default `show` it is exactly the list the
 `unanswered` view is: unread, reply owed, open or closed. The others are the
 same shape: `review` is a request you have not answered, `edits` is a verdict
 or a red run on a pull request, `ready` is approved and green, and a view
-names whichever it means beside whichever author it means.
+names whichever it means beside whichever author it means. `approved` is the other half of an approval:
+approved and not green yet, so it and `ready` are two lists and not one inside
+the other.
 
 `mentioned` is the wide one `reply` is carved out of: named, ever, however
 long ago and whoever spoke last - a latch on the row, not the notification's
@@ -144,11 +147,12 @@ more, it is the item being unread - see `seen_of`.
 """
 const TAGS = [(:reply, "reply owed"), (:mentioned, "mentioned"),
               (:review, "review owed"), (:edits, "needs edits"),
-              # Named for what it is for and not for what it does: "second
-              # look" was the rule's own name, and "who is waiting on me" did
-              # not find it by reading. The two views that read it are
-              # "waiting on me" and "waiting on them", by author.
-              (:ready, "ready to merge"), (:second, "waiting on an answer"),
+              (:ready, "ready to merge"), (:approved, "approved, CI not green"),
+              # "Second look" is the rule's name and the views' too: "waiting
+              # on me" and "waiting on them" were the views' names until
+              # 2026-10-01, and nobody reading the list found the rule under
+              # them. The label says what the rule finds.
+              (:second, "second look — gone quiet"),
               (:touched, "touched"), (:drafts, "drafts"), (:snoozed, "snoozed")]
 
 """How the list is ordered. Its own control, deliberately.
@@ -445,7 +449,7 @@ which has both states, and out of the backlog, which is open only."""
 over_of(it::Item) = (isnotice(it) || it.state == "CLOSED" || it.state == "MERGED") ?
                     :closed : :open
 
-"""The tags an item carries, of the nine there are.
+"""The tags an item carries, of the ten there are.
 
 Unlike the axes, several can be true at once, so this answers with a set and the
 axis behaves like labels: any tag you pick brings the row.
@@ -457,6 +461,7 @@ function tags_of(it::Item, m::Marks = Marks())
     isempty(it.review) || push!(out, :review)
     isempty(it.edits) || push!(out, :edits)
     isempty(it.ready) || push!(out, :ready)
+    isempty(it.approved) || push!(out, :approved)
     isempty(it.secondlook) || push!(out, :second)
     haskey(m.touched, it.url) && push!(out, :touched)
     haskey(m.drafts, it.url) && push!(out, :drafts)
@@ -781,24 +786,33 @@ const VIEWS = [
     # rows open or closed - your merged pull requests standing in for the ones
     # you have done and are still carrying, which is the opposite of what the
     # view is for.
-    ("my work — mine, open, done ones too",
-                       Dict("author" => [AUTHOR_ME], "show" => ["not-done", "done"],
-                            "state" => ["open"])),
+    # Pull requests only (2026-10-01): an issue of yours is a report filed,
+    # and the backlog has those; the work is what has a branch.
+    ("my work — my open pull requests, done ones too",
+                       Dict("author" => [AUTHOR_ME], "kind" => "pr",
+                            "show" => ["not-done", "done"], "state" => ["open"])),
     # The backlog. It names `state` open only, which is the one place it and
     # the dashboard come apart: a closed thing that moved is news and belongs
     # in the firehose, and it is not work and does not belong here.
     ("open items — the backlog, done ones too",
                        Dict("show" => ["not-done", "done"], "state" => ["open"])),
-    ("waiting on me",  Dict("tag" => ["second"], "kind" => "pr",
+    # The merge button's two lists, whoever's the pull request is: the one
+    # waiting on a press and the one waiting on CI.
+    ("ready to merge — approved and green",
+                       Dict("tag" => ["ready"])),
+    ("approved — CI not green yet",
+                       Dict("tag" => ["approved"])),
+    # The second look, by whose the silence is. Not done ones only, as the
+    # default has it: `s` is how a row leaves, until it moves (`config.toml`,
+    # `second_look_days`).
+    ("second look, theirs — gone quiet on you",
+                       Dict("tag" => ["second"], "kind" => "pr",
                             "author" => [AUTHOR_OTHERS])),
-    ("waiting on them", Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
-    ("ready to merge", Dict("tag" => ["ready"])),
-    ("needs edits, mine", Dict("author" => [AUTHOR_ME], "tag" => ["edits"])),
-    # A tag, so a closed thread somebody asked you something on is in it: the
-    # default `show` has the closed news, and the tag does not care about
-    # state. See `TAGS`.
-    ("unanswered — unread, reply owed", Dict("tag" => ["reply"])),
-    ("snoozed — put down for a while", Dict("show" => ["done"], "tag" => ["snoozed"])),
+    ("second look, mine — gone quiet on them",
+                       Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
+    # Until 2026-10-01 there were three more here - needs edits mine,
+    # unanswered, snoozed - and none was used: each is a tag or two in `f`.
+    # Which puts `everything` on `8` where it was `0`.
     # The corpus, which no longer has a keystroke of its own: it is the
     # dashboard with the two things it leaves out added back to it, and it
     # names all three because a view that names the axis names the whole of it.
@@ -1024,6 +1038,79 @@ function filter_rows(st)
     end
     rows
 end
+
+"""What the filter row under the cursor means, in a sentence, for the foot of
+the pane - or `""`.
+
+The labels are a few words each, and the words are this program's: `lane`,
+`tag`, `done` and `second look` were read by someone who had not read the
+source and said nothing to them (2026-10-01). A sentence per row, rather than
+longer labels, because the counts are aligned beside the labels and the help
+is only wanted for the one row being decided about.
+"""
+function filter_help(axis::Symbol, val::AbstractString)
+    axis === :reset && return "Back to the default: not done, open or closed, every tag, kind, lane, repo, label and author."
+    axis === :pick && return string("Every ", val, " the dashboard has a row from, to type into and pick one.")
+    v = Symbol(val)
+    if axis === :show
+        v === NOT_DONE && return "Somebody else did something on it since you last marked it done. The firehose."
+        v === :done && return "Marked done (e, s) and nothing has moved since. A row comes back to not done when somebody else acts on it."
+        v === :filed && return "Put away with x. Out of the backlog for good, moved or not; z or x again brings it back."
+    elseif axis === :state
+        v === :open && return "Open on GitHub."
+        v === :closed && return "Closed or merged on GitHub, and every notice - a release or a CI run is news, not open work."
+    elseif axis === :tag
+        return get(TAG_HELP, v, "")
+    elseif axis === :kind
+        v === :both && return "Pull requests, issues and notices alike."
+        v === :pr && return "Pull requests only."
+        v === :issue && return "Issues only."
+        v === :notice && return "Notifications that are neither: a release, a CI run, a discussion."
+    elseif axis === :lane
+        return string("Came from: ", get(LANE_HELP, val,
+                      "a search of yours, under [lanes] in data/config.toml."))
+    elseif axis === :repo
+        return "The repository the row is in."
+    elseif axis === :label
+        return "A GitHub label the row carries."
+    elseif axis === :author
+        val == AUTHOR_ME && return "Opened by you."
+        val == AUTHOR_OTHERS && return "Opened by anybody but you."
+        return "Opened by this login."
+    end
+    ""
+end
+
+"""What makes a row carry each tag: worked out every refresh, several to a row,
+and any one checked brings the row. See `TAGS`."""
+const TAG_HELP = Dict{Symbol,String}(
+    :reply => "Tag: somebody named you within reply_days, and the last word is theirs.",
+    :mentioned => "Tag: you were named on it at some point, by a notification or an @you in the thread.",
+    :review => "Tag: your review was asked for, and you have not reviewed since their last push.",
+    :edits => "Tag: changes requested, an unresolved thread, red CI, or the waiting-for-author label.",
+    :ready => "Tag: approved, CI green, not a draft: waiting on somebody to press merge.",
+    :approved => "Tag: approved and not a draft, but CI is pending, red or absent.",
+    :second => "Tag: the author acted and nobody has answered for second_look_days working days. s puts one down until it moves.",
+    :touched => "Tag: you have acted on it from here: commented, reviewed, marked.",
+    :drafts => "Tag: you have written words on it here that are not sent yet.",
+    :snoozed => "Tag: snoozed with s, and the wake time is still to come.")
+
+"Where a row on each lane came from: the search or the source that first claimed it. See `config.toml`."
+const LANE_HELP = Dict{String,String}(
+    "mine" => "the search for your open pull requests, under [lanes] in config.toml.",
+    "review" => "the search for open pull requests your review was asked on.",
+    "assigned" => "the search for open issues assigned to you.",
+    "imported" => "I, by url, and fetched by url from then on.",
+    "carried" => "a lane once and none now; kept, and asked by url.",
+    "activity" => "the poll of a repository under [events] repos, seeing it move.",
+    "notifications" => "a GitHub notification.",
+    "backlog" => "the open list of a repository under [events] repos, when it was first polled.",
+    "local" => "a branch adopted from a checkout, with no pull request.")
+
+"""How many rows the foot of the filter pane takes, for a list `lh` rows tall:
+a rule and three lines of `filter_help`, or nothing where that would leave too
+little of the list. `mouse.jl` reads it too, so a click there toggles nothing."""
+filter_help_h(lh::Int) = lh >= 20 ? 4 : 0
 
 """First selectable row of each group in the filter pane.
 

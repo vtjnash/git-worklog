@@ -326,6 +326,16 @@ end
     drow = first(r for r in rows if r[1] === :state && r[2] == "closed")
     @test occursin("[x] ", drow[3]) && occursin(string(counts[:closed]), drow[3])
     st.frow = findfirst(r -> r[1] === :show && r[2] == "filed", rows)
+    # The foot of the pane says what the row under the cursor means, since the
+    # labels are this program's words; a click there toggles nothing.
+    @test occursin("Put away with x", unstyled(frame(st, 160, 50)))
+    @test all(!isempty(W.filter_help(r[1], r[2])) for r in rows if r[1] !== :head)
+    @test isempty(W.filter_help(:head, ""))
+    let ctrl = W.Controller(), L = W.layout(160, 50, st.nmeta), f0 = st.filters.show
+        ctrl.running = true
+        W.onmouse_at!(st, W.MouseEvent(:press, 0, 3, L.lh - 1, 0), ctrl; L)
+        @test st.filters.show == f0
+    end
     @test W.toggle_filter!(st)
     @test st.filters.show == Set([W.NOT_DONE, :filed])
     @test length(st.items) >= opens + counts[:filed]
@@ -790,7 +800,8 @@ end
     # The defaults are composites on purpose: a single tag is already one `f`
     # away and needs no name.
     names = [n for (n, _) in W.views(Dict{String,Any}())]
-    @test "waiting on me" in names && "ready to merge" in names
+    @test "second look, theirs — gone quiet on you" in names &&
+          "ready to merge — approved and green" in names
     # Except the first, which is the way back to what the browser opens on and
     # leads for the same reason the import row leads the item list.
     @test occursin("notification firehose", first(names))
@@ -801,10 +812,10 @@ end
     # listing it twice.
     cfg = Dict{String,Any}("views" => Dict{String,Any}(
         "mine, all of it" => Dict("author" => ["@me"]),
-        "waiting on me" => Dict("show" => ["filed"])))
+        "ready to merge — approved and green" => Dict("show" => ["filed"])))
     vs = W.views(cfg)
     @test length(vs) == length(names) + 1
-    @test Dict(vs)["waiting on me"]["show"] == ["filed"]
+    @test Dict(vs)["ready to merge — approved and green"]["show"] == ["filed"]
 
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.

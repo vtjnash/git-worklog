@@ -729,7 +729,7 @@ function view_action(st::BState, ctrl::Controller)
     end
     opts = Tuple{String,Any}[(n, d) for (n, d) in vs]
     push!(opts, ("\u2026 write this filter down as a view", :save))
-    # Numbered, alone among the pickers: the built-in views are the same ten in
+    # Numbered, alone among the pickers: the built-in views are the same eight in
     # the same order every time, so they are reached by memory rather than by
     # reading, and arrow-and-return is the slow way to press something you
     # already know the position of.

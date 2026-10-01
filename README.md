@@ -31,12 +31,14 @@ them lack is a record of what *you* decided, and the facts a decision needs -
 - **Knows what to do next**, as tags derived from facts, none of them
   exclusive: `edits` (changes requested, unresolved threads, red CI, or the
   `status: waiting for PR author` label),
-  `ready` (approved and green), `review` (asked, and not reviewed since their
+  `ready` (approved and green), `approved` (approved, CI not green yet -
+  an approval is read off the reviews where the repository requires none, as
+  julia's does), `review` (asked, and not reviewed since their
   last push), `reply` (mentioned recently, last word theirs), `mentioned`
   (you were ever named on it, by a notification or an `@you` in a thread you
   opened - kept after GitHub's reason has moved on), `second` (the author
-  acted and nobody has answered for two working days - "waiting on an answer"
-  in the filter pane, and the `waiting on me` / `waiting on them` views).
+  acted and nobody has answered for two working days - "second look" in the
+  filter pane and in the views).
 - **Shows *what* changed**: the thread opens on the first comment you have not
   seen, and `p` is the diff or `range-diff` since the head you last read.
 - **Writes back**: comment, review (a draft held on GitHub until you send it),
@@ -156,9 +158,11 @@ refused, as is everything that needs a thread or a checkout (`C` `A` `M`
 A dismissed notice comes back when the thread notifies again, and not
 before.
 
-**Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - open,
-done ones too · 3 the backlog - the same for everyone's · 4 waiting on me · 5 waiting on them · 6 ready
-to merge · 7 needs edits, mine · 8 unanswered · 9 snoozed · 0 everything. Add
+**Views** (`'`): 1 the firehose - unread, open or closed · 2 my work - my
+open pull requests, done ones too · 3 the backlog - everyone's open items,
+done ones too · 4 ready to merge - approved and green · 5 approved - CI not
+green yet · 6 second look, theirs - their pull requests gone quiet on you ·
+7 second look, mine - gone quiet on them · 8 everything. Add
 your own in `data/config.toml`; the last entry under `'` copies the current filter
 as the TOML that would name it.
 

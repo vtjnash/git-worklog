@@ -191,7 +191,7 @@
         st.lmode = :filters
         rows = W.filter_rows(st)
         txt = unstyled(join([string(r[3]) for r in rows], "\n"))
-        @test occursin("touched", txt) && occursin("waiting on an answer", txt)
+        @test occursin("touched", txt) && occursin("second look", txt)
         @test W.axis_counts(st).tags[:touched] == 3
 
         for (w, h) in ((80, 24), (200, 50))
@@ -338,6 +338,24 @@ end
     e["unresolved"] = 2;                       @test W.edits_owed(e) == "2 unresolved thread(s)"
     e["review_decision"] = "CHANGES_REQUESTED"; @test W.edits_owed(e) == "changes requested"
     @test isempty(W.ready_to_merge(merge(base, Dict("state" => "OPEN", "draft" => true))))
+    # Approved and not green is the other half, never both.
+    @test isempty(W.approved_waiting(merge(base, Dict("state" => "OPEN"))))
+    @test W.approved_waiting(merge(base, Dict("state" => "OPEN", "ci" => "PENDING"))) ==
+          "approved, CI pending"
+    @test W.approved_waiting(merge(base, Dict("state" => "OPEN", "ci" => nothing))) ==
+          "approved, no CI"
+    @test isempty(W.approved_waiting(merge(base, Dict("state" => "OPEN", "ci" => "FAILURE",
+                                                      "draft" => true))))
+    # Where the repository requires no review GitHub's verdict is null, and the
+    # reviews say it: each reviewer's last that took a side, a dismissal
+    # withdrawing it, the author's own not counted.
+    rv(who, s) = Dict("author" => Dict("login" => who), "state" => s)
+    @test W.verdict_of([rv("a", "APPROVED"), rv("a", "COMMENTED")], "me") == "APPROVED"
+    @test W.verdict_of([rv("a", "APPROVED"), rv("b", "CHANGES_REQUESTED")], "me") ==
+          "CHANGES_REQUESTED"
+    @test W.verdict_of([rv("b", "CHANGES_REQUESTED"), rv("b", "APPROVED")], "me") == "APPROVED"
+    @test W.verdict_of([rv("a", "APPROVED"), rv("a", "DISMISSED")], "me") === nothing
+    @test W.verdict_of([rv("me", "APPROVED"), rv("a", "COMMENTED")], "me") === nothing
     # Nothing about finished work should wake you, so it tracks loosely - and
     # what you said by hand wins.
     @test W.resolve_track(Dict{String,Any}(), Dict("state" => "MERGED", "mine" => true)) == "loose"

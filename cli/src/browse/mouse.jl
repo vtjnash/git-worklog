@@ -82,6 +82,8 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
         (wheel || ev.kind === :press) || return :ok
         st.focus = :list
         if st.lmode === :filters
+            # The foot is a readout of the row under the cursor, not a row.
+            !wheel && row > L.lh - 2 - filter_help_h(L.lh) && return :ok
             nf = length(filter_rows(st))
             st.frow = wheel ? clamp(st.frow + d, 1, nf) : clamp(st.top + row - 1, 1, nf)
             wheel || toggle_filter!(st, ctrl)

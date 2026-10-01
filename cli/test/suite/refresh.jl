@@ -1770,8 +1770,8 @@ end
     end
 
     # A tag in the browser, whatever the state, and the reason where the
-    # item's facts are - and the `unanswered` view is that tag over the
-    # default show, which has the closed news in it.
+    # item's facts are - and that tag over the default show, which has the
+    # closed news in it, is what the `unanswered` view was.
     st = mkstate()
     @test any(x -> x[1] === :reply, W.TAGS)
     owed = W.Item(url = "u", ref = "a#1", repo = "a/b", number = 1, title = "t",
@@ -1779,9 +1779,7 @@ end
     @test :reply in W.tags_of(owed)
     @test any(l -> occursin("reply", l) && occursin("2d ago", l),
               unstyled.(W.meta_lines(st, owed, 60)))
-    v = first(d for (n, d) in W.views() if startswith(n, "unanswered"))
-    @test v == Dict("tag" => ["reply"])
-    W.apply_view!(st, v)
+    W.apply_view!(st, Dict("tag" => ["reply"]))
     @test st.filters.show == W.SHOW_DEFAULT && st.filters.tags == Set([:reply])
     @test isempty(st.filters.lanes)
 end
