@@ -295,3 +295,38 @@ opener locally - and the status row says `opened <url>`; with neither, it
 says the link was copied. The links themselves are DESIGN's GitHub 17.
 
 *2026-09-26*: pass.
+
+## 19. A drag in a pane, and in the thread
+
+In a `t` pane running a shell, with history to scroll (`seq 1 2000`, and a
+line long enough to wrap, `seq -s x 1 60`), then in `less`:
+
+- A drag highlights as it goes, the cursor following its end, the footer
+  saying `copy mode`; letting go pastes elsewhere as what was highlighted,
+  a wrapped line whole and none of the pane's border.
+- Held past the top or the bottom without moving, it goes on scrolling at
+  a steady rate (`[mouse] drag_scroll_rows_per_second`), and stops when the
+  pointer is back over the pane; moving across out there does not hurry
+  it. The same in the thread, over a long one or a diff: the selection
+  grows a row at a time, and `y` copies every row it went over.
+- The wheel during a drag moves the view; after the copy the view stays
+  put, and a key returns to live.
+- A click alone does nothing. `vi`, `nvim` or a `mouse on` tmux in the pane
+  gets its own clicks and drags.
+- With emacs `mode-keys` (`tmux set -w mode-keys emacs` in the pane, whose
+  `$TMUX` is wl's server) the cell under the drag's end is not selected,
+  and with vi it is; either way the paste is what was highlighted. The
+  cursor's own block hides that cell's highlight, so read the cell before
+  it.
+- `^]m` in a pane with no thread drawn beside it - a terminal under 150
+  columns - gives the terminal its own selection back, the footer saying
+  so, and `^]m` again takes it. That reaches the browser's `m`; the pane's
+  own branch for no browser under it at all (`v.beside === nothing`) is
+  reached only by the suite, since every way to a pane is through the
+  browser.
+
+*2026-10-01*: pass, at 40 rows a second; the drag first scrolled only on
+motion, and the thread not at all, both fixed the same day. A nested tmux
+with `mouse on` highlighted only the cell under the pointer when dragged,
+as though the press had not been seen; neovim in the same pane drags
+properly, so taken as the nested tmux's, and not chased.

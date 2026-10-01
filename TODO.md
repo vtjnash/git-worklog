@@ -15,7 +15,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
   
 ## Bigger tasks
 
-- [ ] "A drag in a pane" was verified, but "dragging past the top or bottom scrolls" didn't work quite right: it scrolled only on mouse movement, at the speed of mouse movement, rather than being a steady continuous rate until the mouse returned into range.
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
       rests on a row (the pane's `LOAD_AFTER` dwell), `capture-pane -e` its
       session down the command pipe (about 0.1 ms) and draw the screen beside
@@ -63,22 +62,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 - [ ] **Shift- and ctrl-PgUp/PgDn in a shell pane, in a real terminal**: a
       page back through the history, none of `5~` at the prompt; in `less` or
       `vim` they are the child's.
-- [ ] **A drag in a pane, and `^]m` with nothing beside it, in a real
-      terminal.** The suite drives the drag as SGR reports against the bundled
-      tmux and reads the clipboard off stdout. By hand, in a pane running a
-      shell and then `less`:
-      - A drag highlights as it goes, the cursor following its end and the
-        footer saying `copy mode`; letting go pastes elsewhere as what was
-        selected, a wrapped line whole and without the pane's border.
-      - Dragging past the top or bottom scrolls; the wheel during a drag
-        moves the view; after the copy the view stays put and a key returns
-        to live.
-      - A click alone does nothing, and `vi` or a `mouse on` tmux in the
-        pane still gets its own clicks and drags.
-      - With emacs and with vi `mode-keys`, the last cell highlighted is the
-        last one copied.
-      - `^]m` in a pane opened with no thread beside it: the terminal's own
-        selection back, the footer saying so, and `^]m` again takes it.
 
 ## Trim
 
