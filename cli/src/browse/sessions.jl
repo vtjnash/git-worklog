@@ -420,7 +420,8 @@ there yet.
 """
 function enter_session(target::AbstractString, branch::AbstractString,
                        ref::AbstractString, num::AbstractString, url::AbstractString,
-                       title::AbstractString, ctrl, kind::Symbol, mkcmd)
+                       title::AbstractString, ctrl, kind::Symbol, mkcmd;
+                       ask::Bool = kind === :agent)
     mux_bin() === nothing && return no_mux()
     rows = session_list()
     found = mux_find(target, kind, rows)
@@ -433,6 +434,14 @@ function enter_session(target::AbstractString, branch::AbstractString,
     if found !== nothing && !isempty(ctrl.stack) &&
        last(ctrl.stack) isa PaneView && last(ctrl.stack).child.name == found.name
         return string("already in ", found.name)
+    end
+    # A new agent is told what to do before it starts, and the rest of this
+    # is the answer's: see `AgentPromptView`.
+    if found === nothing && ask
+        push_view!(ctrl, AgentPromptView(isempty(ref) ? basename(rstrip(String(target), '/')) : ref,
+            cmd -> (tell!(ctrl, enter_session(target, branch, ref, num, url, title, ctrl, kind,
+                                              (_, _) -> cmd; ask = false)); nothing)))
+        return ""
     end
     name = mux_name(SESSION_PREFIX, basename(rstrip(String(target), '/')), branch, num; kind = kind)
     # Re-pointed whether the session is new or resumed: a resumed one was
@@ -1109,13 +1118,102 @@ program's interactive configuration is a long way round. It overrides the
 `--settings` too - the file is `claude`'s to read, and a different agent has no
 use for it - so a command that is still `claude` names it itself.
 """
-function agent_cmd()
-    c = get(get(config(), "agent", Dict{String,Any}()), "command", "")
-    isempty(c) || return String(c)
+function agent_cmd(command::AbstractString = "", prompt::AbstractString = "")
+    p = isempty(prompt) ? "" : string(" ", shquote(prompt))
+    c = isempty(command) ?
+        get(get(config(), "agent", Dict{String,Any}()), "command", "") : command
+    isempty(c) || return string(c, p)
+    # Inside the `-ic` string, where `claude` is: after it, the prompt would
+    # be the shell's `\$0` and not the agent's argument.
     j = agent_settings()
     string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ",
-           shquote(isempty(j) ? "claude" : string("claude --settings ", shquote(j))))
+           shquote(string(isempty(j) ? "claude" : string("claude --settings ", shquote(j)), p)))
 end
+
+"""The agents `T` offers, as `(name, command)`: `[[agent.list]]` in the
+config, in its order, the first the one a prompt starts on - or, with no list,
+the one `agent_cmd` runs. An entry's empty `command` is that one too, so a
+list can name it beside others without spelling it out."""
+function agent_list(cfg = config())
+    out = Tuple{String,String}[]
+    for e in get(get(cfg, "agent", Dict{String,Any}()), "list", Any[])
+        e isa AbstractDict || continue
+        c = String(get(e, "command", ""))
+        push!(out, (String(get(e, "name", isempty(c) ? "claude" : c)), c))
+    end
+    isempty(out) && push!(out, ("claude", ""))
+    out
+end
+
+"""What the agent is to do, asked before it starts: the prompt goes on its
+command line as the last argument (`agent_cmd`), so the first turn is under
+way by the time the pane is. `↵` starts it, with nothing typed too - an
+agent waiting to be told is what `T` was before this asked; `tab` picks
+which agent, from `agent_list`; escape starts nothing.
+
+Only for a session that is new. One that is running is entered as it is,
+since what it is doing was said when it started.
+"""
+mutable struct AgentPromptView <: View
+    li::LineInput
+    agents::Vector{Tuple{String,String}}
+    pick::Int
+    onstart::Any             # (command line) -> Nothing; not called when cancelled
+    AgentPromptView(li::LineInput, agents, pick, onstart) = new(li, agents, pick, onstart)
+end
+
+function AgentPromptView(what::AbstractString, onstart; agents = agent_list())
+    v = AgentPromptView(LineInput("", string("what should the agent do in ", what, "?");
+                                  hint = string("↵ starts it · tab picks the agent · ",
+                                                "^w word · esc cancel")),
+                        agents, 1, onstart)
+    agent_title!(v)
+end
+
+agent_title!(v::AgentPromptView) =
+    (getfield(v, :li).title = string("Start ", v.agents[v.pick][1]); v)
+
+render(v::AgentPromptView, w::Int, h::Int) = TermInput.render(getfield(v, :li), w, h)
+viewcursor(v::AgentPromptView, w::Int, h::Int) = TermInput.caret(getfield(v, :li), w, h)
+onpaste!(v::AgentPromptView, s::AbstractString, ::Controller) =
+    (TermInput.paste!(getfield(v, :li), s); :ok)
+
+function handle!(v::AgentPromptView, k::Int, ctrl::Controller)
+    if k == 9
+        length(v.agents) > 1 || (getfield(v, :li).status = "one agent in [[agent.list]]"; return :ok)
+        push_view!(ctrl, ChooseView("Agent", "the next one starts from here",
+            Tuple{String,Any}[(string(n, isempty(c) ? "" : string("  · ", c)), i)
+                              for (i, (n, c)) in enumerate(v.agents)],
+            i -> (v.pick = i; agent_title!(v); nothing); numbered = true))
+        return :ok
+    end
+    TermInput.handle!(getfield(v, :li), k) === :ok && return :ok
+    if k in (13, 10)
+        # Closed before the session opens and not after: a pane is a place,
+        # and `push_place!` closes the place under it only when no dialog is
+        # on top - with this still there, the pane the agent was asked from
+        # stayed under the new one.
+        pop_view!(ctrl, v)
+        v.onstart(agent_cmd(v.agents[v.pick][2], strip(submission(getfield(v, :li)))))
+        return :pop
+    elseif k == 27 || k == C_G
+        return :pop
+    end
+    :ok
+end
+
+"""Say `s` on whatever is on top, where a status is read: the pane's footer,
+the list's, the worktree list's. For an answer that arrives after the call
+that asked has returned - the session an `AgentPromptView` starts."""
+function tell!(ctrl, s)
+    s isa AbstractString || return false
+    for v in Iterators.reverse(ctrl.stack)
+        tell!(v, s) && return true
+    end
+    false
+end
+tell!(::View, ::AbstractString) = false
+tell!(v::BState, s::AbstractString) = (v.status = String(s); true)
 
 """The hooks, as the one JSON string `--settings` is handed - or `""` when the
 file cannot be read, and `T` runs `claude` bare rather than not at all.
@@ -1203,8 +1301,8 @@ agent_ring!(names) = foreach(mux_ring!, names)
 
 """Open an agent on this item's worktree, and watch it work.
 
-Nothing has to be set up first, and nothing is said to it on the way in.
-Starting one is immediate, and what it should do is said in the pane.
+Nothing has to be set up first. What it should do is asked as it starts
+(`AgentPromptView`) and handed over on its command line, and may be nothing.
 
 The checkout is not described to it either. An agent already reads its working
 directory and the branch there from its own system prompt, so anything added

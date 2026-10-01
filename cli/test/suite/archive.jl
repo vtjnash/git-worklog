@@ -369,8 +369,12 @@ end
                 v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
                 @test v.rows[v.sel].item === nothing
                 W.handle!(v, Int('T'), ctrl)
+                answer_agent!(ctrl, nothing)
                 @test last(ctrl.stack) isa W.PaneView; pop!(ctrl.stack)
                 @test W.get_field(W.localurl("o/main", "agentwork"), "adopted") === nothing
+                # The list read its rows as `T` returned, which was before the
+                # answer started the agent; a `"` opened again reads them now.
+                W.worktree_reload!(v)
                 v.sel = findfirst(r -> r.name == "wt-agent", v.rows)
                 W.handle!(v, Int('t'), ctrl)
                 @test last(ctrl.stack) isa W.PaneView; pop!(ctrl.stack)

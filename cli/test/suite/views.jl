@@ -401,11 +401,17 @@ end
         # rather than on top: two terminals on the stack at once is not a state
         # anybody meant to be in, and it is how `t` from `"` left four views
         # between the shell and the dashboard.
+        # An agent is asked what to do first, and the answer is what opens it.
         out3 = W.enter_session(wt, "master", "a#1", "1", "https://example.com/a/1", "a#1", ctrl, :agent,
                                (_, _) -> "sleep 120")
-        @test occursin("started", out3)
+        @test out3 == "" && last(ctrl.stack) isa W.AgentPromptView
+        ask = last(ctrl.stack)
+        ask.agents = [("sleeper", "sleep 120")]
+        @test W.handle!(ask, 13, ctrl) === :pop
         @test length(ctrl.stack) == depth
         @test last(ctrl.stack) isa W.PaneView
+        @test occursin("started", last(ctrl.stack).child.status)
+        @test !any(x -> x isa W.AgentPromptView, ctrl.stack)
 
         for r in W.session_list()
             r.worktree == wt && W.mux_kill(r.name)

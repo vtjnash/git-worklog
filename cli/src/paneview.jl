@@ -520,6 +520,8 @@ function pane_session!(v::PaneView, kind::Symbol, ctrl)
     :ok
 end
 
+tell!(v::PaneView, s::AbstractString) = (v.child.status = String(s); true)
+
 """What the prefix is for, spelled out. `^]?` asks for it."""
 pane_keys(v::PaneView, ctrl) =
     string(readable(v, ctrl) ? "^]tab or ^][ read beside it (q leaves from there) · " : "",
@@ -967,6 +969,8 @@ mutable struct WorktreeView <: View
     source::Any                     # () -> Vector{Item}, re-read on every reload
     lastclick::Tuple{Float64,Int,Int}
 end
+
+tell!(v::WorktreeView, s::AbstractString) = (v.status = String(s); true)
 
 """Open the list, without having walked a single tree yet.
 

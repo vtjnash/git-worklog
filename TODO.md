@@ -8,7 +8,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 ## Next quick issues
 
 - [ ] Can we DRY some of the scrolling code by moving it into TermInput (where other clients might want it too)
-- [ ] when starting an agent, ask the initial prompt before starting Claude, to pass on the command line as the final argument. enter starts it, but also make the config have a list of agent configurations to start, and tab switches to the picker, and starts with the first in the list
   
 ## Bigger tasks
 

@@ -261,3 +261,16 @@ drag_scroll_rows_per_second = 40
 # that is still `claude` keeps that by reading the file on the way - the shell
 # tmux runs it through is the server's own, so this is its syntax:
 # command = 'claude --continue --settings "$(cat /path/to/git-worklog/cli/claude-settings.json)"'
+#
+# A new agent asks what it should do before it starts, and what is typed goes
+# on its command line as the last argument - quoted, after the command above or
+# inside the default's `-ic` string - so its first turn is under way by the
+# time the pane is up. `↵` with nothing typed starts it waiting, as `T` used
+# to. `tab` there picks among the agents listed here, and the prompt starts on
+# the first; with no list it is the one above. An entry with no `command` is
+# that one too, so the list can name it beside others:
+# [[agent.list]]
+# name = "claude"
+# [[agent.list]]
+# name = "claude, continuing"
+# command = "claude --continue"

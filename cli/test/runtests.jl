@@ -142,6 +142,20 @@ mkstate() = begin
     st
 end
 
+"""Answer the question a new agent asks before it starts, with `cmd` as the
+agent and nothing typed - for a test about where the session opens rather
+than about the question - and say what the session said: the status the
+pane was given, or `r`, what the call that asked returned, when nothing was
+asked."""
+function answer_agent!(ctrl, r; cmd = "sleep 120")
+    top = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    top isa W.AgentPromptView || return r
+    top.agents = [("test", cmd)]
+    W.handle!(top, 13, ctrl)
+    v = last(ctrl.stack)
+    v isa W.PaneView ? v.child.status : r
+end
+
 """The fixture row put there for this, under the name `fixture.jl` gave it.
 
     fixture_item("an issue")

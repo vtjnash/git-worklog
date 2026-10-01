@@ -33,6 +33,44 @@
     @test cmd == string("'", ENV["SHELL"], "' -ic ",
                         W.shquote(string("claude --settings ", W.shquote(j))))
     @test !occursin(W.AGENT_SETTINGS, cmd)
+    # The prompt is the agent's last argument, so inside the `-ic` string -
+    # after it, it would be the shell's `$0` - and quoted there once more.
+    p = "fix it, don't 'guess'"
+    @test W.agent_cmd("", p) == string("'", ENV["SHELL"], "' -ic ",
+        W.shquote(string("claude --settings ", W.shquote(j), " ", W.shquote(p))))
+    # A command of your own takes it on the end, and an empty one is nothing.
+    @test W.agent_cmd("opencode run", p) == string("opencode run ", W.shquote(p))
+    @test W.agent_cmd("opencode", "") == "opencode"
+    # The list: the config's, in order, an empty command the default; none,
+    # the default alone.
+    @test W.agent_list(Dict{String,Any}()) == [("claude", "")]
+    l = W.agent_list(Dict{String,Any}("agent" => Dict{String,Any}("list" => Any[
+        Dict{String,Any}("name" => "plain"),
+        Dict{String,Any}("name" => "continue", "command" => "claude --continue")])))
+    @test l == [("plain", ""), ("continue", "claude --continue")]
+    # Asked before it starts: what is typed is the command's last argument,
+    # `tab` picks the agent, `↵` starts it with nothing typed too, and
+    # escape starts nothing.
+    ctrl = W.Controller(); ctrl.running = true
+    got = Ref{Any}(nothing)
+    v = W.AgentPromptView("a#1", c -> (got[] = c); agents = l)
+    @test occursin("Start plain", unstyled(frame(v, 100, 30)))
+    @test occursin("a#1", unstyled(frame(v, 100, 30)))
+    for c in "go" W.handle!(v, Int(c), ctrl) end
+    push!(ctrl.stack, v)
+    W.handle!(v, 9, ctrl)
+    pick = last(ctrl.stack)
+    @test pick isa W.ChooseView && length(pick.options) == 2
+    @test W.pick!(pick, 2) === :pop
+    @test v.pick == 2 && occursin("Start continue", unstyled(frame(v, 100, 30)))
+    @test W.handle!(v, 13, ctrl) === :pop
+    @test got[] == "claude --continue 'go'"
+    got[] = nothing
+    v2 = W.AgentPromptView("a#1", c -> (got[] = c); agents = l)
+    @test W.handle!(v2, 13, ctrl) === :pop && got[] == W.agent_cmd("", "")
+    got[] = nothing
+    v3 = W.AgentPromptView("a#1", c -> (got[] = c); agents = l)
+    @test W.handle!(v3, 27, ctrl) === :pop && got[] === nothing
     # What the file says: a `Stop` and a permission prompt, each a ring, and
     # nothing that could block the turn.
     hooks = W.JSON.parse(read(W.AGENT_SETTINGS, String))[:hooks]
@@ -392,7 +430,7 @@ end
                 # share the copy, and an answer for one alone would have it
                 # moved from under the other.
                 said[] = nothing
-                r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
+                r = answer_agent!(ctrl, W.enter_session(pr, ctrl, :agent, sleep120, say; items = known))
                 @test r isa String && occursin("started", r)
                 @test top() isa W.PaneView && said[] === nothing
                 @test isempty(asked())
@@ -487,7 +525,7 @@ end
                 r = W.item_worktree(pr; items = known)
                 @test W.wtkey(r.path) == W.wtkey(main) && r.branch == "master" && !r.ask
                 said[] = nothing
-                r = W.enter_session(pr, ctrl, :agent, sleep120, say; items = known)
+                r = answer_agent!(ctrl, W.enter_session(pr, ctrl, :agent, sleep120, say; items = known))
                 @test r isa String && occursin("back in", r) && said[] === nothing
                 drop!(top())
                 W.git(main, "checkout", "--quiet", "--detach", "master")
@@ -801,7 +839,7 @@ end
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() isa W.BState
                 said[] = nothing
-                r = W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known)
+                r = answer_agent!(ctrl, W.enter_session(ffpr, ctrl, :agent, sleep120, say; items = known))
                 @test r isa String && occursin("started", r) && top() isa W.PaneView
                 drop!(top())
                 r = W.enter_session(ffpr, ctrl, :shell, sleep120, say; items = known)
