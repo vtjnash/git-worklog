@@ -663,8 +663,32 @@ function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractStrin
     mb = merge_base(path, from, head)
     isempty(mb) && return nothing
     try
-        git(path, "diff", "-M", "--no-color", "--no-ext-diff",
-            "--src-prefix=a/", "--dst-prefix=b/", mb, head)
+        commits_diff(path, mb, head; from_parent = false)
+    catch
+        nothing
+    end
+end
+
+"""A local branch's diff, as `pr_diff` measures a pull request's: from the
+merge base of `base` and `head` to `head`, or `nothing` when the checkout
+has no copy of the base or the two share no history.
+
+The base is fetched first, as `pr_diff` fetches it without a base sha, but a
+fetch that fails is not the end of it: there is no gh copy to fall back to
+for a branch nobody has pushed, so a copy of the base that is only ever too
+old is the answer - wrong only for a branch rebased past it, and the base's
+own commits are then what is drawn as the branch's.
+"""
+function branch_diff(path, repo::AbstractString, base::AbstractString,
+                     head::AbstractString)
+    (isempty(head) || !have_commit(path, head)) && return nothing
+    fetch_base!(path, repo, base)
+    from = base_ref(path, repo, base)
+    isempty(from) && return nothing
+    mb = merge_base(path, from, head)
+    isempty(mb) && return nothing
+    try
+        commits_diff(path, mb, head; from_parent = false)
     catch
         nothing
     end
@@ -693,11 +717,13 @@ function pr_commits(path, repo::AbstractString, base::AbstractString,
                                    for l in split(out, '\n'; keepempty = false))]
 end
 
-"""The diff a run of commits makes: from the parent of `first` to `last`, with
-`pr_diff`'s flags and for its reasons."""
-commits_diff(path, first, last) =
+"""The diff a run of commits makes: from the parent of `first` to `last` - or
+from `first` itself, which is how `pr_diff` and `branch_diff` diff from a
+merge base. The flags are `pr_diff`'s, for its reasons."""
+commits_diff(path, first, last; from_parent::Bool = true) =
     git(path, "diff", "-M", "--no-color", "--no-ext-diff",
-        "--src-prefix=a/", "--dst-prefix=b/", string(first, "^"), string(last))
+        "--src-prefix=a/", "--dst-prefix=b/",
+        from_parent ? string(first, "^") : string(first), string(last))
 
 "Is `a` reachable from `b`? False rather than an error when either is missing."
 is_ancestor(path, a, b) =

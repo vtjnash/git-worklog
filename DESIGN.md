@@ -267,7 +267,7 @@ prefetch and the thread all ask it rather than `islocal`. The pane is the
 block's own facts and no fetch; `o` opens `web`, the link `notice_web`
 builds from the thread alone, and `y` copies it. What needs a thread, a
 checkout or a block that outlives dismissal is refused, as an adopted
-branch's `d` is (`not_pr`): `C` `A` `M` `L` `;` `R`, and `t` `T` `v`.
+branch's `C` is (`not_pr`): `C` `A` `M` `L` `;` `R`, and `t` `T` `v`.
 
 **An archive is a done mark that filters separately.** `x` stamps `archived`
 and `done`. An archived item that moves is unread again - filing is not an

@@ -718,10 +718,12 @@ end
     bare = W.Item(url = "local:a/b#wip", ref = "b#wip", repo = "a/b", number = 0,
                   title = "t", is_pr = false, branch = "wip")
     @test occursin("`v`", W.comment_nodes(bare, W.utcnow())[2].header)
-    for f in (W.diff_nodes, W.pushed_nodes, W.check_nodes)
-        h = f(bare)[1].header
-        @test occursin("local branch", h) && !occursin("issue", h)
-    end
+    h = W.check_nodes(bare)[1].header
+    @test occursin("local branch", h) && !occursin("issue", h)
+    # `d` and `p` are the checkout's, and with none pinned they say so -
+    # still without a request (`a/b` is nobody's repo).
+    @test occursin("no checkout pinned", W.diff_nodes(bare)[1].header)
+    @test !occursin("issue", W.pushed_nodes(bare)[1].header)
     @test occursin("issue", W.diff_nodes(W.Item(url = "https://example.invalid/issues/2",
                                                 ref = "a#2", repo = "a/b", number = 2,
                                                 title = "t", is_pr = false))[1].header)

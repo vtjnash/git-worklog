@@ -239,6 +239,10 @@ end
 
 """Open the composer on whatever `c` is pointing at."""
 function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
+    # Nothing on GitHub to say it to: the hunks of an adopted branch's `d` and
+    # `p` are its checkout's, and no review can be pinned to them.
+    islocal(it) && (st.status = string("nothing to C on - this is ", not_pr(it),
+                                       " \u00b7 o opens it on GitHub"); return)
     (kind, target) = compose_target(st, iw)
     if kind === :line && target.side == "LEFT" && st.mode === :pushed
         st.status = "the left side of p is the head you last saw, not the base — comment on a right-side line"
@@ -322,20 +326,21 @@ end
 `nothing` - for the two pickers below, which never fetch."""
 function item_commits(it::Item)
     repo = repo_path(it.repo)
-    (repo === nothing || isempty(it.head)) && return nothing
-    pr_commits(repo, it.repo, it.base, it.base_sha, it.head)
+    head = item_head(it)
+    (repo === nothing || isempty(head)) && return nothing
+    pr_commits(repo, it.repo, it.base, it.base_sha, head)
 end
 
 """A second `d`: which of the pull request's commits to show - the whole of
 it, first, then each commit oldest first, and shift-`↑`/`↓` for a run of
 them, shown as the one diff from the first's parent to the last."""
 function diff_picker(st::BState, ctrl::Controller, it::Item)
-    it.is_pr || (st.status = "not a pull request"; return)
+    has_diff(it) || (st.status = "not a pull request"; return)
     cs = item_commits(it)
     cs === nothing && (st.status = string("no commits to pick from: ",
         repo_path(it.repo) === nothing ? string("no checkout pinned for ", it.repo) :
                                          "the checkout has not got this branch yet"); return)
-    opts = Tuple{Any,Any}[("the whole pull request", :whole)]
+    opts = Tuple{Any,Any}[(string("the whole ", whole_word(it)), :whole)]
     for (sha, subj) in cs
         push!(opts, (string(first(sha, 8), "  ", subj), (sha, subj)))
     end
@@ -346,7 +351,7 @@ function diff_picker(st::BState, ctrl::Controller, it::Item)
             ps = filter(v -> v !== :whole, vs)
             if isempty(ps) || length(ps) != length(vs)
                 st.drange = ("", "", "", "")
-                st.status = "the whole pull request"
+                st.status = string("the whole ", whole_word(it))
             else
                 (a, sa), (b, _) = first(ps), last(ps)
                 what = length(ps) == 1 ? string(first(a, 8), "  ", sa) :
@@ -361,7 +366,7 @@ end
 looked (the default), where the snooze put it away, or any of the pull
 request's own commits, newest first, which is the diff of what came after it."""
 function pushed_picker(st::BState, ctrl::Controller, it::Item)
-    it.is_pr || (st.status = "not a pull request"; return)
+    has_diff(it) || (st.status = "not a pull request"; return)
     opts = Tuple{Any,Any}[]
     look = something(done_head(it.url), isempty(it.read_head) ? nothing : it.read_head, "")
     push!(opts, (isempty(look) ? "where you last looked - not marked yet" :
@@ -372,8 +377,9 @@ function pushed_picker(st::BState, ctrl::Controller, it::Item)
                      (sn, "the snooze")))
     cs = item_commits(it)
     if cs !== nothing
+        now = item_head(it)
         for (sha, subj) in Iterators.reverse(cs)
-            sha == it.head && continue
+            sha == now && continue
             push!(opts, (string("after ", first(sha, 8), "  ", subj),
                          (sha, string(first(sha, 8)))))
         end
@@ -1046,7 +1052,7 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         # What the stamp was, beside what it is now, for the thread's rules
         # once the snooze has gone; see `thread_rules`.
         set_done(it.url, stamped)
-        set_blocks!([it.url => snooze_stamps(prevread, stamped; head = it.head)])
+        set_blocks!([it.url => snooze_stamps(prevread, stamped; head = item_head(it))])
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
@@ -1316,10 +1322,15 @@ end
 
 `facts.json` has carried the sha since the lanes started selecting
 `headRefOid`, which is every row of the dashboard and every import. The request
-below is for the rest: a branch adopted into being an item, a row the activity
-poll wrote, and a snapshot written before the field was asked for.
+below is for the rest: a row the activity poll wrote, and a snapshot written
+before the field was asked for.
+
+A branch adopted into being an item answers from its checkout, every time:
+its tip is a commit away from the survey's copy whenever there is work being
+done on it, and one `rev-parse` is cheaper than being wrong about that.
 """
 function head_sha(it::Item)::String
+    islocal(it) && return local_head(it)
     isempty(it.head) || return it.head
     key = string("headsha:", it.repo, "#", it.number)
     hit = cache_get(key, 86_400.0)
@@ -1333,6 +1344,24 @@ function head_sha(it::Item)::String
     cache_put(key, out)
     String(out)
 end
+
+"""An adopted branch's tip as its checkout has it now, else as the survey saw
+it, else empty - a branch since deleted, or a repo no longer pinned."""
+function local_head(it::Item)::String
+    repo = repo_path(it.repo)
+    repo === nothing && return it.head
+    try
+        String(strip(git(repo, "rev-parse", "--verify", "--quiet",
+                         string("refs/heads/", it.branch, "^{commit}"))))
+    catch
+        it.head
+    end
+end
+
+"""The head a key records or measures from without waiting: the item's own,
+and an adopted branch's checkout, which is one local `rev-parse` - never
+`head_sha`'s request."""
+item_head(it::Item) = islocal(it) ? local_head(it) : it.head
 
 """
     hunk_fence(nodes, i) -> (above, below)

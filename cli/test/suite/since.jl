@@ -715,6 +715,78 @@ end
     end
 end
 
+@testset "an adopted branch has d and p, from its checkout" begin
+    # No pull request to ask GitHub for a diff by, but the branch is here, and
+    # a pull request opened from it would be measured from the default branch:
+    # so `d` is that diff, from where the branch leaves it, and `p` is what has
+    # moved since `e` recorded the tip - both from the checkout alone.
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    root = mktempdir()
+    try
+        main = joinpath(root, "main"); mkpath(main)
+        W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+        W.git(main, "config", "user.email", "t@e.com")
+        W.git(main, "config", "user.name", "t")
+        write(joinpath(main, "f.txt"), "base\n")
+        W.git(main, "add", "f.txt"); W.git(main, "commit", "--quiet", "-m", "base")
+        W.git(main, "checkout", "--quiet", "-b", "wip")
+        shas = String[]
+        for x in ("ONE", "TWO")
+            write(joinpath(main, string(lowercase(x), ".txt")), x)
+            W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", string("add ", x))
+            push!(shas, strip(W.git(main, "rev-parse", "HEAD")))
+        end
+        # The default branch moves on after the branch left it; none of that
+        # is the branch's.
+        W.git(main, "checkout", "--quiet", "master")
+        write(joinpath(main, "m.txt"), "master's\n")
+        W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", "on master")
+        W.git(main, "checkout", "--quiet", "wip")
+        W.save_repo!("o/r", ["worktree" => main])
+        u = W.localurl("o/r", "wip")
+        it = W.local_item(u, W.branchfor("o/r", "wip"))
+        @test it.head == shas[2] && it.base == "master" && !it.is_pr
+        @test W.head_sha(it) == shas[2]
+
+        ns = W.diff_nodes(it)
+        files = [get(n.meta, "file", "") for n in ns]
+        @test sort(files) == ["one.txt", "two.txt"]
+        @test all(n -> n.meta["head"] == shas[2], ns)
+        @test all(n -> n.meta["url"] == it.web, ns)    # the compare page, not a `local:` key
+        @test W.mode_cached(:diff, it)
+        # Its commits are the picker's, as a pull request's are.
+        @test [c[1] for c in W.item_commits(it)] == shas
+
+        # `p`: nothing recorded yet, then the tip `e` recorded, then a commit
+        # on top of it - which the item, from before the commit, does not
+        # know about and the checkout does.
+        @test occursin("nothing to compare", W.pushed_nodes(it)[1].header)
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", W.item_head(it))
+        @test occursin("nothing pushed", W.pushed_nodes(it)[1].header)
+        write(joinpath(main, "three.txt"), "THREE")
+        W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", "add THREE")
+        ns = W.pushed_nodes(it)
+        @test occursin("1 commit added", unstyled(ns[1].header))
+        @test any(n -> get(n.meta, "file", "") == "three.txt", ns)
+        @test occursin("three.txt", join([get(n.meta, "file", "") for n in W.diff_nodes(it)], " "))
+
+        # And nothing to say on GitHub about any of it.
+        st = W.BState([it], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = 1; st.focus = :detail; st.mode = :diff
+        ctrl = W.Controller()
+        st.loaded = W.mode_key(st, it, :diff)
+        W.handle!(st, Int('C'), ctrl)
+        @test occursin("local branch", st.status) && isempty(ctrl.stack)
+        W.handle!(st, Int('d'), ctrl)
+        v = pop!(ctrl.stack)
+        @test v isa W.ChooseView && v.options[1][1] == "the whole branch"
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "the refresh keeps the head as of the mark on the row" begin
     row(moved, head; kw...) = Dict{String,Any}("moved_at" => moved, "head_sha" => head,
                                                (String(k) => v for (k, v) in kw)...)

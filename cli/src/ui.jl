@@ -436,11 +436,9 @@ page. Both facts are git's, so this costs two `git` runs per adopted branch,
 which is a handful.
 """
 function compare_link(path, repo::AbstractString, branch::AbstractString,
-                      upstream::AbstractString)
-    base = something(default_base(path), "master")
+                      upstream::AbstractString; base = nothing)
     rs = try remote_repos(path) catch; Dict{String,String}() end
-    i = findfirst('/', base)
-    (i !== nothing && haskey(rs, base[1:prevind(base, i)])) && (base = base[nextind(base, i):end])
+    base = something(base, default_branch(path, rs), "master")
     head = String(branch)
     j = findfirst('/', upstream)
     if j !== nothing
@@ -451,6 +449,16 @@ function compare_link(path, repo::AbstractString, branch::AbstractString,
     string("https://github.com/", repo, "/compare/", base, "...", head, "?expand=1")
 end
 
+"""The project's default branch by its own name - `master`, not
+`origin/master` - or `nothing` when `default_base` finds none: the name a
+pull request's base is, and what `base_ref` and `ensure_base!` take."""
+function default_branch(path, rs = try remote_repos(path) catch; Dict{String,String}() end)
+    base = default_base(path)
+    base === nothing && return nothing
+    i = findfirst('/', base)
+    (i !== nothing && haskey(rs, base[1:prevind(base, i)])) ? base[nextind(base, i):end] : base
+end
+
 "Urls of every branch that has been adopted, whether or not it still exists."
 adopted_urls() = sort!([u for u in keys(field_map("adopted")) if islocal(u)])
 
@@ -459,13 +467,20 @@ adopted_urls() = sort!([u for u in keys(field_map("adopted")) if islocal(u)])
 `b` is what the survey found for it, or `nothing` when the branch has since been
 deleted - which is shown rather than dropped, because a branch that is gone is
 still something you wrote a note on and still something to be told about.
+
+Its `head` is the tip the survey saw and its `base` the project's default
+branch, which is what a pull request opened from it would be measured
+against - and so what `d` diffs it from and `p` measures its rebases by.
 """
 function local_item(url::AbstractString, b = nothing)
     repo, branch = localparts(url)
     p = repo_path(repo)
     landed = p !== nothing && merged_here(p, branch)
+    base = p === nothing ? "" : something(default_branch(p), "")
     Item(url = String(url), ref = localref(repo, branch), repo = String(repo),
          number = 0, is_pr = false, branch = String(branch),
+         head = b === nothing ? "" : b.head,
+         base = base,
          # The tip's subject, which is the only title unlanded work has. The
          # branch name is the fallback, and it is what a bare ref would show.
          title = b === nothing ? branch :
@@ -479,7 +494,8 @@ function local_item(url::AbstractString, b = nothing)
          # been read, what makes it news.
          state = landed ? "MERGED" : "",
          web = p === nothing ? "" :
-               compare_link(p, repo, branch, b === nothing ? "" : b.upstream))
+               compare_link(p, repo, branch, b === nothing ? "" : b.upstream;
+                            base = isempty(base) ? nothing : base))
 end
 
 """Every adopted branch, as items.

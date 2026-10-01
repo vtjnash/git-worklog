@@ -592,6 +592,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # the lanes do not cover, on the key loop, to answer a question
             # about a pull request that may not even have moved. A row with no
             # sha records none and has no `p` view, which is what it had before.
+            # An adopted branch's is its checkout's tip, which is local.
             upto = something(moved_of(it), stamp(at))
             fi === nothing || (upto = max(upto, jstr(st.nodes[fi].meta, :seen_up_to, "")))
             # And folded: a row said unread by hand whose movement is still
@@ -603,7 +604,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # either way.
             held = haskey(st.archived, it.url) || (haskey(st.wakes, it.url) && !woke)
             held || (upto = folded(upto, floor_of(it, st.sources)))
-            set_done_mark(it.url, upto, it.head; fold = true)
+            set_done_mark(it.url, upto, item_head(it); fold = true)
             woke && set_fields(it.url, end_snooze(st.wakes[it.url]), at)
         else
             mark_unread([it.url])

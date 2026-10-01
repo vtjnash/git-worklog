@@ -741,6 +741,7 @@ pinned, a head the checkout cannot get, or a base it cannot bring up to
 date - and for the `stale` flag, which a local answer has no use for.
 """
 function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
+    islocal(it) && return local_diff_nodes(it)
     # Issues have no diff, and asking gh for one fails with a GraphQL error
     # rather than an empty result. The assigned lane is full of them.
     it.is_pr || return [Node(string("no diff - this is ", not_pr(it)), "", :plain, true)]
@@ -784,6 +785,40 @@ function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
     asof === nothing || isempty(out) || (out[1].meta["asof"] = asof)
     out
 end
+
+"""An adopted branch's `d`: its checkout's diff from where it leaves the
+default branch (`branch_diff`), which is the diff a pull request opened from
+it would show. The checkout alone - there is no copy of it on GitHub to ask
+for - so every way that has nothing is said, and no comments are placed,
+since none can have been left."""
+function local_diff_nodes(it::Item)
+    repo = repo_path(it.repo)
+    repo === nothing &&
+        return [Node(string("no checkout pinned for ", it.repo), "", :plain, true)]
+    head = local_head(it)
+    isempty(head) &&
+        return [Node(string("no branch ", it.branch, " in ", repo), "", :plain, true)]
+    isempty(it.base) &&
+        return [Node(string("no default branch found in ", repo, " to diff against"),
+                     "", :plain, true)]
+    txt = branch_diff(repo, it.repo, it.base, head)
+    txt === nothing &&
+        return [failednode(string("could not diff ", it.branch, " against ", it.base),
+                           string("The checkout has no copy of `", it.base,
+                                  "`, or none that shares history with `",
+                                  first(head, 8), "`."))]
+    push!(DIFFED, string(it.url, "@", head))
+    ns = hunk_nodes(txt, weblink(it); head = head)
+    isempty(ns) && return [Node(string("no change from ", it.base), "", :plain, true)]
+    ns
+end
+
+"""Has this item a diff for `d` and `p` to show: a pull request, or a branch
+adopted into being an item, whose checkout answers for it."""
+has_diff(it::Item) = it.is_pr || islocal(it)
+
+"What `d`'s picker calls all of an item's change."
+whole_word(it::Item) = islocal(it) ? "branch" : "pull request"
 
 """Unified diff text as one node per hunk, carrying the ranges that `[`/`]` and
 `place_comments` measure against, and `head`, the commit the new side is
@@ -1239,7 +1274,7 @@ or an error, because each of them is a different thing to do about it: press
 """
 function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
                       since::AbstractString = "you last looked")
-    it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
+    has_diff(it) || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
     old = from === nothing ? done_head(it.url) : String(from)
     old === nothing && !isempty(it.read_head) && (old = it.read_head)
     old === nothing &&
@@ -1270,6 +1305,15 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
                             "`wl repo add ", it.repo, " <path>`."), :md, true)]
     rem = remote_for(repo, it.repo)
     for sha in (old, new)
+        # An adopted branch's heads were never anywhere but here: nothing
+        # serves them, and one that is gone was taken by a `gc`.
+        if islocal(it)
+            have_commit(repo, sha) && continue
+            return [failednode(string("commit ", first(sha, 8), " is not in ", repo),
+                               "It was this branch's head, and nothing else has a " *
+                               "copy of a branch nobody pushed: a `git gc` has " *
+                               "taken it, since nothing points at it any more.")]
+        end
         ensure_commit!(repo, sha, it.number; remote = rem) ||
             return [failednode(string("commit ", first(sha, 8), " is not in ", repo),
                                "It could not be fetched either. A head that was " *
@@ -1321,8 +1365,8 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
                               "`, so the base's own commits are the number above ",
                               "rather than rows in the list.")), :md, false)
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
-    lead.meta["url"] = string(it.url, "/files")
-    ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files"); head = new) :
+    lead.meta["url"] = files_link(it)
+    ns = kind === :diff ? hunk_nodes(txt, files_link(it); head = new) :
                           rangediff_nodes(txt)
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
@@ -1344,15 +1388,19 @@ function commits_nodes(it::Item, first_::AbstractString, last_::AbstractString,
         return [failednode("could not diff those commits", first(sprint(showerror, e), 200))]
     end
     lead = Node(faced(String(what), THEME.waiting) * "  " *
-                faced("d d picks another, or the whole pull request", THEME.dim),
+                faced(string("d d picks another, or the whole ", whole_word(it)), THEME.dim),
                 "", :plain, true)
     lead.meta["src"] = String(what)
-    lead.meta["url"] = string(it.url, "/files")
-    ns = hunk_nodes(txt, string(it.url, "/files"); head = last_)
+    lead.meta["url"] = files_link(it)
+    ns = hunk_nodes(txt, files_link(it); head = last_)
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
     ns
 end
+
+"""What `y` copies off a hunk: the pull request's files tab, or the compare
+page an adopted branch's pull request would be opened from."""
+files_link(it::Item) = islocal(it) ? weblink(it) : string(it.url, "/files")
 
 "What a row with no pull request is, for a pane that shows only pull requests."
 not_pr(it::Item) = islocal(it) ? "a local branch, not yet a pull request" :
@@ -1400,6 +1448,6 @@ up without a request? The pushed view reads a local checkout and has nothing to
 wait for."""
 mode_cached(mode::Symbol, it::Item) =
     mode === :comments ? cache_has(thread_key(it.url)) :
-    mode === :diff     ? (!it.is_pr || cache_has(diff_key(it)) ||
+    mode === :diff     ? (!has_diff(it) || cache_has(diff_key(it)) ||
                           string(it.url, "@", it.head) in DIFFED) :
     mode === :checks   ? (!it.is_pr || cache_has(checks_key(it.repo, it.number))) : true

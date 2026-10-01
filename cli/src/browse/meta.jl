@@ -488,8 +488,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     sm === nothing || isempty(sm.assignees) || kv("assignee", join(sm.assignees, ", "))
     # The branch, and where it is going, in the form `git` and `gh` take:
     # `owner/repo:branch` when the head lives in a fork, which the lanes do
-    # not say and the metadata fetch does. An adopted branch has one and no
-    # base; an issue has neither. A base that is not the repository's default
+    # not say and the metadata fetch does. An adopted branch has one, and the
+    # default branch for its base; an issue has neither. A base that is not the repository's default
     # branch - `v1.x` on libuv, a backport branch anywhere - is the one fact
     # on this row worth a colour: it says where the change will *not* land.
     if !isempty(it.branch)

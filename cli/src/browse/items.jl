@@ -188,7 +188,7 @@ is no *not done* for `e` to toggle to and no filed box for `x` to put it in;
 `touched`. `s` is refused: a snooze is a wake beside a stamp, and a notice
 has neither. So is everything that needs an issue or a pull request - `C`,
 `A`, `M`, `L`, `;`, `R` - or a checkout or a block to keep a note in - `t`,
-`T`, `v` - the way an adopted branch's `d` is (`not_pr`). `o` opens the link.
+`T`, `v` - the way an adopted branch's `C` is (`not_pr`). `o` opens the link.
 """
 function notice_key!(st::BState, it::Item, k::Int, ctrl)
     if k in (Int('e'), Int('x'))
