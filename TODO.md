@@ -12,6 +12,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       The recipe change is `version = v"3.7.3"` and the tarball's sha256
       `7c60cae9a0e25288e2e24750aafc9e8800fc7fd4555e447e1b29ee4201cfb3bf`; a PR
       needs a fork of Yggdrasil, which this sandbox cannot make.
+- [ ] for adopted branches, enable d and p anyways for the local diff
   
 ## Bigger tasks
 
@@ -35,33 +36,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified
 
-- [x] **The command pipe, and the pane's keys, in a real terminal.** The
-      suite drives both against the bundled tmux, with no terminal and no
-      `claude`. By hand, bundled tmux and a server of the user's own:
-      - `T`, let the agent stop, go back to the list: the row turns unread
-        within about a second, with no `wl-` listing on a clock (the pipe's
-        subscription). `e` clears it.
-      - `tmux ls` shows `_wl-ctl-<pid>` while a session of ours is up; it
-        goes when the last one is killed (`^]K`), when `wl` quits, and when
-        `wl` is `kill -9`ed.
-      - `^]q`, `^]K`, `^]a` and back, `^]r`, `^]]` into `cat -v`, `^]?`;
-        `^]tab` with more typed in the same burst, which must not reach the
-        child; `v` on an item, edit, quit the editor: the note is saved.
-      - With the thread beside a `T` pane moved to another item: `^]h` puts
-        it back on the agent's item, `^]t` opens the shell in the agent's
-        worktree without asking which copy, and `^]j` scrolls what is shown.
-      - MANUAL.md 4 and 7 again, since their code moved: the clipboard is
-        relayed by the sync now, not the reader, and a pane wakes through
-        its own watch.
-- [ ] **A right or middle click, in a real terminal.** Drags stopped being
-      reported after one, in the list and in a pane alike, until `m` was
-      pressed twice; the loop now turns reporting off and on itself on such a
-      press (`menu_press`), which is `m` twice. Unconfirmed as the cause: by
-      hand, right-click (menu and all), then drag in the list, in a shell pane
-      and in a `T` pane.
-- [ ] **Shift- and ctrl-PgUp/PgDn in a shell pane, in a real terminal**: a
-      page back through the history, none of `5~` at the prompt; in `less` or
-      `vim` they are the child's.
+Nothing at present.
 
 ## Trim
 

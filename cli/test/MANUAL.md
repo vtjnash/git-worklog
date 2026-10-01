@@ -330,3 +330,47 @@ motion, and the thread not at all, both fixed the same day. A nested tmux
 with `mouse on` highlighted only the cell under the pointer when dragged,
 as though the press had not been seen; neovim in the same pane drags
 properly, so taken as the nested tmux's, and not chased.
+
+## 20. The command pipe, and the pane's keys
+
+The suite drives both against the bundled tmux, with no terminal and no
+`claude`. By hand, with the bundled tmux and with a server of your own:
+
+- `T`, let the agent stop, go back to the list: the row turns unread within
+  about a second, with no `wl-` listing on a clock (the pipe's
+  subscription). `e` clears it.
+- `tmux ls` shows `_wl-ctl-<pid>` while a session of ours is up; it goes
+  when the last one is killed (`^]K`), when `wl` quits, and when `wl` is
+  `kill -9`ed.
+- `^]q`, `^]K`, `^]a` and back, `^]r`, `^]]` into `cat -v`, `^]?`; `^]tab`
+  with more typed in the same burst, which must not reach the child; `v` on
+  an item, edit, quit the editor: the note is saved.
+- With the thread beside a `T` pane moved to another item: `^]h` puts it
+  back on the agent's item, `^]t` opens the shell in the agent's worktree
+  without asking which copy, and `^]j` scrolls what is shown.
+- 4 and 7 again whenever the pipe's code moves: the clipboard is relayed by
+  the sync, not the reader, and a pane wakes through its own watch.
+
+*2026-09-29*: pass. The run turned up the drag that scrolled only on motion
+(19).
+
+## 21. A right or middle click, then a drag
+
+Right-click - the terminal's menu and all, then dismiss it - and drag: in
+the list, in a `t` pane and in a `T` pane; again with a middle click. Pass:
+the drag selects every time. Fail is drags no longer being reported until
+`m` is pressed twice, which is what the loop now does itself on such a
+press (`menu_press`).
+
+*2026-10-01*: pass, VS Code.
+
+## 22. Shift- and ctrl-PgUp/PgDn in a shell pane
+
+In a `t` pane with history behind it: each pages back and forward through
+it, the footer saying how far back, and none of `5~` at the prompt. In
+`less` or `vim` they are the child's. A terminal that keeps one for its own
+scrollback never sends it - `cat -v` in a plain shell prints nothing for
+it - and that one passes by construction.
+
+*2026-10-01*: pass, VS Code: ctrl pages; shift is VS Code's own and never
+arrives (`cat -v` prints nothing); `less` and `vim` get both.
