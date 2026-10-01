@@ -122,7 +122,7 @@ end
 selrange(st::BState) = (st.sela == 0 || st.selb == 0) ? nothing :
                        (min(st.sela, st.selb), max(st.sela, st.selb))
 
-clearsel!(st::BState) = (st.sela = 0; st.selb = 0; st.anchor = 0; nothing)
+clearsel!(st::BState) = (st.sela = 0; st.selb = 0; st.anchor = 0; drag_edge!(st, 0); nothing)
 
 """Carry the cursor and the selection across a change of pane width.
 

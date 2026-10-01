@@ -283,6 +283,12 @@ Base.@kwdef mutable struct BState <: View
                            # metadata is of (`item_place`): what `taken_in`
                            # reads the sessions against as the pane is drawn
     anchor::Int = 0        # row a drag started on
+    dragging::Bool = false # a press in the thread is held: its drag is the
+                           # thread's wherever the pointer goes
+    edge::Int = 0          # -1 or 1 while that drag is past the top or bottom
+    ticker::Union{Nothing,Timer} = nothing   # the next row of it; due once it
+                           # has fired
+    dragw::Int = 0         # the width the thread's rows are made at, for that row
     lastclick::Tuple{Float64,Int,Int} = (0.0, 0, 0)   # when and where the last
                            # press landed, which is all a double click is: the
                            # terminal reports two presses and says nothing about

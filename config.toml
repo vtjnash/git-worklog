@@ -229,6 +229,17 @@ keep_days = 30
 # being asked again; a conflict stays as long as anything else does.
 merge_minutes = 10
 
+[mouse]
+# How far apart two presses can be, in seconds, and still be one double click:
+# in the list and the thread, where it copies, and in the pickers - `'`, the
+# checkout chooser, `"` - where it is `↵`. Longer than a terminal's own, since
+# a double click here copies rather than selects, and the slower window is the
+# one that catches the gesture people actually make.
+double_click_seconds = 0.5
+# How fast a drag held past the top or bottom of the thread, or of a hosted
+# pane, scrolls, in rows a second, whether or not the pointer moves.
+drag_scroll_rows_per_second = 40
+
 [agent]
 # What `T` runs in a pane. The default is `$SHELL -ic claude`, because an agent
 # is more often a shell alias or a function than a file on `PATH`. Both parts of

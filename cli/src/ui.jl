@@ -836,6 +836,10 @@ function ui(args = String[], at::DateTime = utcnow())
     CACHE_FRESH[] = 60.0 * jfloat(cc, :fresh_minutes, jfloat(cc, :detail_ttl_minutes, 2.0))
     CACHE_KEEP[] = 86_400.0 * jfloat(cc, :keep_days, 30.0)
     MERGE_FRESH[] = 60.0 * jfloat(cc, :merge_minutes, 10.0)
+    mc = jdict(cfg, :mouse)
+    DOUBLECLICK[] = max(0.0, jfloat(mc, :double_click_seconds, 0.5))
+    rate = jfloat(mc, :drag_scroll_rows_per_second, 40.0)
+    rate > 0 && (TermIFrame.DRAG_SCROLL[] = 1 / rate)
     # Adopted branches are items too, and everything keyed by url works on them
     # the moment they are: notes, snoozes, the clock, the tags, the filters.
     items = vcat(loaditems(), local_items())

@@ -209,6 +209,70 @@ end
     @test isempty(st2.status) && st2.anchor == i
 end
 
+@testset "a drag held past the thread's edge goes on selecting" begin
+    ENV["COLUMNS"], ENV["LINES"] = "160", "50"
+    st = mkstate()
+    st.nodes = [W.Node("someone  2026-09-02",
+                       join((string("line ", i) for i in 1:200), "\n\n"), :md, true)]
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    frame(st, 160, 50)
+    L = W.layout(160, 50, st.nmeta)
+    ctrl = W.Controller()
+    st.wake = ctrl                  # what arms the timer; not running, so no event
+    n = length(W.rows(st.nodes, L.riw))
+    inner = L.rh - 2
+    was = W.TermIFrame.DRAG_SCROLL[]
+    W.TermIFrame.DRAG_SCROLL[] = 0.01
+    ev(kind, y; x = L.rx + 4) = W.onmouse!(st, W.MouseEvent(kind, 0, x, y, 0), ctrl)
+    # A press on a row of the thread, and a drag to the row below it.
+    ev(:press, L.ry + st.hdr + 4)
+    a = st.anchor
+    @test a > 0 && st.dragging
+    ev(:drag, L.ry + st.hdr + 5)
+    @test (st.sela, st.selb) == (a, a + 1)
+    # Past the bottom: one row past the last drawn, at once.
+    top = st.ntop
+    ev(:drag, L.ry + L.rh + 2)
+    @test st.nrow == top - st.hdr + inner && st.selb == st.nrow
+    @test st.edge == 1 && st.ticker !== nothing
+    # Moving across out there selects no further; the timer does.
+    ev(:drag, L.ry + L.rh + 2; x = L.rx + 20)
+    first_ = st.nrow
+    @test st.nrow == first_
+    @test !W.drag_step!(st)           # not yet due: another wake takes no step
+    for k in 1:2
+        wait(st.ticker)               # the wake the controller would be sent
+        @test W.drag_step!(st)
+        @test st.nrow == first_ + k && st.selb == st.nrow && st.sela == a
+    end
+    # The window follows the cursor, so the next frame has scrolled.
+    frame(st, 160, 50)
+    @test st.ntop > top
+    # Back over the pane, the timer stops, and the drag selects as before.
+    ev(:drag, L.ry + st.hdr + 5)
+    @test st.edge == 0 && st.ticker === nothing
+    # Up comes the button, past the edge or not: the selection is said.
+    ev(:drag, L.ry + L.rh + 2)
+    ev(:release, L.ry + L.rh + 2)
+    @test !st.dragging && st.ticker === nothing
+    @test occursin("rows selected", st.status)
+    # Past the top, upward, and never past the first row.
+    st.nrow, st.ntop = 3, 1
+    frame(st, 160, 50)
+    ev(:press, L.ry + st.hdr + 2)
+    ev(:drag, L.ry - 1)
+    @test st.nrow == 1
+    wait(st.ticker)
+    @test !W.drag_step!(st) && st.nrow == 1 && st.ticker === nothing
+    ev(:release, L.ry - 1)
+    # A drag that did not start in the thread is not the thread's.
+    st.status = ""
+    ev(:drag, L.ry + L.rh + 2)
+    @test !st.dragging && st.ticker === nothing && isempty(st.status)
+    W.TermIFrame.DRAG_SCROLL[] = was
+    @test n > inner                    # there was somewhere to scroll to
+end
+
 @testset "a double click copies, and a mark says what will be" begin
     # OSC 8 hands a link to the terminal and hopes; owning the mouse means the
     # copy can be made here, where the whole url is known. The same applies to

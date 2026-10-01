@@ -260,13 +260,16 @@ without it `o` opens the checkout and says so.
 issue or the commit. A sha is seven to forty hex digits with a digit and a
 letter both - GitHub asks whether the commit exists, and this cannot.
 
-**The mouse** selects rows (drag), moves the cursor (click), folds (click a
+**The mouse** selects rows (drag, which held past the top or bottom of the
+pane goes on scrolling), moves the cursor (click), folds (click a
 marker), scrolls the pane under it; in the pickers - `'`, the checkout
 chooser, `"` - a click moves the cursor to the row and a double click is `↵`. A click on a url copies it; a double click
 copies the word under the pointer, or the item's url in the list; the `⧉` at
 the right of every header copies that block. Beside a composer or a hosted
 pane the thread takes the same clicks, and the keys stay where they were -
-`tab` is what moves them.
+`tab` is what moves them. How far apart a double click's presses can be, and
+how fast a drag held past an edge scrolls, are under `[mouse]` in
+the config.
 
 ## Commands
 

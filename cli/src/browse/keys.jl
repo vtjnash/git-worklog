@@ -38,7 +38,7 @@ load is not in here: the controller runs `settle!` after this, as after every
 event, and a held load's wake is retried there.
 """
 onwake!(st::BState, ::Any) = collect_pending!(st) | collect_meta!(st) | due_refresh!(st) |
-                             reload_data!(st) | rerang!(st)
+                             reload_data!(st) | rerang!(st) | drag_step!(st)
 
 """
     browse(items, title, unread)

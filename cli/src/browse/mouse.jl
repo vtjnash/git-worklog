@@ -12,7 +12,8 @@ toggles it, and clicking the copy mark at the end of a header copies that node
 whole. A double click copies what is under the pointer: the url, the word, or in
 the item list that item's own url. Dragging selects rows, which `y` then copies
 as the text they were written as rather than as the wrapped fragments the
-terminal can see.
+terminal can see; held past the top or bottom of the pane it goes on
+selecting, a row at a time, whether or not the pointer moves (`drag_rows!`).
 
 The wheel moves the cursor rather than only the viewport, because the viewport
 does not survive: `window` pulls the pane back to wherever the cursor is on the
@@ -47,6 +48,8 @@ Longer than a terminal's own, deliberately: this one copies rather than selects,
 so a double click that misses does nothing at all and a single click that counts
 as a double copies a word nobody asked for. Neither is expensive, and the slower
 window is the one that catches the gesture people actually make.
+
+`[mouse] double_click_seconds` in the config, set when the browser starts.
 """
 const DOUBLECLICK = Ref(0.5)
 
@@ -64,6 +67,10 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
         h, w = displaysize(ctrl.term)
         L = layout(w, h, st.nmeta)
     end
+    # A drag the thread started is the thread's wherever the pointer goes,
+    # since past its top or bottom is where a drag goes to scroll.
+    st.dragging && (ev.kind === :drag || ev.kind === :release) &&
+        return drag_rows!(st, ev, L)
     p = hitpane(L, ev.x, ev.y)
     p === nothing && return :ok
     (which, row, col) = p
@@ -152,16 +159,86 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
                 st.anchor = 0          # copying is not the start of a selection
             end
         end
-    elseif ev.kind === :drag
-        st.anchor == 0 && (st.anchor = idx)
-        st.sela, st.selb = st.anchor, idx
-        st.nrow = idx
-    elseif ev.kind === :release
+        st.dragging = st.anchor != 0
+    end
+    :ok
+end
+
+"""
+    drag_rows!(st, ev, L) -> Symbol
+
+A drag that began on a row of the thread, and the button coming up on it,
+wherever the pointer now is. Over the pane it selects to the row under it.
+Past the top or the bottom it selects a row further at once, and then a row
+every `TermIFrame.DRAG_SCROLL` - the rate a hosted pane's drag scrolls at, and
+the same setting - until the pointer is back over the pane or the button comes
+up: a timer wakes the controller, and `drag_step!` takes the row. The window
+follows the cursor, so the next frame shows it. Motion past the edge moves
+nothing; that is the timer's, and moving does not hurry it.
+"""
+function drag_rows!(st::BState, ev::MouseEvent, L)
+    if ev.kind === :release
+        st.dragging = false
+        drag_edge!(st, 0)
         r = selrange(st)
         r === nothing ||
             (st.status = string(r[2] - r[1] + 1, " rows selected — y to copy"))
+        return :ok
     end
+    n = length(rows(st.nodes, L.riw, st.mouse))
+    n == 0 && return :ok
+    row, inner = ev.y - L.ry, L.rh - 2      # as `hitpane` counts them
+    edge = row < 1 ? -1 : row > inner ? 1 : 0
+    if edge == 0
+        drag_to!(st, clamp(st.ntop + row - 1 - st.hdr, 1, n))
+    elseif st.ticker === nothing
+        # One past the row drawn at that edge, which the window then shows.
+        drag_to!(st, clamp(edge < 0 ? st.ntop - st.hdr - 1 : st.ntop - st.hdr + inner, 1, n))
+    end
+    drag_edge!(st, edge, L.riw)
     :ok
+end
+
+"The end of a drag's selection is row `idx`, and so is the cursor."
+function drag_to!(st::BState, idx::Int)
+    st.anchor == 0 && (st.anchor = idx)
+    st.sela, st.selb = st.anchor, idx
+    st.nrow = idx
+    nothing
+end
+
+"""The drag is past an edge, `-1` or `1`, or it is not, `0`: the timer for its
+next row is armed on the way past and stopped on the way back."""
+function drag_edge!(st::BState, edge::Int, w::Int = st.dragw)
+    st.edge, st.dragw = edge, w
+    if edge == 0
+        st.ticker === nothing || close(st.ticker)
+        st.ticker = nothing
+    elseif st.ticker === nothing
+        drag_arm!(st)
+    end
+    nothing
+end
+
+function drag_arm!(st::BState)
+    w = st.wake
+    w === nothing && return
+    st.ticker = Timer(_ -> wake!(w), TermIFrame.DRAG_SCROLL[])
+end
+
+"""A row further past the edge, when the timer has fired: the wake it raised
+is the one that is here. Any other wake finds it not yet due. At the end of
+the rows there is nowhere to go, and the timer is not armed again."""
+function drag_step!(st::BState)
+    t = st.ticker
+    (st.dragging && st.edge != 0 && t !== nothing && !isopen(t)) || return false
+    st.ticker = nothing
+    n = length(rows(st.nodes, st.dragw, st.mouse))
+    to = clamp(st.nrow + st.edge, 1, max(n, 1))
+    to == st.nrow && return false
+    drag_to!(st, to)
+    drag_arm!(st)
+    true
 end
 
 # --- the pickers ------------------------------------------------------------
