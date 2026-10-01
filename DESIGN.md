@@ -1459,6 +1459,16 @@ Each of the following returns success and the wrong answer:
   it moves anywhere), and the SIGWINCH watch, which is a libuv signal handle,
   an `AsyncCondition` and a task: too large a piece for a widget package
   until it is clear where it belongs (LATER).
+- **No cell diffing; every frame is every row** (2026-10-01). Tachikoma.jl
+  draws only the cells that changed, and was weighed against `frame_bytes`
+  (2026-09-29): at this screen's size one synchronized write of the whole
+  frame is already cheap, so a diff saves nothing that is felt. And a diff
+  only ever overwrites, so it never frees an OSC 8 link's marker (see "A row
+  is drawn by deleting its line"): it leaks more slowly than redrawing in
+  place did, once per link that changes rather than once per frame, but a
+  scrolled thread changes every link on every step, and nothing on the
+  alternate screen trims them. Freeing them would mean deleting every line
+  whose links changed, which is most of what the diff was there to skip.
 - **The config merges two levels deep, and the login is `@me`.** A deeper
   merge would make `[events] repos` in your file additions to a shared list
   with no way to take one out, and a `[views."name"]` of the same name a
