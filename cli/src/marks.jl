@@ -23,7 +23,8 @@
 #                   wake says unread with no stamp at all, so without them
 #                   the thread had nowhere to draw "new since you last
 #                   looked" once it woke, and nothing to say what moved
-#                   while it slept (`thread_rules`)
+#                   while it slept (`thread_rules`); and `snooze_head`, the
+#                   head it was at, which a second `p` offers to compare from
 #
 # And beside them, yours rather than written for you, `snooze`: a wake *time*,
 # which `seen_of` reads as a second reason for the item to be unread beside
@@ -348,9 +349,10 @@ end
 `stamped`, and the one it writes over, `before` - the raw value, so `nothing`
 (the floor answers) stays absent and `""` (unread) stays said. Read back by
 `thread_rules`."""
-snooze_stamps(before, stamped) =
+snooze_stamps(before, stamped; head = nothing) =
     ["snooze_done" => String(stamped),
-     "snooze_read" => before === nothing ? nothing : String(before)]
+     "snooze_read" => before === nothing ? nothing : String(before),
+     "snooze_head" => head === nothing || isempty(head) ? nothing : String(head)]
 
 """The keys a mark writes to end a snooze whose wake has passed: the snooze
 gone, and the wake kept as `last_snooze`; see `woken_by`."""

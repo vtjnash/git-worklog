@@ -131,6 +131,12 @@ Base.@kwdef mutable struct BState <: View
     ntop::Int = 1
     focus::Symbol = :list           # :list | :detail
     mode::Symbol = :comments        # :comments | :diff | :pushed | :checks
+    # What a second `p` or `d` picked for one item, for the session: the head
+    # `p` compares from, `(url, sha, what)`, and the run of commits `d` shows,
+    # `(url, first, last, what)` - empty for the defaults, the last look and
+    # the whole pull request. Part of the loaded key (`mode_key`).
+    pfrom::NTuple{3,String} = ("", "", "")
+    drange::NTuple{4,String} = ("", "", "", "")
     loaded::String = ""
     place::Dict{String,NTuple{2,Int}} = Dict{String,NTuple{2,Int}}()
                            # where the reader was in each thread they have been

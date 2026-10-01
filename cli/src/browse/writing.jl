@@ -318,6 +318,80 @@ function suggestion(lines::Vector{String})
     string("```suggestion\n", join(lines, "\n"), "\n```")
 end
 
+"""The pull request's commits as the checkout has them, oldest first, or
+`nothing` - for the two pickers below, which never fetch."""
+function item_commits(it::Item)
+    repo = repo_path(it.repo)
+    (repo === nothing || isempty(it.head)) && return nothing
+    pr_commits(repo, it.repo, it.base, it.base_sha, it.head)
+end
+
+"""A second `d`: which of the pull request's commits to show - the whole of
+it, first, then each commit oldest first, and shift-`↑`/`↓` for a run of
+them, shown as the one diff from the first's parent to the last."""
+function diff_picker(st::BState, ctrl::Controller, it::Item)
+    it.is_pr || (st.status = "not a pull request"; return)
+    cs = item_commits(it)
+    cs === nothing && (st.status = string("no commits to pick from: ",
+        repo_path(it.repo) === nothing ? string("no checkout pinned for ", it.repo) :
+                                         "the checkout has not got this branch yet"); return)
+    opts = Tuple{Any,Any}[("the whole pull request", :whole)]
+    for (sha, subj) in cs
+        push!(opts, (string(first(sha, 8), "  ", subj), (sha, subj)))
+    end
+    push_view!(ctrl, ChooseView(string("Diff · ", it.ref),
+        string(length(cs), length(cs) == 1 ? " commit" : " commits",
+               " · ⇧↑/⇧↓ picks a run of them"), opts,
+        vs -> begin
+            ps = filter(v -> v !== :whole, vs)
+            if isempty(ps) || length(ps) != length(vs)
+                st.drange = ("", "", "", "")
+                st.status = "the whole pull request"
+            else
+                (a, sa), (b, _) = first(ps), last(ps)
+                what = length(ps) == 1 ? string(first(a, 8), "  ", sa) :
+                       string(length(ps), " commits, ", first(a, 8), "..", first(b, 8))
+                st.drange = (it.url, a, b, what)
+                st.status = what
+            end
+        end; ranged = true))
+end
+
+"""A second `p`: which head to compare the head now against - where you last
+looked (the default), where the snooze put it away, or any of the pull
+request's own commits, newest first, which is the diff of what came after it."""
+function pushed_picker(st::BState, ctrl::Controller, it::Item)
+    it.is_pr || (st.status = "not a pull request"; return)
+    opts = Tuple{Any,Any}[]
+    look = something(done_head(it.url), isempty(it.read_head) ? nothing : it.read_head, "")
+    push!(opts, (isempty(look) ? "where you last looked - not marked yet" :
+                 string("where you last looked  ", first(look, 8)), :look))
+    sn = get_field(it.url, "snooze_head")
+    sn === nothing || isempty(sn) ||
+        push!(opts, (string("where the snooze put it away  ", first(sn, 8)),
+                     (sn, "the snooze")))
+    cs = item_commits(it)
+    if cs !== nothing
+        for (sha, subj) in Iterators.reverse(cs)
+            sha == it.head && continue
+            push!(opts, (string("after ", first(sha, 8), "  ", subj),
+                         (sha, string(first(sha, 8)))))
+        end
+    end
+    push_view!(ctrl, ChooseView(string("Pushed since · ", it.ref),
+        cs === nothing ? "the commits need a checkout of this branch" :
+                         "what the head now changes, from one of these", opts,
+        v -> begin
+            if v === :look
+                st.pfrom = ("", "", "")
+                st.status = "since you last looked"
+            else
+                st.pfrom = (it.url, v[1], v[2])
+                st.status = string("since ", v[2])
+            end
+        end))
+end
+
 """Submit a review: pick the verdict, then write the body.
 
 Numbered, the same as the views and snooze, since it is the same list every
@@ -966,13 +1040,13 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
     # have read the thing; it takes the wake away and leaves the done stamp.
     # And the agent's bell with the stamp, as the woken snooze goes.
     rang = val === nothing ? String[] : agent_seen!(it.url)
-    prevstamps = [k => get_field(it.url, k) for k in ("snooze_done", "snooze_read")]
+    prevstamps = [k => get_field(it.url, k) for k in ("snooze_done", "snooze_read", "snooze_head")]
     if val !== nothing
         stamped = something(moved_of(it), stamp(at))
         # What the stamp was, beside what it is now, for the thread's rules
         # once the snooze has gone; see `thread_rules`.
         set_done(it.url, stamped)
-        set_blocks!([it.url => snooze_stamps(prevread, stamped)])
+        set_blocks!([it.url => snooze_stamps(prevread, stamped; head = it.head)])
     end
     # `set_fields` removes a key when handed nothing, so this is the undo
     # whether or not there was a snooze here before. The clock goes back after
@@ -984,7 +1058,8 @@ function apply_snooze!(st::BState, it::Item, v, at::DateTime)
         set_done(it.url, prevread)
         set_blocks!([it.url => prevstamps])
         agent_ring!(rang)
-    end; keys = ["snooze", "last_snooze", "touched", "done", "snooze_done", "snooze_read"],
+    end; keys = ["snooze", "last_snooze", "touched", "done", "snooze_done",
+                 "snooze_read", "snooze_head"],
          redo = () -> (val === nothing || agent_seen!(it.url); nothing)))
     # The seen axis is over the stamp just written and the `snoozed` tag over
     # the wake, so the row has to be able to leave or arrive on the strength of

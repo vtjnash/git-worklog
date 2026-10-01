@@ -176,7 +176,8 @@ function load_nodes!(st::BState)
     end
     it = st.items[st.sel]
     mode = st.mode
-    key = string(it.url, ":", mode)
+    key = mode_key(st, it, mode)
+    (from, range) = picked_of(st, it)
     if st.loaded == key || (st.pendkey == key && st.pending !== nothing)
         # Nothing to fetch. What is on screen is this key's already - or is the
         # empty pane its read left - so the cursor belongs to it and is claimed
@@ -210,12 +211,30 @@ function load_nodes!(st::BState)
     at = utcnow()
     st.pending = fetching(key) do
         try
-            mode_nodes(mode, it, at)
+            mode_nodes(mode, it, at; from, range)
         finally
             wake!(st.wake)                        # redraw as soon as this lands
         end
     end
 end
+
+"""The key a load of `mode` for `it` is held under: the url and the mode, and
+what a second `p` or `d` picked for it, so a pick is a load of its own and
+the place in each is kept apart."""
+function mode_key(st::BState, it::Item, mode::Symbol)
+    k = string(it.url, ":", mode)
+    mode === :pushed && st.pfrom[1] == it.url && return string(k, "@", st.pfrom[2])
+    mode === :diff && st.drange[1] == it.url &&
+        return string(k, "@", st.drange[2], "..", st.drange[3])
+    k
+end
+
+"""What a second `p` and `d` picked for `it`, as `mode_nodes` takes them:
+`(sha, what)` to compare from and `(first, last, what)` to show, each
+`nothing` for the default."""
+picked_of(st::BState, it::Item) =
+    (st.pfrom[1] == it.url ? (st.pfrom[2], st.pfrom[3]) : nothing,
+     st.drange[1] == it.url ? (st.drange[2], st.drange[3], st.drange[4]) : nothing)
 
 "Is a load of `key` waiting on the dwell - claimed, and not yet started?"
 holding(st::BState, key::AbstractString) = st.pendkey == key && st.pending === nothing
@@ -254,9 +273,10 @@ so this can never be what a keystroke is waiting on.
 function refresh_nodes!(st::BState; fresh::Bool = true)
     (isempty(st.items) || st.sel == 0) && return false
     it = st.items[clamp(st.sel, 1, length(st.items))]
-    key = string(it.url, ":", st.mode)
+    key = mode_key(st, it, st.mode)
     (st.loaded == key && isempty(st.pendkey)) || return false
     mode = st.mode
+    (from, range) = picked_of(st, it)
     at = utcnow()
     st.quiet = true
     st.pendkey = key
@@ -264,7 +284,7 @@ function refresh_nodes!(st::BState; fresh::Bool = true)
     # would come back with exactly the answer it was asked to go past.
     st.pending = fetching(string(key, fresh ? " fresh" : " again")) do
         try
-            mode_nodes(mode, it, at; fresh)
+            mode_nodes(mode, it, at; fresh, from, range)
         finally
             wake!(st.wake)
         end

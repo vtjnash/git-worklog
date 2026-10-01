@@ -512,7 +512,11 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
 
     # Lowercase shows you something, uppercase changes something. `c` was the
     # composer and `C` the checks pane, which had it exactly backwards.
-    if k == Int('d');     st.mode = :diff
+    # A second `d` or `p`, on what it shows, asks what to show instead: a run
+    # of the pull request's commits, or another head to compare from.
+    if k == Int('d') && st.mode === :diff; diff_picker(st, ctrl, it)
+    elseif k == Int('p') && st.mode === :pushed; pushed_picker(st, ctrl, it)
+    elseif k == Int('d');     st.mode = :diff
     # `h` for *history*: the conversation with the pushes, closes and merges
     # in it, which is the one word that picks this out from the three below -
     # they are readings of the item too, so `i` would not have. It was `o`

@@ -130,7 +130,7 @@ end
 "The detail pane's stamp: the thread, the diff or the checks, as `load_stamp`."
 function pane_stamp(st::BState, at::DateTime)
     (st.sel == 0 || isempty(st.items)) && return ""
-    key = string(st.items[clamp(st.sel, 1, length(st.items))].url, ":", st.mode)
+    key = mode_key(st, st.items[clamp(st.sel, 1, length(st.items))], st.mode)
     load_stamp(st.loaded == key ? st.loadedat : 0.0, at;
                loading = st.pendkey == key && !st.quiet,
                reloading = st.quiet && st.pendkey == key,

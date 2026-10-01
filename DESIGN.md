@@ -210,7 +210,13 @@ wrote over (`snooze_read`), both outliving the snooze as `last_snooze` does,
 and the thread draws two rules (`thread_rules`): `new since you last looked`
 at the stamp - the one the snooze wrote over, where the stamp is the snooze's
 or gone - and `new since the snooze` at the snooze's, while it is the later.
-`p` still measures from `done_head`, which a snooze never writes.
+`p` still measures from `done_head`, which a snooze never writes; a second
+`p` picks the snooze's head instead (`snooze_head`), or any of the branch's
+commits, and a second `d` a run of them. A pick is the browser's, per item,
+for the session (`pfrom`, `drange`), and part of the loaded key (`mode_key`),
+so each is a load and a place of its own. The commits are the checkout's
+(`pr_commits`), never fetched for the picker: a key press does not wait on
+the network.
 
 **An agent's bell is a seen bit tmux holds, and every mark clears it.** The
 agent in a `T` pane rings as its turn ends or as it asks

@@ -1237,9 +1237,10 @@ Every way this can have nothing to show is a sentence rather than an empty pane
 or an error, because each of them is a different thing to do about it: press
 `e`, pin a checkout, or nothing at all because nothing was pushed.
 """
-function pushed_nodes(it::Item)
+function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
+                      since::AbstractString = "you last looked")
     it.is_pr || return [Node(string("no pushes - this is ", not_pr(it)), "", :plain, true)]
-    old = done_head(it.url)
+    old = from === nothing ? done_head(it.url) : String(from)
     old === nothing && !isempty(it.read_head) && (old = it.read_head)
     old === nothing &&
         return [Node("nothing to compare against yet",
@@ -1254,7 +1255,7 @@ function pushed_nodes(it::Item)
                            string("You last saw ", first(old, 8),
                                   "; GitHub did not answer with what it is now."))]
     old == new &&
-        return [Node("nothing pushed since you last looked",
+        return [Node(string("nothing pushed since ", since),
                      string("The branch is still at `", first(new, 8),
                             "`, which is where it was when you marked this done.\n\n" *
                             "`h` has what has been *said* since then."), :md, true)]
@@ -1303,7 +1304,8 @@ function pushed_nodes(it::Item)
            (mv.then == mv.now ? row("") :
             faced(string("  ", mv.now, mv.now == 1 ? " commit" : " commits",
                          ", was ", mv.then), THEME.dim))
-    lead = Node(said * "  " * faced(string(first(old, 8), " → ", first(new, 8)), THEME.dim),
+    lead = Node(said * "  " * faced(string(first(old, 8), " → ", first(new, 8),
+                                           "  since ", since, " · p p picks another"), THEME.dim),
                 kind === :diff ?
                 "The head you saw is still in this branch's history and the base " *
                 "has not moved under it, so this is the plain diff from that head " *
@@ -1322,6 +1324,31 @@ function pushed_nodes(it::Item)
     lead.meta["url"] = string(it.url, "/files")
     ns = kind === :diff ? hunk_nodes(txt, string(it.url, "/files"); head = new) :
                           rangediff_nodes(txt)
+    isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
+    pushfirst!(ns, lead)
+    ns
+end
+
+"""The diff of a run of the pull request's commits, `first` to `last` - one
+commit when they are the same - which a second `d` picks. From the checkout
+alone: GitHub's diff by number is the whole pull request, and the picker
+listed these from the checkout's own history. Numbered against `last`, so a
+comment left here is pinned to the commit it was read at."""
+function commits_nodes(it::Item, first_::AbstractString, last_::AbstractString,
+                       what::AbstractString)
+    repo = repo_path(it.repo)
+    repo === nothing && return [Node(string("no checkout pinned for ", it.repo), "", :plain, true)]
+    txt = try
+        commits_diff(repo, first_, last_)
+    catch e
+        return [failednode("could not diff those commits", first(sprint(showerror, e), 200))]
+    end
+    lead = Node(faced(String(what), THEME.waiting) * "  " *
+                faced("d d picks another, or the whole pull request", THEME.dim),
+                "", :plain, true)
+    lead.meta["src"] = String(what)
+    lead.meta["url"] = string(it.url, "/files")
+    ns = hunk_nodes(txt, string(it.url, "/files"); head = last_)
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
     ns
@@ -1352,10 +1379,14 @@ each node, which is what makes a `#123` or a sha in them a link to it
 (`autolink`). The diff is code and the checks are logs, whose hex runs are
 tree hashes and build ids, and neither is told.
 """
-function mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false)
+function mode_nodes(mode::Symbol, it::Item, at::DateTime; fresh::Bool = false,
+                    from = nothing, range = nothing)
     ns = mode === :comments ? comment_nodes(it, at; fresh = fresh) :
-         mode === :diff     ? diff_nodes(it; fresh = fresh) :
-         mode === :pushed   ? pushed_nodes(it) : check_nodes(it; fresh = fresh)
+         mode === :diff     ? (range === nothing ? diff_nodes(it; fresh = fresh) :
+                                                   commits_nodes(it, range...)) :
+         mode === :pushed   ? (from === nothing ? pushed_nodes(it) :
+                                                  pushed_nodes(it; from = from[1], since = from[2])) :
+                              check_nodes(it; fresh = fresh)
     if mode in (:comments, :pushed) && !isempty(it.repo)
         for n in ns
             n.meta["repo"] = it.repo

@@ -820,9 +820,10 @@ mutable struct ChooseView <: View
 end
 # The hint is the widget's keys and then this view's: `↵` and escape come back
 # from a `Choice`, and what they do here is pick and close.
-ChooseView(title, note, options, onpick; numbered::Bool = false) =
-    ChooseView(Choice(title, note, [o[1] for o in options]; numbered,
+ChooseView(title, note, options, onpick; numbered::Bool = false, ranged::Bool = false) =
+    ChooseView(Choice(title, note, [o[1] for o in options]; numbered, ranged,
                       hint = string(numbered ? "0-9 picks · " : "", CHOICE_HINT,
+                                    ranged ? " · ⇧↑/⇧↓ a run" : "",
                                     " · ↵ pick · esc cancel")),
                Tuple{Styled,Any}[(row(o[1]), o[2]) for o in options], onpick)
 
@@ -842,8 +843,13 @@ shown(v::ChooseView) = v.options[TermInput.matches(getfield(v, :c))]
 
 render(v::ChooseView, w::Int, h::Int) = TermInput.render(getfield(v, :c), w, h)
 
-"Pick the option at `i` of `options`, and close."
-pick!(v::ChooseView, i::Int) = (v.onpick(v.options[i][2]); :pop)
+"""Pick the option at `i` of `options`, and close. A `ranged` view hands over
+every option lit, in order, as a vector - `i` among them."""
+function pick!(v::ChooseView, i::Int)
+    c = getfield(v, :c)
+    v.onpick(c.ranged ? Any[v.options[j][2] for j in TermInput.chosen(c)] : v.options[i][2])
+    :pop
+end
 
 function handle!(v::ChooseView, k::Int, ctrl::Controller)
     c = getfield(v, :c)

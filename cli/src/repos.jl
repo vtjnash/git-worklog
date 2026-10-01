@@ -670,6 +670,35 @@ function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractStrin
     end
 end
 
+"""The pull request's own commits, oldest first, as `(sha, subject)`: from the
+merge base of the base and `head` to `head`, as `pr_diff` measures. Only what
+the checkout already has - a key press does not wait on a fetch, and a `d`
+that has drawn the diff from here has fetched both ends - so `nothing` when it
+has not got them."""
+function pr_commits(path, repo::AbstractString, base::AbstractString,
+                    base_sha::AbstractString, head::AbstractString)
+    (isempty(head) || !have_commit(path, head)) && return nothing
+    from = !isempty(base_sha) && have_commit(path, base_sha) ? String(base_sha) :
+           base_ref(path, repo, base)
+    isempty(from) && return nothing
+    mb = merge_base(path, from, head)
+    isempty(mb) && return nothing
+    out = try
+        git(path, "log", "--reverse", "--format=%H%x09%s", string(mb, "..", head))
+    catch
+        return nothing
+    end
+    Tuple{String,String}[(String(first(f)), String(get(f, 2, "")))
+                         for f in (split(l, '\t'; limit = 2)
+                                   for l in split(out, '\n'; keepempty = false))]
+end
+
+"""The diff a run of commits makes: from the parent of `first` to `last`, with
+`pr_diff`'s flags and for its reasons."""
+commits_diff(path, first, last) =
+    git(path, "diff", "-M", "--no-color", "--no-ext-diff",
+        "--src-prefix=a/", "--dst-prefix=b/", string(first, "^"), string(last))
+
 "Is `a` reachable from `b`? False rather than an error when either is missing."
 is_ancestor(path, a, b) =
     try; git(path, "merge-base", "--is-ancestor", string(a), string(b)); true

@@ -7,9 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] whether `p` measures from the last look, the snooze, or the later of
-      them. The thread has both rules now (`thread_rules`); `p` is still
-      `done_head`, which only `e` writes.
 - [ ] upgrade tmux_jll to latest in Yggdrasil (check for open PR or make our own).
       None open (2026-09-30); the JLL is 3.5.1 and 3.7c is the latest release.
       The recipe change is `version = v"3.7.3"` and the tarball's sha256

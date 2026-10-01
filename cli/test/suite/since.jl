@@ -631,6 +631,90 @@ end
     end
 end
 
+@testset "a second p or d picks what to compare" begin
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    root = mktempdir()
+    try
+        main = joinpath(root, "main"); mkpath(main)
+        W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+        W.git(main, "config", "user.email", "t@e.com")
+        W.git(main, "config", "user.name", "t")
+        write(joinpath(main, "f.txt"), "base\n")
+        W.git(main, "add", "f.txt"); W.git(main, "commit", "--quiet", "-m", "base")
+        W.git(main, "checkout", "--quiet", "-b", "topic")
+        shas = String[]
+        for (i, x) in enumerate(("ONE", "TWO", "THREE"))
+            write(joinpath(main, string(lowercase(x), ".txt")), x)
+            W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", string("add ", x))
+            push!(shas, strip(W.git(main, "rev-parse", "HEAD")))
+        end
+        W.save_repo!("o/r", ["worktree" => main])
+        u = "https://github.com/o/r/pull/5"
+        it = W.Item(url = u, ref = "r#5", repo = "o/r", number = 5, title = "t",
+                    head = shas[3], base = "master", state = "OPEN")
+        # The pull request's own commits, oldest first, off the checkout alone.
+        @test [c[1] for c in W.item_commits(it)] == shas
+        @test last(W.item_commits(it)[2]) == "add TWO"
+
+        st = W.BState([it], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = 1; st.focus = :detail; st.mode = :diff
+        ctrl = W.Controller()
+        st.loaded = W.mode_key(st, it, :diff)
+
+        # `d` on the diff is the picker: the whole of it first, then each
+        # commit; shift lights a run, and `↵` takes the run.
+        W.handle!(st, Int('d'), ctrl)
+        v = last(ctrl.stack)
+        @test v isa W.ChooseView && v.ranged
+        @test [o[2] for o in v.options][1] === :whole && length(v.options) == 4
+        W.handle!(v, W.K_DOWN, ctrl); W.handle!(v, W.K_DOWN, ctrl)
+        W.handle!(v, W.K_SDOWN, ctrl)
+        @test W.handle!(v, 13, ctrl) === :pop
+        @test st.drange == (u, shas[2], shas[3], string("2 commits, ", first(shas[2], 8),
+                                                       "..", first(shas[3], 8)))
+        @test W.mode_key(st, it, :diff) == string(u, ":diff@", shas[2], "..", shas[3])
+        ns = W.mode_nodes(:diff, it, W.utcnow(); range = last(W.picked_of(st, it)))
+        @test occursin("2 commits", unstyled(ns[1].header))
+        files = [get(n.meta, "file", "") for n in ns]
+        @test "two.txt" in files && "three.txt" in files && !("one.txt" in files)
+        @test all(n -> get(n.meta, "head", shas[3]) == shas[3], ns)
+        # One commit is that commit's diff; the whole pull request clears it.
+        W.handle!(st, Int('d'), ctrl)
+        v = pop!(ctrl.stack)
+        W.handle!(v, W.K_DOWN, ctrl); W.pick!(v, 2)
+        @test st.drange[2] == st.drange[3] == shas[1]
+        W.handle!(st, Int('d'), ctrl)
+        v = pop!(ctrl.stack); W.pick!(v, 1)
+        @test st.drange == ("", "", "", "") && W.mode_key(st, it, :diff) == string(u, ":diff")
+
+        # `p` on what was pushed: where you last looked, then the snooze's
+        # head, then each commit but the head, newest first.
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", shas[1])
+        W.set_blocks!([u => W.snooze_stamps(nothing, "2026-09-02T00:00:00Z"; head = shas[2])])
+        st.mode = :pushed
+        st.loaded = W.mode_key(st, it, :pushed)
+        W.handle!(st, Int('p'), ctrl)
+        v = pop!(ctrl.stack)
+        @test v isa W.ChooseView && !v.ranged
+        vals = [o[2] for o in v.options]
+        @test vals[1] === :look && vals[2] == (shas[2], "the snooze")
+        @test [x[1] for x in vals[3:end]] == [shas[2], shas[1]]
+        W.pick!(v, 2)
+        @test st.pfrom == (u, shas[2], "the snooze")
+        ns = W.mode_nodes(:pushed, it, W.utcnow(); from = first(W.picked_of(st, it)))
+        @test occursin("1 commit added", unstyled(ns[1].header))
+        @test occursin("since the snooze", unstyled(ns[1].header))
+        # And the default, from the last look, is two commits.
+        W.pick!(v, 1)
+        @test st.pfrom == ("", "", "")
+        @test occursin("2 commits added", unstyled(W.mode_nodes(:pushed, it, W.utcnow())[1].header))
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "the refresh keeps the head as of the mark on the row" begin
     row(moved, head; kw...) = Dict{String,Any}("moved_at" => moved, "head_sha" => head,
                                                (String(k) => v for (k, v) in kw)...)
