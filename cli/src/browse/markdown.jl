@@ -33,6 +33,7 @@ function inert(s::AbstractString)
     cr = ctl = other = 0
     io = IOBuffer()             # not `sprint() do`, whose closure would box these
     for c in s
+        c = c::AbstractChar     # what an `AbstractString` holds, said for inference
         if !isvalid(c)
             other += 1
             print(io, c)
@@ -96,7 +97,7 @@ end
 """One line of a diff, in the face of what it is - and, given `words`, the
 ranges of it - string indices - that changed against the line it is paired
 with, in the word role over the line's own face."""
-function diffline(l, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
+function diffline(l::AbstractString, words::Vector{UnitRange{Int}} = UnitRange{Int}[])
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
     startswith(l, "@@") && return faced(l, THEME.diff_hunk)
@@ -679,7 +680,7 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
         # has been said twice. `byline` is what is left - who and when, and
         # where a review comment was pointing - and only the two headers that
         # carry a peek have one.
-        full = n.open ? "▾ " * row(get(n.meta, "byline", n.header)) : "▸ " * n.header
+        full = n.open ? "▾ " * row(get(n.meta, "byline", n.header))::Styled : "▸ " * n.header
         # Wrapped, not cut: a header is a byline plus a peek at the body, and on
         # a narrow pane cutting it loses the half that says what the comment is
         # about. Continuations are indented under the text, so the fold marker

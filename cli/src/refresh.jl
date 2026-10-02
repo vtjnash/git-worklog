@@ -913,7 +913,8 @@ was moved in the same run. Answers with the refs it handed over.
 """
 function adopt_pull_requests!(items, state::AbstractDict{String}, login::AbstractString)
     byb = Dict{Tuple{String,String},String}()
-    for (u, st) in state
+    for (k, st) in state
+        u = k::String
         (islocal(u) && truthy(jget(st, :adopted))) || continue
         byb[localparts(u)] = u
     end

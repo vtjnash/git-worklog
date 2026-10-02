@@ -990,7 +990,7 @@ function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), b
         watching === nothing && (watching = watched())
         cur = cursors[label]
         wide = label == "notifications" && haskey(inbox, "wide")
-        s_ = stamp(ts(cur) - (wide ? Day(1) : overlap))
+        s_ = stamp(something(ts(cur)) - (wide ? Day(1) : overlap))   # a stamp, set above
         answer = try
             src.fetch(s_, SyncCtx((items, wide)))
         catch e

@@ -83,7 +83,9 @@ function pane_view(name::AbstractString, title::AbstractString, ctrl;
                    beside = beside_of(ctrl), note::Union{Nothing,NoteEdit} = nothing)
     f = iframe(name, title; out = ctrl.term.out)
     f === nothing && return nothing
-    watch_pane!(f.client, ctrl)
+    c = f.client
+    c === nothing && return nothing
+    watch_pane!(c, ctrl)
     PaneView(f, beside, :child, note)
 end
 
@@ -118,8 +120,9 @@ function pane_sync!(v::PaneView, ctrl)
     r && v.child.exited !== nothing &&
         (v.child.status = string(v.child.name, " ", v.child.status, " · q clears it"))
     # The child has exited: a note's editor is read back, once.
-    if v.child.client === nothing && v.note !== nothing
-        n, v.note = v.note, nothing
+    n = v.note
+    if v.child.client === nothing && n !== nothing
+        v.note = nothing
         said = try
             adopt_note!(n)
         catch e

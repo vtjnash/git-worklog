@@ -168,7 +168,7 @@ function scheme_in(buf::Vector{UInt8})
     end
     m === nothing && b === nothing && return RawEvent(buf)
     rest = replace(s, SCHEME_REPORT => "", BG_REPORT => "")
-    SchemeEvent(m === nothing ? nothing : m[1] == "1", b === nothing ? "" : String(b[1]),
+    SchemeEvent(m === nothing ? nothing : m[1] == "1", b === nothing ? "" : String(something(b[1])),
                 Vector{UInt8}(codeunits(rest)))
 end
 
@@ -350,7 +350,7 @@ in good order is only told again what it was already doing.
 """
 menu_press(ev::MouseEvent) = ev.kind === :press && ev.button in (1, 2)
 menu_press(ev::RawEvent) =
-    any(m -> (b = parse(Int, m[1]); b & 0x60 == 0 && b & 3 in (1, 2)),
+    any(m -> (b = parse(Int, something(m[1])); b & 0x60 == 0 && b & 3 in (1, 2)),
         eachmatch(r"\e\[<(\d{1,4});\d+;\d+M", String(copy(ev.bytes))))
 menu_press(::Any) = false
 
@@ -618,7 +618,7 @@ function run!(ctrl::Controller, root::View)
     # One event per `arm!`, parked between them, which is what lets `suspend`
     # hand stdin to a child. Whatever ends the reading - EOF because the
     # terminal closed, EIO because the pty is gone - comes as an `EndEvent`.
-    ctrl.reader = InputReader(readinput, ctrl.term, ctrl.events, Bool)
+    reader = ctrl.reader = InputReader(readinput, ctrl.term, ctrl.events, Bool)
     try
         dirty, armed = true, false
         # Before the first frame too, so the browser's first thread is asked
@@ -660,7 +660,7 @@ function run!(ctrl::Controller, root::View)
             # The mode is decided here, where the top view is known, and not
             # in the reader, which is parked between events and would be
             # deciding it against whatever was on top last time.
-            armed || (arm!(ctrl.reader, wantsraw(v)); armed = true)
+            armed || (arm!(reader, wantsraw(v)); armed = true)
             ev = take!(ctrl.events)                 # blocks; no polling
             if ev isa EndEvent
                 # Nothing to ask and nobody to ask: leave through the `finally`
@@ -720,7 +720,7 @@ function run!(ctrl::Controller, root::View)
         end
     finally
         ctrl.running = false
-        close(ctrl.reader)                          # release the parked reader
+        close(reader)                               # release the parked reader
         try
             unwatch_winch()
         catch

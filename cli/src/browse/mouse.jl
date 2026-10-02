@@ -213,7 +213,8 @@ next row is armed on the way past and stopped on the way back."""
 function drag_edge!(st::BState, edge::Int, w::Int = st.dragw)
     st.edge, st.dragw = edge, w
     if edge == 0
-        st.ticker === nothing || close(st.ticker)
+        t = st.ticker
+        t === nothing || close(t)
         st.ticker = nothing
     elseif st.ticker === nothing
         drag_arm!(st)

@@ -103,7 +103,8 @@ would ask: the first two rules of [`item_worktree`](@ref), for a caller that
 wants to say what is running there before the key is pressed."""
 function item_place(it::Item; items = Item[])
     r = item_worktree(it; items)
-    (r.path === nothing || r.ask) ? "" : String(r.path)
+    p = r.path              # a local, so the test narrows it
+    (p === nothing || r.ask) ? "" : String(p)
 end
 
 """The sessions in the copy at `place` that are other items' - the ones a

@@ -1387,7 +1387,7 @@ function commits_nodes(it::Item, first_::AbstractString, last_::AbstractString,
     catch e
         return [failednode("could not diff those commits", first(sprint(showerror, e), 200))]
     end
-    lead = Node(faced(String(what), THEME.waiting) * "  " *
+    lead = Node(faced(String(what)::String, THEME.waiting) * "  " *
                 faced(string("d d picks another, or the whole ", whole_word(it)), THEME.dim),
                 "", :plain, true)
     lead.meta["src"] = String(what)

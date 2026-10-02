@@ -547,9 +547,10 @@ function enter_session(it::Item, ctrl, kind::Symbol, mkcmd, say = _ -> nothing;
                        items = Item[])
     mux_bin() === nothing && return no_mux()
     r = item_worktree(it; items)
-    r.path === nothing && return :needs_repo
+    p = r.path              # a local, so the test narrows it
+    p === nothing && return :needs_repo
     r.ask && return ask_checkout(it, ctrl, kind, mkcmd, say; items, pr = r.pr, rows = r.rows)
-    item_session!(it, (path = r.path, branch = r.branch, main = r.main), r.pr,
+    item_session!(it, (path = p, branch = r.branch, main = r.main), r.pr,
                   ctrl, kind, mkcmd, say; items, rows = r.rows)
 end
 
@@ -900,8 +901,10 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
     repo = repo_path(it.repo)
     repo === nothing && return :needs_repo
     ws = worktrees(repo)
-    rows === nothing && (rows = session_list())
-    opts = Tuple{Styled,Any}[(checkout_option(w, rows, it.repo), w.path) for w in ws]
+    # A new name, not `rows` again: the callback below captures it, and a
+    # captured variable that is assigned is boxed.
+    rs = rows === nothing ? session_list() : rows
+    opts = Tuple{Styled,Any}[(checkout_option(w, rs, it.repo), w.path) for w in ws]
     push!(opts, ("+ a new worktree …", ""))
     push_view!(ctrl, ChooseView(
         string(kind === :agent ? "Agent for " : "Shell for ", it.ref),
@@ -914,7 +917,7 @@ function ask_checkout(it::Item, ctrl, kind::Symbol, mkcmd, say; items = Item[],
                 i = findfirst(w -> w.path == p, ws)
                 w = i === nothing ? (path = String(p), branch = "", main = false) : ws[i]
                 say(item_session!(it, w, pr, ctrl, kind, mkcmd, say;
-                                  picked = true, items, rows))
+                                  picked = true, items, rows = rs))
             end
         end))
     ""

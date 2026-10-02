@@ -480,8 +480,8 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         # endpoint, and a whole refresh is enough requests in a burst to be
         # told so. Retry the page rather than losing the refresh.
         rc, stdout_, e = retrying(() -> run(body))
-        rc == 0 || throw(FetchError("GraphQL failed for $(repr(q)): " *
-                                    first(isempty(e) ? stdout_ : e, 200)))
+        rc == 0 || throw(FetchError(string("GraphQL failed for ", repr(q), ": ",
+                                           first(isempty(e) ? stdout_ : e, 200))))
         d = JSON.parse(stdout_)
         errs = jlist(d, :errors)
         isempty(errs) ||
