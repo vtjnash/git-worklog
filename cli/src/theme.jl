@@ -116,13 +116,14 @@ Throws on anything else, including the three-digit form's odd lengths, so that
 something else.
 """
 function hex2rgb(word::AbstractString)
-    # Bound once: the generator below captures `h`, and would box it if it
+    # Bound once: `byte` below captures `h`, and would box it if it
     # were assigned twice.
     d = SubString(word, 2)
-    h = length(d) == 3 ? join(c^2 for c in d) : String(d)
+    h = length(d) == 3 ? join(c^2 for c in d) : String(d)::String
     (length(h) == 6 && all(isxdigit, h)) ||
         throw(ArgumentError(string("`", word, "` is not #rgb or #rrggbb")))
-    Tuple(parse(Int, h[i:(i + 1)]; base = 16) for i in (1, 3, 5))
+    byte(i) = parse(Int, h[i:(i + 1)]; base = 16)
+    (byte(1), byte(3), byte(5))
 end
 
 """

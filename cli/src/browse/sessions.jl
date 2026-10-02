@@ -354,7 +354,7 @@ function adopt_note!(st::BState, it::Item, path, before, prevtouch)
     # time this runs. In both lists, since `st.items` is rebuilt out of `st.all`
     # by the next thing that refilters - and a note that survived until then
     # only to vanish is worse than one that never appeared.
-    now = Item(; (f => getfield(it, f) for f in fieldnames(Item))..., note = String(after))
+    now = with(it; note = String(after))
     for v in (st.items, st.all)
         i = findfirst(x -> x.url == it.url, v)
         i === nothing || (v[i] = now)
@@ -431,8 +431,8 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # view onto one session and leave two `^]q`s between here and the browser.
     # Asked before the rename below, because that is what makes the name on the
     # view and the name on the session the same string.
-    if found !== nothing && !isempty(ctrl.stack) &&
-       last(ctrl.stack) isa PaneView && last(ctrl.stack).child.name == found.name
+    top = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
+    if found !== nothing && top isa PaneView && top.child.name == found.name
         return string("already in ", found.name)
     end
     # A new agent is told what to do before it starts, and the rest of this
@@ -466,7 +466,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # re-tagged on every entry, so it is always the branch the last answer
     # was about, and a copy on some other branch next time is one that has
     # moved since (`item_worktree`, rule 2).
-    on = place_branch(target)
+    on = String(place_branch(target))
     mux_tag!(name; worktree = target, kind = kind, item = ref, url = url, branch = on)
     # And on the item's other sessions here: the answer was about the place,
     # not the kind, so the agent left in this copy is told the branch the

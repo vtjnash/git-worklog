@@ -320,9 +320,9 @@ Base.@kwdef mutable struct BState <: View
                            # from it, so a refresh landing is told from a note
     refreshed::String = "" # when the corpus was last fetched - `fetched_at`
                            # in the file, GitHub's time - for the title bar
-    failing::Vector{Any} = Any[]   # the sources whose last poll failed, off the
-                                   # inbox as the item list was built (`Events.failing`);
-                                   # the footer's standing note, read from here
+    # The sources whose last poll failed, off the inbox as the item list was
+    # built (`Events.failing`); the footer's standing note, read from here.
+    failing::Vector{Events.Failing} = Events.Failing[]
                                    # and not from the file at every frame
 end
 """The four listed axes, from the items that are in hand.
@@ -357,9 +357,9 @@ function rebuild_axes!(st::BState)
     st
 end
 
-function BState(all::Vector{Item}, title)
+function BState(all::Vector{Item}, title::AbstractString)
     m = load_marks()
-    st = BState(; all = collect(all), title = String(title),
+    st = BState(; all = collect(all), title = String(title)::String,
                   touched = field_marks(m, "touched"), archived = archived_map(),
                   wakes = wake_map(), snoozes = field_marks(m, "last_snooze"),
                   drafts = field_marks(m, "draft"), done = field_marks(m, "done"),

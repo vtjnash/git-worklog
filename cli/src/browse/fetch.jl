@@ -530,7 +530,7 @@ function watch_data!(st::BState)
     end
     @async while true
         try
-            name, ev = FileWatching.watch_folder(dir)
+            name, ev = FileWatching.watch_folder(dir)::Pair{String,FileWatching.FileEvent}
             (ev isa FileWatching.FileEvent && ev.timedout) && continue
             String(name) in WATCHED || continue
             # Our own write, still as we left it: re-reading what is already in

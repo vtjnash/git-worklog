@@ -24,7 +24,7 @@ since reading the file twice would undo an edit made in between.
 """
 mutable struct PaneView <: View
     child::IFrame
-    beside::Any                    # the BState to read alongside, or nothing
+    beside::Union{Nothing,BState}  # the BState to read alongside, or nothing
     focus::Symbol                  # :child forwards every byte to it; :read
                                    # gives the keys to the thread drawn beside
     note::Union{Nothing,NoteEdit}
@@ -65,8 +65,11 @@ Taken from the bottom of the stack rather than passed in, because every route
 to a pane - `t`, `T`, the session list - is under the same browser, and a pane
 opened from any of them wants the same thing next to it.
 """
-beside_of(ctrl) = isempty(ctrl.stack) ? nothing :
-                  (first(ctrl.stack) isa BState ? first(ctrl.stack) : nothing)
+function beside_of(ctrl)
+    isempty(ctrl.stack) && return nothing
+    v = first(ctrl.stack)
+    v isa BState ? v : nothing
+end
 
 """Open a view onto `name`, which must already be a running session.
 
@@ -140,7 +143,8 @@ Both are adopted: either can change what is on screen and neither says which.
 """
 function onwake!(v::PaneView, ctrl)
     a = pane_sync!(v, ctrl)
-    b = v.beside === nothing ? false : onwake!(v.beside, ctrl)
+    st = v.beside               # a local, so the test narrows it, as below
+    b = st === nothing ? false : onwake!(st, ctrl)
     a || b
 end
 
@@ -187,16 +191,17 @@ function pane_column(v::PaneView, w::Int, h::Int)
 end
 
 function render(v::PaneView, w::Int, h::Int)
-    lw, tw = v.beside === nothing ? (0, w) : split_box(w)
+    st = v.beside
+    lw, tw = st === nothing ? (0, w) : split_box(w)
     right = pane_column(v, tw, h)
-    lw == 0 && return right
+    (st === nothing || lw == 0) && return right
     # The detail pane alone, not the whole browser shrunk: a list beside a child
     # that holds the keys is a list nothing can be done with, and it would cost
     # the thread three quarters of its rows to sit there.
     # `sel` is zero on the import row, which is not an item and has no thread.
-    it = (isempty(v.beside.items) || v.beside.sel == 0) ? nothing :
-         v.beside.items[clamp(v.beside.sel, 1, length(v.beside.items))]
-    left = detail_pane(v.beside, it, lw, h, v.focus === :read)
+    it = (isempty(st.items) || st.sel == 0) ? nothing :
+         st.items[clamp(st.sel, 1, length(st.items))]
+    left = detail_pane(st, it, lw, h, v.focus === :read)
     # Both sides are `h` rows, so they lay against each other a row at a time -
     # and the left is padded in case it gave back fewer, since a short frame
     # would pull the whole right column leftwards.
@@ -412,14 +417,15 @@ nothing that comes back from here means "quit" any more; `:ok` either way, and
 this view is popped by its own keys.
 """
 function forward!(v::PaneView, k::Int, ctrl)
-    v.beside === nothing && return :ok
+    st = v.beside
+    st === nothing && return :ok
     if k == Int('f')
         v.child.status =
             "f needs the item list, which is not on screen — q leaves the pane"
         return :ok
     end
-    handle!(v.beside, k, ctrl)
-    v.child.status = v.beside.status
+    handle!(st, k, ctrl)
+    v.child.status = st.status
     :ok
 end
 
@@ -469,6 +475,7 @@ as walking off it anywhere does (`batch_prompt!`), with the key held back.
 """
 function follow_pane!(v::PaneView, ctrl)
     st = v.beside
+    st === nothing && return false      # `readable` said there is one
     s = pane_session(v)
     if s === nothing || isempty(s.url)
         v.child.status = "this session is on no item — ^][ reads beside it"
@@ -506,8 +513,9 @@ function pane_session!(v::PaneView, kind::Symbol, ctrl)
         v.child.status = "this session is in no worktree of ours"
         return :ok
     end
-    it = v.beside === nothing || isempty(s.url) ? nothing :
-         (i = findfirst(x -> x.url == s.url, v.beside.all); i === nothing ? nothing : v.beside.all[i])
+    st = v.beside
+    it = st === nothing || isempty(s.url) ? nothing :
+         (i = findfirst(x -> x.url == s.url, st.all); i === nothing ? nothing : st.all[i])
     num = it !== nothing ? string(it.number) :
           (j = findlast('#', s.item); j === nothing ? "" : s.item[nextind(s.item, j):end])
     cmd = kind === :agent ? agent_cmd() : get(ENV, "SHELL", "/bin/sh")
@@ -596,7 +604,8 @@ function pane_command!(v::PaneView, b::UInt8, ctrl)
         # drawn. Aimed at the detail rather than at the item list, because the
         # list is not what is on screen here.
         v.focus = :read
-        v.beside.focus = :detail
+        st = v.beside
+        st === nothing || (st.focus = :detail)
         v.child.status = ""
         :ok
     elseif b == UInt8('\t')
@@ -649,8 +658,8 @@ wantsraw(v::PaneView) = v.child.client !== nothing && v.focus === :child
 isdialog(::PaneView) = false
 # The item the session was opened on, read off the reading side when there is
 # one and off the session's own tag otherwise; a session on no item is the pane's name.
-viewtitle(v::PaneView) = v.beside !== nothing ? viewtitle(v.beside) :
-                         string("wl ", v.child.name)
+viewtitle(v::PaneView) = (st = v.beside; st !== nothing ? viewtitle(st) :
+                                         string("wl ", v.child.name))
 closeview!(v::PaneView) = iframe_close!(v.child)
 
 """Mouse reports in `bytes`, moved into the child's box - or answered here.
@@ -672,11 +681,12 @@ left column it was drawn in rather than `layout`'s idea of where the detail
 would have been alone - see the `SideView` method.
 """
 function onmouse!(v::PaneView, ev::MouseEvent, ctrl::Controller, at::Float64 = time())
-    v.beside === nothing && return :ok
+    st = v.beside
+    st === nothing && return :ok
     h, w = displaysize(ctrl.term)
     lw = first(split_box(w))
     (lw == 0 || ev.x > lw) && return :ok
-    onmouse!(v.beside, ev, ctrl, at; L = beside_layout(lw, h))
+    onmouse!(st, ev, ctrl, at; L = beside_layout(lw, h))
 end
 
 """Bytes as typed, straight through to the child.
@@ -719,9 +729,10 @@ end
 the child's side it never arrives as one: the input is raw there, markers and
 all, and the iframe hands it on."""
 function onpaste!(v::PaneView, s::AbstractString, ctrl)
-    v.beside === nothing && return :ok
-    onpaste!(v.beside, s, ctrl)
-    v.child.status = v.beside.status
+    st = v.beside
+    st === nothing && return :ok
+    onpaste!(st, s, ctrl)
+    v.child.status = st.status
     :ok
 end
 
@@ -999,7 +1010,7 @@ item, and a view labelling its rows from the snapshot it opened with would go on
 saying the branch has none.
 """
 function worktree_reload!(v::WorktreeView)
-    v.source === nothing || (v.items = v.source())
+    v.source === nothing || (v.items = v.source()::Vector{Item})
     v.rows, v.brows = place_rows(v.items; withdirty = false)
     v.sel = clamp(v.sel, 1, length(v.rows) + 1)       # the row that adds one
     v.bsel = clamp(v.bsel, 1, max(1, length(v.brows)))
@@ -1354,7 +1365,7 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
        kind !== :agent && !any(s -> s.kind === :agent, r.sessions) &&
        get_field(localurl(r.repo, r.branch), "adopted") === nothing &&
        mine_on_branch(r.path, r.branch, git_ids(r.path, login()))
-        took = v.onadopt(r.repo, r.branch, true)
+        took = v.onadopt(r.repo, r.branch, true)::String
         isempty(took) || (out = string(out, " \u00b7 ", took))
     end
     out
@@ -1397,7 +1408,7 @@ function adopt_row(v::WorktreeView, r)
     end
     # Asked of `state.toml` and not of the row: the file is the record of what
     # has been adopted, and the row is a picture of it from a moment ago.
-    v.onadopt(repo, branch, get_field(localurl(repo, branch), "adopted") === nothing)
+    v.onadopt(repo, branch, get_field(localurl(repo, branch), "adopted") === nothing)::String
 end
 
 """Ask where to put a worktree for a branch that has none.
@@ -1461,7 +1472,7 @@ function ask_new_worktree(v::WorktreeView, ctrl; seed = "", problem = "")
         seed = isempty(repo) ? "" : string(repo, " ")
     end
     push_view!(ctrl, PromptView("New worktree",
-        new_worktree_note(first(vcat(split(seed), [""])), pins, problem),
+        new_worktree_note(String(first(vcat(split(seed), [""])))::String, pins, problem),
         b -> (v.status = new_worktree!(v, ctrl, b)); initial = seed))
     ""
 end
@@ -1546,7 +1557,7 @@ function goto_item(v::WorktreeView, it::Union{Nothing,Item})
     elseif v.onitem === nothing
         v.status = "nowhere to show it from here"
     else
-        r = v.onitem(it)
+        r = v.onitem(it)::String
         (r isa String && !isempty(r)) ? (v.status = r) : return :pop
     end
     :ok

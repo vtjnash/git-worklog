@@ -78,7 +78,7 @@ the tab, or tmux's pane title, says which item the browser is on."""
 function stacktitle(stack::Vector{View})
     for v in Iterators.reverse(stack)
         t = viewtitle(v)
-        t === nothing || return String(t)
+        t === nothing || return String(t)::String
     end
     "wl"
 end
@@ -534,7 +534,7 @@ source the poll cannot get an answer from, else a theme that did not load as
 written, else a tmux server older than ours. All four are things the reader
 has to act on and none happens again by itself, which is what makes them the
 footer's rather than the status row's."""
-standing_note(at::DateTime = utcnow(), failing = ()) = (e = errnote(); !isempty(e) ? e :
+standing_note(at::DateTime = utcnow(), failing = Events.Failing[]) = (e = errnote(); !isempty(e) ? e :
                    (f = failnote(failing, at); !isempty(f) ? f :
                     !isempty(THEME_NOTES) ? string("theme: ", first(THEME_NOTES)) : muxnote()))
 
@@ -559,7 +559,7 @@ comes before what GitHub said, since the row is cut at the edge and the
 message is the part that can run long. Clears itself: the next poll that
 gets an answer from the source deletes the entry.
 """
-function failnote(fs, at::DateTime)
+function failnote(fs::Vector{Events.Failing}, at::DateTime)
     isempty(fs) && return ""
     f = first(fs)
     string(f.label, ": the poll FAILED ", ago_str(f.since, at),
@@ -824,7 +824,7 @@ end
 # The hint is the widget's keys and then this view's: `↵` and escape come back
 # from a `Choice`, and what they do here is pick and close.
 ChooseView(title, note, options, onpick; numbered::Bool = false, ranged::Bool = false) =
-    ChooseView(Choice(title, note, [o[1] for o in options]; numbered, ranged,
+    ChooseView(Choice(title, note, Styled[o[1] for o in options]; numbered, ranged,
                       hint = string(numbered ? "0-9 picks · " : "", CHOICE_HINT,
                                     ranged ? " · ⇧↑/⇧↓ a run" : "",
                                     " · ↵ pick · esc cancel")),

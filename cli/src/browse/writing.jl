@@ -73,7 +73,7 @@ function edit_target(st::BState, iw::Int)
     n = st.nodes[i]
     haskey(n.meta, "file") || return nothing
     at = hunk_numbers_at(st, i, iw)
-    at === nothing ? nothing : (String(n.meta["file"]), at.new)
+    at === nothing ? nothing : (jstr(n.meta, :file, ""), at.new)
 end
 
 """The commit `o` opens, where the cursor row is one of a list of them: a row
@@ -90,11 +90,13 @@ function commit_target(st::BState, iw::Int)
     j = clamp(st.nrow, 1, length(rs))
     i = rs[j].node
     n = st.nodes[i]
-    haskey(n.meta, "sha") && return String(n.meta["sha"])
-    oids = get(n.meta, "oids", nothing)
-    (oids === nothing || rs[j].header) && return nothing
+    sha = jstr(n.meta, :sha)
+    sha === nothing || return sha
+    oids = get(n.meta, "oids", nothing)      # a `Vector{String}`, as `push_node` writes it
+    oids isa Vector{String} || return nothing  # alone: inside an `&&` it narrows nothing
+    rs[j].header && return nothing
     k = count(r -> r.node == i && !r.header && r.part == 0, view(rs, 1:j))
-    1 <= k <= length(oids) ? String(oids[k]) : nothing
+    1 <= k <= length(oids) ? oids[k] : nothing
 end
 
 """The rows of hunk `i` a comment is about: the selection, or the cursor row.
@@ -139,6 +141,11 @@ function hunk_text(st::BState, i::Int, w::Int, lo::Int, hi::Int)
     out
 end
 
+"""What `C` on a line of a hunk comments on: the anchor GitHub takes, and the
+lines a suggestion would replace."""
+const LineTarget = @NamedTuple{file::String, line::Int, side::String,
+                               start::Union{Nothing,Int}, head::String, text::Vector{String}}
+
 """What `c` writes to, given where the cursor is standing.
 
 One key rather than three, because the answer is never ambiguous: on a review
@@ -181,11 +188,11 @@ function compose_target(st::BState, iw::Int)
             # not apply a suggestion to a line that is no longer there.
             # And the commit the number is against, which the thread is pinned
             # to - see `add_review_thread` for what a number without one is.
-            return (:line, (file = n.meta["file"], line = b[1], side = b[2],
-                            start = first_, head = get(n.meta, "head", ""),
+            return (:line, LineTarget((file = jstr(n.meta, :file, ""), line = b[1], side = b[2],
+                            start = first_, head = jstr(n.meta, :head, ""),
                             text = b[2] == "LEFT" ? String[] :
                                    hunk_text(st, i, iw,
-                                             first_ === nothing ? hi : lo, hi)))
+                                             first_ === nothing ? hi : lo, hi))))
         end
     end
     (:item, nothing)
@@ -244,7 +251,10 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     islocal(it) && (st.status = string("nothing to C on - this is ", not_pr(it),
                                        " \u00b7 o opens it on GitHub"); return)
     (kind, target) = compose_target(st, iw)
-    if kind === :line && target.side == "LEFT" && st.mode === :pushed
+    # Its own name, typed: `kind` says which shape `target` is, and a test of
+    # `kind` narrows nothing.
+    lt = target isa LineTarget ? target : nothing
+    if lt !== nothing && lt.side == "LEFT" && st.mode === :pushed
         st.status = "the left side of p is the head you last saw, not the base — comment on a right-side line"
         return
     end
@@ -252,13 +262,14 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     (title, note, submit) = if kind === :reply
         (string("Reply · ", it.ref), "goes into this review thread",
          b -> Events.reply_review_comment(it.url, target, b))
-    elseif kind === :line
+    elseif lt !== nothing
+        line = lt               # narrowed, for the closure below to capture
         # An old-side line is named as one, since its number is not the file's
         # any more and the same number on the new side is another line.
-        where_ = string(target.file, ":",
-                        target.start === nothing ? "" : string(target.start, "-"),
-                        target.line, target.side == "LEFT" ? " (old side)" : "")
-        suggest = suggestion(target.text)
+        where_ = string(line.file, ":",
+                        line.start === nothing ? "" : string(line.start, "-"),
+                        line.line, line.side == "LEFT" ? " (old side)" : "")
+        suggest = suggestion(line.text)
         held = batch_of(st, it)
         (string("Comment on ", where_),
          string(held === nothing ? "starts a review — it stays a draft on GitHub" :
@@ -266,10 +277,10 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
                 ", A submits it",
                 isempty(suggest) ? "" : " · ^r suggests a replacement"),
          b -> begin
-             (stt, err) = Events.add_review_thread(it.url, target.file, target.line,
-                                                   target.side, b;
-                                                   start_line = target.start,
-                                                   head = target.head)
+             (stt, err) = Events.add_review_thread(it.url, line.file, line.line,
+                                                   line.side, b;
+                                                   start_line = line.start,
+                                                   head = line.head)
              stt === nothing && return err
              st.batch = mkbatch(it.url, it.ref, stt.review, stt.n)
              # The lane, which outlives this session and this browser: written

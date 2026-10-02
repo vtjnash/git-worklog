@@ -49,7 +49,7 @@ Open the browser under a controller that owns stdin for the whole run.
 """
 function browse(items::Vector{Item}, title::AbstractString)
     isempty(items) && (println("\n  nothing in ", title, "\n"); return 0)
-    st = BState(collect(items), String(title))
+    st = BState(collect(items), String(title)::String)
     restore_view!(st)
     ctrl = Controller()
     st.wake = ctrl
@@ -522,7 +522,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         txt = selection_text(st, iw)
         note = if isempty(txt)
             i = curnode(st, iw)
-            txt = i > 0 ? get(st.nodes[i].meta, "url", weblink(it)) : weblink(it)
+            txt = i > 0 ? jstr(st.nodes[i].meta, :url, weblink(it)) : weblink(it)
         else
             string(count(==('\n'), txt) + 1, " lines")
         end

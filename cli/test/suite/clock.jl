@@ -521,13 +521,29 @@ end
         W.LOCAL[] = fresh_local()
         before2 = read(W.localfile(), String)
         try
-            # An editor that writes and exits at once is gone before there is
-            # anything to attach to. The note is still taken: being quick is
-            # not a reason to throw the edit away.
+            # An editor that writes and exits at once. The note is still taken:
+            # being quick is not a reason to throw the edit away. Either way
+            # round, since which comes first is a race - gone before there is
+            # anything to attach to, and taken at once with no pane; or the
+            # attach first, by a few milliseconds, and taken by the pane's sync
+            # when the editor's exit reaches it.
             withenv("EDITOR" => raw"""sh -c 'printf "instantly\n" >> "$1"' sh""") do
-                @test W.edit_note(st, it, ctrl) == "note saved"
+                r = W.edit_note(st, it, ctrl)
+                if r == "note saved"
+                    @test last(ctrl.stack) === st      # no pane was left behind
+                else
+                    @test occursin("editing the note", r)
+                    v = last(ctrl.stack)
+                    @test v isa W.PaneView
+                    for _ in 1:60
+                        v.child.client === nothing && break
+                        sleep(0.05); W.pane_sync!(v, ctrl)
+                    end
+                    @test v.child.status == "note saved"
+                    W.pop_view!(ctrl, v)
+                    @test last(ctrl.stack) === st
+                end
                 @test W.get_field(it.url, "note") == "instantly"
-                @test last(ctrl.stack) === st          # no pane was left behind
                 W.handle!(st, Int('z'), ctrl)
             end
 

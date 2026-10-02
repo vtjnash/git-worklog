@@ -151,10 +151,12 @@ that `=`, `(` and `,` in common between two unrelated lines do not make
 them alike. A line with no words at all - `}` against `};` - is measured
 on what it has.
 """
-function word_marks(a::AbstractString, b::AbstractString)
+function word_marks(a::Union{String,SubString{String}}, b::Union{String,SubString{String}})
     none = (0.0, UnitRange{Int}[], UnitRange{Int}[])
-    ta = collect(eachmatch(r"\w+|\s+|[^\w\s]", a))
-    tb = collect(eachmatch(r"\w+|\s+|[^\w\s]", b))
+    # Typed: `eachmatch` says its element is `RegexMatch`, with no parameter,
+    # and the table below reads `.match` of one in its inner loop.
+    ta = collect(RegexMatch{String}, eachmatch(r"\w+|\s+|[^\w\s]", a))
+    tb = collect(RegexMatch{String}, eachmatch(r"\w+|\s+|[^\w\s]", b))
     n, m = length(ta), length(tb)
     (n == 0 || m == 0 || n * m > 250_000) && return none
     # One function and a flag, not a closure assigned twice: `weight` below

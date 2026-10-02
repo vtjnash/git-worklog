@@ -766,12 +766,14 @@ function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
             key = diff_key(it)
             hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
             if hit === nothing
-                cache_put(key, fetch_diff(it; run = run))
+                d = fetch_diff(it; run = run)
+                cache_put(key, d)
+                d
             else
                 stale = hit[2] > CACHE_FRESH[]
                 asof = time() - hit[2]
                 v = hit[1]
-                v isa AbstractString ? String(v) : ""
+                v isa AbstractString ? String(v)::String : ""
             end
         end
     catch e
@@ -935,8 +937,10 @@ answers to either.
 function hunk_marks(n::Node)
     ms = get(n.meta, "cmarks", nothing)
     out = Dict{Int,Tuple{Int,Int}}()
-    # As `diff_nodes` writes it; the `isa` is the type from here on.
-    (ms isa Vector{Tuple{Int,Bool,Bool}} && haskey(n.meta, "start")) || return out
+    # As `diff_nodes` writes it; the `isa` is the type from here on - tested
+    # on its own, since inside an `&&` it narrows nothing after it.
+    ms isa Vector{Tuple{Int,Bool,Bool}} || return out
+    haskey(n.meta, "start") || return out
     up = jint(n.meta, :up, 0)
     start = jint(n.meta, :start, 0)
     newno = start - up

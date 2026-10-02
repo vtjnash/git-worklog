@@ -338,13 +338,13 @@ end
         push!(W.THEME_NOTES, "no such colour")
         try
             @test W.standing_note(at, fs) == W.failnote(fs, at)      # ahead of the theme
-            @test W.standing_note(at, ()) == "theme: no such colour"
+            @test W.standing_note(at) == "theme: no such colour"
             # A tmux server older than ours stands behind all three: it
             # says so, and not what it lacks.
             W.MUX_OLDER[] = ("3.4", "3.5a")
-            @test W.standing_note(at, ()) == "theme: no such colour"
+            @test W.standing_note(at) == "theme: no such colour"
             pop!(W.THEME_NOTES)
-            @test W.standing_note(at, ()) ==
+            @test W.standing_note(at) ==
                   "tmux: the server is 3.4, older than wl's 3.5a, and may be missing features"
             push!(W.THEME_NOTES, "no such colour")
         finally

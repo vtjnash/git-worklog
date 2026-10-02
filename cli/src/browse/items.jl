@@ -254,8 +254,10 @@ end
 
 `Item` is immutable - it is built from `facts.json` and read from everywhere -
 so anything that changes one between refreshes hands back a new one. Rebuilt
-from `fieldnames` with the named fields swapped, rather than field by field: two
+from its fields with the named ones swapped, rather than field by field: two
 dozen names written out here would be a list to keep in step with the struct.
+As a `NamedTuple` merged with `kw` - not a generator over `fieldnames`, whose
+splat is a tuple of unknown length and a dynamic call to the constructor.
 
 Two callers, and both are a write that has landed: `L` knows the label set it
 just changed, and `M` knows the pull request is merged and who merged it. Both
@@ -264,7 +266,8 @@ went on showing the old one until the next refresh and the status line had to
 apologise for it.
 """
 with(it::Item; kw...) =
-    Item((get(kw, f, getfield(it, f)) for f in fieldnames(Item))...)
+    Item(; merge(NamedTuple{fieldnames(Item)}(ntuple(i -> getfield(it, i), Val(fieldcount(Item)))),
+                 values(kw))...)
 
 withlabels(it::Item, labels::Vector{String}) = with(it; labels = labels)
 

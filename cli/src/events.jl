@@ -1067,6 +1067,9 @@ function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), b
     (items, got)
 end
 
+"""A source whose last poll failed: since when, and what it said."""
+const Failing = @NamedTuple{label::String, since::String, why::String}
+
 """
     failing() -> [(label, since, why)]
 
@@ -1076,7 +1079,7 @@ here; a source that is skipped for want of a token was never asked and is
 not here either. `why` is `""` for an entry from before the reason was kept.
 """
 function failing()
-    out = NamedTuple{(:label, :since, :why),Tuple{String,String,String}}[]
+    out = Failing[]
     for (label, v) in load_inbox()["failed"]::Dict{String,String}
         parts = split(v, ' '; limit = 2)
         push!(out, (label = label, since = String(parts[1]),
