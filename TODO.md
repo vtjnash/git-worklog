@@ -22,6 +22,33 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       (3.7c, with `jemalloc_jll` on Apple, which 3.7c's configure wants
       there, tmux#5385), open 2026-10-01; done when it merges and registers.
 - [ ] try rewriting the Term API on top of TermInput now, just to see if it is possible
+- [ ] **Other languages' code blocks, through Highlights as a TermInput
+      extension.** Highlights 0.6.3 no longer imports Pkg
+      (JuliaDocs/Highlights.jl#103). The extension would use only
+      `highlight_tokens(grammar_jll, code)`: its byte ranges and tree-sitter
+      captures are already what `highlight` answers. Highlights' themes and
+      formatters stay unused, so it does not need StyledStrings first. To
+      settle, and TermInput's premises may change for them:
+      - The hook. One method per `MIME` cannot be both the extension's and a
+        host's, and a catch-all overwrites the stub. Perhaps a language
+        becomes a value looked up in a table of highlighters, rather than a
+        type.
+      - The grammar. Use one only if the host has already loaded it, never
+        Highlights' `resolve_language`, which `Base.require`s by name at run
+        time.
+      - The faces. Map captures to the face names JuliaSyntaxHighlighting
+        uses (`function.call` to `funcall`), falling back by prefix, so one
+        `[code]` table colours every language.
+      - Whether wl loads it is a separate decision. Measured 2026-10-02 with
+        `latency.jl`: `import Highlights` in `Worklog` (bringing TreeSitter,
+        tree_sitter_jll, AbstractTrees and CEnum; JSON is already ours) moved
+        the wrapper's load from 0.79s to 0.81s and the first thread from
+        1.13s to 1.17s. That is with no grammar loaded and nothing
+        highlighted; a grammar and its first query are still to measure, and
+        so is whether TreeSitter trims.
+      - Upstream, separately: Highlights could answer an `AnnotatedString` of
+        capture-named faces, as JuliaSyntaxHighlighting does. Then the
+        extension would just read annotations, like `TermInputHighlightExt`.
 
 ## Unverified
 

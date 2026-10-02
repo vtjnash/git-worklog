@@ -131,11 +131,11 @@ each method.
       re-measured.
 - [x] **Pkg, loaded through Highlights.** 43 errors in Pkg's `REPLExt`
       `__init__` and REPL's keymaps, in no call of `wl`'s. The extension loads
-      when Pkg and REPL both are: Pkg because Highlights imports it (TODO,
-      *Upstream*, "File Highlights' `Pkg` import upstream"), REPL because
-      `wl`, TermInput, Term, CodeTracking and UnicodeFun all do. Either half
-      removes it, and the Highlights fix is the one to wait for: taking REPL
-      out is parked (LATER, *Upstream*). A probe of `using Term` alone with
+      when Pkg and REPL both are: Pkg because Highlights imported it, REPL
+      because `wl`, TermInput, Term, CodeTracking and UnicodeFun all do.
+      Either half removes it. Highlights 0.6.3 no longer imports Pkg
+      (JuliaDocs/Highlights.jl#103), and taking REPL out is parked (LATER,
+      *Upstream*). A probe of `using Term` alone with
       Term's REPL taken out verifies with no errors. Done after this was
       measured: Term went, and Highlights and Pkg with it. Not re-measured.
 
