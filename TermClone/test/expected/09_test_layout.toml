@@ -1,0 +1,11 @@
+# How each snapshot of 09_test_layout.jl that does not match Term's bytes matches:
+# cells = same terminal cells, text = same text only, none = different text.
+line_108 = "cells"
+line_116 = "cells"
+line_124 = "cells"
+line_143 = "cells"
+line_253 = "cells"
+line_52 = "cells"
+line_64 = "cells"
+line_65 = "cells"
+line_66 = "cells"

@@ -1,0 +1,27 @@
+name = "Term"
+uuid = "fc4d45e9-466a-442a-96c6-79f727d2219d"
+authors = ["Jameson Nash <vtjnash@gmail.com>"]
+version = "2.2.0-terminput"
+
+[deps]
+CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
+MyterialColors = "1c23619d-4212-4747-83aa-717207fae70f"
+OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
+REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+StyledStrings = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+TermInput = "e53b28ee-00f8-475a-85b8-1918fdda0ee8"
+UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+
+[sources]
+TermInput = {path = "../TermInput.jl"}
+
+[compat]
+julia = "1.11"

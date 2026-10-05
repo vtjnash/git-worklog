@@ -1,0 +1,7 @@
+# How each snapshot of 19_test_repr.jl that does not match Term's bytes matches:
+# cells = same terminal cells, text = same text only, none = different text.
+mts_repr = "none"
+repr_T_struct = "cells"
+repr_rocket = "cells"
+repr_rocket_2 = "cells"
+repr_rocket_2_show = "none"

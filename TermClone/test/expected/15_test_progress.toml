@@ -1,0 +1,3 @@
+# How each snapshot of 15_test_progress.jl that does not match Term's bytes matches:
+# cells = same terminal cells, text = same text only, none = different text.
+pbar_cols_style_3 = "cells"

@@ -1,0 +1,6 @@
+# How each snapshot of 21_test_markdown.jl that does not match Term's bytes matches:
+# cells = same terminal cells, text = same text only, none = different text.
+markdown_1 = "none"
+markdown_2 = "none"
+markdown_3 = "none"
+markdown_3_styled = "none"

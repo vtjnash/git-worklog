@@ -1,0 +1,4 @@
+Lorem {red}ipsum dolor sit {underline}amet,{/underline}{/red}
+{red}{underline}consectetur{/underline} adipiscing elit,{/red}
+{red}{/red}{blue}sed do eiusmod tempor incididunt{/blue}
+ut labore et dolore magna aliqua.

@@ -1,0 +1,4 @@
+Lorem{red}ipsumdolorsit{underline}amet, consectet{/underline}{/red}
+{red}{underline}ur{/underline} adipiscing elit, {/red}seddoeiusmo{blue}dt{/blue}
+{blue}emporincididunt{/blue}ut labore et
+dolore magna aliqua.

@@ -1,0 +1,1 @@
+[38;5;117mPanel <: AbstractRenderable[0m [2m(h:14, w:80)[0m

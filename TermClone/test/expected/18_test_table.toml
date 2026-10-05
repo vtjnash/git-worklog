@@ -1,0 +1,10 @@
+# How each snapshot of 18_test_table.jl that does not match Term's bytes matches:
+# cells = same terminal cells, text = same text only, none = different text.
+table_1 = "cells"
+table_2 = "cells"
+table_3 = "cells"
+table_4 = "cells"
+table_5 = "text"
+table_6 = "none"
+table_7 = "cells"
+table_8 = "cells"
