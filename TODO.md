@@ -7,6 +7,39 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
+What TermInput's new API (TermInput.jl 0187294) lets wl stop doing by hand:
+
+- [ ] **Pickers that start on the current choice.** `ChooseView`
+      (`controller.jl` ~826) forwards only `numbered` and `ranged`; pass
+      `selected` too, and open the milestone picker (`writing.jl` ~1219) on
+      the one marked `[x]` and the agent picker (`sessions.jl` ~1187) on
+      `v.pick`.
+- [ ] **Fixed menus with no query.** Views (`writing.jl` ~747), Snooze
+      (~1017), Set-on (~1125) and Review (~431) as `Choice(...; filter =
+      false)`: a digit picks, a letter is the menu's, nothing narrows - what
+      Snooze's comment (~1010) asks for.
+- [ ] **Fixed columns as `tablerows`.** The worktree and branch lists
+      (`paneview.jl` ~1063 and ~1177: the `WT_*`/`BR_*` widths, `wt_label`,
+      `list_header`, `wt_line`/`br_line`), help's key column (`help.jl` ~69)
+      and meta's `kv` (`meta.jl` ~410). The `rpad`s in `checks.jl` ~40/53,
+      `content.jl` ~1260, `filters.jl` ~990-1149 and `cli.jl` ~313 count
+      characters, not columns, and misalign wide ones: `rowpad`, or a table.
+- [ ] **`rowvpad`** for the padding loops in `browse/frame.jl` ~469 and ~268
+      (the help rows) and `paneview.jl` ~1299, ~208 and ~285.
+- [ ] **`markdown_rows(...; pad = false)`** instead of stripping its padding:
+      `show_md` (`ui.jl` ~763), `row_span` (`layout.jl` ~249) and its
+      comment, the fallback `MDRow` in `render_md` (`markdown.jl` ~511), and
+      the tests' `rstrip`s (`suite/markdown.jl`, `suite/theme.jl` ~225,
+      `suite/frame.jl` ~545).
+- [ ] **Theme keys for the new `MarkdownStyle` fields.** `MD_KEYS`
+      (`theme.jl` ~256) reaches none of `url`, `marker`, `number`, `bullets`,
+      `numbers`, `inlinecode`, `footnote_ref`, `table_rows`, `cellpad`.
+- [ ] **Small ones.** `rowpad(rowfit(x, n), n)` is `rowpad(x, n)`
+      (`browse/frame.jl` ~91/466, `paneview.jl` ~1188-1213, `sessions.jl`
+      ~873). Tests set a `Choice`'s `.sel` (`suite/worktrees.jl`,
+      `suite/filters.jl` ~946/960): `select!`, by label rather than by row.
+      `suite/input.jl` ~60 rebuilds the cursor block that `drawcursor` draws.
+
 ## Bigger tasks
 
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
