@@ -78,7 +78,6 @@ The currently selected option is highlighted with a different style.
     internals::WidgetInternals
     controls::AbstractDict
     titles::Vector{String}
-    n_titles::Int
     active_style::String
     inactive_style::String
     choice::Choice
@@ -111,7 +110,6 @@ The currently selected option is highlighted with a different style.
             ),
             controls,
             titles,
-            length(titles),
             active_style,
             inactive_style,
             menu_choice(titles, layout),
@@ -222,8 +220,7 @@ Styling reflects which option is currently selected
         measure = if layout == :vertical
             Measure(something(height, length(titles)), width)
         else
-            hmax = layout == :vertical ? fint(height / n) : height
-            Measure(something(height, hmax), width)
+            Measure(something(height), width)
         end
 
         return new(

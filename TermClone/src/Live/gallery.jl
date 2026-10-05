@@ -63,12 +63,11 @@ function frame(gal::Gallery; kwargs...)
     content = frame(get_active(gal))
     gal.show_panel || return content
 
-    style = gal.show_panel && isactive(gal) ? "dim" : "hidden"
+    style = isactive(gal) ? "dim" : "hidden"
 
     return Panel(
         content;
-        title = gal.show_panel ? "$(gal.title) $(gal.active)/$(length(gal.widgets))" :
-            nothing,
+        title = "$(gal.title) $(gal.active)/$(length(gal.widgets))",
         justify = :center,
         style = style,
         title_style = "default",
