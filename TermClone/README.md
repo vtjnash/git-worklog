@@ -76,7 +76,10 @@ These are what the broken tests come down to.
   the next line (and overflows CJK: 17 wide characters in a 33-column wrap).
   Every snapshot of wrapped prose differs in its line breaks. A renderable that
   is too wide is cut with `rowwrap(...; hard = true)`, which is Term's result.
-* **Elision**: `rowfit` ends a cut in `…`; Term's `str_trunc` in `...`.
+* **Elision**: `rowfit` ends a cut in `…`; Term's `str_trunc` in `...`, which
+  only a table's cells are cut with here.
+* **Lists**: no blank row after a list inside another, and a list inside a
+  numbered item one column further in than Term's.
 * **Faces Term has and StyledStrings does not** (most `text`): no `hidden`
   (conceal) and no `blink`; one weight, so `bold dim` is bold. A `hidden`
   panel border is drawn. (A tree's `hidden` pair mark is drawn as blanks.)
@@ -101,39 +104,12 @@ styling a span; `rowcat` merges faces, so output is smaller than Term's;
 Julia's; `handle!` taking key codes made `InputBox` a `TextArea` in a line per
 key; `Choice`'s cursor and `picked` served all three menus; `listwindow`/
 `listmove` replaced the pager's arithmetic; `readevent`/`enter_terminal` on an
-`IOBuffer` let every prompt and app be driven headless. No TermInput bugs
-turned up.
+`IOBuffer` let every prompt and app be driven headless; `frame_bytes`' `top`
+and `inline` draw the progress strip and every prompt and app; `tablerows`
+lays out a `Table`, and `markdown_rows`' style draws Term's urls, footnotes,
+bullets and code spans. No TermInput bugs turned up.
 
-The gaps it found, each now filled in TermInput and the workaround gone (see
-`TermInput-TODO.jl`, which keeps the one left):
-
-* **Inline drawing.** `frame_bytes(rows; top, region = :keep)` draws the
-  progress bar's strip under scrolling output, and `frame_bytes(rows; inline
-  = n)` a prompt or an app under the cursor (`LiveWidgets.InlineView` only
-  remembers `n`). `writerow` is public.
-* **Natural height.** `render(v, w)` and `caret(v, w)` are a widget at its own
-  height, for drawing inline.
-* **Titles are rows**, so a prompt's styled question keeps its faces.
-* **`Choice(...; filter = false, horizontal, selected)`** is a menu's cursor:
-  no query, its letters the menu's, `←`/`→` in a row, a default to start on,
-  and `select!` for `active`.
-* **`drawcursor` is public**, so `InputBox` draws its blinking block with it.
-* **`markdown_rows`** takes a style's `url` face, `footnote_ref` (`[id]`),
-  `inlinecode` highlighting, `bullets`/`numbers` and their faces, and `pad =
-  false`. What Term draws round blocks - panels, the quote's bar - is still
-  composed here.
-* **`highlight`'s ranges** are string ranges.
-* **Boxes and tables.** `Box` has Term's eight lines and `BOXES` Term's
-  eighteen boxes, which `Boxes.BOXES` is; `tablerows` lays a `Table` out, and
-  what is left in `src/tables.jl` is Term's sizing, its arguments, its cells'
-  `...` and which rules it draws.
-* **Row helpers**: `rowfit(s, w; mark = "...", word = true)` is `str_trunc`,
-  and `rowrstrip` and `rowvpad` are TermInput's.
-
-Left: **`InputReader` cannot be cancelled mid-read**, which is meant to stay
-so. Lists differ from Term's in two small ways TermInput's options do not
-reach: no blank row after a list inside another, and a list inside a numbered
-item one column further in.
+What TermInput still lacks is in `TermInput-TODO.jl`, as tests.
 
 ## Layout
 

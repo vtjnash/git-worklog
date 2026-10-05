@@ -10,13 +10,9 @@
 # to `@test` (or move it into TermInput's own suite), delete the workaround it
 # names, and rerun TermClone's suite to see what moved.
 #
-# Gaps 1-7 and 9-13 are filled - a frame from a line or under the cursor,
-# `writerow`, a widget at its own height, titles with faces, a `Choice` with no
-# query or in a row or starting elsewhere, `drawcursor`, the `markdown_rows`
-# options, `highlight`'s ranges, eight-line boxes and Term's names for them,
-# `tablerows`, and `rowfit`'s mark, `rowrstrip` and `rowvpad` - their tests are
-# in TermInput's own suite, and the clone's workarounds for them are gone.
-# What is left is the one gap not to be filled there.
+# Gaps 1-7 and 9-13 are filled: their tests are in TermInput's own suite, and
+# the clone's workarounds for them are gone. What is left is the one gap not to
+# be filled there.
 
 using Test
 using TermInput
