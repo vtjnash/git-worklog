@@ -164,8 +164,7 @@ function TermInput.highlight(::MIME"text/term-julia", code::AbstractString)
     covered = falses(ncodeunits(code))
     for (k, (r, f)) in enumerate(out)
         covered[r] .= true
-        # `r` runs to the last byte of its last character, not to its start
-        f === :operator && String(codeunits(code)[r]) in ("isa", "in", "where") &&
+        f === :operator && code[r] in ("isa", "in", "where") &&
             (out[k] = (r, :keyword))
     end
     for (i, c) in pairs(code)

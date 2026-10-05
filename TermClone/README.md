@@ -104,34 +104,36 @@ key; `Choice`'s cursor and `picked` served all three menus; `listwindow`/
 `IOBuffer` let every prompt and app be driven headless. No TermInput bugs
 turned up.
 
-Gaps, each with the workaround the clone uses:
+The gaps it found, each now filled in TermInput and the workaround gone (see
+`TermInput-TODO.jl`, which keeps the one left):
 
-* **Inline drawing.** `frame_bytes` is a full screen at absolute rows, and
-  resets the scroll region. A progress bar pinned under scrolling output and a
-  prompt drawn under the cursor both need relative placement:
-  `Progress.region_write` and `LiveWidgets.InlineView` do it by hand. A start
-  row / relative mode, and a public `writerow`, would cover both.
-* **Natural height.** `render(v, w, h)` always pads to `h` and centres, so a
-  widget drawn inline is rendered tall and trimmed (`widget_rows`).
-* **Titles are `String`s**, so faces in a widget title are dropped (a note
-  keeps them).
-* **`Choice` filters on every printable key**: a menu with no query can only
-  be handed the movement keys. No initial-cursor keyword either.
-* **`drawcursor` is not public**, so `InputBox` redraws its own cursor block.
-* **`InputReader` cannot be cancelled mid-read.**
-* **`markdown_rows`**: no url for links, footnote references always `[^id]`,
-  inline code not highlighted, every row padded to `w`, a fixed list marker,
-  table body rules only where a cell wrapped, and quotes/admonitions/code drawn
-  as bars where Term draws panels. The clone composes around it.
-* **`highlight`'s ranges** end at the last byte of the last character, so they
-  are not valid string ranges over multibyte text - worth a line in its
-  docstring.
-* **Boxes and tables.** `Box` has six lines, no footer rule or footer line, and
-  `BOXES` five styles; there is no table or column layout. Tables, trees and
-  panels are built from Term's box table (`Boxes.tibox` converts for widgets).
-* **Missing small row helpers**: a vertical pad, a `str_trunc` that cuts at a
-  word, and "this text in this style, never read as markup" (`faced(text,
-  face(style))` is how it is said).
+* **Inline drawing.** `frame_bytes(rows; top, region = :keep)` draws the
+  progress bar's strip under scrolling output, and `frame_bytes(rows; inline
+  = n)` a prompt or an app under the cursor (`LiveWidgets.InlineView` only
+  remembers `n`). `writerow` is public.
+* **Natural height.** `render(v, w)` and `caret(v, w)` are a widget at its own
+  height, for drawing inline.
+* **Titles are rows**, so a prompt's styled question keeps its faces.
+* **`Choice(...; filter = false, horizontal, selected)`** is a menu's cursor:
+  no query, its letters the menu's, `←`/`→` in a row, a default to start on,
+  and `select!` for `active`.
+* **`drawcursor` is public**, so `InputBox` draws its blinking block with it.
+* **`markdown_rows`** takes a style's `url` face, `footnote_ref` (`[id]`),
+  `inlinecode` highlighting, `bullets`/`numbers` and their faces, and `pad =
+  false`. What Term draws round blocks - panels, the quote's bar - is still
+  composed here.
+* **`highlight`'s ranges** are string ranges.
+* **Boxes and tables.** `Box` has Term's eight lines and `BOXES` Term's
+  eighteen boxes, which `Boxes.BOXES` is; `tablerows` lays a `Table` out, and
+  what is left in `src/tables.jl` is Term's sizing, its arguments, its cells'
+  `...` and which rules it draws.
+* **Row helpers**: `rowfit(s, w; mark = "...", word = true)` is `str_trunc`,
+  and `rowrstrip` and `rowvpad` are TermInput's.
+
+Left: **`InputReader` cannot be cancelled mid-read**, which is meant to stay
+so. Lists differ from Term's in two small ways TermInput's options do not
+reach: no blank row after a list inside another, and a list inside a numbered
+item one column further in.
 
 ## Layout
 
@@ -139,12 +141,12 @@ Gaps, each with the workaround the clone uses:
     src/segments.jl      a Segment: a row and its measure
     src/renderables.jl   AbstractRenderable, Renderable, RenderableText
     src/text_reshape.jl  wrapping and justifying rows
-    src/boxes.jl         Term's box table, and `tibox` to TermInput's `Box`
+    src/boxes.jl         Term's `Box`, its lines TermInput's, and `BOXES` from TermInput's
     src/layout.jl        pad, stack, align, lines, placeholders
     src/panels.jl        Panel and TextBox
     src/text_utils.jl    Term's plain-string helpers for its markup language
     test/__cells.jl      the terminal-cell comparison and the manifests
 
 Term's plain-string helpers (`remove_markup`, `textlen`, `str_trunc`, …) and its
-data tables (colour names, boxes, themes) are Term's own code, under Term's MIT
+data tables (colour names, themes) are Term's own code, under Term's MIT
 licence in `LICENSE.Term`.

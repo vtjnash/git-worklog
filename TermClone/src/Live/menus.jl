@@ -10,20 +10,21 @@ and using Enter to select an option.
 """
 abstract type AbstractMenu <: AbstractWidget end
 
-# A menu's cursor is a `TermInput.Choice`'s: `active` is the option under it,
-# the keys move it as they move a `Choice`'s, and `↵` answers what `picked`
-# says. The query a `Choice` narrows by is not used - Term's menus draw none, and
-# letters are theirs (`q` quits).
+# A menu's cursor is a `TermInput.Choice`'s with no query: `active` is the
+# option under it, the keys move it as they move a `Choice`'s - `←`/`→` too in
+# a menu laid out in a row - and `↵` answers what `picked` says. Every other
+# key comes back from it, since letters are the menu's (`q` quits).
 
 "The `Choice` holding a menu's cursor, over `titles`."
-menu_choice(titles) = Choice("", "", String[string(t) for t in titles])
+menu_choice(titles, layout::Symbol = :vertical) = Choice("", "",
+    String[string(t) for t in titles]; filter = false, horizontal = layout != :vertical)
 
 function Base.getproperty(mn::AbstractMenu, f::Symbol)
     f === :active && return selected(getfield(mn, :choice))
     return getfield(mn, f)
 end
 function Base.setproperty!(mn::AbstractMenu, f::Symbol, v)
-    f === :active && return (getfield(mn, :choice).sel = v)
+    f === :active && return (select!(getfield(mn, :choice), v); v)
     return setfield!(mn, f, convert(fieldtype(typeof(mn), f), v))
 end
 Base.propertynames(mn::AbstractMenu) = (fieldnames(typeof(mn))..., :active)
@@ -42,9 +43,8 @@ function menu_return_value(mn::AbstractMenu, ::Enter)
     return picked(mn.choice, 13)
 end
 
-# `^p`/`^n`, which a `Choice` moves by too
-on_key(mn::AbstractMenu, code::Int) =
-    code in (TermInput.C_P, TermInput.C_N) ? handle!(mn.choice, code) : :unhandled
+# what no control took: `^p`/`^n`, which a `Choice` moves by too
+on_key(mn::AbstractMenu, code::Int) = handle!(mn.choice, code)
 
 vert_menu_controls = Dict(
     ArrowDown() => menu_activate_next,
@@ -114,7 +114,7 @@ The currently selected option is highlighted with a different style.
             length(titles),
             active_style,
             inactive_style,
-            menu_choice(titles),
+            menu_choice(titles, layout),
             layout,
         )
     end
@@ -235,7 +235,7 @@ Styling reflects which option is currently selected
             active_background,
             inactive_background,
             length(titles),
-            menu_choice(titles),
+            menu_choice(titles, layout),
             layout,
             panel_kwargs,
         )

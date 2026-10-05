@@ -13,10 +13,10 @@ module TermMarkdown
 # other headers centred, a code block highlighted by TermInput's
 # `highlighted_lines` in a `Panel` with its language as the subtitle, an
 # admonition in a `Panel` with its title, a quote behind `>` and a heavy bar
-# and inside curly quotes, lists with Term's bullets and numbers, a heavy dim
-# rule, a footnote led by `[id]:`, display maths indented, and a blank line
-# between each two blocks. A link's url, which `markdown_rows` leaves to its
-# host, is drawn after the label as Term draws it, by rewriting the tree.
+# and inside curly quotes, a heavy dim rule, a footnote padded to the width,
+# display maths indented, and a blank line between each two blocks. Term's
+# bullets and numbers, a link's url after its label, a footnote as `[id]` and a
+# code span coloured as Julia are the style's.
 
 using Markdown
 import Markdown: MD
@@ -38,7 +38,6 @@ import Term:
     overlaid,
     joinrows,
     reshape_rows,
-    rstrip_row,
     pad_row,
     code_rows
 import Term
@@ -64,9 +63,12 @@ export parse_md
 
 Term's theme as the faces `markdown_rows` draws in: each `md_*` style read
 into a face by `Style.face`. A code span is Term's code text in `md_code`'s
-backticks; a link's label is white and bold, and its url (drawn as inline HTML,
-see `with_urls`) dim, as Term draws them; a table is in Term's rounded box,
-dim, with its header in `md_table_header`.
+backticks, coloured as Julia; a link's label is white and bold, and its url
+after it dim, as Term draws them; a list is behind Term's bullet in the accent
+colour or its number, two in, and a list inside it three further in than its
+bullet - which a narrower bullet under the first's text is; a footnote is
+`[id]`; a table is in the rounded box, dim, with its header in
+`md_table_header`.
 """
 function mdstyle(theme = TERM_THEME[])
     return MarkdownStyle(
@@ -95,43 +97,27 @@ function mdstyle(theme = TERM_THEME[])
         latex = face(theme.md_latex),
         footnote = face(theme.md_footnote),
         html = face("dim"),
-        box = Term.Boxes.tibox(:ROUNDED),
+        url = face("dim"),
+        marker = face(theme.text_accent),
+        number = face("bold"),
+        box = TermInput.BOXES.ROUNDED,
         faces = Term.code_mdstyle().faces,
+        bullets = ("  • ", " • "),
+        numbers = "  %s. ",
+        inlinecode = true,
+        footnote_ref = "[%s]",
     )
 end
-
-"""
-    with_urls(x)
-
-`x` with each link followed by its url in brackets, as inline HTML - which
-`mdstyle` draws dim. `markdown_rows` draws a link as its label and leaves the
-url to the host; Term shows it.
-"""
-with_urls(x) = x
-with_urls(xs::AbstractVector) = Any[y for x in xs for y in with_urls_inline(x)]
-with_urls_inline(x) = (with_urls(x),)
-with_urls_inline(l::Markdown.Link) =
-    (Markdown.Link(with_urls(l.text), l.url), " ", Markdown.HTMLInline("($(l.url))"))
-with_urls(p::Markdown.Paragraph) = Markdown.Paragraph(with_urls(p.content))
-with_urls(h::Markdown.Header{l}) where {l} = Markdown.Header{l}(with_urls(h.text))
-with_urls(b::Markdown.Bold) = Markdown.Bold(with_urls(b.text))
-with_urls(i::Markdown.Italic) = Markdown.Italic(with_urls(i.text))
-with_urls(t::Markdown.Table) =
-    Markdown.Table(Any[Any[with_urls(c isa AbstractVector ? c : Any[c]) for c in r] for r in t.rows], t.align)
 
 """
     md_rows(blocks, width; strip = true) -> Vector{Row}
 
 `blocks` drawn by `markdown_rows` at `width`, in Term's theme: a blank row
-between each two blocks. `markdown_rows` pads every row to the width; Term's
-text is not padded, so the padding is taken off unless `strip` is false.
+between each two blocks. Term's text is not padded to the width, so neither
+are the rows unless `strip` is false.
 """
-function md_rows(blocks::AbstractVector, width::Int; strip::Bool = true)
-    rs = markdown_rows(
-        MD(Any[with_urls(b) for b in blocks]), max(width, 1); style = mdstyle(),
-    )
-    return Row[strip ? rstrip_row(r.text) : r.text for r in rs]
-end
+md_rows(blocks::AbstractVector, width::Int; strip::Bool = true) =
+    Row[r.text for r in markdown_rows(MD(blocks), max(width, 1); style = mdstyle(), pad = !strip)]
 md_rows(x, width::Int; kwargs...) = md_rows(Any[x], width; kwargs...)
 
 "`r` with `f` over the first `n` bytes from where `needle` starts in it, if it does."
@@ -241,32 +227,8 @@ end
 block_rows(::Markdown.HorizontalRule, width::Int; kwargs...) =
     rows(hLine(width - 1; style = "dim", box = :HEAVY))
 
-"""
-A list: each item behind Term's bullet, `•` in the accent colour or its number
-in bold, two in, and a list inside an item three further in. An item's text
-that wraps is hung beside its bullet. A list ends in a blank row, as Term's
-does.
-"""
-function block_rows(list::Markdown.List, width::Int; space::String = "", kwargs...)
-    theme = TERM_THEME[]
-    out = Row[]
-    for (i, item) in enumerate(list.items)
-        bullet = if Markdown.isordered(list)
-            rowcat(space, faced("  $(i + list.ordered - 1). ", face("bold")))
-        else
-            rowcat(space, faced("  • ", face(theme.text_accent)))
-        end
-        bw = rowwidth(bullet)
-        text = Any[x for x in item if !(x isa Markdown.List)]
-        rs = isempty(text) ? Row[row("")] : md_rows(text, width - bw)
-        append!(out, prefixed(rs, bullet, " "^bw))
-        for x in item
-            x isa Markdown.List && append!(out, block_rows(x, width; space = "   "))
-        end
-    end
-    push!(out, row(""))
-    return out
-end
+"A list, `markdown_rows`' in Term's bullets, and a blank row after it, as Term's has."
+block_rows(list::Markdown.List, width::Int; kwargs...) = push!(md_rows(list, width), row(""))
 
 """
 An admonition: its blocks in a panel eight narrower than the width, set four
@@ -306,18 +268,8 @@ A footnote: a reference, `[id]` in `md_footnote`; a definition, its text led
 by the reference and a colon, padded to the width.
 """
 function block_rows(note::Markdown.Footnote, width::Int; kwargs...)
-    theme = TERM_THEME[]
-    id = "[$(note.id)]"
-    isnothing(note.text) && return Row[faced(id, face(theme.md_footnote))]
-    content = Any[note.text...]
-    if !isempty(content) && content[1] isa Markdown.Paragraph
-        content[1] = Markdown.Paragraph(Any["$id: ", content[1].content...])
-    else
-        pushfirst!(content, Markdown.Paragraph(Any["$id:"]))
-    end
-    rs = md_rows(content, width - 1)
-    rs[1] = overlaid(rs[1], 1:ncodeunits(id), face(theme.md_footnote))
-    return Row[rowpad(r, width) for r in rs]
+    isnothing(note.text) && return Row[faced("[$(note.id)]", face(TERM_THEME[].md_footnote))]
+    return Row[rowpad(r, width) for r in md_rows(note, width - 1)]
 end
 
 """

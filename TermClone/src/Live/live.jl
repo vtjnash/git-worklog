@@ -19,7 +19,8 @@ import TermInput
 import TermInput: Row, row, rowcat, rowwidth, rowpad, rowfit, faced, overlaid,
     KeyEvent, PasteEvent, EndEvent, readevent, enter_terminal, leave_terminal,
     InputReader, arm!, input_waiting, HeldTerminal, listmove, listwindow,
-    TextArea, Choice, handle!, picked, selected, markdown_rows, MarkdownStyle, Keys
+    TextArea, Choice, handle!, picked, selected, select!, markdown_rows, MarkdownStyle, Keys,
+    frame_bytes, drawcursor
 import TermInput.Keys: K_LEFT, K_RIGHT, K_UP, K_DOWN, K_DEL, K_HOME, K_END, K_PGUP,
     K_PGDN, K_BASE, keycode, keychar, printable
 import StyledStrings: Face

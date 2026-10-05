@@ -99,15 +99,7 @@ end
 Justify a piece of text spreading out text to fill in a given width.
 """
 justify(text::AbstractString, width::Int)::String =
-    ansi(joinrows([justify_row(rstrip_row(l), width) for l in rowlines(torow(text))]))
-
-"`r` with the spaces at its end taken off."
-function rstrip_row(r::Row)
-    s = r.string
-    k = findlast(!isspace, s)
-    isnothing(k) && return row("")
-    return row(SubString(r, 1, k))
-end
+    ansi(joinrows([justify_row(TermInput.rowrstrip(l), width) for l in rowlines(torow(text))]))
 
 """
     rows_to_width(r, width, justify; background) -> Vector{Row}

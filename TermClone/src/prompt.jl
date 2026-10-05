@@ -17,7 +17,7 @@ import TermInput: rowcat, faced
 import ..Tprint: tprint, tprintln
 import ..Measures: width as get_width
 import ..Consoles: console_width
-import ..LiveWidgets: InlineView, draw!, erase!, widget_rows
+import ..LiveWidgets: InlineView, draw!, erase!
 import TermInput
 import TermInput: LineInput, Choice, KeyEvent, PasteEvent, EndEvent, readevent,
     enter_terminal, leave_terminal, handle!, picked, submission, DIALOG_WIDTH
@@ -321,13 +321,11 @@ confirm(; kwargs...) = ask(DefaultPrompt(["yes", "no"], 1, "Confirm?"); kwargs..
 #                               ASKING AT A TERMINAL                           #
 # ---------------------------------------------------------------------------- #
 
-"The prompt's question, as the title of a widget: its words, without markup."
-prompt_title(prompt::AbstractPrompt) = String(torow(prompt.prompt))
-
 """
     prompt_widget(prompt) -> widget
 
-The TermInput widget a prompt is asked with.
+The TermInput widget a prompt is asked with, titled with its question - in the
+styles its markup gives it.
 
   * `Prompt`, `TypePrompt`: a `LineInput`; a `TypePrompt` says the type it
     wants under the question.
@@ -338,18 +336,15 @@ The TermInput widget a prompt is asked with.
     keys answer and `↵` is no, which is the opposite of what a default means,
     and a `DefaultPrompt` may have more than two options.
 """
-prompt_widget(prompt::Prompt) = LineInput(prompt_title(prompt), "";
+prompt_widget(prompt::Prompt) = LineInput(torow(prompt.prompt), "";
     hint = "↵ answer · esc cancel")
-prompt_widget(prompt::TypePrompt) = LineInput(prompt_title(prompt),
+prompt_widget(prompt::TypePrompt) = LineInput(torow(prompt.prompt),
     "a $(prompt.answer_type)"; hint = "↵ answer · esc cancel")
-prompt_widget(prompt::AbstractOptionsPrompt) = Choice(prompt_title(prompt), "",
+prompt_widget(prompt::AbstractOptionsPrompt) = Choice(torow(prompt.prompt), "",
     prompt.options; hint = "↑/↓ move · type to narrow · ↵ pick · esc cancel")
-function prompt_widget(prompt::AbstractDefaultPrompt)
-    c = Choice(prompt_title(prompt), "", prompt.options;
-        hint = "↵ $(prompt.options[prompt.default]) · ↑/↓ move · type to narrow · esc cancel")
-    c.sel = prompt.default
-    return c
-end
+prompt_widget(prompt::AbstractDefaultPrompt) = Choice(torow(prompt.prompt), "",
+    prompt.options; selected = prompt.default,
+    hint = "↵ $(prompt.options[prompt.default]) · ↑/↓ move · type to narrow · esc cancel")
 
 """
     answer_for(prompt, widget, code) -> Union{Nothing, String}
@@ -392,7 +387,7 @@ function ask_widget(io::IO, input::IO, prompt::AbstractPrompt)
     ans = nothing
     try
         while true
-            draw!(view, widget_rows(widget, w)...)
+            draw!(view, TermInput.render(widget, w), TermInput.caret(widget, w))
             ev = readevent(t)
             if ev isa PasteEvent
                 TermInput.paste!(widget, ev.text)

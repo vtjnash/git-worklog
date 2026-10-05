@@ -8,7 +8,7 @@ import ..Style: apply_style, face, torow, styled
 import ..Segments: Segment
 
 export get_row, get_title_row
-export BOXES, tibox
+export BOXES
 
 # ---------------------------------------------------------------------------- #
 #                                      BOX                                     #
@@ -16,14 +16,9 @@ export BOXES, tibox
 """
   BoxLine
 
-Stores the characters for a line of a `Box` object.
+The characters for a line of a `Box`: TermInput's.
 """
-struct BoxLine
-    left::Char
-    mid::Char
-    vertical::Char
-    right::Char
-end
+const BoxLine = TermInput.BoxLine
 
 """
   Box
@@ -58,22 +53,9 @@ end
 """
     Box(string)
 
-Construct a `Box` objet out of a box string.
+Construct a `Box` objet out of a box string, as TermInput reads one.
 """
-function Box(box_name::String, box::String)
-    top, head, head_row, mid, row, foot_row, foot, bottom = split(box, "\n")
-    return Box(
-        box_name,
-        BoxLine(chars(top)...),
-        BoxLine(chars(head)...),
-        BoxLine(chars(head_row)...),
-        BoxLine(chars(mid)...),
-        BoxLine(chars(row)...),
-        BoxLine(chars(foot_row)...),
-        BoxLine(chars(foot)...),
-        BoxLine(chars(bottom)...),
-    )
-end
+Box(box_name::String, box::String) = Box(TermInput.Box(Symbol(box_name), box))
 
 function Base.show(io::IO, box::Box)
     return if io ≡ stdout
@@ -220,267 +202,16 @@ fit(box::Box, widths::Vector{Int}) = join_lines(
 #                                   Box types                                  #
 # ---------------------------------------------------------------------------- #
 
-const BOXES = (
-    NONE = Box(
-        "NONE",
-        """
-            
-            
-            
-            
-            
-            
-            
-            
-        """,
-    ),
-    ASCII = Box(
-        "ASCII",
-        """
-        +--+
-        | ||
-        |-+|
-        | ||
-        |-+|
-        |-+|
-        | ||
-        +--+
-        """,
-    ),
-    ASCII2 = Box(
-        "ASCII2",
-        """
-        +-++
-        | ||
-        +-++
-        | ||
-        +-++
-        +-++
-        | ||
-        +-++
-        """,
-    ),
-    ASCII_DOUBLE_HEAD = Box(
-        "ASCII_DOUBLE_HEAD",
-        """
-        +-++
-        | ||
-        +=++
-        | ||
-        +-++
-        +-++
-        | ||
-        +-++
-        """,
-    ),
-    SQUARE = Box(
-        "SQUARE",
-        """
-        ┌─┬┐
-        │ ││
-        ├─┼┤
-        │ ││
-        ├─┼┤
-        ├─┼┤
-        │ ││
-        └─┴┘
-        """,
-    ),
-    SQUARE_DOUBLE_HEAD = Box(
-        "SQUARE_DOUBLE_HEAD",
-        """
-        ┌─┬┐
-        │ ││
-        ╞═╪╡
-        │ ││
-        ├─┼┤
-        ├─┼┤
-        │ ││
-        └─┴┘
-        """,
-    ),
-    MINIMAL = Box(
-        "MINIMAL",
-        """
-          ╷ 
-          │ 
-        ╶─┼╴
-          │ 
-        ╶─┼╴
-        ╶─┼╴
-          │ 
-          ╵ 
-        """,
-    ),
-    MINIMAL_HEAVY_HEAD = Box(
-        "MINIMAL_HEAVY_HEAD",
-        """
-          ╷ 
-          │ 
-        ╺━┿╸
-          │ 
-        ╶─┼╴
-        ╶─┼╴
-          │ 
-          ╵ 
-        """,
-    ),
-    MINIMAL_DOUBLE_HEAD = Box(
-        "MINIMAL_DOUBLE_HEAD",
-        """
-          ╷ 
-          │ 
-         ═╪ 
-          │ 
-         ─┼ 
-         ─┼ 
-          │ 
-          ╵ 
-        """,
-    ),
-    SIMPLE = Box(
-        "SIMPLE",
-        """
-            
-            
-         ── 
-            
-            
-         ── 
-            
-            
-        """,
-    ),
-    SIMPLE_HEAD = Box(
-        "SIMPLE_HEAD",
-        """
-            
-            
-         ── 
-            
-            
-            
-            
-            
-        """,
-    ),
-    SIMPLE_HEAVY = Box(
-        "SIMPLE_HEAVY",
-        """
-            
-            
-         ━━ 
-            
-            
-         ━━ 
-            
-            
-        """,
-    ),
-    HORIZONTALS = Box(
-        "HORIZONTALS",
-        """
-         ── 
-            
-         ── 
-            
-         ── 
-         ── 
-            
-         ── 
-        """,
-    ),
-    ROUNDED = Box(
-        "ROUNDED",
-        """
-        ╭─┬╮
-        │ ││
-        ├─┼┤
-        │ ││
-        ├─┼┤
-        ├─┼┤
-        │ ││
-        ╰─┴╯
-        """,
-    ),
-    HEAVY = Box(
-        "HEAVY",
-        """
-        ┏━┳┓
-        ┃ ┃┃
-        ┣━╋┫
-        ┃ ┃┃
-        ┣━╋┫
-        ┣━╋┫
-        ┃ ┃┃
-        ┗━┻┛
-        """,
-    ),
-    HEAVY_EDGE = Box(
-        "HEAVY_EDGE",
-        """
-        ┏━┯┓
-        ┃ │┃
-        ┠─┼┨
-        ┃ │┃
-        ┠─┼┨
-        ┠─┼┨
-        ┃ │┃
-        ┗━┷┛
-        """,
-    ),
-    HEAVY_HEAD = Box(
-        "HEAVY_HEAD",
-        """
-        ┏━┳┓
-        ┃ ┃┃
-        ┡━╇┩
-        │ ││
-        ├─┼┤
-        ├─┼┤
-        │ ││
-        └─┴┘
-        """,
-    ),
-    DOUBLE = Box(
-        "DOUBLE",
-        """
-        ╔═╦╗
-        ║ ║║
-        ╠═╬╣
-        ║ ║║
-        ╠═╬╣
-        ╠═╬╣
-        ║ ║║
-        ╚═╩╝
-        """,
-    ),
-    DOUBLE_EDGE = Box(
-        "DOUBLE_EDGE",
-        """
-        ╔═╤╗
-        ║ │║
-        ╟─┼╢
-        ║ │║
-        ╟─┼╢
-        ╟─┼╢
-        ║ │║
-        ╚═╧╝
-        """,
-    ),
-)
-
-
 """
-    tibox(b::Box) -> TermInput.Box
+    Box(b::TermInput.Box)
 
-The same box as TermInput's `Box`, for a TermInput widget to be drawn in. Term's
-box has a footer rule and a footer line TermInput's has no room for; they are
-left out.
+TermInput's box as Term's, which has the same eight lines and a name that is a
+string.
 """
-tibox(b::Box) = TermInput.Box(Symbol(b.name),
-    (TermInput.BoxLine(l.left, l.mid, l.vertical, l.right) for l in
-        (b.top, b.head, b.head_row, b.mid, b.row, b.bottom))...)
-tibox(name::Symbol) = tibox(BOXES[name])
+Box(b::TermInput.Box) = Box(String(b.name), b.top, b.head, b.head_row, b.mid, b.row,
+    b.foot_row, b.foot, b.bottom)
+
+"Term's boxes, by name: TermInput's `BOXES`, which are Term's eighteen."
+const BOXES = map(Box, TermInput.BOXES)
 
 end

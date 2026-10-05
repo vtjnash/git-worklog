@@ -37,20 +37,6 @@ function calc_columns_widths(
 end
 
 """
-    rows_heights
-
-Get the height of each row in a `Table`
-"""
-function rows_heights(N_rows::Int, show_header::Bool, header, rows_values, footer, vpad)
-    headers_height = show_header ? max(height.(header)...) : 0
-    data_heights = collect(map(r -> max(height.(r)...), rows_values))
-    footers_height = isnothing(footer) ? 0 : max(height.(footer)...)
-    vpad = isa(vpad, Int) ? fill(vpad, N_rows) : vpad
-    heights = [headers_height, data_heights..., footers_height] .+ vpad .* 2
-    return heights
-end
-
-"""
     expand
 
 Expand single `Table` arguments into a vector if necessary.

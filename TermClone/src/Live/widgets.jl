@@ -192,21 +192,12 @@ function inputbox_rows(ib::InputBox, w::Int, blink::Bool, active::Bool)
     strs, crow, ccol = TermInput.bufferrows(ib.textarea.buf, max(1, w))
     rs = Row[row(s) for s in strs]
     active || return joinrows(rs)
-    blockface = face("on_white")
     r = rs[crow]
     if ccol > rowwidth(r)
-        rs[crow] = rowcat(r, blink ? faced(" ", blockface) : row(" "))
+        rs[crow] = blink ? drawcursor(r, ccol, face("on_white")) : rowcat(r, " ")
     elseif blink
-        s = r.string
-        # the character at display column `ccol`
-        acc, k = 0, firstindex(s)
-        while k <= lastindex(s) && acc + textwidth(s[k]) < ccol
-            acc += textwidth(s[k])
-            k = nextind(s, k)
-        end
         # over a character, reverse video: on_white would hide a white one
-        k <= lastindex(s) &&
-            (rs[crow] = overlaid(r, k:(nextind(s, k) - 1), Face(inverse = true)))
+        rs[crow] = drawcursor(r, ccol)
     end
     return joinrows(rs)
 end

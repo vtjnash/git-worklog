@@ -7,6 +7,7 @@ import UUIDs: UUID
 import Term:
     rint, textlen, str_trunc, loop_last, get_file_format, update!, default_width, TERM_THEME,
     Row, row, rowcat, rowwidth, rowfit, rowpad
+import TermInput: frame_bytes
 import ..Tprint: tprint, tprintln
 import ..Style: apply_style, styled, ansi, torow, face
 import Term: faced, pad_row
@@ -540,34 +541,16 @@ function render(pbar::ProgressBar, io = stdout)
         end
     end
 
-    # written over the region, each line erased and written again, then the
-    # cursor put back at the bottom of the scrolling part above it
-    region_write(iob, lines, pbar.renderstatus.scrollline + 1, console_width())
+    # written over the region under the scroll region - which is left as it was
+    # set - each line erased and written again, cut to the width, and the lines
+    # under them to the bottom of the screen cleared; then the cursor put back
+    # at the bottom of the scrolling part above it
+    top, w = pbar.renderstatus.scrollline + 1, console_width()
+    write(iob, frame_bytes(Row[rowwidth(l) > w ? rowfit(l, w) : l for l in lines];
+        top, region = :keep, h = max(length(lines), console_height() - top + 1)))
     move_to_line(iob, pbar.renderstatus.scrollline)
     write(io, take!(iob))
     return flush(io)
-end
-
-"""
-    region_write(io, lines::Vector{Row}, top::Int, width::Int)
-
-`lines` written onto the screen from line `top` down, each line erased and
-written again (cut to `width`), as one synchronized update (DEC mode 2026, which
-a terminal that does not know it ignores). TermInput's `frame_bytes` is the
-same idea for a whole screen, and it cannot be used here: it numbers its rows
-from the top of the screen and resets the scroll region, which is the sticky
-region this bar lives under.
-"""
-function region_write(io::IO, lines::Vector{Row}, top::Int, width::Int)
-    write(io, "\e[?2026h")
-    for (i, l) in enumerate(lines)
-        move_to_line(io, top + i - 1)
-        erase_line(io)
-        write(io, ansi(rowwidth(l) > width ? rowfit(l, width) : l))
-    end
-    cleartoend(io)
-    write(io, "\e[?2026l")
-    return nothing
 end
 
 # ---------------------------------------------------------------------------- #
