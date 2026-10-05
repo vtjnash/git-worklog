@@ -180,7 +180,9 @@ and dim together are bold; and it has no blink and no concealment, so those
 are not drawn at all.
 """
 function StyledStrings.Face(a::Attrs)
-    weight = a.bold === true ? :bold : a.dim === true ? :light : nothing
+    # `default` is bold and dim reset: a weight of its own, over the one under it
+    weight = a.bold === true ? :bold : a.dim === true ? :light :
+        a.bold === false && a.dim === false ? :normal : nothing
     Face(;
         foreground = a.fg,
         background = a.bg,
@@ -288,15 +290,18 @@ Read a string of Term markup and ANSI escapes into a row of faces: the text a
 terminal would show, with a StyledStrings face over each run of it that is
 drawn the same way, and a `:link` over each run inside an OSC 8 hyperlink.
 
-A row is returned as it is. A `{{` or `}}` is an escaped brace and is kept as
+Concealed text (`hidden`, `\e[8m`) has a `:conceal` over it, which no face can
+say and which `ansi` writes. A row is returned as it is. A `{{` or `}}` is an escaped brace and is kept as
 it is, as Term keeps it. A tag that closes nothing is dropped, and one that is
-never closed runs to the end.
+never closed runs to the end. A tag that names no style - `{Float64}` in
+`Matrix{Float64}` - is dropped too, or with `leave_orphan_tags` kept as the
+text it is, as Term's `apply_style` keeps it.
 """
 torow(r::Row) = r
 torow(r::Base.AnnotatedString) = row(r)
 torow(r::SubString{<:Base.AnnotatedString}) = row(r)
 torow(c::AbstractChar) = torow(string(c))
-function torow(text::AbstractString)::Row
+function torow(text::AbstractString; leave_orphan_tags::Bool = false)::Row
     s = String(text)
     (occursin('{', s) || occursin('\e', s)) || return row(s)
 
@@ -335,6 +340,11 @@ function torow(text::AbstractString)::Row
             m = match(TAG_AT, s, i)
             if m !== nothing && !isempty(strip(m.captures[2]))
                 spec = String(strip(m.captures[2]))
+                if leave_orphan_tags && Attrs(MarkupStyle(spec)) == Attrs()
+                    write(out, m.match)
+                    i += ncodeunits(m.match)
+                    continue
+                end
                 if m.captures[1] == "/"
                     k = findlast(x -> x[1] == spec, stack)
                     isnothing(k) || deleteat!(stack, k)
@@ -384,6 +394,7 @@ function torow(text::AbstractString)::Row
         f = Face(a)
         f == Face() || push!(anns, Annot((r, :face, f)))
         isnothing(a.link) || push!(anns, Annot((r, :link, a.link)))
+        a.hidden === true && push!(anns, Annot((r, :conceal, true)))
     end
     return Row(str, anns)
 end
@@ -396,9 +407,33 @@ escapes for its faces and links. Plain text when `NOCOLOR[]` is set.
 """
 function ansi(r::Row)::String
     NOCOLOR[] && return r.string
-    isempty(StyledStrings.annotations(r)) && return r.string
+    anns = StyledStrings.annotations(r)
+    isempty(anns) && return r.string
     io = IOBuffer()
-    print(IOContext(io, :color => true), r)
+    cio = IOContext(io, :color => true)
+    hidden = [a.region for a in anns if a.label === :conceal]
+    if isempty(hidden)
+        print(cio, r)
+        return String(take!(io))
+    end
+    # StyledStrings has no conceal, so the concealed runs are cut out and
+    # written between `\e[8m` and `\e[28m`, each piece in its own faces
+    str = r.string
+    concealed(i) = any(h -> i in h, hidden)
+    i = firstindex(str)
+    while i <= ncodeunits(str)
+        c = concealed(i)
+        j = i
+        while true
+            k = nextind(str, j)
+            (k > ncodeunits(str) || concealed(k) != c) && break
+            j = k
+        end
+        c && print(io, "\e[8m")
+        print(cio, row(SubString(r, i, j)))
+        c && print(io, "\e[28m")
+        i = nextind(str, j)
+    end
     return String(take!(io))
 end
 ansi(s::AbstractString) = ansi(torow(s))
@@ -409,7 +444,16 @@ ansi(s::AbstractString) = ansi(torow(s))
 `text` read as markup, under the style given as markup words - `"bold red"` -
 or not at all for `nothing`.
 """
-styled(text, style::Union{Nothing, AbstractString}) = faced(torow(text), face(style))
+function styled(text, style::Union{Nothing, AbstractString})
+    r = faced(torow(text), face(style))
+    # a face cannot conceal: a `:conceal` over the whole of it, for `ansi`
+    if !isnothing(style) && MarkupStyle(style).hidden && !isempty(r.string)
+        r = Row(r.string, vcat(Annot[Annot((a.region, a.label, a.value))
+            for a in StyledStrings.annotations(r)], Annot[Annot((1:thisind(r.string,
+            ncodeunits(r.string)), :conceal, true))]))
+    end
+    return r
+end
 styled(text) = torow(text)
 
 # -------------------------------- apply style ------------------------------- #
@@ -434,7 +478,7 @@ out by StyledStrings. Text with no markup in it is returned as it is.
 """
 function apply_style(text; leave_orphan_tags = false)::String
     has_markup(text) || return text
-    return ansi(torow(text))
+    return ansi(torow(text; leave_orphan_tags))
 end
 
 end

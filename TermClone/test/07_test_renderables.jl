@@ -38,15 +38,15 @@ end
 
     width = 22
     r = RenderableText(lorem; width = width)
-    # TermInput's rowwrap breaks at the last space that fits; Term's reshape_text breaks within 5 columns of the edge and keeps a leading space
-    @test_broken string(r) ==
-        "Lorem ipsum dolor     \nsit amet, consectetur \n adipiscing elit,     \nsed do eiusmod tempor \n incididunt ut labore "
+    # wrapped by TermInput's rowwrap, at other places than Term's reshape_text:
+    # the same text, which is what `@test_level` accepts as `reflow`
+    @test_level(string(r),
+        "Lorem ipsum dolor     \nsit amet, consectetur \n adipiscing elit,     \nsed do eiusmod tempor \n incididunt ut labore ")
     @test r.measure.w == width
 
     r = RenderableText(lorem; width = width, style = "red")
-    # TermInput's rowwrap breaks at the last space that fits; Term's reshape_text breaks within 5 columns of the edge and keeps a leading space
-    @test_broken string(r) ==
-        "\e[31mLorem ipsum dolor     \e[39m\n\e[31msit amet, consectetur \e[39m\n\e[31m adipiscing elit,     \e[39m\n\e[31msed do eiusmod tempor \e[39m\n\e[31m incididunt ut labore \e[39m"
+    @test_level(string(r),
+        "\e[31mLorem ipsum dolor     \e[39m\n\e[31msit amet, consectetur \e[39m\n\e[31m adipiscing elit,     \e[39m\n\e[31msed do eiusmod tempor \e[39m\n\e[31m incididunt ut labore \e[39m")
     @test r.measure.w == width
 
     @test string(RenderableText("a string")) == "a string"

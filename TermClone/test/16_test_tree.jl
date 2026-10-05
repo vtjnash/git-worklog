@@ -77,9 +77,7 @@ trees = [
     @test_nothrow Tree(AbstractFloat)
 
     # test printing
-    # the root and the long key line wrap at different places: TermInput's rowwrap breaks at the
-    # last space that fits, Term's reshape_text mid-word near the edge, so the height differs
-    @test_broken sprint(io -> show(io, Tree(trees[1]))) ==
+    @test sprint(io -> show(io, Tree(trees[1]))) ==
         "\e[38;5;117mTree <: AbstractRenderable\e[0m \e[2m(h:10, w:80)\e[0m"
     @test sprint(io -> show(io, MIME("text/plain"), Tree(trees[1]).segments[1])) ==
         "Segment{String} \e[2m(size: Measure (h: 1, w: 80))\e[0m"

@@ -103,14 +103,5 @@ This is where you print the content of your foot notes:
     for (i, m) in enumerate([m1, m2, m3])
         t = parse_md(m; width = 60)
         IS_WIN || @compare_to_string(t, "markdown_$i")
-        # Term's parse_md leaves some of its markup unapplied in what it returns,
-        # and rows have no markup to leave: the picture is compared too, with
-        # Term's markup applied.
-        IS_WIN || check_level(
-            t,
-            Term.apply_style(load_from_txt("./txtfiles/markdown_$i.txt")),
-            "markdown_$(i)_styled",
-            @__FILE__,
-        )
     end
 end

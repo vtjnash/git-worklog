@@ -154,10 +154,13 @@ function get_title_row(
     end
     t = torow(title)
     t = (rowwidth(t) < width - 12 || rowwidth(t) <= 4) ? t : rowfit(t, max(1, width - 15))
-    tf = isnothing(title_style) ? Face() : face(title_style)
+    # A title with a style of its own is drawn inside the line's: in its own
+    # faces, over the line's colour where it has none (never concealed). One
+    # with none is drawn plain, as Term resets before it.
+    tt = isnothing(title_style) ? t : faced(faced(t, face(title_style)), face(style))
     tw = rowwidth(t) + 2
     boxline = getfield(box, row)
-    titled(pre, post) = rowcat(σ(pre * " "), faced(t, tf), σ(" " * post))
+    titled(pre, post) = rowcat(σ(pre * " "), tt, σ(" " * post))
 
     line = if width < 6
         σ(boxline.left * boxline.mid^(width - 2) * boxline.right)

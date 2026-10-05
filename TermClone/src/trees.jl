@@ -4,7 +4,7 @@ using InteractiveUtils
 import Term
 
 import Term: highlight, TERM_THEME, Theme, Row, row, rowcat, rowwidth, faced,
-    reshape_rows, rows_to_width, joinrows
+    reshape_rows, rows_to_width, joinrows, rowwrap, pad_row
 
 import ..Renderables: AbstractRenderable, RenderableText
 import ..Style: apply_style, torow, face, styled
@@ -70,8 +70,8 @@ treeguides = Dict(
     TreeStyle
 
 What a tree is drawn in: a face for each kind of guide, the key and the pair
-mark, from the theme. The pair mark of a `hidden` style is blank, which is what
-Term means by it and what a face cannot say.
+mark, from the theme. The pair mark of a `hidden` style is concealed, as
+`Style.styled` conceals it.
 """
 struct TreeStyle
     guides::TreeCharSet
@@ -86,8 +86,7 @@ end
 
 function TreeStyle(g::TreeCharSet, theme::Theme)
     p = strip(g.pair)
-    mark = occursin("hidden", theme.tree_pair) ? row(" "^textwidth(p)) :
-        styled(p, theme.tree_pair)
+    mark = styled(p, theme.tree_pair)
     rsp = g.pair[nextind(g.pair, last(findfirst(p, g.pair))):end]
     return TreeStyle(g,
         styled(g.mid, theme.tree_mid),
@@ -326,8 +325,13 @@ function Tree(
     end
     push!(rs, row(""))   # Term's tree ends in a newline, and so in an empty line
 
+    # The lines are laid out already - guides, indentation, key - so one wider
+    # than the console is cut where it overflows, never reflowed at its
+    # spaces: those are the indentation that puts a child under its key. Like
+    # any text too wide, it is cut a column short of the width.
     w = min(maximum(rowwidth, rs), console_width(stdout))
-    lines = rows_to_width(joinrows(rs), w, :left)
+    lines = Row[pad_row(l, w, :left) for r in rs
+                for l in (rowwidth(r) > w ? rowwrap(r, w - 1; hard = true) : (r,))]
     segments = Segment.(lines)
     return Tree(segments, Measure(segments))
 end

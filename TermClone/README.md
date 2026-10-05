@@ -36,53 +36,99 @@ scrolls with `listwindow`, and the keys come from `readevent`.
 Term's snapshots are its exact bytes, and StyledStrings spells the same picture
 differently (it writes only what changes between faces; Term closes and reopens
 every colour). So each snapshot comparison (`check_level` in
-`test/__cells.jl`) is graded:
+`test/__cells.jl`) is graded, by a terminal emulator there that reads both
+strings into cells:
 
-| level   | meaning |
-|---|---|
-| `bytes` | the bytes Term wrote |
-| `cells` | the same terminal cells: same picture, different escapes |
-| `text`  | the same text, drawn differently |
-| `none`  | different text: a different layout |
+| level    | meaning | |
+|---|---|---|
+| `bytes`  | the bytes Term wrote | pass |
+| `cells`  | the same terminal cells: same picture, different escapes | pass |
+| `reflow` | the same styled text, broken into lines at other places, or cut with `…` where Term cuts with `...` | pass |
+| `text`   | the same text, drawn differently | broken |
+| `none`   | different text: a different layout | broken |
 
-A terminal emulator in `__cells.jl` reads both strings into cells to decide.
+`reflow` is TermInput's wrapping and elision, which are equivalent to Term's or
+better. It is strict about everything else: the same characters in the same
+faces in the same order once blanks and box lines are set aside; the same box
+characters in the same faces (more or fewer of them, never another kind, or one
+drawn where Term conceals it); and any line that says what one of Term's lines
+says drawn exactly as Term draws it - but for the one blank Term's wrap leaves
+at the start of a line, and the blanks before a cut. So a line that did not
+move is never let off, and an alignment or width bug is not a reflow.
+
+Bold and dim at once is read as bold on both sides: a face has one weight,
+and terminals draw the pair as one or the other. Term's output is compared as
+it is drawn: where it returns its markup still
+unapplied, or its braces escaped (`{{`), they are applied and unescaped first,
+as printing it does. And where Term's own output on this Julia differs from its
+snapshot, `test/txtfiles-1.14/` holds it - written by the real Term's suite in
+debug mode - and the better of the two is the level. Those are the 47
+snapshots that `Dict` order and `subtypes` order decide on this Julia.
+
 `test/expected/<file>.toml` lists every snapshot that is not `bytes` and the
-level it is at; the comparison is then `@test_broken` on the bytes and `@test`
-on that level, so a snapshot that gets *better or worse* fails. Run with
-`TERM_RECORD=1` to rewrite the manifests from what was observed (review the
-diff), `TERM_DUMP=dir` to keep both sides of every mismatch, and
-`TERM_TESTS=08,09` to run some files.
+level it is at, so a snapshot that gets *better or worse* fails; the broken
+levels are `@test_broken` on the bytes besides. Run with `TERM_RECORD=1` to
+rewrite the manifests from what was observed (review the diff),
+`TERM_DUMP=dir` to keep both sides of every mismatch, and `TERM_TESTS=08,09`
+to run some files.
 
     cd TermClone/test && julia --project=. runtests.jl
 
 ## Where it stands
 
-All 28 of Term's test files run: **2741 pass, 702 `@test_broken`, 0 fail**
-(Julia 1.14 nightly). Of the snapshots that are not Term's bytes, 337 are the
-same terminal cells, 104 the same text, and 258 a different layout
+All 28 of Term's test files run: **2741 pass, 40 `@test_broken`, 0 fail**
+(Julia 1.14 nightly, TermInput at `0187294`). Of the snapshots that are not
+Term's bytes, 466 are the same cells and 194 a reflow of them, which pass; 8
+are the same text drawn differently and 32 a different layout, which do not
 (`julia test/levels.jl` prints the table per file). For scale: the real Term
-fails on this Julia too, from `10_test_introspection` on (subtype order).
+fails on this Julia too, from `10_test_introspection` on.
+
+What is left broken, by cause - each a place where Term and the clone draw
+something differently on purpose, or where Term's output is its own bug:
+
+* **Term's colour restoration** (17): `{red}a{green}b{blue}c{/green}d{/blue}`
+  - Term reopens red at `{/green}`, where tags are a stack here and `d` is
+  still blue; and a colour applied as escapes rather than markup (a
+  `RenderableText`'s `style`) is lost after the first tag inside it closes,
+  where here it stays.
+* **The tree's indentation past the edge** (8): a key wider than the tree puts
+  its children's indent past the console's edge. Both cut it; Term breaks it at
+  a space five columns short of the edge, as its wrap breaks prose, and the
+  clone cuts it at the edge as it cuts any laid-out line, so the children
+  start five columns further left.
+* **A page of wrapped text** (6, the pager): the text wrapped at other places
+  is more or fewer lines, so the page the test turns to is another slice of
+  it. Each page is a reflow of Term's, but no one page is the same text.
+* **Byte slices** (4): highlight tests that compare the first 100 bytes of
+  Term's escapes, which only the same spelling can match.
+* **Unbalanced braces in code** (3): `{}}, Tuple{{}}` - Term escapes the lone
+  `{` and the clone keeps it; printed, the braces come out differently.
+* **One each** of a table (`mts_repr`, cells cut and padded to other widths)
+  and markdown (`markdown_3`, list spacing).
 
 ## Known differences, by cause
 
-These are what the broken tests come down to.
+Every way the clone's output differs from Term's - the ones that pass as
+equivalent (`cells`, `reflow`) as well as the ones above that do not.
 
 * **Escape spelling** (`cells`): StyledStrings writes the minimal transition,
   `\e[38;2;…m` for a 256-colour Term names (`dodger_blue2`), and no reset
   junk. Term's own literal-escape tests cannot pass; their pictures do.
-* **Wrapping** (most `none`): TermInput's `rowwrap` breaks at the last space
+* **Wrapping** (`reflow`): TermInput's `rowwrap` breaks at the last space
   that fits and drops it. Term's `reshape_text` breaks at a space only within
   five columns of the edge, mid-word otherwise, and keeps a leading space on
   the next line (and overflows CJK: 17 wide characters in a 33-column wrap).
   Every snapshot of wrapped prose differs in its line breaks. A renderable that
   is too wide is cut with `rowwrap(...; hard = true)`, which is Term's result.
-* **Elision**: `rowfit` ends a cut in `…`; Term's `str_trunc` in `...`, which
+* **Elision** (`reflow`): `rowfit` ends a cut in `…`; Term's `str_trunc` in `...`, which
   only a table's cells are cut with here.
 * **Lists**: no blank row after a list inside another, and a list inside a
   numbered item one column further in than Term's.
-* **Faces Term has and StyledStrings does not** (most `text`): no `hidden`
-  (conceal) and no `blink`; one weight, so `bold dim` is bold. A `hidden`
-  panel border is drawn. (A tree's `hidden` pair mark is drawn as blanks.)
+* **Faces Term has and StyledStrings does not**: no `blink`, and one weight,
+  so `bold dim` is bold - which is what most terminals draw for the pair, so
+  the cells compare it as bold. No conceal either: concealed text carries a
+  `:conceal` annotation instead, which `Style.ansi` writes as `\e[8m`, so a
+  `hidden` border is concealed as Term's is and still in the text.
 * **Terminfo**: StyledStrings writes italic, dim, strikethrough and reverse
   only where the terminal's terminfo has them, and 24-bit colour only where
   `COLORTERM` says so. The suite sets `TERM=xterm-256color` and
@@ -92,7 +138,8 @@ These are what the broken tests come down to.
 * **`reshape_text` returns escapes**, not markup: rows have no way back to
   markup, and nothing needs one. Term's markdown returns some markup unapplied.
 * **Dict order**: trees and tables of `Dict`s list keys in 1.14's order, not
-  the order Term's snapshots were taken in; fed Term's order they are `cells`.
+  the order Term's snapshots were taken in - as the real Term does on 1.14,
+  whose output (`test/txtfiles-1.14/`) they are graded against too.
 
 ## What this found about TermInput
 

@@ -1,5 +1,6 @@
 # How each snapshot of 17_test_dendogram.jl that does not match Term's bytes matches:
-# cells = same terminal cells, text = same text only, none = different text.
-dendogram_1 = "text"
-dendogram_2 = "text"
-dendogram_3 = "text"
+# cells = same terminal cells, reflow = same styled text wrapped or cut elsewhere (both pass);
+# text = same text only, none = different text (both broken).
+dendogram_1 = "cells"
+dendogram_2 = "cells"
+dendogram_3 = "cells"

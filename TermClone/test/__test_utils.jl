@@ -116,7 +116,11 @@ macro compare_to_string(obj, filename, func = identity, skip = nothing)
                 tofile(_txt, _fn)
             else
                 correct = load_from_txt(_fn)
-                check_level(_txt, correct, $filename, $__f) # <-- TEST
+                # Term's own output on this Julia, where it differs from the
+                # snapshot (`Dict` and subtype order): either is Term's picture
+                _alt = joinpath("./txtfiles-$(VERSION.major).$(VERSION.minor)", $filename * ".txt")
+                check_level(_txt, correct, $filename, $__f;
+                    alt = isfile(_alt) ? load_from_txt(_alt) : nothing) # <-- TEST
             end
         end
     end |> esc
