@@ -51,9 +51,12 @@ What TermInput's new API (TermInput.jl 0187294) lets wl stop doing by hand:
       of its own if the other is wanted. Colours and links come through
       `capture-pane -e` as the hosted pane's do (`iframe_sync!`).
 - [ ] Is it worthwhile to prefix keys with numbers for repeating (e.g. 6j for down 6), for kjnN? But we might want numbers for other hotkeys.
-- [ ] upgrade tmux_jll to latest in Yggdrasil: JuliaPackaging/Yggdrasil#14980
-      (3.7c, with `jemalloc_jll` on Apple, which 3.7c's configure wants
-      there, tmux#5385), open 2026-10-01; done when it merges and registers.
+- [ ] **Copy mode's screen from tmux.** `capture-pane -M` (tmux 3.6, and
+      tmux_jll is 3.7c now) reads copy mode's screen, selection drawn, where
+      TermIFrame paints the selection itself, rewriting the escapes of a
+      pane's rows in `paint_selection!`/`reverse_cells` - the one place
+      anything edits them. With `-M`, both go, and a pane's rows are tmux's
+      from end to end.
 - [ ] try rewriting the Term API on top of TermInput now, just to see if it is possible
 - [ ] **Other languages' code blocks, through Highlights as a TermInput
       extension.** Highlights 0.6.3 no longer imports Pkg
@@ -85,14 +88,7 @@ What TermInput's new API (TermInput.jl 0187294) lets wl stop doing by hand:
 
 ## Unverified
 
-- [ ] **`T` asks first.** On an item with no agent: the prompt, `tab` to the
-      picker and back with the title changed, `↵` with words and the agent's
-      first turn starting on them, `↵` with none, escape. And `^]T` from a
-      shell pane: the shell's pane is gone from the stack after (`^]q` once
-      reaches the browser).
-- [ ] **The filter pane's foot.** The sentence follows the cursor, wraps in
-      three rows at a narrow list, is not there below 20 rows, and a click on
-      it toggles nothing.
+Nothing now.
 
 ## Trim
 

@@ -374,3 +374,19 @@ it - and that one passes by construction.
 
 *2026-10-01*: pass, VS Code: ctrl pages; shift is VS Code's own and never
 arrives (`cat -v` prints nothing); `less` and `vim` get both.
+
+## 23. `T` asks first
+
+On an item with no agent: the prompt, `tab` to the picker and back with the
+title changed, `↵` with words and the agent's first turn starting on them,
+`↵` with none, escape. And `^]T` from a shell pane: the shell's pane is gone
+from the stack after (`^]q` once reaches the browser).
+
+*2026-10-05*: pass.
+
+## 24. The filter pane's foot
+
+The sentence follows the cursor, wraps in three rows at a narrow list, is
+not there below 20 rows, and a click on it toggles nothing.
+
+*2026-10-05*: pass.
