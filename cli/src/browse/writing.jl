@@ -374,8 +374,9 @@ function diff_picker(st::BState, ctrl::Controller, it::Item)
 end
 
 """A second `p`: which head to compare the head now against - where you last
-looked (the default), where the snooze put it away, or any of the pull
-request's own commits, newest first, which is the diff of what came after it."""
+looked (the default), where the snooze put it away, any of the pull request's
+own commits, newest first, which is the diff of what came after it, or last,
+any commit or branch the checkout can name, which asks."""
 function pushed_picker(st::BState, ctrl::Controller, it::Item)
     has_diff(it) || (st.status = "not a pull request"; return)
     opts = Tuple{Any,Any}[]
@@ -395,11 +396,17 @@ function pushed_picker(st::BState, ctrl::Controller, it::Item)
                          (sha, string(first(sha, 8)))))
         end
     end
+    repo = repo_path(it.repo)
+    repo === nothing || push!(opts, ("    another commit or branch\u2026", :other))
     push_view!(ctrl, ChooseView(string("Pushed since · ", it.ref),
         cs === nothing ? "the commits need a checkout of this branch" :
                          "what the head now changes, from one of these", opts,
         v -> begin
-            if v === :look
+            if v === :other
+                push_view!(ctrl, PromptView(string("Pushed since · ", it.ref),
+                    "a commit, branch or tag the checkout has",
+                    b -> pick_pfrom!(st, it, something(repo), String(strip(b)))))
+            elseif v === :look
                 st.pfrom = ("", "", "")
                 st.status = "since you last looked"
             else
@@ -407,6 +414,31 @@ function pushed_picker(st::BState, ctrl::Controller, it::Item)
                 st.status = string("since ", v[2])
             end
         end))
+end
+
+"""Compare what was pushed from `rev`, as the checkout resolves it - the
+pull request's remote's branch of that name before a local one, since a local
+`master` is whatever it was when you last pulled - and say so. Resolved here,
+once, so the key the load is held under is a commit, not a name that moves.
+Never fetches: a branch the checkout has not heard of is a sentence."""
+function pick_pfrom!(st::BState, it::Item, repo::AbstractString, rev::AbstractString)
+    # A leading dash is an option to git, not a name of anything.
+    (isempty(rev) || startswith(rev, "-")) &&
+        (st.status = string("not a commit or branch: ", rev); return)
+    rem = remote_for(repo, it.repo)
+    for cand in (string(rem, "/", rev), rev)
+        sha = try
+            String(strip(git(repo, "rev-parse", "--verify", "--quiet",
+                             string(cand, "^{commit}"))))
+        catch
+            ""
+        end
+        isempty(sha) && continue
+        st.pfrom = (it.url, sha, cand)
+        st.status = string("since ", cand)
+        return
+    end
+    st.status = string("no commit or branch ", rev, " in ", repo)
 end
 
 """Submit a review: pick the verdict, then write the body.

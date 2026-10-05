@@ -621,7 +621,11 @@ Three things answer it, all read off the mark `e` leaves:
   copy puts the commits it has not heard about inside the answer. A
   force-pushed head is fetchable by sha (measured: fourteen months old), so
   "gone" is not a state; a failure is the network. Needs a pinned checkout:
-  GitHub compares refs, and the head you saw is not one.
+  GitHub compares refs, and the head you saw is not one. git prints a new
+  commit in a range-diff as its header alone, so its own diff is put under
+  it (`added_patches`), folded; a second `p` can also start from any name
+  the checkout resolves, the remote's branch of that name before a local
+  one, never fetched.
 
 ## What is said, and where
 
@@ -968,7 +972,7 @@ wrong reaches the screen unless it is corrected before the parse
 
 ### tmux
 
-The binary is `tmux_jll`'s (3.5.1), or whatever `WORKLOG_TMUX` names; `PATH`
+The binary is `tmux_jll`'s (3.7c), or whatever `WORKLOG_TMUX` names; `PATH`
 is deliberately not consulted. It buys nothing - sessions live in a server
 addressed by a socket, so any binary sees the same ones and the user's own
 `tmux ls` lists these - and it would cost knowing what we are talking to:

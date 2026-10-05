@@ -451,8 +451,9 @@ end
           ["changed   1565527  change two", "gone      7005033  change four",
            "new       319d524  change four", "new       df0f13a  change one"]
     # A commit the rebase dropped keeps the sha it had, since the other column
-    # is `-------`; everything the rebase touched opens.
-    @test all(n -> n.open, ns)
+    # is `-------`; a pair that differs opens, and a new commit - all of it
+    # new, and only ever its own diff under it - folds.
+    @test [n.open for n in ns] == [true, true, false, false]
     @test occursin("TWOO", ns[1].raw) && isempty(ns[2].raw)
 
     # The colour says which range a line is in, which is the whole question
@@ -593,6 +594,12 @@ end
         @test occursin("rewritten", unstyled(ns[1].header))   # no base, so no "onto"
         @test occursin("no base branch to measure from", ns[1].raw)
         @test count(n -> occursin("master work", unstyled(n.header)), ns) == 10
+        # git prints a new commit as its header alone; each is its own diff
+        # here, folded, and drawn as the new side.
+        mw = ns[findfirst(n -> occursin("master work 3", unstyled(n.header)), ns)]
+        @test !mw.open && occursin("\n    +master 3", mw.raw)
+        @test occursin("diff --git a/m.txt b/m.txt", mw.raw)
+        @test faces(W.rangeline("    +master 3")) == ["    +master 3" => W.THEME.diff_add]
 
         # A push that only added to the branch is a plain diff instead, and
         # counts what arrived.
@@ -700,7 +707,8 @@ end
         @test v isa W.ChooseView && !v.ranged
         vals = [o[2] for o in v.options]
         @test vals[1] === :look && vals[2] == (shas[2], "the snooze")
-        @test [x[1] for x in vals[3:end]] == [shas[2], shas[1]]
+        @test [x[1] for x in vals[3:end-1]] == [shas[2], shas[1]]
+        @test vals[end] === :other
         W.pick!(v, 2)
         @test st.pfrom == (u, shas[2], "the snooze")
         ns = W.mode_nodes(:pushed, it, W.utcnow(); from = first(W.picked_of(st, it)))
@@ -710,6 +718,20 @@ end
         W.pick!(v, 1)
         @test st.pfrom == ("", "", "")
         @test occursin("2 commits added", unstyled(W.mode_nodes(:pushed, it, W.utcnow())[1].header))
+        # A name typed in is resolved once, to the commit it names now.
+        W.pick!(v, length(v.options))
+        pv = pop!(ctrl.stack)
+        @test pv isa W.PromptView
+        W.onpaste!(pv, "master", ctrl)
+        @test W.handle!(pv, 13, ctrl) === :pop
+        base = strip(W.git(main, "rev-parse", "master"))
+        @test st.pfrom == (u, base, "master") && st.status == "since master"
+        @test occursin("3 commits added", unstyled(W.mode_nodes(:pushed, it, W.utcnow();
+                                                   from = first(W.picked_of(st, it)))[1].header))
+        W.pick_pfrom!(st, it, main, "no-such-branch")
+        @test st.pfrom == (u, base, "master") && occursin("no commit or branch", st.status)
+        W.pick_pfrom!(st, it, main, "--all")
+        @test st.pfrom == (u, base, "master") && occursin("not a commit", st.status)
     finally
         W.LOCAL[] = keep
     end

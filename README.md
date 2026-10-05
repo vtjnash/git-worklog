@@ -59,7 +59,7 @@ Before 1.12, StyledStrings, which writes every row, draws dim straight over
 bold without ending it, so a focused box's title and the border beside it,
 or a bold row beside a quiet one, are drawn in both; that is accepted, and
 1.12 draws them apart.
-tmux comes bundled (`tmux_jll`, 3.5.1) and is what `t` and `T` run;
+tmux comes bundled (`tmux_jll`, 3.7c) and is what `t` and `T` run;
 `WORKLOG_TMUX` names another binary. The sessions are on the ordinary socket,
 so your own `tmux ls` sees them. No tmux on Windows.
 
@@ -120,7 +120,7 @@ GitHub.**
 | `?` | this table, on screen |
 | `j`/`k` `g`/`G` `space`/`b` | move, and the arrow, Home/End and page keys likewise; `tab` moves the keyboard between panes; `^j`/`^k` are the next and previous item from either |
 | `↵` | on an item: read it; in the detail: fold; on the row above the first item: import a url |
-| `h` `d` `p` `c` | the thread - its history, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks. `d` again on the diff picks which of the pull request's commits to show - one, or a run with shift-↑/↓ - and `p` again on what was pushed picks where to compare from: where you last looked, where the snooze put it away, or after any of its commits. Each is kept for the item until the next pick, and needs a checkout. An adopted branch has `d` and `p` too, from its checkout alone: the diff from where it leaves the default branch, and what has moved since `e` |
+| `h` `d` `p` `c` | the thread - its history, with the pushes and the closes, merges and reopenings among the comments · the diff · what was pushed since you last looked · the checks. `d` again on the diff picks which of the pull request's commits to show - one, or a run with shift-↑/↓ - and `p` again on what was pushed picks where to compare from: where you last looked, where the snooze put it away, after any of its commits, or any commit or branch the checkout has, typed in. Each is kept for the item until the next pick, and needs a checkout. An adopted branch has `d` and `p` too, from its checkout alone: the diff from where it leaves the default branch, and what has moved since `e` |
 | `[` `]` | widen a hunk's context; `l` fetches a failing Buildkite job's log |
 | `n`/`N` | next/previous node, or search match |
 | `/` | search; a bare number in the list jumps to that item past any filter, the same way `"` does. In the detail it is a regex (a half-typed one is taken literally), case-insensitive unless it starts `\C`, and `/` then `↵` or `↑` searches for the last one again. The query edits like any other field: the arrows, `^a`/`^e`, `^w`, `^k`, `^y` |

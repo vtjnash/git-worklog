@@ -1258,7 +1258,10 @@ function rangediff_nodes(txt::AbstractString)
         # `-------` is not something to put in front of a subject line.
         sha = newsha == "-------" ? oldsha : newsha
         byline = faced(rpad(what, 10), col) * faced(first(sha, 8), THEME.dim)
-        n = Node(byline * "  " * subj, "", :plain, first(mark) != '=')
+        # Open where the pair differs. A new commit has no pair to differ
+        # from, so what is under it - its own diff, which `added_patches` put
+        # there - is the whole commit, and folds like an unchanged one.
+        n = Node(byline * "  " * subj, "", :plain, first(mark) in ('!', '<'))
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", subj)
         # What `o` opens, anywhere on the node: the pair is one commit.
         n.meta["sha"] = String(sha)
@@ -1268,6 +1271,37 @@ function rangediff_nodes(txt::AbstractString)
     flush!()
     isempty(ns) || uninert(ctl) || pushfirst!(ns, ctlnode(ctl))
     ns
+end
+
+"""`git range-diff` output with each new commit's own diff under its pair
+header, indented as an inner diff is.
+
+git prints a commit with nothing on the other side - `-:  ------- > 2:  abc` -
+as its header and nothing else, since the whole of it is new and printing it is
+noise in a rebase of forty. Here a new commit is one node, folded, and opening
+it should show what it does rather than nothing. Four spaces is what
+`RANGE_PAIR` reads as body, so no line of the patch can be taken for a header;
+column five is then the patch's own `+` or `-`, which `rangeline` colours as
+the diff pane would, rather than the outer marker every line of a new commit
+would share.
+"""
+function added_patches(repo::AbstractString, txt::AbstractString)
+    out = String[]
+    for l in split(txt, "\n")
+        push!(out, l)
+        m = match(RANGE_PAIR, l)
+        (m === nothing || m[3] != ">") && continue
+        patch = try
+            git(repo, "show", "-M", "--no-color", "--no-ext-diff", "--format=",
+                "--src-prefix=a/", "--dst-prefix=b/", String(something(m[5])))
+        catch
+            continue
+        end
+        for pl in split(strip(==('\n'), patch), "\n"; keepempty = false)
+            push!(out, string("    ", pl))
+        end
+    end
+    join(out, "\n")
 end
 
 """What has been pushed to this branch since the done mark was made.
@@ -1371,7 +1405,7 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
     lead.meta["url"] = files_link(it)
     ns = kind === :diff ? hunk_nodes(txt, files_link(it); head = new) :
-                          rangediff_nodes(txt)
+                          rangediff_nodes(added_patches(repo, txt))
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
     ns
