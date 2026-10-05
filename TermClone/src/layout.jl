@@ -20,8 +20,8 @@ import ..Renderables: RenderablesUnion, Renderable, AbstractRenderable, Renderab
 import ..Consoles: console_width, console_height
 import ..Measures: Measure, height, width
 import ..Boxes: get_lrow, get_rrow
-import ..Style: apply_style, face, torow, ansi, get_style_codes, MarkupStyle
-import Term: Row, row, rowcat, faced, rowwidth, pad_row
+import ..Style: apply_style, face, torow, ansi
+import Term: Row, row, rowcat, faced, rowwidth, pad_row, rowhead, rowtail
 import ..Segments: Segment, get_string_types
 using ..Boxes
 
@@ -829,17 +829,13 @@ function PlaceHolder(
     l = width(text)
 
     if l < (w / 2) && w > 13
-        # where Term cuts the line for the label: a fifth or a third of the
-        # bytes of the line *with its escapes*, counted in characters of it
-        f = w < 30 ? 2.5 : 3
+        # centred by its width: Term places it by the length of the line's
+        # escapes instead, so its label moves with the style
         k = cint(h / 2)
         original = k % 2 != 0 ? b1 : b2
-        open, close = get_style_codes(MarkupStyle(style))
-        _w = cint((ncodeunits(original) + ncodeunits(open) + ncodeunits(close)) / f) - length(open)
-        _l = cint(l / 2)
-        cs = collect(original)
-        head = join(cs[1:clamp(_w - _l, 0, length(cs))])
-        tail = join(cs[clamp(_w + _l, 1, length(cs) + 1):end])
+        left = (w - l) ÷ 2
+        head = rowhead(original, left)
+        tail = rowtail(original, w - left - l)
         lines[k] = Segment(rowcat(
             faced(head, face(style)),
             faced(text, face("default bold white")),

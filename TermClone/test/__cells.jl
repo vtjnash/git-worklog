@@ -179,7 +179,10 @@ samecells(a, b) = screen(string(a)) == screen(string(b))
 function frame_cell(c::Tuple)
     g = c[1]
     all(isspace, g) && return true
-    length(g) == 1 && ('\u2500' <= g[1] <= '\u257F') && return true
+    # the box-drawing block, but for its diagonals (`╱╲╳`), which fill a
+    # placeholder rather than draw a box round anything
+    length(g) == 1 && ('\u2500' <= g[1] <= '\u257F') && !('\u2571' <= g[1] <= '\u2573') &&
+        return true
     return false
 end
 

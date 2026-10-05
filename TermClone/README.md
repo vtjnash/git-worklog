@@ -60,7 +60,8 @@ Bold and dim at once is read as bold on both sides: a face has one weight,
 and terminals draw the pair as one or the other. Term's output is compared as
 it is drawn: where it returns its markup still
 unapplied, or its braces escaped (`{{`), they are applied and unescaped first,
-as printing it does. And where Term's own output on this Julia differs from its
+as printing it does. The box characters set aside are the box-drawing block
+but its diagonals (`╱╲╳`), which fill a placeholder rather than draw a box. And where Term's own output on this Julia differs from its
 snapshot, `test/txtfiles-1.14/` holds it - written by the real Term's suite in
 debug mode - and the better of the two is the level. Those are the 47
 snapshots that `Dict` order and `subtypes` order decide on this Julia.
@@ -76,10 +77,10 @@ to run some files.
 
 ## Where it stands
 
-All 28 of Term's test files run: **2741 pass, 40 `@test_broken`, 0 fail**
+All 28 of Term's test files run: **2741 pass, 52 `@test_broken`, 0 fail**
 (Julia 1.14 nightly, TermInput at `0187294`). Of the snapshots that are not
-Term's bytes, 466 are the same cells and 194 a reflow of them, which pass; 8
-are the same text drawn differently and 32 a different layout, which do not
+Term's bytes, 454 are the same cells and 194 a reflow of them, which pass; 8
+are the same text drawn differently and 44 a different layout, which do not
 (`julia test/levels.jl` prints the table per file). For scale: the real Term
 fails on this Julia too, from `10_test_introspection` on.
 
@@ -91,6 +92,10 @@ something differently on purpose, or where Term's output is its own bug:
   still blue; and a colour applied as escapes rather than markup (a
   `RenderableText`'s `style`) is lost after the first tag inside it closes,
   where here it stays.
+* **A placeholder's label** (12, the app frames): centred here. Term places
+  it by the length of the line's escape codes, so it moves with the style -
+  from the middle of a `dim` placeholder to a quarter of the way in for
+  `"#ff8800 dim"` (`TERM-BUGS.md`, 6).
 * **The tree's indentation past the edge** (8): a key wider than the tree puts
   its children's indent past the console's edge. Both cut it; Term breaks it at
   a space five columns short of the edge, as its wrap breaks prose, and the
