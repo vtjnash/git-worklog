@@ -1,6 +1,4 @@
 import Base.StackTraces: StackFrame
-import MyterialColors: pink, indigo_light
-import Term: read_file_lines
 
 # ---------------------------------------------------------------------------- #
 #                                     MISC                                     #

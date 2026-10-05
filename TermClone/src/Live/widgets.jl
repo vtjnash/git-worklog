@@ -76,9 +76,6 @@ function frame(tw::TextWidget; kwargs...)
     return RenderableText(txt; width = measure.w - 4)
 end
 
-"The rows of a renderable, one per line."
-rows(r::AbstractRenderable) = Row[s.row for s in r.segments]
-
 # ---------------------------------------------------------------------------- #
 #                                   INPUT BOX                                  #
 # ---------------------------------------------------------------------------- #

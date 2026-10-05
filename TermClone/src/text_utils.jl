@@ -4,15 +4,7 @@
 """
 multiple strings replacement.
 """
-function replace_multi(text::AbstractString, pairs::Pair...)::String
-    VERSION ≥ v"1.7" && return replace(text, pairs...)
-    VERSION < v"1.7" && begin
-        for pair in pairs
-            text = replace(text, pair)
-        end
-    end
-    return text
-end
+replace_multi(text::AbstractString, pairs::Pair...)::String = replace(text, pairs...)
 
 plural(word::AbstractString, n) = n <= 1 ? word : word * 's'
 
@@ -117,54 +109,7 @@ unescape_brackets(text)::String = replace_multi(text, "{{" => "{", "}}" => "}")
 
 unescape_brackets_with_space(text)::String = replace_multi(text, "{{" => " {", "}}" => "} ")
 
-# ------------------------------ multiline-style ----------------------------- #
-"""
-    fix_markup_across_lines(lines::Vector{AbstractString})::Vector{AbstractString}
-
-When splitting text with markup tags across multiple lines, tags can get separated
-across lines. This is a problem when the text gets printed side by side with other
-text with style information. This fixes that by copying/closing markup tags
-across lines as requested.
-Essentially, if a tag is opened but not closed in a line, close it at the end of
-the line and add the same open tag at the start of the next, taking care of
-doing things in the correct order when multiple tags are in the same line.
-"""
-function fix_markup_across_lines(lines::Vector)::Vector
-    for (i, ln) in enumerate(lines)
-        # loop over each open tag regex
-        for open_match in reverse(collect(eachmatch(OPEN_TAG_REGEX, ln)))
-            # get closing tag text
-            markup = open_match.match[2:(end - 1)]
-            close_tag = "{/$markup}"
-
-            # if there's no close tag, add the open tag to the next line and close it on this
-            if !occursin(close_tag, ln[(open_match.offset):end]) && !occursin("{/}", ln)
-                # @info "carrying over" i markup
-                ln = ln * "{/$markup}"
-                i < length(lines) && (lines[i + 1] = "{$markup}" * lines[i + 1])
-            end
-        end
-        lines[i] = ln # * "\e[0m"
-    end
-
-    return lines
-end
-
-""" Check if an ANSI tag is a closer """
-is_closing_ansi_tag(tag::AbstractString) =
-    tag ∈ (
-    "\e[0m",
-    "\e[39m",
-    "\e[49m",
-    "\e[22m",
-    "\e[23m",
-    "\e[24m",
-    "\e[25m",
-    "\e[27m",
-    "\e[28m",
-    "\e[29m",
-)
-
+# ------------------------------- closing tags ------------------------------- #
 const ansi_pairs = Dict(
     "\e[22m" => "\e[22m",
     "\e[1m" => "\e[22m",
@@ -198,58 +143,9 @@ function get_closing_ansi_tag(tag::AbstractString)
     return nothing
 end
 
-""" Same as `fix_markup_across_lines` but for ANSI style tags. """
-function fix_ansi_across_lines(lines::Vector)::Vector
-    for (i, ln) in enumerate(lines)
-        for match in reverse(collect(eachmatch(ANSI_REGEX, ln)))
-            ansi = match.match
-            is_closing_ansi_tag(ansi) && continue
-
-            # get closing tag
-            closer = get_closing_ansi_tag(ansi)
-
-            # check if the closing tag occurs in the line
-            if !occursin(closer, ln[(match.offset):end])
-                # if no closing, add closing to end of line and tag to start of next line
-                ln = ln * closer
-                i < length(lines) && (lines[i + 1] = ansi * lines[i + 1])
-            end
-        end
-        lines[i] = ln
-    end
-
-    return lines
-end
-
 # ---------------------------------------------------------------------------- #
-#                                      I/O                                     #
+#                                     MISC                                   #
 # ---------------------------------------------------------------------------- #
-"""
-    read_file_lines(path::String, start::Int, stop::Int)
-
-Read a file and select only lines in range `start` -> `stop`.
-
-Returns a vector of tuples with the line number and line content.
-"""
-function read_file_lines(path::AbstractString, start::Int, stop::Int)
-    !isfile(path) && return nothing
-
-    start = start < 1 ? 1 : start
-    stop = stop ≥ countlines(path) ? countlines(path) : stop
-    lines = readlines(path; keep = true)
-    return collect(enumerate(lines))[start:stop]
-end
-
-# ---------------------------------------------------------------------------- #
-#                                     MISC                                     #
-# ---------------------------------------------------------------------------- #
-"""
-    tview(text, start::Int, stop::Int)
-
-Get a view object with appropriate indices
-"""
-tview(text, start::Int, stop::Int) = view(text, thisind(text, start):thisind(text, stop))
-
 """
     replace_text(text::AbstractString, start::Int, stop::Int, replace::AbstractString)
 
@@ -292,16 +188,6 @@ function ltrim_str(str, width)
     else
         str[1:edge]
     end
-end
-
-"""
-    rtrim_str(str, width)
-
-Cut a chunk of width `width` form the right of a string
-"""
-function rtrim_str(str, width)
-    edge = nextind(str, 0, width)
-    return str[edge:end]
 end
 
 """
@@ -392,26 +278,6 @@ function str_trunc(
     textlen(out) == 0 && return out
     out[end] != ' ' && (out *= trailing_dots)
     return out
-end
-
-# ---------------------------------------------------------------------------- #
-#                                     LINK                                     #
-# ---------------------------------------------------------------------------- #
-
-"""
-    excise_link_display_text(link::String)
-
-Given a link string of the form:
-    "\x1b]8;;LINK_DESTINATION\x1b\\LINK_DISPLAY_TEXT\x1b]8;;\x1b\\"
-this function returns "LINK_DISPLAY_TEXT" alone.
-"""
-function excise_link_display_text(link::AbstractString)
-    parts = split(link, "\x1b\\")
-    return if length(parts) > 1
-        replace(parts[2], "\e]8;;" => "")
-    else
-        ""
-    end
 end
 
 """

@@ -16,29 +16,25 @@ using Markdown
 import MyterialColors: Palette, blue, pink
 
 import TermInput
-import TermInput: Row, row, rowcat, rowwidth, rowpad, rowfit, faced, overlaid,
+import TermInput: Row, row, rowcat, rowwidth, faced,
     KeyEvent, PasteEvent, EndEvent, readevent, enter_terminal, leave_terminal,
     InputReader, arm!, input_waiting, HeldTerminal, listmove, listwindow,
     TextArea, Choice, handle!, picked, selected, select!, markdown_rows, MarkdownStyle, Keys,
     frame_bytes, drawcursor
 import TermInput.Keys: K_LEFT, K_RIGHT, K_UP, K_DOWN, K_DEL, K_HOME, K_END, K_PGUP,
-    K_PGDN, K_BASE, keycode, keychar, printable
-import StyledStrings: Face
+    K_PGDN, K_BASE, keycode, keychar
 
-import Term: default_width, reshape_text, reshape_rows, joinrows, rows_to_width, highlight,
-    TERM_THEME, fint, remove_ansi
-import ..Renderables: AbstractRenderable, RenderableText, Renderable
-import ..Segments: Segment
+import Term: default_width, reshape_rows, joinrows, rows_to_width, highlight,
+    TERM_THEME, fint
+import ..Renderables: AbstractRenderable, RenderableText, Renderable, rows
 import ..Panels: Panel
 import ..Measures: Measure
 import ..Measures: width as get_width
-import ..Measures: height as get_height
 using ..Consoles
 import ..Style: apply_style, torow, ansi, face
-import ..Layout: Spacer, vLine, vstack, hLine, hstack, PlaceHolder
+import ..Layout: vLine, vstack, hstack, PlaceHolder
 import ..Compositors: Compositor, render, update!
-import ..Repr: @with_repr, termshow
-import ..Tprint: tprint
+import ..Repr: @with_repr
 
 export AbstractWidget, refresh!, play, key_press, shouldupdate, frame, stop!
 export Pager
@@ -80,27 +76,6 @@ struct Esc <: KeyInput end
 struct Del <: KeyInput end
 
 """
-Term's table, by the codes `REPL.TerminalMenus.readkey` answers. Kept for
-anything that still has such a code; the keys arrive here as TermInput's codes,
-see [`KEYCODES`](@ref).
-"""
-KEYs = Dict{Int, KeyInput}(
-    13 => Enter(),
-    27 => Esc(),
-    32 => SpaceBar(),
-    127 => Del(),
-    1000 => ArrowLeft(),
-    1001 => ArrowRight(),
-    1002 => ArrowUp(),
-    1003 => ArrowDown(),
-    1004 => DelKey(),
-    1005 => HomeKey(),
-    1006 => EndKey(),
-    1007 => PageUpKey(),
-    1008 => PageDownKey(),
-)
-
-"""
     KEYCODES
 
 Term's named keys by the `TermInput.Keys` code each arrives as from
@@ -139,20 +114,6 @@ function keyinput(code::Int)
     0 <= code < K_BASE && return keychar(code)
     return nothing
 end
-
-const _CODEOF = Dict{KeyInput, Int}(
-    Enter() => 13, Esc() => 27, SpaceBar() => 32, Del() => 127,
-    ArrowLeft() => K_LEFT, ArrowRight() => K_RIGHT, ArrowUp() => K_UP,
-    ArrowDown() => K_DOWN, DelKey() => K_DEL, HomeKey() => K_HOME,
-    EndKey() => K_END, PageUpKey() => K_PGUP, PageDownKey() => K_PGDN,
-)
-"""
-    tikey(k::KeyInput) -> Int
-
-The TermInput code of one of Term's named keys: what a control function hands
-to a TermInput widget's `handle!`.
-"""
-tikey(k::KeyInput) = _CODEOF[k]
 
 """
 The terminal a running app holds, for a widget that hands it to `\$EDITOR`

@@ -1,10 +1,9 @@
 module Boxes
 
-import Term: rint, chars, join_lines, loop_last, textlen, get_lr_widths, str_trunc,
+import Term: join_lines, loop_last, get_lr_widths,
     default_width, Row, rowcat, rowwidth, rowfit, faced, TermInput
-import StyledStrings: Face
 
-import ..Style: apply_style, face, torow, styled
+import ..Style: face, torow, styled
 import ..Segments: Segment
 
 export get_row, get_title_row

@@ -1,8 +1,9 @@
 module Measures
 
-import Term: Row, rowwidth, rowlines, rint, remove_ansi, remove_markup, default_width, cleantext, DEFAULT_ASPECT_RATIO, textlen
+import Term: Row, rowwidth, rowlines, rint, remove_ansi, remove_markup, default_width, textlen,
+    DEFAULT_ASPECT_RATIO
 import Base: ==
-export Measure, Measure_clean
+export Measure
 
 """
     Measure
@@ -43,11 +44,6 @@ TermInput's `rowwidth`.
 function Measure(r::Row)
     lines = rowlines(r)
     return Measure(length(lines), maximum(rowwidth, lines))
-end
-
-function Measure_clean(str::AbstractString)
-    lines = cleantext.(split(str, '\n'))
-    return Measure(length(lines), maximum(length.(lines)))
 end
 
 Measure(::Nothing) = Measure(0, 0)

@@ -12,8 +12,8 @@ import Tables as TablesPkg
 import Term: TERM_THEME, Row, row, rowcat, rowwidth, rowfit, rowlines, pad_row, TermInput
 import TermInput: tablerows
 
-import ..Renderables: AbstractRenderable, RenderableText, rows as renderable_rows
-import ..Measures: Measure, width, height
+import ..Renderables: AbstractRenderable, rows as renderable_rows
+import ..Measures: Measure, width
 import ..Style: styled, torow, face
 import ..Segments: Segment
 import ..Tprint: tprintln

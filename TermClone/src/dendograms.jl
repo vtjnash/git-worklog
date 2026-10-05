@@ -2,12 +2,11 @@
 # strings; the titles are rows, styled and centred by `pad_row`.
 module Dendograms
 
-import Term: fint, rint, cint, str_trunc, loop_firstlast, highlight, textlen, TERM_THEME,
-    Row, row, rowcat, rowwidth, pad_row
+import Term: fint, rint, cint, str_trunc, loop_firstlast, textlen, TERM_THEME, row, rowcat, pad_row
 
 import ..Renderables: AbstractRenderable
-import ..Boxes: get_rrow, get_lrow, get_row, BOXES
-import ..Style: apply_style, styled
+import ..Boxes: get_row, BOXES
+import ..Style: styled
 import ..Segments: Segment
 import ..Measures: Measure
 import ..Layout: pad

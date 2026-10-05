@@ -4,11 +4,10 @@ import ..Measures: Measure, width
 import ..Measures
 import ..Segments
 import ..Segments: Segment
-import ..Style: apply_style, face, torow, ansi
+import ..Style: face, torow, ansi
 import ..Renderables: RenderableText, AbstractRenderable
 import ..Renderables
-import ..Layout: pad
-import Term: textlen, TERM_THEME, cleantext, excise_link_display_text, remove_ansi, Row,
+import Term: textlen, TERM_THEME, Row,
     linked, faced, rowwidth, pad_row
 import Term
 

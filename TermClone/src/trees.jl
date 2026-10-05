@@ -3,14 +3,13 @@ module Trees
 using InteractiveUtils
 import Term
 
-import Term: highlight, TERM_THEME, Theme, Row, row, rowcat, rowwidth, faced,
-    reshape_rows, rows_to_width, joinrows, rowwrap, pad_row
+import Term: highlight, TERM_THEME, Theme, Row, row, rowcat, rowwidth,
+    reshape_rows, joinrows, rowwrap, pad_row
 
-import ..Renderables: AbstractRenderable, RenderableText
-import ..Style: apply_style, torow, face, styled
+import ..Renderables: AbstractRenderable
+import ..Style: torow, face, styled
 import ..Segments: Segment
 import ..Measures: Measure
-import ..Panels: Panel
 import ..Consoles: console_width
 
 export Tree
@@ -209,16 +208,6 @@ function tree_rows!(
             prefix = child_prefix, lead, printnode_kw)
     end
     return out
-end
-
-# kept for Term's API: the tree drawn and written to `io` as text.
-function term_print_tree(printnode::Function, print_child_key::Function, io::IO, node;
-        charset::TreeCharSet = treeguides[:standardtree], prefix::AbstractString = "", kw...)
-    ts = TreeStyle(charset, TERM_THEME[])
-    rs = tree_rows!(Row[], printnode, print_child_key, io, node, ts;
-        prefix = [row(prefix)], kw...)
-    foreach(r -> println(io, Term.Style.ansi(r)), rs)
-    return nothing
 end
 
 # ---------------------------------------------------------------------------- #

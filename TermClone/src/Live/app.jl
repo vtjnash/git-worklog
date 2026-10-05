@@ -8,14 +8,13 @@
 at the last refresh (an [`InlineView`](@ref), which redraws only the lines that
 changed), when, and the terminal while the app is playing - a
 `TermInput.HeldTerminal` from `enter_terminal`, taken in `play` and given back
-by `stop!`, rather than raw mode entered when the app is made.
+by `stop!`.
 """
 @with_repr mutable struct AppInternals
     view::InlineView
     term::Union{Nothing, HeldTerminal}
     prevcontent::Union{Nothing, AbstractRenderable}
     prevcontentlines::Vector{String}
-    raw_mode_enabled::Bool
     last_update::Union{Nothing, Int}
     refresh_Δt::Int
     help_shown::Bool
@@ -25,14 +24,12 @@ by `stop!`, rather than raw mode entered when the app is made.
     function AppInternals(;
             refresh_rate::Int = 60,
             help_message = nothing,
-            suppress_output = false,
         )
         return new(
             InlineView(stdout),
             nothing,
             nothing,
             String[],
-            false,
             nothing,
             (Int ∘ round)(1000 / refresh_rate),
             false,
@@ -166,7 +163,6 @@ function App(
     transition_rules =
         isnothing(transition_rules) ? infer_transition_rules(layout) : transition_rules
 
-    msg_style = TERM_THEME[].emphasis
     app = App(
         AppInternals(;
             help_message
@@ -446,7 +442,6 @@ function stop!(app::App)
     internals = app.internals
     isnothing(internals.term) || leave_terminal(internals.term)
     internals.term = nothing
-    internals.raw_mode_enabled = false
     ACTIVE_TERMINAL[] = nothing
     return nothing
 end
@@ -464,7 +459,6 @@ function play(app::App; transient::Bool = true, input::IO = stdin, output::IO = 
     internals = app.internals
     t = enter_terminal(input, output; paste = true)
     internals.term = t
-    internals.raw_mode_enabled = !isnothing(t.tty)
     ACTIVE_TERMINAL[] = t
     internals.should_stop = false
     internals.view = InlineView(output)

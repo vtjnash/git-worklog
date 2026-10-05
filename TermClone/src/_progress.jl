@@ -1,4 +1,4 @@
-import MyterialColors: orange_light, teal, purple_light, blue_light
+import MyterialColors: orange_light, blue_light
 
 """
 Definition of several type of columns for progress bars.

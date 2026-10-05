@@ -15,14 +15,13 @@ import Term: highlight, TERM_THEME
 import ..Style: apply_style, torow, ansi, face
 import TermInput: rowcat, faced
 import ..Tprint: tprint, tprintln
-import ..Measures: width as get_width
 import ..Consoles: console_width
 import ..LiveWidgets: InlineView, draw!, erase!
 import TermInput
 import TermInput: LineInput, Choice, KeyEvent, PasteEvent, EndEvent, readevent,
     enter_terminal, leave_terminal, handle!, picked, submission, DIALOG_WIDTH
 import TermInput.Keys: C_G
-import ..Repr: @with_repr, termshow
+import ..Repr: @with_repr
 
 export Prompt, TypePrompt, OptionsPrompt, DefaultPrompt, confirm, ask
 

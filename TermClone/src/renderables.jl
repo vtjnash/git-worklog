@@ -1,30 +1,24 @@
 module Renderables
 
 import Term:
-    split_lines,
-    join_lines,
     unescape_brackets_with_space,
     DEBUG_ON,
-    textwidth,
-    textlen,
     NOCOLOR,
     cleantext,
     Row,
     row,
-    rowlines,
     rowwidth,
     rowfit,
     rowwrap,
     rows_to_width,
     pad_row,
-    faced,
-    highlight as highlighter
+    faced
 
 import Term
 import ..Consoles: console_width
-import ..Measures: Measure, Measure_clean, width as get_width
-import ..Segments: Segment, get_string_types
-import ..Style: apply_style, MarkupStyle, get_style_codes, torow, ansi, face
+import ..Measures: Measure, width as get_width
+import ..Segments: Segment
+import ..Style: torow, face
 
 export AbstractRenderable, Renderable, RenderableText
 

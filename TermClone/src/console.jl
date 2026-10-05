@@ -22,9 +22,6 @@ export console_height,
     enable,
     disable
 
-const STDOUT = stdout
-const STDERR = stderr
-
 # ---------------------------------------------------------------------------- #
 #                                CURSOR CONTROL                                #
 # ---------------------------------------------------------------------------- #

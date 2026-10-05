@@ -5,8 +5,8 @@ From Term.jl (MIT, see LICENSE.Term).
 """
 module Grid
 
-import ..Renderables: Renderable, AbstractRenderable, RenderableText
-import ..Measures: Measure, default_size, height, width
+import ..Renderables: Renderable, AbstractRenderable
+import ..Measures: default_size
 import ..Layout: PlaceHolder, vstack
 import ..Compositors: Compositor
 import ..Consoles: console_width, console_height

@@ -1,7 +1,7 @@
 module Segments
 
-import Term: remove_markup, remove_ansi, unescape_brackets, Row, rowcat
-import ..Style: apply_style, MarkupStyle, torow, ansi, styled
+import Term: unescape_brackets, Row, rowcat
+import ..Style: torow, ansi, styled
 import ..Measures: Measure
 using Term: Term
 
@@ -60,12 +60,5 @@ Base.show(io::IO, ::MIME"text/plain", seg::Segment) =
 Base.:*(seg::Segment, str::AbstractString) = Segment(rowcat(seg.row, torow(str)))
 Base.:*(str::AbstractString, seg::Segment) = Segment(rowcat(torow(str), seg.row))
 Base.:*(seg1::Segment, seg2::Segment) = Segment(rowcat(seg1.row, seg2.row))
-
-"""
-    get_string_types(segments_vectors...)
-
-Kept for Term's API: every segment here is written out as a `String`.
-"""
-get_string_types(segments_vectors...)::DataType = String
 
 end

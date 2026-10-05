@@ -5,24 +5,20 @@ import Parameters: @with_kw
 import Term:
     rint,
     get_lr_widths,
-    textlen,
     cint,
-    fint,
-    rtrim_str,
     ltrim_str,
     do_by_line,
     get_bg_color,
     TERM_THEME,
     string_type
 
-import Term: justify as justify_text
 import ..Renderables: RenderablesUnion, Renderable, AbstractRenderable, RenderableText
 import ..Consoles: console_width, console_height
 import ..Measures: Measure, height, width
 import ..Boxes: get_lrow, get_rrow
-import ..Style: apply_style, face, torow, ansi
-import Term: Row, row, rowcat, faced, rowwidth, pad_row, rowhead, rowtail
-import ..Segments: Segment, get_string_types
+import ..Style: face, torow
+import Term: row, rowcat, faced, rowwidth, pad_row, rowhead, rowtail
+import ..Segments: Segment
 using ..Boxes
 
 export Padding, vstack, hstack, pad, pad!, vertical_pad, vertical_pad!

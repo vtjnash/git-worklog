@@ -2,42 +2,30 @@ module Introspection
 
 using InteractiveUtils
 import OrderedCollections: OrderedDict
-import MyterialColors: pink, pink_light, orange, grey_dark, light_green
+import MyterialColors: orange, grey_dark
 
 import Term:
     highlight,
-    escape_brackets,
-    join_lines,
     unescape_brackets,
-    split_lines,
-    do_by_line,
     expr2string,
     default_width,
     TERM_THEME,
-    highlight_syntax,
-    load_code_and_highlight,
-    str_trunc,
-    reshape_text,
     reshape_rows,
     joinrows,
     code_row,
-    Row,
     rowcat,
     faced
 
-import ..Renderables: Renderable, RenderableText, rows
+import ..Renderables: Renderable, rows
 import ..Panels: Panel
 import ..Dendograms: Dendogram
 import ..Trees: Tree
-import ..Layout: hLine, vLine, Spacer, rvstack, lvstack
-import ..Tprint: tprintln
+import ..Layout: hLine
 import ..Repr: termshow, type_fields
 using ..LiveWidgets
 import ..TermMarkdown: parse_md
-import ..Consoles: console_width, console_height
-import ..Style: apply_style, face, torow
+import ..Style: face
 import ..Compositors: Compositor
-import ..Links: Link
 
 include("_inspect.jl")
 

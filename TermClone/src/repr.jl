@@ -7,13 +7,11 @@ import Term:
     str_trunc,
     escape_brackets,
     highlight,
-    do_by_line,
     unescape_brackets,
     split_lines,
     TERM_THEME,
     default_width,
     plural,
-    reshape_text,
     remove_markup,
     reshape_rows,
     highlight_row,
@@ -25,15 +23,14 @@ import Term:
     overlaid,
     faced
 
-import ..Layout: vLine, rvstack, lvstack, Spacer, vstack, cvstack, hLine, pad, hstack
+import ..Layout: vLine, rvstack, lvstack, Spacer, vstack, cvstack, hLine
 import ..Renderables: Renderable, RenderableText, info, AbstractRenderable, rows
 import ..Consoles: console_width
-import ..Panels: Panel, TextBox
-import ..Style: apply_style, styled, torow, face, ansi
+import ..Panels: Panel
+import ..Style: styled, torow, face, ansi
 import ..Tprint: tprint, tprintln
 import ..Tables: Table
 import ..TermMarkdown: parse_md
-import ..Measures: height
 
 export @with_repr, termshow, install_term_repr, @showme
 

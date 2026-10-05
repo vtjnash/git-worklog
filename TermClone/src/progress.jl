@@ -1,29 +1,22 @@
 module Progress
 
 using Dates
-import Parameters: @with_kw
 import UUIDs: UUID
 
 import Term:
-    rint, textlen, str_trunc, loop_last, get_file_format, update!, default_width, TERM_THEME,
-    Row, row, rowcat, rowwidth, rowfit, rowpad
+    rint, str_trunc, get_file_format, update!, default_width, TERM_THEME,
+    Row, row, rowcat, rowwidth, rowfit
 import TermInput: frame_bytes
-import ..Tprint: tprint, tprintln
-import ..Style: apply_style, styled, ansi, torow, face
+import ..Style: styled, ansi, face
 import Term: faced, pad_row
 import ..Consoles:
     console_width,
-    hide_cursor,
     show_cursor,
     move_to_line,
-    cleartoend,
     change_scroll_region,
     console_height,
     up,
-    down,
-    erase_line,
-    savecursor,
-    restorecursor
+    erase_line
 
 import ..Renderables: AbstractRenderable
 import ..Measures: Measure

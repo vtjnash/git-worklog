@@ -1,54 +1,36 @@
 module Errors
 
-import Base: show_method_candidates, ExceptionStack, InterpreterIP
+import Base: InterpreterIP
 
 import Term:
     highlight,
-    highlight_syntax,
-    str_trunc,
-    reshape_text,
     load_code_and_highlight,
     default_stacktrace_width,
-    escape_brackets,
-    unescape_brackets,
-    remove_markup,
     TERM_THEME,
-    plural,
     Theme,
-    do_by_line,
     STACKTRACE_HIDDEN_MODULES,
     STACKTRACE_HIDE_FRAMES,
-    reshape_code_string,
     TERM_SHOW_LINK_IN_STACKTRACE,
     NOCOLOR,
     cleantext,
     highlight_row,
     reshape_rows,
     joinrows,
-    Row,
     row,
-    rowcat,
     rowfit,
     rowlines,
-    rowwidth,
     faced,
     overlaid
 
 # import ..Links: Link
-import ..Style: apply_style, torow, face
+import ..Style: torow, face
 import ..Layout:
     hLine,
-    rvstack,
     cvstack,
-    rvstack,
-    vstack,
-    vLine,
-    Spacer,
     hstack,
-    lvstack,
     pad,
     vertical_pad
-import ..Renderables: Renderable, RenderableText, AbstractRenderable
+import ..Renderables: RenderableText, AbstractRenderable
 import ..Panels: Panel
 import ..Measures: height
 

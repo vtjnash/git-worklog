@@ -23,11 +23,6 @@ Return the active widget in `container`.
 get_active(container::AbstractWidgetContainer) = container.widgets[container.active]
 
 """
-Set the active widget in `container` to `active`.
-"""
-set_active(container::AbstractWidgetContainer, active) = container.active = active
-
-"""
 Set the active widget in `container` to the next widget.
 """
 function activate_next_widget(widget::AbstractWidget, ::Any)

@@ -42,7 +42,6 @@ default_stacktrace_width(io = stderr)::Int =
 const DEFAULT_ASPECT_RATIO = Ref(4 / 3)  # 4:3 - 16:9 - 21:9
 
 # general utils: the markup language and plain-string helpers
-include("ansi_tables.jl")
 include("text_utils.jl")
 
 include("measures.jl")

@@ -4,39 +4,11 @@ import Parameters: @with_kw
 import StyledStrings
 import StyledStrings: Face, SimpleColor
 
-import Term:
-    unspace_commas,
-    NAMED_MODES,
-    has_markup,
-    OPEN_TAG_REGEX,
-    replace_text,
-    CODES,
-    ANSICode,
-    tview,
-    do_by_line,
-    ANSI_REGEX,
-    NOCOLOR,
-    Row,
-    row,
-    rowcat,
-    faced
+import Term: unspace_commas, has_markup, do_by_line, NOCOLOR, Row, row, faced
 
-import ..Colors:
-    AbstractColor,
-    NamedColor,
-    is_color,
-    is_background,
-    get_color,
-    is_hex_color,
-    hex2rgb,
-    simplecolor
+import ..Colors: AbstractColor, is_color, is_background, get_color, simplecolor
 
 export apply_style
-
-"""
-Check if a string is a mode name
-"""
-is_mode(string) = string ∈ NAMED_MODES
 
 # ---------------------------------------------------------------------------- #
 #                                  MarkupStyle                                 #
@@ -61,7 +33,21 @@ Holds information about the style specification set out by a `MarkupTag`.
     background::Union{Nothing, AbstractColor} = nothing
 end
 
-const MODE_ALIASES = Dict("b" => :bold, "i" => :italic, "u" => :underline)
+"The words of a markup tag that are modes, and the field of a `MarkupStyle` each sets."
+const MODES = Dict(
+    "default" => :default,
+    "bold" => :bold,
+    "b" => :bold,
+    "dim" => :dim,
+    "italic" => :italic,
+    "i" => :italic,
+    "underline" => :underline,
+    "u" => :underline,
+    "blink" => :blink,
+    "inverse" => :inverse,
+    "hidden" => :hidden,
+    "striked" => :striked,
+)
 
 """
     MarkupStyle(markup)
@@ -71,8 +57,8 @@ Builds a MarkupStyle definition from the words of a markup tag.
 function MarkupStyle(markup)
     style = MarkupStyle()
     for code in split(unspace_commas(markup))
-        if is_mode(code)
-            setproperty!(style, get(MODE_ALIASES, code, Symbol(code)), true)
+        if haskey(MODES, code)
+            setproperty!(style, MODES[code], true)
         elseif is_color(code)
             style.color = get_color(code)
         elseif is_background(code)
@@ -80,40 +66,6 @@ function MarkupStyle(markup)
         end
     end
     return style
-end
-
-"""
-    get_style_codes(style::MarkupStyle)
-
-The ANSI codes that open and close a `MarkupStyle`, as Term spells them.
-"""
-function get_style_codes(style::MarkupStyle)
-    style_init, style_finish = "", ""
-    for attr in fieldnames(MarkupStyle)
-        value = getfield(style, attr)
-        if attr ≡ :background
-            code = isnothing(value) ? nothing : ANSICode(value; bg = true)
-        elseif attr ≡ :color
-            if !isnothing(value)
-                try
-                    code = ANSICode(value; bg = false)
-                catch
-                    continue
-                end
-            else
-                code = nothing
-            end
-        elseif value == true
-            code = CODES[attr]
-        else
-            continue
-        end
-        if !isnothing(code)
-            style_init *= code.open
-            style_finish *= code.close
-        end
-    end
-    return style_init, style_finish
 end
 
 # ---------------------------------------------------------------------------- #

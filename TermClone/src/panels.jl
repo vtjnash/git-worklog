@@ -1,17 +1,15 @@
 module Panels
 
 import Term:
-    join_lines, ltrim_str, default_width, remove_ansi, get_bg_color, textlen, TERM_THEME
+    join_lines, default_width, get_bg_color, TERM_THEME
 
 import ..Renderables: AbstractRenderable, RenderablesUnion, Renderable, RenderableText
-import ..Layout: pad, vstack, Padding, lvstack
-import ..Style: apply_style, face, torow, styled
-import Term: Row, row, rowcat, faced, rowwidth, pad_row
+import ..Layout: pad, vstack, Padding
+import ..Style: face, styled
+import Term: Row, row, rowcat, faced
 import ..Segments: Segment
 import ..Measures: Measure
-import ..Measures: height as get_height
-import ..Measures: width as get_width
-import ..Consoles: console_width, console_height
+import ..Consoles: console_width
 using ..Boxes
 
 export Panel, TextBox, @nested_panels

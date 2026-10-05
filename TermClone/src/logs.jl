@@ -8,22 +8,15 @@ using Logging
 import Term:
     Theme,
     textlen,
-    escape_brackets,
-    unescape_brackets,
-    reshape_text,
-    has_markup,
-    rint,
     highlight,
     TERM_THEME,
     str_trunc,
     ltrim_str,
-    default_width,
     NOCOLOR,
     cleantext
 
-import ..Consoles: console_width, console_height, change_scroll_region, move_to_line
-import ..Renderables: AbstractRenderable, RenderableText
-import ..Style: apply_style
+import ..Consoles: console_width
+import ..Renderables: RenderableText
 import ..Tprint: tprintln, tprint
 import ..Boxes: BOXES
 import ..Progress:
@@ -41,7 +34,7 @@ import ..Progress:
     SeparatorColumn,
     PercentageColumn
 import ..Measures: width, height
-import ..Layout: hstack, rvstack, lvstack, vertical_pad, pad, vLine
+import ..Layout: hstack, vertical_pad, pad, vLine
 
 export TermLogger, install_term_logger
 
@@ -153,33 +146,6 @@ function handle_progress(logger::TermLogger, prog)
     else
         render(pbar, logger.io)
     end
-end
-
-style_log_msg_kw_value(logger, v::Number) = (v, logger.theme.number)
-style_log_msg_kw_value(logger, v::Symbol) = (v, logger.theme.symbol)
-style_log_msg_kw_value(logger, v::AbstractString) = (v, logger.theme.string)
-style_log_msg_kw_value(logger, v::Function) = (v, logger.theme.func)
-style_log_msg_kw_value(logger, v::AbstractRenderable) =
-    ("$(typeof(v))  {dim}$(v.measure){/dim}", "default")
-style_log_msg_kw_value(logger, v) = (v, nothing)
-
-function style_log_msg_kw_value(logger, v::AbstractVector)
-    _style = logger.theme.number
-    _size = length(v)
-    v = escape_brackets(string(v))
-    v = textlen(v) > 60 ? v[1:57] * "..." : v
-    v *= "\n {$(logger.theme.text)}$(_size) {/$(logger.theme.text)}{dim}items{/dim}"
-    return (v, _style)
-end
-function style_log_msg_kw_value(logger, v::Union{AbstractArray, AbstractMatrix})
-    _style = logger.theme.number
-    _size = size(v)
-    v = str_trunc("$(typeof(v)) {dim}<: $(supertypes(typeof(v))[end - 1]){/dim}", 60)
-    v *=
-        "\n {dim}shape: {default $(logger.theme.text)}" *
-        join(string.(_size), " × ") *
-        "{/default $(logger.theme.text)}{/dim}"
-    return (v, _style)
 end
 
 """

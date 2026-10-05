@@ -103,14 +103,6 @@ function pager_rows(content::AbstractString, line_numbers::Bool, width::Int)
     return rows_to_width(code, w, :left)
 end
 
-"""
-    reshape_pager_content(content::AbstractString, line_numbers::Bool)::Vector{string}
-
-Turns a text into a vector of lines with the right size (and optionally line numbers)
-"""
-reshape_pager_content(content::AbstractString, line_numbers::Bool, width::Int)::Vector{String} =
-    String[ansi(r) for r in pager_rows(content, line_numbers, width)]
-
 function Pager(
         text::String;
         controls::AbstractDict = pager_controls,
