@@ -109,40 +109,6 @@ unescape_brackets(text)::String = replace_multi(text, "{{" => "{", "}}" => "}")
 
 unescape_brackets_with_space(text)::String = replace_multi(text, "{{" => " {", "}}" => "} ")
 
-# ------------------------------- closing tags ------------------------------- #
-const ansi_pairs = Dict(
-    "\e[22m" => "\e[22m",
-    "\e[1m" => "\e[22m",
-    "\e[2m" => "\e[22m",
-    "\e[3m" => "\e[23m",
-    "\e[4m" => "\e[24m",
-    "\e[5m" => "\e[25m",
-    "\e[7m" => "\e[27m",
-    "\e[8m" => "\e[28m",
-    "\e[9m" => "\e[29m",
-)
-
-const ansi_pairs_keys = keys(ansi_pairs)
-
-""" Given an ANSI tag, get the correct closer tag """
-function get_closing_ansi_tag(tag::AbstractString)
-    tag ∈ ansi_pairs_keys && return ansi_pairs[tag]
-
-    # see en.wikipedia.org/wiki/ANSI_escape_code#Colors
-
-    # deal with 3 and 4bit colors (en.wikipedia.org/wiki/ANSI_escape_code#3-bit_and_4-bit)
-    occursin(r"\e\[(3|9)[0-7];(4|10)[0-7][m;]", tag) && return "\e[39;49m"  # mix
-    occursin(r"\e\[(3|9)[0-7][m;]", tag) && return "\e[39m"  # foreground
-    occursin(r"\e\[(4|10)[0-7][m;]", tag) && return "\e[49m"  # background
-
-    # deal with 8bit (en.wikipedia.org/wiki/ANSI_escape_code#8-bit),
-    # or 24bit (en.wikipedia.org/wiki/ANSI_escape_code#24-bit) colors
-    occursin(r"\e\[38;(2|5)[m;]", tag) && return "\e[39m"  # foreground
-    occursin(r"\e\[48;(2|5)[m;]", tag) && return "\e[49m"  # background
-
-    return nothing
-end
-
 # ---------------------------------------------------------------------------- #
 #                                     MISC                                   #
 # ---------------------------------------------------------------------------- #
