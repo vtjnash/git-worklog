@@ -1128,6 +1128,62 @@ end
     @test W.held_order(fresh, W.Item[]) === fresh
 end
 
+@testset "facts that hide the row being read leave it there" begin
+    # julia#37822: a light row, unread on GitHub's `updated` - a label - whose
+    # bundle, fetched for looking at it, said nothing had moved it. Read, out
+    # of the firehose, and the cursor on the row below with the pane half read.
+    st = mkstate()
+    @test W.isdefault(st.filters)
+    at = findall(W.ghitem, st.items)[1:3]
+    top, it, other = st.items[at]
+    st.sel = at[2]
+    @test W.seen_of(it, W.Marks(st)) === :unread
+    said(x) = string(x.ref, " left this list \u00b7 shown though the filter hides it")
+    old, read = "2000-01-01T00:00:00Z", "2001-01-01T00:00:00Z"
+    try
+        # A stamp under the movement leaves it unread, and the bundle that
+        # lands dates the movement under the stamp.
+        W.set_done(it.url, read)
+        W.refilter!(st)
+        @test st.items[st.sel].url == it.url && isempty(st.guest)
+        exact = W.with(it; moved_at = old)
+        st.bundlepending = @async exact
+        wait(st.bundlepending)
+        @test W.collect_meta!(st)
+        @test W.seen_of(exact, W.Marks(st)) === :done
+        @test st.guest == it.url && st.sel == at[2] && st.items[st.sel] === exact
+        @test st.status == said(it)
+        # Held once: the next thing to land has nothing more to say of it.
+        W.refilter!(st; hold = true)
+        @test st.guest == it.url && W.held_said(st, it.url) == ""
+        # A row the cursor is not on is not kept: it leaves, as any row does.
+        st.sel = at[3]
+        W.set_done(top.url, read)
+        @test W.replace_item!(st, W.with(top; moved_at = old); hold = true)
+        @test !any(x -> x.url == top.url, st.items)
+        @test st.guest == it.url && st.items[st.sel].url == other.url
+        # Another window's mark, or a refresh, lands the same way - the row
+        # it read out from under the cursor is the guest, and the line says
+        # so after what it had to say. One slot: the last guest goes.
+        W.set_done(other.url, "2099-01-01T00:00:00Z")
+        st.reload = true; st.refreshsaid = "refreshed"
+        @test W.reload_data!(st)
+        @test st.guest == other.url && st.items[st.sel].url == other.url
+        @test !any(x -> x.url == it.url, st.items)
+        @test st.status == string("refreshed \u00b7 ", said(other))
+        # A mark of your own is a key and is not held: the row leaves, as it
+        # was asked to.
+        W.set_done(other.url, nothing)
+        st = mkstate()
+        st.sel = findfirst(x -> x.url == other.url, st.items)
+        W.set_done(other.url, "2099-01-01T00:00:00Z")
+        W.refilter!(st)
+        @test isempty(st.guest) && !any(x -> x.url == other.url, st.items)
+    finally
+        foreach(x -> W.set_done(x.url, nothing), (top, it, other))
+    end
+end
+
 @testset "an answer to a key press outranks a standing line" begin
     # A live search wrote its own summary over the status row, so the answer to
     # a key press - "`claude` is not on PATH" - never appeared, and the key

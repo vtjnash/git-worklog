@@ -590,6 +590,18 @@ used to clear the filters, which answered one row by throwing away the list
 being read, and `` ` `` to get the list back lost the row. One slot; a row
 the filters come to show is no longer a guest.
 
+**Facts that hide the row being read leave it there, as the guest.** A
+refilter is a key or it is facts arriving - the bundle re-read under the
+cursor, a refresh landing, another window's write - and the second kind says
+so (`hold`): the row under the cursor that it would take out of the list
+stays, where it was, and the status row says it left. julia#37822
+(2026-10-06) was a light row, unread on `updated` because somebody labelled
+it - the only answer there is for a row with no wake table - and the bundle
+fetched for looking at it dated its last movement eight months back, under
+the floor: read, out of the firehose, and the cursor on the row below with
+the pane half read. A mark of your own is not held - `e` takes the row out
+because it was asked to - and neither is a row the cursor is not on.
+
 **`` ` `` and `~` walk where you have been, rows and lists both.** Back and
 forward stacks of *spots* - a list (filters, sort, list search) and the row in
 it - kept by `note_place!` in `settle!`, so no key has to say it moved: every

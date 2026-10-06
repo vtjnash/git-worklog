@@ -1253,9 +1253,18 @@ what moved in it moved to where the order says.
 
 `guest` is a jump's: the url of a row the filters hide, to be shown in this
 list anyway (`st.guest`), until another list is asked for.
+
+`hold` is facts arriving, where every other refilter is a key: the bundle
+re-read under the cursor, a refresh landing, another window's write. A row
+those take out of the list is taken out from under whoever is reading it, so
+the one under the cursor stays, as the guest. julia#37822 was a light row,
+unread on GitHub's `updated` - a label - and the bundle fetched for looking at
+it said nothing had moved it: read, gone from the firehose, and the cursor on
+the row below while the pane was still being read. A mark is the other case
+and is not held: `e` takes the row out because it was asked to.
 """
 function refilter!(st; keeprow::Bool = true, resort::Bool = false,
-                   guest::Union{Nothing,String} = nothing)
+                   guest::Union{Nothing,String} = nothing, hold::Bool = false)
     keep = (st.sel == 0 || isempty(st.items)) ? "" : st.items[st.sel].url
     # Re-read here rather than per frame: this runs when something has changed,
     # and `render` is pure. The `touched` lane is membership in this map, so it
@@ -1290,6 +1299,7 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false,
     (!keeprow || key != st.orderkey) && (st.guest = "")
     guest === nothing || (st.guest = guest)
     listed = apply_filters(st.filters, st.all, Marks(st))
+    hold && !isempty(keep) && !any(it -> it.url == keep, listed) && (st.guest = keep)
     g = isempty(st.guest) ? nothing : findfirst(it -> it.url == st.guest, st.all)
     if g === nothing || any(it -> it.url == st.guest, listed)
         st.guest = ""
@@ -1327,6 +1337,12 @@ function refilter!(st; keeprow::Bool = true, resort::Bool = false,
              something(i, keeprow ? clamp(st.sel, 1, length(st.items)) : 1)
     keeprow || (st.top = 1)
 end
+
+"""What to say of a `hold` that kept the row under the cursor, or `""` where it
+kept none; `was` is the guest from before it."""
+held_said(st, was::AbstractString) =
+    (isempty(st.guest) || st.guest == was || st.sel == 0) ? "" :
+    string(st.items[st.sel].ref, " left this list \u00b7 shown though the filter hides it")
 
 "One-line summary of what is applied, for the frame title."
 function filter_summary(f, order::Symbol = lane_sort(f))

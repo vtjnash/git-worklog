@@ -271,13 +271,14 @@ with(it::Item; kw...) =
 
 withlabels(it::Item, labels::Vector{String}) = with(it; labels = labels)
 
-"Put a changed copy of an item back where the old one was, keyed by url."
-function replace_item!(st::BState, it::Item)
+"""Put a changed copy of an item back where the old one was, keyed by url.
+`hold` is `refilter!`'s, for a copy that was fetched rather than written."""
+function replace_item!(st::BState, it::Item; hold::Bool = false)
     i = findfirst(x -> x.url == it.url, st.all)
     i === nothing && return false
     st.all[i] = it
     note_axes!(st, it)
-    refilter!(st)
+    refilter!(st; hold)
     true
 end
 

@@ -804,12 +804,15 @@ function reload_data!(st::BState)
         end
     end
     # Sorted afresh: what landed is a new list, and what moved in it is
-    # what the order is for.
-    refilter!(st; resort = true)   # which is what re-reads the three records
+    # what the order is for. Held: the row under the cursor stays, as the
+    # guest, where what landed takes it out of the list.
+    was = st.guest
+    refilter!(st; resort = true, hold = true)   # which is what re-reads the three records
+    said = held_said(st, was)
     # A refresh this window started says what it did; anything else is somebody
     # else's write, and saying whose it was is the whole point of the line.
-    st.status = isempty(st.refreshsaid) ? "reloaded — something else wrote in data/" :
-                st.refreshsaid
+    st.status = string(isempty(st.refreshsaid) ? "reloaded — something else wrote in data/" :
+                       st.refreshsaid, isempty(said) ? "" : " \u00b7 ", said)
     st.refreshsaid = ""
     true
 end

@@ -110,7 +110,12 @@ and says so - `→ v1.x  not master`.
 The order a list opens in holds while it is read: a row that changes under
 the cursor - the re-read that brings its tags up to date, a note - stays
 where it is, and the list is sorted afresh when another is asked for - a
-view, a filter, `w`, a search, a refresh landing.
+view, a filter, `w`, a search, a refresh landing. And the row under the
+cursor stays when what arrives would take it out of the list - the re-read
+finding that nothing moved it, a refresh, a mark made in another window: it
+is kept where it was, marked `+`, until another list is asked for. A row GitHub
+has only said `updated` of is unread on that alone, a label included, until
+it is looked at.
 
 Lowercase keys look at things or change this machine; **uppercase keys reach
 GitHub.**

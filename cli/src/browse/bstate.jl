@@ -203,9 +203,11 @@ Base.@kwdef mutable struct BState <: View
                                     # being made now, set by the jump, taken by
                                     # the next settle
     guest::String = ""              # a row a jump went to that the filters
-                                    # hide, shown where the sort puts it until
-                                    # the list is asked for again; one slot, the
-                                    # way `here` is. See `refilter!`
+                                    # hide - or one that facts arriving hid
+                                    # under the cursor - shown where the sort
+                                    # puts it until the list is asked for
+                                    # again; one slot, the way `here` is. See
+                                    # `refilter!`
     lanes::Vector{String} = String[]
     repos::Vector{String} = String[]
     pinned::Vector{String} = String[]    # `[filters] pinned_repos`, as written:

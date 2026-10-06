@@ -192,8 +192,14 @@ function collect_meta!(st::BState)
         end
         st.bundlepending = nothing
         # The row on screen, replaced by the exact one - tags, CI, head, the
-        # mark. `replace_item!` refilters, and keeps the cursor on the url.
-        b === nothing || replace_item!(st, b)
+        # mark. `replace_item!` refilters, and keeps the cursor on the url -
+        # held as the guest where the exact row is one the filters hide.
+        if b !== nothing
+            was = st.guest
+            replace_item!(st, b; hold = true)
+            said = held_said(st, was)
+            isempty(said) || (st.status = said)
+        end
         got = true
     end
     gt = st.mergepending
