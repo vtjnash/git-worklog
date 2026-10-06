@@ -280,16 +280,27 @@ function edit_note(st::BState, it::Item, ctrl)
         ok || return err
         mux_tag!(name; worktree = target, kind = :note, item = it.ref, url = it.url)
         relist!(ctrl)
-        v = pane_view(name, string("note  ", it.ref), ctrl; note)
+        v = pane_view(name, string("note  ", it.ref), ctrl)
         if v === nothing
-            # Still running means the attach really failed. Gone means the
-            # editor finished before we got there - which an editor configured
-            # to write and exit does every time - and the note is taken anyway
-            # rather than thrown away for having been quick.
+            # Still there means the attach really failed. Gone means it ended
+            # behind us, server and all, and the note is taken anyway rather
+            # than thrown away with it.
             mux_alive(name) || return adopt_note!(note)
             mux_kill(name)
             return "could not attach to " * name
         end
+        pane_sync!(v, ctrl)
+        if v.child.exited == 0
+            # The editor finished before we got there - which one configured
+            # to write and exit does every time - and the note is taken
+            # rather than thrown away for having been quick, with no pane
+            # left to clear: there is nothing in it to read.
+            closeview!(v)
+            return adopt_note!(note)
+        end
+        # Taken back by the pane when the editor exits - or at once, by this
+        # second sync, where it has already failed and its screen says why.
+        v.note = note
         pane_sync!(v, ctrl)
         push_place!(ctrl, v)
         return "editing the note — it is saved when the editor exits" * gone_suffix(fw.gone)
@@ -491,8 +502,8 @@ function enter_session(target::AbstractString, branch::AbstractString,
     v === nothing && return "could not attach to " * name
     pane_sync!(v, ctrl)
     push_place!(ctrl, v)
-    # Its child has already failed - at once, a command not found, or since
-    # it was last looked at: the pane shows the screen it died on, and the
+    # Its child has already exited - at once, a command not found, or since
+    # it was last looked at: the pane shows the screen it went on, and the
     # footer's word for that is the report, not `started` or `back in`.
     v.child.exited === nothing || return v.child.status
     said = if found === nothing
@@ -877,7 +888,7 @@ function checkout_option(w, rows, repo::AbstractString)
         Symbol(isempty(r.kind) ? "shell" : r.kind) === kind || continue
         parts = Styled[]
         isempty(r.item) || push!(parts, row(short(r.item)))
-        words = title_words(kind, r.title)
+        words = session_words(r, kind)
         isempty(words) || push!(parts, words)
         push!(lines, "    " * session_mark(r, rpad(String(kind), 5)) *
                      (isempty(parts) ? "" : "  " * join(parts, " \u00b7 ")))

@@ -540,6 +540,8 @@ end
                         sleep(0.05); W.pane_sync!(v, ctrl)
                     end
                     @test v.child.status == "note saved"
+                    # Leaving is what ends it: the editor's pane is kept.
+                    W.closeview!(v)
                     W.pop_view!(ctrl, v)
                     @test last(ctrl.stack) === st
                 end
@@ -575,6 +577,10 @@ end
                 @test v.note === nothing
                 @test !W.pane_sync!(v, ctrl)
                 @test W.get_field(it.url, "note") === nothing
+                # The editor's pane is kept until the view lets go of it.
+                @test W.mux_alive(v.child.name)
+                W.closeview!(v)
+                @test !W.mux_alive(v.child.name)
                 pop!(ctrl.stack)
             end
         finally

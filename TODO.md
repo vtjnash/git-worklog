@@ -57,7 +57,19 @@ Nothing now.
 
 ## Unverified
 
-Nothing now.
+- [ ] **A pane whose child exited, in a real terminal.** The suite drives it
+      against the bundled tmux with `echo` for a child, no terminal and no
+      `claude`. By hand:
+      - MANUAL.md 16 again, as it now reads: exit `claude` in a `T` pane, and
+        `exit` in a `t` shell. The screen stays, the footer says `exited
+        with status 0 · q clears it` within about a second, `q` closes it.
+      - `T`, `^]q`, and have the agent exit while the list is on screen
+        (`kill` it from a shell): within about a second the item pane says
+        `agent  exited` under `running`, and `"` shows its `T` on the badge
+        with `exited` on a line under the worktree. The row is not unread
+        for it, and `e` on it changes none of that. `T` shows what it said
+        last; `q` closes it, and `T` again asks for a prompt and starts
+        another.
 
 ## Trim
 

@@ -181,13 +181,15 @@ end
     # `claude` writes its farewell and then takes a moment to exit: the
     # session ends after the last `%output`, and a pane that synced on output
     # alone kept the farewell on screen with every key going to a dead client
-    # - `^]K` the one way out, where a shell closed on any key.
+    # - `^]K` the one way out, where a shell closed on any key. A child that
+    # exits leaves its pane now (`mux_start`), so a session that *ends* is one
+    # started some other way, or killed.
     if W.mux_bin() === nothing
         @info "no tmux; skipping the ended-session test"
     else
         n = "wl-test-ended-1"
         W.mux_kill(n)
-        W.mux_start(n, pwd(), "sh -c 'printf bye; sleep 1'")
+        W.TermIFrame.mux_spawn("new-session", "-d", "-s", n, "sh -c 'printf bye; sleep 1'")
         f = W.iframe(n, "t")
         @test f !== nothing
         # The pane's own watch: a wake per burst, and one more as it ends.
@@ -208,7 +210,7 @@ end
         @test W.iframe_input!(f, UInt8['x'], (1, 1), box) === :gone
 
         # And where the wake is lost, the first key says it and the next leaves.
-        W.mux_start(n, pwd(), "sh -c 'sleep 1'")
+        W.TermIFrame.mux_spawn("new-session", "-d", "-s", n, "sh -c 'sleep 1'")
         g = W.iframe(n, "t")
         t0 = time()
         while !g.client.dead && time() - t0 < 10

@@ -74,13 +74,18 @@ const SESSION_PREFIX = "wl"
 """One of our sessions: TermIFrame's row, with `SESSION_TAGS` read into fields
 of their own. `id` is the server's, which a rename does not change; `title` is
 the pane's, as its child set it (`MuxRow`), which an agent names its
-conversation in (`CLEARED_TITLE`)."""
+conversation in (`CLEARED_TITLE`). `dead` is one whose child has exited: the
+pane is kept with what it said, and the session says `exited` wherever it is
+drawn (`session_words`), until it is opened and closed (`q` in the pane). A
+state and not a seen bit: nothing is running to come back, so nothing marks
+it read and nothing has to reset it."""
 struct Session
     name::String
     id::String
     command::String
     attached::Bool
     bell::Bool
+    dead::Bool
     worktree::String
     kind::String
     item::String
@@ -88,7 +93,7 @@ struct Session
     branch::String
     title::String
 end
-Session(r::MuxRow) = Session(r.name, r.id, r.command, r.attached, r.bell,
+Session(r::MuxRow) = Session(r.name, r.id, r.command, r.attached, r.bell, r.dead,
                              r.tags[1], r.tags[2], r.tags[3], r.tags[4], r.tags[5],
                              r.title)
 
@@ -106,6 +111,16 @@ function title_words(kind::Symbol, title::AbstractString)
     kind === :agent && title == CLEARED_TITLE &&
         return faced(title, THEME.dim) * "  /cleared"
     row(title)
+end
+
+"""What is said of a session wherever one is drawn: `exited` where its child
+has gone, in the colour of something waiting on you, and then its pane's
+title (`title_words`). Over anything with `dead` and `title` - a `Session` or
+the worktree list's `SessionRow`."""
+function session_words(s, kind::Symbol)
+    words = title_words(kind, s.title)
+    s.dead || return words
+    faced("exited", THEME.waiting) * (isempty(words) ? row("") : " \u00b7 " * words)
 end
 
 "Every session this program owns, now: one `tmux list-panes`."

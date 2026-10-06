@@ -441,7 +441,7 @@ end
     ctrl = W.Controller(); ctrl.running = true
     row(name, kinds...) = W.WorktreeRow("o/r", "/x/" * name, name, name, false, false,
                                         0, 0, "", false, false, nothing,
-                                        [W.SessionRow(name * string(k), k, false, false, "")
+                                        [W.SessionRow(name * string(k), k, false, false, false, "")
                                          for k in kinds])
     rows = [row("idle"), row("shell", :shell), row("note", :note), row("agent", :agent, :note)]
     v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
@@ -659,13 +659,20 @@ end
 @testset "a worktree's sessions say what their panes are titled" begin
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true
-    ses(k, title) = W.SessionRow(string("wl-", k), k, false, false, title)
+    ses(k, title; dead = false) = W.SessionRow(string("wl-", k), k, false, false, dead, title)
     row(name, ss...) = W.WorktreeRow("o/r", "/x/" * name, name, name, false, false,
                                      0, 0, "", false, false, nothing, collect(ss))
     rows = [row("quiet", ses(:shell, "")),
             row("busy", ses(:agent, "\u2733 Count to forty"), ses(:shell, "me@box: ~/x")),
             row("cleared", ses(:agent, W.CLEARED_TITLE)),
             row("last")]
+    # One whose child has exited has a line of its own, title or none, and
+    # its letter on the badge of one waiting on you, until it is closed.
+    gone = row("gone", ses(:agent, "\u2733 Count to forty"; dead = true), ses(:shell, ""; dead = true))
+    @test unstyled.(W.session_lines(gone, 80)) ==
+          ["       t  exited", "       T  exited \u00b7 \u2733 Count to forty"]
+    @test faceon(W.THEME.rang_mark, ansi(W.session_marks(gone)))
+    @test !faceon(W.THEME.rang_mark, ansi(W.session_marks(rows[2])))
     v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
                        nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0))
     # A line under the row per titled session, in the letters' order; none for

@@ -532,6 +532,49 @@ end
     end
 end
 
+@testset "a session whose child exited is kept until it is seen and cleared" begin
+    # An agent that finished with nobody watching ended its session, and with
+    # it went whatever it had said last; a shell's `exit` did the same. The
+    # pane is kept now, whatever the status, and the session says `exited`
+    # wherever it is drawn until `T` has opened it and `q` closed it. That is
+    # a state, not a bell: nothing rings, the item is not unread for it, and
+    # looking does not clear it.
+    ENV["COLUMNS"], ENV["LINES"] = "170", "40"
+    if W.mux_bin() === nothing
+        @info "no tmux; skipping the exited session test"
+    else
+        wt = mktempdir()
+        run(pipeline(`git -C $wt init -q -b topic`; stdout = devnull, stderr = devnull))
+        st = mkstate()
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        url = "https://github.com/someone/else/pull/1"
+        withenv("LINES" => "40", "COLUMNS" => "170") do
+            # With nobody looking: started as `T` starts one, and never entered.
+            n = W.mux_name(W.SESSION_PREFIX, basename(wt), "topic", ""; kind = :agent)
+            W.mux_kill(n)
+            @test first(W.mux_start(n, wt, "echo farewell"))
+            @test W.mux_tag!(n; worktree = wt, kind = :agent, item = "someone/else#1", url = url)
+            row() = only(filter(r -> r.name == n, W.session_list()))
+            @test timedwait(() -> row().dead, 5.0) === :ok
+            @test !row().bell && isempty(W.rang_urls())
+            @test unstyled(W.session_words(row(), :agent)) == "exited"
+            # `T` finds it rather than starting another, and shows it as it went.
+            r = W.enter_session(wt, "topic", "someone/else#1", "", url, "agent", ctrl, :agent,
+                                (_, _) -> "sleep 120")
+            v = last(ctrl.stack)
+            @test v isa W.PaneView && v.child.name == n && v.child.exited == 0
+            @test occursin("exited with status 0", r) && occursin("q clears it", r)
+            @test any(l -> occursin("farewell", unstyled(l)), v.child.frame)
+            # Looked at, it is still there and still says so; `q` is the end.
+            @test W.mux_alive(n) && row().dead
+            @test W.handle!(v, Int('q'), ctrl) === :pop
+            pop!(ctrl.stack)
+            @test !W.mux_alive(n)
+        end
+        pop!(ctrl.stack)
+    end
+end
+
 @testset "a key whose subject is not on screen" begin
     # `f` opens the filter pane *and* moves the browser's focus to the list, and
     # the list is not drawn beside a child - the pane took those columns. So a

@@ -629,6 +629,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # and it redraws per frame.
     # The bell is the agent's: it rang at the end of a turn or at a question,
     # with nobody looking, and `T` is what clears it.
+    # One whose child has gone says `exited`, shell or agent: the pane is kept
+    # with what it said until `t` or `T` has opened it and `q` there closed
+    # it, and nothing is running in it, whatever the heading says of the rest.
     # And, beside them, what is running in the copy `t` or `T` would open in
     # that is some other item's (`taken_in`): the key takes it over, and an
     # empty `running` read as nothing running when another item's agent was
@@ -647,7 +650,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         for r in sort(live; by = x -> x.kind)
             agent = r.kind == "agent"
             words = title_words(agent ? :agent : :shell, r.title)
-            wait_ = agent && r.bell ? faced("waiting on you", THEME.waiting) : row("")
+            wait_ = r.dead ? faced("exited", THEME.waiting) :
+                    agent && r.bell ? faced("waiting on you", THEME.waiting) : row("")
             push!(out, rowfit("  " * (agent ? "agent" : "shell") *
                               (isempty(wait_) ? row("") : "  " * wait_) *
                               (isempty(words) ? "" : (isempty(wait_) ? "  " : " · ") * words),

@@ -612,7 +612,14 @@ end
         end
         sleep(1.0)
         @test read(tmp, String) == "first line\ntyped through the pane\n"
-        @test W.mux_alive(n) === false            # vi quit, so the session ended
+        # vi quit, and its pane is kept until it has been seen: the sync
+        # finds it, and leaving the view is what ends the session.
+        @test W.mux_alive(n) === true
+        W.pane_sync!(v, ctrl)
+        @test v.child.client === nothing && v.child.exited == 0
+        @test W.wantsraw(v) === false
+        @test W.handle!(v, Int('q'), ctrl) === :pop
+        @test W.mux_alive(n) === false
 
         # Ctrl-] is a prefix, not an escape: with every other key forwarded it
         # is the only way left to reach anything this view can do.
@@ -706,8 +713,8 @@ end
 
     # A tag comes back from tmux as the string it was set with, so that is what
     # a row carries and what the pane reads.
-    row(kind, ref; bell = false, title = "") =
-        W.Session("wl-x", "\$1", "sh", false, bell, "/tmp/x", String(kind), ref, "", "",
+    row(kind, ref; bell = false, dead = false, title = "") =
+        W.Session("wl-x", "\$1", "sh", false, bell, dead, "/tmp/x", String(kind), ref, "", "",
                   title)
     st.sessions = W.Session[]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
@@ -723,6 +730,13 @@ end
     @test occursin("waiting on you", join(W.meta_lines(st, tasked, 40), "\n"))
     st.sessions = [row(:shell, tasked.ref)]
     @test occursin("shell", join(W.meta_lines(st, tasked, 40), "\n"))
+    # One whose child has gone is kept, pane and all, and says so - shell or
+    # agent, and it is not an agent waiting: nothing runs in it.
+    st.sessions = [row(:agent, tasked.ref; dead = true, title = "\u2733 Count to forty"),
+                   row(:shell, tasked.ref; dead = true)]
+    lines = unstyled(join(W.meta_lines(st, tasked, 60), "\n"))
+    @test occursin("agent  exited · \u2733 Count to forty", lines)
+    @test occursin("shell  exited", lines) && !occursin("waiting on you", lines)
     st.sessions = [row(:shell, "someone/else#1")]
     @test !occursin("running", join(W.meta_lines(st, tasked, 40), "\n"))
     # The pane's title where the child set one: an agent's topic, and an
@@ -743,6 +757,7 @@ end
     now_ = [row(:agent, tasked.ref; title = "\u2733 Count to forty")]
     @test W.sessions_changed(now_, st.sessions) && !W.sessions_changed(now_, now_)
     @test W.sessions_changed(W.Session[], st.sessions)          # one went away
+    @test W.sessions_changed([row(:agent, tasked.ref; dead = true)], [row(:agent, tasked.ref)])
     @test W.sessions_changed([row(:agent, "someone/else#1")], [row(:agent, tasked.ref)])
     st.relisted = now_; st.rerang = false
     @test W.rerang!(st) && st.relisted === nothing && st.sessions === now_
@@ -855,6 +870,32 @@ end
             @test wk.woken && st.rerang
             @test W.rerang!(st) && isempty(st.rang)
             take!(wk.events); wk.woken = false
+            # A child that exits is heard on it too. Its pane is kept, so
+            # nothing ended and the pane's own client was told nothing: the
+            # list changing is the wake, and the pane on screen reads again
+            # on it and at no other time.
+            n2 = W.mux_name(W.SESSION_PREFIX, wt, "main", string(it.number))
+            W.mux_kill(n2)
+            @test first(W.mux_start(n2, wt, "echo bye; sleep 1"))
+            v = W.pane_view(n2, "brief", ctrl)
+            @test v !== nothing && W.pane_sync!(v, ctrl)
+            for _ in 1:200
+                if wk.woken
+                    take!(wk.events); wk.woken = false
+                    W.rerang!(st); W.onwake!(v, ctrl)
+                    v.child.exited === nothing || break
+                end
+                sleep(0.05)
+            end
+            @test v.child.client === nothing && v.child.exited == 0
+            @test occursin("exited with status 0", v.child.status)
+            @test any(l -> occursin("bye", unstyled(l)), v.child.frame)
+            s = only(filter(x -> x.name == n2, st.sessions))
+            @test s.dead
+            W.closeview!(v)
+            @test !W.mux_alive(n2)
+            for _ in 1:60; wk.woken && break; sleep(0.05); end
+            W.rerang!(st); isready(wk.events) && take!(wk.events); wk.woken = false
             # The last session of ours ending closes it, since it would keep a
             # server up for nothing - unless this server has others of ours.
             W.mux_kill(n)

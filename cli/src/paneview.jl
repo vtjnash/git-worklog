@@ -117,7 +117,7 @@ it has half.
 function pane_sync!(v::PaneView, ctrl)
     h, w = displaysize(ctrl.term)
     r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h))
-    # The child failed, and the server kept its screen to show why: said
+    # The child exited, and the server kept its screen to be read: said
     # once, as the sync that found it is the only one to answer `true`, with
     # what leaving does to it - the session goes with the view.
     r && v.child.exited !== nothing &&
@@ -814,6 +814,7 @@ struct SessionRow
     kind::Symbol
     attached::Bool
     bell::Bool                      # rang since anyone looked: see `AGENT_SETTINGS`
+    dead::Bool                      # its child has exited, and the pane is kept
     title::String                   # the pane's, as its child set it: see `title_words`
 end
 
@@ -897,7 +898,7 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
         # otherwise.
         kind = Symbol(isempty(r.kind) ? "shell" : r.kind)
         push!(get!(live, k, SessionRow[]), SessionRow(r.name, kind, r.attached, r.bell,
-                                                          r.title))
+                                                          r.dead, r.title))
         isempty(r.url) || push!(get!(on, k, Tuple{String,String}[]), (String(kind), r.url))
     end
     ws, bs = survey(; withdirty = withdirty)
@@ -1071,9 +1072,11 @@ present or not.
 
 Green is one you are in; a badge (`rang_mark`) is one that rang while you were
 not - the agent stopped, or is asking - and is waiting on you until you look,
-since tmux clears the bell on the attach. Grey is there and quiet.
+since tmux clears the bell on the attach. One whose child has exited wears
+the badge too, until it is opened and closed: looking does not clear that
+one, there being nothing left to run. Grey is there and quiet.
 
-Over anything with `kind`, `attached` and `bell` - the row's `SessionRow`s, or
+Over anything with `kind`, `attached`, `bell` and `dead` - the row's `SessionRow`s, or
 the sessions of one worktree straight off `session_list` - so the checkout picker
 draws the same three letters this list does, and a reader who has seen either
 knows the other.
@@ -1094,10 +1097,12 @@ const SESSION_LETTERS = ((:shell, 't'), (:agent, 'T'), (:note, 'v'))
 """One session's letter, or its kind spelled out, in the colour that says
 whether it is waiting on you."""
 session_mark(s, ch::Union{Char,AbstractString}) =
-    faced(string(ch), s.attached ? THEME.settled : s.bell ? THEME.rang_mark : THEME.dim)
+    faced(string(ch), s.attached ? THEME.settled :
+                      (s.bell || s.dead) ? THEME.rang_mark : THEME.dim)
 
-"""A line per session under a worktree row, for each whose pane has a title:
-its letter again, and the title. What an agent is doing is the one thing the
+"""A line per session under a worktree row, for each whose pane has a title
+or whose child has exited: its letter again, and `exited` and the title
+(`session_words`). What an agent is doing is the one thing the
 three letters cannot say, and `claude` says it there - the conversation's
 topic, or that there is none yet (`title_words`). Indented to the worktree's
 name, so the row's own columns still read down the list."""
@@ -1106,7 +1111,7 @@ function session_lines(r::WorktreeRow, iw::Int)
     out = Styled[]
     for (kind, ch) in SESSION_LETTERS, s in r.sessions
         s.kind === kind || continue
-        words = title_words(s.kind, s.title)
+        words = session_words(s, s.kind)
         isempty(words) && continue
         push!(out, " "^pad * session_mark(s, ch) * "  " *
                    rowfit(words, max(1, iw - pad - 3)))

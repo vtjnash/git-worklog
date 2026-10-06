@@ -234,7 +234,10 @@ whatever was pressed; `z` rings it back (`agent_ring!`). Read per
 is up through the command pipe's subscription to who rang
 (`watch_sessions!`): tmux tells a control client about the pane it is on and
 nothing else, except what it subscribes to. Where there is no pipe it is
-polled every `SESSIONS_EVERY`.
+polled every `SESSIONS_EVERY`. An agent that *exits* is not this: its pane
+is kept and says `exited` until it is closed (tmux, below), which is a
+state of the session and no bit of the item's - nothing rings for it and
+no mark clears it.
 
 **A notice's seen bit is its presence.** A notice has no bundle, no state
 and no wake table - a Release, a Discussion, a commit comment, a CI run,
@@ -1065,22 +1068,51 @@ Each of the following returns success and the wrong answer:
   to a dead client, `^]K` the only way out. The reader wakes once more as it
   stops (the client's `wake`, which `mux_wait` answers `false` from then
   on), and a key that finds the client dead says `session ended` rather
-  than going nowhere.
-- **A child that fails keeps its pane; one that exits cleanly does not.**
-  `mux_start` sets `remain-on-exit failed` (3.3+), so an agent whose command
-  was not found - `claudebox` exec'ing a Julia juliaup had since removed,
-  2026-09-28 - leaves `Pane is dead (status 127, …)` under what it said,
-  where it used to end its session before anything attached and `T` said
-  only `could not attach`. Set before the command runs: the session starts
-  on `cat` and `respawn-pane -k` puts the command in, since down the pipe
-  `new-session` and `set` are two round trips and an exec that fails is
-  over inside one. tmux writes its line on the bottom row and scrolls one
-  up to do it, and a resize to a box shorter than 24 rows pushes the top -
-  the child's only words, usually - into the history, so the sync reads a
-  dead pane's history too and drops the blank rows tmux left above its
-  line (`dead_screen`). The sync that finds it drops the client, as for a
-  child that has gone, and `iframe_close!` kills the session: once the
-  screen has been seen nothing is left running.
+  than going nowhere. That is a session killed under the pane, or its
+  server gone, now: a child that exits does not end one (next).
+- **A child that exits keeps its pane, and says `exited` until it is
+  closed.** `mux_start` sets `remain-on-exit on`, whatever the status: an
+  agent whose command was not found - `claudebox` exec'ing a Julia juliaup
+  had since removed, 2026-09-28 - leaves `Pane is dead (status 127, …)`
+  under what it said, where it used to end its session before anything
+  attached and `T` said only `could not attach`; and one that finished with
+  nobody watching, or a shell that was `exit`ed, is there with its last
+  words until it has been opened and closed (2026-10-06; it was `failed`,
+  and a clean exit took the pane with it). Set before the command runs: the
+  session starts on `cat` and `respawn-pane -k` puts the command in, since
+  down the pipe `new-session` and `set` are two round trips and an exec that
+  fails is over inside one. tmux writes its line on the bottom row and
+  scrolls one up to do it, and a resize to a box shorter than 24 rows pushes
+  the top - the child's only words, usually - into the history, so the sync
+  reads a dead pane's history too and drops the blank rows tmux left above
+  its line (`dead_screen`), which it finds by its words: in a box narrower
+  than the line it wraps, and the blanks are above its first row. The sync
+  that finds it drops the client, as for a child that has gone, and
+  `iframe_close!` kills the session: once the screen has been seen nothing
+  is left running. So `q` on it is the end of it, and `T` again starts
+  another.
+  **It is a state, not a seen bit.** `#{pane_dead}` is read into the
+  session's row (`dead`), and every place a session is drawn says `exited`
+  for it in the colour of something waiting on you (`session_words`, and the
+  badge on its letter in the worktree list). A dead pane is not coming
+  back, so there is nothing for a look or a mark to reset and nothing that
+  rings: it is not the item's unread, `e` does not touch it, and it stands
+  until the pane is closed. A bell for it was built and taken out the same
+  day - it took the command run under a `/bin/sh` that wrote a `BEL` as it
+  ended, `window_bell_flag` being set by the pane's own child and by
+  nothing else, to make a bit that then had to be cleared.
+  **A pane on screen is told by the pipe, not by its own client.** Nothing
+  ended, so there is no `%exit`; tmux's `Pane is dead` line is written on
+  the screen and is no `%output`; and a sync woken by output just ahead of
+  the exit asks before it has landed (never seen, three of three). The
+  pipe subscribes to the sessions of ours whose pane is dead (`MUX_DEAD`,
+  beside the bells and the titles), `watch_sessions!` hears it as a change
+  in the list (`sessions_changed` reads `dead`), and the wake has the pane
+  on top sync. **Not a subscription on the pane's client**: with one, a
+  3.7c server that pauses the pane for a host that stopped reading never
+  says `%pause`, nor anything after - the line is queued behind the
+  subscription's, and with the pane's own output discarded nothing is left
+  to flush them. The pipe is `no-output` and has no such queue.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane
@@ -1173,7 +1205,8 @@ Each of the following returns success and the wrong answer:
   conversation wakes the browser as a bell does, and the item pane's
   `running` lines are listed again (`sessions_changed`) - they were read only
   as the item's metadata loaded, and kept the title from before the first
-  prompt. A tag is not subscribed to: the tags are this program's, so a
+  prompt. A third, `dead_format`, is our sessions whose child has exited,
+  which is how a pane on screen hears of it (above). A tag is not subscribed to: the tags are this program's, so a
   session re-tagged here hands the browser the new list (`relist!`). Whose a
   session is is its `item` tag, which the last `t` or `T` into it wrote, and
   the pane reads which are taken over (`taken_in`) off the list as it is

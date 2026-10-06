@@ -268,12 +268,15 @@ the second time.
 
 ## 16. `T` after `claude` exits
 
-In a `T` pane, exit `claude`. Pass: its farewell stays on screen, the
-footer says `session ended`, and the next key - any key - closes the pane,
-as it does after `exit` in a `t` shell. Fail is the pane taking no key but
-`^]K` (DESIGN, tmux: a session ends after its last `%output`).
+In a `T` pane, exit `claude`. Pass: its farewell stays on screen with
+tmux's `Pane is dead` line under it, the footer says `exited with status 0
+· q clears it` within about a second, and `q` closes the pane and ends the
+session - as after `exit` in a `t` shell. Fail is the footer never changing,
+or the pane taking no key but `^]K` (DESIGN, tmux: a child that exits keeps
+its pane).
 
-*2026-09-25*: pass.
+*2026-09-25*: pass, as it then was - `session ended`, and any key closed
+the pane. Not run since the pane is kept (2026-10-06; TODO, *Unverified*).
 
 ## 17. The theme follows the terminal's dark or light
 

@@ -212,7 +212,7 @@ end
             @test all(l -> width(l) <= 72, row)
             # What a session's pane is titled goes after the item it is on;
             # a session with neither is its kind alone. In the letters' order.
-            ses(kind, item, title) = W.Session("wl-" * kind, "\$9", "sh", false, false, side,
+            ses(kind, item, title) = W.Session("wl-" * kind, "\$9", "sh", false, false, false, side,
                                                kind, item, "", "", title)
             opt = W.checkout_option((path = side, branch = pr.branch, main = true),
                                     [ses("agent", "wt#7", W.CLEARED_TITLE),

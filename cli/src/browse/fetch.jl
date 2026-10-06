@@ -582,7 +582,11 @@ So is a change in what a session's pane is titled, which the pipe is told of
 as it is of a bell, or a session coming or going: the item pane's `running`
 lines read `st.sessions`, which was otherwise listed only as an item's
 metadata loaded, and went on showing the title an agent had before its first
-prompt. Not started where there is no tmux to ask.
+prompt. And so is a session's child exiting, which the pipe is told of too
+(`MUX_DEAD`): its pane is kept, so nothing ended and the pane's own client
+heard nothing. The wake is what has the pane on top read its screen again and
+find it (`pane_sync!`), and the `running` lines say `exited`. Not started
+where there is no tmux to ask.
 """
 function watch_sessions!(st::BState)
     mux_bin() === nothing && return
@@ -629,11 +633,11 @@ function watch_sessions!(st::BState)
 end
 
 """Did the sessions change in a way the item pane shows: one came or went, a
-pane was retitled, or a session was re-tagged onto another item or copy? By
-id, which a rename does not change."""
+pane was retitled, its child exited, or a session was re-tagged onto another
+item or copy? By id, which a rename does not change."""
 sessions_changed(rows::Vector{Session}, was::Vector{Session}) =
-    Dict(r.id => (r.title, r.item, r.kind, r.worktree) for r in rows) !=
-    Dict(r.id => (r.title, r.item, r.kind, r.worktree) for r in was)
+    Dict(r.id => (r.title, r.item, r.kind, r.worktree, r.dead) for r in rows) !=
+    Dict(r.id => (r.title, r.item, r.kind, r.worktree, r.dead) for r in was)
 
 """Take the sessions again once one rang, or went quiet, or changed what the
 item pane says of it, behind the frame. The last is the pane's alone, so it
