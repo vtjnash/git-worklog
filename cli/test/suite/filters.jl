@@ -442,12 +442,29 @@ end
     W.note_place!(fresh)
     @test W.isdefault(last(fresh.back).filters)
 
-    # An item that is no longer in the list leaves the cursor at the top of
-    # the list it is not in; a mode that is not one stays as it was.
+    # An item the list does not show comes back as the guest, which is what
+    # it was if a jump past the filters is how it was reached: julia#63333,
+    # read, looked up by number from the firehose, and the browser reopened
+    # at the top of a list it was not in.
+    hid = first(x for x in mkstate().all if !x.is_pr)
+    write(W.viewfile(), string("[view]\nkind = \"pr\"\n\n[at]\nitem = ", repr(hid.url),
+                               "\nmode = \"comments\"\n"))
+    back = mkstate()
+    @test W.restore_view!(back)
+    @test back.filters.kind === :pr && back.guest == hid.url
+    @test back.items[back.sel].url == hid.url
+    @test count(x -> !x.is_pr, back.items) == 1
+    @test endswith(back.status, "shown though the filter hides it")
+    # And it is written as any row is, so the next launch does the same.
+    W.save_view(back)
+    @test occursin(string("item = ", repr(hid.url)), read(W.viewfile(), String))
+    # One the corpus does not carry leaves the cursor at the top of the list;
+    # a mode that is not one stays as it was.
     write(W.viewfile(), "[view]\nkind = \"pr\"\n\n[at]\nitem = \"gone\"\nmode = \"x\"\n")
     again = mkstate()
     @test W.restore_view!(again)
     @test again.filters.kind === :pr && again.sel == 1 && again.mode === :comments
+    @test isempty(again.guest) && !occursin("shown though", again.status)
     # No file, or a file that is not TOML, is the browser opening as it always did.
     write(W.viewfile(), "[view\n")
     none = mkstate()

@@ -397,7 +397,7 @@ to the 256-colour cube.
 | `data/local.toml` | you and the program | one block per item: your note, snooze, tracking level, and what you have done to it; and one per unread notice, `["notice:<id>"]`, written by the poll and removed when it is dismissed. Edited key by key; **never rewritten**. Tracked |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Safe to delete; ~6MB; ignored |
 | `data/cache/`, `data/errors.log`, `data/refresh.log` | the browser, `wl prefetch` | ignored. Deleting `errors.log` dismisses the footer warning; `refresh.log` is the whole of what the last `u` said, and `wl log` prints it |
-| `data/view.toml` | the browser | where it was when it last closed - the filter, the item, which view of it - read back at the next launch; `` ` `` is the way back to the firehose from there. Written whole on the way out; ignored. Delete it to open on the firehose |
+| `data/view.toml` | the browser | where it was when it last closed - the filter, the item, which view of it - read back at the next launch, the item even when the filter hides it; `` ` `` is the way back to the firehose from there. Written whole on the way out; ignored. Delete it to open on the firehose |
 | `data/notifications.token` | you | optional: a token that can read `/notifications`, for a machine whose own cannot |
 | `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Yours alone (`0700`, set at every launch); gone with the last login, like what they point at |
 

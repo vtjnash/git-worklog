@@ -27,7 +27,7 @@ somebody asked on it was never seen. Facts do not compete.
 | `data/local.toml` | you and the program | **never rewritten.** Every write goes through a line-based editor (`state.jl`) that changes the keys it names inside the block it names and leaves every other line byte-identical. Tracked, in `data/`'s own repository. One kind of block the poll writes whole: a notice, `["notice:<id>"]`, which dismissal removes whole (Marks) |
 | `data/fetched.json` | `wl refresh` | everything GitHub can answer again. Must stay safe to delete: nothing that cannot be rebuilt from GitHub goes in it |
 | `data/cache/` | the browser | per-item reads with a TTL |
-| `data/view.toml` | the browser | where it was when it last closed: the filter and its order, the item, the mode. Written whole on the way out (`save_view`), read once at launch (`restore_view!`). Not `local.toml`'s: it is nothing without the corpus beside it, and where you were is not judgement. Ignored |
+| `data/view.toml` | the browser | where it was when it last closed: the filter and its order, the item, the mode. Written whole on the way out (`save_view`), read once at launch (`restore_view!`), the item as the guest when the list does not show it. Not `local.toml`'s: it is nothing without the corpus beside it, and where you were is not judgement. Ignored |
 
 The line between the two data files is *what GitHub can answer again*. A fact
 about what was done on this machine - a mark, a cursor, the day a repository

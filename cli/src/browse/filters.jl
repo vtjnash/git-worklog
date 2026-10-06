@@ -1384,8 +1384,12 @@ The filter, its order, the item under the cursor and which of its views was
 up: enough to reopen in the same place, which is what a stray `q` used to
 cost and what a terminal that went away always did. Written whole on the way
 out, since it is one record and not a file anybody edits; read once at
-launch, and an item that is no longer in the list - read since, filed,
-filtered out - leaves the cursor at the top of the list it is not in.
+launch. An item the list does not show - read since, filed, or reached by a
+jump past the filters in the first place - comes back as the guest
+(`refilter!`), as `` ` `` brings one back: the row is what was being looked
+at, and a list opening at its top instead was the place lost for exactly the
+item gone to by name. One the corpus no longer carries leaves the cursor at
+the top.
 
 Not `local.toml`: that is judgement, written key by key and never rewritten.
 This is where you were, and it is nothing without the corpus beside it.
@@ -1430,10 +1434,13 @@ function restore_view!(st)
     said = apply_view!(st, v)
     at = jobj(d, :at)
     item = jstr(at, :item, "")
+    hidden = !isempty(item) && !any(x -> x.url == item, st.items)
+    hidden && refilter!(st; guest = item)
     i = findfirst(x -> x.url == item, st.items)
     i === nothing || (st.sel = i)
     m = Symbol(jstr(at, :mode, "comments"))
     m in VIEW_MODES && (st.mode = m)
-    st.status = string("where you were: ", said)
+    st.status = string("where you were: ", said, hidden && i !== nothing ?
+                       " \u00b7 shown though the filter hides it" : "")
     true
 end
