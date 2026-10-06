@@ -373,9 +373,8 @@ everything it calls takes it as a required argument. A global frozen at
 process start was wrong for a browser open all day; a live clock read on the
 way *out* claims a moment after things it never saw. A default further in is
 how the second failure gets back in. The same rule forbids storing a
-time-derived number: `Item` carries `act` and `age(it, at)` is computed when
-asked; the `3d ago` beside every date on screen is `ago_str` against the
-frame's `at`, put on the metadata pane by `meta_lines` and on a header by
+time-derived number: `Item` carries the stamps and no age; the `3d ago`
+beside every date on screen is `ago_str` against the frame's `at`, put on the metadata pane by `meta_lines` and on a header by
 `rows` as it draws it, from a timestamp the node carries (`meta["at"]`) and
 never from a string kept on the node - a thread is fetched once and read for
 hours.
@@ -481,8 +480,9 @@ ignored: a misspelt one silently widens a view, and did.
 newest-first answers new work while the author still has the change in their
 head, and an old row is at the bottom rather than in the way. Oldest-first is
 uniform slowness. `w` cycles four orders, each the one of the three views it
-was made for - by when it moved for the firehose, by the later of that and
-when you acted for your work, by url for the backlog, and by when you acted
+was made for - by when it moved (`moved_of`, the time on the row, and never
+anything you did) for the firehose, by the later of that and when you acted
+for your work, by url for the backlog, and by when you acted
 for the `touched` selection - and `lane_sort` reads which off the selection.
 
 **A place replaces a place; a dialog stacks on one.** `isdialog` is the
@@ -569,7 +569,7 @@ top.
 
 **The order is fixed when a list is asked for, and held while it is read.**
 Every sort key moves under a list on screen - the bundle re-read under the
-cursor brings a fresh `act` for the row being read, a note stamps `touched` -
+cursor brings a fresh `moved_at` for the row being read, a note stamps `touched` -
 and `refilter!` used to sort afresh on each, so the row being read moved
 somewhere else on the screen. Now a refilter that keeps the row keeps the
 order too (`held_order`): a row that changed stays where it was, one that

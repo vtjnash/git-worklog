@@ -30,8 +30,8 @@ Base.@kwdef struct Item
     unresolved::Int = 0
     created::String = ""   # when GitHub says it was opened, and when it last
     updated::String = ""   # changed by anything at all - a label edit counts,
-                           # which is what makes `act` below a different fact
-                           # and not a better-named one
+                           # which is what makes `moved_at` below a different
+                           # fact and not a better-named one
     moved_at::String = ""  # when this program last saw a change at this item's
                            # tracking level - what the seen axis is measured
                            # against. Empty on an item no refresh has seen,
@@ -55,11 +55,6 @@ Base.@kwdef struct Item
     review_requested_at::String = ""
     assigned_at::String = ""
     state_at::String = ""
-    act::String = ""       # when this last moved: the head commit, else the last
-                           # comment, else `updated`. Stored as the timestamp
-                           # and not as an age in days, because an age is only
-                           # true at the instant it was worked out and this
-                           # object outlives that instant by hours.
     new::Bool = false
     is_pr::Bool = true
     author::String = ""
@@ -90,7 +85,7 @@ Base.@kwdef struct Item
     stack_pos::Int = 0     # its place in a stack of pull requests, 1 at the
     stack_size::Int = 0    # bottom, of how many; 0 for none. And the number of
     stack_base::Int = 0    # the one it is on, 0 at the bottom, which is on `base`
-    head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
+    head::String = ""      # and the sha at the end of it. `moved_at` says
                            # a push happened; this says what it pushed, which is
                            # the other end of the range-diff `p` takes against
                            # the head the done mark was made at. Empty on an
@@ -151,24 +146,14 @@ function done_upto(it::Item)
     v === nothing ? floor_of(it, source_since()) : truthy(v) ? String(v) : nothing
 end
 
-"""How many days ago this item last moved, as of `at`.
-
-Computed on demand rather than stored. The browser holds its items for the
-length of a session, so an age worked out when they were loaded is an age from
-whenever `wl` was started - right for about a day and then quietly wrong. Ask
-at the point of use and the answer is always the one being shown.
-"""
-age(it::Item, at::DateTime) = something(days_since(it.act, at), 0)
-
 """One item from one record, the way `facts.json` writes them.
 
 Its own function because a refresh is no longer the only source of a record: an
 import fetches one mid-session and has to become the same `Item` a lane would
 have made. Two mappings would drift, and the first thing to drift would be
-`act`, which every age and every order is worked out from.
+`moved_at`, which the seen axis and every order are worked out from.
 """
 function item_of(@nospecialize(r))
-        act = something(jstr(r, :head_at), jstr(r, :last_comment_at), jstr(r, :updated, ""))
         repo, number = jstr(r, :repo, ""), jint(r, :number, 0)
         Item(
             url = jstr(r, :url, ""), ref = string(split(repo, '/')[end], '#', number),
@@ -176,7 +161,6 @@ function item_of(@nospecialize(r))
             lane = jstr(r, :lane, ""), track = jstr(r, :track, "normal"),
             note = jstr(r, :note, ""),
             ci = jstr(r, :ci, ""), unresolved = jint(r, :unresolved, 0),
-            act = act,
             moved_at = jstr(r, :moved_at, ""),
             moved_by = jstr(r, :moved_by, ""),
             head_at = jstr(r, :head_at, ""),
@@ -496,7 +480,10 @@ function local_item(url::AbstractString, b = nothing)
          lane = "local",
          track = nz(get_field(url, "track"), "normal"),
          note = nz(get_field(url, "note"), ""),
-         act = b === nothing ? "" : b.at,
+         # When the tip was committed, which is all that dates a branch: it
+         # has no movement on record - nobody else can move one - and this
+         # is what it sorts by (`sortkey`).
+         head_at = b === nothing ? "" : b.at,
          # A branch whose commits are all in the base has landed, however it got
          # there. That is what makes it archivable - and, until the notice has
          # been read, what makes it news.
@@ -585,7 +572,7 @@ function notice_item(key::AbstractString, b::AbstractDict)
          ref = string(isempty(repo) ? "github" : last(split(repo, '/')), " ", notice_word(kind)),
          title = get(b, "title", ""), lane = "notifications", notice = kind,
          reason = reason, web = get(b, "web", ""),
-         created = at, updated = at, moved_at = at, act = at,
+         created = at, updated = at, moved_at = at,
          mentioned = Events.mention_words(Dict{String,Any}("reason" => reason, "notified" => at)))
 end
 
@@ -645,14 +632,14 @@ the odd one - an old issue in a repo that is tracked anyway, a pull request of
 yours somewhere that is not - so there has to be a way to say "unread again"
 without a request and without inventing a second row for it.
 
-`act` is what the item last moved at, which is what the unread lane compares
-against a done stamp. Anything else would either hide it at once or never let it
-leave.
+`updated` is what the item last moved at (`moved_of`), which is what the unread
+lane compares against a done stamp. Anything else would either hide it at once
+or never let it leave.
 """
 inbox_row(it::Item, at::DateTime = utcnow()) = OrderedDict{String,Any}(
     "url" => it.url, "repo" => it.repo, "number" => it.number, "title" => it.title,
     "is_pr" => it.is_pr, "state" => lowercase(isempty(it.state) ? "open" : it.state),
-    "author" => it.author, "updated" => isempty(it.act) ? stamp(at) : it.act,
+    "author" => it.author, "updated" => something(moved_of(it), stamp(at)),
     "comments" => 0, "labels" => it.labels, "mine" => it.author == login())
 
 """And the other direction: the row a poll wrote, as an `Item` to select.
@@ -675,7 +662,6 @@ poll_item(@nospecialize(u)) = Item(
     title = jstr(u, :title, ""), lane = jstr(u, :lane, "activity"),
     author = jstr(u, :author, ""),
     updated = jstr(u, :updated, ""),
-    act = jstr(u, :updated, ""),
     # The poll has no fingerprint to compare, so what it saw *is* the movement.
     moved_at = jstr(u, :updated, ""),
     # Yours, with no comment and no notification - GitHub notifies nobody of

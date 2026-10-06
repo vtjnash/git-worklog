@@ -41,7 +41,7 @@ end
     try
         it = W.Item(url = "https://github.com/o/r/pull/7", ref = "r#7", repo = "o/r",
                     number = 7, title = "a pull request", head = "cafef00dcafef00d",
-                    act = "2026-09-01T00:00:00Z", moved_at = "2026-09-01T00:00:00Z",
+                    moved_at = "2026-09-01T00:00:00Z",
                     state = "OPEN")
         st = W.BState([it], "t")
         st.filters = W.everything(); W.refilter!(st)
@@ -69,7 +69,7 @@ end
         # exactly as it was.
         plain = W.Item(url = "https://github.com/o/r/issues/8", ref = "r#8",
                        repo = "o/r", number = 8, title = "an issue", is_pr = false,
-                       act = "2026-09-01T00:00:00Z", state = "OPEN")
+                       state = "OPEN")
         st2 = W.BState([plain], "t")
         st2.filters = W.everything(); W.refilter!(st2)
         st2.sel = findfirst(x -> x.url == plain.url, st2.items)

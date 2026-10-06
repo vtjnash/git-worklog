@@ -42,7 +42,7 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
         "title" => "CI failed", "reason" => "ci_activity", "at" => "2026-09-20T10:00:00Z",
         "web" => "https://github.com/o/r/actions"))
     @test it.ref == "r CI" && W.isnotice(it) && !W.ghitem(it) && !it.is_pr
-    @test it.lane == "notifications" && it.moved_at == it.updated == it.act == "2026-09-20T10:00:00Z"
+    @test it.lane == "notifications" && it.moved_at == it.updated == "2026-09-20T10:00:00Z"
     @test W.weblink(it) == "https://github.com/o/r/actions"
     @test W.fetch_bundle(it) === nothing                 # nothing to ask GitHub
     @test W.kind_of(it) === :notice && W.over_of(it) === :closed

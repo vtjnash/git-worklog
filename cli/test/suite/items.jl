@@ -1,22 +1,36 @@
-# One item: how it is aged, labelled, imported, and re-read when it is stale.
+# One item: how it is dated, labelled, imported, and re-read when it is stale.
 
-@testset "an age is worked out when it is asked for" begin
-    # Stored, an age is only true at the instant it was computed, and the
-    # browser holds its items for the length of a session - so it was right for
-    # about a day and then quietly wrong. The timestamp is what is kept.
-    it = W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t",
-                act = "2000-01-01T00:00:00Z")
-    @test W.age(it, W.DateTime(2000, 1, 2)) == 1
-    @test W.age(it, W.DateTime(2000, 2, 1)) == 31
-    # Same item, a week later in the same session: a different answer.
-    @test W.age(it, W.DateTime(2000, 1, 9)) - W.age(it, W.DateTime(2000, 1, 2)) == 7
-    # Nothing to measure is zero rather than an error.
-    @test W.age(W.Item(url = "u", ref = "r#1", repo = "a/b", number = 1, title = "t"),
-                W.utcnow()) == 0
-    # And it comes off the real facts, newest field first.
-    loaded = W.loaditems()
-    @test all(!isempty(x.act) for x in loaded)
-    @test W.age(loaded[1], W.utcnow()) >= 0
+@testset "a row sorts by the movement it shows" begin
+    # The order had a clock of its own - the head commit, else the last
+    # comment, else `updated` - so a pull request sorted by its last push
+    # whatever was said after: GPUCompiler.jl#272, closed with a comment on
+    # 2026-10-05 over a head from 2021, read `moved 1d ago` and sorted among
+    # the rows of 2021.
+    it = W.item_of(Dict{String,Any}(
+        "url" => "https://github.com/o/r/pull/272", "repo" => "o/r", "number" => 272,
+        "title" => "t", "head_at" => "2021-12-17T02:25:24Z",
+        "last_comment_at" => "2026-10-05T16:28:41Z", "updated" => "2026-10-05T16:39:32Z",
+        "moved_at" => "2026-10-05T16:28:42Z"))
+    none = Dict{String,String}()
+    @test W.sortkey(it, none, :moved) == W.moved_of(it) == "2026-10-05T16:28:42Z"
+    @test W.sortkey(it, none, :latest) == W.sortkey(it, none, :touched) == W.moved_of(it)
+    # Nothing of yours is in it: a comment of your own after theirs moves
+    # `updated` and the last comment, and the row stays where their movement
+    # put it - which is what leaves `:latest` something to add.
+    mine = W.with(it; updated = "2026-10-06T09:00:00Z")
+    @test W.sortkey(mine, none, :moved) == "2026-10-05T16:28:42Z"
+    @test W.sortkey(mine, Dict(it.url => "2026-10-06T09:00:00Z"), :latest) == "2026-10-06T09:00:00Z"
+    # A light row has the poll's clock and nothing else, and that is its
+    # movement; an adopted branch has none on record and is dated by its tip.
+    @test W.sortkey(W.poll_item(Dict{String,Any}("url" => "https://github.com/o/r/issues/1",
+                                                 "repo" => "o/r", "number" => 1,
+                                                 "updated" => "2026-09-03T00:00:00Z")),
+                    none, :moved) == "2026-09-03T00:00:00Z"
+    br = W.Item(url = "local:o/r#topic", ref = "r#topic", repo = "o/r", number = 0,
+                title = "t", head_at = "2026-09-04T00:00:00Z")
+    @test W.moved_of(br) === nothing && W.sortkey(br, none, :moved) == "2026-09-04T00:00:00Z"
+    # And every row of the real facts has one.
+    @test all(x -> !isempty(W.sortkey(x, none, :moved)), W.loaditems())
 end
 
 @testset "one wording for a relative time, off the clock it is asked at" begin
@@ -49,7 +63,7 @@ end
     @test !(l in st.labels)
     n = W.withlabels(it, sort(vcat(it.labels, l)))
     # Everything else about it is the same object's contents, field for field.
-    @test n.url == it.url && n.title == it.title && n.act == it.act && n.state == it.state
+    @test n.url == it.url && n.title == it.title && n.moved_at == it.moved_at && n.state == it.state
     @test n.labels == sort(vcat(it.labels, l)) && it.labels != n.labels
     @test W.replace_item!(st, n)
     @test st.all[findfirst(x -> x.url == it.url, st.all)].labels == n.labels

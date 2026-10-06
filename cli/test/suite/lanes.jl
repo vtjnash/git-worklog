@@ -109,7 +109,7 @@
         # The url order is not this selection's own, so the summary names it.
         @test occursin("by url", W.filter_summary(st.filters, st.sort))
 
-        # GitHub's clock alone: when it moved, whoever moved it, which is the
+        # The movement alone: when somebody else moved it, which is the
         # firehose's order and the one this selection opens in - so the
         # summary stops naming it: the default said on every screen is a
         # phrase the reader stops seeing. It is named wherever it is not the
@@ -125,7 +125,7 @@
         @test issorted(keys0; rev = true)
         # Nothing of yours counts under it: `b` was acted on this morning and
         # sorts by what GitHub last said about it all the same.
-        @test W.sortkey(b, st.touched, :moved) == b.act
+        @test W.sortkey(b, st.touched, :moved) == W.moved_of(b)
         @test W.sortkey(b, st.touched, :moved) != "2026-09-02T12:00:00Z"
         @test occursin("w sort", unstyled(frame(st, 200, 40)))
 
@@ -138,7 +138,7 @@
         @test length(st.items) == n
         keys2 = [W.sortkey(x, st.touched, :latest) for x in st.items]
         @test issorted(keys2; rev = true)
-        @test W.sortkey(a, st.touched, :latest) == max(a.act, "2020-01-01T00:00:00Z")
+        @test W.sortkey(a, st.touched, :latest) == max(W.moved_of(a), "2020-01-01T00:00:00Z")
         # Your own work counts under it: the clock on `b` is later than
         # anything GitHub said about it, and it is what `b` sorts by.
         @test W.sortkey(b, st.touched, :latest) == "2026-09-02T12:00:00Z"
@@ -162,7 +162,7 @@
         @test pos(b.url) < pos(c.url) < pos(a.url)
         @test W.sortkey(b, st.touched) == "2026-09-02T12:00:00Z"     # the clock
         untouched = fixture_item("an issue")
-        @test W.sortkey(untouched, st.touched) == untouched.act      # the fallback
+        @test W.sortkey(untouched, st.touched) == W.moved_of(untouched)      # the fallback
         # And it says so where the filter says what it is.
         @test occursin("by when you acted", W.filter_summary(st.filters, st.sort))
 
@@ -175,7 +175,7 @@
         # them agree to the second under both orders that read the clock -
         # and under all three where nothing has a time at all.
         tied = [W.Item(url = "https://github.com/o/r/pull/$n", ref = "r#$n",
-                       repo = "o/r", number = n, title = "t", act = "2026-09-01T00:00:00Z")
+                       repo = "o/r", number = n, title = "t", moved_at = "2026-09-01T00:00:00Z")
                 for n in (3, 30, 4)]
         stamp = Dict(x.url => "2026-09-02T00:00:00Z" for x in tied)
         for order in (:moved, :latest, :touched)

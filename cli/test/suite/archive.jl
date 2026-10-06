@@ -428,7 +428,7 @@ end
         @test length(ours()) == 1
         g("branch", "-D", "mine")
         gone = ours()
-        @test length(gone) == 1 && isempty(gone[1].act)   # no tip to date it by
+        @test length(gone) == 1 && isempty(gone[1].head_at)   # no tip to date it by
         @test gone[1].title == "mine"          # the name, with no tip to read
     finally
         write(W.localfile(), state)

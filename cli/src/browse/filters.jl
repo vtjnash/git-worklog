@@ -164,9 +164,10 @@ axes instead of sitting beside them. `w` cycles it.
 Four orders, and each is the one of the three views it was made for; see
 `lane_sort` for which selection implies which.
 
-`:moved` is GitHub's clock alone - the head commit, else the last comment, else
-`updated` - and the firehose's order: what happened most recently is at the
-top, whoever did it. It is the default, and the order the browser opens in.
+`:moved` is the movement alone - `moved_of`, the time the row shows and the seen
+axis reads - and the firehose's order: what somebody else did most recently is
+at the top, and nothing you did yourself lifts a row. It is the default, and
+the order the browser opens in.
 
 `:latest` is the later of that and your own last interaction, which is the
 order your work reads in: something you answered this morning belongs above
@@ -505,8 +506,8 @@ shown(f::Filters, it::Item, m::Marks = Marks()) =
 """The timestamp a sorted list is ordered by, under one of three readings of
 when.
 
-`:moved` is GitHub's clock, `act`, and nothing of yours: *when did this last
-happen*. `:touched` is your own last interaction if there is one and the remote
+`:moved` is the movement, `moved_of`, and nothing of yours: *when did somebody
+else last do something here*. `:touched` is your own last interaction if there is one and the remote
 time only otherwise: *when did I last deal with this*. `:latest` is the later of
 the two, *when did anything happen to this* - the order notification mail would
 have arrived in, with your own work folded into it.
@@ -523,12 +524,20 @@ One key rather than two groups, under any reading. A branch nothing has been
 done to but that was committed to this morning belongs above a pull request last
 touched in March, and splitting the list into touched-then-untouched would bury
 it.
+
+**The movement is the one the row shows**, and never a clock of its own. It
+was one - the head commit, else the last comment, else `updated` - which is
+a precedence and not a latest, so a pull request sorted by its last push
+whatever was said after: GPUCompiler.jl#272, closed with a comment yesterday,
+read `moved 1d ago` and sorted under a head from 2021. An adopted branch has
+no movement on record and is dated by its tip.
 """
 function sortkey(it::Item, touched::Dict{String,String}, order::Symbol = :touched)
-    order === :moved && return it.act
+    moved = something(moved_of(it), it.head_at)
+    order === :moved && return moved
     t = get(touched, it.url, "")
-    order === :latest && return max(t, it.act)
-    isempty(t) ? it.act : t
+    order === :latest && return max(t, moved)
+    isempty(t) ? moved : t
 end
 
 """What a url is made of: owner, project, number - and the url itself, so the
@@ -1208,7 +1217,7 @@ so the order the reader opened is the order they read, until they ask for
 another.
 
 The sort key moves under a list that is being read: the bundle re-read under
-the cursor (`collect_meta!`) brings a fresh `act` for the one row, and a
+the cursor (`collect_meta!`) brings a fresh `moved_at` for the one row, and a
 re-sort put that row - the one being read - somewhere else on the screen. A
 note, a snooze put on and undone, a label: each is one row changed and the
 whole list re-ordered around it, on an order the reader had already taken in.

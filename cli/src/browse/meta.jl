@@ -513,8 +513,9 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # was, beside it, since the subtraction was being done by the reader.
     #
     # `updated` is GitHub's own, so a label edit moves it. That is a different
-    # fact from `act` - the head commit or the last comment - and the lanes are
-    # ordered by `act` precisely because this one moves for things nobody did.
+    # fact from `moved_at` - somebody else's push, comment or review - and the
+    # lists are ordered by that precisely because this one moves for things
+    # nobody did.
     kv("created", when_str(it.created, at))
     kv("updated", when_str(it.updated, at))
     kv("milestone", string(it.milestone,

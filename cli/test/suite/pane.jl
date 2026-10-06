@@ -419,10 +419,10 @@ end
         run(pipeline(`git -C $wt init -q -b topic`; stdout = devnull, stderr = devnull))
         a = W.Item(url = "https://github.com/o/r/pull/7", ref = "r#7", repo = "o/r",
                    number = 7, title = "the one being read", state = "OPEN",
-                   act = "2026-09-01T00:00:00Z", moved_at = "2026-09-01T00:00:00Z")
+                   moved_at = "2026-09-01T00:00:00Z")
         b = W.Item(url = "https://github.com/o/r/pull/8", ref = "r#8", repo = "o/r",
                    number = 8, title = "the one being worked on", state = "OPEN",
-                   act = "2026-09-02T00:00:00Z", moved_at = "2026-09-02T00:00:00Z")
+                   moved_at = "2026-09-02T00:00:00Z")
         st = W.BState([a, b], "t")
         st.filters = W.everything(); W.refilter!(st)
         st.sel = findfirst(x -> x.url == a.url, st.items)

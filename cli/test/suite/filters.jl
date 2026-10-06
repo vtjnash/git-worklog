@@ -1059,24 +1059,24 @@ end
 
 @testset "the order is held while the list is read" begin
     # Every sort key moves under a list on screen - the bundle re-read under
-    # the cursor brings a fresh `act`, a note stamps `touched` - and a re-sort
+    # the cursor brings a fresh `moved_at`, a note stamps `touched` - and a re-sort
     # on each put the row being read somewhere else. The order is fixed when
     # a list is asked for and held while it is read.
     st = mkstate()
     st.filters = W.everything(); st.sort = :moved; W.refilter!(st; keeprow = false)
     @test length(st.items) > 3
     was = [x.url for x in st.items]
-    # One row re-read with an `act` newer than everything: the sort would
+    # One row re-read with a `moved_at` newer than everything: the sort would
     # put it first, and the held order leaves it where it was.
     it = st.items[3]
-    @test W.replace_item!(st, W.with(it; act = "2099-01-01T00:00:00Z"))
+    @test W.replace_item!(st, W.with(it; moved_at = "2099-01-01T00:00:00Z"))
     @test [x.url for x in st.items] == was
-    @test st.items[3].act == "2099-01-01T00:00:00Z"
+    @test st.items[3].moved_at == "2099-01-01T00:00:00Z"
     # A row leaving leaves; one arriving goes where the sort puts it among
     # the rows that stayed - here the top, as the newest.
     @test W.drop_item!(st, it.url)
     @test [x.url for x in st.items] == [u for u in was if u != it.url]
-    @test W.add_item!(st, W.with(it; act = "2099-01-01T00:00:00Z"))
+    @test W.add_item!(st, W.with(it; moved_at = "2099-01-01T00:00:00Z"))
     @test st.items[1].url == it.url
     @test [x.url for x in st.items[2:end]] == [u for u in was if u != it.url]
     # Asking for another list - the sort, a filter, a search - sorts afresh.
@@ -1084,12 +1084,12 @@ end
     @test issorted([W.urlkey(x) for x in st.items]; rev = true)
     st.sort = :moved; W.refilter!(st)
     @test st.items[1].url == it.url
-    @test issorted([(x.act, W.urlkey(x)) for x in st.items]; rev = true)
+    @test issorted([(x.moved_at, W.urlkey(x)) for x in st.items]; rev = true)
     held = [x.url for x in st.items]
     st.filters.kind = :pr; W.refilter!(st)
     @test all(x -> x.is_pr, st.items)
     st.filters.kind = :both; W.refilter!(st)
-    @test issorted([(x.act, W.urlkey(x)) for x in st.items]; rev = true)
+    @test issorted([(x.moved_at, W.urlkey(x)) for x in st.items]; rev = true)
     # A search started in the list is part of what the list is of; one in the
     # detail pane is not.
     st.search = "a"; st.searchin = :list; W.refilter!(st; keeprow = false)
@@ -1097,14 +1097,14 @@ end
     st.search = ""; W.refilter!(st)
     @test [x.url for x in st.items] == held
     # And a refresh landing asks for a fresh sort of the same list.
-    @test W.replace_item!(st, W.with(st.items[end]; act = "2099-06-01T00:00:00Z"))
-    @test st.items[end].act == "2099-06-01T00:00:00Z"
+    @test W.replace_item!(st, W.with(st.items[end]; moved_at = "2099-06-01T00:00:00Z"))
+    @test st.items[end].moved_at == "2099-06-01T00:00:00Z"
     W.refilter!(st; resort = true)
-    @test st.items[1].act == "2099-06-01T00:00:00Z"
+    @test st.items[1].moved_at == "2099-06-01T00:00:00Z"
     # The held order, on its own: rows in both keep their order, an arrival is
     # slotted by the fresh order, a departure is gone.
-    mk(n, act) = W.Item(url = "u$n", ref = "r#$n", repo = "o/r", number = n,
-                        title = "t", act = act)
+    mk(n, moved) = W.Item(url = "u$n", ref = "r#$n", repo = "o/r", number = n,
+                        title = "t", moved_at = moved)
     prev = [mk(1, "3"), mk(2, "2"), mk(3, "1")]
     fresh = [mk(3, "9"), mk(4, "8"), mk(2, "2"), mk(5, "0")]
     @test [x.url for x in W.held_order(fresh, prev)] == ["u2", "u4", "u3", "u5"]

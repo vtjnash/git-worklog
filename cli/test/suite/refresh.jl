@@ -2271,12 +2271,14 @@ end
     # is the one a key cannot always date. Under `local`, with the reason
     # GitHub gave dim after it.
     st = mkstate()
+    # Whichever row the list opens on, with everything this reads set here:
+    # the verdict too, which is drawn under `reviews` in the tag's own words.
     mk(; kw...) = W.with(st.items[1]; url = "https://github.com/o/r/pull/9", ref = "r#9",
                          moved_at = "2026-09-12T10:00:00Z", updated = "2026-09-12T10:00:00Z",
                          state = "OPEN", track = "normal", moved_by = "", head_at = "",
                          head_by = "", their_comment_at = "", human_comment_at = "",
                          review_at = "", review_requested_at = "", assigned_at = "",
-                         state_at = "", kw...)
+                         state_at = "", review_decision = "", kw...)
     at = W.ts("2026-09-13T00:00:00Z")
     marks(read; wake = nothing, rang = false) =
         W.Marks(done = read === nothing ? Dict{String,String}() : Dict(mk().url => read),
