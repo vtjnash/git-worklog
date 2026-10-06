@@ -1257,7 +1257,7 @@ function rangediff_nodes(txt::AbstractString)
         # dropped has no new sha and a commit it added has no old one, and
         # `-------` is not something to put in front of a subject line.
         sha = newsha == "-------" ? oldsha : newsha
-        byline = faced(rpad(what, 10), col) * faced(first(sha, 8), THEME.dim)
+        byline = faced(rowpad(what, 10), col) * faced(first(sha, 8), THEME.dim)
         # Open where the pair differs. A new commit has no pair to differ
         # from, so what is under it - its own diff, which `added_patches` put
         # there - is the whole commit, and folds like an unchanged one.

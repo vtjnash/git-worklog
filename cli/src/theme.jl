@@ -247,7 +247,8 @@ end
 #
 # Two keys are not colours and are taken as names from `TermInput.BOXES`: `box`
 # is what every box is drawn with - the dialogs, the panes, `CHROME[].box` -
-# and `md_table_box` is a table's.
+# and `md_table_box` is a table's. The rest that are not colours are
+# `MD_SETTINGS`: a list's marks, a footnote's, and a table's rules and padding.
 
 """The `[markdown]` table's keys, and the `MarkdownStyle` field each sets.
 
@@ -263,7 +264,31 @@ const MD_KEYS = Dict{String,Symbol}(
     "md_admonition_info" => :info,
     "md_table_header" => :table_head, "md_table_rule" => :table_rule,
     "md_rule" => :rule, "md_latex" => :latex, "md_footnote" => :footnote,
-    "md_html" => :html)
+    "md_html" => :html, "md_url" => :url, "md_marker" => :marker,
+    "md_number" => :number)
+
+"""The `[markdown]` table's keys that are not colours: the `MarkdownStyle`
+field each sets, what reads it - the field's value, or `nothing` when the
+theme's will not do - and what it wants, for the sentence that refuses one. A
+`%s` is where a list's number or a footnote's id goes, so a format without one
+is refused rather than drawn with nothing in it."""
+const MD_SETTINGS = Dict{String,Tuple{Symbol,Function,String}}(
+    "md_bullets" => (:bullets,
+        v -> v isa AbstractVector && !isempty(v) && all(x -> x isa AbstractString, v) ?
+             Tuple(String.(v)) : nothing,
+        "a list of strings, one per depth"),
+    "md_numbers" => (:numbers,
+        v -> v isa AbstractString && occursin("%s", v) ? String(v) : nothing,
+        "a string with a %s for the number"),
+    "md_footnote_ref" => (:footnote_ref,
+        v -> v isa AbstractString && occursin("%s", v) ? String(v) : nothing,
+        "a string with a %s for the id"),
+    "md_inlinecode" => (:inlinecode, v -> v isa Bool ? v : nothing, "true or false"),
+    "md_table_rows" => (:table_rows,
+        v -> v in ("wrapped", "always", "never") ? Symbol(v) : nothing,
+        "\"wrapped\", \"always\" or \"never\""),
+    "md_cellpad" => (:cellpad, v -> v isa Integer && !(v isa Bool) && v >= 0 ? Int(v) : nothing,
+        "a count of spaces, 0 or more"))
 
 """The faces the `[code]` table may name: what Julia's highlighter paints with,
 by name without its `julia_`. A face with no colour falls back as
@@ -312,6 +337,11 @@ function apply_markdown!(fields::Dict{Symbol,Any}, tbl::AbstractDict{String},
             theme_box!(b -> (BOX[] = b), value, key, probs, where_)
         elseif key == "md_table_box"
             theme_box!(b -> (fields[:box] = b), value, key, probs, where_)
+        elseif haskey(MD_SETTINGS, key)
+            (field, read, wants) = MD_SETTINGS[key]
+            v = read(value)
+            v === nothing ? push!(probs, string(where_, ": `", key, "` wants ", wants)) :
+                            (fields[field] = v)
         elseif !haskey(MD_KEYS, key)
             push!(probs, string(where_, ": no markdown style `", key, "`"))
         elseif !(value isa AbstractString)

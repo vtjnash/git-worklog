@@ -74,11 +74,10 @@ function help_rows(iw::Int)
             push!(out, isempty(e) ? (row(""), Face()) : (row(e), THEME.bold))
         else
             k, what = e
-            lines = rowwrap(what, iw - kw - 2)
-            isempty(lines) && (lines = [row("")])
-            push!(out, (faced(rowpad(k, kw), THEME.focus) * "  " * lines[1], Face()))
-            for l in lines[2:end]
-                push!(out, (" "^(kw + 2) * l, Face()))
+            # Two spaces between the columns: the key's own is one of them.
+            for l in columns(Any[k what], [kw + 1, iw - kw - 2]; wrap = true,
+                             faces = [THEME.focus, Face()])
+                push!(out, (l, Face()))
             end
         end
     end

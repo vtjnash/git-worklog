@@ -171,7 +171,7 @@ end
 
             # Picking a row works there, and says so through `say`: the answer
             # arrives long after the key press that asked for it returned.
-            ch.sel = 2
+            W.select!(ch, 2)
             W.handle!(ch, 13, ctrl)
             @test last(ctrl.stack) isa W.PaneView
             @test occursin("side", string(said[]))
@@ -225,7 +225,7 @@ end
             # Picking it re-points the shell: the session is on this item now
             # and not on the last one, so rule 2 answers for this one alone and
             # the other is back to asking.
-            ch.sel = 2
+            W.select!(ch, 2)
             W.handle!(ch, 13, ctrl)
             @test last(ctrl.stack) isa W.PaneView
             pop!(ctrl.stack)
@@ -371,7 +371,7 @@ end
                 # master. The question shows the branch and `git status`.
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1
+                W.select!(ch, 1)
                 W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top()
                 @test cv isa W.ConfirmView
@@ -395,7 +395,7 @@ end
                 # tagged with the item, and nothing run.
                 write(joinpath(main, "a.txt"), "two\n")
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test any(n -> occursin("M a.txt", n), split(cv.note, '\n'))
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
@@ -464,7 +464,7 @@ end
                 # to another place.
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
                 @test W.handle!(cv, Int('w'), ctrl) === :pop; drop!(cv)
@@ -475,7 +475,7 @@ end
                 # asks again rather than opening on their branch on the
                 # strength of an old answer.
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test W.handle!(cv, Int('n'), ctrl) === :pop; drop!(cv)
                 @test top() isa W.PaneView && occursin("back in", string(said[]))
@@ -487,7 +487,7 @@ end
                 # `y` runs the checkout there and goes in: the copy is on the
                 # branch, the session is this item's, and the report says both.
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
@@ -512,7 +512,7 @@ end
                 @test W.item_worktree(pr).ask
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == "main is on master"
                 said[] = nothing
@@ -557,7 +557,7 @@ end
                 @test W.item_worktree(pr; items = known).ask
                 # An issue has no right branch, so its shell is wherever it is.
                 @test W.enter_session(issue, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 @test top() isa W.PaneView; drop!(top())
                 W.git(main, "checkout", "--quiet", "--detach", "master")
                 @test !W.item_worktree(issue; items = known).ask
@@ -575,7 +575,7 @@ end
                 @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
                 @test occursin(string("#", pr.number), unstyled(ch.options[1][1]))
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 # And whose sessions are in there, since `y` or `n` takes
@@ -625,7 +625,7 @@ end
                 # pr2 takes it, and this time the checkout lands.
                 write(want, pr2.branch)
                 @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 said[] = nothing
@@ -639,7 +639,7 @@ end
                 @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
                 @test occursin(string("#", pr2.number), unstyled(ch.options[1][1]))
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr2.branch, " \u00b7 ", pr2.ref, "'s")
                 said[] = nothing
@@ -651,7 +651,7 @@ end
                 # And pr2 again: the third move is asked like the first two.
                 @test W.enter_session(pr2, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test split(cv.note, '\n')[1] == string("main is on ", pr.branch, " \u00b7 ", pr.ref, "'s")
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
@@ -1000,7 +1000,7 @@ end
                                head = theirs.head)
                 @test W.enter_session(duppr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView && cv.title == "Check out dup in main?"
                 said[] = nothing
                 @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
@@ -1029,7 +1029,7 @@ end
                 @test occursin("fetches move origin/lease", W.lease_note(main, pr.repo, "lease"))
                 @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Check out lease in main?"
                 @test occursin("gh pr checkout 43", split(cv.note, '\n')[end - 1])
@@ -1044,7 +1044,7 @@ end
                 W.git(main, "config", "push.useForceIfIncludes", "true")
                 @test W.lease_note(main, pr.repo, "lease") == ""
                 @test W.enter_session(leasepr, ctrl, :shell, sleep120, say; items = known) == ""
-                ch = top(); ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test occursin("gh pr checkout 43", split(cv.note, '\n')[end])
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
@@ -1056,7 +1056,7 @@ end
                 @test !mine.is_pr && mine.branch == "mine"
                 @test W.enter_session(mine, ctrl, :shell, sleep120, say; items = known) == ""
                 ch = top(); @test ch isa W.ChooseView
-                ch.sel = 1; W.handle!(ch, 13, ctrl); drop!(ch)
+                W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
                 cv = top(); @test cv isa W.ConfirmView
                 @test cv.title == "Check out mine in main?"
                 @test split(cv.note, '\n')[end] == "y runs git checkout mine there"

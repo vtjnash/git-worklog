@@ -823,9 +823,14 @@ mutable struct ChooseView <: View
 end
 # The hint is the widget's keys and then this view's: `↵` and escape come back
 # from a `Choice`, and what they do here is pick and close.
-ChooseView(title, note, options, onpick; numbered::Bool = false, ranged::Bool = false) =
+# A menu (`filter = false`) has no query to type into, so its hint says only
+# that the cursor moves.
+ChooseView(title, note, options, onpick; numbered::Bool = false, ranged::Bool = false,
+           filter::Bool = true, selected::Int = 1) =
     ChooseView(Choice(title, note, Styled[o[1] for o in options]; numbered, ranged,
-                      hint = string(numbered ? "0-9 picks · " : "", CHOICE_HINT,
+                      filter, selected,
+                      hint = string(numbered ? "0-9 picks · " : "",
+                                    filter ? CHOICE_HINT : "↑/↓ move",
                                     ranged ? " · ⇧↑/⇧↓ a run" : "",
                                     " · ↵ pick · esc cancel")),
                Tuple{Styled,Any}[(row(o[1]), o[2]) for o in options], onpick)
@@ -840,6 +845,9 @@ Base.setproperty!(v::ChooseView, f::Symbol, x) =
 "What is typed to narrow the list."
 query(v::ChooseView) = TermInput.query(getfield(v, :c))
 query!(v::ChooseView, s::AbstractString) = (TermInput.query!(getfield(v, :c), s); v)
+
+"Put the cursor on option `i` of `options`, clearing a query that hides it."
+select!(v::ChooseView, i::Int) = (TermInput.select!(getfield(v, :c), i); v)
 
 "The options the query leaves showing."
 shown(v::ChooseView) = v.options[TermInput.matches(getfield(v, :c))]

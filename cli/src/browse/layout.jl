@@ -198,6 +198,20 @@ a search hit inside the cursor's row keeps its own, and the cursor's goes on
 round it."""
 hlrow(s::AbstractString, bg::Face) = faced(s, bg)
 
+"""Rows of fixed columns: `cells`, a matrix, each column `widths` wide and a
+space from the next - `tablerows` in a box of spaces, with the space at each
+end taken off. A cell is cut to its column, or with `wrap = true` wrapped in
+it, so it is counted in display columns and keeps its faces. A vector of cells
+is one row. The rest of the keywords are `tablerows`', `faces` and `justify`
+among them, one for every column or a vector."""
+function columns(cells::AbstractMatrix, widths; wrap::Bool = false, kw...)
+    rs = tablerows(cells; widths, wrap, pad = 0, box = TermInput.BOXES.NONE,
+                   rules = :never, top = false, bottom = false, kw...)
+    Styled[rowhead(rowtail(r, rowwidth(r) - 1), rowwidth(r) - 2) for r in rs]
+end
+columns(cells::AbstractVector, widths; kw...) =
+    only(columns(permutedims(cells), widths; kw...))
+
 """Lay `quiet` under a whole row - the list while the keys are on the reading
 side. The cursor stays under it, and so does the weight where the theme gives
 `quiet_bold` one: the row is drawn with that in place of `bold` first, since

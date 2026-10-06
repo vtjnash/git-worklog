@@ -88,7 +88,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         # is not: a background inside the row would outlast the cursor's.
         bg = insel ? THEME.select_bg : cur ? THEME.cursor_bg : header_bg(st, r)
         bg == Face() && continue
-        rrows[i + st.hdr] = Row(r.node, r.header, hlrow(rowpad(rowfit(r.text, riw), riw), bg),
+        rrows[i + st.hdr] = Row(r.node, r.header, hlrow(rowpad(r.text, riw), bg),
                                 r.src, r.part, r.gutter)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
@@ -267,7 +267,7 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             lvis = vcat(lvis, fill(Row(0, false, row(""), "", 0), lh - 2 - fh - length(lvis)),
                         [Row(0, false, faced("─"^liw, THEME.dim), "", 0)],
                         [Row(0, false, faced(rowfit(l, liw), THEME.dim), "", 0)
-                         for l in first(vcat(help, fill(row(""), fh - 1)), fh - 1)])
+                         for l in first(rowvpad(help, 0, fh - 1), fh - 1)])
         end
         ltitle = "filters"
     else
@@ -463,13 +463,10 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
     # Clamp to the terminal rather than trusting the arithmetic: on a very short
     # terminal the pane minimums add up to more than there is room for, and a
     # frame taller than the screen scrolls the title bar off the top.
-    all_ = vcat(Styled[rowpad(rowfit(bar, room), room) * tail], body,
+    all_ = vcat(Styled[rowpad(bar, room) * tail], body,
                 Styled[rowpad(foot1, w), rowpad(foot2, w)])
     qcol > 0 && length(all_) <= h && (st.caret = (length(all_), qcol))
-    while length(all_) < h
-        push!(all_, row(" "^w))
-    end
-    Styled[linkify(r, links) for r in all_[1:h]]
+    Styled[linkify(r, links) for r in first(rowvpad(all_, w, h), h)]
 end
 
 """

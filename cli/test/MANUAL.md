@@ -390,3 +390,36 @@ The sentence follows the cursor, wraps in three rows at a narrow list, is
 not there below 20 rows, and a click on it toggles nothing.
 
 *2026-10-05*: pass.
+
+## 25. The fixed menus, and pickers that start on the choice
+
+`'`, `s`, `;` and `A` (on a pull request): no query row, the hint `0-9
+picks · ↑/↓ move · ↵ pick · esc cancel`, a letter does nothing, a digit
+picks its row (`2` in `s` is 3 days), and the arrows, `↵` and escape do
+what they say. `;` `2` on an item with a milestone opens on its `[x]` row,
+and `↵` says "already"; with none, on `[x] none`. `T`, `tab`, a second
+agent, `tab` again: the cursor is on that agent.
+
+*2026-10-06*: pass.
+
+## 26. The worktree and branch lists' columns
+
+`"` at about 120 columns: each header word over its column. Below about 94
+the `tip` column goes with its dates and nothing else moves; at 80 the pull
+request keeps some room. A long branch is cut in the middle and stays in
+its column, in the accent; the date and upstream are dim; the cursor's bar
+is the full width; an agent's title line is under the worktree's name.
+`tab` twice: `●` under `at`, and the names under `branch`.
+
+*2026-10-06*: pass.
+
+## 27. Help's key column, the metadata pane, and `wl`'s comment bodies
+
+`?`: the keys in a column of their own colour, two spaces before what they
+do, and a long description wrapped under itself, not under the key. The
+metadata pane: the names dim, a long value wrapped at the value column, and
+each line ending at its text rather than at the pane's edge. A comment body
+printed by `wl`, with code and a table in it: as before, and no blanks at
+the end of a line.
+
+*2026-10-06*: pass.

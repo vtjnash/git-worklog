@@ -205,7 +205,7 @@ function render(v::PaneView, w::Int, h::Int)
     # Both sides are `h` rows, so they lay against each other a row at a time -
     # and the left is padded in case it gave back fewer, since a short frame
     # would pull the whole right column leftwards.
-    Styled[rowpad(get(left, i, ""), lw) * right[i] for i in 1:h]
+    Styled[rowpad(l, lw) * r for (l, r) in first(zip(rowvpad(left, lw, h), right), h)]
 end
 
 # --- a dialog drawn beside what it is about ---------------------------------
@@ -282,7 +282,7 @@ function render(v::SideView, w::Int, h::Int)
     v.inner isa EditorView && (v.inner.focused = v.focus === :inner)
     right = render(v.inner, rw, h)
     left = detail_pane(v.beside, side_item(v.beside), lw, h, v.focus === :read)
-    Styled[rowpad(get(left, i, ""), lw) * get(right, i, row("")) for i in 1:h]
+    Styled[rowpad(l, lw) * r for (l, r) in first(zip(rowvpad(left, lw, h), rowvpad(right, 0, h)), h)]
 end
 
 """The composer's caret, over on its side of the split, while it has the keys.
@@ -1061,9 +1061,10 @@ function onwake!(v::WorktreeView, ::Any)
 end
 
 # Column widths, shared by the rows and the header that names them - the header
-# *is* the key to the marks, so the two cannot be allowed to drift apart.
+# *is* the key to the marks, so the two cannot be allowed to drift apart, and
+# both are laid out by one call, `wt_columns` or `br_columns`.
 const WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_DATE, WT_TRACK = 3, 2, 18, 22, 10, 10
-const BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 30, 16, 10, 10
+const BR_AT, BR_NAME, BR_REPO, BR_DATE, BR_TRACK = 2, 30, 16, 10, 10
 
 """The three session slots of one row: a shell, an agent and a note, each
 present or not.
@@ -1179,18 +1180,24 @@ wt_date(iw::Int) = iw >= 90 ? WT_DATE + 1 : 0
 wt_label(iw::Int) = max(12, iw - WT_RUN - 1 - WT_CHG - 1 - WT_NAME - 1 -
                              WT_BRANCH - 1 - wt_date(iw) - WT_TRACK - 1)
 
+"""A worktree row's seven columns - the sessions, the changes, the name, the
+branch, the tip, the upstream and the pull request - laid out at `iw`, in
+`faces`; the tip left out where `wt_date` has no room for it."""
+function wt_columns(cells::AbstractVector, iw::Int;
+                    faces = [Face(), Face(), Face(), THEME.accent, THEME.dim, THEME.dim, Face()])
+    keep = wt_date(iw) == 0 ? [1, 2, 3, 4, 6, 7] : (1:7)
+    columns(cells[keep], [WT_RUN, WT_CHG, WT_NAME, WT_BRANCH, WT_DATE, WT_TRACK,
+                          wt_label(iw)][keep]; faces = faces[keep])
+end
+
 "One worktree row, drawn."
 function wt_line(r::WorktreeRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
             r.orphan ? faced("worktree is gone", THEME.blocked) :
             isempty(r.repo) ? "" : faced(r.repo, THEME.dim)
-    session_marks(r) * " " * change_marks(r) * " " *
-        rowpad(rowfit(r.name, WT_NAME), WT_NAME) * " " *
-        faced(rowpad(rowmid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
-                     WT_BRANCH), THEME.accent) * " " *
-        (wt_date(iw) == 0 ? "" : faced(rowpad(first(r.at, WT_DATE), WT_DATE), THEME.dim) * " ") *
-        faced(rowpad(rowfit(track_mark(r), WT_TRACK), WT_TRACK), THEME.dim) * " " *
-        rowpad(rowfit(label, wt_label(iw)), wt_label(iw))
+    wt_columns(Any[session_marks(r), change_marks(r), r.name,
+                   rowmid(isempty(r.branch) ? "(detached)" : r.branch, WT_BRANCH),
+                   first(r.at, WT_DATE), track_mark(r), label], iw)
 end
 
 """One branch row, drawn.
@@ -1199,18 +1206,21 @@ The leading mark is whether it has a place: `\u25cf` for a branch that is
 checked out somewhere, nothing for one that is only a ref. That column is the
 difference between the two lists, so it leads.
 """
-br_label(iw::Int) = max(12, iw - 1 - 1 - BR_NAME - 1 - BR_REPO - 1 -
+br_label(iw::Int) = max(12, iw - BR_AT - 1 - BR_NAME - 1 - BR_REPO - 1 -
                              BR_DATE - 1 - BR_TRACK - 1)
+
+"""A branch row's six columns - the place, the name, the repository, the tip,
+the upstream and the pull request - laid out at `iw`, in `faces`."""
+br_columns(cells::AbstractVector, iw::Int;
+           faces = [Face(), THEME.accent, THEME.dim, THEME.dim, THEME.dim, Face()]) =
+    columns(cells, [BR_AT, BR_NAME, BR_REPO, BR_DATE, BR_TRACK, br_label(iw)]; faces)
 
 function br_line(r::BranchRow, iw::Int)
     label = r.item !== nothing ? string(r.item.ref, "  ", r.item.title) :
             r.gone ? faced("upstream is gone", THEME.dim) : ""
-    (isempty(r.worktree) ? row(" ") : faced("\u25cf", THEME.settled)) * " " *
-        faced(rowpad(rowmid(r.name, BR_NAME), BR_NAME), THEME.accent) * " " *
-        faced(rowpad(rowfit(last(split(r.repo, '/')), BR_REPO), BR_REPO), THEME.dim) * " " *
-        faced(rowpad(first(r.at, BR_DATE), BR_DATE), THEME.dim) * " " *
-        faced(rowpad(rowfit(track_mark(r), BR_TRACK), BR_TRACK), THEME.dim) * " " *
-        rowpad(rowfit(label, br_label(iw)), br_label(iw))
+    br_columns(Any[isempty(r.worktree) ? "" : faced("\u25cf", THEME.settled),
+                   rowmid(r.name, BR_NAME), last(split(r.repo, '/')),
+                   first(r.at, BR_DATE), track_mark(r), label], iw)
 end
 
 """The lines of a row of whichever list is shown, by what the row is: a
@@ -1234,14 +1244,10 @@ for a session that rang while you were away.
 """
 function list_header(branches::Bool, iw::Int)
     line = branches ?
-        string(rowpad("at", 2), " ", rowpad("branch", BR_NAME), " ",
-               rowpad("repo", BR_REPO), " ", rowpad("tip", BR_DATE), " ",
-               rowpad("\u00b1upstream", BR_TRACK), " ", rowpad("pull request", br_label(iw))) :
-        string(rowpad("tTv", WT_RUN), " ", rowpad("+*", WT_CHG), " ",
-               rowpad("worktree", WT_NAME), " ", rowpad("branch", WT_BRANCH), " ",
-               wt_date(iw) == 0 ? "" : string(rowpad("tip", WT_DATE), " "),
-               rowpad("\u00b1upstream", WT_TRACK), " ",
-               rowpad("pull request", wt_label(iw)))
+        br_columns(["at", "branch", "repo", "tip", "\u00b1upstream", "pull request"], iw;
+                   faces = Face()) :
+        wt_columns(["tTv", "+*", "worktree", "branch", "tip", "\u00b1upstream",
+                    "pull request"], iw; faces = fill(Face(), 7))
     faced(rowfit(line, iw), THEME.dim)
 end
 
@@ -1296,10 +1302,7 @@ function render(v::WorktreeView, w::Int, h::Int)
     rows = vcat(bordered(body, w, h - 2, String(v.mode)),
                 Styled[faced(rowfit(list_legend(branches), w), THEME.dim),
                        faced(rowfit(isempty(v.status) ? keys : v.status, w), THEME.dim)])
-    while length(rows) < h
-        push!(rows, row(""))
-    end
-    Styled[rowpad(x, w) for x in rows[1:h]]
+    Styled[rowpad(x, w) for x in first(rowvpad(rows, w, h), h)]
 end
 
 """A click moves the cursor to the row and a double click is `↵`; the wheel

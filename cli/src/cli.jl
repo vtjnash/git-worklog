@@ -310,7 +310,7 @@ function dispatch(args::Vector{String}, at::DateTime = utcnow(); poll = Events.p
         end
         prune = length(args) > 1 && args[2] == "--prune"
         gone = prune ? prune_repos!() : [r.name for r in rs if !r.there]
-        w = maximum(length(r.name) for r in rs)
+        w = maximum(textwidth(r.name) for r in rs)
         for r in rs
             prune && !r.there && continue
             println("  ", rpad(r.name, w), "  ", r.path, r.there ? "" : "   (gone)")

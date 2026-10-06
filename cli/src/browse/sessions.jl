@@ -870,7 +870,7 @@ function checkout_option(w, rows, repo::AbstractString)
     here = [r for r in rows if !isempty(r.worktree) && wtkey(r.worktree) == wtkey(w.path)]
     stem = string(last(split(String(repo), '/')), '#')
     short(ref) = startswith(ref, stem) ? chop(ref; head = length(stem) - 1, tail = 0) : ref
-    lines = [rowcat(rowpad(rowfit(basename(rstrip(String(w.path), '/')), 26), 26), "  ",
+    lines = [rowcat(rowpad(basename(rstrip(String(w.path), '/')), 26), "  ",
                     rowpad(rowmid(isempty(w.branch) ? "(detached)" : w.branch, 38), 38), "  ",
                     w.main ? "main" : "")]
     for (kind, _) in SESSION_LETTERS, r in here
@@ -1187,7 +1187,8 @@ function handle!(v::AgentPromptView, k::Int, ctrl::Controller)
         push_view!(ctrl, ChooseView("Agent", "the next one starts from here",
             Tuple{String,Any}[(string(n, isempty(c) ? "" : string("  · ", c)), i)
                               for (i, (n, c)) in enumerate(v.agents)],
-            i -> (v.pick = i; agent_title!(v); nothing); numbered = true))
+            i -> (v.pick = i; agent_title!(v); nothing); numbered = true,
+            selected = v.pick))
         return :ok
     end
     TermInput.handle!(getfield(v, :li), k) === :ok && return :ok

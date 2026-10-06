@@ -146,7 +146,7 @@ end
           "Why `JL_GC_PUSHARGS` frames are the hard case."
     @test render("_a `b` c_") == "a `b` c"
     # And `wl show`, which is the same rows without the pane.
-    @test rstrip(unstyled(only(W.render_md("a Dict{String,Int} and `T{S}`", 80)).text)) ==
+    @test unstyled(only(W.render_md("a Dict{String,Int} and `T{S}`", 80; pad = false)).text) ==
           "a Dict{String,Int} and `T{S}`"
     @test esc("`keep {this}`") == "`keep {this}`"        # code is left alone
 

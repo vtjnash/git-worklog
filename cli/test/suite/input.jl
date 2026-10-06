@@ -57,7 +57,7 @@ end
     @test under(sv, 170, 40) == " " && W.viewcursor(sv, 170, 40)[2] > lw
     sv.focus = :read
     @test (W.render(sv, 170, 40); W.viewcursor(sv, 170, 40)) === nothing
-    @test occursin(ansi(TermInput.faced(" ", W.Face(inverse = true))), frame(sv, 170, 40))
+    @test occursin(ansi(TermInput.drawcursor("", 1)), frame(sv, 170, 40))
     # The browser's `/`, on whichever row the footer landed, and nowhere once
     # the query is kept.
     st.typing = true; st.searchin = :list

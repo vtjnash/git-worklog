@@ -411,11 +411,8 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # fact half-said. The pane grows by the row; `nmeta` is what the layout
     # reads, so the split follows.
     kv(k, v::AbstractString) = if !isempty(v)
-        ls = rowwrap(v, max(4, w - 10))
-        push!(out, faced(rpad(k, 10), THEME.dim) * ls[1])
-        for l in ls[2:end]
-            push!(out, " "^10 * l)
-        end
+        append!(out, rowrstrip.(columns(Any[k v], [9, max(4, w - 10)]; wrap = true,
+                                        faces = [THEME.dim, Face()])))
     end
     wait_ = meta_waiting(st, it)
 

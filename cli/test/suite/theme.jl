@@ -217,12 +217,45 @@ end
         @test any(p -> occursin("no code face `boolean`", p), probs)
         # The box a bad name did not set is the default, not the last theme's.
         @test TermInput.CHROME[].box === TermInput.BOXES.ROUNDED
+        # The keys that are not colours: each set as the style's own type,
+        # and a value it cannot take refused in a sentence saying what would do.
+        good = joinpath(dir, "good.toml")
+        write(good, """
+            [markdown]
+            md_url = "blue"
+            md_marker = "dim"
+            md_bullets = ["• ", "◦ "]
+            md_numbers = "%s) "
+            md_footnote_ref = "[%s]"
+            md_inlinecode = true
+            md_table_rows = "never"
+            md_cellpad = 2
+            """)
+        @test isempty(W.load_theme!(good))
+        st = W.MD_STYLE[]
+        @test st.url == W.parse_face("blue") && st.marker == W.parse_face("dim")
+        @test st.bullets == ("• ", "◦ ") && st.numbers == "%s) "
+        @test st.footnote_ref == "[%s]" && st.inlinecode
+        @test st.table_rows === :never && st.cellpad == 2
+        write(bad, """
+            [markdown]
+            md_bullets = "•"
+            md_numbers = "#. "
+            md_inlinecode = "yes"
+            md_table_rows = "sometimes"
+            md_cellpad = true
+            """)
+        probs = W.load_theme!(bad)
+        @test length(probs) == 5
+        @test any(p -> occursin("`md_numbers` wants a string with a %s", p), probs)
+        @test any(p -> occursin("`md_table_rows` wants \"wrapped\"", p), probs)
+        @test W.MD_STYLE[].cellpad == 1 && W.MD_STYLE[].bullets == ("• ",)
         # And with no theme all of it is empty.
         @test isempty(W.load_theme!(""))
         @test W.MD_STYLE[].h1 == W.Face() && isempty(W.MD_STYLE[].faces)
         # So a rendered comment body is plain text: no style asked for is no
         # escape written.
-        md(s) = join((rstrip(ansi(r.text)) for r in W.render_md(s, 60)), "\n")
+        md(s) = join((ansi(r.text) for r in W.render_md(s, 60; pad = false)), "\n")
         @test md("a `x` and **bold**") == "a `x` and bold"
         @test !occursin('\e', md("# head\n\n- a `list`\n"))
     finally

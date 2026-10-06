@@ -930,6 +930,14 @@ end
     v4 = W.ChooseView("t", "", Tuple{String,Any}[("one", 1)], identity)
     W.handle!(v4, Int('5'), ctrl)
     @test W.query(v4) == "5"
+    # The views are a menu: no query, so a letter types nothing and the hint
+    # offers no narrowing; and a picker can start on an option of its own.
+    @test !v.filter && !occursin("type to narrow", box)
+    @test W.handle!(v, Int('a'), ctrl) === :ok && W.query(v) == ""
+    v5 = W.ChooseView("t", "", Tuple{String,Any}[("one", 1), ("two", 2)], identity;
+                      selected = 2)
+    got5 = Ref(0); v5.onpick = x -> (got5[] = x)
+    @test W.handle!(v5, 13, ctrl) === :pop && got5[] == 2
 
     # An option can be several lines: drawn under it, in the digit's column,
     # and lit with it; the filter reads them too; the cursor moves an option at
@@ -943,7 +951,7 @@ end
     @test findfirst("more 2", mbox) < findfirst("opt 3", mbox)
     @test mv.omap[1:5] == [1, 2, 2, 2, 3]
     small = W.ChooseView("t", "", many, identity)
-    small.sel = 12
+    W.select!(small, 12)
     sbox = unstyled(frame(small, 160, 15))          # a box of five lines
     @test occursin("opt 12", sbox) && occursin("more 12", sbox)
     @test small.omap == [11, 12, 12, 12, 0]             # the last option, whole
@@ -957,7 +965,7 @@ end
     # A click on a row moves the cursor there, a double click picks it, the
     # wheel moves it, and a click outside the box cancels - read off where
     # the last render put the rows, since the box is centred.
-    got[] = 0; ten.onpick = x -> (got[] = x); ten.sel = 1
+    got[] = 0; ten.onpick = x -> (got[] = x); W.select!(ten, 1)
     ls = split(unstyled(frame(ten, 160, 50)), "\n")
     r7 = findfirst(l -> occursin("7  row 7", l), ls)
     @test r7 !== nothing && r7 in ten.orows && r7 == first(ten.orows) + 6

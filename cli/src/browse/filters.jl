@@ -987,14 +987,14 @@ function filter_rows(st)
         push!(rows, (:head, "", label))
         for (k, name) in values
             push!(rows, (axis, string(k), string(k in sel ? "[x] " : "[ ] ",
-                                                 rpad(name, 24), get(tally, k, 0))))
+                                                 String(rowpad(name, 24)), get(tally, k, 0))))
         end
         push!(rows, (:head, "", ""))
     end
     push!(rows, (:head, "", "kind"))
     for (k, name) in KINDS
         push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
-                                              rpad(name, 24), get(n.kinds, k, 0))))
+                                              String(rowpad(name, 24)), get(n.kinds, k, 0))))
     end
     repos, npinned = repo_axis(st)
     for (axis, label, values, tally) in ((:lane, "lane", st.lanes, n.lanes),
@@ -1027,7 +1027,7 @@ function filter_rows(st)
             # question.
             (!on && !always && axis in AXIS_APPLIED_ONLY) && continue
             push!(rows, (axis, v, string(on ? "[x] " : "[ ] ",
-                                         rpad(first(axis_label(axis, v), 22), 24), cnt)))
+                                         String(rowpad(axis_label(axis, v), 22)), "  ", cnt)))
         end
         # The rest of them, behind a picker you can type into. Offered even when
         # everything fits, so the row is in the same place every time.

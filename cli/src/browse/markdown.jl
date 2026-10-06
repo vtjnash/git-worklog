@@ -486,9 +486,10 @@ function escape_source(md::AbstractString)
 end
 
 """
-    render_md(body, w) -> Vector{TermInput.MDRow}
+    render_md(body, w; pad = true) -> Vector{TermInput.MDRow}
 
-A comment body as rows of exactly `w` columns, each with the line it was
+A comment body as rows of exactly `w` columns - or, with `pad = false`, each at
+its own width with its trailing blanks taken off - each with the line it was
 written as: parsed as GitHub would (`escape_source`, `parse_gfm`) and drawn by
 `markdown_rows` in the theme's `MD_STYLE`, with a newline in a paragraph a line break, as GitHub draws
 one in a comment.
@@ -501,14 +502,14 @@ happened and not which method, and gone again on the next status. The log keeps
 the backtrace, and the standing warning keeps pointing at it. The rows are then
 the raw text, wrapped.
 """
-function render_md(body::AbstractString, w::Int)
+function render_md(body::AbstractString, w::Int; pad::Bool = true)
     try
-        markdown_rows(parse_gfm(escape_source(body)), w; style = MD_STYLE[], breaks = true)
+        markdown_rows(parse_gfm(escape_source(body)), w; style = MD_STYLE[], breaks = true, pad)
     catch e
         logerror!(e, catch_backtrace(), "render_md")
         rs = TermInput.MDRow[]
         for l in split(String(body), '\n'), (k, x) in enumerate(rowwrap(String(l), w))
-            push!(rs, TermInput.MDRow(rowpad(x, w), rstrip(l), k == 1))
+            push!(rs, TermInput.MDRow(pad ? rowpad(x, w) : x, rstrip(l), k == 1))
         end
         rs
     end

@@ -157,6 +157,15 @@ md_admonition_tip = "green"
 box = "ROUNDED"
 md_table_box = "ROUNDED"
 
+# Not colours either, and left at what they draw unless written here: a
+# list's bullet by depth (`md_bullets = ["• ", "◦ "]`), an ordered one's
+# number (`md_numbers = "%s. "`, coloured `md_number`, a bullet `md_marker`),
+# a footnote reference (`md_footnote_ref = "[^%s]"`), whether a code span is
+# highlighted as Julia (`md_inlinecode`), which table rows a rule goes
+# between (`md_table_rows`: "wrapped", "always" or "never"), and the spaces
+# each side of a cell (`md_cellpad`). `md_url` is a link's url drawn after its
+# label; a comment's links are footnotes here, so it has none to draw.
+
 # --- code --------------------------------------------------------------------
 # What Julia's own highlighter paints a code block with, by face: the names are
 # its faces without `julia_`, and a name it does not have is reported. A face

@@ -495,7 +495,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
                 r = send_review!(st, it, held, ev, b)
                 isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
             end; allow_empty = optional))
-    end; numbered = true))
+    end; numbered = true, filter = false))
 end
 
 """Send one review with verdict `ev` and body `b`, and say so: `""` when it
@@ -756,8 +756,8 @@ end
 """Pick a view, or write down the one you are in.
 
 A list rather than a key each: a binding apiece would be bindings nobody
-remembers, and the next view added would have nowhere to go. `ChooseView`
-narrows by typing, so a name is enough to reach one however many there are.
+remembers, and the next view added would have nowhere to go. A menu, with
+no query: a digit picks one and the arrows reach the rest.
 
 The last entry is the way *out* of the list of names - the current filter,
 written as the TOML that would name it, for pasting into `data/config.toml`.
@@ -775,7 +775,8 @@ function view_action(st::BState, ctrl::Controller)
     # Numbered, alone among the pickers: the built-in views are the same eight in
     # the same order every time, so they are reached by memory rather than by
     # reading, and arrow-and-return is the slow way to press something you
-    # already know the position of.
+    # already know the position of. With no query, nothing a digit could
+    # have narrowed by is lost to it.
     push_view!(ctrl, ChooseView("Views", "\u21b5 applies one \u00b7 ` goes back", opts,
         v -> begin
             if v === :save
@@ -796,7 +797,7 @@ function view_action(st::BState, ctrl::Controller)
             else
                 st.status = string("view: ", apply_view!(st, v))
             end
-        end; numbered = true))
+        end; numbered = true, filter = false))
 end
 
 """The draft review being held, as a line to show and a key to answer with.
@@ -1043,16 +1044,16 @@ function snooze_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
     cur === nothing || push!(opts, ("off \u2014 wake it now", nothing))
     # Numbered, the same as the views and for the same reason: it is the same
     # list in the same order every time, so it is reached by memory rather than
-    # by reading. The cost is real and worth naming - a digit picks instead of
-    # narrowing, so `2` is the second row and no longer types the `3` of "3 days"
-    # or "3 months" - and it is the cost the views already pay.
+    # by reading. And a menu, with no query: a digit picks, and nothing
+    # narrows, so `2` is the second row and never the start of a `3 days`
+    # typed to find it.
     push_view!(ctrl, ChooseView(string("Snooze ", it.ref),
         cur === nothing ? it.title : string("wakes ", when_str(cur)), opts,
         v -> v === :ask ?
             push_view!(ctrl, PromptView(string("Snooze ", it.ref),
                 "a span like 3d, 2w, 6mo, 1y - or a date like 2026-09-15",
                 b -> (st.status = apply_snooze!(st, it, strip(b), at)))) :
-            (st.status = apply_snooze!(st, it, v, at)); numbered = true))
+            (st.status = apply_snooze!(st, it, v, at)); numbered = true, filter = false))
 end
 
 """Write one snooze, with its undo. `nothing`, or an empty string, clears.
@@ -1164,7 +1165,7 @@ function field_action(st::BState, ctrl::Controller, it::Item, at::DateTime)
             which === :reviewer  ? reviewer_action(st, ctrl, it) :
             which === :state     ? state_action(st, ctrl, it) :
                                    title_action(st, ctrl, it)
-        end; numbered = true))
+        end; numbered = true, filter = false))
 end
 
 """Write the tracking level, as `wl track` writes it, with its undo; the row is
@@ -1254,6 +1255,9 @@ function milestone_action(st::BState, ctrl::Controller, it::Item)
                                      isempty(m.due) ? "" : string("  ", m.due)),
                               m.number) for m in ms]
     push!(opts, (string(mark(isempty(it.milestone)), "none"), nothing))
+    # The cursor starts on the one marked, so `↵` alone leaves it where it is.
+    on = isempty(it.milestone) ? length(opts) :
+         something(findfirst(m -> m.title == it.milestone, ms), 1)
     push_view!(ctrl, ChooseView(string("Milestone \u00b7 ", it.ref), "\u21b5 puts it on one; none takes it off", opts,
         n -> begin
             picked = n === nothing ? nothing : ms[findfirst(m -> m.number == n, ms)]
@@ -1265,7 +1269,7 @@ function milestone_action(st::BState, ctrl::Controller, it::Item)
             replace_item!(st, with(it; milestone = title,
                                    milestone_due = picked === nothing ? "" : picked.due))
             st.status = picked === nothing ? "milestone cleared" : string("milestone ", title)
-        end))
+        end; selected = on))
 end
 
 """Every login the list knows, for a picker of people: the ones `have` first,
