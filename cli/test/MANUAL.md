@@ -432,3 +432,19 @@ its note, and `^s` copies the message, to paste on github.com, rather than
 merging.
 
 *2026-10-06*: pass.
+
+## 29. A refused merge keeps the message
+
+Push to the branch while `M`'s composer is open, then `^s` `y`: GitHub
+refuses it, and the dialog offers `r`, the composer again with the words in
+it, and `y`, which copies them.
+
+*2026-10-06*: pass.
+
+## 30. The pane's `stack` row
+
+After a refresh, on a pull request in a stack: `stack  2 of 3 with base
+#63469` on julia#63471, and the branch at the bottom - `1 of 2 with base
+main` on llvm#220634.
+
+*2026-10-06*: pass.
