@@ -1887,6 +1887,11 @@ end
     @test says(W.Item(; base..., state = "OPEN")) == "mergeable conflicts with master"
     st.merge = ms(; status = "BEHIND")
     @test says(W.Item(; base..., state = "OPEN")) == "mergeable behind master"
+    # A stack is a way to merge, not a reason it cannot be: a warning's colour.
+    st.merge = ms(; stack = true)
+    @test says(W.Item(; base..., state = "OPEN")) == "mergeable via stack"
+    @test occursin(faceesc(W.THEME.waiting)[1] * "via stack",
+                   ansi(join(W.meta_lines(st, W.Item(; base..., state = "OPEN"), 60))))
     @test says(W.Item(; base..., state = "MERGED")) == ""
     @test says(W.Item(; base..., state = "CLOSED")) == ""
     # And what was fetched for one item is not said about another.
@@ -1900,6 +1905,34 @@ end
     @test i !== nothing && startswith(ls[i + 1], " "^10) && !isspace(ls[i + 1][11])
     @test all(width(l) <= 40 for l in ls)
     @test occursin("check is missing", ls[i + 1])
+end
+
+@testset "a pull request's place in a stack is on its row and the pane" begin
+    # As the lanes' `stackEntry` answers it: the place from the bottom, the
+    # size, and the entries, of which the one below is what it is on.
+    entries(ns...) = Dict{String,Any}("nodes" => Any[
+        Dict{String,Any}("position" => p, "pullRequest" => Dict{String,Any}("number" => k))
+        for (p, k) in ns])
+    node(pos) = Dict{String,Any}("__typename" => "PullRequest", "url" => "https://github.com/o/r/pull/12",
+        "number" => 12, "baseRefName" => "master",
+        "stackEntry" => Dict{String,Any}("position" => pos, "stack" => Dict{String,Any}(
+            "size" => 3, "entries" => entries((1, 10), (2, 11), (3, 12)))))
+    r = W.normalize(node(3), "mine", "me")
+    @test (r["stack_pos"], r["stack_size"], r["stack_base"]) == (3, 3, 11)
+    @test W.normalize(node(1), "mine", "me")["stack_base"] == 0
+    plain = W.normalize(Dict{String,Any}("__typename" => "PullRequest", "number" => 1), "mine", "me")
+    @test (plain["stack_pos"], plain["stack_size"], plain["stack_base"]) == (0, 0, 0)
+    it = W.item_of(r)
+    @test (it.stack_pos, it.stack_size, it.stack_base) == (3, 3, 11)
+
+    st = mkstate()
+    base = (url = "https://example.invalid/pr/12", ref = "a#12", repo = "a/b", number = 12,
+            title = "t", is_pr = true, state = "OPEN", branch = "top", base = "master")
+    says(it) = unstyled(join([l for l in W.meta_lines(st, it, 60) if startswith(l, "stack")], " "))
+    @test says(W.Item(; base..., stack_pos = 2, stack_size = 3, stack_base = 10)) ==
+          "stack     2 of 3 with base #10"
+    @test says(W.Item(; base..., stack_pos = 1, stack_size = 3)) == "stack     1 of 3 with base master"
+    @test says(W.Item(; base...)) == ""
 end
 
 @testset "a settled thread is out of the way, not gone" begin

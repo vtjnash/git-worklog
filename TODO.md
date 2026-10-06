@@ -7,7 +7,7 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] when a commit is part of stack (even the first commit), merge will fail -- try to detect that before offering so the user can fix it on github
+Nothing now.
 
 ## Bigger tasks
 
@@ -57,7 +57,14 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified
 
-Nothing now.
+- [ ] **`M` on a pull request in a stack, against GitHub.** The bottom one of
+      a stack: the pane's `mergeable` row says `via stack` in yellow, the
+      composer's note leads with it, and `^s` copies the message (paste it
+      on github.com). A
+      refused merge - push to the branch while the composer is open - offers
+      `r` (the composer again, words kept) and `y` (copies them).
+- [ ] **The pane's `stack` row,** after a refresh: `2 of 3 with base #63469`
+      on julia#63471, `1 of 2 with base main` on llvm#220634.
 
 ## Trim
 

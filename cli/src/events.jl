@@ -1911,6 +1911,11 @@ Cached briefly, and the freshness that matters is not the cache's to keep: `oid`
 goes back to the mutation as `expectedHeadOid`, so a commit pushed while the
 message was being written is refused by GitHub rather than merged over.
 
+`stack` is whether the pull request is in a stack. One in a stack is merged
+through it, on github.com or by `gh stack merge`, and `mergePullRequest`
+refuses it - the bottom one too - while `mergeable` and `mergeStateStatus` say
+`MERGEABLE` and `CLEAN` of it.
+
 An entry older than `ttl` but younger than `keep` is handed back only when it
 says CONFLICTING. That answer holds until somebody rebases, and being late to
 see it cleared costs nothing; a clean answer that has gone wrong is the one
@@ -1929,7 +1934,7 @@ function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
     d = gh_graphql(
         "query(\$u: URI!) { resource(url: \$u) { ... on PullRequest {\n" *
         "      id state isDraft mergeable mergeStateStatus\n" *
-        "      headRefOid baseRefName commits { totalCount }\n      " *
+        "      headRefOid baseRefName commits { totalCount } stack { number }\n      " *
         _MERGE_TEXT *
         "repository { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed }\n" *
         "  } } }"; vars = Dict{String,Any}("u" => String(url)))
@@ -1953,6 +1958,7 @@ function merge_state(url::AbstractString; ttl = 30.0, keep = ttl)
         "status" => jstr(r, :mergeStateStatus, "UNKNOWN"),
         "base" => jstr(r, :baseRefName, ""),
         "commits" => jint(jobj(r, :commits), :totalCount, 0),
+        "stack" => jobj(r, :stack) !== nothing,
         "methods" => allowed, "text" => txt)
     cache_put(key, v)
     _merge_shape(v)
@@ -1963,12 +1969,12 @@ of its own so that the field is not `Any`; `merge_info` makes one, with the
 defaults a test leaves out."""
 const MergeInfo = @NamedTuple{id::String, oid::String, state::String, draft::Bool,
                               mergeable::String, status::String, base::String,
-                              commits::Int, methods::Vector{String},
+                              commits::Int, stack::Bool, methods::Vector{String},
                               text::Dict{String,Tuple{String,String}}}
 merge_info(; id = "", oid = "", state = "", draft = false, mergeable = "UNKNOWN",
-           status = "UNKNOWN", base = "", commits = 0, methods = String[],
+           status = "UNKNOWN", base = "", commits = 0, stack = false, methods = String[],
            text = Dict{String,Tuple{String,String}}()) =
-    MergeInfo((id, oid, state, draft, mergeable, status, base, commits, methods, text))
+    MergeInfo((id, oid, state, draft, mergeable, status, base, commits, stack, methods, text))
 
 "Both a fresh fetch and a cache hit reach the caller in the same shape."
 _merge_shape(v) = merge_info(id = something(jstr(v, :id)), oid = something(jstr(v, :oid)),
@@ -1978,6 +1984,7 @@ _merge_shape(v) = merge_info(id = something(jstr(v, :id)), oid = something(jstr(
                              status = something(jstr(v, :status)),
                              base = something(jstr(v, :base)),
                              commits = something(jint(v, :commits)),
+                             stack = jbool(v, :stack, false),
                              methods = String[String(m) for m in jlist(v, :methods)],
                              text = merge_text(jobj(v, :text)))
 

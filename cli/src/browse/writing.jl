@@ -529,6 +529,9 @@ along by then.
 """
 function merge_note(ms)
     ms.draft && return "a draft — GitHub will refuse to merge it"
+    # Ahead of the rest, which GitHub answers as if it were alone: the bottom
+    # of a stack is `CLEAN`, and still refused on its own.
+    ms.stack && return "via stack"
     ms.status == "CLEAN" && return "clean"
     ms.status == "HAS_HOOKS" && return "clean, with hooks on the base branch"
     ms.status == "BEHIND" && return string("behind ", ms.base)
@@ -602,6 +605,10 @@ function merge_action(st::BState, ctrl::Controller, it::Item)
     ms.state == "CLOSED" && (st.status = string(it.ref, " is closed"); return)
     isempty(ms.methods) &&
         (st.status = string(it.repo, " allows no way to merge this"); return)
+    # A pull request in a stack is one GitHub refuses to merge on its own,
+    # whatever the message: it is merged through the stack, on github.com. The
+    # composer opens all the same, on the message GitHub would write, since
+    # that is worth having over there - see `merge_compose`.
     merge_compose(st, ctrl, it, ms, first(ms.methods))
 end
 
@@ -619,8 +626,14 @@ function merge_compose(st::BState, ctrl::Controller, it::Item, ms,
     # view, and the submit that runs afterwards has to read what `^x` left
     # rather than what this call was opened on.
     cur = Ref(String(method))
-    ev = EditorView(string("Merge ", it.ref), merge_head(ms, cur[]),
-                    b -> merge_confirm(st, ctrl, it, ms, cur[], b);
+    # In a stack `^s` copies the message rather than sending a merge GitHub
+    # will refuse: the stack is merged on github.com, and pasted there.
+    send = ms.stack ?
+        b -> (clip(ctrl.term, b);
+              st.status = "copied the message · merge it via its stack on GitHub";
+              nothing) :
+        b -> merge_confirm(st, ctrl, it, ms, cur[], b)
+    ev = EditorView(string("Merge ", it.ref), merge_head(ms, cur[]), send;
                     initial = text === nothing ? merge_message(ms, cur[]) : String(text),
                     # A rebase writes no message, so there is nothing for `^s`
                     # to refuse to send. Everything else needs its headline.
@@ -639,10 +652,14 @@ one thing on that screen that could send the wrong merge.
 `^x:` names where the next press goes rather than saying that `^x` cycles - the
 hint under the box already says that, and which operation is one press away is
 the thing worth knowing twice.
+
+In a stack it leads with that - `merge_note` says it - and with what `^s` does
+instead of merging.
 """
 merge_head(ms, method::AbstractString) =
-    string(Events.merge_label(method), " · ", merge_lands(ms, method),
-           " · ", merge_note(ms),
+    string(ms.stack ? string(merge_note(ms), ": ^s copies this to paste there · ") : "",
+           Events.merge_label(method), " · ", merge_lands(ms, method),
+           ms.stack ? "" : string(" · ", merge_note(ms)),
            method == "REBASE" ? " · no message to write" : "",
            length(ms.methods) == 1 ? "" :
            string(" · ^x: ", Events.merge_label(nextmethod(ms, method, 1))))
@@ -723,7 +740,7 @@ function merge_confirm(st::BState, ctrl::Controller, it::Item, ms,
                               # one line that names it.
                               string("“", first(head, 70),
                                      length(head) > 70 ? "…" : "", "”")],
-        ["yY" => () -> merge_now!(st, it, ms, method, head, rest),
+        ["yY" => () -> merge_now!(st, ctrl, it, ms, method, body),
          # The composer, back with what was in it. Not a new one: this is the
          # box that was open a keystroke ago and the words in it are the same
          # words.
@@ -737,11 +754,13 @@ end
 metadata pane says "you merged it" on the state row. A merge you pressed the
 button for is not news to you.
 """
-function merge_now!(st::BState, it::Item, ms, method::AbstractString,
-                    head::AbstractString, body::AbstractString)
+function merge_now!(st::BState, ctrl::Controller, it::Item, ms, method::AbstractString,
+                    text::AbstractString)
+    (head, body) = merge_split(text)
     r = Events.merge_pr(it.url, ms.id, method, head, body, ms.oid)
     if !isempty(r)
         st.status = r
+        merge_failed(st, ctrl, it, ms, method, text, r)
         return
     end
     touch!(it.url)
@@ -752,6 +771,21 @@ function merge_now!(st::BState, it::Item, ms, method::AbstractString,
     st.status = string("merged ", it.ref, " · ", Events.merge_label(method),
                        " · x archives it")
 end
+
+"""A merge GitHub refused, and the message that was written for it.
+
+The message exists nowhere else, so a refusal does not cost it: `r` puts the
+composer back with it, to change what was refused - another operation, a
+headline - and send again, and `y` copies it, as `y` copies everywhere, for
+when the fix is on github.com and the message is wanted there.
+"""
+merge_failed(st::BState, ctrl::Controller, it::Item, ms, method::AbstractString,
+             text::AbstractString, why::AbstractString) =
+    push_view!(ctrl, ConfirmView(string("Could not merge ", it.ref),
+        [why, "the message is kept until this closes"],
+        ["rR" => () -> merge_compose(st, ctrl, it, ms, method, text),
+         "yY" => () -> (clip(ctrl.term, text); st.status = "copied the message")];
+        hint = "r back to the message · y copies it · any other key drops it"))
 
 """Pick a view, or write down the one you are in.
 

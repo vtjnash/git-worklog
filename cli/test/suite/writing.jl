@@ -560,11 +560,11 @@ end
         "MERGE" => Dict{String,Any}("headline" => "Merge pull request #7 from o/b",
                                     "body" => "a fix"),
         "REBASE" => Dict{String,Any}("headline" => "", "body" => ""))
-    put(; methods = ["SQUASH", "MERGE"], status = "CLEAN", state = "OPEN") =
+    put(; methods = ["SQUASH", "MERGE"], status = "CLEAN", state = "OPEN", stack = false) =
         W.cache_put(string("merge:", it.url), Dict{String,Any}(
             "id" => "PR_x", "oid" => "abc1234def", "state" => state, "draft" => false,
             "mergeable" => "MERGEABLE", "status" => status, "base" => "master",
-            "commits" => 3, "methods" => methods,
+            "commits" => 3, "stack" => stack, "methods" => methods,
             "text" => Dict{String,Any}(m => text2[m] for m in methods)))
 
     # `M` opens the composer straight away. No picker in front of it: the
@@ -673,6 +673,38 @@ end
     put(methods = String[])
     W.handle!(st, Int('M'), ctrl)
     @test length(ctrl.stack) == 1 && occursin("no way to merge", st.status)
+    # A pull request in a stack - the bottom one too - is merged through the
+    # stack, and GitHub is where that is done: the composer
+    # still opens on GitHub's message, says so, and `^s` copies it there
+    # rather than sending anything.
+    # GitHub calls such a one MERGEABLE and CLEAN.
+    put(stack = true)
+    @test W.Events.merge_state(it.url).stack
+    out = IOBuffer()
+    sctrl = W.Controller(W.HeldTerminal(IOBuffer(), out)); W.push_view!(sctrl, st)
+    W.handle!(st, Int('M'), sctrl)
+    sev = composer(last(sctrl.stack))
+    @test sev isa W.EditorView && startswith(sev.note, "via stack: ^s copies")
+    W.handle!(sev, W.C_X, sctrl)                     # and keeps saying so
+    @test startswith(sev.note, "via stack")
+    @test W.handle!(sev, W.C_S, sctrl) === :pop
+    @test occursin("via its stack on GitHub", st.status)
+    pop!(sctrl.stack)
+    @test occursin(W.Base64.base64encode(W.text(sev)), String(take!(out)))
+    # A merge GitHub refuses keeps the message: `r` is the composer again
+    # with it, `y` copies it.
+    put()
+    ms = W.Events.merge_state(it.url)
+    W.merge_failed(st, sctrl, it, ms, "SQUASH", "my words", "HTTP 405: no")
+    q = last(sctrl.stack)
+    @test q isa W.ConfirmView && occursin("HTTP 405: no", q.note)
+    @test W.handle!(q, Int('y'), sctrl) === :pop && st.status == "copied the message"
+    @test occursin(W.Base64.base64encode("my words"), String(take!(out)))
+    pop!(sctrl.stack)
+    W.merge_failed(st, sctrl, it, ms, "SQUASH", "my words", "HTTP 405: no")
+    W.handle!(last(sctrl.stack), Int('r'), sctrl)
+    deleteat!(sctrl.stack, findfirst(x -> x isa W.ConfirmView, sctrl.stack))
+    @test W.text(composer(last(sctrl.stack))) == "my words"
 
     # An issue has nothing to merge, and neither has an adopted branch.
     iss = findfirst(x -> x.url == fixture_item("an issue").url, st.items)
@@ -697,14 +729,16 @@ end
 
     # And the note is `mergeStateStatus`, which knows more than `mergeable`
     # does: nothing conflicts here and it still cannot be merged.
-    ms(; status = "CLEAN", mergeable = "MERGEABLE", draft = false) =
-        (draft = draft, status = status, mergeable = mergeable, base = "main")
+    ms(; status = "CLEAN", mergeable = "MERGEABLE", draft = false, stack = false) =
+        (draft = draft, status = status, mergeable = mergeable, base = "main", stack = stack)
     @test W.merge_note(ms()) == "clean"
     @test W.merge_note(ms(status = "BEHIND")) == "behind main"
     @test occursin("required", W.merge_note(ms(status = "BLOCKED")))
     @test occursin("conflicts with main", W.merge_note(ms(status = "DIRTY")))
     @test W.merge_note(ms(status = "UNSTABLE")) == "mergeable"   # the checks row says the checks
     @test occursin("draft", W.merge_note(ms(draft = true)))
+    # GitHub calls the bottom of a stack CLEAN, and refuses it all the same.
+    @test W.merge_note(ms(stack = true)) == "via stack"
     # `UNKNOWN` is GitHub still working it out, which it does lazily on being
     # asked - so `mergeable` is the second opinion rather than nothing at all.
     @test W.merge_note(ms(status = "UNKNOWN")) == "mergeable"

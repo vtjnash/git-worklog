@@ -87,6 +87,9 @@ Base.@kwdef struct Item
                            # separates their commits from the base's own
     base_sha::String = ""  # and where that branch was at the refresh, so the
                            # merge base is a local question given both shas
+    stack_pos::Int = 0     # its place in a stack of pull requests, 1 at the
+    stack_size::Int = 0    # bottom, of how many; 0 for none. And the number of
+    stack_base::Int = 0    # the one it is on, 0 at the bottom, which is on `base`
     head::String = ""      # and the sha at the end of it. `act`/`moved_at` say
                            # a push happened; this says what it pushed, which is
                            # the other end of the range-diff `p` takes against
@@ -201,6 +204,9 @@ function item_of(@nospecialize(r))
             read_head = jstr(r, :read_head, ""),
             base = jstr(r, :base, ""),
             base_sha = jstr(r, :base_sha, ""),
+            stack_pos = jint(r, :stack_pos, 0),
+            stack_size = jint(r, :stack_size, 0),
+            stack_base = jint(r, :stack_base, 0),
             merged_by = jstr(r, :merged_by, ""),
             secondlook = jstr(r, :second_look, ""),
             reply = jstr(r, :reply, ""),

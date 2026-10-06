@@ -204,6 +204,7 @@ const PR_FIELDS = "\n" * """
       repository { nameWithOwner }
       author { login }
       reviewDecision
+      stackEntry { position stack { size entries(first: 100) { nodes { position pullRequest { number } } } } }
       milestone { title dueOn }
       assignees(first: 10) { nodes { login } }
       labels(first: 20) { nodes { name } }

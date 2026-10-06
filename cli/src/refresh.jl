@@ -169,6 +169,20 @@ function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString
         # And where that branch was, so `d` can measure from the merge base
         # with no round trip: a checkout that has both shas has the diff.
         rec["base_sha"] = something(jget(n, :baseRefOid), "")
+        # **Where it is in a stack** - GitHub's stacked pull requests, each on
+        # the branch of the one below: its place from the bottom, how many
+        # there are, and the number of the one it is on, 0 at the bottom, which
+        # is on `base` itself. Measured 2026-10-06 on two search lanes, six
+        # alternating runs each: no slower with the entries than without, and
+        # 4 points a page either way.
+        se = jobj(n, :stackEntry)
+        sk = jobj(se, :stack)
+        pos = jint(se, :position, 0)
+        rec["stack_pos"] = pos
+        rec["stack_size"] = jint(sk, :size, 0)
+        below = findfirst(e -> jint(e, :position, 0) == pos - 1, jnodes(sk, :entries))
+        rec["stack_base"] = below === nothing ? 0 :
+            jint(jobj(jnodes(sk, :entries)[below], :pullRequest), :number, 0)
         # Who pushed the button, and only ever asked of the closed lanes -
         # every other lane is is:open, where it is null by definition.
         rec["merged_by"] = jget(jget(n, :mergedBy), :login)

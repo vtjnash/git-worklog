@@ -498,6 +498,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
                       offbase ? " → " * faced(it.base, THEME.waiting) *
                                 faced(string("  not ", default), THEME.dim) :
                       row(string(" → ", it.base))))
+        # Its place in a stack, and what it is on: the pull request below it,
+        # or at the bottom the branch the whole stack goes into.
+        it.stack_size > 0 &&
+            kv("stack", string(it.stack_pos, " of ", it.stack_size, " with base ",
+                               it.stack_base > 0 ? string("#", it.stack_base) : it.base))
     end
     # How old it is and when it last changed at all. Both are on the item
     # already and neither was on screen, so the age of what you are reading had
@@ -527,8 +532,11 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
         ms = st.metakey == it.url ? st.merge : nothing
         mwait = merge_waiting(st, it)
         ci = ci_word(it.ci)
+        # A stack is a way to merge rather than a reason it cannot be, so it
+        # is a warning and not the colour of a conflict.
         kv("mergeable", ms === nothing ? (mwait ? "loading…" : "") :
-                        (ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
+                        (ms.stack ? faced(merge_note(ms), THEME.waiting) :
+                         ms.mergeable == "CONFLICTING" || ms.status == "DIRTY" ?
                              faced(merge_note(ms), THEME.blocked) : row(merge_note(ms))) *
                         (isempty(ci) ? row("") : "  " * faced(ci, THEME.dim)))
     end
