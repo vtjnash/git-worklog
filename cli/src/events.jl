@@ -1355,6 +1355,9 @@ the slowest of them rather than the sum. The GraphQL half is
 also the only part allowed to come back empty on failure: a pull request whose
 commits could not be read is a line missing from a list rather than a reason
 to show no thread at all.
+
+The thread is the last `limit` comments, and a review is cut where they are
+([`thread_window`](@ref)).
 """
 function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
@@ -1375,7 +1378,23 @@ function thread(url::AbstractString; limit::Int = 10)
     append!(cs, waited(rcs))
     sort!(cs; by = c -> c["created_at"])
     commits, events = try; fetch(act); catch; none; end
-    (body, cs[max(1, end - limit + 1):end], commits, events)
+    cs, events = thread_window(cs, events, limit)
+    (body, cs, commits, events)
+end
+
+"""The last `limit` comments, and the events left to read with them: a review
+older than the first comment kept is cut with the comments of its age, being
+said in the thread as they are. **Only when something was cut.** A thread
+shown whole starts at its opening post and not at its first comment, and
+measuring from the comment dropped the review that came before anybody
+answered - julia#63333, whose changes requested were the reason for the one
+comment under them and were not there. The state changes are kept wherever
+they fall, which is `activity_list`'s to say why."""
+function thread_window(cs, events, limit::Int)
+    length(cs) > limit || return (cs, events)
+    cs = cs[end - limit + 1:end]
+    from = isempty(cs) ? "" : jstr(first(cs), :created_at, "")
+    (cs, filter(e -> jstr(e, :kind, "") != "review" || jstr(e, :at, "") >= from, events))
 end
 
 """The last commits on a pull request's branch - `oid`, `at`, `headline`, `by`

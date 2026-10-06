@@ -421,11 +421,24 @@ end
     @test [(e.kind, e.at) for e in evs] ==
           [(:state, "2"), (:push, "3"), (:comment, "3"), (:push, "5"), (:comment, "6"), (:state, "6")]
     @test isempty(W.activity_list([], [], []))
-    # A review sorts as a comment does, and inside the same window a push is.
+    # A review sorts as a comment does, and one from before the first comment
+    # is in the list, where a push that old is not: julia#63333, whose changes
+    # requested came two days before the only comment.
     rev(at) = Dict{String,Any}("kind" => "review", "at" => at, "by" => "r", "state" => "approved")
-    evs = W.activity_list([Dict{String,Any}("created_at" => "3")], [cm("3")],
+    evs = W.activity_list([Dict{String,Any}("created_at" => "3")], [cm("1"), cm("3")],
                           [rev("1"), rev("3"), st("3", "closed")])
-    @test [(e.kind, e.at) for e in evs] == [(:push, "3"), (:comment, "3"), (:review, "3"), (:state, "3")]
+    @test [(e.kind, e.at) for e in evs] ==
+          [(:review, "1"), (:push, "3"), (:comment, "3"), (:review, "3"), (:state, "3")]
+    # It is cut with the comments of its age, and only when some were cut; a
+    # state change is kept either way.
+    co(at) = Dict{String,Any}("created_at" => at)
+    all3 = [co("2"), co("4"), co("6")]
+    sts = [rev("1"), st("1", "closed"), rev("3"), rev("5")]
+    @test W.Events.thread_window(all3, sts, 3) == (all3, sts)
+    cs, kept = W.Events.thread_window(all3, sts, 2)
+    @test cs == all3[2:3]
+    @test [(e["kind"], e["at"]) for e in kept] == [("closed", "1"), ("review", "5")]
+    @test W.Events.thread_window([], sts, 0) == ([], sts)
     # With no comments at all, every push is inside the window.
     @test [e.kind for e in W.activity_list([], [cm("1"), cm("2")], [])] == [:push]
 end

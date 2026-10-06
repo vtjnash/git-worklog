@@ -405,8 +405,10 @@ happened, which is one sequence and was being read as two. "They replied,
 then pushed, then replied" is the shape of most review conversations, and
 the pushes were a field on the item while the replies were the pane.
 
-A review is a comment for this purpose: it is said in the thread, it sorts
-among the comments, and it is shown inside the same window the pushes are.
+A review is a comment for this purpose: it is said in the thread and sorts
+among the comments. It is cut where they are and nowhere else - by
+`Events.thread_window`, which knows whether any were - so a review from
+before the first comment of a thread shown whole is the first thing said.
 
 Only the pushes that fall inside the window the comments are shown for - the
 thread is the last thirty of those - so a branch with two hundred commits
@@ -444,11 +446,7 @@ function activity_list(@nospecialize(cs), @nospecialize(cms), @nospecialize(sts)
     end
     for e in anylist(sts)
         t = jstr(e, :at, "")
-        if jstr(e, :kind, "") == "review"
-            (isempty(from) || t >= from) && push!(evs, (kind = :review, at = t, c = e))
-        else
-            push!(evs, (kind = :state, at = t, c = e))
-        end
+        push!(evs, (kind = jstr(e, :kind, "") == "review" ? :review : :state, at = t, c = e))
     end
     sort!(evs; by = e -> (e.at, e.kind === :push ? 0 : e.kind === :state ? 2 : 1))
     group_pushes(evs)
