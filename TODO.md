@@ -57,12 +57,9 @@ Nothing now.
 
 ## Unverified
 
-- [ ] **`M` on a pull request in a stack, against GitHub.** The bottom one of
-      a stack: the pane's `mergeable` row says `via stack` in yellow, the
-      composer's note leads with it, and `^s` copies the message (paste it
-      on github.com). A
-      refused merge - push to the branch while the composer is open - offers
-      `r` (the composer again, words kept) and `y` (copies them).
+- [ ] **A refused merge.** Push to the branch while `M`'s composer is open,
+      then `^s` `y`: the dialog offers `r` (the composer again, words kept)
+      and `y` (copies them).
 - [ ] **The pane's `stack` row,** after a refresh: `2 of 3 with base #63469`
       on julia#63471, `1 of 2 with base main` on llvm#220634.
 

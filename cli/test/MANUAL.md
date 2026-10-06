@@ -423,3 +423,12 @@ printed by `wl`, with code and a table in it: as before, and no blanks at
 the end of a line.
 
 *2026-10-06*: pass.
+
+## 28. `M` on a pull request in a stack
+
+The bottom one of a stack: the pane's `mergeable` row says `via stack`, in
+yellow; `M` opens the composer on GitHub's message with `via stack` leading
+its note, and `^s` copies the message, to paste on github.com, rather than
+merging.
+
+*2026-10-06*: pass.
