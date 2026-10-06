@@ -133,15 +133,15 @@ function sample_items()
                   author = "vtjnash", is_pr = true,
                   labels = ["bug", "domain:ci"], branch = "jn/topic",
                   state = "OPEN", ci = "SUCCESS",
-                  act = "2026-09-01T12:00:00Z", milestone = "1.13"),
+                  moved_at = "2026-09-01T12:00:00Z", milestone = "1.13"),
      Worklog.Item(url = "https://github.com/o/r/issues/2", ref = "r#2", repo = "o/r",
                   number = 2, title = "an issue", lane = "assigned",
                   author = "someone", is_pr = false, state = "OPEN",
-                  act = "2026-08-20T09:30:00Z", unresolved = 3),
+                  moved_at = "2026-08-20T09:30:00Z", unresolved = 3),
      Worklog.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
                   title = "an adopted branch", lane = "local",
                   author = "vtjnash", is_pr = true, branch = "wip",
-                  act = "2026-09-02T18:00:00Z", draft = true)]
+                  moved_at = "2026-09-02T18:00:00Z", draft = true)]
 end
 
 """A thread's worth of nodes, likewise invented.
