@@ -1271,7 +1271,10 @@ function rangediff_nodes(txt::AbstractString)
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", subj)
         # What `o` opens, anywhere on the node: the pair is one commit.
         n.meta["sha"] = String(sha)
-        n.meta["byline"] = byline
+        # No `byline`: an open header is drawn as its byline in place of the
+        # peek, because the peek repeats the first row of the body. The subject
+        # here is not a peek - the body is the commit's diff, and its title is
+        # on no row of that - so the whole header stays when the node opens.
         push!(ns, n)
     end
     flush!()

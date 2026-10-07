@@ -590,6 +590,11 @@ end
     @test occursin("a remark",
                    unstyled(first(r.text for r in W.rows(out, 90) if r.node == 2)))
     out[2].open = true
+    # A range-diff pair's subject is not a peek: the body under it is the
+    # commit's diff, which repeats no part of its title, so opening the node
+    # keeps the title.
+    rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb the subject\n    @@ x\n")
+    @test rd[1].open && occursin("the subject", unstyled(W.rows(rd, 90)[1].text))
     @test out[3].depth == 2                               # the reply nests under it
     @test occursin("💬1", hdr(out[4]))                    # and the second hunk
 
