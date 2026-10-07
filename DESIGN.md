@@ -777,7 +777,15 @@ in them. So the readers of a thread's lists (`activity_list`, the node
 builders, `thread_seen`, `event_at`) are `@nospecialize` and loop
 rather than build a generator over a list, so that one shape covers every
 mix of empty and not. On 2026-09-26 the same session went from 18.1s of runtime compilation to
-2.6s.
+2.6s. No tmux is needed for the trace: a script that loads the wrapper and
+drives `step!` over its own seeds does the same without a TTY. On
+2026-10-07 the composers were found that way - the first keystroke in one
+compiled `safe_dispatch!` and `safe_render` over an `EditorView`, 0.8s -
+and the workload opens each of them now. **What `__init__` runs is not the
+workload's to compile**: it runs when the wrapper's build loads `Worklog`,
+before the workload, so what it compiles there is never tagged for the
+image. The theme parse is a `precompile` line in `Worklog.jl` for that
+reason, and anything else `__init__` grows should be too.
 
 **Its manifest is `cli/Manifest.toml` plus one entry**, never resolved fresh:
 copy, fix the two relative `../` paths, `Pkg.resolve()`. Check:

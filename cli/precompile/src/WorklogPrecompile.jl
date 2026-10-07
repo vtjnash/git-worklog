@@ -507,6 +507,32 @@ end
                     step!(ctrl, k === :paste ? Worklog.PasteEvent("a paste") :
                                                Worklog.readevent(IOBuffer(k)))
                 end
+                # The composers, on the pull request - the first keystroke in
+                # one used to pay for the whole of `safe_dispatch!` and
+                # `safe_render` over an `EditorView`, most of a second. A
+                # comment: typed, moved about in, edited by the readline
+                # keys, pasted into, sent - which fails here, on no token, and
+                # keeps the composer - and thrown away through the question
+                # that asks first. Then a review's verdict picker and the
+                # composer behind it, and the verdict that needs none; the
+                # merge composer, `^x` through its three texts, and its
+                # confirmation, refused; and a line comment under `d`, with
+                # `^r`'s suggestion dropped in. Each composer's `onsubmit`
+                # is its own closure, so each is sent once. `select_item!`,
+                # because the keys above leave the list under a view that
+                # hides the pull request, and it is shown as the guest.
+                st.focus = :list
+                Worklog.select_item!(st, st.all[findfirst(x -> x.url == "https://github.com/o/r/pull/1", st.all)])
+                Worklog.settle_all!(ctrl)
+                for k in ("C", "s", "o", "m", "e", " ", "w", "o", "r", "d", "s", "\r",
+                          "\e[D", "\e[C", "\e[A", "\e[B", "\x7f", "\x17", "\x01", "\x05",
+                          "\eb", "\ef", :paste, "\x13", "\e", "n", "\e", "y",
+                          "A", "1", "o", "k", "\x13", "\e", "y", "A", "4",
+                          "M", "x", "\x18", "\x18", "\x13", "y", "\e",
+                          "d", "\t", "j", "j", "C", "h", "i", "\x12", "\e", "y", "\t", "h")
+                    step!(ctrl, k === :paste ? Worklog.PasteEvent("pasted words\n") :
+                                               Worklog.readevent(IOBuffer(k)))
+                end
                 # And nothing outlives the workload. `INFLIGHT` is what knows
                 # which fetches are still in the air - a view only ever holds
                 # the last one it started - so this is the whole of it however

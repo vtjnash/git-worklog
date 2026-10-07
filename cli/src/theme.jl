@@ -313,7 +313,7 @@ const BOX = Ref(TermInput.BOXES.ROUNDED)
 """A box by name, into `set`, or a sentence about why not: the names are
 `TermInput.BOXES`', and an unknown one is reported rather than drawn as some
 other box without a word."""
-function theme_box!(set, value, key::AbstractString, probs::Vector{String},
+function theme_box!(set, @nospecialize(value), key::AbstractString, probs::Vector{String},
                     where_::AbstractString)
     name = value isa AbstractString ? Symbol(uppercase(String(value))) : :_
     if haskey(TermInput.BOXES, name)

@@ -174,6 +174,16 @@ precompile(normalize, (JSON.Object{String,Any}, String, String))
 precompile(Events.poll, (Dict{String,Any}, String, DateTime))
 precompile(set_fields, (String, Vector{Pair{String,Any}}, DateTime))
 precompile(ui, (Vector{String}, DateTime))
+# The colours, which `__init__` reads on every launch. Here and not in the
+# wrapper's workload: `__init__` runs when the wrapper's build loads this
+# module, before its workload, so what it compiles is already compiled by
+# the time the workload would reach it and never tagged for the image - a
+# twentieth of a second on every launch, by a trace. The three under
+# `load_theme!` are reached through the TOML table's `Any`, so each is named.
+precompile(load_theme!, (String,))
+precompile(parse_face, (String,))
+precompile(apply_markdown!, (Dict{Symbol,Any}, Dict{String,Any}, Vector{String}, String))
+precompile(apply_code!, (Dict{Symbol,Face}, Dict{String,Any}, Vector{String}, String))
 
 function __init__()
     # The colours, before anything can draw. Kept rather than thrown or
