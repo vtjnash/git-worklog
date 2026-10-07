@@ -116,3 +116,20 @@ end
     answer[] = nothing
     @test W.handle!(ev, W.C_S, ctrl) === :pop
 end
+
+@testset "^c copies the words out" begin
+    # The text as written, whole, by OSC 52 - the one copy that works through
+    # tmux and ssh - with the footer saying how much went, since a terminal
+    # that has OSC 52 off drops it without a word. An empty composer says so
+    # instead of copying nothing.
+    out = IOBuffer()
+    ctrl = W.Controller(W.HeldTerminal(IOBuffer(), out))
+    ev = W.EditorView("Comment", "", identity)
+    @test W.handle!(ev, W.C_C, ctrl) === :ok
+    @test ev.status == "nothing to copy" && position(out) == 0
+    for c in "two\nlines"; W.handle!(ev, c == '\n' ? 13 : W.keycode(c), ctrl); end
+    @test W.handle!(ev, W.C_C, ctrl) === :ok
+    @test ev.status == "copied 2 lines"
+    @test String(take!(out)) == string("\e]52;c;", W.Base64.base64encode("two\nlines"), "\a")
+    @test occursin("^c copies", ev.hint)
+end

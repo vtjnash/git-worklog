@@ -916,6 +916,16 @@ for, and there was never a reason to give this one a name until now.
 """
 const C_X = 24
 
+"""`^c`, which copies the whole of a composer to the clipboard.
+
+Not a readline key at all - in a cooked terminal it is the interrupt, and raw
+mode is what lets it arrive as a byte - so `TermInput` has no name for it and no
+widget will want it. The key that means copy everywhere outside readline is
+free here for that reason; `^y`, the one a reader of this program reaches for,
+is readline's yank and puts the last kill back.
+"""
+const C_C = 3
+
 # --- a multi-line composer, as a view ---------------------------------------
 
 """What `onsubmit` answers when the send did not happen. The composer stays
@@ -939,6 +949,10 @@ things are left here because they are this program's rather than a composer's:
   * **`^r` drops a block in.** The composer knows nothing about what it is -
     the caller does, and hands it over already written. `TextArea` hands the
     key back as `:unhandled`, which is what makes it the caller's to bind.
+  * **`^c` copies the whole text out.** The words are the one thing that
+    exists nowhere else, so there has to be a way to take them somewhere
+    else without sending them - into a commit message, a note, another
+    comment. OSC 52, like every copy here, so it works through tmux and ssh.
   * **`^x` changes what is being written, where there is a choice.** Only the
     merge composer has one - the same message written three ways - and the
     callback is handed the view, so what it swaps is the buffer, the note and
@@ -972,7 +986,7 @@ function EditorView(title, note, onsubmit; initial::AbstractString = "",
                     cycle = nothing)
     hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
                   cycle === nothing ? "" : "^x cycles · ",
-                  "⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
+                  "^c copies · ⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
     EditorView(TextArea(title, note; initial = initial, hint = hint),
                onsubmit, String(suggest), allow_empty, cycle)
 end
@@ -1037,6 +1051,17 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         # What a cycle *is* belongs to the caller; this only says which way
         # round it went, and one key can only say forwards.
         v.cycle(v, 1)
+    elseif k == C_C                                 # the whole text, as written
+        if isblank(ta)
+            ta.status = "nothing to copy"
+        else
+            txt = text(v)
+            clip(ctrl.term, txt)
+            # The footer says what went, since OSC 52 can be off in the
+            # terminal and the copy then silently did not happen.
+            n = count(==('\n'), txt) + 1
+            ta.status = string("copied ", n, n == 1 ? " line" : " lines")
+        end
     end
     :ok
 end

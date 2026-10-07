@@ -200,9 +200,9 @@ drawn to the next stop of eight, and stays a tab in what `y` copies and `^r`
 suggests.
 
 **Composers** open beside the diff or thread when the screen is 150 columns or
-wider, with `tab` between them. `^s` sends; `M`'s composer cycles the merge
-operation with `^x` and asks once before it sends; `⌥e` or `^o` opens
-`$EDITOR`.
+wider, with `tab` between them. `^s` sends; `^c` copies the whole text to the
+clipboard; `M`'s composer cycles the merge operation with `^x` and asks once
+before it sends; `⌥e` or `^o` opens `$EDITOR`.
 
 **A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
