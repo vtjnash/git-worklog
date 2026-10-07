@@ -636,11 +636,12 @@ Three things answer it, all read off the mark `e` leaves:
   copy puts the commits it has not heard about inside the answer. A
   force-pushed head is fetchable by sha (measured: fourteen months old), so
   "gone" is not a state; a failure is the network. Needs a pinned checkout:
-  GitHub compares refs, and the head you saw is not one. git prints a new
-  commit in a range-diff as its header alone, so its own diff is put under
-  it (`added_patches`), folded; a second `p` can also start from any name
-  the checkout resolves, the remote's branch of that name before a local
-  one, never fetched.
+  GitHub compares refs, and the head you saw is not one. git prints a
+  commit with no pair in a range-diff - new, or gone - as its header alone,
+  so its own diff is put under it (`lone_patches`), folded: a gone one opened
+  onto nothing, and what a dropped commit did is in no other view. A second
+  `p` can also start from any name the checkout resolves, the remote's
+  branch of that name before a local one, never fetched.
 
 ## What is said, and where
 
@@ -676,7 +677,11 @@ last line of the child that ran the refresh then.
   write *after* the load or lose, and a load that landed cleared whatever the
   key had said. On the border it takes no row, so neither pane changes height
   as a load comes and goes, and this row is cleared by the next key and by
-  nothing else.
+  nothing else. The top border's right-hand end is the same kind of fact
+  about the pane, how big the change it shows is (`diff_size`, `header!`):
+  the hunks on screen added up, and for the thread, which has none, the
+  whole pull request's as GitHub counts it - asked with the thread
+  (`activity`), since the lanes would ask it of every row on every refresh.
 - **Standing** notes stay until dealt with: `errors.log`, written by
   `logerror!` for exceptions and read as the footer's warning until the file
   is deleted; a source the poll cannot get an answer from, off the inbox's

@@ -395,7 +395,13 @@ end
     # Nothing at all - `resource` null, as for a url GitHub cannot find - is
     # two empty lists, not an error.
     @test W.Events.activity_of(W.JSON.parse("""{"resource":null}"""),
-                                 "https://github.com/o/r/issues/1") == ([], [])
+                                 "https://github.com/o/r/issues/1") == ([], [], Dict())
+    # The size of the whole change rides along: a pull request's two counts,
+    # and nothing for an issue, which has none.
+    sized = W.JSON.parse("""{"resource":{"additions":120,"deletions":7,"commits":{"nodes":[]},"timelineItems":{"nodes":[]}}}""")
+    @test W.Events.activity_of(sized, "https://github.com/o/r/pull/2")[3] ==
+          Dict("additions" => 120, "deletions" => 7)
+    @test isempty(W.Events.activity_of(issue, "https://github.com/JuliaLang/julia/issues/63263")[3])
 end
 
 @testset "consecutive pushes are one entry" begin
@@ -464,9 +470,9 @@ end
           ["changed   1565527  change two", "gone      7005033  change four",
            "new       319d524  change four", "new       df0f13a  change one"]
     # A commit the rebase dropped keeps the sha it had, since the other column
-    # is `-------`; a pair that differs opens, and a new commit - all of it
-    # new, and only ever its own diff under it - folds.
-    @test [n.open for n in ns] == [true, true, false, false]
+    # is `-------`; a pair that differs opens, and a commit with no pair -
+    # new or gone, all of it, and only ever its own diff under it - folds.
+    @test [n.open for n in ns] == [true, false, false, false]
     @test occursin("TWOO", ns[1].raw) && isempty(ns[2].raw)
 
     # The colour says which range a line is in, which is the whole question
@@ -613,6 +619,21 @@ end
         @test !mw.open && occursin("\n    +master 3", mw.raw)
         @test occursin("diff --git a/m.txt b/m.txt", mw.raw)
         @test faces(W.rangeline("    +master 3")) == ["    +master 3" => W.THEME.diff_add]
+        # And a commit that is gone the same way, from the other side: the
+        # branch remade as one commit to another file, which pairs with
+        # nothing, so the old one is gone and its diff is what it did.
+        W.git(main, "checkout", "--quiet", "--detach", base)
+        write(joinpath(main, "g.txt"), "other\n")
+        W.git(main, "add", "g.txt"); W.git(main, "commit", "--quiet", "-m", "another way")
+        other = strip(W.git(main, "rev-parse", "HEAD"))
+        remade = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
+                                       title = "t", head = other, base = "master"))
+        @test [first(unstyled(n.header), 4) for n in remade[2:end]] == ["gone", "new "]
+        gone = remade[2]
+        @test occursin(first(old, 7), unstyled(gone.header)) && !gone.open
+        @test occursin("diff --git a/f.txt b/f.txt", gone.raw)
+        @test occursin("\n    -middle", gone.raw) && occursin("\n    +TWO", gone.raw)
+        @test occursin("\n    +other", remade[3].raw)
 
         # A push that only added to the branch is a plain diff instead, and
         # counts what arrived.

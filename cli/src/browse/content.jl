@@ -507,22 +507,23 @@ end
 shape `comment_nodes` reads back. Its own function so the prefetch fills the
 very entry the pane will look for."""
 function fetch_thread!(url::AbstractString)
-    body, cs, cms, sts = Events.thread(url; limit = 30)
-    cache_put(thread_key(url), (body = body, comments = cs, commits = cms, events = sts))
-    (body, cs, cms, sts)
+    body, cs, cms, sts, lines = Events.thread(url; limit = 30)
+    cache_put(thread_key(url), (body = body, comments = cs, commits = cms, events = sts,
+                                lines = lines))
+    (body, cs, cms, sts, lines)
 end
 
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
     isnotice(it) && return notice_nodes(it, at)
-    local body, cs, cms, sts
+    local body, cs, cms, sts, lines
     stale = false
     asof = nothing          # when a cached copy was read; `loadedat`
     try
         key = thread_key(it.url)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
         if hit === nothing
-            body, cs, cms, sts = fetch_thread!(it.url)
+            body, cs, cms, sts, lines = fetch_thread!(it.url)
         else
             # Read by kind, so a damaged entry is an empty thread rather than
             # a `MethodError` in whichever reader meets it first.
@@ -533,6 +534,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             # showing without them rather than dropped for want of a field
             # that is new.
             cms, sts = jlist(v, :commits), jlist(v, :events)
+            lines = jobj(v, :lines)
             stale = hit[2] > CACHE_FRESH[]
             asof = time() - hit[2]
         end
@@ -646,6 +648,9 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     out = isempty(ns) ? [Node("no comments", "", :plain, true)] : ns
     stale && (out[1].meta["stale"] = true)
     asof === nothing || (out[1].meta["asof"] = asof)
+    # How big the whole change is, for the pane's border (`diff_size`).
+    adds, dels = jint(lines, :additions), jint(lines, :deletions)
+    adds === nothing || dels === nothing || (out[1].meta["lines"] = (adds, dels))
     # For `collect_pending!` to latch onto the item; see `latch_mention!`.
     why = thread_mention(body, cs, login())
     isempty(why) || (out[1].meta["mentioned"] = why)
@@ -879,6 +884,8 @@ function hunk_node(file::String, hdr::String, buf::Vector{String},
     n = Node(string(file, "  ", hdr, "  +", adds, " -", dels),
              join(buf, "\n"), :diff, true)
     n.meta["file"] = file
+    # Counted once, for the pane's border to add up (`diff_size`).
+    n.meta["lines"] = (adds, dels)
     n.meta["start"] = rng[1]
     n.meta["count"] = rng[2]
     # The old-side range as well, so a comment left on a deleted line - which
@@ -1257,9 +1264,10 @@ function rangediff_nodes(txt::AbstractString)
         sha = newsha == "-------" ? oldsha : newsha
         byline = faced(rowpad(what, 10), col) * faced(first(sha, 8), THEME.dim)
         # Open where the pair differs. A new commit has no pair to differ
-        # from, so what is under it - its own diff, which `added_patches` put
-        # there - is the whole commit, and folds like an unchanged one.
-        n = Node(byline * "  " * subj, "", :plain, first(mark) in ('!', '<'))
+        # from and neither has one that is gone, so what is under either - its
+        # own diff, which `lone_patches` put there - is the whole commit, and
+        # folds like an unchanged one.
+        n = Node(byline * "  " * subj, "", :plain, first(mark) == '!')
         n.meta["src"] = string(what, "  ", first(sha, 8), "  ", subj)
         # What `o` opens, anywhere on the node: the pair is one commit.
         n.meta["sha"] = String(sha)
@@ -1271,27 +1279,32 @@ function rangediff_nodes(txt::AbstractString)
     ns
 end
 
-"""`git range-diff` output with each new commit's own diff under its pair
-header, indented as an inner diff is.
+"""`git range-diff` output with the own diff of each commit that has no pair -
+one that is new, one that is gone - under its header, indented as an inner
+diff is.
 
-git prints a commit with nothing on the other side - `-:  ------- > 2:  abc` -
-as its header and nothing else, since the whole of it is new and printing it is
-noise in a rebase of forty. Here a new commit is one node, folded, and opening
-it should show what it does rather than nothing. Four spaces is what
-`RANGE_PAIR` reads as body, so no line of the patch can be taken for a header;
-column five is then the patch's own `+` or `-`, which `rangeline` colours as
-the diff pane would, rather than the outer marker every line of a new commit
-would share.
+git prints a commit with nothing on the other side - `-:  ------- > 2:  abc`,
+`2:  abc < -:  -------` - as its header and nothing else, since the whole of
+it is new or gone and printing it is noise in a rebase of forty. Here such a
+commit is one node, folded, and opening it should show what it does, or did,
+rather than nothing: a commit dropped from a branch is the one nothing else
+on screen can show, being in neither the diff nor the history any more. Four
+spaces is what `RANGE_PAIR` reads as body, so no line of the patch can be
+taken for a header; column five is then the patch's own `+` or `-`, which
+`rangeline` colours as the diff pane would, rather than the outer marker
+every line of such a commit would share.
 """
-function added_patches(repo::AbstractString, txt::AbstractString)
+function lone_patches(repo::AbstractString, txt::AbstractString)
     out = String[]
     for l in split(txt, "\n")
         push!(out, l)
         m = match(RANGE_PAIR, l)
-        (m === nothing || m[3] != ">") && continue
+        (m === nothing || !(m[3] in (">", "<"))) && continue
+        # Whichever side has the commit; the other is `-------`.
+        sha = String(something(m[3] == ">" ? m[5] : m[2]))
         patch = try
             git(repo, "show", "-M", "--no-color", "--no-ext-diff", "--format=",
-                "--src-prefix=a/", "--dst-prefix=b/", String(something(m[5])))
+                "--src-prefix=a/", "--dst-prefix=b/", sha)
         catch
             continue
         end
@@ -1403,7 +1416,7 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
     lead.meta["url"] = files_link(it)
     ns = kind === :diff ? hunk_nodes(txt, files_link(it); head = new) :
-                          rangediff_nodes(added_patches(repo, txt))
+                          rangediff_nodes(lone_patches(repo, txt))
     isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
     pushfirst!(ns, lead)
     ns

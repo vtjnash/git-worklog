@@ -101,10 +101,41 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
              (sr === nothing ? row("") :
                   "  " * faced(string(sr[2] - sr[1] + 1, " selected"), THEME.bold))
 
-    footer!(bordered([r.text for r in rvis], rw, rh, rtitle; focused,
-                     gutter = [r.gutter for r in rvis]),
-            pane_stamp(st, at))
+    box = bordered([r.text for r in rvis], rw, rh, rtitle; focused,
+                   gutter = [r.gutter for r in rvis])
+    footer!(header!(box, size_label(diff_size(st.nodes))), pane_stamp(st, at))
 end
+
+"""How big the change the pane shows is, as `(added, removed)` lines, or
+`nothing` where it shows none.
+
+The hunks on screen, added up: the whole pull request under `d`, the commits
+a second `d` picked, a push that only added under `p` - the size of what is
+being read, from the text that is read. A thread has no hunks, and there it
+is the whole pull request's as GitHub counts it, which the thread was read
+with and carries on its first node. A range-diff has neither: its lines are
+changes to a change, and a count of them is the size of nothing. By the nodes
+and not by the mode, so nodes still up from the mode before are counted as
+what they are.
+"""
+function diff_size(ns::Vector{Node})
+    adds, dels, hunks = 0, 0, false
+    for n in ns
+        n.kind === :diff || continue
+        v = get(n.meta, "lines", nothing)
+        v isa Tuple{Int,Int} || continue
+        adds += v[1]; dels += v[2]; hunks = true
+    end
+    hunks && return (adds, dels)
+    isempty(ns) && return nothing
+    v = get(ns[1].meta, "lines", nothing)
+    v isa Tuple{Int,Int} ? v : nothing
+end
+
+"`diff_size` as the border says it: `+12 -3`, in the diff's own two colours."
+size_label(::Nothing) = row("")
+size_label(v::Tuple{Int,Int}) =
+    faced(string("+", v[1]), THEME.diff_add) * " " * faced(string("-", v[2]), THEME.diff_del)
 
 """When what a pane shows was read, said on its bottom border: `loaded 14:02`,
 `loading …` until it has been, and `· reloading …` while a re-read runs under
@@ -168,6 +199,31 @@ function footer!(box::Vector{Styled}, label::AbstractString)
     bf = Face[a.value for a in anns(l) if a.label === :face && 1 in a.region]
     f = isempty(bf) ? Face() : first(bf)
     box[end] = faced(edge, f) * faced(faced(label, THEME.dim), f) * faced(tail, f)
+    box
+end
+
+"""Write `label` into the top border of a box `bordered` drew, at the right
+end, over the bar the title leaves - `footer!` for the other border. It keeps
+its own faces over the border's; a title that reaches that far leaves the
+border as it was."""
+function header!(box::Vector{Styled}, label::AbstractString)
+    (isempty(label) || isempty(box)) && return box
+    l = box[1]
+    cs = collect(String(l))
+    length(cs) >= 2 || return box
+    # The bar is the run of the border's own character before the corner; a
+    # space ends the title, so the run is never the title's.
+    bar = 0
+    while bar < length(cs) - 2 && cs[end - 1 - bar] == cs[2]
+        bar += 1
+    end
+    # ` label ─╮` is written over it, and one of the bar is left before that.
+    lw = rowwidth(label) + 4
+    bar >= lw || return box
+    bf = Face[a.value for a in anns(l) if a.label === :face && 1 in a.region]
+    f = isempty(bf) ? Face() : first(bf)
+    box[1] = rowhead(l, rowwidth(l) - lw) *
+             faced(" " * label * string(" ", cs[2], cs[end]), f)
     box
 end
 

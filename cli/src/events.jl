@@ -1343,11 +1343,12 @@ end
 
 """Fetch a thread live - the part email used to hand you.
 
-Returns `(body, comments, commits, events)`. The commits and the state events
-are what the thread is read *with*: "they replied, then pushed, then replied,
-then it was merged" is one sequence, and having the pushes arrive on a second
-cadence from a second cache is how it came to be read as two. Callers that
-only want the conversation destructure the first two and are none the wiser.
+Returns `(body, comments, commits, events, lines)`. The commits and the state
+events are what the thread is read *with*: "they replied, then pushed, then
+replied, then it was merged" is one sequence, and having the pushes arrive on
+a second cadence from a second cache is how it came to be read as two. Callers
+that only want the conversation destructure the first two and are none the
+wiser. `lines` is how big the whole change is, [`activity`](@ref)'s third.
 
 Every request is started before any is waited on - the GraphQL half, the
 issue, its comments and its review comments - so what a person waits for is
@@ -1363,7 +1364,7 @@ function thread(url::AbstractString; limit::Int = 10)
     parts = split(url, '/')
     owner_repo = join(parts[4:5], '/')
     num = parts[end]
-    none = (OrderedDict{String,Any}[], OrderedDict{String,Any}[])
+    none = (OrderedDict{String,Any}[], OrderedDict{String,Any}[], OrderedDict{String,Any}())
     act = @async try; activity(url); catch; none; end
     # Not a PR, or no review comments: an `ApiError` is none.
     rcs = @async try
@@ -1377,9 +1378,9 @@ function thread(url::AbstractString; limit::Int = 10)
     cs = waited(ics)
     append!(cs, waited(rcs))
     sort!(cs; by = c -> c["created_at"])
-    commits, events = try; fetch(act); catch; none; end
+    commits, events, lines = try; fetch(act); catch; none; end
     cs, events = thread_window(cs, events, limit)
-    (body, cs, commits, events)
+    (body, cs, commits, events, lines)
 end
 
 """The last `limit` comments, and the events left to read with them: a review
@@ -1401,6 +1402,12 @@ end
 - and what happened to its state - `kind`, `at`, `by`, and what else the event
 says - in one request. Its reviews are among the events, `kind` `review`, with
 the verdict as `state`, the `body` and the `url`.
+
+And third, how big the pull request's whole change is, as GitHub counts it:
+`additions` and `deletions`, the `+N -M` its page leads with. Here because
+this is the one request about a single pull request that the thread already
+waits for, and not on the lanes, which would ask it of every row on every
+refresh for a number read off one pane. Empty for an issue.
 
 The commits are empty for an issue, which has no branch. GraphQL rather than
 `/pulls/N/commits`, for one reason that decides it: REST returns commits
@@ -1435,6 +1442,7 @@ function activity(url::AbstractString; n::Int = 30)
     d = gh_graphql(
         "query(\$u: URI!, \$n: Int!) { resource(url: \$u) {\n" *
         "  ... on PullRequest {\n" *
+        "    additions deletions\n" *
         "    commits(last: \$n) { nodes { commit {\n" *
         "      oid committedDate messageHeadline\n" *
         "      author { user { login } name }\n" *
@@ -1462,7 +1470,7 @@ function activity(url::AbstractString; n::Int = 30)
     activity_of(d, url)
 end
 
-"The answer to [`activity`](@ref)'s query, read into its two lists."
+"The answer to [`activity`](@ref)'s query, read into its two lists and the size."
 function activity_of(d, url::AbstractString)
     r = jobj(d, :resource)
     commits = OrderedDict{String,Any}[]
@@ -1529,7 +1537,13 @@ function activity_of(d, url::AbstractString)
     merged_at = Set(e["at"] for e in events if e["kind"] == "merged")
     filter!(e -> !(e["kind"] == "closed" && e["at"] in merged_at), events)
     sort!(events; by = e -> e["at"])
-    (commits, events)
+    lines = OrderedDict{String,Any}()
+    adds, dels = jint(r, :additions), jint(r, :deletions)
+    if adds !== nothing && dels !== nothing
+        lines["additions"] = adds
+        lines["deletions"] = dels
+    end
+    (commits, events, lines)
 end
 
 # --- writing ---------------------------------------------------------------

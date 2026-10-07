@@ -722,8 +722,11 @@ end
                      commits = [Dict("oid" => "a"^40, "at" => "2026-09-03T00:00:00Z",
                                      "by" => "someone", "headline" => "fix")],
                      events = [Dict("kind" => "closed", "at" => "2026-09-05T00:00:00Z",
-                                    "by" => "someone")]))
+                                    "by" => "someone")],
+                     lines = Dict("additions" => 40, "deletions" => 2)))
         ns = W.comment_nodes(it, W.utcnow())
+        # How big the whole change is came with the thread, for the border.
+        @test W.diff_size(ns) == (40, 2)
         st = mkstate()
         st.mode = :comments
         st.nodes = ns
@@ -1078,5 +1081,50 @@ end
     st.quiet = true; st.pendkey = st.loaded
     @test occursin("reloading", unstyled(ansi(W.render_frame(st, 160, 50, now))))
     ls = split(ansi(W.render_frame(st, 160, 50, now)), "\n")
+    @test length(ls) == 50 && all(width(l) == 160 for l in ls)
+end
+
+@testset "the size of the change is on the pane's top border" begin
+    # Into the top border, right-aligned, the title kept and the box its size.
+    box = W.TermIFrame.bordered(["a"], 40, 4, "diff  r#1"; focused = false)
+    was = width.(box)
+    W.header!(box, W.size_label((12, 3)))
+    @test width.(box) == was
+    @test startswith(unstyled(box[1]), "╭─ diff  r#1 ─")
+    @test endswith(unstyled(box[1]), "─ +12 -3 ─╮")
+    @test faceon(W.THEME.diff_add, box[1]) && faceon(W.THEME.diff_del, box[1])
+    # A title that leaves no room leaves the border alone, and so does no size.
+    tiny = W.TermIFrame.bordered(["a"], 16, 3, "diff  r#1"; focused = false)
+    @test W.header!(copy(tiny), W.size_label((12, 3))) == tiny
+    @test W.header!(copy(box), W.size_label(nothing)) == box
+
+    # Under `d` it is the hunks on screen, added up - a comment hung among
+    # them is not one - and whatever else is on the first node.
+    txt = "diff --git a/a.jl b/a.jl\n--- a/a.jl\n+++ b/a.jl\n@@ -1,2 +1,3 @@\n" *
+          " same\n-old\n+new\n+more\n@@ -9,2 +10,1 @@\n keep\n-gone\n" *
+          "diff --git a/b.jl b/b.jl\n--- a/b.jl\n+++ b/b.jl\n@@ -1 +1 @@\n-x\n+y\n"
+    ns = W.hunk_nodes(txt, "http://x")
+    @test W.diff_size(ns) == (3, 3)
+    @test W.diff_size(vcat(W.Node("a comment", "+1", :md, true), ns)) == (3, 3)
+    # A thread carries the whole pull request's on its first node; a pane with
+    # neither - an issue, a range-diff, the checks - says nothing.
+    th = [W.Node("someone opened this", "text", :md, true)]
+    @test W.diff_size(th) === nothing && W.diff_size(W.Node[]) === nothing
+    th[1].meta["lines"] = (120, 7)
+    @test W.diff_size(th) == (120, 7)
+    @test W.diff_size(W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n    -+z\n")) === nothing
+
+    # In the frame, on the detail pane's own border.
+    st = mkstate()
+    st.nodes = th
+    top(st) = first(l for l in split(unstyled(ansi(W.render_frame(st, 160, 50))), "\n")
+                    if occursin("comments  ", l))
+    @test endswith(top(st), "─ +120 -7 ─╮")
+    st.mode = :diff
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    st.nodes = ns
+    @test endswith(first(l for l in split(unstyled(ansi(W.render_frame(st, 160, 50))), "\n")
+                         if occursin("diff  ", l)), "─ +3 -3 ─╮")
+    ls = split(ansi(W.render_frame(st, 160, 50)), "\n")
     @test length(ls) == 50 && all(width(l) == 160 for l in ls)
 end
