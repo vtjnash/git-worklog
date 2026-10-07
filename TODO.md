@@ -70,6 +70,16 @@ Nothing now.
         for it, and `e` on it changes none of that. `T` shows what it said
         last; `q` closes it, and `T` again asks for a prompt and starts
         another.
+      - On a wide screen, `T` on an item whose agent is `waiting on you`:
+        within about a second of the pane opening, the thread beside it says
+        `agent` with no `waiting on you`, with nothing pressed. And from
+        `"`: `T` on a row whose badge is lit, `q` back out - the badge is
+        off, and after `q` in an `exited` pane its line is gone, without `r`
+        (2026-10-07; both stood until the next `T` or `r`).
+      - `exit` in a `t` shell and `^]q` at once, before the footer has said
+        `exited`: the session is gone - no `exited` under `running`, no badge
+        in `"` - and `t` starts a fresh one (2026-10-07; it stood, and took
+        a second `t` and `q`).
 
 ## Trim
 

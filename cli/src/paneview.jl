@@ -879,9 +879,11 @@ it twice would be two answers to the same question, taken a moment apart.
 
 `withdirty` decides whether the one part that walks a tree runs. The view opens
 without it and fills it in behind, so a checkout the size of julia costs the
-list nothing on the way up.
+list nothing on the way up. `sessions` is the listing the rows are filed
+against - the caller's, so the view can keep the one its rows came from.
 """
-function place_rows(items::Vector{Item}; withdirty::Bool = true)
+function place_rows(items::Vector{Item}; withdirty::Bool = true,
+                    sessions::Vector{Session} = session_list())
     ix = branch_index(items)
     byurl = Dict(it.url => it for it in items)
     # Keyed by the worktree each session is running in, which is the row it is
@@ -891,7 +893,7 @@ function place_rows(items::Vector{Item}; withdirty::Bool = true)
     # names none.
     live = Dict{String,Vector{SessionRow}}()
     on = Dict{String,Vector{Tuple{String,String}}}()
-    for r in session_list()
+    for r in sessions
         k = isempty(r.worktree) ? "" : wtkey(r.worktree)
         # tmux hands a tag back as the string it was set with, and an untagged
         # session as an empty one: a shell is what a session is unless it says
@@ -983,6 +985,9 @@ mutable struct WorktreeView <: View
     onadopt::Any                    # (repo, branch, take::Bool) -> String
     source::Any                     # () -> Vector{Item}, re-read on every reload
     lastclick::Tuple{Float64,Int,Int}
+    listed::Vector{Session}         # the sessions the rows were built from;
+                                    # a wake that lists them differently
+                                    # rebuilds the rows
 end
 
 tell!(v::WorktreeView, s::AbstractString) = (v.status = String(s); true)
@@ -996,10 +1001,11 @@ background pass fills it in.
 """
 function worktree_view(items::Vector{Item}; wake = nothing, onitem = nothing,
                        onadopt = nothing, source = nothing)
-    rows, brows = place_rows(items; withdirty = false)
+    sessions = session_list()
+    rows, brows = place_rows(items; withdirty = false, sessions)
     v = WorktreeView(items, rows, brows, :worktrees, 1, 1, 1, 1, 1, 1,
                      isempty(rows) ? "no worktrees — none of the registered repos is here" : "",
-                     nothing, wake, onitem, onadopt, source, (0.0, 0, 0))
+                     nothing, wake, onitem, onadopt, source, (0.0, 0, 0), sessions)
     dirty_pass!(v)
     v
 end
@@ -1008,11 +1014,13 @@ end
 
 The items are re-read too, not just the git side: adopting a branch *creates* an
 item, and a view labelling its rows from the snapshot it opened with would go on
-saying the branch has none.
+saying the branch has none. `sessions` is the listing to build from, where the
+caller has one ([`onwake!`](@ref)); listed here otherwise.
 """
-function worktree_reload!(v::WorktreeView)
+function worktree_reload!(v::WorktreeView; sessions::Vector{Session} = session_list())
     v.source === nothing || (v.items = v.source()::Vector{Item})
-    v.rows, v.brows = place_rows(v.items; withdirty = false)
+    v.rows, v.brows = place_rows(v.items; withdirty = false, sessions)
+    v.listed = sessions
     v.sel = clamp(v.sel, 1, length(v.rows) + 1)       # the row that adds one
     v.bsel = clamp(v.bsel, 1, max(1, length(v.brows)))
     v.asel = clamp(v.asel, 1, max(1, count(isactive, v.rows)))
@@ -1043,17 +1051,28 @@ function dirty_pass!(v::WorktreeView)
     end
 end
 
+"""A wake is the dirty pass landing, or something that changed what is
+running: the session watcher hearing a bell, a title or a child exiting, or
+a pane just left (`:pop` wakes the view under it). The sessions are listed
+again on each - one `list-panes`, down the pipe while there is one - and the
+rows are rebuilt when the listing differs from the one they were built from:
+the letters' colours are the one thing on this list that the list itself does
+not make, and rows built once at `t` kept a `T` on the `rang` badge after the
+pane behind it had been looked at and closed (2026-10-07)."""
 function onwake!(v::WorktreeView, ::Any)
+    sessions = session_list()
+    re = sessions != v.listed
+    re && worktree_reload!(v; sessions)
     t = v.pending                   # a local, so the test below narrows it
-    t === nothing && return false
-    istaskdone(t) || return false
+    t === nothing && return re
+    istaskdone(t) || return re
     d = try
         fetch(t)
     catch
         Dict{String,Tuple{Bool,Bool}}()
     end
     v.pending = nothing
-    isempty(d) && return false
+    isempty(d) && return re
     v.rows = [haskey(d, r.path) && d[r.path] != (r.staged, r.unstaged) ?
               WorktreeRow(r.repo, r.path, r.name, r.branch, d[r.path]..., r.ahead,
                           r.behind, r.at, r.main, r.orphan, r.item, r.sessions) : r

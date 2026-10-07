@@ -1115,7 +1115,13 @@ Each of the following returns success and the wrong answer:
   that finds it drops the client, as for a child that has gone, and
   `iframe_close!` kills the session: once the screen has been seen nothing
   is left running. So `q` on it is the end of it, and `T` again starts
-  another.
+  another. **And `iframe_close!` asks the server as it lets go**, not only
+  the last sync: the exit reaches the pane through the pipe's subscription,
+  which tmux checks once a second (`control_check_subs_timer`, 3.7c), and a
+  `q` inside that second - the child's farewell on screen, and the key
+  pressed on it - found `exited` unset and left the session standing with
+  nothing in it, `exited` on its badge until the next `T` and `q`
+  (2026-10-07).
   **It is a state, not a seen bit.** `#{pane_dead}` is read into the
   session's row (`dead`), and every place a session is drawn says `exited`
   for it in the colour of something waiting on you (`session_words`, and the
@@ -1230,8 +1236,17 @@ Each of the following returns success and the wrong answer:
   conversation wakes the browser as a bell does, and the item pane's
   `running` lines are listed again (`sessions_changed`) - they were read only
   as the item's metadata loaded, and kept the title from before the first
-  prompt. A third, `dead_format`, is our sessions whose child has exited,
-  which is how a pane on screen hears of it (above). A tag is not subscribed to: the tags are this program's, so a
+  prompt. A bell set or cleared is such a change too, not only a refilter:
+  the same lines say `waiting on you` off that list, and with it handed over
+  only for a title the thread beside a `T` pane went on saying it after the
+  attach had cleared the bell, until the next `T` listed again (2026-10-07).
+  The worktree list lists the sessions itself on every wake it gets - the
+  watcher's, the dirty pass landing, the `:pop` of a pane over it - and
+  rebuilds its rows when the listing differs from the one they came from:
+  rows built once at `t` kept a `T` on the `rang` badge, or `exited`, after
+  the pane behind it had been looked at and closed. A third, `dead_format`,
+  is our sessions whose child has exited, which is how a pane on screen
+  hears of it (above). A tag is not subscribed to: the tags are this program's, so a
   session re-tagged here hands the browser the new list (`relist!`). Whose a
   session is is its `item` tag, which the last `t` or `T` into it wrote, and
   the pane reads which are taken over (`taken_in`) off the list as it is

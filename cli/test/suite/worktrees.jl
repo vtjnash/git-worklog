@@ -1250,6 +1250,35 @@ end
             W.handle!(v5, Int('K'), ctrl)
             @test occursin("nothing running", v5.status)
 
+            # What runs changes behind the list - started elsewhere, rung,
+            # looked at, ended - and a wake has the rows say so, without `r`:
+            # the badge on a letter is the one thing here the list does not
+            # make itself, and rows built at `t` kept a `T` on the badge after
+            # the pane behind it had been looked at and closed.
+            side = v5.rows[findfirst(r -> r.name == "side", v5.rows)]
+            # A reload starts the dirty pass again, and its landing is a wake
+            # of its own: taken first, so a wake below answers for the
+            # sessions and nothing else.
+            settle!() = (v5.pending === nothing || (wait(v5.pending); W.onwake!(v5, ctrl)); nothing)
+            settle!()
+            @test !W.onwake!(v5, ctrl)                   # nothing changed
+            sn = W.mux_name(W.SESSION_PREFIX, "side", side.branch, ""; kind = :agent)
+            W.mux_kill(sn)
+            @test first(W.mux_start(sn, side.path, "sleep 120"))
+            @test W.mux_tag!(sn; worktree = side.path, kind = :agent, item = "", url = "")
+            slot() = only(v5.rows[findfirst(r -> r.name == "side", v5.rows)].sessions)
+            @test W.onwake!(v5, ctrl)
+            @test slot().kind === :agent && !slot().bell
+            @test W.mux_ring!(sn); sleep(0.2)
+            @test W.onwake!(v5, ctrl) && slot().bell
+            @test W.mux_seen!(sn)
+            @test W.onwake!(v5, ctrl) && !slot().bell
+            settle!()
+            @test !W.onwake!(v5, ctrl)
+            W.mux_kill(sn)
+            @test W.onwake!(v5, ctrl)
+            @test isempty(v5.rows[findfirst(r -> r.name == "side", v5.rows)].sessions)
+
             # A session whose worktree has gone is an orphan row rather than a
             # hidden one: it is still holding a process, and K is still how to
             # be rid of it.

@@ -445,7 +445,7 @@ end
                                          for k in kinds])
     rows = [row("idle"), row("shell", :shell), row("note", :note), row("agent", :agent, :note)]
     v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
-                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0))
+                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0), W.Session[])
     W.handle!(v, 9, ctrl)
     @test v.mode === :active
     # A note alone is not work going on.
@@ -593,7 +593,7 @@ end
         # An empty list still renders and says which one is empty.
         e = W.WorktreeView(items, W.WorktreeRow[], W.BranchRow[], :branches,
                            1, 1, 1, 1, 1, 1, "", nothing, nothing, nothing, nothing, nothing,
-                           (0.0, 0, 0))
+                           (0.0, 0, 0), W.Session[])
         ls = split(frame(e, 80, 24), "\n")
         @test length(ls) == 24 && all(width(l) == 80 for l in ls)
         @test occursin("no branches", join(ls, "\n"))
@@ -674,7 +674,7 @@ end
     @test faceon(W.THEME.rang_mark, ansi(W.session_marks(gone)))
     @test !faceon(W.THEME.rang_mark, ansi(W.session_marks(rows[2])))
     v = W.WorktreeView(items, rows, W.BranchRow[], :worktrees, 1, 1, 1, 1, 1, 1, "",
-                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0))
+                       nothing, nothing, nothing, nothing, nothing, (0.0, 0, 0), W.Session[])
     # A line under the row per titled session, in the letters' order; none for
     # a pane that never set one. The row that makes a worktree is one line.
     @test W.row_heights(v) == [1, 3, 2, 1, 1]

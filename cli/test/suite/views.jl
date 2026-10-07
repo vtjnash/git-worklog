@@ -759,6 +759,11 @@ end
     @test W.sessions_changed(W.Session[], st.sessions)          # one went away
     @test W.sessions_changed([row(:agent, tasked.ref; dead = true)], [row(:agent, tasked.ref)])
     @test W.sessions_changed([row(:agent, "someone/else#1")], [row(:agent, tasked.ref)])
+    # A bell set or cleared is a change the `running` lines show, so it hands
+    # the list over too: `waiting on you` stood beside a `T` pane after the
+    # attach had cleared the bell, the refilter alone reading it.
+    @test W.sessions_changed([row(:agent, tasked.ref; bell = true)], [row(:agent, tasked.ref)])
+    @test W.sessions_changed([row(:agent, tasked.ref)], [row(:agent, tasked.ref; bell = true)])
     st.relisted = now_; st.rerang = false
     @test W.rerang!(st) && st.relisted === nothing && st.sessions === now_
     @test occursin("Count to forty", unstyled(join(W.meta_lines(st, tasked, 60), "\n")))
@@ -859,6 +864,8 @@ end
             @test wk.woken && st.rerang
             @test W.rerang!(st)          # the wake's half: the sessions taken again
             @test it.url in st.rang && !st.rerang
+            # And the sessions with it, as the `running` lines read them.
+            @test only(filter(x -> x.name == n, st.sessions)).bell
             take!(wk.events); wk.woken = false; sleep(0.3)
             @test !wk.woken              # nothing changed since, so no wake
             # And it is not a poll: with a session of ours up, the command pipe
@@ -869,7 +876,12 @@ end
             for _ in 1:60; wk.woken && break; sleep(0.05); end
             @test wk.woken && st.rerang
             @test W.rerang!(st) && isempty(st.rang)
-            take!(wk.events); wk.woken = false
+            # The look that cleared it clears `waiting on you` in the same
+            # wake: the sessions are handed over for a bell as for a title.
+            @test !only(filter(x -> x.name == n, st.sessions)).bell
+            # Not a bare `take!`: a wake that did not come would have it
+            # block until the child's exit woke this two minutes on.
+            isready(wk.events) && take!(wk.events); wk.woken = false
             # A child that exits is heard on it too. Its pane is kept, so
             # nothing ended and the pane's own client was told nothing: the
             # list changing is the wake, and the pane on screen reads again

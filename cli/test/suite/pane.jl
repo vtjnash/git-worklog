@@ -570,6 +570,21 @@ end
             @test W.handle!(v, Int('q'), ctrl) === :pop
             pop!(ctrl.stack)
             @test !W.mux_alive(n)
+            # And `q` inside the second before the pipe has said the child
+            # went - its last words on screen, nothing synced since - ends it
+            # too: the pane asks the server as it lets go, so the session is
+            # not left with nothing running in it until the next `T` and `q`
+            # (2026-10-07).
+            @test first(W.mux_start(n, wt, "sh -c 'echo last; sleep 0.3'"))
+            @test W.mux_tag!(n; worktree = wt, kind = :agent, item = "someone/else#1", url = url)
+            v = W.pane_view(n, "agent", ctrl)
+            @test v !== nothing && W.pane_sync!(v, ctrl) && v.child.exited === nothing
+            push!(ctrl.stack, v)
+            @test timedwait(() -> row().dead, 5.0) === :ok
+            @test v.child.exited === nothing          # no wake taken since
+            @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('q')], ctrl) === :pop
+            pop!(ctrl.stack)
+            @test !W.mux_alive(n)
         end
         pop!(ctrl.stack)
     end
