@@ -1038,6 +1038,15 @@ Each of the following returns success and the wrong answer:
   and a cut through one copy spared the other. `passthrough` keeps the
   unfinished tail per pane and reads the next line as its continuation.
 - A nested tmux gets no mouse unless *it* has `mouse on`. Not ours to fix.
+- **`capture-pane -e` is one stream, not a row per line.** An escape is
+  written where a cell differs from the cell before it, and the cell before a
+  row's first is the last of the row above - so a `+` row of a diff that fills
+  the pane to its last column, or wraps there, leaves green open and the row
+  under it is written with no colour at all. Drawn as given, each verbatim
+  row closed after it, the middle rows of a `+` run in a 41-column pane were
+  black (2026-10-08, on 3.5a and 3.7c alike; `-J` is worse, one opener for
+  the screen). `TermIFrame.reopened` carries what an SGR set into the next
+  row's opener, one entry per thing set, so a row is read alone.
 - **A drag is copy mode, driven blind.** A control client cannot give tmux a
   mouse event with a position (`send-keys -K` zeroes it, `-M` replays only a
   bound one), and `capture-pane` reads `wp->base`, never the mode's screen.
