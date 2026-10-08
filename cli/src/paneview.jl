@@ -697,7 +697,8 @@ report moved into the child's box, the prefix found across bursts, and the rest
 sent on unread. The key after a prefix comes back here (`pane_command!`), and
 what was read after it goes on to the child only while the child still has the
 keyboard: a key that moved it - to the thread, to another pane - took the
-bytes' destination with it.
+bytes' destination with it. A key that finds the child gone is this view's,
+as it would have been had the reader known (`handle!`).
 """
 function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
     h, w = displaysize(ctrl.term)
@@ -713,7 +714,15 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
         end
         r = iframe_input!(v.child, UInt8[], pane_origin(v, w), iframe_box(pane_cols(v, w), h))
     end
-    r === :gone ? :pop : :ok
+    # `:gone` is a key read raw for a child that has since gone. The reader
+    # is armed between events for whatever is on top, and the exit lands
+    # through a wake, which arms nothing: so the first key after it arrives
+    # here and not at `handle!`, and `q` was popping the view with nothing
+    # closed - the session whose footer had just said `q clears it` stood,
+    # `exited` on its badge, until the next `T` and `q` (2026-10-08). It is
+    # answered as `handle!` answers it, which for one byte is `pane_key!`.
+    r === :gone || return :ok
+    length(bytes) == 1 ? handle!(v, Int(bytes[1]), ctrl) : :ok
 end
 
 """`^]a`, and `a` once the child has gone: the session full screen, the

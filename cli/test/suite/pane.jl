@@ -585,6 +585,23 @@ end
             @test W.onraw!(v, [W.IFRAME_PREFIX, UInt8('q')], ctrl) === :pop
             pop!(ctrl.stack)
             @test !W.mux_alive(n)
+            # And the `q` as it is actually pressed: the reader was armed raw
+            # for the child, the exit landed through a wake, which arms
+            # nothing, and the key comes in as bytes to a pane whose client
+            # the sync has let go. That popped the view with nothing closed,
+            # and the session stood with `exited` on its badge (2026-10-08).
+            @test first(W.mux_start(n, wt, "echo farewell"))
+            @test W.mux_tag!(n; worktree = wt, kind = :agent, item = "someone/else#1", url = url)
+            @test timedwait(() -> row().dead, 5.0) === :ok
+            v = W.pane_view(n, "agent", ctrl)
+            @test v !== nothing && W.pane_sync!(v, ctrl) && v.child.exited == 0
+            @test v.child.client === nothing && !W.wantsraw(v)
+            push!(ctrl.stack, v)
+            @test W.onraw!(v, [UInt8('x')], ctrl) === :ok      # as `handle!`: not any key
+            @test W.mux_alive(n)
+            @test W.onraw!(v, [UInt8('q')], ctrl) === :pop
+            pop!(ctrl.stack)
+            @test !W.mux_alive(n)
         end
         pop!(ctrl.stack)
     end

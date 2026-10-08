@@ -1130,7 +1130,13 @@ Each of the following returns success and the wrong answer:
   `q` inside that second - the child's farewell on screen, and the key
   pressed on it - found `exited` unset and left the session standing with
   nothing in it, `exited` on its badge until the next `T` and `q`
-  (2026-10-07).
+  (2026-10-07). **And the first key after the exit is read raw**: the
+  controller arms the reader for the view on top between events, and the
+  exit lands through a wake, which arms nothing, so the `q` the footer asked
+  for arrives at `onraw!` as bytes for a client the sync has let go - and
+  popped the view with nothing closed, the same session standing (2026-10-08).
+  `onraw!` answers that key as `handle!` would (`pane_key!`), and the test
+  for it goes through `onraw!`, since the one through `handle!` passed.
   **It is a state, not a seen bit.** `#{pane_dead}` is read into the
   session's row (`dead`), and every place a session is drawn says `exited`
   for it in the colour of something waiting on you (`session_words`, and the

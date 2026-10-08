@@ -80,6 +80,10 @@ Nothing now.
         `exited`: the session is gone - no `exited` under `running`, no badge
         in `"` - and `t` starts a fresh one (2026-10-07; it stood, and took
         a second `t` and `q`).
+      - `exit` in a `t` shell, wait for `exited with status 0 · q clears
+        it`, then plain `q` and `"`: no row for it, no badge (2026-10-08; it
+        stood, since the first key after the exit was still read raw and
+        popped the pane without closing it).
 
 ## Trim
 
