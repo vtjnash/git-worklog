@@ -738,7 +738,9 @@ end
 
 """`^]a`, and `a` once the child has gone: the session full screen, the
 terminal handed over for it, and the pane re-read at whatever size the screen
-is when it comes back."""
+is when it comes back - on tmux's detach, or on the child exiting, which
+`mux_attach` makes come back too, since the pane stands and would otherwise
+hold the screen with every key dropped."""
 function full_screen!(v::PaneView, ctrl)
     mux_attach(v.child.name; suspend = g -> suspend(g, ctrl))
     pane_sync!(v, ctrl)

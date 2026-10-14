@@ -227,7 +227,8 @@ opens `$EDITOR`.
 
 **A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
-ends it, `^]a` goes full screen, `^]r` re-reads, `^]]` sends a literal `^]`,
+ends it, `^]a` goes full screen (and comes back when the child exits), `^]r`
+re-reads, `^]]` sends a literal `^]`,
 and `^]m` gives the mouse to the terminal and back, thread beside it or not.
 Any other key after `^]` is the browser's, about the pane's own session:
 `^]t` and `^]T` are the shell and the agent in its worktree, and a key about

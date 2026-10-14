@@ -1195,7 +1195,18 @@ Each of the following returns success and the wrong answer:
   3.7c server that pauses the pane for a host that stopped reading never
   says `%pause`, nor anything after - the line is queued behind the
   subscription's, and with the pane's own output discarded nothing is left
-  to flush them. The pipe is `no-output` and has no such queue.
+  to flush them. The pipe is `no-output` and has no such queue. **And the
+  pane standing took `^]a`'s way back**: the session used to end with its
+  child and `attach` returned with it, and now the client sits on a dead
+  pane that drops every key, with tmux's own detach the only way out
+  (2026-10-14). `mux_attach` sets a `pane-died` hook on the session for the
+  visit - `detach-client` for the terminal it gave away, `switch-client -l`
+  for a client already inside tmux - guarded on that client still being
+  attached there (`session_attached_list`), since a hook has no client of
+  its own and one left behind must not move a client that went elsewhere.
+  `set-hook` takes a pane target, `=name:`, as `set-option -w` does; `=name`
+  is `no such window`. A pane already dead when `^]a` is pressed is shown
+  as before and left by tmux's detach: the hook has nothing to fire on.
 - **The server's environment is the first login's, forever.** Every session
   gets a copy, plus the `update-environment` list (`SSH_AUTH_SOCK`,
   `SSH_CONNECTION`, `DISPLAY`…) from the client that asked - so a pane
