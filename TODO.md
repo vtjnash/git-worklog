@@ -9,6 +9,24 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 Nothing now.
 
+- [ ] add a simple liveness indicator, which subtly blinks on some part of the active pane every second (just redraw a small portion), unless this would cause unprompted network traffic (I don't want to fill outgoing buffers).
+- [ ] key A-5 "submit draft" text often has an incorrect number (shows 0 pending) and also reads poorly in prose
+- [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
+
+
+- [ ] performance issue:
+
+* on local:jn/tsa-struct-sibling, rending diff takes hours, stuck in:
+
+    #12 julia_word_marks_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:159
+    #13 0x00007a826240ee5e in julia_hunk_words_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:250
+    #14 0x00007a82622d1edb in julia_nodelines_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:539
+    #15 0x00007a8262283fdd in julia_#rows#354_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:733
+    #16 0x00007a8262449318 in rows () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:652
+    #17 julia_detail_pane_0 () at /home/vtjnash/git-worklog/cli/src/browse/frame.jl:47
+
+* Loading all the data seems to take 30 seconds at startup
+
 ## Bigger tasks
 
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor
@@ -26,7 +44,6 @@ Nothing now.
       pane's rows in `paint_selection!`/`reverse_cells` - the one place
       anything edits them. With `-M`, both go, and a pane's rows are tmux's
       from end to end.
-- [ ] try rewriting the Term API on top of TermInput now, just to see if it is possible
 - [ ] **Other languages' code blocks, through Highlights as a TermInput
       extension.** Highlights 0.6.3 no longer imports Pkg
       (JuliaDocs/Highlights.jl#103). The extension would use only
@@ -55,36 +72,6 @@ Nothing now.
         capture-named faces, as JuliaSyntaxHighlighting does. Then the
         extension would just read annotations, like `TermInputHighlightExt`.
 
-## Unverified
-
-- [ ] **A pane whose child exited, in a real terminal.** The suite drives it
-      against the bundled tmux with `echo` for a child, no terminal and no
-      `claude`. By hand:
-      - MANUAL.md 16 again, as it now reads: exit `claude` in a `T` pane, and
-        `exit` in a `t` shell. The screen stays, the footer says `exited
-        with status 0 · q clears it` within about a second, `q` closes it.
-      - `T`, `^]q`, and have the agent exit while the list is on screen
-        (`kill` it from a shell): within about a second the item pane says
-        `agent  exited` under `running`, and `"` shows its `T` on the badge
-        with `exited` on a line under the worktree. The row is not unread
-        for it, and `e` on it changes none of that. `T` shows what it said
-        last; `q` closes it, and `T` again asks for a prompt and starts
-        another.
-      - On a wide screen, `T` on an item whose agent is `waiting on you`:
-        within about a second of the pane opening, the thread beside it says
-        `agent` with no `waiting on you`, with nothing pressed. And from
-        `"`: `T` on a row whose badge is lit, `q` back out - the badge is
-        off, and after `q` in an `exited` pane its line is gone, without `r`
-        (2026-10-07; both stood until the next `T` or `r`).
-      - `exit` in a `t` shell and `^]q` at once, before the footer has said
-        `exited`: the session is gone - no `exited` under `running`, no badge
-        in `"` - and `t` starts a fresh one (2026-10-07; it stood, and took
-        a second `t` and `q`).
-      - `exit` in a `t` shell, wait for `exited with status 0 · q clears
-        it`, then plain `q` and `"`: no row for it, no badge (2026-10-08; it
-        stood, since the first key after the exit was still read raw and
-        popped the pane without closing it).
-
 ## Trim
 
 `juliac --trim=safe` over `wl`: the plan, the counts and how to reproduce
@@ -101,6 +88,7 @@ under *Upstream* here.
       the body, `@nospecialize b`, does mark it. Check for an existing issue
       first; then `thread_facts!` and `carry_mention!` (`refresh.jl`) can go
       back to one method each.
+
 - [ ] **Running a subprocess does not trim.** `read(`echo hi`, String)`
       alone is 30 errors on 1.13 and 44 on 1.14, all in `process.jl`
       (`setup_stdios`, `close_stdio`, `rawhandle`, the `cancel` keyword).

@@ -139,6 +139,10 @@ Base.@kwdef mutable struct BState <: View
     title::String
     sel::Int = 1
     top::Int = 1
+    listmap::Vector{Int} = Int[]  # what each drawn row of the list is: the
+                                  # item's index, 0 for the import row, -1
+                                  # for a rule (`list_rules`); `top` counts
+                                  # drawn rows, and a click lands on one
     nodes::Vector{Node} = Node[]
     nrow::Int = 1          # cursor into the flattened rows, not into nodes:
                            # scrolling inside a long comment needs row

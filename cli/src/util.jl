@@ -139,6 +139,38 @@ end
 See `set_tz!`."""
 local_str(t::DateTime) = Libc.strftime("%Y-%m-%d %H:%M", datetime2unix(t))
 
+"The calendar day a UTC instant falls on where you are (`set_tz!`)."
+function local_date(t::DateTime)
+    tm = Libc.TmStruct(datetime2unix(t))
+    Date(tm.year + 1900, tm.month + 1, tm.mday)
+end
+
+"""The day a timestamp fell on, said against `at`'s: `today`, `yesterday`,
+`3 days ago`, `2 weeks ago`, `4 months ago`, `2 years ago`.
+
+Days are calendar days where you are, counted from midnight, so that a row
+from 23:00 last night is `yesterday` at 01:00 and not a rounding of twenty-six
+hours - `ago_str`'s `1d ago` is the floating window, and is right beside a
+date, where the subtraction is the point; a rule *between* rows wants the day
+the calendar names. Weeks are seven of those days; months and years are the
+calendar's, so `1 month ago` is last month whatever the day. A time after `at`
+is `today`. Empty for anything `ts` cannot read.
+"""
+function day_label(s, at::DateTime)
+    t = ts(s)
+    t === nothing && return ""
+    d, today = local_date(t), local_date(at)
+    n = Dates.value(today - d)
+    n <= 0 && return "today"
+    n == 1 && return "yesterday"
+    n < 7 && return string(n, " days ago")
+    n < 60 && return (w = n ÷ 7; string(w, w == 1 ? " week ago" : " weeks ago"))
+    m = 12 * (year(today) - year(d)) + month(today) - month(d)
+    m < 12 && return string(m, m == 1 ? " month ago" : " months ago")
+    y = m ÷ 12
+    string(y, y == 1 ? " year ago" : " years ago")
+end
+
 """The UTC time that the wall clock where you are shows as `t` - the other
 direction, for a time typed in. Daylight time is libc's to decide (`isdst = -1`),
 including for the hour a spring-forward skips."""

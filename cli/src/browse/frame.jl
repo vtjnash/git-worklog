@@ -262,6 +262,51 @@ function refresh_stamp(st::BState, at::DateTime)
     isempty(w) ? row("") : faced("refreshed ", THEME.dim) * w * " "
 end
 
+"""Where the clock's rules go in a list ordered by one: `i => label` says a
+rule reading `label` is drawn above item `i`.
+
+The list is newest first under three of its four orders, and a row's place
+in it says nothing readable about when: the stamp is on the metadata pane,
+one row at a time. So a rule is drawn where the day changes - `today`,
+`yesterday`, `3 days ago`, the calendar days of `day_label` - and one more,
+`last refresh`, where the rows that moved since the corpus was last fetched
+whole (`refreshed`, the title bar's stamp) end and the ones from before it
+begin: the rows above it are the news the poll and the pane's own reads
+brought in since `u`, and the rule is drawn only when there are some, since
+a rule at the very top says nothing the stamp does not. Each row is dated
+by the clock the order sorts on (`sortkey`), which is the only reading under
+which the rules fall between the rows rather than among them. Nothing under
+`:name`, which is not a clock.
+"""
+function list_rules(items::Vector{Item}, touched::Dict{String,String}, order::Symbol,
+                    refreshed::AbstractString, at::DateTime)
+    out = Pair{Int,String}[]
+    order === :name && return out
+    r = ts(refreshed)
+    said = r === nothing
+    prev = ""
+    for (i, it) in enumerate(items)
+        k = sortkey(it, touched, order)
+        if !said
+            t = ts(k)
+            if t === nothing || t < r
+                i > 1 && push!(out, i => "last refresh")
+                said = true
+            end
+        end
+        lab = day_label(k, at)
+        isempty(lab) || lab == prev || push!(out, i => lab)
+        prev = lab
+    end
+    out
+end
+
+"""The rule itself, exactly one row wide: `── yesterday ─────`."""
+function rule_row(label::AbstractString, w::Int)
+    s = string("\u2500\u2500 ", label, " ")
+    faced(rowfit(s * "\u2500"^max(0, w - textwidth(s)), w), THEME.dim)
+end
+
 """The background a header row is drawn on, or the empty face.
 
 In the diff, a hunk is blue and a hunk of a new file grey, which is how GitHub
@@ -337,7 +382,21 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # half-woken across its own rows; the same answer `refilter!` sorted by.
         marks = Marks(st, at)
         quiet = st.focus !== :list
+        # The clock's rules, drawn above the rows that start a day. Not rows
+        # of the list - a drawn row says which item it is in `listmap`, and a
+        # rule is nobody's - and not kept: they are where the clock puts them
+        # at this frame's `at`, and `today` turns into `yesterday` at midnight
+        # with nothing moving.
+        rules = list_rules(st.items, st.touched, st.sort, st.refreshed, at)
+        nextrule = 1
+        st.listmap = Int[0]
         for i in 1:length(st.items)
+            while nextrule <= length(rules) && first(rules[nextrule]) == i
+                push!(lrows, Row(-1, false, rule_row(last(rules[nextrule]), liw), "", 0))
+                push!(st.listmap, -1)
+                nextrule += 1
+            end
+            push!(st.listmap, i)
             it_ = st.items[i]
             # Whichever side has the keys: the row says which item the reading
             # pane is showing, and it went dark on `tab`, so the item being
@@ -379,9 +438,10 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             push!(lrows, Row(i, true, styled,
                              string(it_.ref, " ", it_.title), 0))
         end
-        # One row further down than the selection, since the import row is at
-        # the front of the drawn list and in front of index 1.
-        lvis, st.top = window(lrows, st.sel + 1, st.top, lh - 2)
+        # The selection's drawn row, which is further down than its index by
+        # the import row at the front of the list and every rule above it.
+        lvis, st.top = window(lrows, something(findfirst(==(st.sel), st.listmap), 1),
+                              st.top, lh - 2)
         ltitle = string(st.title, " ", st.sel, "/", length(st.items))
     end
 

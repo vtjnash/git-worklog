@@ -387,16 +387,20 @@ end
     L = W.layout(160, 50, st.nmeta)
     ctrl = W.Controller()
 
-    # A click on the list pane's third content row selects the second item: the
-    # import row is drawn in front of item 1, so the drawn rows are one ahead
-    # of the item indices.
+    # A click on the list pane's content rows selects what the frame drew
+    # there: the import row is drawn in front of item 1, and under the clock
+    # the list opens in a rule is drawn above it too, so the drawn rows run
+    # ahead of the item indices by more than one (`listmap`).
     press(x, y) = W.onmouse!(st, W.MouseEvent(:press, 0, x, y, 0), ctrl)
-    press(L.lx + 3, L.ly + 3)
-    @test st.focus === :list && st.sel == st.top + 1
+    @test st.listmap[1] == 0 && st.listmap[2] == -1 && st.listmap[3] == 1
+    press(L.lx + 3, L.ly + 4)
+    @test st.focus === :list && st.sel == 2
     # And the first row is that import row, which is selection zero.
     press(L.lx + 3, L.ly + 1)
     @test st.focus === :list && st.sel == 0
-    press(L.lx + 3, L.ly + 2)
+    press(L.lx + 3, L.ly + 2)                      # the rule: the row under it
+    @test st.sel == 1
+    press(L.lx + 3, L.ly + 3)
     @test st.sel == 1
 
     # Clicking the detail pane's first content row lands on the first title row,
@@ -915,6 +919,95 @@ end
     # The import row keeps its dim, being the one row that is not an item.
     @test faceon(W.THEME.dim, first(l for l in lines if occursin("import an item",
                                                            unstyled(l))))
+end
+
+@testset "rules among the rows say when" begin
+    # The day a timestamp fell on, against `at`'s: calendar days from midnight
+    # where you are - twelve hours ago is yesterday when it was before
+    # midnight - then weeks of seven of them, then the calendar's months and
+    # years. A time after `at` is today.
+    at = W.utc_of_local(W.Dates.DateTime(2026, 10, 14, 12, 0, 0))
+    lab(t) = W.day_label(W.stamp(W.utc_of_local(t)), at)
+    @test lab(W.Dates.DateTime(2026, 10, 14, 0, 0, 1)) == "today"
+    @test lab(W.Dates.DateTime(2026, 10, 14, 23, 59)) == "today"
+    @test lab(W.Dates.DateTime(2026, 10, 13, 23, 59)) == "yesterday"
+    @test lab(W.Dates.DateTime(2026, 10, 12, 1, 0)) == "2 days ago"
+    @test lab(W.Dates.DateTime(2026, 10, 8, 1, 0)) == "6 days ago"
+    @test lab(W.Dates.DateTime(2026, 10, 7, 1, 0)) == "1 week ago"
+    @test lab(W.Dates.DateTime(2026, 9, 1, 1, 0)) == "6 weeks ago"
+    @test lab(W.Dates.DateTime(2026, 8, 14, 1, 0)) == "2 months ago"
+    @test lab(W.Dates.DateTime(2025, 11, 30, 1, 0)) == "11 months ago"
+    @test lab(W.Dates.DateTime(2025, 10, 1, 1, 0)) == "1 year ago"
+    @test lab(W.Dates.DateTime(2020, 1, 1)) == "6 years ago"
+    @test W.day_label("", at) == "" && W.day_label(nothing, at) == ""
+
+    # In a list ordered by a clock, a rule above every row that starts a day,
+    # reading that day, and none under the url order.
+    st = mkstate(); st.focus = :list
+    st.sort = :moved; W.refilter!(st; keeprow = false)
+    at = W.utcnow()
+    keys = [W.sortkey(it, st.touched, :moved) for it in st.items]
+    @test issorted(keys; rev = true)
+    labels = [W.day_label(k, at) for k in keys]
+    expect = Pair{Int,String}[]
+    for (i, l) in enumerate(labels)
+        isempty(l) || (i > 1 && labels[i - 1] == l) || push!(expect, i => l)
+    end
+    @test length(expect) >= 2
+    @test W.list_rules(st.items, st.touched, :moved, "", at) == expect
+    @test isempty(W.list_rules(st.items, st.touched, :name, "", at))
+    rule(l) = string("\u2500\u2500 ", l, " \u2500\u2500")
+    lines = split(ansi(W.render_frame(st, 160, 60, at)), "\n")
+    plain = unstyled.(lines)
+    j = findfirst(l -> occursin(rule(labels[1]), l), plain)
+    @test j !== nothing && occursin("import an item", plain[j - 1]) &&
+          occursin(st.items[1].ref, plain[j + 1])
+    @test faceon(W.THEME.dim, lines[j])
+    @test st.listmap[1] == 0 && st.listmap[2] == -1 && st.listmap[3] == 1
+    @test count(==(-1), st.listmap) == length(expect)
+    @test [i for i in st.listmap if i > 0] == 1:length(st.items)
+    st.sort = :name; W.refilter!(st; keeprow = false)
+    plain = unstyled(ansi(W.render_frame(st, 160, 60, at)))
+    @test !any(r -> occursin(rule(last(r)), plain), expect)
+    @test st.listmap == 0:length(st.items)
+
+    # `last refresh` is drawn where the rows that moved since the corpus was
+    # fetched end - and not at all when none has, or when every row has.
+    st.sort = :moved; W.refilter!(st; keeprow = false)
+    st.refreshed = keys[2]
+    older = findfirst(k -> k < keys[2], keys)
+    rules = W.list_rules(st.items, st.touched, :moved, st.refreshed, at)
+    @test (older => "last refresh") in rules
+    @test count(r -> last(r) == "last refresh", rules) == 1
+    @test occursin(rule("last refresh"), unstyled(ansi(W.render_frame(st, 160, 60, at))))
+    st.refreshed = "2099-01-01T00:00:00Z"
+    @test W.list_rules(st.items, st.touched, :moved, st.refreshed, at) == expect
+    st.refreshed = "2000-01-01T00:00:00Z"
+    @test W.list_rules(st.items, st.touched, :moved, st.refreshed, at) == expect
+    st.refreshed = ""
+
+    # The cursor's row is found through the rules, and a click on a rule
+    # lands on the row it introduces; the import row is still the first.
+    ctrl = W.Controller()
+    W.render_frame(st, 160, 60, at)
+    L = W.layout(160, 60, st.nmeta)
+    @test st.sel == 1 && st.top == 1
+    press(y, t) = W.onmouse!(st, W.MouseEvent(:press, 0, L.lx + 3, L.ly + y, 0), ctrl, t)
+    @test press(1, 100.0) === :ok
+    @test st.sel == 0
+    @test press(2, 200.0) === :ok                  # the rule
+    @test st.sel == 1
+    @test press(3, 300.0) === :ok                  # item 1 itself
+    @test st.sel == 1
+    @test W.clicked_item([0, -1, 1, 2, -1, 3], 5, 3) == 3
+    @test W.clicked_item([0, -1, 1, 2, -1, 3], 7, 3) == 3
+    @test W.clicked_item([0, -1, 1, 2, -1, 3], 0, 3) == 0
+    # The selection stays in view with the rules counted: the last row's
+    # drawn row is further down than its index.
+    st.sel = length(st.items)
+    lines = unstyled.(split(ansi(W.render_frame(st, 160, 20, at)), "\n"))
+    @test any(l -> occursin(st.items[end].ref, l), lines)
+    @test st.top > 1
 end
 
 @testset "? is the footer's other half" begin

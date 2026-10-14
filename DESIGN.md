@@ -382,6 +382,15 @@ beside every date on screen is `ago_str` against the frame's `at`, put on the me
 never from a string kept on the node - a thread is fetched once and read for
 hours.
 
+**A rule between rows names a calendar day; an age beside a date is a
+window.** `ago_str`'s `1d ago` floors twenty-four-hour windows from `at`,
+which is right beside the date it qualifies. The list's rules (`list_rules`,
+`day_label`) count days from midnight where you are, so a row from last
+night is under `yesterday` at one in the morning and the day does not turn
+over at a different hour for every row; weeks are seven of those days,
+months and years the calendar's. Both are worked out from the frame's `at`
+and the row's stamp, and neither is kept.
+
 **Dated by the thing that moved.** A push and a comment carry the moment they
 were made, so that is the stamp; CI has no clock and is stamped with the
 refresh that first saw it differ. Dating a comment by the poll made a comment

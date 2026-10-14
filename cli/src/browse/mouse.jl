@@ -1,6 +1,17 @@
 
 # --- mouse ------------------------------------------------------------------
 
+"""The item a click on drawn row `j` of the list lands on, off the frame's
+`listmap`. A rule is nobody's and takes the row under it, which it introduces;
+past the end is the last item; above the list, the import row."""
+function clicked_item(listmap::Vector{Int}, j::Int, n::Int)
+    j < 1 && return 0
+    for k in j:length(listmap)
+        listmap[k] >= 0 && return listmap[k]
+    end
+    n
+end
+
 """
     onmouse!(st, ev, ctrl, at) -> Symbol
 
@@ -87,11 +98,13 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
             st.frow = wheel ? listmove(ev.kind, st.frow, nf) : clamp(st.top + row - 1, 1, nf)
             wheel || toggle_filter!(st, ctrl)
         else
-            # `- 2`, not `- 1`: the drawn list carries the import row in front
-            # of item 1, and `st.top` counts drawn rows.
+            # `st.top` counts drawn rows, and the frame said what each one
+            # is: the import row, an item, or a rule, which is nobody's and
+            # lands on the row it introduces. Below the last row is the last
+            # item, as it was when a row was an index.
             was = st.sel
             st.sel = wheel ? listmove(ev.kind, st.sel, length(st.items); lo = 0) :
-                             clamp(st.top + row - 2, 0, length(st.items))
+                             clicked_item(st.listmap, st.top + row - 1, length(st.items))
             # A second click on the row you are already on copies its url. The
             # list has one thing worth copying and that is it; `y` is the same
             # copy from the keyboard.

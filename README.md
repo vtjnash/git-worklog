@@ -107,6 +107,13 @@ you read the item, newest first - `unread: pushed, comment`, `reviewed`,
 a fork, and a base that is not the repository's default branch is coloured
 and says so - `→ v1.x  not master`.
 
+Under the three orders that are clocks, a dim rule above a row says the day
+it starts - `── today ──`, `── yesterday ──`, `── 3 days ago ──`, then weeks,
+months and years - counted as calendar days from midnight where you are (`tz`),
+not as windows of twenty-four hours; and `── last refresh ──` is drawn where
+the rows that moved since the corpus was last fetched whole end, when there
+are any. A click on a rule lands on the row under it.
+
 The order a list opens in holds while it is read: a row that changes under
 the cursor - the re-read that brings its tags up to date, a note - stays
 where it is, and the list is sorted afresh when another is asked for - a
