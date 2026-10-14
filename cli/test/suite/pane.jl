@@ -595,7 +595,7 @@ end
             @test timedwait(() -> row().dead, 5.0) === :ok
             v = W.pane_view(n, "agent", ctrl)
             @test v !== nothing && W.pane_sync!(v, ctrl) && v.child.exited == 0
-            @test v.child.client === nothing && !W.wantsraw(v)
+            @test v.child.client !== nothing && W.wantsraw(v)   # kept, to scroll
             push!(ctrl.stack, v)
             @test W.onraw!(v, [UInt8('x')], ctrl) === :ok      # as `handle!`: not any key
             @test W.mux_alive(n)

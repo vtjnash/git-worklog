@@ -536,7 +536,7 @@ end
                     v = last(ctrl.stack)
                     @test v isa W.PaneView
                     for _ in 1:60
-                        v.child.client === nothing && break
+                        v.child.exited !== nothing && break
                         sleep(0.05); W.pane_sync!(v, ctrl)
                     end
                     @test v.child.status == "note saved"
@@ -559,9 +559,9 @@ end
                 @test W.get_field(it.url, "note") === nothing
                 for _ in 1:60
                     sleep(0.25); W.pane_sync!(v, ctrl)
-                    v.child.client === nothing && break
+                    v.child.exited !== nothing && break
                 end
-                @test v.child.client === nothing
+                @test v.child.exited == 0
                 @test v.child.status == "note saved"
                 @test W.get_field(it.url, "note") == "from the pane"
                 # The item carries it too, since the pane reads the note off
@@ -573,9 +573,11 @@ end
                 W.handle!(st, Int('z'), ctrl)
                 @test W.get_field(it.url, "note") === nothing
                 # Once only: a second sync must not read the file again and
-                # undo an edit made in between.
+                # undo an edit made in between. The sync itself answers, as
+                # every sync on a kept pane does - the screen is re-read, to
+                # be scrolled - and that is all it does.
                 @test v.note === nothing
-                @test !W.pane_sync!(v, ctrl)
+                @test W.pane_sync!(v, ctrl)
                 @test W.get_field(it.url, "note") === nothing
                 # The editor's pane is kept until the view lets go of it.
                 @test W.mux_alive(v.child.name)

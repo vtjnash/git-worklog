@@ -239,10 +239,13 @@ A program that exits - the agent finishing, `exit` in the shell, a command
 that was not found - leaves its pane on the screen it went on, with its
 status, and nothing closes it but you: `q` there ends it - pressed the
 moment it went as much as later - and until then `t` or `T` opens what it
-left. While it stands it says `exited`: under `running` in the item pane, on
-a line under its worktree in the worktree list with its letter on the `rang`
-badge, and in the checkout picker. That is all it does
-- the item is not unread for it, and looking at it does not clear it.
+left. The screen is still tmux's for as long as the pane stands: the wheel
+scrolls back through what it said and a drag copies from it, as over a
+shell; the keys are the pane's own - `q`, `K`, `a`, `r` - since there is
+nothing left to type at. While it stands it says `exited`: under `running`
+in the item pane, on a line under its worktree in the worktree list with
+its letter on the `rang` badge, and in the checkout picker. That is all it
+does - the item is not unread for it, and looking at it does not clear it.
 Its shell sees the ssh agent and the `code` of whichever login most recently
 launched `wl`, however old the pane: `SSH_AUTH_SOCK`, `VSCODE_IPC_HOOK_CLI`
 and `code` on `PATH` are links under `$XDG_RUNTIME_DIR/wl/`, re-pointed at

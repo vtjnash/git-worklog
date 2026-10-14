@@ -1136,15 +1136,31 @@ Each of the following returns success and the wrong answer:
   and a clean exit took the pane with it). Set before the command runs: the
   session starts on `cat` and `respawn-pane -k` puts the command in, since
   down the pipe `new-session` and `set` are two round trips and an exec that
-  fails is over inside one. tmux writes its line on the bottom row and
-  scrolls one up to do it, and a resize to a box shorter than 24 rows pushes
-  the top - the child's only words, usually - into the history, so the sync
-  reads a dead pane's history too and drops the blank rows tmux left above
-  its line (`dead_screen`), which it finds by its words: in a box narrower
-  than the line it wraps, and the blanks are above its first row. The sync
-  that finds it drops the client, as for a child that has gone, and
-  `iframe_close!` kills the session: once the screen has been seen nothing
-  is left running. So `q` on it is the end of it, and `T` again starts
+  fails is over inside one. **The screen is the child's, and it is still
+  tmux's.** `remain-on-exit-format` is emptied, so tmux writes no `Pane is
+  dead` line: with the line it scrolled the screen a row to write it on the
+  bottom one and left the cursor there, and a resize to a box shorter than
+  24 rows pushed the top - the child's only words, usually - into the
+  history behind the blank rows it had not used, which a sync then trimmed
+  around the line (`dead_screen`, 2026-10-06 to 2026-10-14). With no line
+  the cursor stays under the last word, the shrink eats the blank rows
+  below it first, and the history is the history. Which is what lets the
+  pane keep its client: tmux's copy mode works on a dead pane as on a live
+  one (`copy-mode`, `send -X` and `show-buffer` never touch the pty; only
+  a plain key does, and tmux drops it unread), so the wheel, the page keys
+  and a drag go on working as over a shell, and each sync after the one
+  that found the exit reads the frame as before - the found one says
+  `exited with status n` once (`exited` from `nothing` is the host's
+  moment too, for a note's editor). What is typed is the host's:
+  `iframe_input!` hands the key after a prefix back as from a live pane,
+  and a bare key as `:gone`, back on the live screen first, which is
+  `pane_key!` - one list for the keys after the prefix and the keys
+  themselves. The mouse the child had asked for is not honoured: nothing is
+  there to report to. It was a frozen screenshot - the client dropped on
+  the sync that found the exit, every copy path returning at the missing
+  client (2026-10-14). `iframe_close!` closes the client and kills the
+  session: once the screen has been seen nothing is left running. So `q`
+  on it is the end of it, and `T` again starts
   another. **And `iframe_close!` asks the server as it lets go**, not only
   the last sync: the exit reaches the pane through the pipe's subscription,
   which tmux checks once a second (`control_check_subs_timer`, 3.7c), and a
@@ -1169,8 +1185,8 @@ Each of the following returns success and the wrong answer:
   ended, `window_bell_flag` being set by the pane's own child and by
   nothing else, to make a bit that then had to be cleared.
   **A pane on screen is told by the pipe, not by its own client.** Nothing
-  ended, so there is no `%exit`; tmux's `Pane is dead` line is written on
-  the screen and is no `%output`; and a sync woken by output just ahead of
+  ended, so there is no `%exit`; nothing is written on the screen for it,
+  so there is no `%output`; and a sync woken by output just ahead of
   the exit asks before it has landed (never seen, three of three). The
   pipe subscribes to the sessions of ours whose pane is dead (`MUX_DEAD`,
   beside the bells and the titles), `watch_sessions!` hears it as a change

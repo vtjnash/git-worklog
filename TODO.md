@@ -25,6 +25,20 @@ Nothing now.
 
 * Loading all the data seems to take 30 seconds at startup (I don't know what step is actually slow).
 
+## Unverified
+
+- [ ] **An exited pane scrolls back and copies.** Exit `claude` in a `T`
+  pane, or run `seq 1 100; exit` in a `t` shell. The screen stays as it
+  was, with no `Pane is dead` line under it - the footer says `exited with
+  status 0 · q clears it`. The wheel scrolls back through what it said,
+  with `n rows back of m` in the footer, and `⇧PgUp` too; a drag selects as
+  over a shell and letting go copies it to the clipboard; a typed letter
+  does nothing but bring the view back to the end; `^]d` and the rest go
+  to the thread beside it as before; `q` ends it. In a box shorter than
+  the pane's 24 rows, a child that said one line and exited shows the line
+  on its first row, not blanks (2026-10-14; it was a frozen screenshot,
+  and the trim around tmux's line is gone with the line).
+
 ## Bigger tasks
 
 - [ ] **A preview of the session under the cursor in `"`.** Once the cursor

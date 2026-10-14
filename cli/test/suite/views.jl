@@ -616,8 +616,8 @@ end
         # finds it, and leaving the view is what ends the session.
         @test W.mux_alive(n) === true
         W.pane_sync!(v, ctrl)
-        @test v.child.client === nothing && v.child.exited == 0
-        @test W.wantsraw(v) === false
+        @test v.child.client !== nothing && v.child.exited == 0
+        @test W.wantsraw(v) === true              # the pane is kept, to scroll
         @test W.handle!(v, Int('q'), ctrl) === :pop
         @test W.mux_alive(n) === false
 
@@ -899,7 +899,7 @@ end
                 end
                 sleep(0.05)
             end
-            @test v.child.client === nothing && v.child.exited == 0
+            @test v.child.client !== nothing && v.child.exited == 0
             @test occursin("exited with status 0", v.child.status)
             @test any(l -> occursin("bye", unstyled(l)), v.child.frame)
             s = only(filter(x -> x.name == n2, st.sessions))

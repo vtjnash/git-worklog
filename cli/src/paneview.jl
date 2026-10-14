@@ -116,15 +116,18 @@ it has half.
 """
 function pane_sync!(v::PaneView, ctrl)
     h, w = displaysize(ctrl.term)
+    running = v.child.exited === nothing
     r = iframe_sync!(v.child, iframe_box(pane_cols(v, w), h))
     # The child exited, and the server kept its screen to be read: said
-    # once, as the sync that found it is the only one to answer `true`, with
-    # what leaving does to it - the session goes with the view.
-    r && v.child.exited !== nothing &&
+    # once, by the sync that found it, with what leaving does to it - the
+    # session goes with the view. The syncs after it are the pane being
+    # scrolled and copied from, and say nothing new.
+    r && running && v.child.exited !== nothing &&
         (v.child.status = string(v.child.name, " ", v.child.status, " · q clears it"))
-    # The child has exited: a note's editor is read back, once.
+    # The child has exited, or the session ended under it: a note's editor
+    # is read back, once.
     n = v.note
-    if v.child.client === nothing && n !== nothing
+    if (v.child.client === nothing || v.child.exited !== nothing) && n !== nothing
         v.note = nothing
         said = try
             adopt_note!(n)
@@ -179,6 +182,11 @@ function pane_column(v::PaneView, w::Int, h::Int)
         v.focus === :read ?
             string(v.child.name, " · reading · tab back to it",
                    " · esc/t/T the list · every other key is the browser's") :
+        v.child.exited !== nothing ?
+            # Kept to be read: the wheel and a drag are the screen's, the
+            # keys are this view's, and `q` is what ends it.
+            string(v.child.name, " · exited · q clears it · wheel scrolls back",
+                   v.beside === nothing ? "" : " · ^][ read beside it") :
             # `^]K` is on it and `^]tab` is not, which is a trade and not a
             # tidy-up: ending the session is the one thing here that cannot be
             # undone and it was reachable only through `^]?`, while `tab` is
@@ -714,13 +722,16 @@ function onraw!(v::PaneView, bytes::Vector{UInt8}, ctrl)
         end
         r = iframe_input!(v.child, UInt8[], pane_origin(v, w), iframe_box(pane_cols(v, w), h))
     end
-    # `:gone` is a key read raw for a child that has since gone. The reader
-    # is armed between events for whatever is on top, and the exit lands
-    # through a wake, which arms nothing: so the first key after it arrives
-    # here and not at `handle!`, and `q` was popping the view with nothing
-    # closed - the session whose footer had just said `q clears it` stood,
-    # `exited` on its badge, until the next `T` and `q` (2026-10-08). It is
-    # answered as `handle!` answers it, which for one byte is `pane_key!`.
+    # `:gone` is a key read raw for a child that has gone: one whose session
+    # ended, or one that exited and whose pane is kept - the iframe keeps the
+    # client for the wheel and a drag, answers those itself, and hands a key
+    # back here. The reader is armed between events for whatever is on top,
+    # and the exit lands through a wake, which arms nothing: so the first
+    # key after it arrives here and not at `handle!`, and `q` was popping
+    # the view with nothing closed - the session whose footer had just said
+    # `q clears it` stood, `exited` on its badge, until the next `T` and `q`
+    # (2026-10-08). It is answered as `handle!` answers it, which for one
+    # byte is `pane_key!`.
     r === :gone || return :ok
     length(bytes) == 1 ? handle!(v, Int(bytes[1]), ctrl) : :ok
 end
@@ -792,8 +803,9 @@ function handle!(v::PaneView, k::Int, ctrl)
         end
         return :ok
     end
-    # The child has gone and its bytes have nowhere to go, so this view answers
-    # for itself, with the keys that come after the prefix while it is there:
+    # The child has gone - its session ended, or it exited and the pane is
+    # kept - and its bytes have nowhere to go, so this view answers for
+    # itself, with the keys that come after the prefix while it is there:
     # `q` and escape leave, `K` is the one that ends it, uppercase because it
     # is the one that destroys something.
     something(pane_key!(v, k, ctrl), :ok)
