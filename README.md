@@ -98,9 +98,9 @@ pull request`, `closed issue`; the title bar's right-hand end says when the
 corpus was last fetched, and `refreshing …` while `u` runs. Once a second
 the top-right corner of the pane that has the keys is redrawn, lit on one
 tick and quiet on the next: the sign that the program is alive when nothing
-else moves (`liveness = false` in `config.toml` turns it off). It is written
-only when the terminal takes it at once, so over ssh a stalled link has
-nothing added to what is already queued on it.
+else moves (`liveness = false` in `config.toml` turns it off). Over ssh a
+stalled link blocks the write and the pulses after it, so nothing is added
+to what is already queued on it.
 Every date on
 the metadata pane and on a comment, push or state header has how long ago
 that was beside it, dim - `3d ago`,

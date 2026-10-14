@@ -12,6 +12,7 @@ Nothing now.
 - [ ] key A-5 "submit draft" text often has an incorrect number (shows 0 pending) and also reads poorly in prose
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
 - [ ] in review submit (A), does "discard draft" ask for re-confirmation? If not, it should, since accidentally deleting all comments would be very sad.
+- [ ] fetch commit comments text when displaying (This might have been an item in LATER.md), since the daily jobs ping this
 
 
 - [ ] performance issue:

@@ -38,10 +38,10 @@ tz = ""
 # The sign of life: once a second the corner of the pane that has the keys is
 # redrawn, lit on one tick and quiet on the next, so a screen where nothing is
 # happening can be told from a program that has stopped. One cell, written
-# only when no frame is due and only if the terminal takes it at once: a
-# pulse that would queue behind output the terminal - the pty under ssh or
-# tmux - has not taken is dropped, so a stalled link gets nothing added to
-# what is already waiting on it. false turns it off.
+# only when no frame is due; a terminal that is not taking output - a pty
+# under ssh or tmux whose link has stalled - blocks the write and with it
+# every pulse after, so nothing is added to what is already waiting on the
+# link. false turns it off.
 liveness = true
 
 [thresholds]
