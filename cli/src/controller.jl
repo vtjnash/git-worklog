@@ -899,9 +899,9 @@ end
 # A menu (`filter = false`) has no query to type into, so its hint says only
 # that the cursor moves.
 ChooseView(title, note, options, onpick; numbered::Bool = false, ranged::Bool = false,
-           filter::Bool = true, selected::Int = 1) =
+           filter::Bool = true, selected::Int = 1, anchor::Int = 0) =
     ChooseView(Choice(title, note, Styled[o[1] for o in options]; numbered, ranged,
-                      filter, selected,
+                      filter, selected, anchor,
                       hint = string(numbered ? "0-9 picks · " : "",
                                     filter ? CHOICE_HINT : "↑/↓ move",
                                     ranged ? " · ⇧↑/⇧↓ a run" : "",

@@ -11,7 +11,6 @@ Nothing now.
 
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
 - [ ] fetch commit comments text when displaying (This might have been an item in LATER.md), since the daily jobs ping this
-- [ ] when selecting a diff (d d), the current selection should be the current view (not defaulting to whole diff)
 
 
 - [ ] performance issue:

@@ -721,14 +721,25 @@ end
         files = [get(n.meta, "file", "") for n in ns]
         @test "two.txt" in files && "three.txt" in files && !("one.txt" in files)
         @test all(n -> get(n.meta, "head", shas[3]) == shas[3], ns)
-        # One commit is that commit's diff; the whole pull request clears it.
+        # Opened again, the picker is on what the pane shows - the run lit -
+        # so `↵` alone keeps it.
         W.handle!(st, Int('d'), ctrl)
         v = pop!(ctrl.stack)
-        W.handle!(v, W.K_DOWN, ctrl); W.pick!(v, 2)
+        @test TermInput.chosen(getfield(v, :c)) == [3, 4]
+        @test W.handle!(v, 13, ctrl) === :pop && st.drange[2:3] == (shas[2], shas[3])
+        # One commit is that commit's diff; the whole pull request clears it.
+        # A ranged pick is whatever is lit, so the cursor is moved there first.
+        W.handle!(st, Int('d'), ctrl)
+        v = pop!(ctrl.stack)
+        W.select!(v, 2); W.pick!(v, 2)
         @test st.drange[2] == st.drange[3] == shas[1]
         W.handle!(st, Int('d'), ctrl)
-        v = pop!(ctrl.stack); W.pick!(v, 1)
+        v = pop!(ctrl.stack)
+        @test TermInput.chosen(getfield(v, :c)) == [2]
+        W.select!(v, 1); W.pick!(v, 1)
         @test st.drange == ("", "", "", "") && W.mode_key(st, it, :diff) == string(u, ":diff")
+        W.handle!(st, Int('d'), ctrl)
+        @test TermInput.chosen(getfield(pop!(ctrl.stack), :c)) == [1]
 
         # `p` on what was pushed: where you last looked, then the snooze's
         # head, then each commit but the head, newest first.
@@ -745,6 +756,9 @@ end
         @test vals[end] === :other
         W.pick!(v, 2)
         @test st.pfrom == (u, shas[2], "the snooze")
+        # And `p` again opens on it.
+        W.handle!(st, Int('p'), ctrl)
+        @test TermInput.selected(getfield(pop!(ctrl.stack), :c)) == 2
         ns = W.mode_nodes(:pushed, it, W.utcnow(); from = first(W.picked_of(st, it)))
         @test occursin("1 commit added", unstyled(ns[1].header))
         @test occursin("since the snooze", unstyled(ns[1].header))

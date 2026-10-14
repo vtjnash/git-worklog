@@ -214,7 +214,8 @@ or gone - and `new since the snooze` at the snooze's, while it is the later.
 `p` picks the snooze's head instead (`snooze_head`), or any of the branch's
 commits, and a second `d` a run of them. A pick is the browser's, per item,
 for the session (`pfrom`, `drange`), and part of the loaded key (`mode_key`),
-so each is a load and a place of its own. The commits are the checkout's
+so each is a load and a place of its own - and what the picker opens on, lit,
+so that `↵` alone keeps it. The commits are the checkout's
 (`pr_commits`), never fetched for the picker: a key press does not wait on
 the network.
 

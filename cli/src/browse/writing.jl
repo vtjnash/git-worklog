@@ -344,7 +344,12 @@ end
 
 """A second `d`: which of the pull request's commits to show - the whole of
 it, first, then each commit oldest first, and shift-`↑`/`↓` for a run of
-them, shown as the one diff from the first's parent to the last."""
+them, shown as the one diff from the first's parent to the last.
+
+It opens on what the pane is showing: the run picked last time lit, or the
+whole when nothing was - so `↵` alone keeps it, and a step from it is one
+key. A pick the commits no longer hold (a rebase since) opens on the whole,
+which is what the pane fell back to."""
 function diff_picker(st::BState, ctrl::Controller, it::Item)
     has_diff(it) || (st.status = "not a pull request"; return)
     cs = item_commits(it)
@@ -354,6 +359,12 @@ function diff_picker(st::BState, ctrl::Controller, it::Item)
     opts = Tuple{Any,Any}[(string("the whole ", whole_word(it)), :whole)]
     for (sha, subj) in cs
         push!(opts, (string(first(sha, 8), "  ", subj), (sha, subj)))
+    end
+    sel, anchor = 1, 0
+    if st.drange[1] == it.url
+        ia = findfirst(c -> c[1] == st.drange[2], cs)
+        ib = findfirst(c -> c[1] == st.drange[3], cs)
+        (ia === nothing || ib === nothing) || (sel = ib + 1; anchor = ia + 1)
     end
     push_view!(ctrl, ChooseView(string("Diff · ", it.ref),
         string(length(cs), length(cs) == 1 ? " commit" : " commits",
@@ -370,13 +381,15 @@ function diff_picker(st::BState, ctrl::Controller, it::Item)
                 st.drange = (it.url, a, b, what)
                 st.status = what
             end
-        end; ranged = true))
+        end; ranged = true, selected = sel, anchor))
 end
 
 """A second `p`: which head to compare the head now against - where you last
 looked (the default), where the snooze put it away, any of the pull request's
 own commits, newest first, which is the diff of what came after it, or last,
-any commit or branch the checkout can name, which asks."""
+any commit or branch the checkout can name, which asks. It opens on the one
+picked last time, as `d`'s does; a name typed in is not in the list, and
+opens on the default."""
 function pushed_picker(st::BState, ctrl::Controller, it::Item)
     has_diff(it) || (st.status = "not a pull request"; return)
     opts = Tuple{Any,Any}[]
@@ -398,6 +411,8 @@ function pushed_picker(st::BState, ctrl::Controller, it::Item)
     end
     repo = repo_path(it.repo)
     repo === nothing || push!(opts, ("    another commit or branch\u2026", :other))
+    sel = st.pfrom[1] == it.url ?
+          something(findfirst(o -> o[2] == (st.pfrom[2], st.pfrom[3]), opts), 1) : 1
     push_view!(ctrl, ChooseView(string("Pushed since · ", it.ref),
         cs === nothing ? "the commits need a checkout of this branch" :
                          "what the head now changes, from one of these", opts,
@@ -413,7 +428,7 @@ function pushed_picker(st::BState, ctrl::Controller, it::Item)
                 st.pfrom = (it.url, v[1], v[2])
                 st.status = string("since ", v[2])
             end
-        end))
+        end; selected = sel))
 end
 
 """Compare what was pushed from `rev`, as the checkout resolves it - the
