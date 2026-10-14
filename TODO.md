@@ -11,6 +11,7 @@ Nothing now.
 
 - [ ] key A-5 "submit draft" text often has an incorrect number (shows 0 pending) and also reads poorly in prose
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
+- [ ] in review submit (A), does "discard draft" ask for re-confirmation? If not, it should, since accidentally deleting all comments would be very sad.
 
 
 - [ ] performance issue:
@@ -24,7 +25,7 @@ Nothing now.
     #16 0x00007a8262449318 in rows () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:652
     #17 julia_detail_pane_0 () at /home/vtjnash/git-worklog/cli/src/browse/frame.jl:47
 
-* Loading all the data seems to take 30 seconds at startup
+* Loading all the data seems to take 30 seconds at startup (I don't know what step is actually slow).
 
 ## Bigger tasks
 

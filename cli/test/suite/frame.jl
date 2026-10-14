@@ -1033,15 +1033,37 @@ end
     # Nowhere to put one on a view that has none.
     @test W.pulse(W.HelpView(), 160, 50, true) === nothing
 
-    # Wanted unless the terminal is reached over ssh, where it is traffic;
-    # and the config says so either way.
-    @test W.liveness(Dict{String,Any}(), Dict{String,String}())
-    @test !W.liveness(Dict{String,Any}(), Dict("SSH_CONNECTION" => "1.2.3.4 1 5.6.7.8 22"))
-    @test !W.liveness(Dict{String,Any}(), Dict("SSH_TTY" => "/dev/pts/3"))
-    @test W.liveness(Dict{String,Any}("liveness" => true), Dict("SSH_TTY" => "/dev/pts/3"))
-    @test !W.liveness(Dict{String,Any}("liveness" => false), Dict{String,String}())
-    @test W.liveness(Dict{String,Any}("liveness" => "auto"), Dict{String,String}())
-    @test W.liveness()  isa Bool
+    # Wanted unless the config says not.
+    @test W.liveness(Dict{String,Any}())
+    @test W.liveness(Dict{String,Any}("liveness" => true))
+    @test !W.liveness(Dict{String,Any}("liveness" => false))
+    @test W.liveness() isa Bool
+
+    # Written only if it goes out at once. A buffer takes it whole; a pipe
+    # whose reader has not read takes what fits and then refuses, where an
+    # ordinary write would block the loop. 64 kB is the kernel's pipe, and
+    # a pty's is less (12 kB measured); either way the point is the refusal,
+    # and that nothing is queued by it: once drained it takes the next at
+    # once. A byte at a time, so the fill ends on a refusal and not on a
+    # partial write, which is a refusal with bytes gone.
+    io = IOBuffer()
+    @test W.try_write(io, lit) && String(take!(io)) == lit
+    rd, wr = Base.link_pipe!(Pipe(); reader_supports_async = true, writer_supports_async = true) |>
+             p -> (p.out, p.in)
+    try
+        @test W.try_write(wr, "abc")
+        @test read(rd, 3) == b"abc"
+        n = 0
+        while n < 1 << 20 && W.try_write(wr, "x")
+            n += 1
+        end
+        @test 0 < n < 1 << 20                   # it filled, and then refused
+        @test !W.try_write(wr, lit)             # still refused: nothing read
+        @test length(read(rd, n)) == n          # drained, and taken again
+        @test W.try_write(wr, lit) && String(read(rd, sizeof(lit))) == lit
+    finally
+        close(wr); close(rd)
+    end
 
     # The tick queues one event at a time, like a wake, and none when the
     # loop is not running.

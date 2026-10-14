@@ -25,7 +25,7 @@ and each is explained where it is defined.
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
     onpaste!(v, text, ctrl) -> Symbol  a bracketed paste, as text; ignored by default
     viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
-    pulse(v, w, h, on) -> String | nothing  one cell that says the loop is alive, once a second
+    pulse(v, w, h, on) -> String | nothing  one cell that says the loop is alive, once a second, if it goes out at once
     viewtitle(v) -> String | nothing   what the terminal's title bar says while this is on top
     isdialog(v) -> Bool                a question to answer, or a place to be
     closeview!(v)                      let go of whatever it owns
@@ -76,25 +76,57 @@ A frame is redrawn when something happens, and nothing happening looks the
 same as a loop that has stopped: a fetch hung, a tmux ask that never answers.
 So the loop writes one cell on a timer, with `on` alternating, and a reader
 who wonders can look at it. One cell, and not a frame: a frame is ~14 kB and
-the pulse is twenty bytes, and it goes nowhere when a frame is due anyway
-(`run!`). The browser's is the top-right corner of the pane that has the
+the pulse is twenty bytes, it goes nowhere when a frame is due anyway, and
+it is dropped rather than queued when the terminal is not taking output
+(`run!`, `try_write`). The browser's is the top-right corner of the pane that has the
 keys, in the lit chrome on one tick and the quiet on the next
 (`pulse(::BState, ...)`); a hosted pane's child is its own sign of life.
 """
 pulse(::View, ::Int, ::Int, ::Bool) = nothing
 
-"""Is the pulse wanted at all? `liveness` in `config.toml`: `"auto"` - the
-default - says yes unless the terminal is reached over ssh (`SSH_CONNECTION`
-or `SSH_TTY` in the environment), where a write a second is traffic nobody
-asked for and, on a link that has stalled, bytes queued behind it for as
-long as it stays stalled; `true` is yes regardless, `false` never. The
-environment is tmux's where `wl` runs under it, which is updated on every
-attach for `SSH_CONNECTION` and never for `SSH_TTY`."""
-function liveness(cfg = config(), env = ENV)
-    v = get(cfg, "liveness", "auto")
-    v isa Bool && return v
-    !(haskey(env, "SSH_CONNECTION") || haskey(env, "SSH_TTY"))
+"Is the pulse wanted at all? `liveness` in `config.toml`, on unless it says `false`."
+liveness(cfg = config()) = get(cfg, "liveness", true) !== false
+
+"""Write `s` to the terminal only if the whole of it goes out now, and say
+whether it did.
+
+The pulse is the one write that is not worth queueing: it says the loop is
+alive, and a loop whose output is backed up has nothing to add to that. So
+it goes through `uv_try_write`, which writes what the descriptor takes
+without blocking and refuses - `UV_EAGAIN` - when libuv already has a write
+in flight or the descriptor would block. Over ssh the terminal is a pty
+whose master is sshd's (or tmux's, whose client's is sshd's), and the one
+thing the kernel shows of the link is that pty: `TIOCOUTQ` on a pty slave
+is 0 whatever is queued - a pty has no output queue of its own, the bytes
+go straight to the master's side - and what it does say, through
+`POLLOUT` and a non-blocking write, is whether the master has stopped
+reading (measured 2026-10-14: 12 kB unread and the slave is full). A link
+that has stalled backs up to there within a frame or two, and from then
+on every pulse is refused rather than added behind it. A partial write -
+room for some of twenty bytes, which is a pty within a few bytes of full -
+counts as refused too, and nothing is queued to finish it: the terminal is
+left inside an escape sequence until the next frame, which repaints every
+cell, and the alternative was an ordinary write that blocks the loop on
+the very link this is guarding against. Any `IO` that is not a libuv
+stream takes the write whole, which is a test's buffer.
+"""
+function try_write(io::Base.LibuvStream, s::AbstractString)
+    b = codeunits(s)
+    n = length(b)
+    n == 0 && return true
+    Base.iolock_begin()
+    r = try
+        Base.check_open(io)
+        GC.@preserve b begin
+            buf = Ref((pointer(b), Csize_t(n)))   # uv_buf_t: base, len
+            ccall(:uv_try_write, Cint, (Ptr{Cvoid}, Ptr{Cvoid}, Cuint), io.handle, buf, 1)
+        end
+    finally
+        Base.iolock_end()
+    end
+    r == n
 end
+try_write(io::IO, s::AbstractString) = (write(io, s); true)
 
 """The terminal's title while `v` is on top, or `nothing` to leave it to the
 view underneath - a dialog has nothing to say about it, and the item stays in
@@ -727,18 +759,19 @@ function run!(ctrl::Controller, root::View)
             elseif ev isa PulseEvent
                 # Nothing when a frame is due: it draws the cell as it is, and
                 # the next tick is a second away. And nothing to settle: the
-                # tick is not an event of the view's.
+                # tick is not an event of the view's. Written only if it goes
+                # out whole and at once (`try_write`): a pulse the terminal
+                # cannot take now is dropped, never queued.
                 ctrl.pulsed = false
                 if !dirty && !input_waiting(ctrl.term)
                     h, w = displaysize(ctrl.term)
-                    on = !on
                     bytes = try
-                        pulse(v, w, h, on)
+                        pulse(v, w, h, !on)
                     catch e
                         logerror!(e, catch_backtrace(), "pulse")
                         nothing
                     end
-                    bytes === nothing || write(ctrl.term, bytes)
+                    bytes === nothing || (try_write(ctrl.term.out, bytes) && (on = !on))
                 end
                 continue
             elseif ev isa ResizeEvent

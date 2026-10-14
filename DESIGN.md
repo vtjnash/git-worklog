@@ -1286,8 +1286,14 @@ Each of the following returns success and the wrong answer:
   top view's `pulse`: for the browser, the focused pane's top-right corner,
   lit and quiet by turns, round a saved cursor. Twenty bytes, never a
   frame, and nothing at all when a frame is already due or input is
-  waiting. Off by default over ssh (`liveness`), where every write is
-  traffic and a stalled link queues them.
+  waiting. Written through `uv_try_write`, so it is dropped, never queued,
+  when libuv has a write in flight or the pty would block - which is the
+  whole of what the kernel shows of an ssh link that has stalled:
+  `TIOCOUTQ` on a pty slave is 0 whatever is queued (a pty has no output
+  queue; measured 2026-10-14), and the slave is full, `POLLOUT` off and
+  a non-blocking write `EAGAIN`, once the master has 12 kB unread. What
+  tmux, sshd and TCP hold beyond that is not visible from here; a stall
+  reaches the pty within a frame or two and the pulses stop there.
 - **Dark or light is asked, not guessed, and the answer is an event.**
   `CSI ? 996 n` and `CSI ? 2031 h` at startup, and again after a `suspend`
   (which turns reports off, since they would land in the child's input);
