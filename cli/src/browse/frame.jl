@@ -307,6 +307,25 @@ function rule_row(label::AbstractString, w::Int)
     faced(rowfit(s * "\u2500"^max(0, w - textwidth(s)), w), THEME.dim)
 end
 
+"""The browser's sign of life: the top-right corner of the pane that has the
+keys, redrawn in the lit chrome on one tick and the quiet on the next. The
+cursor is saved and put back round it (DECSC/DECRC), so a composer's caret
+stays where the frame left it. Only the corner: the shape of the screen does
+not change, and a reader who is not looking for it sees nothing.
+
+The pane is the list's box or the detail's, by `focus`, at the geometry the
+last frame was drawn at - `layout` over the same `nmeta` - which is the one
+place the corner can be; a frame drawn since puts the corner back in the lit
+chrome, which is the `on` state, and the next tick takes it from there.
+"""
+function pulse(st::BState, w::Int, h::Int, on::Bool)
+    L = layout(w, h, st.nmeta)
+    row, col = st.focus === :detail ? (L.ry, L.rx + L.rw - 1) : (L.ly, L.lx + L.lw - 1)
+    chrome = TermInput.CHROME[]
+    cell = faced(string(TermInput.boxstyle().top.right), on ? chrome.strong : chrome.quiet)
+    string("\e7\e[", row, ";", col, "H", sprint(print, cell; context = :color => true), "\e8")
+end
+
 """The background a header row is drawn on, or the empty face.
 
 In the diff, a hunk is blue and a hunk of a new file grey, which is how GitHub

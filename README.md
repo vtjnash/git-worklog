@@ -95,7 +95,11 @@ JuliaLang/julia#62452` - so a tab or a tmux pane says which item it is on
 the title bar and the detail pane's header say what the number is of, between
 it and the title - `issue`, `pull request`, `draft pull request`, `merged
 pull request`, `closed issue`; the title bar's right-hand end says when the
-corpus was last fetched, and `refreshing …` while `u` runs. Every date on
+corpus was last fetched, and `refreshing …` while `u` runs. Once a second
+the top-right corner of the pane that has the keys is redrawn, lit on one
+tick and quiet on the next: the sign that the program is alive when nothing
+else moves (`liveness` in `config.toml`; left out over ssh unless asked).
+Every date on
 the metadata pane and on a comment, push or state header has how long ago
 that was beside it, dim - `3d ago`,
 `in 2w` for a snooze's wake - worked out against the moment the frame is

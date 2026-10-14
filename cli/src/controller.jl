@@ -25,6 +25,7 @@ and each is explained where it is defined.
     onraw!(v, bytes, ctrl) -> Symbol   those bytes, for a view that asked
     onpaste!(v, text, ctrl) -> Symbol  a bracketed paste, as text; ignored by default
     viewcursor(v, w, h)                where the terminal's cursor goes, or nothing
+    pulse(v, w, h, on) -> String | nothing  one cell that says the loop is alive, once a second
     viewtitle(v) -> String | nothing   what the terminal's title bar says while this is on top
     isdialog(v) -> Bool                a question to answer, or a place to be
     closeview!(v)                      let go of whatever it owns
@@ -67,6 +68,34 @@ view with nowhere to type. Asked after `render`, of the frame it just drew.
 """
 viewcursor(::View, ::Int, ::Int) = nothing
 
+"""What this view writes once a second to say the program is alive, as the
+bytes of one small write - a cursor saved, one cell drawn, the cursor put
+back - or `nothing` for a view with nowhere to put it.
+
+A frame is redrawn when something happens, and nothing happening looks the
+same as a loop that has stopped: a fetch hung, a tmux ask that never answers.
+So the loop writes one cell on a timer, with `on` alternating, and a reader
+who wonders can look at it. One cell, and not a frame: a frame is ~14 kB and
+the pulse is twenty bytes, and it goes nowhere when a frame is due anyway
+(`run!`). The browser's is the top-right corner of the pane that has the
+keys, in the lit chrome on one tick and the quiet on the next
+(`pulse(::BState, ...)`); a hosted pane's child is its own sign of life.
+"""
+pulse(::View, ::Int, ::Int, ::Bool) = nothing
+
+"""Is the pulse wanted at all? `liveness` in `config.toml`: `"auto"` - the
+default - says yes unless the terminal is reached over ssh (`SSH_CONNECTION`
+or `SSH_TTY` in the environment), where a write a second is traffic nobody
+asked for and, on a link that has stalled, bytes queued behind it for as
+long as it stays stalled; `true` is yes regardless, `false` never. The
+environment is tmux's where `wl` runs under it, which is updated on every
+attach for `SSH_CONNECTION` and never for `SSH_TTY`."""
+function liveness(cfg = config(), env = ENV)
+    v = get(cfg, "liveness", "auto")
+    v isa Bool && return v
+    !(haskey(env, "SSH_CONNECTION") || haskey(env, "SSH_TTY"))
+end
+
 """The terminal's title while `v` is on top, or `nothing` to leave it to the
 view underneath - a dialog has nothing to say about it, and the item stays in
 the title bar while a question about it is being answered."""
@@ -84,6 +113,10 @@ function stacktitle(stack::Vector{View})
 end
 
 struct WakeEvent end
+
+"""Once a second, from the timer `run!` starts: write the top view's `pulse`
+if no frame is due. Queued like a wake - one at a time, never blocking."""
+struct PulseEvent end
 
 """The terminal changed shape.
 
@@ -186,9 +219,10 @@ mutable struct Controller
     running::Bool
     title::String               # what the terminal's title bar was last told
     woken::Bool                 # a `WakeEvent` is on `events` and not yet taken
+    pulsed::Bool                # and a `PulseEvent`, the same
 end
 Controller(term::HeldTerminal = HeldTerminal(stdin, stdout)) =
-    Controller(term, Channel{Any}(64), nothing, View[], false, "", false)
+    Controller(term, Channel{Any}(64), nothing, View[], false, "", false, false)
 
 """Called from a background task to ask for a redraw once its work has landed.
 
@@ -216,6 +250,15 @@ function wake!(ctrl::Controller)
 end
 "`wake!` the controller a view was handed, if it was handed one."
 wake!(::Nothing) = false
+
+"The timer's tick: a `PulseEvent` on the queue, one at a time, as `wake!` queues its wake."
+function pulse!(ctrl::Controller)
+    ctrl.running && isopen(ctrl.events) || return false
+    ctrl.pulsed && return true
+    ctrl.pulsed = true
+    put!(ctrl.events, PulseEvent())
+    true
+end
 
 """A view whose frame holds colours it worked out before now - rendered rows,
 headers built in the theme's faces - drops them, because the theme just
@@ -619,6 +662,10 @@ function run!(ctrl::Controller, root::View)
     # hand stdin to a child. Whatever ends the reading - EOF because the
     # terminal closed, EIO because the pty is gone - comes as an `EndEvent`.
     reader = ctrl.reader = InputReader(readinput, ctrl.term, ctrl.events, Bool)
+    # The sign of life, once a second, where it is wanted (`liveness`). The
+    # timer only queues; the write is the loop's, below, like every other.
+    ticker = liveness() ? Timer(_ -> pulse!(ctrl), 1.0; interval = 1.0) : nothing
+    on = false
     try
         dirty, armed = true, false
         # Before the first frame too, so the browser's first thread is asked
@@ -677,6 +724,23 @@ function run!(ctrl::Controller, root::View)
                     logerror!(e, catch_backtrace(), "onwake!")
                     true                      # redraw, to show the warning
                 end
+            elseif ev isa PulseEvent
+                # Nothing when a frame is due: it draws the cell as it is, and
+                # the next tick is a second away. And nothing to settle: the
+                # tick is not an event of the view's.
+                ctrl.pulsed = false
+                if !dirty && !input_waiting(ctrl.term)
+                    h, w = displaysize(ctrl.term)
+                    on = !on
+                    bytes = try
+                        pulse(v, w, h, on)
+                    catch e
+                        logerror!(e, catch_backtrace(), "pulse")
+                        nothing
+                    end
+                    bytes === nothing || write(ctrl.term, bytes)
+                end
+                continue
             elseif ev isa ResizeEvent
                 # Redrawn whatever the view says: the screen is not the shape
                 # the last frame was.
@@ -720,6 +784,7 @@ function run!(ctrl::Controller, root::View)
         end
     finally
         ctrl.running = false
+        ticker === nothing || close(ticker)
         close(reader)                               # release the parked reader
         try
             unwatch_winch()

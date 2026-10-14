@@ -1010,6 +1010,49 @@ end
     @test st.top > 1
 end
 
+@testset "the sign of life is one corner cell" begin
+    # One small write: the cursor saved, the focused pane's top-right corner
+    # drawn in the lit chrome or the quiet, the cursor put back. The list's
+    # corner while the list has the keys, the detail's when it does.
+    st = mkstate(); st.focus = :list
+    W.render_frame(st, 160, 50)
+    L = W.layout(160, 50, st.nmeta)
+    corner = string(TermInput.boxstyle().top.right)
+    lit = W.pulse(st, 160, 50, true)
+    @test startswith(lit, string("\e7\e[", L.ly, ";", L.lx + L.lw - 1, "H")) && endswith(lit, "\e8")
+    @test occursin(corner, lit) && length(lit) < 64
+    quiet = W.pulse(st, 160, 50, false)
+    @test quiet != lit && occursin(corner, quiet)
+    @test faceon(TermInput.CHROME[].strong, lit) && faceon(TermInput.CHROME[].quiet, quiet)
+    # And it is the cell the frame drew there, so the two agree.
+    line = split(ansi(W.render_frame(st, 160, 50)), "\n")[L.ly]
+    @test collect(unstyled(line))[L.lx + L.lw - 1] == only(corner)
+    st.focus = :detail
+    @test startswith(W.pulse(st, 160, 50, true),
+                     string("\e7\e[", L.ry, ";", L.rx + L.rw - 1, "H"))
+    # Nowhere to put one on a view that has none.
+    @test W.pulse(W.HelpView(), 160, 50, true) === nothing
+
+    # Wanted unless the terminal is reached over ssh, where it is traffic;
+    # and the config says so either way.
+    @test W.liveness(Dict{String,Any}(), Dict{String,String}())
+    @test !W.liveness(Dict{String,Any}(), Dict("SSH_CONNECTION" => "1.2.3.4 1 5.6.7.8 22"))
+    @test !W.liveness(Dict{String,Any}(), Dict("SSH_TTY" => "/dev/pts/3"))
+    @test W.liveness(Dict{String,Any}("liveness" => true), Dict("SSH_TTY" => "/dev/pts/3"))
+    @test !W.liveness(Dict{String,Any}("liveness" => false), Dict{String,String}())
+    @test W.liveness(Dict{String,Any}("liveness" => "auto"), Dict{String,String}())
+    @test W.liveness()  isa Bool
+
+    # The tick queues one event at a time, like a wake, and none when the
+    # loop is not running.
+    ctrl = W.Controller()
+    @test !W.pulse!(ctrl)
+    ctrl.running = true
+    @test W.pulse!(ctrl) && W.pulse!(ctrl) && ctrl.pulsed
+    @test take!(ctrl.events) isa W.PulseEvent && !isready(ctrl.events)
+    ctrl.running = false
+end
+
 @testset "? is the footer's other half" begin
     # A dialog on the stack, from wherever the cursor is: the filter pane, the
     # import row and an empty list are the places a key that needs telling is

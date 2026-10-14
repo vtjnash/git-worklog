@@ -9,7 +9,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 Nothing now.
 
-- [ ] add a simple liveness indicator, which subtly blinks on some part of the active pane every second (just redraw a small portion), unless this would cause unprompted network traffic (I don't want to fill outgoing buffers).
 - [ ] key A-5 "submit draft" text often has an incorrect number (shows 0 pending) and also reads poorly in prose
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
 

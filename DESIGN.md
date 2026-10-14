@@ -1279,6 +1279,15 @@ Each of the following returns success and the wrong answer:
 
 ### The terminal
 
+- **The sign of life is one cell, and only when no frame is due.** The
+  loop blocks on its channel and draws when something lands, so nothing
+  landing and nothing running look alike. A timer queues a `PulseEvent` a
+  second - one at a time, like a wake - and the loop answers it with the
+  top view's `pulse`: for the browser, the focused pane's top-right corner,
+  lit and quiet by turns, round a saved cursor. Twenty bytes, never a
+  frame, and nothing at all when a frame is already due or input is
+  waiting. Off by default over ssh (`liveness`), where every write is
+  traffic and a stalled link queues them.
 - **Dark or light is asked, not guessed, and the answer is an event.**
   `CSI ? 996 n` and `CSI ? 2031 h` at startup, and again after a `suspend`
   (which turns reports off, since they would land in the child's input);

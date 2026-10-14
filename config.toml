@@ -35,6 +35,14 @@ theme = "github-light-256.toml"
 # every stamp is still stored and compared in UTC.
 tz = ""
 
+# The sign of life: once a second the corner of the pane that has the keys is
+# redrawn, lit on one tick and quiet on the next, so a screen where nothing is
+# happening can be told from a program that has stopped. One cell, written
+# only when no frame is due. "auto" leaves it out when the terminal is reached
+# over ssh (`SSH_CONNECTION` or `SSH_TTY` set), where a write a second is
+# traffic nobody asked for; true is on regardless, false is off.
+liveness = "auto"
+
 [thresholds]
 # A mention this recent, with the last word not yours, is a question owed a reply.
 reply_days = 30
