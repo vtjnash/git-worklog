@@ -259,28 +259,46 @@ drag_scroll_rows_per_second = 40
 #
 # Leave it unset if your `claude` is a shell alias you want to stay in sync -
 # reading it is the whole point, and a copy here would be a second definition to
-# drift. Set it when the agent is not what your shell calls `claude` at all: a
-# different agent, a wrapper script, a command with flags. In `data/config.toml`:
-# command = "/opt/homebrew/bin/claude --continue"
+# drift. Three keys say what runs, here and in each `[[agent.list]]` entry:
 #
-# The default also passes `--settings` with the contents of
-# `cli/claude-settings.json`: hooks that ring the pane's bell when a turn ends
-# or a permission is asked, which is what makes the item unread (`why  unread:
-# agent`) and the worktree list's `T` yellow. The contents and not the path,
-# since a sandboxed `claude` does not see this checkout. A command of your own
-# that is still `claude` keeps that by reading the file on the way - the shell
+# `kind` is the program, run through that shell so an alias of its name
+# resolves - `claude` unless set, or `codex`, or whatever your shell calls the
+# agent. `claude` is the one kind that also gets `--settings` with the contents
+# of `cli/claude-settings.json`: hooks that ring the pane's bell when a turn
+# ends or a permission is asked, which is what makes the item unread (`why
+# unread: agent`) and the worktree list's `T` yellow. The contents and not the
+# path, since a sandboxed `claude` does not see this checkout. Another kind has
+# no use for them and gets nothing.
+# kind = "codex"
+#
+# `args` go on the program's line after that, verbatim, in the shell's syntax -
+# the usual want is a flag, and this is how to add one without spelling the
+# shell, the alias and the settings out again. Not `command = "$SHELL -ic claude
+# --worktree-rw"`: `-c` takes one word as its script and the rest as `$0`,
+# `$1`..., so that runs the bare alias.
+# args = "--worktree-rw"
+#
+# `command` replaces the lot when the agent is not a name at all: a wrapper
+# script, a path, a different shell. Nothing is added to it but `args` and the
+# prompt - no `--settings`, since only `claude` reads them - so a command that
+# is still `claude` keeps the bell by reading the file on the way. The shell
 # tmux runs it through is the server's own, so this is its syntax:
-# command = 'claude --continue --settings "$(cat /path/to/git-worklog/cli/claude-settings.json)"'
+# command = '/opt/homebrew/bin/claude --continue --settings "$(cat /path/to/git-worklog/cli/claude-settings.json)"'
 #
 # A new agent asks what it should do before it starts, and what is typed goes
-# on its command line as the last argument - quoted, after the command above or
-# inside the default's `-ic` string - so its first turn is under way by the
-# time the pane is up. `↵` with nothing typed starts it waiting, as `T` used
-# to. `tab` there picks among the agents listed here, and the prompt starts on
-# the first; with no list it is the one above. An entry with no `command` is
-# that one too, so the list can name it beside others:
+# on its command line as the last argument - quoted, after `args` - so its
+# first turn is under way by the time the pane is up. `↵` with nothing typed
+# starts it waiting, as `T` used to. `tab` there picks among the agents listed
+# here, and the prompt starts on the first; with no list it is the one above.
+# An entry with none of the three keys is that one too, so the list can name it
+# beside others; an entry with no `name` is called by what it runs:
 # [[agent.list]]
 # name = "claude"
+# [[agent.list]]
+# name = "claude, in its own worktree"
+# args = "--worktree-rw"
+# [[agent.list]]
+# kind = "codex"
 # [[agent.list]]
 # name = "claude, continuing"
 # command = "claude --continue"

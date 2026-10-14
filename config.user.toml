@@ -35,8 +35,18 @@ pinned_repos = []
 repos = []
 
 # [agent]
-# What `T` runs in a pane, when it is not what your shell calls `claude`.
+# What `T` runs in a pane, when it is not what your shell calls `claude`: the
+# program (`kind`), its flags (`args`), or a whole line instead (`command`).
+# kind = "codex"
+# args = "--worktree-rw"
 # command = "/opt/homebrew/bin/claude --continue"
+# [[agent.list]]
+# name = "claude"
+# [[agent.list]]
+# name = "claude, in its own worktree"
+# args = "--worktree-rw"
+# [[agent.list]]
+# kind = "codex"
 
 # [lanes] and [views] are shared in `config.toml`; a table of the same name
 # here adds a lane or a view, or replaces one of the same key. `'` then the

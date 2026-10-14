@@ -36,18 +36,51 @@
     # The prompt is the agent's last argument, so inside the `-ic` string -
     # after it, it would be the shell's `$0` - and quoted there once more.
     p = "fix it, don't 'guess'"
-    @test W.agent_cmd("", p) == string("'", ENV["SHELL"], "' -ic ",
+    dflt = W.Agent("claude", "", "", "")
+    @test W.agent_cmd(dflt, p) == string("'", ENV["SHELL"], "' -ic ",
         W.shquote(string("claude --settings ", W.shquote(j), " ", W.shquote(p))))
-    # A command of your own takes it on the end, and an empty one is nothing.
-    @test W.agent_cmd("opencode run", p) == string("opencode run ", W.shquote(p))
-    @test W.agent_cmd("opencode", "") == "opencode"
-    # The list: the config's, in order, an empty command the default; none,
-    # the default alone.
-    @test W.agent_list(Dict{String,Any}()) == [("claude", "")]
+    # `args` ride inside the string too, after the settings and before the
+    # prompt, verbatim - the inner shell's syntax, so a flag stays a flag:
+    # `$SHELL -ic claude --worktree-rw` made the flag the shell's `$0`.
+    rw = W.Agent("rw", "", "", "--worktree-rw")
+    @test W.agent_cmd(rw, p) == string("'", ENV["SHELL"], "' -ic ",
+        W.shquote(string("claude --settings ", W.shquote(j), " --worktree-rw ", W.shquote(p))))
+    @test W.agent_cmd(rw, "") == string("'", ENV["SHELL"], "' -ic ",
+        W.shquote(string("claude --settings ", W.shquote(j), " --worktree-rw")))
+    # Another kind is run the same way - through the shell, so its alias
+    # resolves - and gets no `--settings`: the hooks are `claude`'s syntax.
+    cx = W.Agent("codex", "codex", "", "--full-auto")
+    @test W.agent_cmd(cx, p) == string("'", ENV["SHELL"], "' -ic ",
+        W.shquote(string("codex --full-auto ", W.shquote(p))))
+    @test !occursin("settings", W.agent_cmd(W.Agent("codex", "codex", "", ""), ""))
+    # A command of your own takes args and the prompt on the end, and brings
+    # nothing else; an empty one is nothing.
+    @test W.agent_cmd(W.Agent("oc", "", "opencode run", ""), p) == string("opencode run ", W.shquote(p))
+    @test W.agent_cmd(W.Agent("oc", "", "opencode", "--x"), "") == "opencode --x"
+    @test W.agent_cmd(W.Agent("oc", "codex", "opencode", ""), "") == "opencode"
+    # An entry with none of the three is `[agent]`'s own.
+    @test W.agent_cmd(dflt, p) == W.agent_cmd(W.default_agent(), p)
+    @test W.isdefault(dflt) && !W.isdefault(rw) && !W.isdefault(cx)
+    # The list: the config's, in order, each entry read key by key, a name
+    # made from what it runs when none is given; none, `[agent]` alone.
+    @test W.agent_list(Dict{String,Any}()) == [W.Agent("claude", "", "", "")]
     l = W.agent_list(Dict{String,Any}("agent" => Dict{String,Any}("list" => Any[
         Dict{String,Any}("name" => "plain"),
-        Dict{String,Any}("name" => "continue", "command" => "claude --continue")])))
-    @test l == [("plain", ""), ("continue", "claude --continue")]
+        Dict{String,Any}("name" => "continue", "command" => "claude --continue"),
+        Dict{String,Any}("args" => "--worktree-rw"),
+        Dict{String,Any}("kind" => "codex"),
+        Dict{String,Any}("command" => "opencode", "args" => "run")])))
+    @test l == [W.Agent("plain", "", "", ""), W.Agent("continue", "", "claude --continue", ""),
+                W.Agent("claude --worktree-rw", "", "", "--worktree-rw"),
+                W.Agent("codex", "codex", "", ""), W.Agent("opencode run", "", "opencode", "run")]
+    # `[agent]` itself takes the same keys, and is what runs with no list.
+    cfg = Dict{String,Any}("agent" => Dict{String,Any}("kind" => "codex", "args" => "-a"))
+    @test W.default_agent(cfg) == W.Agent("codex -a", "codex", "", "-a")
+    @test W.agent_list(cfg) == [W.default_agent(cfg)]
+    # The picker's words beside a name: what it runs, or nothing for the default.
+    @test W.agent_words(l[1]) == "" && W.agent_words(l[3]) == "--worktree-rw"
+    @test W.agent_words(l[4]) == "codex" && W.agent_words(l[5]) == "opencode run"
+    l = l[1:2]
     # Asked before it starts: what is typed is the command's last argument,
     # `tab` picks the agent, `↵` starts it with nothing typed too, and
     # escape starts nothing.
@@ -67,7 +100,7 @@
     @test got[] == "claude --continue 'go'"
     got[] = nothing
     v2 = W.AgentPromptView("a#1", c -> (got[] = c); agents = l)
-    @test W.handle!(v2, 13, ctrl) === :pop && got[] == W.agent_cmd("", "")
+    @test W.handle!(v2, 13, ctrl) === :pop && got[] == W.agent_cmd()
     got[] = nothing
     v3 = W.AgentPromptView("a#1", c -> (got[] = c); agents = l)
     @test W.handle!(v3, 27, ctrl) === :pop && got[] === nothing

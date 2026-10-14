@@ -150,7 +150,7 @@ asked."""
 function answer_agent!(ctrl, r; cmd = "sleep 120")
     top = isempty(ctrl.stack) ? nothing : last(ctrl.stack)
     top isa W.AgentPromptView || return r
-    top.agents = [("test", cmd)]
+    top.agents = [W.Agent("test", "", cmd, "")]
     W.handle!(top, 13, ctrl)
     v = last(ctrl.stack)
     v isa W.PaneView ? v.child.status : r

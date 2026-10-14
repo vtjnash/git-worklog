@@ -1099,6 +1099,36 @@ function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     :taken
 end
 
+"""One agent `T` can start: `[agent]` itself, or an `[[agent.list]]` entry.
+`kind` is the program's name, `args` its flags, `command` a whole line instead
+([`agent_cmd`](@ref) says how they combine). All three empty is `[agent]`'s
+own, so a list can name it beside the others without spelling it out."""
+struct Agent
+    name::String
+    kind::String
+    command::String
+    args::String
+end
+
+function Agent(e::AbstractDict)
+    kind, c, args = (String(get(e, k, "")) for k in ("kind", "command", "args"))
+    Agent(String(get(e, "name", agent_words(kind, c, args, "claude"))), kind, c, args)
+end
+
+"An entry that names nothing of its own: it is `[agent]`'s."
+isdefault(a::Agent) = isempty(a.kind) && isempty(a.command) && isempty(a.args)
+
+"`[agent]` as the agent `T` runs with no list, and as every blank entry."
+default_agent(cfg = config()) = Agent(get(cfg, "agent", Dict{String,Any}()))
+
+"""What an agent runs, in a few words, for a name it was not given and for the
+picker beside the one it was: the command or the kind, and the args - `dflt`
+where the kind is unsaid, and nothing at all for a blank entry when `dflt` is
+`""`."""
+agent_words(kind, command, args, dflt = "") =
+    strip(string(isempty(command) ? (isempty(kind) ? dflt : kind) : command, " ", args))
+agent_words(a::Agent, dflt = "") = agent_words(a.kind, a.command, a.args, dflt)
+
 """What to run for `T`, as a shell command line.
 
 Through the shell rather than as a bare name, because `claude` is more often a
@@ -1125,37 +1155,39 @@ Both halves of `-ic` are load-bearing, and each was got wrong once:
 the user's own settings: it is only wanted under a pane, and `claude` run from
 a terminal is not to ring a bell into it every turn.
 
-`[agent] command` in `data/config.toml` overrides the lot, and is the honest answer for anything this
-cannot guess - a wrapper script, a different agent, flags. An alias is a
-convenience for a person typing, and asking one program to read another
-program's interactive configuration is a long way round. It overrides the
-`--settings` too - the file is `claude`'s to read, and a different agent has no
-use for it - so a command that is still `claude` names it itself.
+What rides on the line is the [`Agent`](@ref)'s to say. Its `kind` is the
+program - `claude` unless it says otherwise - and is what goes in the `-ic`
+string, so an alias of that name resolves; `claude` is the one kind that takes
+`--settings`, since the hooks are its syntax and another agent has no use for
+them. Its `args` go after that and before the prompt, verbatim, in the inner
+shell's syntax - `--worktree-rw`, not a second copy of the shell wrapper and
+the settings read: a flag is the common want, and spelling the whole line for
+one flag is a second definition to drift. Its `command`, when set, overrides
+the lot - the shell, the kind, the settings - and is the honest answer for
+anything this cannot guess: a wrapper script, an agent that is not a name. An
+alias is a convenience for a person typing, and asking one program to read
+another program's interactive configuration is a long way round. `args` and
+the prompt still follow it.
 """
-function agent_cmd(command::AbstractString = "", prompt::AbstractString = "")
+function agent_cmd(a::Agent = default_agent(), prompt::AbstractString = "")
+    isdefault(a) && (a = default_agent())
     p = isempty(prompt) ? "" : string(" ", shquote(prompt))
-    c = isempty(command) ?
-        get(get(config(), "agent", Dict{String,Any}()), "command", "") : command
-    isempty(c) || return string(c, p)
-    # Inside the `-ic` string, where `claude` is: after it, the prompt would
-    # be the shell's `\$0` and not the agent's argument.
-    j = agent_settings()
+    r = isempty(a.args) ? "" : string(" ", a.args)
+    isempty(a.command) || return string(a.command, r, p)
+    # Inside the `-ic` string, where the program is: after it, the args and
+    # the prompt would be the shell's `\$0`, `\$1` and not the agent's.
+    kind = isempty(a.kind) ? "claude" : a.kind
+    j = kind == "claude" ? agent_settings() : ""
     string(shquote(get(ENV, "SHELL", "/bin/sh")), " -ic ",
-           shquote(string(isempty(j) ? "claude" : string("claude --settings ", shquote(j)), p)))
+           shquote(string(kind, isempty(j) ? "" : string(" --settings ", shquote(j)), r, p)))
 end
 
-"""The agents `T` offers, as `(name, command)`: `[[agent.list]]` in the
-config, in its order, the first the one a prompt starts on - or, with no list,
-the one `agent_cmd` runs. An entry's empty `command` is that one too, so a
-list can name it beside others without spelling it out."""
+"""The agents `T` offers: `[[agent.list]]` in the config, in its order, the
+first the one a prompt starts on - or, with no list, `[agent]` alone."""
 function agent_list(cfg = config())
-    out = Tuple{String,String}[]
-    for e in get(get(cfg, "agent", Dict{String,Any}()), "list", Any[])
-        e isa AbstractDict || continue
-        c = String(get(e, "command", ""))
-        push!(out, (String(get(e, "name", isempty(c) ? "claude" : c)), c))
-    end
-    isempty(out) && push!(out, ("claude", ""))
+    out = Agent[Agent(e) for e in get(get(cfg, "agent", Dict{String,Any}()), "list", Any[])
+                if e isa AbstractDict]
+    isempty(out) && push!(out, default_agent(cfg))
     out
 end
 
@@ -1170,7 +1202,7 @@ since what it is doing was said when it started.
 """
 mutable struct AgentPromptView <: View
     li::LineInput
-    agents::Vector{Tuple{String,String}}
+    agents::Vector{Agent}
     pick::Int
     onstart::Any             # (command line) -> Nothing; not called when cancelled
     AgentPromptView(li::LineInput, agents, pick, onstart) = new(li, agents, pick, onstart)
@@ -1185,7 +1217,7 @@ function AgentPromptView(what::AbstractString, onstart; agents = agent_list())
 end
 
 agent_title!(v::AgentPromptView) =
-    (getfield(v, :li).title = string("Start ", v.agents[v.pick][1]); v)
+    (getfield(v, :li).title = string("Start ", v.agents[v.pick].name); v)
 
 render(v::AgentPromptView, w::Int, h::Int) = TermInput.render(getfield(v, :li), w, h)
 viewcursor(v::AgentPromptView, w::Int, h::Int) = TermInput.caret(getfield(v, :li), w, h)
@@ -1196,8 +1228,9 @@ function handle!(v::AgentPromptView, k::Int, ctrl::Controller)
     if k == 9
         length(v.agents) > 1 || (getfield(v, :li).status = "one agent in [[agent.list]]"; return :ok)
         push_view!(ctrl, ChooseView("Agent", "the next one starts from here",
-            Tuple{String,Any}[(string(n, isempty(c) ? "" : string("  · ", c)), i)
-                              for (i, (n, c)) in enumerate(v.agents)],
+            Tuple{String,Any}[(string(a.name, isempty(agent_words(a)) ? "" :
+                                      string("  · ", agent_words(a))), i)
+                              for (i, a) in enumerate(v.agents)],
             i -> (v.pick = i; agent_title!(v); nothing); numbered = true,
             selected = v.pick))
         return :ok
@@ -1209,7 +1242,7 @@ function handle!(v::AgentPromptView, k::Int, ctrl::Controller)
         # on top - with this still there, the pane the agent was asked from
         # stayed under the new one.
         pop_view!(ctrl, v)
-        v.onstart(agent_cmd(v.agents[v.pick][2], strip(submission(getfield(v, :li)))))
+        v.onstart(agent_cmd(v.agents[v.pick], strip(submission(getfield(v, :li)))))
         return :pop
     elseif k == 27 || k == C_G
         return :pop

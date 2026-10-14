@@ -406,7 +406,7 @@ end
                                (_, _) -> "sleep 120")
         @test out3 == "" && last(ctrl.stack) isa W.AgentPromptView
         ask = last(ctrl.stack)
-        ask.agents = [("sleeper", "sleep 120")]
+        ask.agents = [W.Agent("sleeper", "", "sleep 120", "")]
         @test W.handle!(ask, 13, ctrl) === :pop
         @test length(ctrl.stack) == depth
         @test last(ctrl.stack) isa W.PaneView

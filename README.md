@@ -403,10 +403,13 @@ the view. Hand-edited, both, and only ever read.
   days, default 2).
 - `[views]` - named filters for `'`.
 - `[cache]` - how long the browser trusts a cached thread, diff or merge state.
-- `[agent] command` - what `T` runs, when it is not your shell's `claude`;
-  `[[agent.list]]` - the agents `tab` picks among when `T` asks what a new
-  one should do
-  (add `--settings "$(cat …/cli/claude-settings.json)"` yourself to keep the bell).
+- `[agent]` - what `T` runs, when it is not your shell's `claude`: `kind`,
+  the program (`claude`, `codex`), run through your shell so its alias
+  resolves; `args`, its flags, after what the kind brings (`claude`'s
+  `--settings`, the bell) and before the prompt; or `command`, a whole line
+  that replaces the lot (add `--settings "$(cat …/cli/claude-settings.json)"`
+  yourself to keep the bell). `[[agent.list]]` - the agents `tab` picks among
+  when `T` asks what a new one should do, with the same three keys each.
 
 **Themes** name colours by role - `blocked`, `settled`, `diff_add`,
 `cursor_bg` - in words: `"bold white"`, `"black on yellow"`, `"on 236"`.
