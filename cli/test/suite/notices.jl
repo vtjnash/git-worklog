@@ -46,8 +46,8 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
     @test W.weblink(it) == "https://github.com/o/r/actions"
     @test W.fetch_bundle(it) === nothing                 # nothing to ask GitHub
     @test W.kind_of(it) === :notice && W.over_of(it) === :closed
-    @test W.kind_ok(:notice, it) && !W.kind_ok(:issue, it) && !W.kind_ok(:pr, it)
-    @test W.kind_ok(:both, it)
+    @test W.kind_ok(Set([:notice]), it) && !W.kind_ok(Set([:issue]), it)
+    @test !W.kind_ok(Set([:pr, :draft]), it) && W.kind_ok(Set{Symbol}(), it)
     @test W.seen_of(it, W.Marks()) === :unread
     # The pane is its own facts, with the link on it; no fetch.
     ns = W.comment_nodes(it, W.DateTime(2026, 9, 21))

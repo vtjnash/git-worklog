@@ -151,7 +151,7 @@ request, listed as the repository and its type - `julia release`, `julia CI`,
 `julia alert`, `julia advisory`, `julia invite`, `julia discussion`,
 `julia commit` - in the
 firehose (it is `closed` on the state axis: news, and not work) and in no
-other built-in view; `kind` has a fourth value for them alone (`kind = "notice"` in a view).
+other built-in view; `kind` has a fourth value for them alone (`kind = ["notice"]` in a view).
 The pane is its own facts: what it is, why GitHub said so, the repository,
 when, the link. `o` opens the link - through `code --openExternal` from a
 Remote-SSH terminal, the desktop's opener where there is a display, and
@@ -177,7 +177,10 @@ merged`; a row is under one box on each, and is in when both are checked, so
 the number by a box is what checking it would bring in. Not done and both
 states are on when nothing has been asked; in a view's TOML they are
 `show = ["not-done", "done", "filed"]` and `state = ["open", "closed"]`. The
-other axes narrow: tag, kind, lane, repo, label, author.
+other axes narrow: tag, kind, lane, repo, label, author. A row has one
+kind - `pr`, `draft`, `issue`, `notice` - and a draft pull request is not
+under `pr`, so a view that wants every pull request names both
+(`kind = ["pr", "draft"]`, as the built-in "my work" does).
 The repo, label and author axes list what is applied and put the rest
 behind a picker row; `[filters] pinned_repos` in `data/config.toml` names repos
 listed first regardless, a name or `owner/*`.

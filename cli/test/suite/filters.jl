@@ -8,7 +8,7 @@
     brute(f, axis, v) = begin
         p = deepcopy(f)
         axis === :tag    ? (p.tags = Set([v])) :
-        axis === :kind   ? (p.kind = v) :
+        axis === :kind   ? (p.kind = Set([v])) :
         axis === :lane   ? (p.lanes = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
         axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
@@ -44,11 +44,11 @@
                W.Filters(repos = Set(["JuliaLang/julia"]), show = Set([:done])),
                W.Filters(lanes = Set(["assigned"]), repos = Set(["JuliaLang/julia"]),
                          labels = Set(["docs"])),
-               W.Filters(kind = :issue),
-               W.Filters(repos = Set(["JuliaLang/julia"]), kind = :pr),
+               W.Filters(kind = Set([:issue])),
+               W.Filters(repos = Set(["JuliaLang/julia"]), kind = Set([:pr])),
                W.Filters(authors = Set([W.AUTHOR_ME])),
                W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
-               W.Filters(show = Set([:done]), state = Set([:closed]), kind = :pr,
+               W.Filters(show = Set([:done]), state = Set([:closed]), kind = Set([:pr]),
                          authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
@@ -71,17 +71,26 @@
         for v in first(st.authors, 12); @test get(n.authors, v, 0) == brute(f, :author, v); end
     end
 
-    # Three values and no fourth: both is the whole list, and the other two
-    # partition it.
+    # Four values and no fifth: no box is the whole list, and the four
+    # partition it. A draft is a pull request that is not under `pr`, so the
+    # two boxes together are every pull request there is.
     st.filters = W.everything()
     both = length(W.apply_filters(st.filters, st.all))
-    st.filters.kind = :pr;    prs = length(W.apply_filters(st.filters, st.all))
-    st.filters.kind = :issue; iss = length(W.apply_filters(st.filters, st.all))
-    @test prs + iss == both && prs > 0 && iss > 0
+    n(kinds...) = (st.filters.kind = Set{Symbol}(kinds);
+                   length(W.apply_filters(st.filters, st.all)))
+    prs, drafts, iss, notes = n(:pr), n(:draft), n(:issue), n(:notice)
+    @test prs + drafts + iss + notes == both && prs > 0 && drafts > 0 && iss > 0
+    @test n(:pr, :draft) == prs + drafts == count(it -> it.is_pr, st.all)
+    @test all(it -> it.draft, W.apply_filters(st.filters, st.all)) == false
+    @test all(it -> it.draft, (st.filters.kind = Set([:draft]); W.apply_filters(st.filters, st.all)))
+    st.filters.kind = Set([:issue])
     @test occursin("issues", W.filter_summary(st.filters))
-    st.filters.kind = :pr
+    st.filters.kind = Set([:pr])
     @test occursin("pull requests", W.filter_summary(st.filters))
-    st.filters.kind = :both
+    @test !occursin("draft", W.filter_summary(st.filters))
+    st.filters.kind = Set([:pr, :draft])
+    @test occursin("pull requests+draft pull requests", W.filter_summary(st.filters))
+    st.filters.kind = Set{Symbol}()
     @test !occursin("pull requests", W.filter_summary(st.filters))
 end
 
@@ -398,6 +407,15 @@ end
     @test st.filters.show == W.SHOW_DEFAULT && st.filters.state == Set([:open])
     @test W.apply_view!(st, Dict("kind" => "pr")) isa String
     @test st.filters.show == W.SHOW_DEFAULT && st.filters.state == W.STATE_DEFAULT
+    @test st.filters.kind == Set([:pr])
+    # A view names the axis whole, one name or a list of them, and a draft is
+    # not under `pr`: the built-in "my work" names both.
+    @test occursin("no kind 'both'", W.apply_view!(st, Dict("kind" => "both")))
+    W.apply_view!(st, Dict("kind" => ["pr", "draft"]))
+    @test st.filters.kind == Set([:pr, :draft]) && all(it -> it.is_pr, st.items)
+    @test any(it -> it.draft, st.items)
+    W.apply_view!(st, Dict("kind" => ["pr"]))
+    @test all(it -> it.is_pr && !it.draft, st.items)
     @test occursin("no show", W.apply_view!(st, Dict("show" => "raed")))
     @test occursin("no show", W.apply_view!(st, Dict("show" => ["done", "asleep"])))
     # The retired spellings are misspellings now, not aliases: `base` and
@@ -447,11 +465,11 @@ end
     # read, looked up by number from the firehose, and the browser reopened
     # at the top of a list it was not in.
     hid = first(x for x in mkstate().all if !x.is_pr)
-    write(W.viewfile(), string("[view]\nkind = \"pr\"\n\n[at]\nitem = ", repr(hid.url),
+    write(W.viewfile(), string("[view]\nkind = [\"pr\"]\n\n[at]\nitem = ", repr(hid.url),
                                "\nmode = \"comments\"\n"))
     back = mkstate()
     @test W.restore_view!(back)
-    @test back.filters.kind === :pr && back.guest == hid.url
+    @test back.filters.kind == Set([:pr]) && back.guest == hid.url
     @test back.items[back.sel].url == hid.url
     @test count(x -> !x.is_pr, back.items) == 1
     @test endswith(back.status, "shown though the filter hides it")
@@ -463,7 +481,7 @@ end
     write(W.viewfile(), "[view]\nkind = \"pr\"\n\n[at]\nitem = \"gone\"\nmode = \"x\"\n")
     again = mkstate()
     @test W.restore_view!(again)
-    @test again.filters.kind === :pr && again.sel == 1 && again.mode === :comments
+    @test again.filters.kind == Set([:pr]) && again.sel == 1 && again.mode === :comments
     @test isempty(again.guest) && !occursin("shown though", again.status)
     # No file, or a file that is not TOML, is the browser opening as it always did.
     write(W.viewfile(), "[view\n")
@@ -682,7 +700,7 @@ end
     st.frow = 1
     @test W.toggle_filter!(st, ctrl) === false
 
-    st.filters.labels = Set(["docs"]); st.filters.kind = :issue
+    st.filters.labels = Set(["docs"]); st.filters.kind = Set([:issue])
     W.refilter!(st)
     # Seen from the list, the way a settle would before `f` gave the keys to
     # the pane.
@@ -700,7 +718,7 @@ end
     @test isempty(st.back) || last(st.back).filters.labels != Set(["docs"])
     st.lmode = :items
     W.handle!(st, Int('`'), ctrl)
-    @test st.filters.labels == Set(["docs"]) && st.filters.kind === :issue
+    @test st.filters.labels == Set(["docs"]) && st.filters.kind == Set([:issue])
 end
 
 @testset "n/N steps between filter groups" begin
@@ -836,10 +854,10 @@ end
 
     # A view sets every axis it names and clears every axis it does not: half a
     # remembered filter is worse than none.
-    st.filters.labels = Set(["docs"]); st.filters.kind = :issue
+    st.filters.labels = Set(["docs"]); st.filters.kind = Set([:issue])
     W.apply_view!(st, Dict("lane" => ["review"]))
     @test st.filters.lanes == Set(["review"])
-    @test isempty(st.filters.labels) && st.filters.kind === :both
+    @test isempty(st.filters.labels) && isempty(st.filters.kind)
     # "Cleared" is what the axis says when it is asked nothing, which on `show`
     # is the base box and the closed one rather than the empty set: a view that
     # names no `show` is a view of today's work, and an empty one would be a
@@ -911,7 +929,7 @@ end
     @test v isa W.ChooseView && v.title == "Views"
     @test any(o -> o[2] === :save, v.options)          # the way out of the list
     v.onpick(Dict("show" => ["filed"], "kind" => "issue"))
-    @test st.filters.show == Set([:filed]) && st.filters.kind === :issue
+    @test st.filters.show == Set([:filed]) && st.filters.kind == Set([:issue])
     @test occursin("view:", st.status)
 
     # The first ten are on keys of their own: the same ten in the same order
@@ -1007,7 +1025,7 @@ end
     parsed = W.TOML.parse(toml)["views"]["issues, all of them"]
     st2 = mkstate()
     W.apply_view!(st2, parsed)
-    @test st2.filters.show == st.filters.show && st2.filters.kind === st.filters.kind
+    @test st2.filters.show == st.filters.show && st2.filters.kind == st.filters.kind
     @test st2.filters.tags == st.filters.tags
     st.filters.repos = Set(["a/b", "c/d"]); st.filters.authors = Set([W.AUTHOR_ME])
     round2 = W.TOML.parse(W.view_toml(st.filters, st.sort, "x"))["views"]["x"]
@@ -1103,9 +1121,9 @@ end
     @test st.items[1].url == it.url
     @test issorted([(x.moved_at, W.urlkey(x)) for x in st.items]; rev = true)
     held = [x.url for x in st.items]
-    st.filters.kind = :pr; W.refilter!(st)
+    st.filters.kind = Set([:pr]); W.refilter!(st)
     @test all(x -> x.is_pr, st.items)
-    st.filters.kind = :both; W.refilter!(st)
+    st.filters.kind = Set{Symbol}(); W.refilter!(st)
     @test issorted([(x.moved_at, W.urlkey(x)) for x in st.items]; rev = true)
     # A search started in the list is part of what the list is of; one in the
     # detail pane is not.

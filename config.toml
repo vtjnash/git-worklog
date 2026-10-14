@@ -109,9 +109,10 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # `data/config.toml`; the browser never writes that file.
 #
 # The axes: `show` (not-done, done, filed), `state` (open, closed), `tag` (reply, mentioned,
-# review, edits, ready, approved, second, touched, drafts, snoozed), `kind` (pr, issue, notice - a
-# notification that is neither, a release or a CI run, which is `closed` on
-# `state`), `lane`, `repo`, `label`, `author`, `sort`. `lane` is which search claimed the row - the keys under
+# review, edits, ready, approved, second, touched, drafts, snoozed), `kind` (pr - a pull request
+# that is not a draft - draft, issue, notice - a notification that is neither, a release or a
+# CI run, which is `closed` on `state`; every pull request is `["pr", "draft"]`), `lane`,
+# `repo`, `label`, `author`, `sort`. `lane` is which search claimed the row - the keys under
 # `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
 # saw, `notifications` for one GitHub notified you of, and `local` for an
 # adopted branch. `sort` is one of `moved`, `latest`, `touched`, `name` - by

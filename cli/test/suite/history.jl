@@ -29,15 +29,15 @@
     # A list is a place whatever row it was on, and going back to it brings
     # the filters, the order and the row back together.
     was = deepcopy(st.filters); row = st.items[st.sel].url
-    st.filters.kind = st.items[st.sel].is_pr ? :issue : :pr
+    st.filters.kind = Set([st.items[st.sel].is_pr ? :issue : :pr])
     W.refilter!(st; keeprow = false)
     W.note_place!(st, 3.41)            # at once: another list, kept anyway
     @test last(st.back).url == row
     r = W.step_place!(st, -1, 3.5)
     @test startswith(r, "back to ") && occursin(" in [", r)
-    @test st.filters.kind === was.kind && st.items[st.sel].url == row
+    @test st.filters.kind == was.kind && st.items[st.sel].url == row
     # And a list asked for forks the road: nothing is forward of it.
-    st.filters.kind = :pr; W.refilter!(st; keeprow = false)
+    st.filters.kind = Set([:pr]); W.refilter!(st; keeprow = false)
     W.note_place!(st, 3.6)
     @test isempty(st.fwd)
 
@@ -45,7 +45,7 @@
     # it went to - hidden by the filters, so the guest - comes back as the
     # guest when the filters still hide it.
     st = mkstate()
-    st.filters.kind = :pr; W.refilter!(st; keeprow = false)
+    st.filters.kind = Set([:pr]); W.refilter!(st; keeprow = false)
     hidden = findfirst(it -> !any(x -> x.url == it.url, st.items), st.all)
     @test hidden !== nothing
     W.note_place!(st, 0.0)

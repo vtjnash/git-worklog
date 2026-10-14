@@ -191,17 +191,21 @@ const SORTS = [(:moved, "by when it moved"),
                (:touched, "by when you last acted"),
                (:name, "by url, newest first")]
 
-"""Issue, pull request, notice, or any - the third radio group.
+"""Pull request, draft, issue or notice - the fourth checkbox axis.
 
-A radio and not a fourth tag axis: the values are exhausted by four and they
-are mutually exclusive, so a set of them would only ever hold one thing or say
-nothing. `Item.is_pr` was already there and every lane carries both kinds, which
-is what made "issues only" impossible to ask for and obvious to want. A notice
-- a notification that is neither - is the fourth, and not an issue: `:both` is
-still the value's name, since a view writes it, and it means any.
+A row has one of the four (`kind_of`), and an empty set restricts nothing,
+as on `lane` and the rest. It was a radio of three with `any` for a fourth
+button, on the argument that the values were exhausted and mutually exclusive,
+so a set of them would only ever hold one thing or say nothing. Taking the
+drafts out of `pr` (2026-10-14) ended that: a draft is a pull request that is
+not ready, and "every pull request" is now two boxes, which a view - my work,
+drafts included - has to be able to name together. `Item.is_pr` and
+`Item.draft` were already there and every lane carries every kind, which is
+what made "issues only" impossible to ask for and obvious to want. A notice -
+a notification that is neither - is the fourth, and not an issue.
 """
-const KINDS = [(:both, "any"), (:pr, "pull requests"), (:issue, "issues"),
-               (:notice, "notices")]
+const KINDS = [(:pr, "pull requests"), (:draft, "draft pull requests"),
+               (:issue, "issues"), (:notice, "notices")]
 
 """The order a selection opens in, where it implies one.
 
@@ -254,7 +258,7 @@ Base.@kwdef mutable struct Filters
     lanes::Set{String} = Set{String}()     # empty means every lane
     repos::Set{String} = Set{String}()     # empty means every repo
     labels::Set{String} = Set{String}()    # empty means every label
-    kind::Symbol = :both                   # :both | :pr | :issue | :notice
+    kind::Set{Symbol} = Set{Symbol}()      # empty means every kind; `KINDS`
     authors::Set{String} = Set{String}()   # empty means anybody; @me and
                                            # @anyone-else are values here as
                                            # well as logins
@@ -298,7 +302,7 @@ other two `SHOW` boxes are the way back out to the corpus.
 """
 isdefault(f::Filters) =
     f.show == SHOW_DEFAULT && f.state == STATE_DEFAULT && isempty(f.tags) &&
-    f.kind === :both && isempty(f.lanes) && isempty(f.repos) &&
+    isempty(f.kind) && isempty(f.lanes) && isempty(f.repos) &&
     isempty(f.labels) && isempty(f.authors)
 
 "One empty map, shared, for every caller that has no marks to hand."
@@ -583,12 +587,14 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
     mode === :name ? sort(items; by = urlkey, rev = true) :
     sort(items; by = it -> (sortkey(it, touched, mode), urlkey(it)), rev = true)
 
-"""Which of the kinds a row is: a notice, a pull request, or an issue - which
-an adopted branch, with no pull request yet, counts as."""
-kind_of(it::Item) = isnotice(it) ? :notice : it.is_pr ? :pr : :issue
+"""Which of the kinds a row is: a notice, a draft pull request, a pull request
+that is not one, or an issue - which an adopted branch, with no pull request
+yet, counts as."""
+kind_of(it::Item) = isnotice(it) ? :notice :
+                    it.is_pr ? (it.draft ? :draft : :pr) : :issue
 
-"Issue, pull request or notice, with `:both` restricting nothing."
-kind_ok(kind::Symbol, it::Item) = kind === :both || kind === kind_of(it)
+"Is the row's kind one of those asked for, with the empty set restricting nothing."
+kind_ok(kinds::Set{Symbol}, it::Item) = isempty(kinds) || kind_of(it) in kinds
 
 """Whose it is. An empty set restricts nothing, as on every other axis.
 
@@ -676,11 +682,7 @@ function axis_counts(st)
                 bump!(tagn, t)
             end
         end
-        if others(4)
-            for (k, _) in KINDS
-                kind_ok(k, it) && bump!(kinds, k)
-            end
-        end
+        others(4) && bump!(kinds, kind_of(it))
         if others(5)
             # One item counts towards its own author *and* towards whichever of
             # the two predicates it answers, since picking either would bring it.
@@ -755,9 +757,10 @@ axis_set(f::Filters, axis::Symbol) =
     axis === :lane ? f.lanes : axis === :repo ? f.repos :
     axis === :label ? f.labels : f.authors
 
-"The same, for the three axes whose values are symbols rather than names."
+"The same, for the four axes whose values are symbols rather than names."
 sym_set(f::Filters, axis::Symbol) =
-    axis === :show ? f.show : axis === :state ? f.state : f.tags
+    axis === :show ? f.show : axis === :state ? f.state :
+    axis === :kind ? f.kind : f.tags
 
 "How a value of `axis` is written in the pane. Only the author axis has any."
 axis_label(axis::Symbol, v::AbstractString) =
@@ -796,9 +799,10 @@ const VIEWS = [
     # you have done and are still carrying, which is the opposite of what the
     # view is for.
     # Pull requests only (2026-10-01): an issue of yours is a report filed,
-    # and the backlog has those; the work is what has a branch.
+    # and the backlog has those; the work is what has a branch - a draft as
+    # much as one that is ready, which is why both boxes are named.
     ("my work — my open pull requests, done ones too",
-                       Dict("author" => [AUTHOR_ME], "kind" => "pr",
+                       Dict("author" => [AUTHOR_ME], "kind" => ["pr", "draft"],
                             "show" => ["not-done", "done"], "state" => ["open"])),
     # The backlog. It names `state` open only, which is the one place it and
     # the dashboard come apart: a closed thing that moved is news and belongs
@@ -815,7 +819,7 @@ const VIEWS = [
     # default has it: `s` is how a row leaves, until it moves (`config.toml`,
     # `second_look_days`).
     ("second look, theirs — gone quiet on you",
-                       Dict("tag" => ["second"], "kind" => "pr",
+                       Dict("tag" => ["second"], "kind" => ["pr", "draft"],
                             "author" => [AUTHOR_OTHERS])),
     ("second look, mine — gone quiet on them",
                        Dict("tag" => ["second"], "author" => [AUTHOR_ME])),
@@ -866,7 +870,7 @@ function apply_view!(st, d)
     # the new names, would show a different list than it says, so it is
     # reported here like a misspelt one.
     for (key, values, set) in (("show", SHOW, f.show), ("state", STATE, f.state),
-                               ("tag", TAGS, f.tags))
+                               ("tag", TAGS, f.tags), ("kind", KINDS, f.kind))
         haskey(d, key) || continue
         # Named means named *whole*, the not-done box included - a view that says
         # `show` says which of its boxes are checked, and one that says nothing
@@ -878,7 +882,7 @@ function apply_view!(st, d)
         for x in (v isa AbstractString ? [v] : v)
             k = Symbol(x)
             any(y -> y[1] === k, values) ? push!(set, k) :
-                (bad = string(" \u00b7 no ", key, " '", x, "'"))
+                (bad = string(bad, " \u00b7 no ", key, " '", x, "'"))
         end
     end
     # And an axis that is not one of them is said too, for the same reason a
@@ -890,11 +894,6 @@ function apply_view!(st, d)
     for key in keys(d)
         key in VIEW_KEYS ||
             (bad = string(bad, " \u00b7 no axis '", key, "'"))
-    end
-    if haskey(d, "kind")
-        k = Symbol(d["kind"])
-        any(y -> y[1] === k, KINDS) ? (f.kind = k) :
-            (bad = string(bad, " \u00b7 no kind '", d["kind"], "'"))
     end
     for (k, set) in (("lane", f.lanes), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
@@ -941,7 +940,8 @@ function view_lines(f::Filters, order::Symbol)
     # filter here, and one that has to survive being written down.
     for (key, values, set, quiet) in (("show", SHOW, f.show, SHOW_DEFAULT),
                                       ("state", STATE, f.state, STATE_DEFAULT),
-                                      ("tag", TAGS, f.tags, Set{Symbol}()))
+                                      ("tag", TAGS, f.tags, Set{Symbol}()),
+                                      ("kind", KINDS, f.kind, Set{Symbol}()))
         set == quiet && continue
         # In the axis's own order rather than the set's, so the same filter
         # writes the same line every time.
@@ -949,7 +949,6 @@ function view_lines(f::Filters, order::Symbol)
                             join([repr(String(k)) for (k, _) in values if k in set],
                                  ", "), "]"))
     end
-    f.kind === :both || push!(lines, string("kind = ", repr(String(f.kind))))
     for (k, set) in (("lane", f.lanes), ("repo", f.repos),
                      ("label", f.labels), ("author", f.authors))
         isempty(set) && continue
@@ -963,7 +962,7 @@ function view_lines(f::Filters, order::Symbol)
 end
 
 """Rows for the filter pane: the way out, what to show and in which state, the
-tags, the kind radio, then four more checkbox axes.
+tags, the kinds, then four more checkbox axes.
 
 Counts are computed against the other axes only, so a category shows how many
 items selecting it would actually add rather than a total that ignores the rest
@@ -979,8 +978,9 @@ function filter_rows(st)
     push!(rows, (:reset, "", string("  ↺ clear every filter",
                                     isdefault(f) ? "" : "  (c)")))
     # The three axes that are about the item and you rather than about what it
-    # is. `show` and `state` partition the rows - one value each - and the tags
-    # do not: a row can carry all three or none. The number beside a box is
+    # is, then the one that is. `show`, `state` and `kind` partition the rows -
+    # one value each - and the tags do not: a row can carry all three or none.
+    # The number beside a box is
     # what checking it would bring, or what unchecking it would take away - the
     # same number either way, which is the only one worth printing next to a
     # control.
@@ -992,18 +992,14 @@ function filter_rows(st)
     for (axis, label, values, tally, sel) in
             ((:show, "show", SHOW, n.shows, f.show),
              (:state, "state", STATE, n.states, f.state),
-             (:tag, "tag", TAGS, n.tags, f.tags))
+             (:tag, "tag", TAGS, n.tags, f.tags),
+             (:kind, "kind", KINDS, n.kinds, f.kind))
         push!(rows, (:head, "", label))
         for (k, name) in values
             push!(rows, (axis, string(k), string(k in sel ? "[x] " : "[ ] ",
                                                  String(rowpad(name, 24)), get(tally, k, 0))))
         end
         push!(rows, (:head, "", ""))
-    end
-    push!(rows, (:head, "", "kind"))
-    for (k, name) in KINDS
-        push!(rows, (:kind, string(k), string(f.kind === k ? "(•) " : "( ) ",
-                                              String(rowpad(name, 24)), get(n.kinds, k, 0))))
     end
     repos, npinned = repo_axis(st)
     for (axis, label, values, tally) in ((:lane, "lane", st.lanes, n.lanes),
@@ -1071,8 +1067,8 @@ function filter_help(axis::Symbol, val::AbstractString)
     elseif axis === :tag
         return get(TAG_HELP, v, "")
     elseif axis === :kind
-        v === :both && return "Pull requests, issues and notices alike."
-        v === :pr && return "Pull requests only."
+        v === :pr && return "Pull requests that are not drafts."
+        v === :draft && return "Draft pull requests: opened, and not yet asking to be merged."
         v === :issue && return "Issues only."
         v === :notice && return "Notifications that are neither: a release, a CI run, a discussion."
     elseif axis === :lane
@@ -1177,15 +1173,13 @@ function toggle_filter!(st, ctrl = nothing)
     rows = filter_rows(st)
     st.frow = clamp(st.frow, 1, length(rows))
     (axis, val, _) = rows[st.frow]
-    if axis in (:show, :state, :tag)
+    if axis in (:show, :state, :tag, :kind)
         set, v = sym_set(st.filters, axis), Symbol(val)
         v in set ? delete!(set, v) : push!(set, v)
         # A selection brings its order with it. `w` is still the override, and
         # it lasts until the selection changes again - which is the only rule
         # here that can be stated in one sentence, and the reason it is this one.
         st.sort = lane_sort(st.filters)
-    elseif axis === :kind
-        st.filters.kind = Symbol(val)
     elseif axis === :reset
         # The same jump `c` makes: `\`` goes back to whatever was applied
         # before, which is what makes clearing safe to try.
@@ -1372,7 +1366,8 @@ function filter_summary(f, order::Symbol = lane_sort(f))
     end
     isempty(f.tags) ||
         push!(parts, join([last(x) for x in TAGS if first(x) in f.tags], "+"))
-    f.kind === :both || push!(parts, last(KINDS[findfirst(x -> x[1] === f.kind, KINDS)]))
+    isempty(f.kind) ||
+        push!(parts, join([last(x) for x in KINDS if first(x) in f.kind], "+"))
     # Named only when it is not the order this selection opens in. Newest-first
     # is the default everywhere now, and a summary that says so on every screen
     # is a phrase the reader stops seeing and a footer three words narrower for
