@@ -638,6 +638,9 @@ end
     @test occursin("clean", ev.note)
     @test occursin("^x: create a merge commit", ev.note)
     @test occursin("^x cycles", unstyled(frame(ev, 90, 20)))
+    # The operation is the one bold word on the line, and the only one: `^x:`
+    # names where the next press goes, not where this one is.
+    @test faces(ev.note) == ["squash and merge" => W.THEME.bold]
 
     # `tab` is the choice. Silently, because the message in the buffer is still
     # the one this program put there a keystroke ago.
@@ -647,6 +650,7 @@ end
     # that says which merge `^s` would send.
     @test occursin("create a merge commit · 3 commits into master", ev.note)
     @test occursin("^x: squash and merge", ev.note)
+    @test faces(ev.note) == ["create a merge commit" => W.THEME.bold]
     @test occursin("now: create a merge commit", ev.status)
     @test length(ctrl.stack) == 2                       # no question asked
     # ...and round again, since one key can only say forwards. Two operations
@@ -692,6 +696,36 @@ end
     back = composer(last(ctrl.stack))
     @test back isa W.EditorView && W.text(back) == "Merge pull request #7 from o/b\n\na fix"
     empty!(ctrl.stack); W.push_view!(ctrl, st)
+
+    # A `don't squash` label is the author's own warning. The composer opens on
+    # squash all the same - the default is this program's and says so - and the
+    # label is red beside it, since that is the mistake it exists to stop; once
+    # `^x` has moved off squash it stays, quietly, as the reason the operation
+    # is not the usual one. The question before the merge repeats it, in red,
+    # when the words are still about to be squashed.
+    lit = W.withlabels(it, ["don't squash"])
+    put()
+    W.merge_action(st, ctrl, lit)
+    lv = composer(last(ctrl.stack))
+    @test faces(lv.note) == ["squash and merge" => W.THEME.bold,
+                             " · labelled don't squash" => W.THEME.blocked]
+    @test W.handle!(lv, W.C_X, ctrl) === :ok
+    @test faces(lv.note) == ["create a merge commit" => W.THEME.bold,
+                             " · labelled don't squash" => W.THEME.dim]
+    @test W.handle!(lv, W.C_X, ctrl) === :ok                  # back to squash
+    @test W.handle!(lv, W.C_S, ctrl) === :pop
+    deleteat!(ctrl.stack, findlast(x -> composer(x) === lv, ctrl.stack))
+    lc = last(ctrl.stack)
+    @test lc isa W.ConfirmView && faceon(W.THEME.blocked, lc.note)
+    @test any(n -> occursin("squash and merge · labelled don't squash · 3 commits", n),
+              split(lc.note, '\n'))
+    empty!(ctrl.stack); W.push_view!(ctrl, st)
+    # The label is a sentence somebody typed into a settings page, so it is
+    # read as one: case, the apostrophe's spelling and "do not" all mean it.
+    @test W.nosquash_label(["DON'T SQUASH"]) && W.nosquash_label(["don\u2019t squash"]) &&
+          W.nosquash_label(["Do Not Squash"]) && !W.nosquash_label(["bug", "squash"])
+    # And without the label, nothing on the line hints that there could be one.
+    @test !occursin("labelled", ev.note)
 
     # A rebase has no message at all - GitHub answers with two empty strings for
     # one even where it is allowed, because the commits are replayed as they

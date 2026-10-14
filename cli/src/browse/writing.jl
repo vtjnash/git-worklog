@@ -686,13 +686,13 @@ function merge_compose(st::BState, ctrl::Controller, it::Item, ms,
               st.status = "copied the message · merge it via its stack on GitHub";
               nothing) :
         b -> merge_confirm(st, ctrl, it, ms, cur[], b)
-    ev = EditorView(string("Merge ", it.ref), merge_head(ms, cur[]), send;
+    ev = EditorView(string("Merge ", it.ref), merge_head(ms, cur[], it.labels), send;
                     initial = text === nothing ? merge_message(ms, cur[]) : String(text),
                     # A rebase writes no message, so there is nothing for `^s`
                     # to refuse to send. Everything else needs its headline.
                     allow_empty = cur[] == "REBASE",
                     cycle = length(ms.methods) == 1 ? nothing :
-                            (v, dir) -> merge_cycle!(v, ctrl, ms, cur, dir))
+                            (v, dir) -> merge_cycle!(v, ctrl, ms, cur, dir, it.labels))
     push_beside!(ctrl, st, ev)
 end
 
@@ -708,14 +708,45 @@ the thing worth knowing twice.
 
 In a stack it leads with that - `merge_note` says it - and with what `^s` does
 instead of merging.
+
+A row, not a string: the operation is the one word on the line that `^x`
+changes and `^s` acts on, so it is bold, and it is the only word that is - the
+hint after `^x:` is where the next press goes, not where this one is. A
+`don't squash` label is the item's own warning, `merge_squash_warning`, and
+sits after the operation it is about.
 """
-merge_head(ms, method::AbstractString) =
-    string(ms.stack ? string(merge_note(ms), ": ^s copies this to paste there · ") : "",
-           Events.merge_label(method), " · ", merge_lands(ms, method),
+merge_head(ms, method::AbstractString, labels::AbstractVector = String[]) =
+    rowcat(ms.stack ? string(merge_note(ms), ": ^s copies this to paste there · ") : "",
+           faced(Events.merge_label(method), THEME.bold),
+           merge_squash_warning(method, labels),
+           " · ", merge_lands(ms, method),
            ms.stack ? "" : string(" · ", merge_note(ms)),
            method == "REBASE" ? " · no message to write" : "",
            length(ms.methods) == 1 ? "" :
            string(" · ^x: ", Events.merge_label(nextmethod(ms, method, 1))))
+
+"""Is one of `labels` the author asking that the commits be kept as they are?
+
+`don't squash` on JuliaLang/julia, matched loosely - case, the apostrophe's
+spelling, and "do not" - because the label is a sentence somebody typed into a
+settings page, and a repository that spells it differently means the same thing.
+"""
+nosquash_label(labels::AbstractVector) =
+    any(labels) do l
+        t = replace(lowercase(String(l)), "\u2019" => "'", "do not" => "don't")
+        occursin("don't squash", t)
+    end
+
+"""The warning after the operation when the item is labelled `don't squash`:
+loud while squashing, since that is the mistake the label exists to stop, and
+quiet once the operation is one it does not object to - the label is still
+worth seeing then, as the reason the operation is not the usual one. Empty when
+there is no such label, so the row around it reads as if this were not there.
+"""
+merge_squash_warning(method::AbstractString, labels::AbstractVector) =
+    nosquash_label(labels) ?
+        faced(" · labelled don't squash",
+              method == "SQUASH" ? THEME.blocked : THEME.dim) : ""
 
 """What lands where, which the composer and the question before the merge both
 say - in the same words, since they are two views of the one sentence.
@@ -748,7 +779,8 @@ outcome nobody asked for.
 One direction, because one key is one direction. Three operations is at most two
 presses to any of them, and the two repos this is used on daily allow two.
 """
-function merge_cycle!(v::EditorView, ctrl::Controller, ms, cur::Ref{String}, dir::Int)
+function merge_cycle!(v::EditorView, ctrl::Controller, ms, cur::Ref{String}, dir::Int,
+                      labels::AbstractVector = String[])
     nxt = nextmethod(ms, cur[], dir)
     swap = () -> begin
         settext!(v.buf, merge_message(ms, nxt))
@@ -758,7 +790,7 @@ function merge_cycle!(v::EditorView, ctrl::Controller, ms, cur::Ref{String}, dir
         # that says which merge `^s` sends, so leaving it behind would leave the
         # composer telling the truth about the message and lying about the
         # operation.
-        v.note = merge_head(ms, nxt)
+        v.note = merge_head(ms, nxt, labels)
         v.status = string("now: ", Events.merge_label(nxt))
     end
     if strip(text(v)) == strip(merge_message(ms, cur[]))
@@ -784,7 +816,8 @@ function merge_confirm(st::BState, ctrl::Controller, it::Item, ms,
                        method::AbstractString, body::AbstractString)
     (head, rest) = merge_split(body)
     push_view!(ctrl, ConfirmView(string("Merge ", it.ref, "?"),
-        [string(Events.merge_label(method), " · ", merge_lands(ms, method)),
+        [rowcat(faced(Events.merge_label(method), THEME.bold),
+                merge_squash_warning(method, it.labels), " · ", merge_lands(ms, method)),
          merge_note(ms),
          method == "REBASE" ? "the commits are replayed as they were written" :
                               # The headline only. The body was on the screen

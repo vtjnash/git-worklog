@@ -220,8 +220,10 @@ suggests.
 
 **Composers** open beside the diff or thread when the screen is 150 columns or
 wider, with `tab` between them. `^s` sends; `^c` copies the whole text to the
-clipboard; `M`'s composer cycles the merge operation with `^x` and asks once
-before it sends; `⌥e` or `^o` opens `$EDITOR`.
+clipboard; `M`'s composer cycles the merge operation with `^x` - the operation
+is the bold word on its note, and a `don't squash` label is a red warning beside
+it while that is the operation - and asks once before it sends; `⌥e` or `^o`
+opens `$EDITOR`.
 
 **A hosted pane** (`t`, `T`) takes every key except the prefix `^]`: `^]tab`
 or `^][` moves to the thread beside it and back, `^]q` leaves it running, `^]K`
