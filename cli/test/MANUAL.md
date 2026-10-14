@@ -276,7 +276,7 @@ or the pane taking no key but `^]K` (DESIGN, tmux: a child that exits keeps
 its pane).
 
 *2026-09-25*: pass, as it then was - `session ended`, and any key closed
-the pane. Not run since the pane is kept (2026-10-06; TODO, *Unverified*).
+the pane. *2026-10-14*: pass as it reads now, with the pane kept - see 31.
 
 ## 17. The theme follows the terminal's dark or light
 
@@ -451,3 +451,34 @@ After a refresh, on a pull request in a stack: `stack  2 of 3 with base
 main` on llvm#220634.
 
 *2026-10-06*: pass.
+
+## 31. A pane whose child exited
+
+The suite drives it against the bundled tmux with `echo` for a child, no
+terminal and no `claude`; this is the same by hand.
+
+- 16 again, as it now reads: exit `claude` in a `T` pane, and `exit` in a
+  `t` shell. The screen stays, the footer says `exited with status 0 · q
+  clears it` within about a second, `q` closes it.
+- `T`, `^]q`, and have the agent exit while the list is on screen (`kill`
+  it from a shell): within about a second the item pane says `agent
+  exited` under `running`, and `"` shows its `T` on the badge with
+  `exited` on a line under the worktree. The row is not unread for it, and
+  `e` on it changes none of that. `T` shows what it said last; `q` closes
+  it, and `T` again asks for a prompt and starts another.
+- On a wide screen, `T` on an item whose agent is `waiting on you`: within
+  about a second of the pane opening, the thread beside it says `agent`
+  with no `waiting on you`, with nothing pressed. And from `"`: `T` on a
+  row whose badge is lit, `q` back out - the badge is off, and after `q` in
+  an `exited` pane its line is gone, without `r` (2026-10-07; both stood
+  until the next `T` or `r`).
+- `exit` in a `t` shell and `^]q` at once, before the footer has said
+  `exited`: the session is gone - no `exited` under `running`, no badge in
+  `"` - and `t` starts a fresh one (2026-10-07; it stood, and took a second
+  `t` and `q`).
+- `exit` in a `t` shell, wait for `exited with status 0 · q clears it`,
+  then plain `q` and `"`: no row for it, no badge (2026-10-08; it stood,
+  since the first key after the exit was still read raw and popped the
+  pane without closing it).
+
+*2026-10-14*: pass.
