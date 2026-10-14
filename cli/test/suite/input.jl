@@ -79,6 +79,15 @@ end
     @test occursin("<summary>in</summary>", outer[1][3])
     @test seg("<details>bare</details>") == [(:details, "details")]
     @test W.split_details("<details open><summary><b>A &amp; B</b></summary>x</details>")[1][2] == "A & B"
+    # A block with no summary of its own does not borrow a nested block's.
+    bare = W.split_details("<details>\np\n<details><summary>in</summary>q</details>\n</details>")
+    @test bare[1][2] == "details" && occursin("<summary>in</summary>", bare[1][3])
+    # A `<summary` tag that runs into a `<` before any `>` was never closed,
+    # and the text up to `</summary>` is the summary - as GitHub draws it
+    # (julia#60824). Read as one tag, it ran on to the nested block's.
+    cut = W.split_details("<details><summary\n\nhere's a copy:\n\n</summary>\n\nbody\n\n<details><summary>in</summary>q</details>\n</details>")
+    @test length(cut) == 1 && cut[1][2] == "here's a copy:"
+    @test startswith(cut[1][3], "body") && occursin("<summary>in</summary>", cut[1][3])
     # Unbalanced: leave it as prose rather than guess where it ends.
     @test seg("t <details><summary>never closed</summary> tail") == [(:text, "")]
 

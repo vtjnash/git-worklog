@@ -934,6 +934,11 @@ Do not simplify any of these away.
     carry; `null` on a RepositoryAdvisory, which carries no GHSA id either.
     `notice_web` builds the link from exactly this, and the thread's
     `html_url`s are all the repository's.
+18. A `<summary` tag left open - `<summary\n\ntext\n\n</summary>`, as
+    written in julia#60824 - is drawn by GitHub with `text` as the summary:
+    the HTML block ends at the blank line and the browser's recovery closes
+    the tag at the next `<`. `split_details` reads it the same way, and takes
+    a block's summary only from before any `<details>` nested in it.
 
 ### Julia's Markdown
 

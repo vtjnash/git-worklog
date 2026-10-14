@@ -44,6 +44,15 @@ the thread - which is the opposite of what the author meant by folding it away.
 Scanned rather than matched with a regex, because these nest: a lazy `.*?` run
 to the first `</details>` closes the outer block at the inner one's end and
 spills the remainder into the prose.
+
+The summary is the block's own: the first `<summary>` before any nested
+`<details>`, never a nested block's borrowed - and a `<summary` whose tag runs
+into a `<` before any `>` was never closed, so what follows it up to
+`</summary>` is the summary. That is how GitHub draws `<summary\n\ntext\n\n
+</summary>` (julia#60824): the HTML block ends at the blank line and the
+parser's recovery leaves the text in the summary. Read as one tag instead, the
+summary ran on to the first `</summary>` of a block nested inside, and the top
+half of the comment came out as one header.
 """
 function split_details(md::AbstractString)
     OPEN, CLOSE = r"<details\b[^>]*>"i, r"</details\s*>"i
@@ -69,7 +78,9 @@ function split_details(md::AbstractString)
         pre = md[pos:prevind(md, first(m))]
         isempty(strip(pre)) || push!(out, (:text, "", String(strip(pre))))
         inner = md[nextind(md, last(m)):prevind(md, first(closing))]
-        smy = match(r"<summary[^>]*>(.*?)</summary\s*>"is, inner)
+        o = findfirst(OPEN, inner)
+        head = o === nothing ? inner : inner[1:prevind(inner, first(o))]
+        smy = match(r"<summary\b(?:[^<>]*>)?(.*?)</summary\s*>"is, head)
         summary = smy === nothing ? "details" :
                   strip(unescape_html(replace(smy[1], r"<[^>]+>" => "")))
         summary = replace(String(summary), r"\s+" => " ")
