@@ -530,6 +530,20 @@ end
     @test occursin("a note is optional; ^s sends the draft and its 2 comments",
                    composer(last(ctrl.stack)).note)
     pop!(ctrl.stack)
+    # `6` asks once more before anything is deleted, and any key but `y`
+    # keeps the draft, with nothing sent to GitHub.
+    W.REVIEW_ASK[] = url -> (id = "PR_x", review = "PRR_1", n = 2, head = "")
+    W.handle!(st, Int('A'), ctrl)
+    W.REVIEW_ASK[] = was_ask
+    ch = last(ctrl.stack)
+    @test W.handle!(ch, Int('6'), ctrl) === :pop
+    at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)
+    cv = last(ctrl.stack)
+    @test cv isa W.ConfirmView && occursin("Throw away the draft", unstyled(cv.title))
+    @test occursin("2 comments go with it", unstyled(cv.note))
+    @test W.handle!(cv, Int('n'), ctrl) === :pop
+    @test st.batch !== nothing && st.batch.review == "PRR_1"
+    pop!(ctrl.stack)
     st.batch = nothing
 
     W.handle!(st, Int('L'), ctrl)

@@ -494,10 +494,19 @@ function review_action(st::BState, ctrl::Controller, it::Item)
             string("a draft with ", comments, " is waiting on it; every verdict sends it"),
         opts, ev -> begin
         if ev == "DISCARD"
-            r = Events.discard_pending(it.url, held.review)
-            st.status = isempty(r) ?
-                string("threw the draft on ", it.ref, " away, ", comments, " with it") : r
-            isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
+            # Asked again, in a box of its own: the draft is the one thing in
+            # this list that cannot be got back, and `6` is one key from `5`.
+            # Any key but `y` keeps it, and the question A put is gone with
+            # the box - A asks it again.
+            push_view!(ctrl, ConfirmView(
+                string("Throw away the draft on ", it.ref),
+                string(comments, " go with it, and nothing brings them back"),
+                () -> begin
+                    r = Events.discard_pending(it.url, held.review)
+                    st.status = isempty(r) ?
+                        string("threw the draft on ", it.ref, " away, ", comments, " with it") : r
+                    isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
+                end; hint = "y throws it away \u00b7 any other key keeps it"))
             return
         end
         # No composer: what the composer's `^s` would have sent, with nothing

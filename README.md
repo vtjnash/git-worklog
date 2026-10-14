@@ -203,7 +203,8 @@ range - under `d`, or under `p` on its right side, which is the head now;
 `^r` in the composer drops in a suggestion block. Comments accumulate in
 a draft review on GitHub, pinned to the commit the diff was read at; `A`
 sends it - `1`-`3` a verdict with a body to write, `4` an approval with
-none, `5` the draft as it stands, `6` throws it away - and leaving the item
+none, `5` the draft as it stands, `6` throws it away, asking once more
+first - and leaving the item
 asks whether to. Once the branch has moved
 under an open draft, the next `C` says to send the draft first.
 Existing review threads hang off the hunk they point into, resolved ones
