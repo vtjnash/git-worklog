@@ -10,7 +10,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 Nothing now.
 
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
-- [ ] fetch commit comments text when displaying (This might have been an item in LATER.md), since the daily jobs ping this
 
 
 - [ ] performance issue:

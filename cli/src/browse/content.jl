@@ -490,28 +490,116 @@ function local_nodes(it::Item)
     ns
 end
 
-"""A notice's own facts, which is all there is to read of one here: what it
-is, why GitHub said so, where, when, and the link - no fetch. A release's
-notes or a commit comment is one REST `GET` each, and later; `o` opens the
-page, and `y` copies the link.
+"""The commit comment a `Commit` notice is about, as `(repo, id)` - off the
+block's link, which `notice_web` ends with `#commitcomment-<id>` when the
+thread named one - or `nothing` for a thread that notified of the commit
+alone. The link is the block's one fact that carries the id, so a block
+written before the comment was read here reads it too."""
+function notice_comment(it::Item)
+    (it.notice == "Commit" && !isempty(it.repo)) || return nothing
+    m = match(r"#commitcomment-(\d+)$", it.web)
+    m === nothing ? nothing : (it.repo, String(something(m[1])))
+end
+
+"""How a notice's comment is read: the REST path, answered as `api_get`
+answers it. A hook, so the suite can answer instead."""
+const NOTICE_READ = Ref{Any}(path -> Events.api_get(path)[1])
+
+"""A notice's own facts: what it is, why GitHub said so, where, when, and
+the link - and, under them, the comment a commit notice is about, which is
+what the daily jobs say and the one thing worth a request. A release's
+notes are not read yet; `o` opens the page, and `y` copies the link.
+
+The comment is one `GET`, kept under the thread's key with the thread's
+window, so a notice looked at twice costs one request and `R` reads it
+again; a read that fails leaves the facts standing, with the failure under
+them. Drawn as a thread's comment is (`push_comment!`), and not to be
+replied to: a commit comment has no review thread.
 
 The time is the header's, as a comment's is - `meta["at"]`, and how long
 ago drawn per frame - and never in the body: a date written there with its
 age was the age as of the load, and its escapes were markdown's to mangle."""
-function notice_nodes(it::Item, at::DateTime)
+function notice_nodes(it::Item, at::DateTime; fresh::Bool = false)
+    cc = notice_comment(it)
     lead = Node(string(notice_word(it.notice), "  ", when_str(it.moved_at), "  ", it.title),
                 string("GitHub notified you of this ", isempty(it.notice) ? "notification" :
                        type_words(it.notice), " in ", isempty(it.repo) ? "a repository" : it.repo,
                        isempty(it.reason) ? "" :
                        string(" (", replace(it.reason, "_" => " "), ")"),
                        ". It is not an issue or a pull request, so there is no thread ",
-                       "here: `o` opens it on GitHub",
+                       "here", cc === nothing ? "" : " - the comment is below, and `R` reads it again",
+                       ": `o` opens it on GitHub",
                        isempty(it.web) ? "" : string(", at ", it.web),
                        ", and `e` or `x` dismisses it until it notifies again."),
                 :md, true)
     lead.meta["at"] = it.moved_at
     isempty(it.web) || (lead.meta["url"] = it.web)
-    Node[lead]
+    ns = Node[lead]
+    cc === nothing && return ns
+    c = try
+        key = thread_key(it.url)
+        hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
+        if hit === nothing
+            got = NOTICE_READ[](string("/repos/", cc[1], "/comments/", cc[2]))
+            cache_put(key, got)
+            got
+        else
+            hit[1]
+        end
+    catch e
+        push!(ns, failednode("could not read the comment", first(sprint(showerror, e), 200)))
+        return ns
+    end
+    c isa AbstractDict || (push!(ns, failednode("could not read the comment",
+                                                "GitHub answered with something that is not one"));
+                           return ns)
+    push_comment!(ns, c, jstr(c, :created_at, it.moved_at), it.web, login(); reply = false)
+    ns
+end
+
+"""One comment's nodes, onto `ns`, as every comment in a thread is drawn -
+and a commit comment under its notice: who and when with a peek on the
+header, the body under it, folded blocks and all (`body_nodes`), and the
+line it was left on where it was left on one.
+
+`url` is where the comment is when it carries no `html_url` of its own.
+`reply` says `c` may answer it in its thread: only a review comment has one,
+so an issue comment leaves it off and `c` there writes a new comment, and a
+commit comment, which has no thread at all, is given `false`."""
+function push_comment!(ns::Vector{Node}, c, at::AbstractString, url::AbstractString,
+                       me::AbstractString; reply::Bool = true)
+    who = jstr(jobj(c, :user), :login, "?")
+    when = when_str(at)
+    txt = strip(jstr(c, :body, ""))
+    # Anchored, so following it lands on this comment rather than the top.
+    url = jstr(c, :html_url, url)
+    # A review comment reads as a non-sequitur in a chronological list
+    # without the line it was left on. The diff pane places it against the
+    # code; here it at least says where it was pointing.
+    loc = comment_loc(c)
+    made = body_nodes(string(who, "  ", when), txt, url, true)
+    # The peek belongs to the prose. A comment that is nothing but a folded
+    # block has none, so it borrows the summary - "<details><summary>" is
+    # not a useful thing to read on the header line.
+    lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
+           String(made[2].header) : made[1].raw
+    peek = strip(first(replace(lead, r"\s+" => " "), 58))
+    made[1].header = who * "  " * when * loc * "   " * peek
+    # The header's peek is cut mid-word; copy the byline instead, since the
+    # body itself is on the rows underneath it. `byline` is the same thing
+    # for the screen rather than for the clipboard, so it keeps the colour
+    # on the location - it is what the header reads as once the node is open
+    # and the peek would be repeating the row below it.
+    made[1].meta["src"] = string(who, "  ", when, String(loc))
+    made[1].meta["byline"] = who * "  " * when * loc
+    # The time itself, for `rows` to say how long ago that was against
+    # the frame's clock; the header carries only the date.
+    made[1].meta["at"] = String(at)
+    made[1].meta["mine"] = !isempty(me) && who == me
+    # Only a review comment can be replied to in a thread; an issue comment
+    # has no thread to reply into, so `c` there writes a new one.
+    (reply && !isempty(loc)) && (made[1].meta["comment_id"] = jget(c, :id))
+    append!(ns, made)
 end
 
 """Read the thread from GitHub and put it in the cache under `thread_key`, the
@@ -526,7 +614,7 @@ end
 
 function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
     islocal(it) && return local_nodes(it)
-    isnotice(it) && return notice_nodes(it, at)
+    isnotice(it) && return notice_nodes(it, at; fresh)
     local body, cs, cms, sts, lines
     stale = false
     asof = nothing          # when a cached copy was read; `loadedat`
@@ -611,39 +699,7 @@ function comment_nodes(it::Item, at::DateTime; fresh::Bool = false)
             append!(ns, rn)
             continue
         end
-        c = e.c
-        who = jstr(jobj(c, :user), :login, "?")
-        when = when_str(e.at)             # the comment's `created_at`
-        txt = strip(jstr(c, :body, ""))
-        # Anchored, so following it lands on this comment rather than the top.
-        url = jstr(c, :html_url, it.url)
-        # A review comment reads as a non-sequitur in a chronological list
-        # without the line it was left on. The diff pane places it against the
-        # code; here it at least says where it was pointing.
-        loc = comment_loc(c)
-        made = body_nodes(string(who, "  ", when), txt, url, true)
-        # The peek belongs to the prose. A comment that is nothing but a folded
-        # block has none, so it borrows the summary - "<details><summary>" is
-        # not a useful thing to read on the header line.
-        lead = isempty(strip(made[1].raw)) && length(made) > 1 ?
-               String(made[2].header) : made[1].raw
-        peek = strip(first(replace(lead, r"\s+" => " "), 58))
-        made[1].header = who * "  " * when * loc * "   " * peek
-        # The header's peek is cut mid-word; copy the byline instead, since the
-        # body itself is on the rows underneath it. `byline` is the same thing
-        # for the screen rather than for the clipboard, so it keeps the colour
-        # on the location - it is what the header reads as once the node is open
-        # and the peek would be repeating the row below it.
-        made[1].meta["src"] = string(who, "  ", when, String(loc))
-        made[1].meta["byline"] = who * "  " * when * loc
-        # The time itself, for `rows` to say how long ago that was against
-        # the frame's clock; the header carries only the date.
-        made[1].meta["at"] = e.at
-        made[1].meta["mine"] = !isempty(me) && who == me
-        # Only a review comment can be replied to in a thread; an issue comment
-        # has no thread to reply into, so `c` there writes a new one.
-        isempty(loc) || (made[1].meta["comment_id"] = jget(c, :id))
-        append!(ns, made)
+        push_comment!(ns, e.c, e.at, it.url, me)    # `e.at` is its `created_at`
     end
     # **What this thread shows you up to**, which is what `e` marks the item
     # seen up to: the newest event on screen - a comment, a review or a review

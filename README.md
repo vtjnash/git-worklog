@@ -166,13 +166,15 @@ request, listed as the repository and its type - `julia release`, `julia CI`,
 firehose (it is `closed` on the state axis: news, and not work) and in no
 other built-in view; `kind` has a fourth value for them alone (`kind = ["notice"]` in a view).
 The pane is its own facts: what it is, why GitHub said so, the repository,
-when, the link. `o` opens the link - through `code --openExternal` from a
+when, the link - and under them, on a commit, the comment it notified of,
+read once and kept, which `R` reads again. `o` opens the link - through `code --openExternal` from a
 Remote-SSH terminal, the desktop's opener where there is a display, and
 otherwise it is copied - and `y` copies it. `e` and `x` both dismiss it:
 there is no *not done* for it to go back to and no filed box to hold it,
 so its block in `data/local.toml` goes, and `z` puts it back. `s` is
 refused, as is everything that needs a thread or a checkout (`C` `A` `M`
-`L` `;` `R` `t` `T` `v`); `d`, `p` and `c` say there is nothing to show.
+`L` `;` `t` `T` `v`, and `R` where there is no comment to read again);
+`d`, `p` and `c` say there is nothing to show.
 A dismissed notice comes back when the thread notifies again, and not
 before.
 

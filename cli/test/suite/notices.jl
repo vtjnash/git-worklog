@@ -60,6 +60,51 @@ notice_thread(type, url; id = "11", at = "2026-09-20T10:00:00Z", reason = "subsc
     @test W.notice_word("RepositoryAdvisory") == "advisory"
     @test W.notice_word("SecurityAdvisoryThread") == "security advisory thread"
     @test occursin("notice", W.diff_nodes(it)[1].header)          # `d` says what it is
+    @test W.notice_comment(it) === nothing
+
+    # A commit notice is about a comment, named by the link, and the pane
+    # reads it: once, kept with the threads, and again on `R`.
+    cn = W.notice_item("notice:13", Dict("type" => "Commit", "repo" => "o/r",
+        "title" => "fix the build", "reason" => "subscribed", "at" => "2026-09-20T10:00:00Z",
+        "web" => "https://github.com/o/r/commit/abc123#commitcomment-77"))
+    @test W.notice_comment(cn) == ("o/r", "77")
+    @test W.notice_comment(W.notice_item("notice:14", Dict("type" => "Commit", "repo" => "o/r",
+        "web" => "https://github.com/o/r/commit/abc123"))) === nothing
+    was_read = W.NOTICE_READ[]
+    asked = String[]
+    W.NOTICE_READ[] = path -> (push!(asked, path); Dict{String,Any}(
+        "user" => Dict{String,Any}("login" => "nanosoldier"), "id" => 77,
+        "created_at" => "2026-09-20T09:59:00Z", "path" => "src/a.jl", "line" => 4,
+        "html_url" => "https://github.com/o/r/commit/abc123#commitcomment-77",
+        "body" => "[Your job](https://x) failed.\n\n<details><summary>log</summary>\nboom\n</details>"))
+    try
+        W.cache_drop(W.thread_key(cn.url))
+        ns = W.comment_nodes(cn, W.DateTime(2026, 9, 21))
+        @test asked == ["/repos/o/r/comments/77"]
+        @test occursin("the comment is below", ns[1].raw) && occursin("`R`", ns[1].raw)
+        @test startswith(unstyled(ns[2].header), "nanosoldier  2026-09-20 09:59")
+        @test occursin("a.jl:4", unstyled(ns[2].header)) && occursin("failed", unstyled(ns[2].header))
+        @test ns[2].meta["url"] == "https://github.com/o/r/commit/abc123#commitcomment-77"
+        @test ns[2].meta["at"] == "2026-09-20T09:59:00Z" && !haskey(ns[2].meta, "comment_id")
+        @test ns[3].header == "log" && ns[3].depth == 1 && !ns[3].open   # folded, as in a thread
+        # Looked at again, it is the cached copy; `R` is a read.
+        W.comment_nodes(cn, W.DateTime(2026, 9, 21))
+        @test length(asked) == 1
+        W.comment_nodes(cn, W.DateTime(2026, 9, 21); fresh = true)
+        @test length(asked) == 2
+        # A read that fails leaves the facts standing, and says so under them.
+        W.NOTICE_READ[] = path -> error("offline")
+        W.cache_drop(W.thread_key(cn.url))
+        ns = W.comment_nodes(cn, W.DateTime(2026, 9, 21))
+        @test length(ns) == 2 && get(ns[2].meta, "failed", false) && occursin("offline", ns[2].raw)
+        # `R` is the browser's on it, and refused on a notice with nothing to read.
+        st = W.BState([cn, it], "t"); ctrl = W.Controller()
+        @test !W.notice_key!(st, cn, Int('R'), ctrl)
+        @test W.notice_key!(st, it, Int('R'), ctrl) && occursin("nothing to R", st.status)
+    finally
+        W.NOTICE_READ[] = was_read
+        W.cache_drop(W.thread_key(cn.url))
+    end
     m = W.Events.mention_words(Dict{String,Any}("reason" => "mention", "notified" => "2026-09-20T10:00:00Z"))
     @test !isempty(m)
     @test W.notice_item("notice:12", Dict("reason" => "mention", "at" => "2026-09-20T10:00:00Z")).mentioned == m
