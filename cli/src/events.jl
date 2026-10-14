@@ -1649,6 +1649,17 @@ end
 _review_shape(v) = (id = something(jstr(v, :id)), review = something(jstr(v, :review)),
                     n = something(jint(v, :n)), head = jstr(v, :head, ""))
 
+"""What was last known of the draft on this pull request, however long ago -
+the entry `review_state` wrote and every mutation since rewrote - or
+`nothing` where nothing ever asked. The browser's count of a draft's comments
+is read from here: GitHub's own count, from the one query that carries it,
+rather than a tally kept in the session, which a draft found on the item
+never had (it read `0`) and a comment made on github.com never moved."""
+function known_review(url::AbstractString)
+    hit = cache_get(string("review:", url), Inf)
+    hit === nothing ? nothing : _review_shape(hit[1])
+end
+
 "Remember what a mutation just made true, so the next frame does not ask."
 function _review_put(url, id, review, n, head)
     cache_put(string("review:", url),
@@ -2139,7 +2150,8 @@ verdict is not the one that counts. COMMENTED never overrides a verdict.
 """
 meta_key(url::AbstractString) = string("itemmeta:", url)
 
-function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
+function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl,
+                  state = review_state)
     key = meta_key(url)
     hit = cache_get(key, ttl; keep_s = keep)
     hit === nothing || return _meta_shape(hit[1])
@@ -2183,7 +2195,7 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
             # because this request is already being made - the alternative is a
             # GraphQL query per selected pull request, to answer a question that
             # is usually "no". It is not the authority on the count, only on the
-            # draft being there: the mutations that add to one say how many.
+            # draft being there: the count is GitHub's, asked below.
             if st == "PENDING" && who == Worklog.login()
                 pending = jstr(r, :node_id, "")
                 continue
@@ -2192,6 +2204,17 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl)
             prev = get(latest, who, nothing)
             (st == "COMMENTED" && prev !== nothing && prev[1] != "COMMENTED") && continue
             latest[who] = (st, at)
+        end
+    end
+    # A draft's count, from the query that carries it, into the entry the
+    # browser reads it from (`known_review`). Asked here, off the loop, and
+    # only when there is a draft - usually there is not - so the pane never
+    # says `0` of a draft it did not write. A failure keeps whatever was
+    # known: this is the item's metadata, and the draft is beside the point.
+    if !isempty(pending)
+        try
+            state(url)
+        catch
         end
     end
     v = OrderedDict{String,Any}(

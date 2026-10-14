@@ -100,12 +100,34 @@ composer(v) = v isa W.SideView ? v.inner : v
     @test W.handle!(v2, Int('y'), ctrl) === :quit
     # `A` submits instead, and goes to the verdict, which is where a draft is
     # sent from. It answers the question, so the box that asked it comes off.
+    # The count is GitHub's, asked as the question is put: the one in hand
+    # was 1, and the draft has three.
+    was_ask = W.REVIEW_ASK[]
+    W.REVIEW_ASK[] = url -> (id = "PR_x", review = st.batch.review, n = 3, head = "")
     @test W.handle!(v2, Int('A'), ctrl) === :pop
     v3 = last(ctrl.stack)
-    @test v3 isa W.ChooseView && occursin("draft review and its 1 comment", v3.note)
-    # Including the way out of one that should never have been started.
-    @test any(o -> o[2] == "DISCARD", v3.options)
+    @test v3 isa W.ChooseView && occursin("a draft with 3 comments is waiting", v3.note)
+    @test st.batch.n == 3
+    # In words, each: the verdicts with a note, the two that go as they are,
+    # and the way out of one that should never have been started.
+    @test [o[2] for o in v3.options] ==
+          ["APPROVE", "REQUEST_CHANGES", "COMMENT", "APPROVE_NOW", "SEND_NOW", "DISCARD"]
+    @test v3.options[5][1] == "send the draft as it stands: 3 comments, no note"
+    @test v3.options[6][1] == "throw the draft away, 3 comments with it"
     empty!(ctrl.stack)
+    # No answer keeps the count last known; a draft GitHub no longer has is
+    # let go of, and the question is the one for an item with none.
+    W.REVIEW_ASK[] = url -> error("offline")
+    W.review_action(st, ctrl, st.items[st.sel])
+    @test occursin("3 comments", last(ctrl.stack).note)
+    empty!(ctrl.stack)
+    W.REVIEW_ASK[] = url -> (id = "PR_x", review = "", n = 0, head = "")
+    W.review_action(st, ctrl, st.items[st.sel])
+    @test st.batch === nothing && occursin("is gone", st.status)
+    @test length(last(ctrl.stack).options) == 4 && !occursin("draft", last(ctrl.stack).note)
+    W.REVIEW_ASK[] = was_ask
+    empty!(ctrl.stack)
+    st.batch = W.mkbatch(st.items[st.sel].url, st.items[st.sel].ref, "PRR_x", 1)
 
     # A draft on an item this dashboard no longer carries is left alone rather
     # than offered against whatever happens to be first: submitting a review to
@@ -132,14 +154,26 @@ end
     it = st.items[st.sel]
     @test isempty(W.load_drafts())
     st.metakey = it.url
-    st.metapending = schedule(Task(() -> (meta = W.Events.item_meta(pending = "PRR_z"),
-                                          checks = nothing)))
-    wait(st.metapending)
-    @test W.collect_meta!(st)
+    found() = (st.metapending = schedule(Task(() -> (meta = W.Events.item_meta(pending = "PRR_z"),
+                                                     checks = nothing)));
+               wait(st.metapending); W.collect_meta!(st))
+    @test found()
     # Found, marked, and adopted as the batch in hand - a draft from an earlier
-    # session is a draft.
+    # session is a draft. Its count is what GitHub last said of it, where
+    # anything did (`known_review`); none where nothing ever asked.
     @test haskey(st.drafts, it.url)
     @test st.batch !== nothing && st.batch.url == it.url && st.batch.review == "PRR_z"
+    @test st.batch.n == 0
+    W.cache_put(string("review:", it.url), Dict("id" => "PR_x", "review" => "PRR_z", "n" => 4, "head" => ""))
+    @test W.Events.known_review(it.url).n == 4
+    @test found() && st.batch.n == 4
+    # And not the count of some other draft that once was on it.
+    W.cache_put(string("review:", it.url), Dict("id" => "PR_x", "review" => "PRR_old", "n" => 9, "head" => ""))
+    @test found() && st.batch.n == 4         # this session's, which stands
+    st.batch = nothing
+    @test found() && st.batch.n == 0
+    W.cache_drop(string("review:", it.url))
+    @test W.Events.known_review(it.url) === nothing
     # And gone again, when the item says it is gone.
     st.metapending = schedule(Task(() -> (meta = W.Events.item_meta(), checks = nothing)))
     wait(st.metapending)
@@ -479,17 +513,22 @@ end
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)
     @test !composer(last(ctrl.stack)).allow_empty
-    @test occursin("requires a body", composer(last(ctrl.stack)).note)
+    @test occursin("wants a note", composer(last(ctrl.stack)).note)
     pop!(ctrl.stack)
+    # Over a draft, `A` asks GitHub about it first; here GitHub is the suite.
     st.batch = W.mkbatch(st.items[st.sel].url, st.items[st.sel].ref, "PRR_1", 2)
+    was_ask = W.REVIEW_ASK[]
+    W.REVIEW_ASK[] = url -> (id = "PR_x", review = "PRR_1", n = 2, head = "")
     W.handle!(st, Int('A'), ctrl)
+    W.REVIEW_ASK[] = was_ask
     ch = last(ctrl.stack)
     @test [o[2] for o in W.shown(ch)][5:end] == ["SEND_NOW", "DISCARD"]
     W.handle!(ch, W.K_DOWN, ctrl); W.handle!(ch, W.K_DOWN, ctrl)
     @test W.handle!(ch, 13, ctrl) === :pop
     at = findlast(x -> x === ch, ctrl.stack); deleteat!(ctrl.stack, at)
     @test composer(last(ctrl.stack)).allow_empty
-    @test occursin("optional", composer(last(ctrl.stack)).note)
+    @test occursin("a note is optional; ^s sends the draft and its 2 comments",
+                   composer(last(ctrl.stack)).note)
     pop!(ctrl.stack)
     st.batch = nothing
 

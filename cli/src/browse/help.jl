@@ -53,7 +53,7 @@ const HELP = Union{String,Tuple{String,String}}[
     "",
     "reaching GitHub",
     ("C", "comment; on a selection in a diff, a review comment on that range"),
-    ("A  L  M", "send the draft review (4 approves, 5 sends the draft, with no body) · toggle a label · merge"),
+    ("A  L  M", "review: 1-3 a verdict with a note, 4 approve as is, 5 send the draft as it stands, 6 throw it away · toggle a label · merge"),
     "",
     "in a hosted pane, ^] is the prefix",
     ("^]tab  ^][", "the thread beside it, and back"),

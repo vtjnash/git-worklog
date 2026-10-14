@@ -274,13 +274,18 @@ function collect_meta!(st::BState)
                 (draft!(st.metakey); st.drafts = load_drafts())
             # Adopted only when the batch in hand is nothing or is this item's
             # own: a draft being carried on another item must not be dropped for
-            # one read off this one. The count comes from this session where
-            # there is one, since a review read back does not carry it.
+            # one read off this one. The count is what GitHub last said of this
+            # draft (`known_review`: asked by `itemmeta`, rewritten by every
+            # mutation), which is newer than anything this session tallied;
+            # this session's where nothing was ever asked, and none at all
+            # where it has none either.
             inhand = st.batch
             if inhand === nothing || inhand.url == st.metakey
                 i = findfirst(x -> x.url == st.metakey, st.all)
-                i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref, sm.pending,
-                                                    inhand === nothing ? 0 : inhand.n))
+                k = Events.known_review(st.metakey)
+                n = k !== nothing && k.review == sm.pending ? k.n :
+                    inhand === nothing ? 0 : inhand.n
+                i === nothing || (st.batch = mkbatch(st.metakey, st.all[i].ref, sm.pending, n))
             end
         elseif haskey(st.drafts, st.metakey)
             # Gone: sent or discarded somewhere else. The row is left where it

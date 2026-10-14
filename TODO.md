@@ -9,10 +9,11 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 Nothing now.
 
-- [ ] key A-5 "submit draft" text often has an incorrect number (shows 0 pending) and also reads poorly in prose
+- [ ] julia#60824 seems to be rendering the last comment wrong -- everything is just smashed together after the footer, instead of being folded neatly, recursively, like on github
 - [ ] in git diff view, can we show the whole patch hunk headers? (like diff -p)
 - [ ] in review submit (A), does "discard draft" ask for re-confirmation? If not, it should, since accidentally deleting all comments would be very sad.
 - [ ] fetch commit comments text when displaying (This might have been an item in LATER.md), since the daily jobs ping this
+- [ ] when selecting a diff (d d), the current selection should be the current view (not defaulting to whole diff)
 
 
 - [ ] performance issue:

@@ -441,33 +441,62 @@ function pick_pfrom!(st::BState, it::Item, repo::AbstractString, rev::AbstractSt
     st.status = string("no commit or branch ", rev, " in ", repo)
 end
 
-"""Submit a review: pick the verdict, then write the body.
+"""What `A` asks GitHub about the draft before it offers to send it:
+`review_state` with no cache, as a hook so the suite can answer instead."""
+const REVIEW_ASK = Ref{Any}(url -> Events.review_state(url; ttl = 0.0))
+
+"""Submit a review: pick the verdict, then write the note.
 
 Numbered, the same as the views and snooze, since it is the same list every
-time: the three verdicts, each with a body to write, then the two that go at
+time: the three verdicts, each with a note to write, then the two that go at
 once with none - an approval, and the held draft sent as a comment review, its
 line comments being the review - and last the way out of a draft. The second
 of those and the last exist only over a draft, so they come after the standing
 four: `5` is always the draft sent, or nothing.
+
+The draft's count is asked of GitHub as the question is put (`REVIEW_ASK`),
+not read off the session: a draft found on the item carried no count of its
+own and the question said `0 comments` of five, and a comment made on
+github.com moved nothing here. One request, and only over a draft. A draft
+GitHub no longer has - sent or thrown away from somewhere else - is let go
+of here, and the question is the one for an item with none.
 """
 function review_action(st::BState, ctrl::Controller, it::Item)
     it.is_pr || (st.status = "not a pull request"; return)
     held = batch_of(st, it)
+    if held !== nothing
+        s = try
+            REVIEW_ASK[](it.url)
+        catch
+            nothing                 # no answer: the count last known stands
+        end
+        if s !== nothing && isempty(s.review)
+            st.batch = nothing; undraft!(it.url); st.drafts = load_drafts()
+            st.status = string("the draft on ", it.ref, " is gone: sent or thrown away elsewhere")
+            held = nothing
+        elseif s !== nothing
+            held = mkbatch(it.url, it.ref, s.review, s.n)
+            st.batch = held
+        end
+    end
     comments = held === nothing ? "" :
         string(held.n, held.n == 1 ? " comment" : " comments")
-    opts = [("approve", "APPROVE"), ("request changes", "REQUEST_CHANGES"),
-            ("comment", "COMMENT"), ("approve now, with no body", "APPROVE_NOW")]
+    opts = [("approve, with a note", "APPROVE"),
+            ("request changes, with a note", "REQUEST_CHANGES"),
+            ("comment, with a note", "COMMENT"),
+            ("approve as it is, no note", "APPROVE_NOW")]
     held === nothing ||
-        push!(opts, (string("send the draft's ", comments, " now, with no body"), "SEND_NOW"),
-                    ("discard the draft and its comments", "DISCARD"))
+        push!(opts, (string("send the draft as it stands: ", comments, ", no note"), "SEND_NOW"),
+                    (string("throw the draft away, ", comments, " with it"), "DISCARD"))
     push_view!(ctrl, ChooseView(
         string("Review ", it.ref),
         held === nothing ? it.title :
-            string("sends the draft review and its ", comments),
+            string("a draft with ", comments, " is waiting on it; every verdict sends it"),
         opts, ev -> begin
         if ev == "DISCARD"
             r = Events.discard_pending(it.url, held.review)
-            st.status = isempty(r) ? string("discarded the draft on ", it.ref) : r
+            st.status = isempty(r) ?
+                string("threw the draft on ", it.ref, " away, ", comments, " with it") : r
             isempty(r) && (st.batch = nothing; undraft!(it.url); st.drafts = load_drafts())
             return
         end
@@ -481,16 +510,16 @@ function review_action(st::BState, ctrl::Controller, it::Item)
         # GitHub wants words on a request for changes or a comment review only
         # when the review has nothing else in it: the line comments of a
         # draft are the review, and a covering note over them is optional,
-        # as it is on github.com. A draft this program did not start reports
-        # its count as 0 without being empty, so the draft is the test, not
-        # the count; a draft that really is empty is refused by GitHub, and
-        # the refusal keeps the composer open to write in.
+        # as it is on github.com. The draft is the test, not the count; a
+        # draft that really is empty is refused by GitHub, and the refusal
+        # keeps the composer open to write in.
         optional = ev == "APPROVE" || held !== nothing
         push_beside!(ctrl, st, EditorView(
             string(replace(lowercase(ev), "_" => " "), " · ", it.ref),
-            optional ? string("a body is optional; ^s submits ",
-                              ev == "APPROVE" ? "the approval" : "the draft") :
-                       "GitHub requires a body for this",
+            optional ? string("a note is optional; ^s sends ",
+                              held === nothing ? "the approval" :
+                                  string("the draft and its ", comments)) :
+                       "GitHub wants a note with this verdict",
             b -> begin
                 r = send_review!(st, it, held, ev, b)
                 isempty(r) ? nothing : Unsent(r)    # a failure keeps the composer open
@@ -506,9 +535,9 @@ function send_review!(st::BState, it::Item, held, ev::AbstractString, b::Abstrac
     r = held === nothing ? Events.submit_review(it.url, ev, b) :
                            Events.submit_pending(it.url, held.review, ev, b)
     st.status = isempty(r) ?
-        string("submitted: ", replace(lowercase(ev), "_" => " "),
+        string("sent the review: ", replace(lowercase(ev), "_" => " "),
                held === nothing ? "" :
-               string(" with ", held.n, held.n == 1 ? " comment" : " comments")) : r
+               string(", ", held.n, held.n == 1 ? " comment" : " comments", " with it")) : r
     isempty(r) && (touch!(it.url); st.batch = nothing;
                    undraft!(it.url); st.drafts = load_drafts();
                    reread!(st))
