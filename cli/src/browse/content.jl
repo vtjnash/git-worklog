@@ -945,37 +945,44 @@ parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
 """
 function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractString = "")
     txt, ctl = inert(txt)
-    ns, file, buf, hdr = Node[], "", String[], ""
+    ns, file, buf, inhunk = Node[], "", String[], false
     # Whether the file is one the change creates: said between `diff --git`
     # and its first `@@`, and nowhere after.
     newfile = false
-    pending_range, pending_old = (0, 0), (0, 0)
+    pending_range, pending_old, pending_func = (0, 0), (0, 0), ""
     # Each hunk goes to `hunk_node` whole when the next begins, not to a
     # `flush!` closure: all of these are assigned again, and a closure over
     # them would box every one.
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
-            isempty(hdr) ||
-                push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
-            hdr = ""; buf = String[]; newfile = false
+            inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
+                                          url, head, newfile))
+            inhunk = false; buf = String[]; newfile = false
             file = replace(String(last(split(l, " "))), r"^b/" => "")
-        elseif isempty(hdr) && (startswith(l, "new file mode") || l == "--- /dev/null")
+        elseif !inhunk && (startswith(l, "new file mode") || l == "--- /dev/null")
             newfile = true
         elseif startswith(l, "@@")
-            isempty(hdr) ||
-                push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
-            m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", String(l))
+            inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
+                                          url, head, newfile))
+            # What follows the second `@@` is git's function context: the
+            # line it found above the hunk in the old file - by default the
+            # nearest one that starts with a letter, `_` or `$`, or what the
+            # file's `diff=` attribute names as one. The same line `diff -p`
+            # prints, from a checkout and from GitHub's copy alike, so it is
+            # read off the header rather than guessed from the hunk.
+            m = match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?$", String(l))
             rng = m === nothing ? (0, 0) : hunk_span(m[3], m[4])
             old = m === nothing ? (0, 0) : hunk_span(m[1], m[2])
-            hdr = string("@@ ", rng[1], ",", rng[2], " @@")
             pending_range, pending_old = rng, old
+            pending_func = m === nothing || m[5] === nothing ? "" : String(rstrip(m[5]))
+            inhunk = true
             buf = String[]
-        elseif !isempty(hdr)
+        elseif inhunk
             push!(buf, String(l))
         end
     end
-    isempty(hdr) ||
-        push!(ns, hunk_node(file, hdr, buf, pending_range, pending_old, url, head, newfile))
+    inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
+                                  url, head, newfile))
     isempty(ns) || uninert(ctl) || pushfirst!(ns, ctlnode(ctl))
     ns
 end
@@ -984,14 +991,14 @@ end
 hunk_span(a, n) = (parse(Int, something(a)), n === nothing ? 1 : parse(Int, n))
 
 "One hunk of `hunk_nodes`, as the node the pane folds."
-function hunk_node(file::String, hdr::String, buf::Vector{String},
-                   rng::Tuple{Int,Int}, old::Tuple{Int,Int},
+function hunk_node(file::String, buf::Vector{String},
+                   rng::Tuple{Int,Int}, old::Tuple{Int,Int}, func::String,
                    url::AbstractString, head::AbstractString, newfile::Bool)
     adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
     dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
-    n = Node(string(file, "  ", hdr, "  +", adds, " -", dels),
-             join(buf, "\n"), :diff, true)
+    n = Node("", join(buf, "\n"), :diff, true)
     n.meta["file"] = file
+    n.meta["func"] = func
     # Counted once, for the pane's border to add up (`diff_size`).
     n.meta["lines"] = (adds, dels)
     n.meta["start"] = rng[1]
@@ -1006,7 +1013,27 @@ function hunk_node(file::String, hdr::String, buf::Vector{String},
     n.meta["url"] = String(url)
     n.meta["head"] = String(head)
     n.meta["newfile"] = newfile
+    n.header = hunk_header(n)
     n
+end
+
+"""A hunk's header, from what its node carries: the file, the new-side range,
+git's function context after the second `@@` - what `diff -p` puts there -
+how many lines it adds and takes away, how far `[`/`]` has widened it, and the
+tally of threads `attach_comments` hung under it. One builder, because three
+places make one - the parse, the tally, the widening - and the widening used
+to rebuild it by hand and lose the counts on the way."""
+function hunk_header(n::Node)
+    m = n.meta
+    func = jstr(m, :func, "")
+    v = get(m, "lines", nothing)
+    adds, dels = v isa Tuple{Int,Int} ? v : (0, 0)
+    up, down = jint(m, :up, 0), jint(m, :down, 0)
+    string(jstr(m, :file, ""), "  @@ ", jint(m, :start, 0), ",", jint(m, :count, 0), " @@",
+           isempty(func) ? "" : string(" ", func),
+           "  +", adds, " -", dels,
+           up > 0 ? string("  ↑", up) : "",
+           down > 0 ? string("  ↓", down) : "") * row(get(m, "tally", ""))
 end
 
 """The row that says `inert` found something, for the top of a diff.
@@ -1201,12 +1228,14 @@ function attach_comments(hunks::Vector{Node}, cs, url::AbstractString,
         # Two marks, because they say different things: a conversation waiting
         # for an answer is why you are reading the hunk, and one that was
         # answered is why you can stop.
-        # Kept as well as appended: `[`/`]` rebuilds this header from the file
-        # and the range, and would otherwise drop the tally on the way past.
+        # Kept as well as drawn: `[`/`]` rebuilds this header from the meta,
+        # and `hunk_header` reads the tally from there with the rest.
         n.meta["tally"] =
             (isempty(live) ? row("") : "  " * faced(string("💬", length(live)), THEME.accent)) *
             (isempty(settled) ? row("") : "  " * faced(string("✓", length(settled)), THEME.dim))
-        n.header = n.header * n.meta["tally"]
+        # A node here that is not a hunk - the message over a one-commit diff,
+        # the `inert` note - has no threads and keeps the header it has.
+        n.header = haskey(n.meta, "start") ? hunk_header(n) : n.header * n.meta["tally"]
         # And the line each thread points at, so the hunk says *where* it is
         # being talked about and not only that it is. Kept as the line number
         # and the side rather than as a row of the hunk, because `[`/`]` widens

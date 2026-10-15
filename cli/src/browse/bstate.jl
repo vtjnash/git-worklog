@@ -266,6 +266,9 @@ Base.@kwdef mutable struct BState <: View
     hdr::Int = 0           # rows of item title above the nodes in the detail
                            # pane; the mouse needs it to turn a screen row into
                            # an `nrow`, and only `render` knows how tall it got
+    stuck::Int = 0         # the `nrow` of the hunk header pinned over the
+                           # pane's top row (`stuck_header`), 0 when none: a
+                           # click on that row is a click on the header
     nmeta::Int = 0         # metadata lines the pane last drew; it sizes to its
                            # content, so the heights depend on it
     caret::Union{Nothing,Tuple{Int,Int}} = nothing   # where the `/` query's

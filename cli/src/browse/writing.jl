@@ -1611,12 +1611,8 @@ function expand_hunk!(nodes::Vector{Node}, i::Int, it::Item, dir::Int, n::Int = 
     post = [string(" ", first(inert(lines[i]))) for i in (start + count):hi]
     node.raw = join(vcat(pre, split(jstr(node.meta, :body, ""), "\n"), post), "\n")
     node.cw = -1                                    # force a re-render
-    node.header = string(file, "  @@ ", start, ",", count, " @@",
-                         up > 0 ? string("  ↑", up) : "",
-                         down > 0 ? string("  ↓", down) : "") *
-                  # What `attach_comments` put there, since this rebuilds the
-                  # header from scratch and the tally is not derivable from the
-                  # file and the range.
-                  row(get(node.meta, "tally", ""))
+    # The context git named stays: it is the function the *change* is in, and
+    # the lines widened in above it are unchanged ones.
+    node.header = hunk_header(node)
     ""
 end

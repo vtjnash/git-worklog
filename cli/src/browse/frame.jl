@@ -92,6 +92,18 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
                                 r.src, r.part, r.gutter)
     end
     rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop, rh - 2)
+    # The hunk header pinned over the top row while the hunk is scrolled under
+    # it, so the file and the range are never off the screen. The cursor on
+    # that row would be under the pin, so the window is moved one up first
+    # and the pin found again against the new top.
+    st.stuck = stuck_header(st.nodes, rrows, st.ntop, st.hdr)
+    if st.stuck > 0 && st.nrow + st.hdr == st.ntop
+        rvis, st.ntop = window(rrows, st.nrow + st.hdr, st.ntop - 1, rh - 2)
+        st.stuck = stuck_header(st.nodes, rrows, st.ntop, st.hdr)
+    end
+    if st.stuck > 0 && length(rvis) > 1
+        rvis[1] = rrows[st.stuck + st.hdr]
+    end
 
     total = length(nrows)
     rtitle = string(String(st.mode),
@@ -344,6 +356,27 @@ function header_bg(st::BState, r::Row)
     st.mode === :comments && n.depth == 0 && haskey(n.meta, "mine") &&
         return n.meta["mine"] === true ? THEME.thread_mine_bg : THEME.thread_bg
     Face()
+end
+
+"""The hunk header to pin over the pane's top row: the `nrow` of the header
+of the hunk the row at `top` is in - the hunk itself, or a thread hung under
+it - when that header has scrolled off above, and 0 when none has: the row is
+the header, or not a hunk's, or the blank over the next one. By the nodes and
+not by the mode, as `diff_size` is, so a diff still up is pinned as a diff.
+`top` indexes `rrows`, which has `hdr` rows of item title first."""
+function stuck_header(nodes::Vector{Node}, rrows::Vector{Row}, top::Int, hdr::Int)
+    1 <= top <= length(rrows) || return 0
+    r = rrows[top]
+    i = r.node
+    (i == 0 || (r.header && r.part == 0)) && return 0
+    while i > 0
+        n = nodes[i]
+        n.kind === :diff && haskey(n.meta, "file") && break
+        i = parentnode(nodes, i)
+    end
+    i == 0 && return 0
+    h = findfirst(x -> x.node == i && x.header && x.part == 0, rrows)
+    (h === nothing || h >= top) ? 0 : h - hdr
 end
 
 """

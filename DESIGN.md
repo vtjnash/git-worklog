@@ -661,6 +661,22 @@ Three things answer it, all read off the mark `e` leaves:
   onto nothing, and what a dropped commit did is in no other view. A second
   `p` can also start from any name the checkout resolves, the remote's
   branch of that name before a local one, never fetched.
+- **A hunk's header is its file, its range and git's function context**
+  (`hunk_header`, the one builder for the parse, the thread tally and
+  `[`/`]`, which used to rebuild the header by hand and drop the counts).
+  What follows the second `@@` is the line git found above the hunk in the
+  old file - by default the nearest that starts with a letter, `_` or `$`;
+  with a `diff=` attribute, what that language's pattern names - and a
+  checkout's `git diff` and GitHub's `.diff` carry it alike (checked
+  2026-10-15 against both), so it is read off the header and never guessed
+  from the hunk. Widening keeps it: it names the function the *change* is
+  in, and the lines widened in above are unchanged ones. While a hunk is
+  scrolled under the pane that header is pinned over the top row
+  (`stuck_header`, `st.stuck` for the mouse): the hunk the top row belongs
+  to, or the hunk a thread under it hangs off; nothing when the top row is
+  the header itself or the blank over the next one. The window moves one up
+  when the cursor would be under the pin, since a hidden cursor row is a
+  key that moves nothing you can see.
 - **A diff that is one commit carries its message** (`commit_node`): a pull
   request of one commit under `d`, one picked by `d d`, one added under
   `p`. The subject on the header with the sha, author and time, the rest of

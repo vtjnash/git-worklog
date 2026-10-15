@@ -129,7 +129,9 @@ function onmouse_at!(st::BState, ev::MouseEvent, ctrl::Controller, at::Float64 =
         return :ok
     end
     # `ntop` indexes rows including the item-title block; `nrow` excludes it.
-    idx = st.ntop + row - 1 - st.hdr
+    # The top row may be the hunk header pinned over whatever is scrolled
+    # under it, and a click there is on the header the reader sees.
+    idx = row == 1 && st.stuck > 0 ? st.stuck : st.ntop + row - 1 - st.hdr
     1 <= idx <= length(rs) || return :ok
     if ev.kind === :press
         dbl = doubled!(st, ev, at)

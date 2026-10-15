@@ -1267,3 +1267,79 @@ end
     ls = split(ansi(W.render_frame(st, 160, 50)), "\n")
     @test length(ls) == 50 && all(width(l) == 160 for l in ls)
 end
+
+@testset "a hunk header carries git's function context" begin
+    # What follows the second `@@` is the line git found above the hunk - the
+    # one `diff -p` prints - and it comes from a checkout and from GitHub's
+    # copy alike, so it is read off the header rather than guessed.
+    txt = "diff --git a/a.jl b/a.jl\n--- a/a.jl\n+++ b/a.jl\n" *
+          "@@ -10,3 +10,3 @@ function foo(x)\n ctx\n-old\n+new\n" *
+          "@@ -40,2 +40,2 @@\n-a\n+b\n"
+    ns = W.hunk_nodes(txt, "http://x")
+    @test ns[1].meta["func"] == "function foo(x)"
+    @test unstyled(ns[1].header) == "a.jl  @@ 10,3 @@ function foo(x)  +1 -1"
+    @test ns[2].meta["func"] == ""
+    @test unstyled(ns[2].header) == "a.jl  @@ 40,2 @@  +1 -1"
+    # The tally and the widening marks go on the same header, and neither
+    # loses the rest: the widening used to drop the counts.
+    ns[1].meta["tally"] = W.row("  💬1"); ns[1].meta["up"] = 2
+    @test unstyled(W.hunk_header(ns[1])) ==
+          "a.jl  @@ 10,3 @@ function foo(x)  +1 -1  ↑2  💬1"
+end
+
+@testset "the hunk's header is pinned over the pane while it is scrolled" begin
+    body = join(vcat(["-old$i" for i in 1:3], [" ctx$i" for i in 1:30]), "\n")
+    txt = "diff --git a/a.jl b/a.jl\n@@ -1,33 +1,30 @@ function foo(x)\n" * body * "\n" *
+          "diff --git a/b.jl b/b.jl\n@@ -1 +1 @@\n-x\n+y\n"
+    st = mkstate(); st.mode = :diff; st.focus = :detail
+    st.nodes = W.hunk_nodes(txt, "http://x")
+    st.loaded = string(st.items[st.sel].url, ":", st.mode)
+    it = st.items[st.sel]
+    pane() = unstyled.(W.detail_pane(st, it, 60, 12, true))
+    # The header on screen is not pinned, and nothing is while it is.
+    st.nrow = 1
+    p = pane()
+    @test st.stuck == 0 && occursin("a.jl  @@ 1,30 @@ function foo(x)", p[2 + st.hdr])
+    # Scrolled into the hunk, the top row of the pane is its header.
+    st.nrow = 25
+    p = pane()
+    @test st.stuck == 1 && st.ntop > st.hdr + 1
+    @test occursin("a.jl  @@ 1,30 @@ function foo(x)", p[2])
+    @test occursin("ctx", p[3])
+    # And the cursor on the row the pin would cover moves the window up one,
+    # so the row the keys are on is never hidden.
+    top = st.ntop
+    st.nrow = top - st.hdr
+    p = pane()
+    @test st.ntop == top - 1 && st.stuck == 1
+    @test occursin("a.jl  @@", p[2]) && occursin(" ctx$(st.nrow - 4)", p[3])
+    # From the next hunk's rows the pin is the hunk above: the second header is
+    # on screen, the first is what the top row is scrolled into.
+    st.nrow = length(W.rows(st.nodes, 56))
+    p = pane()
+    @test st.stuck == 1 && occursin("a.jl  @@", p[2])
+    @test any(l -> occursin("b.jl  @@ 1,1 @@", l), p)
+    # A click on the pinned row lands on the header it shows - on a screen
+    # short enough that the hunk does not fit it whole.
+    ENV["COLUMNS"], ENV["LINES"] = "160", "20"
+    st.nrow = 25
+    frame(st, 160, 20)
+    L = W.layout(160, 20, st.nmeta)
+    ctrl = W.Controller()
+    @test st.stuck == 1
+    W.onmouse!(st, W.MouseEvent(:press, 0, L.rx + 4, L.ry + 1, 0), ctrl)
+    @test st.nrow == 1
+    # A thread hung under the hunk pins the hunk's header too.
+    st.nodes = W.hunk_nodes(txt, "http://x")
+    c = W.Node("someone  2026-09-02", join(["a line $i" for i in 1:20], "\n\n"), :md, true, 1)
+    c.meta["comment_id"] = 7
+    insert!(st.nodes, 2, c)
+    rs = W.rows(st.nodes, 56)
+    st.nrow = findlast(r -> r.node == 2, rs)
+    p = pane()
+    @test st.stuck == 1 && occursin("a.jl  @@", p[2])
+    # The thread pane has no hunks, and pins nothing.
+    st.mode = :comments; st.nodes = mkstate().nodes; st.nrow = 6
+    pane()
+    @test st.stuck == 0
+end
