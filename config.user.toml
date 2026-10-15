@@ -1,42 +1,46 @@
-# Work dashboard configuration - your half.
+# worklog configuration - your half.
 #
-# This is the template for `data/config.toml`: `wl` copies it there the first
-# time it runs, fills in `login` from `gh`, and never writes it again. `data/`
-# is a repository of its own, so the copy has a history beside your notes.
-# Everything here is read on top of `config.toml` beside the code, which holds
-# every key with its default and the comment that explains it. A key not here
-# means the shared default; any key from there set here replaces it - a table
-# key by key, an array or a value whole.
+# This is the template for `data/config.toml`: `wl` copies it there the
+# first time it runs, fills in `login` from `gh`, and never writes it again.
+# `data/` is a git repository of its own, so the copy has a history beside
+# your notes. It is read on top of `config.toml` beside the code, which
+# holds every key with its default and the comment that is its manual. A key
+# not here means the shared default; a key from there set here replaces it -
+# a table key by key, an array or a value whole.
 
-# Your GitHub login: how a row is read as yours or not. Nothing runs without it.
+# Your GitHub login: how a row is read as yours or not. Nothing runs without
+# it.
 login = ""
 
-# A file under `themes/`, or `""` for no colour at all. `default-ansi.toml` is
-# the terminal's own sixteen colours; the two `github-*-256` files are GitHub's
-# palette pinned to the 256-colour cube; either follows the terminal to the
-# other where it says whether it is dark or light.
+# A file under `themes/`, or `""` for no colour at all. `default-ansi.toml`
+# is the terminal's own sixteen colours; `github-light-256.toml` and
+# `github-dark-256.toml` are GitHub's palette on the 256-colour cube, and
+# either follows the terminal to the other where it says whether it is dark
+# or light.
 theme = "github-light-256.toml"
 
-# The zone times are shown in, when it is not this machine's - a server kept on
-# UTC, say. An IANA name, so daylight time comes and goes with the zone.
+# The zone times are shown in, when it is not this machine's - a server kept
+# on UTC, say. An IANA name, so daylight time comes and goes with the zone.
 # tz = "America/New_York"
 
 [filters]
-# Repos at the top of the filter pane (`f`) whether or not they are applied, in
-# this order - one `↵` away, in the same place every time. A name, or `owner/*`.
+# Repos listed first on the filter pane (`f`), in this order, whether or not
+# they are applied - in the same place every time, one `↵` away. A name, or
+# `owner/*`.
 pinned_repos = []
 
 [events]
-# Every change in these repositories is polled for, so their email
-# notifications can be turned off; their open lists become the backlog. A
-# repo as `owner/name`, polled exactly, or `owner/*` for everything that owner
-# has, swept with a search. This list is the whole list. `wl watching` prints
-# the repositories you watch on GitHub and have not listed, as lines to paste.
+# Repositories polled for every change, so their email notifications can be
+# turned off; their open lists become the backlog. A repo as `owner/name`,
+# polled exactly, or `owner/*` for everything that owner has, swept with a
+# search. This list is the whole list. `wl watching` prints the repositories
+# you watch on GitHub and have not listed, as lines to paste.
 repos = []
 
 # [agent]
-# What `T` runs in a pane, when it is not what your shell calls `claude`: the
-# program (`kind`), its flags (`args`), or a whole line instead (`command`).
+# What `T` runs in a pane, when it is not what your shell calls `claude`:
+# the program (`kind`), its flags (`args`), or a whole line instead
+# (`command`). `[[agent.list]]` entries are the agents `tab` picks among.
 # kind = "codex"
 # args = "--worktree-rw"
 # command = "/opt/homebrew/bin/claude --continue"
@@ -50,4 +54,5 @@ repos = []
 
 # [lanes] and [views] are shared in `config.toml`; a table of the same name
 # here adds a lane or a view, or replaces one of the same key. `'` then the
-# last entry in the browser copies the current filter as a view to paste here.
+# last entry in the browser copies the current filter as a view to paste
+# here.

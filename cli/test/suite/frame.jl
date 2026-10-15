@@ -1078,7 +1078,7 @@ end
     said = join((e isa String ? e : string(e[1], " ", e[2]) for e in W.HELP), "\n")
     table = false
     for line in eachline(joinpath(W.ROOT, "README.md"))
-        table |= line == "| key | |"
+        table |= line == "| key | | |"
         table && isempty(line) && break
         m = match(r"^\| (.*?) \| ", line)
         (table && m !== nothing) || continue

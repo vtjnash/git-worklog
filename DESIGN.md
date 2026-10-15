@@ -77,8 +77,9 @@ activity on yours, a thread you commented on - is fetched by url with its
 bundle the first time it is seen, whatever repository, open or closed. A
 watched repository's other traffic stays a **light row** (state, author,
 comment count; no bundle) until it is looked at. That is what reaches a
-question on an issue closed years ago, which no `is:open` search could. What no clock covers - a push, a label or a draft toggle on an open row
-of yours in a repository nobody polls, on a machine whose token cannot read
+question on an issue closed years ago, which no `is:open` search could. What
+no clock covers - a push, a label or a draft toggle on an open row of yours
+in a repository nobody polls, on a machine whose token cannot read
 notifications - is asked by url every refresh while it is open (`covered`).
 
 **The backlog** is the whole open list of every repository under `[events]`,
@@ -146,7 +147,7 @@ three passes and 2277 stamps because they disagreed: 366 rows whose
 `updated` had moved past `moved_at` (a push, a label, your own comment)
 could not be cleared by anything the marks wrote. `unread_items` is the one
 list, `seen_of` over the corpus and the light rows, and `wl unread`, `wl
-read all` and the browser's base list are on it.
+done all` and the browser's base list are on it.
 
 **The floor answers for a missing stamp, in every lane.** A row with no
 stamp is done up to the day its *source* was named - `floor_of`, off the
@@ -359,24 +360,23 @@ The rules behind the table, each of which cost a bug:
 - **Not in the table, on purpose:** `mergeable`, `unresolved`, labels,
   milestones, title edits, ready-for-review (arrives with the request that
   follows), a team being asked (the token cannot see it).
-- **What moved since you read is read off the keys, per frame.** The
-  pane's `why` row lists, newest first, every key of the wake table whose
-  time is past the done stamp - the same stamp `seen_of` compares, so the
-  words are the unread - `unread: pushed, comment`, `reviewed`, `review
-  requested`, `assigned`, `merged`, `new`, `woke` for a snooze that ran
-  out, and `agent` in front of them all for a bell standing on the item's
-  `T` pane, which has no time and is standing now (`moved_words`).
-  Computed and not stored: `e` empties it and a stamp
-  put back fills it, with no refresh between. Two movements have no time
-  to compare - the bool that rose (`CI failed`), the force-push of an older
-  commit - and for those the refresh keeps the key that set the stamp
-  beside it, `moved_by` (`movement`, which is `moved_stamp` answering the
-  second question too; `new` on first sight, `opened` for one of yours; the key it had when nothing
-  moved; caught up once off the stamp by `moved_key` for a row from before
-  it was kept). That is the *last* movement, dated `moved_at`, and is
-  listed whatever it was. A push is dated by `head_at` only while `head_by`
-  is not you: after a push of your own the date is yours, and theirs
-  before it is `moved_by`'s to say.
+- **What moved since you read is read off the keys, per frame.** The pane's
+  `why` row lists, newest first, every key of the wake table whose time is
+  past the done stamp - the same stamp `seen_of` compares, so the words are
+  the unread - `unread: pushed, comment`, `reviewed`, `review requested`,
+  `assigned`, `merged`, `new`, `woke` for a snooze that ran out, and `agent`
+  in front of them all for a bell standing on the item's `T` pane, which has
+  no time and is standing now (`moved_words`). Computed and not stored: `e`
+  empties it and a stamp put back fills it, with no refresh between. Two
+  movements have no time to compare - the bool that rose (`CI failed`), the
+  force-push of an older commit - and for those the refresh keeps the key
+  that set the stamp beside it, `moved_by` (`movement`, which is
+  `moved_stamp` answering the second question too; `new` on first sight,
+  `opened` for one of yours; the key it had when nothing moved; caught up
+  once off the stamp by `moved_key` for a row from before it was kept). That
+  is the *last* movement, dated `moved_at`, and is listed whatever it was. A
+  push is dated by `head_at` only while `head_by` is not you: after a push of
+  your own the date is yours, and theirs before it is `moved_by`'s to say.
 
 ## Time
 
@@ -387,10 +387,10 @@ process start was wrong for a browser open all day; a live clock read on the
 way *out* claims a moment after things it never saw. A default further in is
 how the second failure gets back in. The same rule forbids storing a
 time-derived number: `Item` carries the stamps and no age; the `3d ago`
-beside every date on screen is `ago_str` against the frame's `at`, put on the metadata pane by `meta_lines` and on a header by
-`rows` as it draws it, from a timestamp the node carries (`meta["at"]`) and
-never from a string kept on the node - a thread is fetched once and read for
-hours.
+beside every date on screen is `ago_str` against the frame's `at`, put on the
+metadata pane by `meta_lines` and on a header by `rows` as it draws it, from
+a timestamp the node carries (`meta["at"]`) and never from a string kept on
+the node - a thread is fetched once and read for hours.
 
 **A rule between rows names a calendar day; an age beside a date is a
 window.** `ago_str`'s `1d ago` floors twenty-four-hour windows from `at`,
@@ -810,31 +810,31 @@ without `gh`, so `hermetic` takes the token away too.
 and Base has no equivalent.
 
 **What it covers is read off a trace, not guessed.** The workload seeds the
-files a launch reads - `fetched.json` with an inbox, the cache under the first
-row (bundle, thread, meta, merge, checks, diff), a notice - launches as `ui`
-does, and drives keys through `step!`, one turn of `run!`'s loop, so the
+files a launch reads - `fetched.json` with an inbox, the cache under the
+first row (bundle, thread, meta, merge, checks, diff), a notice - launches as
+`ui` does, and drives keys through `step!`, one turn of `run!`'s loop, so the
 dialogs a key opens are drawn and answered too. What only the network or a
 TTY reaches is a list of `precompile` signatures beside it. To redo it, run
-the browser from `cli/precompile` with
-`--trace-compile=<file> --trace-compile-timing` inside a tmux session over a
-copy of `data/` (`WORKLOG_DATA`), press the keys, and read what is still
-compiled, biggest first. JSON3 typed an empty array, a nested object and a
-top-level one apart, so a path was covered only in the shapes it was seeded
-in; `JSON.parse` does not - every object is a `JSON.Object{String,Any}` and
-every array a `Vector{Any}` - but a fetch's lists still are typed by what is
-in them. So the readers of a thread's lists (`activity_list`, the node
-builders, `thread_seen`, `event_at`) are `@nospecialize` and loop
-rather than build a generator over a list, so that one shape covers every
-mix of empty and not. On 2026-09-26 the same session went from 18.1s of runtime compilation to
+the browser from `cli/precompile` with `--trace-compile=<file>
+--trace-compile-timing` inside a tmux session over a copy of `data/`
+(`WORKLOG_DATA`), press the keys, and read what is still compiled, biggest
+first. JSON3 typed an empty array, a nested object and a top-level one apart,
+so a path was covered only in the shapes it was seeded in; `JSON.parse` does
+not - every object is a `JSON.Object{String,Any}` and every array a
+`Vector{Any}` - but a fetch's lists still are typed by what is in them. So
+the readers of a thread's lists (`activity_list`, the node builders,
+`thread_seen`, `event_at`) are `@nospecialize` and loop rather than build a
+generator over a list, so that one shape covers every mix of empty and not.
+On 2026-09-26 the same session went from 18.1s of runtime compilation to
 2.6s. No tmux is needed for the trace: a script that loads the wrapper and
-drives `step!` over its own seeds does the same without a TTY. On
-2026-10-07 the composers were found that way - the first keystroke in one
-compiled `safe_dispatch!` and `safe_render` over an `EditorView`, 0.8s -
-and the workload opens each of them now. **What `__init__` runs is not the
-workload's to compile**: it runs when the wrapper's build loads `Worklog`,
-before the workload, so what it compiles there is never tagged for the
-image. The theme parse is a `precompile` line in `Worklog.jl` for that
-reason, and anything else `__init__` grows should be too.
+drives `step!` over its own seeds does the same without a TTY. On 2026-10-07
+the composers were found that way - the first keystroke in one compiled
+`safe_dispatch!` and `safe_render` over an `EditorView`, 0.8s - and the
+workload opens each of them now. **What `__init__` runs is not the workload's
+to compile**: it runs when the wrapper's build loads `Worklog`, before the
+workload, so what it compiles there is never tagged for the image. The theme
+parse is a `precompile` line in `Worklog.jl` for that reason, and anything
+else `__init__` grows should be too.
 
 **Its manifest is `cli/Manifest.toml` plus one entry**, never resolved fresh:
 copy, fix the two relative `../` paths, `Pkg.resolve()`. Check:
@@ -1317,18 +1317,18 @@ Each of the following returns success and the wrong answer:
   the pipe and joins them with `;` only into one process.
 - **A control client has to attach to stay open.** `tmux -C` with any other
   command runs it, says `%exit` and quits; and attaching to one of ours
-  clears its bell. So the command pipe (`mux_pipe_open`) parks on a
-  session of its own, which `tmux ls` shows and `wl` does not list, `_wl-ctl-<pid>`, where a session beside it kept
-  `attached=0` and its bell. A process is 3.2 ms a command, the pipe
-  0.04 to 0.16 ms one at a time (3.5a). It is open while a `wl-` session is (`watch_sessions!` closes it
-  on the `%sessions-changed` that leaves none), since opening one starts a
-  server and holding one keeps it up; one-shot commands never open it.
+  clears its bell. So the command pipe (`mux_pipe_open`) parks on a session
+  of its own, which `tmux ls` shows and `wl` does not list, `_wl-ctl-<pid>`,
+  where a session beside it kept `attached=0` and its bell. A process is 3.2
+  ms a command, the pipe 0.04 to 0.16 ms one at a time (3.5a). It is open
+  while a `wl-` session is (`watch_sessions!` closes it on the
+  `%sessions-changed` that leaves none), since opening one starts a server
+  and holding one keeps it up; one-shot commands never open it.
   `switch-client` and the attach behind `mux_seen!` are spawned always: they
-  are about the client that asks, which down the pipe would be the pipe.
-  A session started down it takes the `update-environment` list from the
-  pipe's client, which is this browser's environment as it launched - what
-  a spawn would hand over too (the same size, directory and variables,
-  measured).
+  are about the client that asks, which down the pipe would be the pipe. A
+  session started down it takes the `update-environment` list from the pipe's
+  client, which is this browser's environment as it launched - what a spawn
+  would hand over too (the same size, directory and variables, measured).
 - **`destroy-unattached` set on a session nobody is attached to ends it on
   the spot** (3.5a). The pipe's session is given it once its client is on,
   and then goes with the client: a browser killed outright closes the
@@ -1392,23 +1392,23 @@ Each of the following returns success and the wrong answer:
   hold the old faces, are rebuilt from the cache in place.
 - **The terminal's background is asked for the panes, and tmux answers
   them.** `OSC 11 ?` goes with `CSI ? 996 n`, and again when a 997 report
-  flips; the answer is `SchemeEvent`'s `bg`, whenever it arrives, and
-  nothing waits for it. `ESC ]` heads an OSC as `ESC [` heads a CSI, read to
-  its terminator by TermInput's `readevent` however many reads that takes, so
-  its tail is never keys; Alt-] is spent on that, and nothing bound it. A pane's raw
-  read that ends partway into either report reads on until it is one or
-  cannot be (`readraw`), so neither reaches the child in halves. It goes to tmux as `refresh-client -r %pane:` (`mux_bg!`):
-  tmux answers a child's `OSC 11 ?` only from a colour it holds, and with
-  only a control client attached it holds none and says nothing
-  (`input_osc_colour_reply`, 3.5a and 3.6) - so nvim took `dark` whatever
-  the terminal was. Seeded, tmux answers every query itself, at once and in
-  the child's terminator, and `CSI ? 996 n` from the same colour. A new pane
-  is seeded while it is still `cat`, with the pipe opened for it there
-  (`mux_start`'s `pipe`), because nvim asks as it starts; a running one when
-  the colour changes or the pipe opens. The seed counts only while a control
-  client is on the server, which is while wl is. A running child is not told
-  of a change: tmux sends 997 into a pane on a change of its style, not of
-  the seed.
+  flips; the answer is `SchemeEvent`'s `bg`, whenever it arrives, and nothing
+  waits for it. `ESC ]` heads an OSC as `ESC [` heads a CSI, read to its
+  terminator by TermInput's `readevent` however many reads that takes, so its
+  tail is never keys; Alt-] is spent on that, and nothing bound it. A pane's
+  raw read that ends partway into either report reads on until it is one or
+  cannot be (`readraw`), so neither reaches the child in halves. It goes to
+  tmux as `refresh-client -r %pane:` (`mux_bg!`): tmux answers a child's `OSC
+  11 ?` only from a colour it holds, and with only a control client attached
+  it holds none and says nothing (`input_osc_colour_reply`, 3.5a and 3.6) -
+  so nvim took `dark` whatever the terminal was. Seeded, tmux answers every
+  query itself, at once and in the child's terminator, and `CSI ? 996 n` from
+  the same colour. A new pane is seeded while it is still `cat`, with the
+  pipe opened for it there (`mux_start`'s `pipe`), because nvim asks as it
+  starts; a running one when the colour changes or the pipe opens. The seed
+  counts only while a control client is on the server, which is while wl is.
+  A running child is not told of a change: tmux sends 997 into a pane on a
+  change of its style, not of the seed.
 - A one-row field must hold one row: `showerror` embeds a newline, and one
   element holding a newline scrolls the screen and shifts every mouse click.
   `oneline`.
@@ -1629,18 +1629,18 @@ Each of the following returns success and the wrong answer:
   attached, a `window-style` bg) would be answered twice.
 - **`p` uses a checkout**; there is no endpoint.
 - **`d` uses the checkout too, when one is pinned, and GitHub without.** Both
-  ends are known - the head and where the base branch was, `headRefOid`
-  and `baseRefOid` off the lanes - so the diff is `git diff` from their
-  merge base, computed each time: two shas the checkout has are
-  milliseconds and never stale, and there is nothing to key a cache by.
-  GitHub's diff by number was a clock, fresh for two minutes whatever was
-  pushed inside them and a request every two minutes after. A sha the checkout lacks is fetched once. Without a
-  base sha (an old record) the base *branch* answers, and must be fetched
-  every time: a copy older than the fork point puts the base's own commits
-  in the diff, and nothing local can tell that copy from a branch made off
-  the current tip - both have the base as an ancestor of the head - so when
-  the fetch fails and the base is an ancestor the checkout declines, since
-  GitHub's copy is the better answer than a wrong one.
+  ends are known - the head and where the base branch was, `headRefOid` and
+  `baseRefOid` off the lanes - so the diff is `git diff` from their merge
+  base, computed each time: two shas the checkout has are milliseconds and
+  never stale, and there is nothing to key a cache by. GitHub's diff by
+  number was a clock, fresh for two minutes whatever was pushed inside them
+  and a request every two minutes after. A sha the checkout lacks is fetched
+  once. Without a base sha (an old record) the base *branch* answers, and
+  must be fetched every time: a copy older than the fork point puts the
+  base's own commits in the diff, and nothing local can tell that copy from a
+  branch made off the current tip - both have the base as an ancestor of the
+  head - so when the fetch fails and the base is an ancestor the checkout
+  declines, since GitHub's copy is the better answer than a wrong one.
 - **`^u` kills to the start of the line** (readline), not the whole line.
 - **The mouse is owned**, `m` gives it back.
 - **Markdown is drawn by TermInput, from the stdlib's tree** (2026-09-30).

@@ -1,149 +1,117 @@
-# Work dashboard configuration - the shared half.
+# worklog configuration - the shared half.
 #
 # Two files, read as one. This one is versioned with the program and names
-# nobody: every key, its default, and the comment that is its manual. The other
-# is `data/config.toml`, yours, written once from `config.user.toml` the first
-# time `wl` runs and never touched by the program again: your login, your
-# theme, the repositories you poll and pin, and any key here you want otherwise.
+# nobody: every key, its default, and the comment that is its manual. The
+# other is `data/config.toml`, yours - written once from `config.user.toml`
+# the first time `wl` runs and never touched by the program again.
 #
-# The merge is two levels deep. A top-level value in your file replaces the one
-# here; a top-level table merges key by key; whatever sits under one of those
-# keys replaces whole. So `[thresholds] reply_days` overrides one number,
-# `[events] repos` in your file *is* the list and not additions to this one,
-# and a `[views."name"]` of the same name replaces the view.
+# The merge is two levels deep: a top-level value in your file replaces the
+# one here, a top-level table merges key by key, and whatever sits under one
+# of those keys replaces whole. So `[thresholds] reply_days` overrides one
+# number, `[events] repos` in your file *is* the list, and a `[views."name"]`
+# of the same name replaces the view.
 
-# Your GitHub login. Set in `data/config.toml`; nothing runs without it. It is
-# how a row is read as yours or not - the lanes below do not need it, since
-# `@me` in a search is whoever holds the token.
+# Your GitHub login: how a row is read as yours or not. Set it in
+# `data/config.toml`; nothing runs without it. The lanes below do not need
+# it, since `@me` in a search is whoever holds the token.
 login = ""
 
-# Which file under `themes/` the colours are read from. One name, and it is the
-# only thing that turns colour on: an empty value, a missing key or a file that
-# is not there draws everything plain, with no escapes printed at all - so
-# `theme = ""` is the way to ask for that. A misspelt role or colour inside the
-# file is reported on stderr at startup and drawn as nothing; the file itself
-# says what the roles are and what a colour may be written as. A terminal that
-# says whether it is dark or light (VS Code's, tmux 3.6+) gets the file of the
-# same name with `light` and `dark` swapped, where there is one, and is
-# followed when it changes; a name with neither word is used as it is.
+# The file under `themes/` the colours come from. Empty, or a file that is
+# not there, draws everything plain, with no escapes printed at all. A
+# misspelt role or colour inside the file is reported on stderr at startup
+# and drawn as nothing; the file itself says what the roles are and how a
+# colour is written. Where the terminal says whether it is dark or light
+# (VS Code's, tmux 3.6+), a name with `light` or `dark` in it is swapped for
+# the file with the other word, when there is one, and follows the terminal
+# when it changes.
 theme = "github-light-256.toml"
 
 # The zone times are shown in, as an IANA name - `America/New_York`, not
-# `-05:00`, since a zone knows when daylight time starts and an offset is right
-# for half the year. A bare date typed as a snooze is midnight there. Empty is
-# the zone `wl` was started in: `TZ`, or the machine's. Only what is shown:
-# every stamp is still stored and compared in UTC.
+# `-05:00`, so daylight time comes and goes with the zone. A bare date typed
+# as a snooze is midnight there. Empty is the zone `wl` was started in: `TZ`,
+# or the machine's. Display only: every stamp is stored and compared in UTC.
 tz = ""
 
-# The sign of life: once a second the corner of the pane that has the keys is
-# redrawn, lit on one tick and quiet on the next, so a screen where nothing is
-# happening can be told from a program that has stopped. One cell, written
-# only when no frame is due; a terminal that is not taking output - a pty
-# under ssh or tmux whose link has stalled - blocks the write and with it
-# every pulse after, so nothing is added to what is already waiting on the
-# link. false turns it off.
+# The sign of life: once a second the corner of the pane that has the keys
+# is redrawn, lit on one tick and quiet on the next, so a quiet screen can be
+# told from a stopped program. One cell, written only when no frame is due;
+# over a stalled ssh or tmux link the write blocks, so nothing piles up
+# behind it. false turns it off.
 liveness = true
 
 [thresholds]
-# A mention this recent, with the last word not yours, is a question owed a reply.
+# A mention this recent, with the last word not yours, is a question owed a
+# reply: the `reply` tag.
 reply_days = 30
-# Silence this long, in *working* days, wants a second look: the author spoke or
-# pushed and nobody answered, or somebody approved it and nothing happened after.
-# Unlike a snooze this needs no asking for - the failure it catches is work going
-# quiet without anyone deciding it should - and it is about an answer being
-# owed, not about a pull request being old: there is no "stale" threshold here,
-# because age alone is not a reason to be told about something.
+# Silence this long, in *working* days, wants a second look - the `second`
+# tag: the author spoke or pushed and nobody answered, or somebody approved
+# it and nothing happened after. It is about an answer being owed, not about
+# age, so there is no "stale" threshold and no far end: age alone is not a
+# reason to be told about something, and a row that should leave the lane
+# leaves it by `s` - a decision, recorded, reversible with `z`.
 second_look_days = 2
-# There is no far end. `second_look_max_days` used to cap it at 20, so quiet
-# past that stopped being reported at all - which meant a row left the lane on a
-# day nobody chose and with nothing written down about it. The lane is newest
-# first, so an old row is at the bottom rather than in the way, and taking one
-# out is `s` `1`: a decision, recorded, reversible with `z`, and it comes back
-# on its own when the thing finally moves.
 
 [lanes]
-# GitHub search syntax. Each lane is one paginated GraphQL search, and the
-# three of them are the open work: what you wrote, what you were asked to
-# review, what you were handed. Asked for whole on every refresh - `u` in the
-# browser - because they do two things at once that nothing else does as
-# cheaply: they find the standing set (a pull request of yours that nobody has
-# touched notifies nobody) and they bring back everything the tags are made of,
-# for every row in it - CI, the review threads, the draft flag - which change
-# without any clock saying so. ~135 rows, 16 points, fifteen seconds.
+# GitHub search syntax, one paginated GraphQL search each. The three are the
+# open work - what you wrote, what you were asked to review, what you were
+# handed - and are fetched whole on every refresh, because that both finds
+# the standing set (a pull request nobody has touched notifies nobody) and
+# brings back everything the tags are made of - CI, the review threads, the
+# draft flag - which change without any clock saying so. Everything else
+# arrives through the clocks under `[events]` and is fetched by url only
+# when one says it moved; a row nothing returns is `I`, an import. Nothing
+# leaves: a finished pull request of yours stays, and so does a mention on a
+# closed issue.
 #
-# Everything else the dashboard shows is *not* searched for. It arrives through
-# the clocks under `[events]` - the repositories polled there and, when the
-# token allows, your GitHub notifications - and a row is fetched by url the
-# first time a thread names you, and again only when a clock says it moved.
-# Nothing leaves: the dashboard is the index of everything that was ever in
-# front of you, done or not - the `done` and `filed` boxes hold the done and
-# the filed - and a finished pull request of yours stays, as does the mention
-# on a years-old closed issue, which arrives the same way as one on an open one.
-# Until 2026-09-13 there were nine more lanes here - three for what had recently
-# closed, six searching for mentions and comments, and a firehose of every open
-# julia pull request - two thousand rows fetched every six hours so the ones
-# that moved could be noticed. A row you want that nothing here returns is `I`:
-# an import, fetched by url from then on.
+# `sort:created-asc` is load-bearing. A lane sorted this way is walked as a
+# series of *first* pages, each asked from the creation time of the last row
+# read (`created:>=`), and creation time never changes - so a row opening or
+# closing between two pages cannot shift the boundary, as it can under
+# GraphQL's offset cursor. Without the sort a lane walks by offset, with that
+# caveat.
 #
-# `sort:created-asc` on each, and it is load-bearing: `search` reads a lane
-# sorted this way as a series of *first* pages, each asked from the creation
-# time of the last row read (`created:>=`), rather than by GraphQL's offset
-# cursor over a list that the set can shift under - a pull request of yours
-# closing mid-walk used to slip one row past a page boundary for a run, and a
-# reopen beside it hid even the count. Creation time never changes, so the
-# boundary holds whatever opens or closes between two pages. Without the
-# sort a lane walks by offset, with that caveat. The windowed walks in
-# `events.jl` are ascending by `updated`
-# instead, so that an item touched mid-walk moves to the end and is read
-# again with its new stamp in the same poll; their cursor is the poll's start
-# time, which is safe in any order, and the ascending order only saves the
-# re-read. These lanes have no cursor - the whole set, every run - so the
-# order that never moves is the right one.
-#
-# `@me` is GitHub's: the user the token belongs to, in `author:`, `assignee:`,
-# `review-requested:` and the rest. It is why these three can be shared as
-# they stand. A lane in `data/config.toml` under the same key replaces the one
-# here, and a new key there is a fourth lane, walked after these; the first
-# lane to claim a url keeps it.
+# `@me` is whoever holds the token, so these three can be shared as they
+# stand. A lane of the same key in `data/config.toml` replaces it; a new key
+# there is a fourth lane, walked after these. The first lane to claim a url
+# keeps it.
 mine     = "is:open is:pr author:@me archived:false sort:created-asc"
 review   = "is:open is:pr review-requested:@me archived:false sort:created-asc"
 assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 
-# Named filter sets for `'` in the browser. Eight are built in - notification
-# firehose, my work, open items, ready to merge, approved, second look theirs,
-# second look mine, everything - and a table here adds one,
-# or replaces a built-in of the same name. Every axis the view does not name is cleared when
-# it is applied, so a name always means the same list. `'` then the last entry
-# copies the TOML for whatever filter you are looking at, to paste into
-# `data/config.toml`; the browser never writes that file.
+# Named filter sets for `'` in the browser. Eight are built in - the
+# firehose, my work, the backlog, ready to merge, approved, second look
+# theirs, second look mine, everything - and a table here adds one, or
+# replaces a built-in of the same name. Every axis a view does not name is
+# cleared when it is applied, so a name always means the same list. `'` then
+# the last entry copies the TOML for the filter on screen, to paste into
+# `data/config.toml`.
 #
-# The axes: `show` (not-done, done, filed), `state` (open, closed), `tag` (reply, mentioned,
-# review, edits, ready, approved, second, touched, drafts, snoozed), `kind` (pr - a pull request
-# that is not a draft - draft, issue, notice - a notification that is neither, a release or a
-# CI run, which is `closed` on `state`; every pull request is `["pr", "draft"]`), `lane`,
-# `repo`, `label`, `author`, `sort`. `lane` is which search claimed the row - the keys under
-# `[lanes]`, plus `imported`, `carried`, `activity` for a row only the poll
-# saw, `notifications` for one GitHub notified you of, and `local` for an
-# adopted branch. `sort` is one of `moved`, `latest`, `touched`, `name` - by
-# when it moved, by the later of that and when you acted, by when you acted,
-# by url - and a view that names none opens in the order its selection
-# implies: the three built-in views each open in the order made for them,
-# and `w` cycles from there.
+# The axes:
+#   show   not-done, done, filed
+#   state  open, closed
+#   tag    reply, mentioned, review, edits, ready, approved, second, touched,
+#          drafts, snoozed
+#   kind   pr (a pull request that is not a draft), draft, issue, notice (a
+#          notification that is neither - a release, a CI run - and `closed`
+#          on `state`). Every pull request is `["pr", "draft"]`.
+#   lane   which search claimed the row: the keys under `[lanes]`, plus
+#          `imported`, `carried`, `activity` (only the poll saw it),
+#          `notifications`, and `local` for an adopted branch
+#   repo, label, author
+#   sort   moved, latest, touched, name - by when it moved, by the later of
+#          that and when you acted, by when you acted, by url. Unset, the
+#          view opens in the order its selection implies, and `w` cycles
+#          from there.
 #
-# `show` and `state` only ever add: each value brings a kind of row in beside
-# the others, and none of them takes another's rows away. A row is under one
-# value of each - `not-done` is the unfiled work that moved since you looked,
-# `done` the rest of the unfiled work, `filed` what you put away with `x`;
-# `open` or `closed` is GitHub's state - and is in when both are checked. A
-# view that names neither gets not-done, open or closed, which is the
-# notification list and is what the firehose is, so it names nothing. A view
-# that does name one names the whole of it: `show = ["not-done", "done"]` with
-# `state = ["open"]` is the open work with the done ones beside it and no
-# closed row at all - the backlog - and `show = ["filed"]` is the filed work
-# on its own. An axis or a value that is not one of the above is reported when
-# the view is applied rather than ignored - `seen` and `sleep` were axes here
-# once, `base` and `closed` values of `show`, and a view still naming one
-# would otherwise go on being applied and mean something else.
+# `show` and `state` only ever add: each value brings its rows in beside the
+# others. A row is under one value of each - `not-done` is the unfiled work
+# that moved since you looked, `done` the rest of the unfiled work, `filed`
+# what `x` put away; `open` or `closed` is GitHub's state - and is in when
+# both are checked. A view naming neither gets not-done in both states,
+# which is the firehose. One that names an axis names the whole of it:
+# `show = ["not-done", "done"]` with `state = ["open"]` is the backlog, and
+# `show = ["filed"]` is the filed work alone. An unknown axis or value is
+# reported when the view is applied, not ignored.
 #
 # [views."subtyping, quiet"]
 # tag = ["second"]
@@ -151,147 +119,122 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 # label = ["types and dispatch"]
 
 [filters]
-# Repos listed on the filter pane (`f`) whether or not they are applied, first
-# and in this order, at zero too - so each is in the same place every time,
-# one `↵` away. Every other repo is behind the picker row under them. A name,
-# or `owner/*` for every repo of that owner the dashboard has a row from.
-# Yours, in `data/config.toml`; none by default.
+# Repos listed first on the filter pane (`f`), in this order, whether or not
+# they are applied - so each is in the same place every time, one `↵` away.
+# Every other repo is behind the picker row under them. A name, or `owner/*`
+# for every repo of that owner the dashboard has a row from. Yours, in
+# `data/config.toml`.
 pinned_repos = []
 
 [events]
-# Every comment and state change in these repos is logged locally, so the
-# per-event email notifications can be turned off. Polled with `since=`, which
-# is lossless - the cursor is ours, so nothing is missed because it was read
-# somewhere else. Volume is ~300 events/week across these.
-# An entry is either a repo, polled exactly with `since=`, or `owner/*`, which
-# is every repo that owner has. A glob is asked as two searches - one for issues
-# and one for pull requests - rather than as a poll per repo: `vtjnash/*` is two
-# hundred repos, and two hundred requests on every browser launch is not a thing
-# to do for a handful of comments. The cost is search's eventual consistency -
-# a change can take minutes to be searchable, and the sweep asks from fifteen
-# minutes behind its cursor for that - and the search rate limit, thirty a
-# minute; not the 1000-row cap, since a sweep cut short answers with where it
-# got to and the rest is the next poll's. A repo that has to be seen the
-# moment it moves is still named here.
-# Beside these, and not configured here: `/notifications` itself is polled the
-# same way whenever the token is a person's and not a GitHub App's - `gh auth
-# token` off the sandbox; the sandbox's own token cannot read it, and there the
-# source is skipped and says so, unless `data/notifications.token` holds one
-# that can, which is not a file to keep where others can read it. That is
-# what reaches a closed thread outside every repo below, and a repo watched on
-# github.com and never listed here. Those rows say `notifications` on the lane
-# axis, and the reason GitHub gave under `why`. The list stays the statement of
-# what is polled exactly.
+# Repositories polled for every comment and state change, so their email
+# notifications can be turned off. An entry is a repo, `owner/name`, polled
+# exactly with `since=` - lossless, since the cursor is ours - or `owner/*`,
+# every repo that owner has, swept as two searches (issues, pull requests)
+# rather than a poll per repo. The sweep pays for that with search's
+# eventual consistency - a change can take minutes to be searchable, so it
+# asks from fifteen minutes behind its cursor - and search's rate limit,
+# thirty a minute; a sweep cut short carries on from where it got to on the
+# next poll. A repo that has to be seen the moment it moves is named
+# outright.
 #
-# What none of this reaches, said plainly: a Discussion, a Release, a commit
-# comment - the notifications source sees each arrive and skips it, since
-# nothing here can open one; a repository the `gh` token cannot see, which the
-# notifications token may - such a thread stays a light row and is asked again
-# while it is unread; and a push, a label, a draft toggle or an unassignment on
-# a row outside every repo here, which notify nobody - so an open row of yours
-# that no lane returns and no repo here covers is asked by url every refresh.
+# Beside these, `/notifications` is polled the same way whenever the token
+# is a person's and not a GitHub App's (README, *Authentication*). That is
+# what reaches a closed thread outside every repo here, and a repo you watch
+# on github.com and never listed. Those rows say `notifications` on the lane
+# axis, with the reason GitHub gave under `why`.
 #
-# Yours, in `data/config.toml` - the list there is the whole list. None by
-# default: with nothing here the dashboard is the three lanes and, when the
-# token allows, your notifications. `wl watching` prints the repositories you
-# watch on GitHub and have not listed, as lines to paste.
+# What none of this reaches: a Discussion, a Release or a commit comment is
+# a notice, not an item; a repository the token cannot see stays a light
+# row, asked again while it is unread; and a push, a label, a draft toggle
+# or an unassignment on a row outside every repo here notifies nobody - so
+# an open row of yours that no lane returns and no repo here covers is asked
+# by url every refresh.
+#
+# Yours, in `data/config.toml`, and the list there is the whole list. With
+# nothing here the dashboard is the three lanes and, when the token allows,
+# your notifications. `wl watching` prints the repositories you watch on
+# GitHub and have not listed, as lines to paste.
 repos = []
-# Whether a glob keeps the owner's forks. Keeping them is free: the sweep is the
-# same one search either way and spends no GraphQL points - those go on the
-# refresh lanes - while *skipping* them costs a repo listing per owner per day,
-# to tell which is which. So they are kept, and false is the noise control for
-# when a glob starts dragging in other people's projects: 171 of the repos under
-# `vtjnash/*` are forks, though none has produced an item in months. A repo
-# named outright above is never filtered either way.
+# Whether a glob keeps the owner's forks. Keeping them is free - the sweep is
+# the same search either way - while skipping them costs a repo listing per
+# owner per day. false is the noise control for a glob that drags in other
+# people's projects. A repo named outright above is never filtered.
 include_forks = true
-# How far back a source starts the *first* time it is seen. 0 is inbox zero:
-# turning one on brings nothing with it, and everything after that is caught by
-# the cursor. Only ever used once per source; after that the `source:` blocks in
-# `data/local.toml` say where each one has been done up to.
-#
-# 0 since 2026-09-14, as policy: the unread side starts at now. It was 30
-# while the corpus was rebuilt from nothing, and a month of a repository's
-# traffic arriving unread at once is not what naming it should mean. What the
-# dashboard remembers is the corpus, which nothing leaves; and what a repository
-# named here brings with it is its **open list** - every open issue and pull
-# request, as `backlog` rows, done by construction and unread the moment one
-# next moves - on its first sight, and for every repository here on
-# `wl refresh --backlog`. The backlog view is that standing list; the dashboard
-# is only what moved.
+# How far back a source starts the *first* time it is seen, in days. 0 is
+# inbox zero: naming a repository brings nothing unread with it, and
+# everything after is caught by the cursor. What it does bring is its open
+# list, as `backlog` rows - done by construction, and unread the moment one
+# next moves; `wl refresh --backlog` does that for every repository here.
+# Used once per source; after that the `source:` blocks in `data/local.toml`
+# say where each is done up to.
 backfill_days = 0
-# The activity query runs on every browser launch and is several paginated
-# requests per repo, so a source is not re-polled until this long after the last
-# one. It used to be a cache keyed by the cursor as well, which is gone: the
-# cursor moves every poll, so every entry was written once and never read again.
+# The activity poll runs on every browser launch and is several paginated
+# requests per repo, so a source is not polled again until this long after
+# the last time.
 activity_ttl_seconds = 120
 
 [cache]
-# On-disk cache for what the browser reads about one item - the thread, the
-# diff, the reviewers, the checks - which it hits repeatedly as you move over
-# the same items. An entry is shown for `keep_days` and is *current* for
-# `fresh_minutes`: past that it still goes up at once, and a re-read runs
-# behind it once the item has been on screen for a second. Short by design:
-# these are things people are actively replying to.
+# On-disk cache of what the browser reads about one item - the thread, the
+# diff, the reviewers, the checks. An entry is shown for `keep_days` and is
+# current for `fresh_minutes`; past that it still goes up at once, and a
+# re-read runs behind it once the item has been on screen for a second.
+# Short by design: these are things people are actively replying to.
 fresh_minutes = 2
 keep_days = 30
-# `mergeable` has a window of its own. A clean answer past this is not shown at
-# all - master moved, a check finished - and the pane waits on the question
-# being asked again; a conflict stays as long as anything else does.
+# `mergeable` has a window of its own. A clean answer older than this is not
+# shown at all - master moved, a check finished - and the pane waits on the
+# question being asked again; a conflict stays as long as anything else.
 merge_minutes = 10
 
 [mouse]
-# How far apart two presses can be, in seconds, and still be one double click:
-# in the list and the thread, where it copies, and in the pickers - `'`, the
-# checkout chooser, `"` - where it is `↵`. Longer than a terminal's own, since
-# a double click here copies rather than selects, and the slower window is the
-# one that catches the gesture people actually make.
+# How far apart two presses can be, in seconds, and still be one double
+# click - which copies in the list and the thread, and is `↵` in the pickers
+# (`'`, `"`, the checkout chooser). Longer than a terminal's own, since a
+# double click here copies rather than selects, and the slower window is
+# the one that catches the gesture people actually make.
 double_click_seconds = 0.5
 # How fast a drag held past the top or bottom of the thread, or of a hosted
 # pane, scrolls, in rows a second, whether or not the pointer moves.
 drag_scroll_rows_per_second = 40
 
 [agent]
-# What `T` runs in a pane. The default is `$SHELL -ic claude`, because an agent
-# is more often a shell alias or a function than a file on `PATH`. Both parts of
-# `-ic` matter: without `-i` the shell reads no rc file *and* has alias
-# expansion off, and with `exec` in front the alias would not be looked up at
-# all, since aliases expand in command position only.
+# What `T` runs in a pane. The default is `$SHELL -ic claude`, because an
+# agent is more often a shell alias or a function than a file on `PATH`:
+# `-i` reads the rc file and turns alias expansion on, and `-c` puts the
+# name in command position, where aliases expand. Leave it unset if your
+# `claude` is an alias you want to stay in sync - a copy here would be a
+# second definition to drift. Three keys say what runs, here and in each
+# `[[agent.list]]` entry:
 #
-# Leave it unset if your `claude` is a shell alias you want to stay in sync -
-# reading it is the whole point, and a copy here would be a second definition to
-# drift. Three keys say what runs, here and in each `[[agent.list]]` entry:
-#
-# `kind` is the program, run through that shell so an alias of its name
-# resolves - `claude` unless set, or `codex`, or whatever your shell calls the
-# agent. `claude` is the one kind that also gets `--settings` with the contents
-# of `cli/claude-settings.json`: hooks that ring the pane's bell when a turn
-# ends or a permission is asked, which is what makes the item unread (`why
-# unread: agent`) and the worktree list's `T` yellow. The contents and not the
-# path, since a sandboxed `claude` does not see this checkout. Another kind has
-# no use for them and gets nothing.
+# `kind` - the program, run through that shell so an alias of its name
+# resolves: `claude` unless set, `codex`, or whatever your shell calls the
+# agent. `claude` alone also gets `--settings` with the *contents* of
+# `cli/claude-settings.json` (a sandboxed `claude` cannot see this
+# checkout): hooks that ring the pane's bell when a turn ends or a
+# permission is asked, which is what makes the item unread (`why unread:
+# agent`). Another kind gets nothing.
 # kind = "codex"
 #
-# `args` go on the program's line after that, verbatim, in the shell's syntax -
-# the usual want is a flag, and this is how to add one without spelling the
-# shell, the alias and the settings out again. Not `command = "$SHELL -ic claude
-# --worktree-rw"`: `-c` takes one word as its script and the rest as `$0`,
-# `$1`..., so that runs the bare alias.
+# `args` - flags, added verbatim after the program, in the shell's syntax.
+# This is the way to add one: `command = "$SHELL -ic claude --worktree-rw"`
+# would run the bare alias, since `-c` takes one word as its script and the
+# rest as `$0`, `$1`...
 # args = "--worktree-rw"
 #
-# `command` replaces the lot when the agent is not a name at all: a wrapper
-# script, a path, a different shell. Nothing is added to it but `args` and the
-# prompt - no `--settings`, since only `claude` reads them - so a command that
-# is still `claude` keeps the bell by reading the file on the way. The shell
-# tmux runs it through is the server's own, so this is its syntax:
+# `command` - a whole line that replaces the lot, for a wrapper script, a
+# path or a different shell. Only `args` and the prompt are added to it - no
+# `--settings` - so a command that is still `claude` keeps the bell by
+# reading the file itself. tmux runs it through the server's own shell, so
+# that is its syntax:
 # command = '/opt/homebrew/bin/claude --continue --settings "$(cat /path/to/git-worklog/cli/claude-settings.json)"'
 #
-# A new agent asks what it should do before it starts, and what is typed goes
-# on its command line as the last argument - quoted, after `args` - so its
-# first turn is under way by the time the pane is up. `↵` with nothing typed
-# starts it waiting, as `T` used to. `tab` there picks among the agents listed
-# here, and the prompt starts on the first; with no list it is the one above.
-# An entry with none of the three keys is that one too, so the list can name it
-# beside others; an entry with no `name` is called by what it runs:
+# A new agent asks what it should do before it starts, and what is typed
+# goes on its command line as the last argument, quoted, after `args`; `↵`
+# with nothing typed starts it waiting. `tab` there picks among the agents
+# listed here, starting on the first; with no list it is the one above. An
+# entry with none of the three keys is that one too, so the list can name it
+# beside others; an entry with no `name` is called by what it runs.
 # [[agent.list]]
 # name = "claude"
 # [[agent.list]]
