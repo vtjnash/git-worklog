@@ -209,11 +209,13 @@ none, `5` the draft as it stands, `6` throws it away, asking once more
 first - and leaving the item
 asks whether to. Once the branch has moved
 under an open draft, the next `C` says to send the draft first.
-A diff is one node per hunk, headed by its file, its range, the function
-git names after the `@@` - the line `diff -p` prints there - and how many
-lines it adds and takes away; while a hunk is scrolled under the pane its
-header stays on the top row, so the file and the function are never off the
-screen, and a click there is a click on the header.
+A diff is one node per hunk, headed by its file, its range and how many
+lines it adds and takes away, with the function git names after the `@@` -
+the line `diff -p` prints there - on the row under the header, in the
+column the hunk's own lines are in, until `[` widens the hunk over it. While
+a hunk is scrolled under the pane, its top row says the file, the function
+and the counts - never the range, since the rows it starts with are what
+scrolled off - and a click there is a click on the header.
 Existing review threads hang off the hunk they point into, resolved ones
 folded, and the line each is on carries `💬` in the margin, over the border.
 A control character in a diff is drawn as `^[`, `^G`, `^M` rather than sent

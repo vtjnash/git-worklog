@@ -1018,23 +1018,33 @@ function hunk_node(file::String, buf::Vector{String},
 end
 
 """A hunk's header, from what its node carries: the file, the new-side range,
-git's function context after the second `@@` - what `diff -p` puts there -
 how many lines it adds and takes away, how far `[`/`]` has widened it, and the
 tally of threads `attach_comments` hung under it. One builder, because three
 places make one - the parse, the tally, the widening - and the widening used
-to rebuild it by hand and lose the counts on the way."""
+to rebuild it by hand and lose the counts on the way. The function git named
+is not on it: that is a row of its own under the header (`hunk_func`), where
+its column 0 is the diff's."""
 function hunk_header(n::Node)
     m = n.meta
-    func = jstr(m, :func, "")
-    v = get(m, "lines", nothing)
-    adds, dels = v isa Tuple{Int,Int} ? v : (0, 0)
     up, down = jint(m, :up, 0), jint(m, :down, 0)
     string(jstr(m, :file, ""), "  @@ ", jint(m, :start, 0), ",", jint(m, :count, 0), " @@",
-           isempty(func) ? "" : string(" ", func),
-           "  +", adds, " -", dels,
-           up > 0 ? string("  ↑", up) : "",
+           hunk_counts(n), up > 0 ? string("  ↑", up) : "",
            down > 0 ? string("  ↓", down) : "") * row(get(m, "tally", ""))
 end
+
+"The `+3 -1` of a hunk's header, as the pin over a scrolled hunk says it too."
+function hunk_counts(n::Node)
+    v = get(n.meta, "lines", nothing)
+    adds, dels = v isa Tuple{Int,Int} ? v : (0, 0)
+    string("  +", adds, " -", dels)
+end
+
+"""The function git named over the hunk, as `diff -p` prints it after the
+second `@@`, while it still holds: `[` widening the hunk upwards puts other
+lines between that line and the first one shown - the function itself, or the
+one before it - so once `up` is past 0 it is said nowhere. Empty for a hunk
+git named none over."""
+hunk_func(n::Node) = jint(n.meta, :up, 0) > 0 ? "" : jstr(n.meta, :func, "")
 
 """The row that says `inert` found something, for the top of a diff.
 

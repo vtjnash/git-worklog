@@ -26,16 +26,18 @@ Nothing now.
 
 ## Unverified
 
-- [ ] **A hunk's header stays on the top row, and says its function.** Under
-  `d` on a pull request whose hunks are taller than the pane, `j` into one:
-  once its header scrolls off, the pane's first row is that header - file,
-  `@@ 12,5 @@`, the function git names after it, `+3 -1` - with the hunk's
-  own background, and the row under it is the next row of the hunk. `k`
-  back up to the row just under the pin brings the window one row down,
-  never a cursor hidden under it. A click on the pin lands on the header
-  (fold with `↵`). Over a thread hung under the hunk the pin is still the
-  hunk's; on the thread under `h` there is none. `[` keeps the function and
-  the counts on the header beside `↑10` (2026-10-15).
+- [ ] **A hunk says its function under the header, and stays named on the
+  top row.** Under `d`, each hunk's header `file  @@ 12,5 @@  +3 -1` has
+  the function git names over it on the row below, in the column the
+  hunk's lines are in, quiet. `j` into a hunk taller than the pane: once
+  the header scrolls off, the pane's first row is `▾ file  function  +3
+  -1` in the hunk's background, no `@@`, and the row under it is the next
+  row of the hunk. `k` back up to the row just under the pin brings the
+  window one row down, never a cursor hidden under it. A click on the pin
+  lands on the header (fold with `↵`). Over a thread hung under the hunk
+  the pin is still the hunk's; on the thread under `h` there is none. `[`
+  takes the function row away and keeps `+3 -1` beside `↑10`; `]` keeps it
+  (2026-10-15).
 
 - [ ] **An exited pane scrolls back and copies.** Exit `claude` in a `T`
   pane, or run `seq 1 100; exit` in a `t` shell. The screen stays as it

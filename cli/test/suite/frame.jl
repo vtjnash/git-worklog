@@ -1277,14 +1277,24 @@ end
           "@@ -40,2 +40,2 @@\n-a\n+b\n"
     ns = W.hunk_nodes(txt, "http://x")
     @test ns[1].meta["func"] == "function foo(x)"
-    @test unstyled(ns[1].header) == "a.jl  @@ 10,3 @@ function foo(x)  +1 -1"
+    @test unstyled(ns[1].header) == "a.jl  @@ 10,3 @@  +1 -1"
     @test ns[2].meta["func"] == ""
     @test unstyled(ns[2].header) == "a.jl  @@ 40,2 @@  +1 -1"
+    # On a row of its own under the header, a header row and not a line of the
+    # hunk, with its column 0 where the hunk's lines have theirs.
+    rs = [r for r in W.rows(ns, 70) if r.node == 1]
+    @test [rstrip(unstyled(r.text), [' ', '─']) for r in rs] ==
+          ["▾ a.jl  @@ 10,3 @@  +1 -1", " function foo(x)", " ctx", "-old", "+new"]
+    @test rs[2].header && rs[2].part == 1 && !rs[3].header
+    @test count(r -> r.node == 2 && r.header, W.rows(ns, 70)) == 2   # blank, header
     # The tally and the widening marks go on the same header, and neither
-    # loses the rest: the widening used to drop the counts.
+    # loses the rest: the widening used to drop the counts. Widened upwards,
+    # the function row goes: the line it named is no longer the one above.
     ns[1].meta["tally"] = W.row("  💬1"); ns[1].meta["up"] = 2
-    @test unstyled(W.hunk_header(ns[1])) ==
-          "a.jl  @@ 10,3 @@ function foo(x)  +1 -1  ↑2  💬1"
+    @test unstyled(W.hunk_header(ns[1])) == "a.jl  @@ 10,3 @@  +1 -1  ↑2  💬1"
+    @test [unstyled(r.text) for r in W.rows(ns, 70) if r.node == 1][2] == " ctx"
+    ns[1].meta["up"] = 0; ns[1].meta["down"] = 4
+    @test [unstyled(r.text) for r in W.rows(ns, 70) if r.node == 1][2] == " function foo(x)"
 end
 
 @testset "the hunk's header is pinned over the pane while it is scrolled" begin
@@ -1299,12 +1309,15 @@ end
     # The header on screen is not pinned, and nothing is while it is.
     st.nrow = 1
     p = pane()
-    @test st.stuck == 0 && occursin("a.jl  @@ 1,30 @@ function foo(x)", p[2 + st.hdr])
-    # Scrolled into the hunk, the top row of the pane is its header.
+    @test st.stuck == 0 && occursin("a.jl  @@ 1,30 @@  +0 -3", p[2 + st.hdr])
+    @test occursin(" function foo(x)", p[3 + st.hdr])
+    # Scrolled into the hunk, the top row of the pane says which hunk, by its
+    # file and its function - and not by its range, which would read as the
+    # hunk starting under it when its first rows are what scrolled off.
     st.nrow = 25
     p = pane()
     @test st.stuck == 1 && st.ntop > st.hdr + 1
-    @test occursin("a.jl  @@ 1,30 @@ function foo(x)", p[2])
+    @test occursin("▾ a.jl  function foo(x)  +0 -3", p[2]) && !occursin("@@", p[2])
     @test occursin("ctx", p[3])
     # And the cursor on the row the pin would cover moves the window up one,
     # so the row the keys are on is never hidden.
@@ -1312,12 +1325,12 @@ end
     st.nrow = top - st.hdr
     p = pane()
     @test st.ntop == top - 1 && st.stuck == 1
-    @test occursin("a.jl  @@", p[2]) && occursin(" ctx$(st.nrow - 4)", p[3])
+    @test occursin("▾ a.jl  function", p[2]) && occursin(" ctx$(st.nrow - 5)", p[3])
     # From the next hunk's rows the pin is the hunk above: the second header is
     # on screen, the first is what the top row is scrolled into.
     st.nrow = length(W.rows(st.nodes, 56))
     p = pane()
-    @test st.stuck == 1 && occursin("a.jl  @@", p[2])
+    @test st.stuck == 1 && occursin("▾ a.jl  function", p[2])
     @test any(l -> occursin("b.jl  @@ 1,1 @@", l), p)
     # A click on the pinned row lands on the header it shows - on a screen
     # short enough that the hunk does not fit it whole.
@@ -1337,7 +1350,7 @@ end
     rs = W.rows(st.nodes, 56)
     st.nrow = findlast(r -> r.node == 2, rs)
     p = pane()
-    @test st.stuck == 1 && occursin("a.jl  @@", p[2])
+    @test st.stuck == 1 && occursin("▾ a.jl  function", p[2])
     # The thread pane has no hunks, and pins nothing.
     st.mode = :comments; st.nodes = mkstate().nodes; st.nrow = 6
     pane()

@@ -102,7 +102,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         st.stuck = stuck_header(st.nodes, rrows, st.ntop, st.hdr)
     end
     if st.stuck > 0 && length(rvis) > 1
-        rvis[1] = rrows[st.stuck + st.hdr]
+        rvis[1] = pin_row(st, rrows[st.stuck + st.hdr], riw)
     end
 
     total = length(nrows)
@@ -356,6 +356,24 @@ function header_bg(st::BState, r::Row)
     st.mode === :comments && n.depth == 0 && haskey(n.meta, "mine") &&
         return n.meta["mine"] === true ? THEME.thread_mine_bg : THEME.thread_bg
     Face()
+end
+
+"""The row pinned over a scrolled hunk, from its header row `h`: the file, the
+function git named over the hunk and its counts and tally, in the header's
+faces and background - and never the `@@` range or the `↑`/`↓` marks. The
+header itself pinned there reads as the hunk starting under it, when the rows
+it starts with are the ones scrolled off; what stays true of every row of the
+hunk is what the pin says, and the rest says "you are inside"."""
+function pin_row(st::BState, h::Row, iw::Int)
+    n = st.nodes[h.node]
+    fn = hunk_func(n)
+    pad = " "^(2 * n.depth)
+    txt = "▾ " * jstr(n.meta, :file, "") * (isempty(fn) ? "" : "  " * fn) *
+          hunk_counts(n) * row(get(n.meta, "tally", ""))
+    core = rowfit(faced(txt, THEME.bold), max(1, iw - 2 * n.depth))
+    bg = header_bg(st, h)
+    Row(h.node, true, bg == Face() ? pad * core : hlrow(rowpad(pad * core, iw), bg),
+        String(txt), 1, h.gutter)
 end
 
 """The hunk header to pin over the pane's top row: the `nrow` of the header

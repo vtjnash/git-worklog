@@ -730,6 +730,17 @@ function rows(nodes::Vector{Node}, w::Int, marks::Bool = false;
             hide = n.depth
             continue
         end
+        # The function git named over the hunk, on a row of its own under the
+        # header rather than on it, so that its column 0 is the diff's - a
+        # blank where the hunk's rows carry their `+`/`-` - and it reads as
+        # the line of the file it is, above the lines shown. A header row and
+        # not a line of the hunk: nothing that counts the hunk's lines back to
+        # their numbers counts it, and a copy leaves it out as it does a header.
+        if n.kind === :diff
+            fn = hunk_func(n)
+            isempty(fn) ||
+                push!(out, Row(i, true, pad * " " * detab(faced(fn, THEME.diff_meta)), fn, 1))
+        end
         ls = nodelines(n, iw)                # fills n.srcs alongside n.cache
         # The line a thread hangs off gets its mark in the gutter - over the
         # pane's border, where a margin note goes and the eye already is -
