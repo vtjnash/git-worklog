@@ -821,6 +821,7 @@ function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
     # to: the head the checkout diffed to, and unknown for gh's copy, which
     # is at the head now for as long as it is fresh - as GitHub's default is.
     at_head = ""
+    repo = nothing
     txt = try
         repo = repo_path(it.repo)
         # `head_sha` asks GitHub for a head the lanes did not supply, which is
@@ -851,11 +852,49 @@ function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
                            first(sprint(showerror, e), 200))]
     end
     ns = hunk_nodes(txt, string(it.url, "/files"); head = at_head)
-    isempty(ns) && return [Node("empty diff", "", :plain, true)]
+    isempty(ns) && (ns = [Node("empty diff", "", :plain, true)])
+    cn = isempty(at_head) ? nothing : whole_commit_node(it, repo, at_head)
+    cn === nothing || pushfirst!(ns, cn)
     out = place_comments(ns, it)
     stale && !isempty(out) && (out[1].meta["stale"] = true)
     asof === nothing || isempty(out) || (out[1].meta["asof"] = asof)
     out
+end
+
+"""The message of the one commit a diff is, as the node at its top: the
+subject on the header with its sha, author and time, the rest of the message
+under it, open - a diff that is one commit is read with what its author said
+it was for, and `d d` and `p` draw it with no thread beside it to say.
+`nothing` where the diff is more than one commit, or the checkout has not got
+it. From the checkout alone, which is where a diff of one commit comes from
+in the first place; gh's copy by number is the whole pull request and is not
+asked which commits it is. `o` on it opens the commit (`commit_target`); the
+`#123`s in it are links to the repository (`autolink`), as a thread's are.
+"""
+function commit_node(it::Item, repo, sha::AbstractString)
+    m = commit_message(repo, sha)
+    m === nothing && return nothing
+    subj, body, by, at = m
+    subj = first(inert(subj))
+    when = when_str(at)
+    said = join(filter(!isempty, [by, when]), "  ")
+    n = Node(faced(first(sha, 8), THEME.dim) * "  " * subj *
+             (isempty(said) ? row("") : "  " * faced(said, THEME.dim)),
+             first(inert(body)), :plain, true)
+    n.meta["sha"] = String(sha)
+    n.meta["src"] = string(first(sha, 8), "  ", subj)
+    n.meta["repo"] = it.repo
+    n.meta["url"] = islocal(it) ? weblink(it) :
+                    string("https://github.com/", it.repo, "/commit/", sha)
+    n
+end
+
+"""`commit_node` for the whole of a pull request or branch: its one commit,
+or `nothing` where it has more - counted as the picker counts them
+(`pr_commits`), from the merge base `pr_diff` measured from."""
+function whole_commit_node(it::Item, repo, head::AbstractString)
+    cs = pr_commits(repo, it.repo, it.base, it.base_sha, head)
+    cs === nothing || length(cs) != 1 ? nothing : commit_node(it, repo, cs[1][1])
 end
 
 """An adopted branch's `d`: its checkout's diff from where it leaves the
@@ -881,7 +920,9 @@ function local_diff_nodes(it::Item)
                                   first(head, 8), "`."))]
     push!(DIFFED, string(it.url, "@", head))
     ns = hunk_nodes(txt, weblink(it); head = head)
-    isempty(ns) && return [Node(string("no change from ", it.base), "", :plain, true)]
+    isempty(ns) && (ns = [Node(string("no change from ", it.base), "", :plain, true)])
+    cn = whole_commit_node(it, repo, head)
+    cn === nothing || pushfirst!(ns, cn)
     ns
 end
 
@@ -1487,7 +1528,10 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     lead.meta["url"] = files_link(it)
     ns = kind === :diff ? hunk_nodes(txt, files_link(it); head = new) :
                           rangediff_nodes(lone_patches(repo, txt))
-    isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
+    isempty(ns) && (ns = [Node("no textual change", "", :plain, true)])
+    # The one commit added is the head now, and its message says what it was.
+    cn = kind === :diff && mv.now - mv.then == 1 ? commit_node(it, repo, new) : nothing
+    cn === nothing || pushfirst!(ns, cn)
     pushfirst!(ns, lead)
     ns
 end
@@ -1512,7 +1556,9 @@ function commits_nodes(it::Item, first_::AbstractString, last_::AbstractString,
     lead.meta["src"] = String(what)
     lead.meta["url"] = files_link(it)
     ns = hunk_nodes(txt, files_link(it); head = last_)
-    isempty(ns) && return [lead, Node("no textual change", "", :plain, true)]
+    isempty(ns) && (ns = [Node("no textual change", "", :plain, true)])
+    cn = first_ == last_ ? commit_node(it, repo, last_) : nothing
+    cn === nothing || pushfirst!(ns, cn)
     pushfirst!(ns, lead)
     ns
 end

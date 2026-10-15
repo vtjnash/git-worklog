@@ -717,6 +717,26 @@ function pr_commits(path, repo::AbstractString, base::AbstractString,
                                    for l in split(out, '\n'; keepempty = false))]
 end
 
+"""One commit's message as the checkout has it - `(subject, body, by, at)`,
+the author's name and the commit time as a `Z` stamp - or `nothing` when the
+checkout has not got the commit. `%B` rather than `%s`/`%b`: git folds a
+subject written over two lines into one for `%s`, and the message is wanted
+as it was written."""
+function commit_message(path, sha::AbstractString)
+    out = try
+        git(path, "log", "-1", "--format=%an%x00%ct%x00%B", String(sha), "--")
+    catch
+        return nothing
+    end
+    f = split(out, '\0'; limit = 3)
+    length(f) == 3 || return nothing
+    at = tryparse(Int, strip(f[2]))
+    ls = split(rstrip(f[3]), '\n')
+    body = join(ls[2:end], '\n')
+    (String(strip(ls[1])), String(strip(body, '\n')), String(strip(f[1])),
+     at === nothing ? "" : stamp(unix2datetime(at)))
+end
+
 """The diff a run of commits makes: from the parent of `first` to `last` - or
 from `first` itself, which is how `pr_diff` and `branch_diff` diff from a
 merge base. The flags are `pr_diff`'s, for its reasons."""

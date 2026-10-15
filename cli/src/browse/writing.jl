@@ -77,14 +77,15 @@ function edit_target(st::BState, iw::Int)
 end
 
 """The commit `o` opens, where the cursor row is one of a list of them: a row
-of a push in the thread, or a pair of a range-diff anywhere on it - and
-`nothing` everywhere else, where `o` is the checkout.
+of a push in the thread, a pair of a range-diff anywhere on it, or the one
+commit a diff is (`commit_node`) - and `nothing` everywhere else, where `o`
+is the checkout.
 
 A push's body is a row per commit, and the row counted back to its commit
 the way `hunk_line_at` counts a diff's: first rows of a written line only.
 """
 function commit_target(st::BState, iw::Int)
-    st.mode in (:comments, :pushed) || return nothing
+    st.mode in (:comments, :pushed, :diff) || return nothing
     rs = rows(st.nodes, iw)
     isempty(rs) && return nothing
     j = clamp(st.nrow, 1, length(rs))

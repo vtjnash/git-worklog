@@ -785,6 +785,93 @@ end
     end
 end
 
+@testset "a diff that is one commit has its message on top" begin
+    # What its author said it was for, read with the change: `d` on a pull
+    # request of one commit, `d d` picking one, and `p` after one was pushed.
+    # A node like the others - the subject on the header, the rest under it,
+    # `o` opening the commit - and absent as soon as the diff is two commits,
+    # which have a list of their own.
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    root = mktempdir()
+    try
+        main = joinpath(root, "main"); mkpath(main)
+        W.git(main, "init", "--quiet", "--initial-branch=master", ".")
+        W.git(main, "config", "user.email", "t@e.com")
+        W.git(main, "config", "user.name", "Tess T")
+        write(joinpath(main, "f.txt"), "base\n")
+        W.git(main, "add", "f.txt"); W.git(main, "commit", "--quiet", "-m", "base")
+        base = strip(W.git(main, "rev-parse", "HEAD"))
+        W.git(main, "checkout", "--quiet", "-b", "topic")
+        write(joinpath(main, "one.txt"), "ONE")
+        W.git(main, "add", ".")
+        W.git(main, "commit", "--quiet", "-m", "add ONE\n\nBecause #12 asked for it.\n\nAnd a second paragraph.\n")
+        one = strip(W.git(main, "rev-parse", "HEAD"))
+        W.save_repo!("o/r", ["worktree" => main])
+        u = "https://github.com/o/r/pull/7"
+        # With the base's sha, as the lanes carry it: without one and with no
+        # remote to bring `master` up to date from, the checkout would not
+        # answer for the diff and gh would be asked.
+        it = W.Item(url = u, ref = "r#7", repo = "o/r", number = 7, title = "t",
+                    head = one, base = "master", base_sha = base, state = "OPEN")
+
+        # The message as git has it: the subject, the body, who and when.
+        m = W.commit_message(main, one)
+        @test m[1] == "add ONE" && m[2] == "Because #12 asked for it.\n\nAnd a second paragraph."
+        @test m[3] == "Tess T" && W.ts(m[4]) !== nothing
+        @test W.commit_message(main, "0" ^ 40) === nothing
+
+        # `d`: the message first, open, then the one hunk.
+        ns = W.diff_nodes(it)
+        @test length(ns) == 2 && ns[2].meta["file"] == "one.txt"
+        cn = ns[1]
+        @test cn.open && cn.kind === :plain
+        @test occursin(first(one, 8), unstyled(cn.header)) && occursin("add ONE", unstyled(cn.header))
+        @test occursin("Tess T", unstyled(cn.header))
+        @test cn.raw == "Because #12 asked for it.\n\nAnd a second paragraph."
+        @test cn.meta["sha"] == one && cn.meta["repo"] == "o/r"    # `o` and `#12`
+        @test cn.meta["url"] == string("https://github.com/o/r/commit/", one)
+        @test !haskey(cn.meta, "file")                            # `[`/`]` step over it
+        @test W.diff_size(ns) == (1, 0)
+        # Its subject is what `y` copies of the header.
+        @test cn.meta["src"] == string(first(one, 8), "  add ONE")
+
+        # `o` on it is that commit, in the diff pane as in the thread.
+        st = W.BState([it], "t")
+        st.filters = W.everything(); W.refilter!(st)
+        st.sel = 1; st.focus = :detail; st.mode = :diff
+        st.nodes = ns; st.nrow = 1
+        @test W.commit_target(st, 80) == one
+        st.nrow = length(W.rows(ns, 80))
+        @test W.commit_target(st, 80) === nothing
+
+        # `d d` on the one commit says it too, under the pick's own lead.
+        ns = W.commits_nodes(it, one, one, "picked")
+        @test occursin("picked", unstyled(ns[1].header)) && ns[2].meta["sha"] == one
+        @test ns[3].meta["file"] == "one.txt"
+
+        # A second commit, and the whole is no longer one: no message, and
+        # `p` from the first - one commit added - has the new one's.
+        write(joinpath(main, "two.txt"), "TWO")
+        W.git(main, "add", "."); W.git(main, "commit", "--quiet", "-m", "add TWO")
+        two = strip(W.git(main, "rev-parse", "HEAD"))
+        it = W.Item(url = u, ref = "r#7", repo = "o/r", number = 7, title = "t",
+                    head = two, base = "master", base_sha = base, state = "OPEN")
+        ns = W.diff_nodes(it)
+        @test all(n -> !haskey(n.meta, "sha"), ns) && length(ns) == 2
+        ns = W.commits_nodes(it, one, two, "both")
+        @test all(n -> !haskey(n.meta, "sha"), ns)
+        W.set_done_mark(u, "2026-09-01T00:00:00Z", one)
+        ns = W.pushed_nodes(it)
+        @test occursin("1 commit added", unstyled(ns[1].header))
+        @test ns[2].meta["sha"] == two && occursin("add TWO", unstyled(ns[2].header))
+        @test isempty(ns[2].raw)                                  # a subject alone
+        @test ns[3].meta["file"] == "two.txt"
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "an adopted branch has d and p, from its checkout" begin
     # No pull request to ask GitHub for a diff by, but the branch is here, and
     # a pull request opened from it would be measured from the default branch:

@@ -152,11 +152,13 @@ end
     st.nrow = at(r -> r.node == 1 && !r.header)
     @test W.commit_target(st, 80) === nothing
     # A pair of a range-diff is one commit, from anywhere on it; and under `d`
-    # the rows are a diff and `o` is the line.
+    # the rows of a hunk are a diff and `o` is the line - the one node there
+    # that is a commit is the message over a one-commit diff (`since.jl`).
     rd = W.rangediff_nodes("1:  aaaaaaa ! 1:  bbbbbbb subj\n    @@ x\n")
     st.mode = :pushed; st.nodes = rd; st.nrow = 1
     @test W.commit_target(st, 80) == "bbbbbbb"
     st.mode = :diff
+    st.nodes = W.hunk_nodes("diff --git a/f b/f\n@@ -1 +1 @@\n-x\n+y\n", "u"); st.nrow = 2
     @test W.commit_target(st, 80) === nothing
 end
 

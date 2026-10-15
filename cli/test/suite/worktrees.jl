@@ -1747,16 +1747,17 @@ end
         @test !W.have_commit(main, head)
         ns = W.diff_nodes(it; run = gh)
         @test asked[] == 1
-        @test length(ns) == 1 && ns[1].meta["file"] == "a.txt"
-        @test ns[1].meta["start"] == 1 && ns[1].meta["count"] == 3
-        @test occursin("+three", ns[1].raw)
+        # One commit, so its message leads - the checkout's answer carries it.
+        @test length(ns) == 2 && ns[1].meta["sha"] == head && ns[2].meta["file"] == "a.txt"
+        @test ns[2].meta["start"] == 1 && ns[2].meta["count"] == 3
+        @test occursin("+three", ns[2].raw)
         @test W.have_commit(main, head) && string(it.url, "@", head) in W.DIFFED
         @test W.mode_cached(:diff, it)
 
         # With both shas here nothing goes over the network: the remote can
         # be gone and the answer is the same.
         offline()
-        @test W.diff_nodes(it; run = gh)[1].meta["file"] == "a.txt" && asked[] == 1
+        @test W.diff_nodes(it; run = gh)[2].meta["file"] == "a.txt" && asked[] == 1
         online()
 
         # Rebased past the base the checkout has. The record carries where
@@ -1767,8 +1768,8 @@ end
         it2 = pr(head = head2, base_sha = base2)
         ns = W.diff_nodes(it2; run = gh)
         @test asked[] == 1
-        @test length(ns) == 1 && ns[1].meta["file"] == "a.txt"
-        @test !any(n -> n.meta["file"] == "b.txt", ns)
+        @test length(ns) == 2 && ns[2].meta["file"] == "a.txt"
+        @test !any(n -> get(n.meta, "file", "") == "b.txt", ns)
         @test W.have_commit(main, base2)
 
         # A record with no base sha - from before the lanes carried one - is
@@ -1786,7 +1787,7 @@ end
         # The same record online is the branch fetched, and the right diff.
         online()
         ns = W.diff_nodes(it3; run = gh)
-        @test asked[] == 1 && length(ns) == 1 && ns[1].meta["file"] == "a.txt"
+        @test asked[] == 1 && length(ns) == 2 && ns[2].meta["file"] == "a.txt"
         @test string(it3.url, "@", head3) in W.DIFFED
 
         # A head nobody serves: the checkout cannot answer, and gh does.

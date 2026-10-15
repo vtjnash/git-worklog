@@ -661,6 +661,16 @@ Three things answer it, all read off the mark `e` leaves:
   onto nothing, and what a dropped commit did is in no other view. A second
   `p` can also start from any name the checkout resolves, the remote's
   branch of that name before a local one, never fetched.
+- **A diff that is one commit carries its message** (`commit_node`): a pull
+  request of one commit under `d`, one picked by `d d`, one added under
+  `p`. The subject on the header with the sha, author and time, the rest of
+  the message under it, open, over the hunks; `o` on it opens the commit and
+  its `#123`s link, as a thread's do. From the checkout, which is where a
+  diff of one commit comes from - gh's copy by number is the whole pull
+  request and is not asked which commits it is, so a diff gh answered has
+  no message over it. Counted as the picker counts (`pr_commits`), from the
+  merge base `pr_diff` measured from, so the two cannot disagree about how
+  many commits the pull request is.
 
 ## What is said, and where
 
