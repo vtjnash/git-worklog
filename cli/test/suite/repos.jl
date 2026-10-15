@@ -172,3 +172,86 @@ end
         W.LOCAL[], W.RUN_DIR[] = keepr, keeprun
     end
 end
+
+@testset "a base the remote has not got is said, not measured from" begin
+    # `origin/HEAD` is set by `clone` and moved by nothing after - not by
+    # `fetch`, not by `remote set-url` - so a remote whose url was changed
+    # keeps naming a branch of the repository it used to be, and every branch
+    # of the checkout is then measured from wherever that forked off: the
+    # llvm checkout whose `origin/HEAD` still said `julia-main`, 132,528
+    # commits back (2026-10-15). The name is wrong, not old, and the fetch
+    # of it is what tells the two apart.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@example.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "a"), "x"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    old = strip(g("rev-parse", "HEAD"))
+    bare = joinpath(root, "o.git"); g("init", "--quiet", "--bare", bare)
+    g("remote", "add", "origin", bare); g("push", "--quiet", "-u", "origin", "master")
+    for i in 1:3
+        write(joinpath(main, "a"), "m$i"); g("commit", "--quiet", "-am", "master $i")
+    end
+    g("push", "--quiet", "origin", "master")
+    # The remote this used to be had a `stale` branch; the ref is still here.
+    g("update-ref", "refs/remotes/origin/stale", old)
+    g("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/stale")
+    g("checkout", "--quiet", "-b", "mine"); write(joinpath(main, "b"), "y"); g("add", "b")
+    g("commit", "--quiet", "-m", "my work")
+    head = strip(g("rev-parse", "HEAD"))
+
+    # The checkout's guess is the trap.
+    @test W.default_base(main) == "origin/stale"
+    @test W.fetch_base!(main, "o/r", "stale") === :missing
+    @test W.fetch_base!(main, "o/r", "master") === :fetched
+    @test W.fetch_base!(main, "o/r", "") === :failed
+    @test W.branch_diff(main, "o/r", "stale", head) === :missing
+    d = W.branch_diff(main, "o/r", "master", head)
+    @test d isa String && occursin("+y", d)
+
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml"); write(W.localfile(), "")
+    url = W.localurl("o/r", "mine")
+    try
+        W.register_repo!("o/r", main)
+        @test W.repo_default("o/r") === nothing
+        it = W.local_item(url)
+        @test it.base == "origin/stale"
+        ns = W.local_diff_nodes(it)
+        @test length(ns) == 1 && get(ns[1].meta, "failed", false) === true
+        @test occursin("origin has no branch origin/stale", ns[1].header)
+        @test occursin("remote set-head origin -a", ns[1].raw)
+
+        # GitHub's word, once a pull request of the repository has said it,
+        # overrules the guess: the base, the diff, and whether the branch has
+        # landed all follow it.
+        W.cache_put(W.repo_default_key("o/r"), "master")
+        @test W.repo_default("O/R") == "master"
+        @test W.base_rev(main, "o/r") == "refs/remotes/origin/master"
+        it = W.local_item(url)
+        @test it.base == "master" && it.state == ""
+        @test endswith(it.web, "/compare/master...mine?expand=1")
+        ns = W.local_diff_nodes(it)
+        @test any(n -> n.kind === :diff && occursin("+y", n.raw), ns)
+        g("checkout", "--quiet", "master"); g("merge", "--quiet", "mine")
+        g("push", "--quiet", "origin", "master")
+        @test W.local_item(url).state == "MERGED"
+
+        # A default GitHub named that the checkout has no copy of is nothing
+        # to measure against - not a reason to fall back to the guess the
+        # name already overruled.
+        W.cache_put(W.repo_default_key("o/r"), "develop")
+        @test W.base_rev(main, "o/r") === nothing
+        it = W.local_item(url)
+        @test it.base == "develop" && it.state == ""
+        @test W.branch_source(main, "o/r", "new") == ("", "HEAD")
+        @test !W.mine_on_branch(main, "mine", W.git_ids(main); base = "")
+
+        # No network at all is `:failed`, which is only ever too old.
+        g("remote", "set-url", "origin", joinpath(root, "gone.git"))
+        @test W.fetch_base!(main, "o/r", "master") === :failed
+        @test W.branch_diff(main, "o/r", "master", head) isa String
+    finally
+        W.cache_drop(W.repo_default_key("o/r"))
+        W.LOCAL[] = keept
+    end
+end

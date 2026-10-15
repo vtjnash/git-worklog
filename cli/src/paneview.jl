@@ -1414,7 +1414,8 @@ function row_session(v::WorktreeView, r::WorktreeRow, ctrl, kind::Symbol)
     if r.item === nothing && !isempty(r.branch) && v.onadopt !== nothing &&
        kind !== :agent && !any(s -> s.kind === :agent, r.sessions) &&
        get_field(localurl(r.repo, r.branch), "adopted") === nothing &&
-       mine_on_branch(r.path, r.branch, git_ids(r.path, login()))
+       mine_on_branch(r.path, r.branch, git_ids(r.path, login());
+                      base = nz(base_rev(r.path, r.repo)))
         took = v.onadopt(r.repo, r.branch, true)::String
         isempty(took) || (out = string(out, " \u00b7 ", took))
     end
@@ -1505,7 +1506,7 @@ function branch_source(p::AbstractString, repo::AbstractString, branch::Abstract
     isempty(start) || return ("", String(start))
     theirs = string("refs/remotes/", remote_for(p, repo), "/", branch)
     has_rev(p, theirs) && return (theirs, "")
-    ("", something(default_base(p), "HEAD"))
+    ("", something(base_rev(p, repo), "HEAD"))
 end
 
 """The row at the bottom of the worktree list: which repo, which branch, and

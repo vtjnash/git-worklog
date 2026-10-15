@@ -913,6 +913,19 @@ function local_diff_nodes(it::Item)
         return [Node(string("no default branch found in ", repo, " to diff against"),
                      "", :plain, true)]
     txt = branch_diff(repo, it.repo, it.base, head)
+    if txt === :missing
+        rem = remote_for(repo, it.repo)
+        return [failednode(string(rem, " has no branch ", it.base),
+                           string("`", it.base, "` is what a branch of `", it.repo,
+                                  "` is measured against: the default branch GitHub " *
+                                  "names, once a pull request of the repository has " *
+                                  "been looked at, and until then what `", rem,
+                                  "/HEAD` in the checkout names - which `git clone` " *
+                                  "sets and nothing after moves, so a remote whose url " *
+                                  "was changed keeps naming a branch of the repository " *
+                                  "it used to be.\n\n`git -C ", repo, " remote set-head ",
+                                  rem, " -a` repairs that."))]
+    end
     txt === nothing &&
         return [failednode(string("could not diff ", it.branch, " against ", it.base),
                            string("The checkout has no copy of `", it.base,

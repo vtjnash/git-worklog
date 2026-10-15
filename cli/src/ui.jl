@@ -451,6 +451,14 @@ function default_branch(path, rs = try remote_repos(path) catch; Dict{String,Str
     (i !== nothing && haskey(rs, base[1:prevind(base, i)])) ? base[nextind(base, i):end] : base
 end
 
+"""The branch a branch of `repo` in `path` is measured against, by name:
+what GitHub says the repository's default is (`repo_default`), and the
+checkout's guess (`default_branch`) only for a repository it has not said."""
+function base_name(path, repo::AbstractString)
+    d = repo_default(repo)
+    d === nothing ? default_branch(path) : d
+end
+
 "Urls of every branch that has been adopted, whether or not it still exists."
 adopted_urls() = sort!([u for u in keys(field_map("adopted")) if islocal(u)])
 
@@ -463,12 +471,14 @@ still something you wrote a note on and still something to be told about.
 Its `head` is the tip the survey saw and its `base` the project's default
 branch, which is what a pull request opened from it would be measured
 against - and so what `d` diffs it from and `p` measures its rebases by.
+GitHub's word for which branch that is, when the corpus has it (`base_name`):
+the checkout's `origin/HEAD` is a guess that goes stale.
 """
 function local_item(url::AbstractString, b = nothing)
     repo, branch = localparts(url)
     p = repo_path(repo)
-    landed = p !== nothing && merged_here(p, branch)
-    base = p === nothing ? "" : something(default_branch(p), "")
+    landed = p !== nothing && merged_here(p, branch; base = nz(base_rev(p, repo)))
+    base = p === nothing ? nz(repo_default(repo)) : nz(base_name(p, repo))
     Item(url = String(url), ref = localref(repo, branch), repo = String(repo),
          number = 0, is_pr = false, branch = String(branch),
          head = b === nothing ? "" : b.head,

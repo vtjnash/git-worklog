@@ -1059,6 +1059,18 @@ wrong reaches the screen unless it is corrected before the parse
   signal that a branch is your hand's; a branch an agent made in a copy
   passed it, and re-entering the pane adopted it. No automatic adoption
   where an agent is.
+- **`origin/HEAD` is set by `clone` and moved by nothing after.** Not by
+  `fetch`, not by `remote set-url`: an llvm checkout whose `origin` had been
+  JuliaLang's fork still named `julia-main` after the url moved to llvm's,
+  `default_base` took it, and `d` on every branch in it measured from
+  132,528 commits back and hung in the renderer (2026-10-15). The base of
+  a local branch is GitHub's default for the repository when the corpus
+  has it (`repo_default`, written by `itemmeta`, read through `base_name`
+  and `base_rev`); `default_base` is the guess for a repository no pull
+  request of which has been looked at. And `fetch_base!` tells `:missing`
+  from `:failed`: a remote that answers and has no branch of the name says
+  the *name* is wrong, which `branch_diff` says rather than measuring from
+  whatever local copy carries it.
 - **The project's copy of a name is not a fork's pull request from it.**
   `pr_branch_here` said `:local` for a fork's `master` because the local
   `master` tracks `origin/master`, and `git worktree add` then refused with

@@ -584,15 +584,23 @@ function ensure_base!(path, repo::AbstractString, base::AbstractString)
     base_ref(path, repo, base)
 end
 
-"The round trip of [`ensure_base!`](@ref) alone: whether the base branch was brought up to date."
+"""The round trip of [`ensure_base!`](@ref) alone: `:fetched` when the base
+branch was brought up to date, `:missing` when the remote answered and has no
+branch of that name, `:failed` for the rest - no network, no such remote, a
+name no branch can have.
+
+`:missing` is the one answer that says the *name* is wrong, and a wrong name
+is the one way a merge base lands months back (`default_base`): git's
+`couldn't find remote ref`, which it has said in those words throughout.
+"""
 function fetch_base!(path, repo::AbstractString, base::AbstractString)
-    (isempty(base) || match(REF_OK, base) === nothing) && return false
+    (isempty(base) || match(REF_OK, base) === nothing) && return :failed
     r = remote_for(path, repo)
     try
         git(path, "fetch", "--quiet", r, "+refs/heads/$base:refs/remotes/$r/$base")
-        true
-    catch
-        false
+        :fetched
+    catch e
+        e isa GitError && occursin("couldn't find remote ref", e.msg) ? :missing : :failed
     end
 end
 
@@ -655,7 +663,7 @@ function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractStrin
         have_commit(path, base_sha) && (from = base_sha)
     end
     if isempty(from)
-        fetched = fetch_base!(path, repo, base)
+        fetched = fetch_base!(path, repo, base) === :fetched
         from = base_ref(path, repo, base)
         isempty(from) && return nothing
         fetched || !is_ancestor(path, from, head) || return nothing
@@ -670,19 +678,28 @@ function pr_diff(path, repo::AbstractString, prnum::Integer, base::AbstractStrin
 end
 
 """A local branch's diff, as `pr_diff` measures a pull request's: from the
-merge base of `base` and `head` to `head`, or `nothing` when the checkout
-has no copy of the base or the two share no history.
+merge base of `base` and `head` to `head`; `nothing` when the checkout has
+no copy of the base or the two share no history; `:missing` when the remote
+has no branch called `base`.
 
 The base is fetched first, as `pr_diff` fetches it without a base sha, but a
 fetch that fails is not the end of it: there is no gh copy to fall back to
 for a branch nobody has pushed, so a copy of the base that is only ever too
 old is the answer - wrong only for a branch rebased past it, and the base's
 own commits are then what is drawn as the branch's.
+
+A base the remote has *not got* is another matter: the name is wrong, not
+old, and the local copy of it - a remote-tracking ref nothing prunes, or a
+branch of the same name - is a branch of some other repository or of this
+one's past. The merge base against it is wherever that forked off, and the
+diff from there is everything since (132,528 commits of llvm, 2026-10-15,
+against the `julia-main` that `origin/HEAD` still named after `origin` was
+pointed at llvm's repository). Said rather than drawn.
 """
 function branch_diff(path, repo::AbstractString, base::AbstractString,
                      head::AbstractString)
     (isempty(head) || !have_commit(path, head)) && return nothing
-    fetch_base!(path, repo, base)
+    fetch_base!(path, repo, base) === :missing && return :missing
     from = base_ref(path, repo, base)
     isempty(from) && return nothing
     mb = merge_base(path, from, head)
@@ -1086,7 +1103,7 @@ by GitHub; a branch that was rebased and merged keeps no other trace of it, and
 function merged_here(path::AbstractString, branch::AbstractString; base = nothing)
     isempty(branch) && return false
     b = base === nothing ? default_base(path) : base
-    b === nothing && return false
+    (b === nothing || isempty(b)) && return false
     try
         git(path, "merge-base", "--is-ancestor", branch, b)
         true
@@ -1148,6 +1165,40 @@ function default_base(path::AbstractString)
     nothing
 end
 
+"""What GitHub says `repo` merges into - `main`, `master`, `julia-release/21.x` -
+as the corpus last heard it from one of the repository's pull requests
+(`itemmeta` writes it), or `nothing` before any has been looked at.
+
+The one authority on the name. A checkout's `origin/HEAD` is set by `clone`
+and by nothing after - not `fetch`, not `remote set-url` - so it names a
+branch of whatever repository the remote pointed at *then*: an llvm checkout
+whose `origin` had been JuliaLang's fork still said `julia-main` months after
+the url moved to llvm's, and every branch in it was measured from 132,528
+commits back (2026-10-15). `default_base` is the guess for a repository no
+pull request of which has been seen.
+"""
+repo_default_key(repo::AbstractString) = string("repodefault:", lowercase(String(repo)))
+
+function repo_default(repo::AbstractString)
+    hit = cache_get(repo_default_key(repo), CACHE_KEEP[])
+    hit === nothing && return nothing
+    v = hit[1]
+    v isa AbstractString && match(REF_OK, v) !== nothing ? String(v) : nothing
+end
+
+"""The revision a branch of `repo` in `path` is measured against: the
+checkout's copy of the branch GitHub says is the default (`base_ref`), or,
+for a repository GitHub has not been asked about, the checkout's own guess
+(`default_base`). `nothing` when there is nothing to measure against - a
+default GitHub named that the checkout has no copy of is that, not a reason
+to fall back to a guess the name has already overruled."""
+function base_rev(path::AbstractString, repo::AbstractString)
+    d = repo_default(repo)
+    d === nothing && return default_base(path)
+    r = base_ref(path, repo, d)
+    isempty(r) ? nothing : r
+end
+
 """The strings that mean *you* to git, for matching a commit's authorship.
 
 Git identity is per checkout and has nothing to do with the GitHub login, so
@@ -1183,7 +1234,7 @@ function mine_on_branch(path::AbstractString, branch::AbstractString, ids;
                         base = nothing, limit::Int = 200)
     (isempty(branch) || isempty(ids)) && return false
     b = base === nothing ? default_base(path) : base
-    b === nothing && return false
+    (b === nothing || isempty(b)) && return false
     out = try
         git(path, "log", "-n", string(limit), "--format=%an%x1f%ae%x1f%b%x1e",
             string(b, "..", branch))

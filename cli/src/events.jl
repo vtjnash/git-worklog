@@ -2265,6 +2265,9 @@ function itemmeta(url::AbstractString, is_pr::Bool; ttl = 300.0, keep = ttl,
         # will not land on the branch everything else does, and the pane says
         # so beside the base rather than leaving it to be noticed.
         default = jstr(jpath(head, :base, :repo), :default_branch, "")
+        # And kept by repository: what a branch nobody has opened a pull
+        # request from is measured against (`repo_default`).
+        isempty(default) || cache_put(Worklog.repo_default_key(owner_repo), default)
         # Where the head branch lives, when that is not here: the lanes carry
         # the branch name and not its repository, and `owner:branch` is the
         # half of the name that says which checkout it can be fetched from.

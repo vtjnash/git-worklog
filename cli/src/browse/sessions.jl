@@ -1095,7 +1095,7 @@ function pr_branch_here(repo::AbstractString, it::Item, branch::AbstractString)
     # says - a force-push from elsewhere since then is still yours.
     (hasloc && upstream_of(repo, branch) == string(r, "/", branch)) && return :local
     on(rem) && return hasloc ? :local : :remote
-    (fetch_base!(repo, it.repo, branch) && on(rem)) && return hasloc ? :local : :remote
+    (fetch_base!(repo, it.repo, branch) === :fetched && on(rem)) && return hasloc ? :local : :remote
     :taken
 end
 
