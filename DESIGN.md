@@ -351,8 +351,11 @@ The rules behind the table, each of which cost a bug:
   read changes nothing else GitHub reports - `reviewDecision`, the review
   count, no comment - so as a bool it passed in silence.
 - **`updated_at` cannot answer any of this.** It does not move when a check
-  finishes and does move when a stranger relabels. Everything compares against
-  `moved_at`.
+  finishes and does move when a stranger relabels, or deletes the branch of a
+  pull request closed months ago. Everything compares against `moved_at`; a
+  light row has only `updated`, which is why the repo poll asks the
+  repository's comment lists before writing one for a closed thing
+  (`quiet_closed`, GitHub 19 below).
 - **Not in the table, on purpose:** `mergeable`, `unresolved`, labels,
   milestones, title edits, ready-for-review (arrives with the request that
   follows), a team being asked (the token cannot see it).
@@ -946,6 +949,19 @@ Do not simplify any of these away.
     the HTML block ends at the blank line and the browser's recovery closes
     the tag at the next `<`. `split_details` reads it the same way, and takes
     a block's summary only from before any `<details>` nested in it.
+19. **A branch deletion moves `updated_at` and notifies nobody.** 2026-10-15:
+    a sweep deleting the head branches of 29 pull requests closed months
+    before (`head_ref_deleted`) arrived from `/issues?since=` as 29 light
+    rows, each unread on `updated` - the only clock a light row has - while
+    the eleven the corpus already had kept their stamps, no key of the wake
+    table having moved. The list endpoints carry no event and `/pulls/N` has
+    no flag for a deleted head; only the timeline says, one request a row.
+    So the repo poll asks `/issues/comments?since=` and
+    `/pulls/comments?since=` for its window - two requests, and only when a
+    row closed before the ask arrived - and a row with no comment since is
+    carried at the inbox's own clock, or dropped if the inbox never had it
+    (`quiet_closed`). A glob source is a search and cannot ask; the
+    notifications source never sees one.
 
 ### Julia's Markdown
 

@@ -1633,6 +1633,41 @@ end
     end
 end
 
+@testset "a closed thing stirred with no comment is not news to the poll" begin
+    E = W.Events
+    pr(n, state, closed, updated) = Dict{String,Any}(
+        "html_url" => "https://github.com/o/r/pull/$n", "number" => n, "title" => "t$n",
+        "repository_url" => "https://api.github.com/repos/o/r", "state" => state,
+        "user" => Dict{String,Any}("login" => "alice"), "created_at" => "2026-06-24T19:27:01Z",
+        "closed_at" => closed, "updated_at" => updated, "comments" => 1,
+        "labels" => Any[], "pull_request" => Dict{String,Any}())
+    U(n) = "https://github.com/o/r/pull/$n"
+    since, july = "2026-10-15T00:40:00Z", "2026-07-22T12:39:20Z"
+    items = Dict{String,Any}(U(2) => Dict{String,Any}("url" => U(2), "updated" => july))
+    rows = Any[
+        pr(1, "closed", july, "2026-10-15T00:48:40Z"),       # a branch deleted, never seen: dropped
+        pr(2, "closed", july, "2026-10-15T00:48:41Z"),       # the same, in the inbox: carried
+        pr(3, "closed", july, "2026-10-15T00:48:42Z"),       # commented on since: news
+        pr(4, "closed", "2026-10-15T00:45:00Z", "2026-10-15T00:45:00Z"),  # closed in the window: news
+        pr(5, "open", nothing, "2026-10-15T00:50:00Z")]      # open: not asked about
+    asks = Ref(0)
+    commented = () -> (asks[] += 1; Set([3]))
+    said = IOBuffer()
+    out = W.reporting(() -> E.quiet_closed("o/r", rows, since, items, commented), said)[1]
+    @test [W.jint(r, :number, 0) for r in out] == [2, 3, 4, 5]
+    # Carried: the inbox's clock, on a copy; the row as GitHub gave it is untouched.
+    @test out[1]["updated_at"] == july && rows[2]["updated_at"] == "2026-10-15T00:48:41Z"
+    @test asks[] == 1
+    @test occursin("2 closed with no comment since: 1 carried, 1 dropped", String(take!(said)))
+    # And through `issue_row`, what the inbox would merge: nothing newer.
+    @test E.issue_row(out[1], "me")["updated"] == july
+    # Unknown is not quiet.
+    @test length(E.quiet_closed("o/r", rows, since, items, () -> nothing)) == 5
+    # No such row, no ask.
+    asks[] = 0
+    @test length(E.quiet_closed("o/r", rows[4:5], since, items, commented)) == 2 && asks[] == 0
+end
+
 @testset "work that has gone quiet on somebody" begin
     # Two days of silence over a weekend is not silence, it is a weekend.
     @test W.workdays_since("2026-08-28T17:00:00Z", W.DateTime(2026, 8, 31, 17)) == 1

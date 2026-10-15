@@ -683,6 +683,94 @@ function latch_mention!(row)
     row
 end
 
+"""
+    commented_since(repo, since) -> Set{Int}, or nothing
+
+The numbers of the issues and pull requests of `repo` with a comment, or a
+review comment, made or edited since `since`: the repository's two comment
+lists, `/issues/comments` and `/pulls/comments`, each walked by stamp as the
+issue list is - one request each for a poll's window, against one timeline
+per row. `nothing` when either ask fails or is cut short: unknown is not
+quiet, and `quiet_closed` keeps every row on it.
+"""
+function commented_since(repo::AbstractString, since::AbstractString)
+    out = Set{Int}()
+    for (kind, key) in (("issues", :issue_url), ("pulls", :pull_request_url))
+        cut = Ref(false)
+        rows = try
+            walk_updated(since; cut = cut) do floor_, n
+                api_get_dated("/repos/$repo/$kind/comments"; params = Dict{String,Any}(
+                    "since" => floor_, "sort" => "updated", "direction" => "asc",
+                    "per_page" => 100, "page" => n))
+            end
+        catch e
+            e isa ApiError || rethrow()
+            return nothing
+        end
+        cut[] && return nothing
+        for c in rows
+            m = match(r"/(\d+)$", jstr(c, key, ""))
+            m === nothing || push!(out, parse(Int, something(m[1])))
+        end
+    end
+    out
+end
+
+"""
+    quiet_closed(label, rows, since, items, commented) -> rows
+
+The repo poll's rows, with a closed thing's stir that nothing counts taken
+out. `/issues?since=` returns every item whose `updated_at` moved and never
+why, and `updated_at` moves for a label, a title, a branch: on 2026-10-15 a
+sweep deleting the head branches of 29 pull requests closed months before -
+`head_ref_deleted`, which notifies nobody and is in no key of the wake table
+- arrived as 29 light rows, each unread on `updated` because a light row has
+no wake table to say otherwise, while the eleven of them the corpus already
+had kept their stamps. The list row cannot tell a branch deletion from a
+comment; the repository's comment lists can, in two requests for the window
+(`commented_since`) rather than one timeline per row.
+
+A row **closed before the ask** - `closed_at` under `since`, so the close
+itself is not the news - with no comment on it since the ask moved in some
+way the table does not count. It is *carried*: its `updated_at` put back to
+the inbox's, so the merge in `sync!` writes nothing newer and whatever was
+unread on it stays exactly as unread; one the inbox has never seen is
+dropped, there being nothing to say about it. A row open, or closed inside
+the window, or commented on, passes through as it came, and so does every
+row when `commented` answers `nothing`: unknown is not quiet. `commented` is
+asked once, and only when a row needs it, so a poll with no such row costs
+what it did. A review on a closed pull request with no comment in it is the
+one key of the table this cannot see; it has not been seen to happen.
+"""
+function quiet_closed(label::AbstractString, rows, since::AbstractString, items::AbstractDict,
+                      commented)
+    out = Any[]
+    asked = nothing          # until a row needs it; then the set, or `missing`
+    carried = dropped = 0
+    for r in rows
+        closed = jstr(r, :closed_at, "")
+        if jstr(r, :state, "") == "closed" && !isempty(closed) && closed < since
+            asked === nothing && (asked = something(commented(), missing))
+            if asked !== missing && !(jint(r, :number, 0) in asked)
+                old = get(items, jstr(r, :html_url, ""), nothing)
+                was = old === nothing ? "" : jstr(old, :updated, "")
+                if isempty(was)
+                    dropped += 1
+                    continue
+                end
+                r = Dict{String,Any}(asdict(r))
+                r["updated_at"] = was
+                carried += 1
+            end
+        end
+        push!(out, r)
+    end
+    carried + dropped == 0 ||
+        @printf(report(), "    %-24s %d closed with no comment since: %d carried, %d dropped\n",
+                label, carried + dropped, carried, dropped)
+    out
+end
+
 """How far behind its cursor each kind of source is asked from; see `sync!`.
 
 Five minutes for REST since 2026-09-14, from one: the cursor became the
@@ -839,14 +927,17 @@ function sources(cfg, login; verbose::Bool = true)
     end
     for repo in explicit
         push!(srcs, Source(label = repo,
-                     fetch = (since, _) -> begin
+                     fetch = (since, ctx) -> begin
             st = Ref{Any}(nothing)
             rows = walk_updated(since; started = st) do floor_, n
                 api_get_dated("/repos/$repo/issues"; params = Dict{String,Any}(
                     "since" => floor_, "state" => "all", "sort" => "updated",
                     "direction" => "asc", "per_page" => 100, "page" => n))
             end
-            (rows, st[])
+            # A closed thing that stirred without a comment is not news;
+            # the glob below is a search and cannot ask, and the
+            # notifications never see one.
+            (quiet_closed(repo, rows, since, ctx.items, () -> commented_since(repo, since)), st[])
         end,
                      overlap = OVERLAP_REST,
                      row = (r, _) -> issue_row(r, login)))
