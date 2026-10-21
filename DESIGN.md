@@ -950,9 +950,10 @@ Do not simplify any of these away.
 12. `requestedReviewer` can be null (a deleted account).
 13. **Two failure classes that are not 5xx and need retrying**: the secondary
     rate limit (minutes, not seconds: 1m/2m/4m) and `unexpected end of JSON
-    input` (a truncated body). Found by deleting `data/` and starting from
-    nothing. And a failure line that truncates must truncate the derivable
-    part, not the news.
+    input` (a truncated body - or an empty one under a 200, which has
+    happened; `graphql_doc` parses inside the retry so that it can be one).
+    Found by deleting `data/` and starting from nothing. And a failure line
+    that truncates must truncate the derivable part, not the news.
 14. An `issueCount` of 0 beside 100 nodes has happened: a successful response
     can still be wrong.
 15. A review thread's `line` is resolved against a commit, and the commit

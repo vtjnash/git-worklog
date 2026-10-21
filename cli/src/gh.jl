@@ -179,9 +179,41 @@ function rest(method::AbstractString, path::AbstractString; params = nothing, bo
 end
 
 """`POST /graphql` with a JSON body already made, answering as `github`
-does less the date: the one transport under `search` and `gh_graphql`, and
-the argument a test hands `search` in its place."""
+does less the date: the one transport under `graphql_doc`, and the argument
+a test hands `search` in its place."""
 graphql_run(body::AbstractString) = github("POST", "/graphql"; body = body)[1:3]
+
+"""
+    graphql_doc(run, body; retry = true) -> (rc, document, err)
+
+`run(body)` with its answer parsed: `(0, document, "")`, or a non-zero `rc`
+with why in the third place and no document. Retried as `retrying` retries,
+unless told not to - a mutation that failed after GitHub acted on it would
+act twice.
+
+**The parse is inside the retry.** A 2xx whose body is not a JSON document
+is the endpoint stopping early, not the ask being wrong - an empty body under
+a 200 took a refresh down on 2026-10-20, as `ArgumentError` out of `JSON`
+from the middle of `search` - and it is retried as a 5xx is, said as
+`unexpected end of JSON input` (`TRANSIENT`) with `JSON`'s own first line
+after it. Parsed here, while the answer is still the request's to try again;
+a caller that parsed for itself would have a page that cannot be retried.
+"""
+function graphql_doc(run, body::AbstractString; retry::Bool = true)
+    function ask()
+        rc, out, err = run(body)
+        rc == 0 || return (rc, nothing, isempty(err) ? out : err)
+        d = try
+            JSON.parse(out)
+        catch e
+            e isa ArgumentError || rethrow()
+            return (1, nothing, string("unexpected end of JSON input: ",
+                                       first(split(e.msg, '\n'))))
+        end
+        (0, d, "")
+    end
+    retry ? retrying(ask) : ask()
+end
 
 # **`mergeable` is not asked for, anywhere.** GitHub computes it lazily, and
 # asking is what schedules the computation - measured on the `mine` lane, a page
@@ -330,10 +362,8 @@ function fetch_url_map(urls; per::Int = 40)
                     "    ... on Issue {", ISSUE_FIELDS, "    }\n  }\n")
              for (i, u) in enumerate(us)]
     q = string("query {\n  rateLimit { cost remaining }\n", join(parts), "}\n")
-    rc, o, e = retrying(() -> graphql_run(json_dumps(["query" => q])))
-    rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " *
-                                first(isempty(e) ? o : e, 300)))
-    d = JSON.parse(o)
+    rc, d, e = graphql_doc(graphql_run, json_dumps(["query" => q]))
+    rc == 0 || throw(FetchError("GraphQL failed for $(length(us)) urls: " * first(e, 300)))
     # An error with data beside it is one slot GitHub would not answer - a
     # resource behind SAML is the known case - and that slot is unanswered,
     # not the batch failed: forty rows kept as they were for one url that
@@ -376,9 +406,8 @@ would act twice.
 """
 function gh_graphql(query::AbstractString; vars = Dict{String,Any}())
     body = json_dumps(["query" => String(query), "variables" => vars])
-    rc, out, err = graphql_run(body)
-    rc == 0 || throw(FetchError(first(isempty(err) ? out : err, 300)))
-    d = JSON.parse(out)
+    rc, d, err = graphql_doc(graphql_run, body; retry = false)
+    rc == 0 || throw(FetchError(first(err, 300)))
     errs = jlist(d, :errors)
     isempty(errs) || throw(FetchError(first(json_dumps(errs), 400)))
     jobj(d, :data)
@@ -418,11 +447,14 @@ end
 fault.
 
 `unexpected end of JSON input` is what `gh`, which these went through until
-2026-09, said when the body stopped early, which is a truncated response and not something a different query would fix - the lane it
-kept failing on (`commented_pr`, ~400 results) succeeded on its own a minute
-later with the same string. It was invisible until the failure line stopped
-spending its width re-printing the query: the row said `unexpected ` and then
-ran out.
+2026-09, said when the body stopped early, which is a truncated response and
+not something a different query would fix - the lane it kept failing on
+(`commented_pr`, ~400 results) succeeded on its own a minute later with the
+same string. It was invisible until the failure line stopped spending its
+width re-printing the query: the row said `unexpected ` and then ran out.
+Over HTTP.jl nothing says it, so `graphql_doc` says it itself, of a 2xx whose
+body is not a JSON document - which is how an empty body under a 200 went
+unretried for a month and then took a refresh down.
 """
 const TRANSIENT = ("502", "503", "504", "timeout", "unexpected end of JSON input")
 
@@ -480,10 +512,8 @@ function search(q::AbstractString; cap::Int = 1000, query::AbstractString = QUER
         # Long paginations reliably hit transient 5xx from the GraphQL
         # endpoint, and a whole refresh is enough requests in a burst to be
         # told so. Retry the page rather than losing the refresh.
-        rc, stdout_, e = retrying(() -> run(body))
-        rc == 0 || throw(FetchError(string("GraphQL failed for ", repr(q), ": ",
-                                           first(isempty(e) ? stdout_ : e, 200))))
-        d = JSON.parse(stdout_)
+        rc, d, e = graphql_doc(run, body)
+        rc == 0 || throw(FetchError(string("GraphQL failed for ", repr(q), ": ", first(e, 200))))
         errs = jlist(d, :errors)
         isempty(errs) ||
             throw(FetchError("GraphQL errors for $(repr(q)): " *

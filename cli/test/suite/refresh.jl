@@ -937,6 +937,34 @@ end
     @test isempty(nodes) && length(asked) <= 3
 end
 
+@testset "a page whose body is not a JSON document is retried, not a parse error out of the lane" begin
+    # A 200 with nothing in it took a refresh down on 2026-10-20: `search`
+    # parsed the body for itself, after the retry, and `JSON` threw from the
+    # middle of the lane. The parse is inside the retry now, and the answer
+    # is what `gh` used to say of a truncated body, on the 5xx schedule.
+    page = W.json_dumps(Dict("data" => Dict(
+        "rateLimit" => Dict("cost" => 1),
+        "search" => Dict("issueCount" => 1, "pageInfo" => Dict("hasNextPage" => false),
+                         "nodes" => [Dict("__typename" => "Issue", "url" => "https://github.com/o/r/issues/1",
+                                          "createdAt" => "2026-09-01T00:00:00Z", "number" => 1)]))))
+    for broken in ("", "{\"data\": {\"search\": {\"nodes\": [")
+        rc, d, err = W.graphql_doc(_ -> (0, broken, ""), "{}"; retry = false)
+        @test rc != 0 && d === nothing
+        @test startswith(err, "unexpected end of JSON input: ")
+        @test W.retry_wait(err, 0) == 1.0           # the 5xx schedule, not given up on
+    end
+    # What `github` refused is handed on as it was, with why in the third place.
+    @test W.graphql_doc(_ -> (503, "", "HTTP 503: down"), "{}"; retry = false) == (503, nothing, "HTTP 503: down")
+    @test W.graphql_doc(_ -> (1, "the body", ""), "{}"; retry = false) == (1, nothing, "the body")
+    # And through the lane: the first ask answers nothing, the second the page.
+    asks = Ref(0)
+    flaky(body) = (asks[] += 1) == 1 ? (0, "", "") : (0, page, "")
+    said = IOBuffer()
+    nodes, _, total = W.reporting(() -> W.search("is:open is:issue x sort:created-asc"; run = flaky), said)[1]
+    @test asks[] == 2 && total == 1 && length(nodes) == 1
+    @test occursin("retry 1 in 1s after: unexpected end of JSON input", String(take!(said)))
+end
+
 @testset "a window is walked by stamp, and a row that moves mid-walk is read again, not skipped" begin
     # A fake list ascending by `updated_at`: 100 rows in one second, then one
     # a second - and one row, read on page one, that is updated once the walk
