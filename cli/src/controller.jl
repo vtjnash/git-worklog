@@ -1111,7 +1111,7 @@ function handle!(v::EditorView, k::Int, ctrl::Controller)
         push_view!(ctrl, ConfirmView("Discard what you have written?",
             [ta.title, string(ls, ls == 1 ? " line" : " lines", " written")],
             ["yY" => () -> pop_view!(ctrl, v)];
-            hint = "y discards it \u00b7 any other key goes back to writing"))
+            hint = "y discards it, and nothing brings it back \u00b7 any other key goes back to writing"))
         return :ok
     elseif k == C_R                                 # the suggestion block
         if isempty(v.suggest)

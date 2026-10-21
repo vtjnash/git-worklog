@@ -135,7 +135,7 @@ function quit_prompt!(st::BState, ctrl::Controller)
     notes = String[]
     a === nothing || push!(notes, first(a))
     n == 0 || push!(notes, string(n, n == 1 ? " session keeps" : " sessions keep",
-                                  " running \u00b7 quitting does not end them"))
+                                  " running \u00b7 quitting does not end them, and the next wl lists them again"))
     # Only when there was nothing else to say. A box that says a draft is unsent
     # and in the next breath that nothing is left running is contradicting
     # itself over two different meanings of the word.
@@ -169,7 +169,7 @@ function onpaste!(st::BState, s::AbstractString, ctrl::Controller)
         st.search = text(st.query)
         research!(st, iw)
     else
-        st.status = "a paste is text and not keys \u2014 / to search with it"
+        st.status = "a paste is text and not keys, and none it spelled were pressed \u2014 / to search with it"
     end
     :ok
 end

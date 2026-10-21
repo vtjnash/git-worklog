@@ -256,7 +256,7 @@ function compose_action(st::BState, ctrl::Controller, it::Item, iw::Int)
     # `kind` narrows nothing.
     lt = target isa LineTarget ? target : nothing
     if lt !== nothing && lt.side == "LEFT" && st.mode === :pushed
-        st.status = "the left side of p is the head you last saw, not the base — comment on a right-side line"
+        st.status = "the left side of p is the head you last saw, not the base, and a review comment names a line of the base — comment on a right-side line"
         return
     end
     suggest = ""
@@ -488,7 +488,7 @@ function review_action(st::BState, ctrl::Controller, it::Item)
         end
         if s !== nothing && isempty(s.review)
             st.batch = nothing; undraft!(it.url); st.drafts = load_drafts()
-            st.status = string("the draft on ", it.ref, " is gone: sent or thrown away elsewhere")
+            st.status = string("the draft on ", it.ref, " is gone — sent or thrown away elsewhere, and nothing here brings it back")
             held = nothing
         elseif s !== nothing
             held = mkbatch(it.url, it.ref, s.review, s.n)

@@ -478,10 +478,12 @@ body; a branch without one says how to write it.
 function local_nodes(it::Item)
     lead = Node(string("local branch ", it.branch, " - no thread"),
                 string("This is an adopted branch of ", it.repo,
-                       ": nothing about it is on GitHub, so there is nothing ",
-                       "said here until it is pushed and opened as a pull request",
+                       ". No pull request of it is on GitHub, so there is no ",
+                       "thread to read, here or anywhere, until it is pushed and ",
+                       "opened as one",
                        isempty(it.web) ? "" : string(" - which is done from ", it.web),
-                       ". Its title is the tip's subject, and the note below is `v`."),
+                       ". Its title is the tip's subject, and the note below is ",
+                       "yours: `v` writes it."),
                 :md, true)
     isempty(it.web) || (lead.meta["url"] = it.web)
     ns = Node[lead]
@@ -534,11 +536,12 @@ function notice_nodes(it::Item, at::DateTime; fresh::Bool = false)
                        type_words(it.notice), " in ", isempty(it.repo) ? "a repository" : it.repo,
                        isempty(it.reason) ? "" :
                        string(" (", replace(it.reason, "_" => " "), ")"),
-                       ". It is not an issue or a pull request, so there is no thread ",
-                       "here", cc === nothing ? "" : " - the commit's comments are below, and `R` reads them again",
-                       ": `o` opens it on GitHub",
+                       ". It is neither an issue nor a pull request, and so has no thread",
+                       cc === nothing ? "" : " - the commit's comments are below, and `R` reads them again",
+                       ". `o` opens it on GitHub",
                        isempty(it.web) ? "" : string(", at ", it.web),
-                       ", and `e` or `x` dismisses it until it notifies again."),
+                       ". `e` or `x` dismisses it, and dismissed it stays until GitHub ",
+                       "notifies you of it again."),
                 :md, true)
     lead.meta["at"] = it.moved_at
     isempty(it.web) || (lead.meta["url"] = it.web)

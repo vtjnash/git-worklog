@@ -1058,9 +1058,9 @@ function filter_help(axis::Symbol, val::AbstractString)
     axis === :pick && return string("Every ", val, " the dashboard has a row from, to type into and pick one.")
     v = Symbol(val)
     if axis === :show
-        v === NOT_DONE && return "Somebody else did something on it since you last marked it done. The firehose."
-        v === :done && return "Marked done (e, s) and nothing has moved since. A row comes back to not done when somebody else acts on it."
-        v === :filed && return "Put away with x. Out of the backlog for good, moved or not; z or x again brings it back."
+        v === NOT_DONE && return "Somebody else did something on it since you last marked it done; what you did yourself never counts. The firehose."
+        v === :done && return "Marked done (e, s), and nothing has moved since. It does not stay so by your leave: the moment somebody else acts on it, the row is not done again."
+        v === :filed && return "Put away with x: out of the backlog for good, moved or not, though a move still shows it in the firehose. z, or x again, brings it back."
     elseif axis === :state
         v === :open && return "Open on GitHub."
         v === :closed && return "Closed or merged on GitHub, and every notice - a release or a CI run is news, not open work."
@@ -1095,9 +1095,9 @@ const TAG_HELP = Dict{Symbol,String}(
     :edits => "Tag: changes requested, an unresolved thread, red CI, or the waiting-for-author label.",
     :ready => "Tag: approved, CI green, not a draft: waiting on somebody to press merge.",
     :approved => "Tag: approved and not a draft, but CI is pending, red or absent.",
-    :second => "Tag: the author acted and nobody has answered for second_look_days working days. s puts one down until it moves.",
+    :second => "Tag: the author acted, and for second_look_days working days nobody has answered. s lays it down until it moves.",
     :touched => "Tag: you have acted on it from here: commented, reviewed, marked.",
-    :drafts => "Tag: you have written words on it here that are not sent yet.",
+    :drafts => "Tag: words you wrote on it here and have not sent; GitHub holds them as a pending review, and no search of it will list one; this does.",
     :snoozed => "Tag: snoozed with s, and the wake time is still to come.")
 
 "Where a row on each lane came from: the search or the source that first claimed it. See `config.toml`."

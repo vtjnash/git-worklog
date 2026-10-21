@@ -1,16 +1,20 @@
 # worklog
 
 A terminal dashboard for the GitHub work you are carrying, across every
-repository. It keeps its own record of what you have read, put off and filed,
-so the per-event email notifications can stay off.
+repository. It keeps a record of its own - what you have read, what you have
+put off, what you have filed away - and keeps it on this machine, in plain
+text, so that the email GitHub sends for every event can be turned off and
+nothing is lost by the silence.
 
-Nothing off-the-shelf did this. [gh-dash] is stateless - every section is a
-live query, so there is no snooze, no note, no memory of what changed.
-[Octobox] has real snooze but triages notifications alone, one row per thread
-with the latest reason and no facts about the item. GitHub Projects can hold
-the state but cannot populate or classify a few thousand items. What all of
-them lack is a record of what *you* decided, and the facts a decision needs -
-"changes requested and CI red" is a fact about content that no query expresses.
+Nothing off-the-shelf did this. [gh-dash] is stateless: every section is a
+live query, and a query has no memory - no snooze, no note, no record of what
+has changed since you looked. [Octobox] remembers, and has a real snooze, and
+yet it triages notifications alone: one row per thread, carrying the latest
+reason and no fact about the item itself. GitHub Projects can hold the state,
+and cannot fill it, nor sort a few thousand items by what each one needs
+next. What all three lack is a record of what *you* decided, and the facts a
+decision rests on; "changes requested and CI red" is a fact about content,
+and no query expresses it.
 
 [gh-dash]: https://github.com/dlvhdr/gh-dash
 [Octobox]: https://github.com/octobox/octobox
@@ -25,8 +29,9 @@ julia +1.14-nightly --project=cli/precompile -e 'using Pkg; Pkg.instantiate()'
 cli/bin/wl
 ```
 
-Needs `gh`, logged in. The first launch writes `data/config.toml`; `[events]
-repos` there names the repositories you poll (see *Configuration*).
+Needs `gh`, logged in. The first launch writes `data/config.toml`, once and
+never again; `[events] repos` there names the repositories you poll (see
+*Configuration*).
 
 **Three panes**: the list on the left, the item's facts, and its thread or
 diff. The workflow, in keys:
@@ -35,7 +40,7 @@ diff. The workflow, in keys:
 - `j`/`k` walk the list; `↵` reads the item, `h` `d` `p` `c` show its
   history, diff, what was pushed since you looked, and its checks.
 - `e` marks it done, `s` snoozes it, `x` files it away. It comes back when
-  somebody else moves it.
+  somebody else acts on it, and not before.
 - `C` comments, `A` sends a review, `M` merges.
 - `t` opens a shell and `T` an agent in the item's worktree, in a pane
   beside the thread; `"` lists the worktrees.
@@ -43,19 +48,23 @@ diff. The workflow, in keys:
 
 ## What it does
 
-- **Fetches the open work whole** - pull requests you authored, pull requests
-  awaiting your review, issues assigned to you - and everything else **only
-  when a clock says it moved**: the repositories you poll, and your GitHub
-  notifications. A question put to you on an issue closed years ago reaches
-  you the same way a comment on an open one does. A notification that is not
-  an issue or pull request - a release, a discussion, a comment on a commit,
-  a CI run, an alert, an invitation - is a **notice**: a row, unread until you
-  dismiss it, and then gone until it notifies again.
+- **Fetches the open work whole** - the pull requests you authored, the pull
+  requests awaiting your review, the issues assigned to you - at every
+  refresh, and everything else **only when a clock says it moved**: the
+  repositories you poll, and your GitHub notifications. So a question put to
+  you on an issue closed years ago reaches you by the same road as a comment
+  on an open one. A notification that is not an issue or a pull request - a
+  release, a discussion, a comment on a commit, a CI run, an alert, an
+  invitation - is a **notice**: a row, unread until you dismiss it, and then
+  gone until it notifies again.
 - **Knows what moved.** An item is unread when somebody else did something to
   it since you read it: pushed, commented, reviewed, asked you, assigned you,
-  closed or merged it, or your own CI went red. Nothing you did yourself counts.
-- **Knows what to do next**, as tags derived from facts, none of them
-  exclusive:
+  closed or merged it, or your own CI went red. Nothing you did yourself
+  counts, and no clock of this program's is consulted: every stamp is
+  GitHub's own time for an event by another hand.
+- **Knows what to do next**, as tags derived from facts - none of them
+  exclusive, and none of them stored, since each is worked out again from the
+  facts at every refresh:
   - `edits` - changes requested, unresolved threads, red CI, or the
     `status: waiting for PR author` label
   - `ready` - approved and green; `approved` - approved, CI not green yet.
@@ -68,18 +77,21 @@ diff. The workflow, in keys:
   - `second` - the author acted and nobody has answered for two working
     days; "second look" in the filter pane and the views
 - **Shows *what* changed**: the thread opens on the first comment you have not
-  seen, and `p` is the diff or `range-diff` since the head you last read.
+  seen, and `p` is the diff, or the `range-diff`, since the head you last
+  read.
 - **Writes back**: comment, review (a draft held on GitHub until you send it),
   label, merge.
-- **Hosts a shell or an agent** in a tmux pane beside the thread, per worktree.
+- **Hosts a shell or an agent** in a tmux pane beside the thread, one per
+  worktree.
 - **Nothing leaves.** Everything that was ever in front of you stays in the
-  corpus; `done` and `filed` are marks, not deletions.
+  corpus; `done` and `filed` are marks, not deletions, and every mark can be
+  taken back.
 
 ## The browser
 
 Three panes: the list, the item's facts, and its thread or diff. Unread rows
-are bold; reading an item, or putting it away, takes it out of the list, and
-it comes back when it moves. Three keys say what the list is:
+are bold. Reading an item, or putting it away, takes it out of the list; it
+comes back when it moves, and not before. Three keys say what the list is:
 
 - `'` - views: `1` the firehose, what moved and is unfiled · `2` my work ·
   `3` the backlog · more below, and your own in `data/config.toml`.
@@ -87,17 +99,19 @@ it comes back when it moves. Three keys say what the list is:
 - `"` - the worktrees: every checkout, with the shell (`t`) or agent (`T`)
   running in it, filed under its pull request.
 
-Nothing is unread from before the first launch: each source - your lanes,
+Nothing is unread from before the first launch. Each source - your lanes,
 your notifications, every repository you poll - is dated the day it is first
-seen, and only what moves after that day is news. The shells and agents are
-tmux sessions on the item's worktree and outlive the browser: `^]q` leaves
-one running, and the next `t` or `T` on the item goes back in. Everything the
-program knows is plain text under `data/`, a git repository of its own:
-`local.toml` is your record, one block per item, and `fetched.json` is what
-GitHub said (see *Files*).
+seen, and only what moves after that day is news; everything older is read
+by construction, and stays so. The shells and agents are tmux sessions on the
+item's worktree, and they outlive the browser: `^]q` leaves one running, and
+the next `t` or `T` on the item goes back in. Everything the program knows is
+plain text under `data/`, a git repository of its own: `local.toml` is your
+record, one block per item, and `fetched.json` is what GitHub said (see
+*Files*).
 
-Lowercase keys look at things or change this machine; **uppercase keys
-usually reach GitHub** - not every one does.
+Lowercase keys look, or change this machine, and reach no further.
+**Uppercase keys reach GitHub**, most of them, and what they do there is done
+in your name.
 
 | key | | |
 |---|---|---|
@@ -139,7 +153,8 @@ usually reach GitHub** - not every one does.
 8. everything
 
 Add your own under `[views]` in `data/config.toml`; the last entry under `'`
-copies the current filter as the TOML that would name it.
+copies the current filter as the TOML that would name it, so a list arrived
+at by hand is a view by the time it is pasted.
 
 **The filter pane** (`f`) is one axis per question:
 
@@ -156,14 +171,16 @@ what is applied and keep the rest behind a picker row; `[filters]
 pinned_repos` in `data/config.toml` names repos listed first regardless, as a
 name or `owner/*`. In a view's TOML the axes are `show = ["not-done", "done",
 "filed"]`, `state = ["open", "closed"]`, `kind = ["pr", "draft"]` and so on.
+A view names a filter and nothing else: it is never a lane, and no row
+carries a word for which view it belongs to.
 
 **A notice** is a notification that is not an issue or pull request - a
 release, a CI run, an alert, an advisory, an invitation, a discussion, a
 comment on a commit - listed as the repository and its type: `julia release`,
 `julia CI`. It is in the firehose and in no other built-in view
-(`kind = ["notice"]` names them in yours). Its pane is the facts: what it is,
-why GitHub said so, when, the link, and on a commit its comments, all of
-them, oldest first.
+(`kind = ["notice"]` names them in yours), since it is news and never work.
+Its pane is the facts: what it is, why GitHub said so, when, the link, and on
+a commit its comments, all of them, oldest first.
 
 - `o` opens the link - through `code --openExternal` from a Remote-SSH
   terminal, the desktop's opener where there is a display, and otherwise it
@@ -171,7 +188,8 @@ them, oldest first.
 - `e` or `x` dismisses it, and `z` puts it back. A dismissed notice returns
   when the thread notifies again, and not before.
 - `R` reads a commit's comments again. Everything that needs a thread or a
-  checkout is refused, and `d`, `p` and `c` say there is nothing to show.
+  checkout is refused, since a notice has neither, and `d`, `p` and `c` say
+  there is nothing to show.
 
 **Reviewing**:
 
@@ -179,8 +197,8 @@ them, oldest first.
    `d`, or on the right side under `p`, which is the head now. `^r` in the
    composer drops in a suggestion block.
 2. Comments accumulate in a draft review on GitHub, pinned to the commit the
-   diff was read at. Once the branch has moved under it, the next `C` says to
-   send the draft first.
+   diff was read at. Once the branch has moved under it, the draft names a
+   head that is no longer the head, and the next `C` says to send it first.
 3. `A` sends it: `1`-`3` a verdict with a body to write, `4` an approval with
    none, `5` the draft as it stands, `6` throws it away, asking once more.
    Leaving the item asks whether to send.
@@ -227,8 +245,8 @@ A program that exits - the agent finishing, `exit` in the shell - leaves its
 pane on screen with its status, and nothing closes it but you: `q` there
 ends it, and until then `t` or `T` opens what it left. It says `exited`
 wherever the session is listed - under `running` in the item pane, under its
-worktree in `"`, in the checkout picker - and that is all: the item is not
-unread for it.
+worktree in `"`, in the checkout picker - and that is the whole of it: an
+exit is not a movement, and the item is not unread for it.
 
 Every pane sees the ssh agent and the `code` of whichever login most
 recently launched `wl`, however old the pane: `SSH_AUTH_SOCK`,
@@ -243,7 +261,8 @@ list, and `waiting on you` under `running` in the item pane.
 
 - It is the terminal bell, rung by the hooks in `cli/claude-settings.json`,
   which `T` hands `claude` as `--settings`. tmux keeps it with the session,
-  so nothing has to be running to catch it.
+  so nothing has to be running to catch it: a bell rung at three in the
+  morning stands until it is looked at.
 - Looking (`T`) clears it, and so does any mark - `e`, `s`, `x`, `wl done`;
   `z` rings it back.
 - While the browser is up, tmux tells it within a second through one
@@ -338,8 +357,8 @@ in `$GMAIL_APP_PASSWORD` or `~/.netrc`; `--help` has the details.
 
 ## Tracking
 
-`track` decides what counts as an item *moving*, which is what makes it unread
-and what wakes a snooze. Two levels:
+`track` decides what counts as an item *moving*, which is the one thing that
+makes it unread and the one thing that wakes a snooze early. Two levels:
 
 | level | default for | ignores |
 |---|---|---|
@@ -347,20 +366,20 @@ and what wakes a snooze. Two levels:
 | `loose` | everything else, and anything finished | a bot's comment; a stranger's CI |
 
 Both see a push, a human's comment, a review, a request, an assignment, a
-close or a merge - by somebody other than you. Not movement at any level: your
-own actions, a label, a milestone, a title edit, a thread being resolved, a
-review request being withdrawn.
+close or a merge - by somebody other than you. Not movement at any level, and
+never to be: your own actions, a label, a milestone, a title edit, a thread
+being resolved, a review request being withdrawn.
 
 ## Configuration
 
 Two files, read as one. `config.toml` beside the code has every key, its
 default, and the comment that is its manual, versioned with the program.
-`data/config.toml` is yours: copied from
-`config.user.toml` on the first launch, with `login` filled from `gh`, and
-never written by the program again. A key set there replaces the shared one
-- a table key by key, anything under a table key whole - so your `[events]
-repos` is the whole list, and a `[views."name"]` of the same name is the
-whole view. Both are hand-edited and only ever read.
+`data/config.toml` is yours: copied from `config.user.toml` on the first
+launch, with `login` filled from `gh`, and never written by the program
+again. A key set there replaces the shared one - a table key by key, and
+anything under a table key whole - so your `[events] repos` is the whole
+list, not an addition to the shared one, and a `[views."name"]` of the same
+name is the whole view. Both are hand-edited and only ever read.
 
 Colours are in `themes/`, one file per theme, each naming colours by role in
 words (`"bold white"`, `"black on yellow"`, `"on 236"`); `theme` in your
@@ -382,16 +401,16 @@ manual for every key.
 | `$XDG_RUNTIME_DIR/wl/` | the browser | links to the ssh agent, VS Code socket and `code` of the last login to launch it, which every pane is handed. Yours alone (`0700`, set at every launch); gone with the last login, like what they point at |
 
 `data/` is a git repository of its own, so your record has a history without
-cluttering the code's. Nothing commits automatically. `WORKLOG_DATA` points it
-elsewhere.
+cluttering the code's. Nothing commits automatically; the history is yours
+to write, when you choose. `WORKLOG_DATA` points it elsewhere.
 
 ## Authentication
 
 Every request to GitHub - the searches, the poll, the writes - is made with
 one token, looked for in `/run/claudebox-github/token`, then `$GH_TOKEN` /
-`$GITHUB_TOKEN`, then `gh auth token`, and fails once, naming every place it
-looked. `gh` is asked only for the token, so a machine without it needs
-`GH_TOKEN` set, or the token in that file.
+`$GITHUB_TOKEN`, then `gh auth token`, and failing all three it fails once,
+naming every place it looked. `gh` is asked only for the token, so a machine
+without it needs `GH_TOKEN` set, or the token in that file.
 
 `/notifications` needs a *person's* token (`gho_`, `ghp_`) - a GitHub App's
 (`ghu_`, `ghs_`) cannot read it. Off a sandbox, `gh auth token` is a `gho_`

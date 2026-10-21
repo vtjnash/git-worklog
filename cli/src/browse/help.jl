@@ -21,7 +21,8 @@ HelpView() = HelpView(1)
 
 """`(keys, what)` rows, or a bare heading, in the order the box shows them."""
 const HELP = Union{String,Tuple{String,String}}[
-    "Lowercase keys look at things or change this machine; uppercase keys reach GitHub.",
+    "Lowercase keys look, or change this machine, and reach no further.",
+    "Uppercase keys reach GitHub, most of them, and what they do there is done in your name.",
     "",
     "moving",
     ("j/k  g/G", "line · top and bottom;  space/b  a page"),

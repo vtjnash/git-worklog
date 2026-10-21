@@ -23,17 +23,23 @@ const NEWROW = "\u002b import an item by url"
 "What the detail pane says while the import row is selected."
 newnodes() = [Node("import an item by url",
                    "`\u21b5` here, or `I` from anywhere, asks for a url.\n\n" *
-                   "Everything else in this list arrived through a lane - your " *
-                   "pull requests, review requests, mentions, the repos in " *
-                   "`data/config.toml`. An issue in a repo nobody watches that does " *
-                   "not mention you matches none of them, and a url is not a " *
-                   "query, so this is the way in.\n\n" *
-                   "It is followed from then until you archive it, with notes, " *
-                   "snoozes, the clock and the tags all working on it as they " *
-                   "do on anything else. The one thing it cannot have is the " *
-                   "events poller, which only watches the repos named in " *
-                   "`data/config.toml` - so new activity on an imported item will " *
-                   "still reach you by email.",
+                   "Everything else in this list came in by a lane: your " *
+                   "pull requests, the reviews asked of you, the places you " *
+                   "were named, the repos in `data/config.toml`. A lane is a " *
+                   "search, and a search finds only what it was told to look " *
+                   "for. An issue in a repo nobody watches, which names you " *
+                   "nowhere, answers to none of them - and yet it exists, and " *
+                   "may be yours to deal with; and a url is not a query but a " *
+                   "name, and a name reaches past every search. This row is " *
+                   "the door it comes in by.\n\n" *
+                   "Once in, it is an item like the rest, followed from that " *
+                   "hour until you archive it, with notes, snoozes, the clock " *
+                   "and the tags all working on it as they do on anything " *
+                   "else. One thing alone it cannot have: the events poller, " *
+                   "which watches the repos named in `data/config.toml` and " *
+                   "no other. Somebody will act on the imported item, and the " *
+                   "poller will not hear it. What hears it is your email, as " *
+                   "before.",
                    :md, true)]
 
 """Ask for a url, and follow whatever it names.
@@ -50,10 +56,11 @@ its repo is not in `[events].repos`.
 function import_action(st::BState, ctrl::Controller, at::DateTime)
     push_view!(ctrl, PromptView(
         "Import an item",
-        "paste the url of an issue or pull request, in any repo. It is followed " *
-        "from now until you archive it - but not by the events poller, which " *
-        "only watches the repos in data/config.toml, so new activity on it will " *
-        "still reach you by email.",
+        "paste the url of an issue or pull request, in any repo. From this " *
+        "hour until you archive it, it is followed as the rest are - by " *
+        "everything but the events poller, which watches the repos in " *
+        "data/config.toml and no other, so what moves on it reaches you by " *
+        "email, as before.",
         u -> (st.status = import_url!(st, u, at))))
 end
 
