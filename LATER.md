@@ -206,9 +206,9 @@ filtered as wanted.
 
 - [ ] **A reader for a release.** A quick summary in the pane and the link
       to GitHub for the rest: notices are rare, so this is not a thread view.
-      The commit comment's reader is done (`notice_nodes`, which reads the
-      comment named by the block's link), and a release's would go the same
-      way, except that its block carries no id.
+      The commit's reader is done (`notice_nodes`, which reads the
+      comments of the commit the block's link names), and a release's would
+      go the same way, except that its block carries no id.
       - Keep the subject's API url in the block: `sync!` writes an `api` key
         off `subject.url`. A block from before has none, and stays as it is
         until its thread notifies again.
@@ -221,6 +221,16 @@ filtered as wanted.
         cost to the poll.
       - An advisory, a CI run, an invitation: nothing on the thread to ask
         about; unchanged.
+
+- [ ] **A comment on a commit after the notice is dismissed.** *Decide:
+      whether it is worth a poll.* GitHub notifies of a commit's comments
+      once: the thread does not notify again on the next one (seen
+      2026-10-21 on a commit with seven), so the pane reads the commit's
+      whole list while the notice stands, and nothing hears a comment made
+      after `e`. A notice has no wake table by design (DESIGN, "A notice is
+      not a GitHub item"); hearing it would mean a poll of
+      `/repos/o/r/comments?since=` for the repositories with a dismissed
+      commit notice, and a row that comes back on it as the inbox's do.
 
 - [ ] **A reader for a discussion.** The same quick summary, and harder: REST
       has no endpoint for a repository's discussions, so it is GraphQL,

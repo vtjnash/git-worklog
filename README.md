@@ -162,14 +162,15 @@ release, a CI run, an alert, an advisory, an invitation, a discussion, a
 comment on a commit - listed as the repository and its type: `julia release`,
 `julia CI`. It is in the firehose and in no other built-in view
 (`kind = ["notice"]` names them in yours). Its pane is the facts: what it is,
-why GitHub said so, when, the link, and on a commit the comment itself.
+why GitHub said so, when, the link, and on a commit its comments, all of
+them, oldest first.
 
 - `o` opens the link - through `code --openExternal` from a Remote-SSH
   terminal, the desktop's opener where there is a display, and otherwise it
   is copied; `y` copies it.
 - `e` or `x` dismisses it, and `z` puts it back. A dismissed notice returns
   when the thread notifies again, and not before.
-- `R` reads a commit's comment again. Everything that needs a thread or a
+- `R` reads a commit's comments again. Everything that needs a thread or a
   checkout is refused, and `d`, `p` and `c` say there is nothing to show.
 
 **Reviewing**:

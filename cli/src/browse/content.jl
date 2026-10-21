@@ -490,14 +490,14 @@ function local_nodes(it::Item)
     ns
 end
 
-"""The commit comment a `Commit` notice is about, as `(repo, id)` - off the
-block's link, which `notice_web` ends with `#commitcomment-<id>` when the
-thread named one - or `nothing` for a thread that notified of the commit
-alone. The link is the block's one fact that carries the id, so a block
-written before the comment was read here reads it too."""
-function notice_comment(it::Item)
+"""The commit a `Commit` notice is about, as `(repo, sha)` - off the block's
+link, which `notice_web` builds as `/commit/<sha>`, with `#commitcomment-<id>`
+on the end when the thread named a comment - or `nothing` for a block whose
+link is not a commit's. The link is the block's one fact that carries the
+sha, so a block written before the comments were read here reads them too."""
+function notice_commit(it::Item)
     (it.notice == "Commit" && !isempty(it.repo)) || return nothing
-    m = match(r"#commitcomment-(\d+)$", it.web)
+    m = match(r"/commit/([0-9a-f]+)(?:#commitcomment-\d+)?$", it.web)
     m === nothing ? nothing : (it.repo, String(something(m[1])))
 end
 
@@ -506,28 +506,36 @@ answers it. A hook, so the suite can answer instead."""
 const NOTICE_READ = Ref{Any}(path -> Events.api_get(path)[1])
 
 """A notice's own facts: what it is, why GitHub said so, where, when, and
-the link - and, under them, the comment a commit notice is about, which is
-what the daily jobs say and the one thing worth a request. A release's
-notes are not read yet; `o` opens the page, and `y` copies the link.
+the link - and, under them, the comments on the commit a commit notice is
+about, which are what the daily jobs say and the one thing worth a request.
+A release's notes are not read yet; `o` opens the page, and `y` copies the
+link.
 
-The comment is one `GET`, kept under the thread's key with the thread's
+**The commit's whole list, not the one comment the thread names.** The
+thread's `latest_comment_url` is the last comment as of the notification,
+and a pane that read that one showed a conversation on a commit - seven
+comments on one of 2026-10-13, four of them a reply and its answers - as its
+last line alone. So the ask is `/commits/<sha>/comments`, oldest first as
+GitHub lists them, one page of a hundred: a commit with more is not a
+notice's business. One `GET`, kept under the thread's key with the thread's
 window, so a notice looked at twice costs one request and `R` reads it
 again; a read that fails leaves the facts standing, with the failure under
-them. Drawn as a thread's comment is (`push_comment!`), and not to be
-replied to: a commit comment has no review thread.
+them. Each is drawn as a thread's comment is (`push_comment!`), and not to
+be replied to: a commit comment has no review thread. A cached copy from
+before this, one comment rather than a list, is read over.
 
 The time is the header's, as a comment's is - `meta["at"]`, and how long
 ago drawn per frame - and never in the body: a date written there with its
 age was the age as of the load, and its escapes were markdown's to mangle."""
 function notice_nodes(it::Item, at::DateTime; fresh::Bool = false)
-    cc = notice_comment(it)
+    cc = notice_commit(it)
     lead = Node(string(notice_word(it.notice), "  ", when_str(it.moved_at), "  ", it.title),
                 string("GitHub notified you of this ", isempty(it.notice) ? "notification" :
                        type_words(it.notice), " in ", isempty(it.repo) ? "a repository" : it.repo,
                        isempty(it.reason) ? "" :
                        string(" (", replace(it.reason, "_" => " "), ")"),
                        ". It is not an issue or a pull request, so there is no thread ",
-                       "here", cc === nothing ? "" : " - the comment is below, and `R` reads it again",
+                       "here", cc === nothing ? "" : " - the commit's comments are below, and `R` reads them again",
                        ": `o` opens it on GitHub",
                        isempty(it.web) ? "" : string(", at ", it.web),
                        ", and `e` or `x` dismisses it until it notifies again."),
@@ -539,21 +547,25 @@ function notice_nodes(it::Item, at::DateTime; fresh::Bool = false)
     c = try
         key = thread_key(it.url)
         hit = fresh ? nothing : cache_get(key, CACHE_FRESH[]; keep_s = CACHE_KEEP[])
-        if hit === nothing
-            got = NOTICE_READ[](string("/repos/", cc[1], "/comments/", cc[2]))
+        if hit === nothing || !(hit[1] isa AbstractVector)
+            got = NOTICE_READ[](string("/repos/", cc[1], "/commits/", cc[2], "/comments?per_page=100"))
             cache_put(key, got)
             got
         else
             hit[1]
         end
     catch e
-        push!(ns, failednode("could not read the comment", first(sprint(showerror, e), 200)))
+        push!(ns, failednode("could not read the comments", first(sprint(showerror, e), 200)))
         return ns
     end
-    c isa AbstractDict || (push!(ns, failednode("could not read the comment",
-                                                "GitHub answered with something that is not one"));
-                           return ns)
-    push_comment!(ns, c, jstr(c, :created_at, it.moved_at), it.web, login(); reply = false)
+    c isa AbstractVector || (push!(ns, failednode("could not read the comments",
+                                                  "GitHub answered with something that is not a list"));
+                             return ns)
+    isempty(c) && push!(ns, Node("no comments on the commit", "", :plain, true))
+    for cm in c
+        cm isa AbstractDict || continue
+        push_comment!(ns, cm, jstr(cm, :created_at, it.moved_at), it.web, login(); reply = false)
+    end
     ns
 end
 

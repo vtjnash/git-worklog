@@ -270,13 +270,15 @@ key, as `local:` is, and `ghitem` is the one predicate for "an issue or pull
 request GitHub can be asked about" - the bundle, the metadata pane, the
 prefetch and the thread all ask it rather than `islocal`. The pane is the
 block's own facts; `o` opens `web`, the link `notice_web` builds from the
-thread alone, and `y` copies it. The one fetch is a commit notice's comment
-(`notice_comment`): the daily jobs' failures arrive as these, and the block
-says only that there was one. Its id is in `web` already, so no block gets
-a field for it; it is read as a thread is - under `thread:`, with the
-thread's window, in the thread's task - and drawn as a thread's comment is
-(`push_comment!`), with no `comment_id` since there is no thread to reply
-in. What needs a thread, a checkout or a block that outlives dismissal is
+thread alone, and `y` copies it. The one fetch is a commit notice's
+comments (`notice_commit`): the daily jobs' failures arrive as these, and
+the block says only that there was one. The sha is in `web` already, so no
+block gets a field for it; the commit's whole list is read, not the one
+comment the thread names - GitHub does not notify of the next comment on a
+commit, so the one it named is the last the inbox will ever hear of - as a
+thread is - under `thread:`, with the thread's window, in the thread's task
+- and each is drawn as a thread's comment is (`push_comment!`), with no
+`comment_id` since there is no thread to reply in. What needs a thread, a checkout or a block that outlives dismissal is
 refused, as an adopted branch's `C` is (`not_pr`): `C` `A` `M` `L` `;`,
 and `t` `T` `v`; `R` too, except on that comment.
 

@@ -47,7 +47,7 @@ what apply them.
 | read                    | where           | fresh         | keep         | past fresh       | held  |
 |-------------------------|-----------------|---------------|--------------|------------------|-------|
 | thread (`thread:`)      | `comment_nodes` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read   | yes   |
-| commit comment (`thread:`) | `notice_nodes` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read  | yes   |
+| commit comments (`thread:`) | `notice_nodes` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read | yes   |
 | diff, checkout          | `diff_nodes`    | -             | -            | local git; not cached | once per head |
 | diff, gh (`diff:`)      | `diff_nodes`    | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read   | yes   |
 | checks (`checks:`)      | `check_nodes`, `load_meta!` | `CACHE_FRESH` | `CACHE_KEEP` | shown, re-read | yes |

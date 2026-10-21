@@ -189,11 +189,11 @@ is no *not done* for `e` to toggle to and no filed box for `x` to put it in;
 has neither. So is everything that needs an issue or a pull request - `C`,
 `A`, `M`, `L`, `;`, `R` - or a checkout or a block to keep a note in - `t`,
 `T`, `v` - the way an adopted branch's `C` is (`not_pr`). `o` opens the link.
-`R` is the browser's where there is a comment to read again: a commit
-notice's (`notice_comment`), which the pane fetched.
+`R` is the browser's where there are comments to read again: a commit
+notice's (`notice_commit`), which the pane fetched.
 """
 function notice_key!(st::BState, it::Item, k::Int, ctrl)
-    (k == Int('R') && notice_comment(it) !== nothing) && return false
+    (k == Int('R') && notice_commit(it) !== nothing) && return false
     if k in (Int('e'), Int('x'))
         st.status = dismiss_notice!(st, it)
     elseif k == Int('s')
