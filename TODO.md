@@ -7,13 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] new issue with reading comments:
-
-commit  2026-10-22 06:13  🤖 Bump LinearAlgebra stdlib 957f3e9 → 66e8f07 (#64016)
-GitHub notified you of this commit in JuliaLang/julia (subscribed). It is neither an issue nor a pull request, and so has no thread - the commit's comments are below, and `R` reads them again. `o` opens it on GitHub, at https://github.com/JuliaLang/julia/commit/82e07fcb360fb32a8950aeb82a6cad3220e2c8a9#commitcomment-206120902. `e` or `x` dismisses it, and dismissed it stays until GitHub notifies you of it again.
-could not read the comments
-GitHub answered with something that is not a list
-
 - [ ] in the diff for https://github.com/JuliaLang/julia/pull/64020, why is there green word-delta coloring on one line but not delta coloring on others in cgutils.cpp?
 
 - [ ] performance issue:

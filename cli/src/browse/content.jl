@@ -503,9 +503,14 @@ function notice_commit(it::Item)
     m === nothing ? nothing : (it.repo, String(something(m[1])))
 end
 
-"""How a notice's comment is read: the REST path, answered as `api_get`
-answers it. A hook, so the suite can answer instead."""
-const NOTICE_READ = Ref{Any}(path -> Events.api_get(path)[1])
+"""How a notice's comments are read: the REST path, answered as `api_get`
+answers it - the list, whole. A hook, so the suite can answer instead.
+
+The suite answers in its place and so never runs this line, and a wrong
+line here is wrong in the real window alone: `[1]` on the end, left from
+when the path named one comment, handed the first comment where the list
+was wanted, and every commit notice read as `not a list` (2026-10-22)."""
+const NOTICE_READ = Ref{Any}(path -> Events.api_get(path))
 
 """A notice's own facts: what it is, why GitHub said so, where, when, and
 the link - and, under them, the comments on the commit a commit notice is
