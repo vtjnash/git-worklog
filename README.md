@@ -33,6 +33,19 @@ Needs `gh`, logged in. The first launch writes `data/config.toml`, once and
 never again; `[events] repos` there names the repositories you poll (see
 *Configuration*).
 
+Optional, for `o` to open a diff at a line in VS Code rather than the file
+alone, the extension in `vscode/`, built and installed once:
+
+```bash
+vscode/package.sh                                   # writes vscode/worklog-<version>.vsix
+code --install-extension vscode/worklog-0.2.1.vsix  # from the terminal that reaches your VS Code
+```
+
+It is a workspace extension, so under Remote-SSH the `code` of the remote
+terminal is the one to run it from: that is where the checkout is, and where
+the extension has to be. Without it `o` falls back to the file, and says so
+(see *VS Code*).
+
 **Three panes**: the list on the left, the item's facts, and its thread or
 diff. The workflow, in keys:
 
