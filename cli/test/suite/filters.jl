@@ -652,6 +652,15 @@ end
     @test W.author_ok(Set([W.AUTHOR_OTHERS]), them)
     @test !W.author_ok(Set([W.AUTHOR_OTHERS]), me)
     @test !W.author_ok(Set([W.AUTHOR_OTHERS]), local_)
+    # And it is a kind of its own, which my work names: read as an issue it
+    # was out of the one view that is the work with a branch (2026-10-22).
+    @test W.kind_of(local_) === :branch
+    @test !W.kind_ok(Set([:pr, :draft]), local_) && W.kind_ok(Set([:branch]), local_)
+    mywork = Dict(W.VIEWS)["my work — my open pull requests and branches, done ones too"]
+    @test "branch" in mywork["kind"]
+    @test W.matches(W.Filters(show = Set([W.NOT_DONE, :done]), state = Set([:open]),
+                              kind = Set(Symbol.(mywork["kind"])),
+                              authors = Set([W.AUTHOR_ME])), local_)
     @test W.author_ok(Set(["someone"]), them)                 # a login is a value too
     # OR within the axis, as on every other one.
     @test W.author_ok(Set([W.AUTHOR_ME, "someone"]), them)

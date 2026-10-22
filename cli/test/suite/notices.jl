@@ -230,7 +230,7 @@ end
         views = Dict(W.VIEWS)
         inview(name) = (W.apply_view!(st, views[name]); any(W.isnotice, st.items))
         @test inview("notification firehose — unread, open or closed")
-        @test !inview("my work — my open pull requests, done ones too")
+        @test !inview("my work — my open pull requests and branches, done ones too")
         @test !inview("open items — the backlog, done ones too")
         @test occursin("notices", W.apply_view!(st, Dict("kind" => "notice")))
         @test all(W.isnotice, st.items) && length(st.items) == 1

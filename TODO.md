@@ -7,10 +7,8 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-Nothing now.
-
-
-
+- [ ] README quickstart should mention VSCode plugin steps
+- [ ] should ^a at the start of a line should go to start of input box, ^e at end of line go to end of input box?
 - [ ] performance issue:
 
 * on local:jn/tsa-struct-sibling, rending diff takes hours, stuck in:

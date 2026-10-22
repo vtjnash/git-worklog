@@ -191,9 +191,9 @@ const SORTS = [(:moved, "by when it moved"),
                (:touched, "by when you last acted"),
                (:name, "by url, newest first")]
 
-"""Pull request, draft, issue or notice - the fourth checkbox axis.
+"""Pull request, draft, branch, issue or notice - the fourth checkbox axis.
 
-A row has one of the four (`kind_of`), and an empty set restricts nothing,
+A row has one of the five (`kind_of`), and an empty set restricts nothing,
 as on `lane` and the rest. It was a radio of three with `any` for a fourth
 button, on the argument that the values were exhausted and mutually exclusive,
 so a set of them would only ever hold one thing or say nothing. Taking the
@@ -202,10 +202,13 @@ not ready, and "every pull request" is now two boxes, which a view - my work,
 drafts included - has to be able to name together. `Item.is_pr` and
 `Item.draft` were already there and every lane carries every kind, which is
 what made "issues only" impossible to ask for and obvious to want. A notice -
-a notification that is neither - is the fourth, and not an issue.
+a notification that is neither - is the fourth, and not an issue. An adopted
+branch is the fifth (2026-10-22): it is not a pull request, `is_pr` being
+what `C`, `A` and `M` refuse on, and read as an issue for want of a kind it
+was left out of my work, whose whole claim is the work that has a branch.
 """
 const KINDS = [(:pr, "pull requests"), (:draft, "draft pull requests"),
-               (:issue, "issues"), (:notice, "notices")]
+               (:branch, "branches"), (:issue, "issues"), (:notice, "notices")]
 
 """The order a selection opens in, where it implies one.
 
@@ -587,10 +590,10 @@ sortitems(items, mode::Symbol, touched::Dict{String,String}) =
     mode === :name ? sort(items; by = urlkey, rev = true) :
     sort(items; by = it -> (sortkey(it, touched, mode), urlkey(it)), rev = true)
 
-"""Which of the kinds a row is: a notice, a draft pull request, a pull request
-that is not one, or an issue - which an adopted branch, with no pull request
-yet, counts as."""
-kind_of(it::Item) = isnotice(it) ? :notice :
+"""Which of the kinds a row is: an adopted branch, with no pull request yet
+and so no `is_pr` to read; a notice; a draft pull request; a pull request
+that is not one; or an issue."""
+kind_of(it::Item) = islocal(it) ? :branch : isnotice(it) ? :notice :
                     it.is_pr ? (it.draft ? :draft : :pr) : :issue
 
 "Is the row's kind one of those asked for, with the empty set restricting nothing."
@@ -800,9 +803,11 @@ const VIEWS = [
     # view is for.
     # Pull requests only (2026-10-01): an issue of yours is a report filed,
     # and the backlog has those; the work is what has a branch - a draft as
-    # much as one that is ready, which is why both boxes are named.
-    ("my work — my open pull requests, done ones too",
-                       Dict("author" => [AUTHOR_ME], "kind" => ["pr", "draft"],
+    # much as one that is ready, which is why both boxes are named. And an
+    # adopted branch (2026-10-22), which has a branch and nothing else yet:
+    # `kind_of` read it as an issue until it had a kind of its own.
+    ("my work — my open pull requests and branches, done ones too",
+                       Dict("author" => [AUTHOR_ME], "kind" => ["pr", "draft", "branch"],
                             "show" => ["not-done", "done"], "state" => ["open"])),
     # The backlog. It names `state` open only, which is the one place it and
     # the dashboard come apart: a closed thing that moved is news and belongs
@@ -1069,6 +1074,7 @@ function filter_help(axis::Symbol, val::AbstractString)
     elseif axis === :kind
         v === :pr && return "Pull requests that are not drafts."
         v === :draft && return "Draft pull requests: opened, and not yet asking to be merged."
+        v === :branch && return "Adopted branches: a checkout's branch claimed as yours (a in the worktree list, wl adopt), with no pull request yet."
         v === :issue && return "Issues only."
         v === :notice && return "Notifications that are neither: a release, a CI run, a discussion."
     elseif axis === :lane

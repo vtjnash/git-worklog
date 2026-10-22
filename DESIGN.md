@@ -251,7 +251,7 @@ remove the block and `z` writes it back, with no `touched` stamp either way
 - there is no *not done* to toggle to, and no filed box for it to be in; `s`
 is refused, having no stamp for a wake to sit beside. `consolidate!` skips
 one: counted as a stampless unread row it would hold every `since` down for
-as long as one stood. On the axes it is the fourth `kind`, and `closed` on
+as long as one stood. On the axes it is a `kind` of its own, and `closed` on
 `state` - what that axis answers is "is it open work", and news that is not
 work is what the firehose shows and the backlog leaves out.
 

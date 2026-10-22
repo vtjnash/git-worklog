@@ -91,7 +91,8 @@ assigned = "is:open is:issue assignee:@me archived:false sort:created-asc"
 #   state  open, closed
 #   tag    reply, mentioned, review, edits, ready, approved, second, touched,
 #          drafts, snoozed
-#   kind   pr (a pull request that is not a draft), draft, issue, notice (a
+#   kind   pr (a pull request that is not a draft), draft, branch (an
+#          adopted branch, with no pull request yet), issue, notice (a
 #          notification that is neither - a release, a CI run - and `closed`
 #          on `state`). Every pull request is `["pr", "draft"]`.
 #   lane   which search claimed the row: the keys under `[lanes]`, plus

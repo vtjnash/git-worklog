@@ -144,7 +144,7 @@ in your name.
 **Views** (`'`):
 
 1. the firehose - what moved and is unfiled, open or closed
-2. my work - your open pull requests, done ones too
+2. my work - your open pull requests and adopted branches, done ones too
 3. the backlog - everyone's open items, done ones too
 4. ready to merge - approved and green
 5. approved - CI not green yet
@@ -163,8 +163,9 @@ at by hand is a view by the time it is pasted.
 - `state` - two more: `open` · `closed or merged`. A row is in when its box
   on each of these two axes is checked.
 - tag, kind, lane, repo, label, author - each narrows. A row has one kind -
-  `pr`, `draft`, `issue`, `notice` - so a view that wants every pull request
-  names `pr` and `draft` both.
+  `pr`, `draft`, `branch`, `issue`, `notice` - so a view that wants every
+  pull request names `pr` and `draft` both, and my work names `branch` with
+  them.
 
 Nothing asked means not done, in both states. Repo, label and author list
 what is applied and keep the rest behind a picker row; `[filters]
