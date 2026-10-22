@@ -18,7 +18,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
     #16 0x00007a8262449318 in rows () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:652
     #17 julia_detail_pane_0 () at /home/vtjnash/git-worklog/cli/src/browse/frame.jl:47
 
-* Loading all the data seems to take 30 seconds at startup (I don't know what step is actually slow).
 
 ## Unverified
 

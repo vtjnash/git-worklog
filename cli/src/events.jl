@@ -695,25 +695,35 @@ quiet, and `quiet_closed` keeps every row on it.
 """
 function commented_since(repo::AbstractString, since::AbstractString)
     out = Set{Int}()
-    for (kind, key) in (("issues", :issue_url), ("pulls", :pull_request_url))
+    # The two lists asked together: each is seconds on GitHub's side, and
+    # neither depends on the other.
+    asks = map((("issues", :issue_url), ("pulls", :pull_request_url))) do (kind, key)
         cut = Ref(false)
+        t = @async walk_updated(since; cut = cut) do floor_, n
+            api_get_dated("/repos/$repo/$kind/comments"; params = Dict{String,Any}(
+                "since" => floor_, "sort" => "updated", "direction" => "asc",
+                "per_page" => 100, "page" => n))
+        end
+        (key, cut, t)
+    end
+    # Both are waited for before either is judged, so a failure on one does
+    # not return with the other still in the air.
+    unknown = false
+    for (key, cut, t) in asks
         rows = try
-            walk_updated(since; cut = cut) do floor_, n
-                api_get_dated("/repos/$repo/$kind/comments"; params = Dict{String,Any}(
-                    "since" => floor_, "sort" => "updated", "direction" => "asc",
-                    "per_page" => 100, "page" => n))
-            end
+            waited(t)
         catch e
             e isa ApiError || rethrow()
-            return nothing
+            unknown = true
+            continue
         end
-        cut[] && return nothing
+        cut[] && (unknown = true; continue)
         for c in rows
             m = match(r"/(\d+)$", jstr(c, key, ""))
             m === nothing || push!(out, parse(Int, something(m[1])))
         end
     end
-    out
+    unknown ? nothing : out
 end
 
 """
@@ -1065,6 +1075,22 @@ function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), b
     due(label) = (last = get(polled, label, nothing);
                   t = last === nothing ? nothing : ts(last);
                   t === nothing || at - t >= ttl)
+    # Every due source is asked at once, and folded in the order it was named,
+    # as a thread's requests are (`activity`). The sources were asked one
+    # after another until 2026-10-22, and a launch after a few hours away
+    # waited fifteen seconds on seven of them, two or three apiece, with
+    # the frame not yet drawn and nothing said: the comment lists behind
+    # `quiet_closed` and a search each take GitHub seconds to answer,
+    # whatever they return. Asked together, the poll is its slowest source.
+    # What a fetch reads of the inbox (`ctx.items`) it now reads as it stood
+    # before the poll, not after the sources ahead of it were folded; the
+    # one reader, `quiet_closed`, uses it to carry a quiet row at the stamp
+    # the inbox had, and a stamp from before an earlier source's fold is
+    # older, which the merge below then writes nothing over. The report is
+    # task-local and a task does not inherit it, so each is handed the one
+    # this task holds, as `prefetch` does.
+    pending = Tuple{Source,Bool,String,String,Task}[]
+    rep = Worklog.current_report()
     for src in srcs
         label, overlap = src.label, src.overlap
         due(label) || continue
@@ -1082,8 +1108,15 @@ function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), b
         cur = cursors[label]
         wide = label == "notifications" && haskey(inbox, "wide")
         s_ = stamp(something(ts(cur)) - (wide ? Day(1) : overlap))   # a stamp, set above
+        ctx = SyncCtx((items, wide))
+        fetch_ = src.fetch
+        t = @async task_local_storage(() -> fetch_(s_, ctx), :report, rep)
+        push!(pending, (src, first, cur, s_, t))
+    end
+    for (src, first, cur, s_, t) in pending
+        label = src.label
         answer = try
-            src.fetch(s_, SyncCtx((items, wide)))
+            waited(t)
         catch e
             e isa ApiError || rethrow()
             @printf(warning(), "    %-24s FAILED: %s\n", label, e.msg)
@@ -1102,8 +1135,14 @@ function sync!(srcs::Vector{Source}, at::DateTime; ttl = Millisecond(120_000), b
         started === nothing && (started = now())
         skipped = 0
         notices = Pair{String,Vector{Pair{String,Any}}}[]
-        for r in rows
-            row = src.row(r, first)
+        # A row is made before any is folded, four at a time: a repository's
+        # is made from the list alone, but a notification's asks GitHub for
+        # its subject, one request a thread, and a few dozen of those in a
+        # line were seconds of a launch. The order is the list's still.
+        rowf = src.row
+        made = asyncmap(r -> task_local_storage(() -> rowf(r, first), :report, rep),
+                        rows; ntasks = 4)
+        for (r, row) in zip(rows, made)
             if row === nothing
                 n = label == "notifications" ? notice_row(r) : nothing
                 if n === nothing

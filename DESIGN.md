@@ -995,6 +995,18 @@ Do not simplify any of these away.
     carried at the inbox's own clock, or dropped if the inbox never had it
     (`quiet_closed`). A glob source is a search and cannot ask; the
     notifications source never sees one.
+20. **The comment lists and a search take GitHub seconds to answer,
+    whatever they return.** 2026-10-22: a launch after a few hours away
+    stood fifteen seconds in the poll, before the first frame and saying
+    nothing, over seven sources asked one after another - `/issues/comments
+    ?since=` five seconds on a repository with nothing new, a search three
+    - while an issue list is a fifth of one. So `sync!` asks every due
+    source at once and folds them in the order they were named, as a
+    thread's requests are started before any is waited on (`activity`),
+    and a notification's subjects are fetched four at a time; the same
+    catch-up is under four seconds. What a fetch reads of the inbox it now
+    reads as it stood before the poll, which `quiet_closed` carries a row
+    at - an older stamp, which the merge writes nothing over.
 
 ### Julia's Markdown
 
