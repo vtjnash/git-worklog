@@ -746,9 +746,10 @@ last line of the child that ran the refresh then.
   of the four.
 
   The `failed` table is how the browser's own operations get to say the one
-  thing they have to: the launch poll in `ui()` runs before the first frame
-  with the report on `devnull`, and a lane answering `FAILED:` there used to
-  be said to nobody until the next `u`. It does not report into
+  thing they have to: the launch poll runs with the report on `devnull` -
+  before the first frame until 2026-10-22, behind it since (`poll_behind!`),
+  under `u`'s in-flight key and `u`'s lock - and a lane answering `FAILED:`
+  there used to be said to nobody until the next `u`. It does not report into
   `refresh.log`, which is the last `u` whole and would be overwritten by a
   poll that is half of one; and the browser grows no `warning()` channel of
   its own, since the fact was already written down and only wanted its
@@ -1008,8 +1009,8 @@ Do not simplify any of these away.
     notifications source never sees one.
 20. **The comment lists and a search take GitHub seconds to answer,
     whatever they return.** 2026-10-22: a launch after a few hours away
-    stood fifteen seconds in the poll, before the first frame and saying
-    nothing, over seven sources asked one after another - `/issues/comments
+    stood fifteen seconds in the poll, then run before the first frame and
+    saying nothing, over seven sources asked one after another - `/issues/comments
     ?since=` five seconds on a repository with nothing new, a search three
     - while an issue list is a fifth of one. So `sync!` asks every due
     source at once and folds them in the order they were named, as a
@@ -1017,7 +1018,12 @@ Do not simplify any of these away.
     and a notification's subjects are fetched four at a time; the same
     catch-up is under four seconds. What a fetch reads of the inbox it now
     reads as it stood before the poll, which `quiet_closed` carries a row
-    at - an older stamp, which the merge writes nothing over.
+    at - an older stamp, which the merge writes nothing over. And the
+    launch no longer waits on it at all: the first frame is the files, and
+    the poll runs behind it as `u`'s refresh does, landing as a reload
+    (`poll_behind!`). Two windows launched together take one lock for it,
+    `refresh.pid`, as `u` does: `put_fetched!` writes the file whole, and a
+    second poll over the first would carry its cursors back.
 
 ### Julia's Markdown
 

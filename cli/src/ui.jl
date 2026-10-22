@@ -866,12 +866,13 @@ function ui(args = String[], at::DateTime = utcnow())
     # And anything imported since the last refresh, which is how an import is
     # tracked from the moment it is made rather than from the next one.
     append!(items, imported_items(Set(x.url for x in items), at))
-    append!(items, inbox_items(Set(x.url for x in items),
-                               Events.poll(cfg, jstr(cfg, :login, ""), at; verbose = false)))
-    # And the notices the poll just wrote, beside the rows it came with.
+    # And the inbox's light rows and the notices as the last poll left them:
+    # the clocks are read behind the first frame, not before it
+    # (`poll_behind!`), and what they bring lands as a reload.
+    append!(items, inbox_items(Set(x.url for x in items)))
     append!(items, notice_items())
     # Straight into the browser: what the lane menu used to choose is now a tag.
-    browse(items, "worklog")
+    browse(items, "worklog"; behind = poll_behind!)
     0
 end
 
@@ -1009,11 +1010,11 @@ and is not older than the inbox's clock for it: nothing but the cursor ever
 re-fetches such a bundle, and one from before the last comment would show the
 row read for as long as the bundle is kept.
 
-`rows` is the inbox: at launch what `Events.poll` just polled, and on a
-reload under the browser what the file holds - a refresh landing is what
-reloads, and it polled on the way - so a reload rebuilds the same list launch
-did rather than keeping the old light rows by hand off a set the poll wrote
-once.
+`rows` is the inbox as the file holds it, at launch and on a reload under
+the browser alike - a refresh landing is what reloads, and it polled on the
+way, and the launch's own poll lands as one (`poll_behind!`) - so a reload
+rebuilds the same list launch did rather than keeping the old light rows by
+hand off a set the poll wrote once.
 """
 function inbox_items(have::Set{String}, rows = values(Events.load_inbox()["items"]::Dict{String,Any}))
     out = Item[]                        # a loop, for the reason in `loaditems`

@@ -478,6 +478,41 @@ end
         lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
     end
     @test !W.refreshing()
+
+    # The launch's poll runs behind the first frame under the same key and
+    # the same lock. It polls once, and lands as a reload that says `polled`;
+    # with a refresh in the air it starts nothing; and with the lock held by
+    # another window - here, by this process, which the pid file cannot tell
+    # apart - neither it nor `u` polls over that window's write: the poll
+    # has nothing to say, and `u` says whose the refresh is.
+    polled = Ref(0)
+    clock = (cfg, login, at; verbose) -> (polled[] += 1; Any[])
+    st.wake = W.Controller()
+    st.reload = false; st.refreshsaid = ""
+    W.poll_behind!(st; poll = clock); W.drain_fetches!()
+    @test polled[] == 1 && st.reload && st.refreshsaid == "polled" && !W.refreshing()
+    st.reload = false; st.refreshsaid = ""
+    t = @async take!(c)
+    lock(W.INFLIGHT_LOCK) do; W.INFLIGHT["refresh"] = t; end
+    try
+        W.poll_behind!(st; poll = clock)
+    finally
+        # Taken out by hand, as it was put in: `drain_fetches!` over a task
+        # that is done and still listed never returns.
+        put!(c, nothing); wait(t)
+        lock(W.INFLIGHT_LOCK) do; delete!(W.INFLIGHT, "refresh"); end
+    end
+    @test polled[] == 1 && !st.reload
+    held = W.FileWatching.Pidfile.mkpidlock(W.refreshlock())
+    try
+        W.poll_behind!(st; poll = clock); W.drain_fetches!()
+        @test polled[] == 1 && !st.reload && st.refreshsaid == ""
+        @test W.refresh_all!(st) == "refreshing \u2026"; W.drain_fetches!()
+        @test st.reload && startswith(st.refreshsaid, "another wl is refreshing")
+    finally
+        close(held)
+    end
+    st.reload = false; st.refreshsaid = ""
     # Otherwise the last refresh: when the corpus was fetched, absolute and
     # relative like every other stamp, at the same end of the bar - a standing
     # fact about the whole list, where the status row is one line the next

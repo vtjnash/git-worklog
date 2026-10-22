@@ -7,9 +7,18 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
+- [ ] new issue with reading comments:
+
+commit  2026-10-22 06:13  🤖 Bump LinearAlgebra stdlib 957f3e9 → 66e8f07 (#64016)
+GitHub notified you of this commit in JuliaLang/julia (subscribed). It is neither an issue nor a pull request, and so has no thread - the commit's comments are below, and `R` reads them again. `o` opens it on GitHub, at https://github.com/JuliaLang/julia/commit/82e07fcb360fb32a8950aeb82a6cad3220e2c8a9#commitcomment-206120902. `e` or `x` dismisses it, and dismissed it stays until GitHub notifies you of it again.
+could not read the comments
+GitHub answered with something that is not a list
+
+- [ ] in the diff for https://github.com/JuliaLang/julia/pull/64020, why is there green word-delta coloring on one line but not delta coloring on others in cgutils.cpp?
+
 - [ ] performance issue:
 
-* on local:jn/tsa-struct-sibling, rending diff takes hours, stuck in:
+* on local:jn/tsa-struct-sibling, rending diff takes hours, because the base repo was wrong, so the diff was gigantic. Is there something we should do to wrap eagerly but style only what is visible?
 
     #12 julia_word_marks_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:159
     #13 0x00007a826240ee5e in julia_hunk_words_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:250
@@ -17,7 +26,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
     #15 0x00007a8262283fdd in julia_#rows#354_0 () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:733
     #16 0x00007a8262449318 in rows () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:652
     #17 julia_detail_pane_0 () at /home/vtjnash/git-worklog/cli/src/browse/frame.jl:47
-
 
 ## Unverified
 

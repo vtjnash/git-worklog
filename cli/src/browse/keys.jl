@@ -47,7 +47,7 @@ onwake!(st::BState, ::Any) = collect_pending!(st) | collect_meta!(st) | due_refr
 
 Open the browser under a controller that owns stdin for the whole run.
 """
-function browse(items::Vector{Item}, title::AbstractString)
+function browse(items::Vector{Item}, title::AbstractString; behind = nothing)
     isempty(items) && (println("\n  nothing in ", title, "\n"); return 0)
     st = BState(collect(items), String(title)::String)
     restore_view!(st)
@@ -55,6 +55,11 @@ function browse(items::Vector{Item}, title::AbstractString)
     st.wake = ctrl
     watch_data!(st)
     watch_sessions!(st)
+    # What runs behind the first frame - the launch's poll (`poll_behind!`) -
+    # given `st` once it has its wake. Started, never waited on: the frame
+    # is drawn from the list as built, whether the task has had a turn yet
+    # or not, and what it brings is a reload.
+    behind === nothing || behind(st)
     try
         run!(ctrl, st)
     finally

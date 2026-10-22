@@ -322,7 +322,8 @@ past an edge scrolls, are under `[mouse]` in the config.
 ## Commands
 
 ```
-wl                                      the browser
+wl                                      the browser; it polls the clocks behind
+                                        its first frame, and says so top right
 wl --refresh                            refresh first, then the browser
 wl refresh [--backlog] [--caught-up]    re-fetch; --backlog imports the polled repos'
                                         open lists, read; --caught-up stops waiting

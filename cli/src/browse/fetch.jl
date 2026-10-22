@@ -691,10 +691,14 @@ function refresh_all!(st::BState)
     refreshing() && return "already refreshing"
     fetching("refresh") do
         said = try
-            s = run_refresh!()
-            # Behind it, in a process of its own; see `prefetch.jl`.
-            prefetch_behind()
-            s
+            r = refresh_locked() do
+                s = run_refresh!()
+                # Behind it, in a process of its own; see `prefetch.jl`.
+                prefetch_behind()
+                s
+            end
+            # Another window's: what it writes lands here through the watcher.
+            r === false ? "another wl is refreshing \u00b7 what it fetches lands here" : r
         catch e
             # Logged, so the footer stands until it is read; the report has
             # everything the refresh said up to the throw.
@@ -706,6 +710,60 @@ function refresh_all!(st::BState)
         wake!(st.wake)
     end
     "refreshing \u2026"
+end
+
+"""The lock one `wl` holds while it writes the inbox - `u`'s refresh, and
+the poll a launch runs behind its first frame - against another window
+doing the same. `put_fetched!` reads the file whole and writes it whole, so
+two polls at once would each carry the other's cursors back to where they
+stood, and a source would be asked again for what one had already been told.
+A pid file beside the prefetch's. Held by another process, `f` is not run
+and the answer is `false`: that window's write lands here through the
+watcher, as any write under `data/` does. Otherwise what `f` answered."""
+refreshlock() = joinpath(cachedir(), "refresh.pid")
+function refresh_locked(f)
+    d = cachedir()
+    isdir(d) || mkpath(d)
+    FileWatching.Pidfile.trymkpidlock(f, refreshlock())
+end
+
+"""The launch's poll, behind the first frame rather than before it.
+
+Until 2026-10-22 `ui` polled the clocks before the list was built, and a
+launch after hours away stood seconds in it, saying nothing. The list is
+built off the files now and drawn, and this is started as the loop begins:
+the same operation `u` runs, under the same in-flight key, so the title bar
+says `refreshing \u2026` while it runs and a `u` meanwhile joins it rather than
+polling over it; under the same lock, so a second window launched beside
+this one reads what the first wrote rather than polling over that. Its
+report goes nowhere, as it always did - `refresh.log` is the last `u`
+whole - and a source that fails says so through the `failed` table, which
+the reload reads into the footer. When it lands the file has moved, and the
+wake rebuilds the list as launch would have built it (`reload_data!`),
+saying `polled`. `poll` is an argument so the suite can be the clock."""
+function poll_behind!(st::BState; poll = Events.poll)
+    refreshing() && return nothing
+    fetching("refresh") do
+        said = try
+            cfg = config()
+            r = refresh_locked() do
+                reporting(devnull) do
+                    poll(cfg, jstr(cfg, :login, ""), utcnow(); verbose = false)
+                end
+                "polled"
+            end
+            # Another window is polling: nothing moved here, and nothing to say.
+            r === false && return
+            r
+        catch e
+            logerror!(e, catch_backtrace(), "poll")
+            "the poll failed \u00b7 see the footer"
+        end
+        st.refreshsaid = said
+        st.reload = true
+        wake!(st.wake)
+    end
+    nothing
 end
 
 "Is `refresh_all!`'s refresh in the air? The title bar says so while it is."
