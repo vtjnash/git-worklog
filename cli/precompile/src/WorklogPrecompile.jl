@@ -424,7 +424,31 @@ for (f, sig) in (
                        typeof(Worklog.Events.api_get_dated), String)),
         (Core.kwcall, (NamedTuple{(:params, :auth),Tuple{Dict{String,Any},String}},
                        typeof(Worklog.Events.api_get_dated), String)),
-        (Worklog.readevent, (Base.TTY,)))
+        (Worklog.readevent, (Base.TTY,)),
+        # And a pane, which the workload never opens: the session is tmux's,
+        # and `hermetic` has taken tmux away. So nothing in it ever dispatched
+        # into one, and the first key typed at a child stood 1.2s - inferring
+        # `onraw!` and all it reaches, `iframe_input!`, the key after the
+        # prefix with `pane_session!` and `full_screen!` behind it, and the
+        # browser beside - after an image that had everything else
+        # (2026-10-22). The reading side's keys, the mouse and a paste, the
+        # wake that re-reads the screen, the frame and the cursor, and the
+        # view a dialog takes beside a pane, for the same reason.
+        (Worklog.safe_dispatch!, (Worklog.PaneView, Worklog.RawEvent, Worklog.Controller)),
+        (Worklog.safe_dispatch!, (Worklog.PaneView, Worklog.TermInput.KeyEvent, Worklog.Controller)),
+        (Worklog.safe_dispatch!, (Worklog.PaneView, Worklog.TermInput.MouseEvent, Worklog.Controller)),
+        (Worklog.safe_dispatch!, (Worklog.PaneView, Worklog.PasteEvent, Worklog.Controller)),
+        (Worklog.onwake!, (Worklog.PaneView, Worklog.Controller)),
+        (Worklog.onresize!, (Worklog.PaneView, Worklog.Controller)),
+        (Worklog.safe_render, (Worklog.PaneView, Int, Int)),
+        (Worklog.viewcursor, (Worklog.PaneView, Int, Int)),
+        (Worklog.pane_view, (String, String, Worklog.Controller)),
+        (Worklog.watch_pane!, (Worklog.MuxClient, Worklog.Controller)),
+        (Worklog.safe_dispatch!, (Worklog.SideView, Worklog.TermInput.KeyEvent, Worklog.Controller)),
+        (Worklog.safe_dispatch!, (Worklog.SideView, Worklog.TermInput.MouseEvent, Worklog.Controller)),
+        (Worklog.onwake!, (Worklog.SideView, Worklog.Controller)),
+        (Worklog.safe_render, (Worklog.SideView, Int, Int)),
+        (Worklog.viewcursor, (Worklog.SideView, Int, Int)))
     precompile(f, sig) || @warn "worklog: precompile matched nothing" f sig
 end
 

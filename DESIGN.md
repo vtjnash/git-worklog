@@ -852,6 +852,17 @@ loads in 0.76s, and the first thread is drawn at 1.10s. With Term (at
 brought Highlights, which imports Pkg, and a tree-sitter grammar, for a
 renderer that highlighted one language.
 
+**What the workload cannot reach, it names by signature.** The workload runs
+with no tmux, no token and no terminal, so a path that needs one is never
+walked, and the first time a person walks it, it is inferred: the launch
+poll, the terminal's own reader, and the pane. 2026-10-22, the first key
+typed at a child stood 1.2s in `safe_dispatch!` over a `PaneView`, after an
+image that had everything else. The list under the workload is those entry
+points, each checked, and the way to find the next one is to run the thing
+under the wrapper with `--trace-compile=stderr --trace-compile-timing`, as a
+script that opens a pane and types at it: one line, and its milliseconds,
+per root compiled after the image loaded.
+
 ## Testing
 
 No TTY, so the UI is tested by construction:
