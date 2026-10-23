@@ -7,8 +7,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Next quick issues
 
-- [ ] in the diff for https://github.com/JuliaLang/julia/pull/64020, why is there green word-delta coloring on one line but not delta coloring on others in cgutils.cpp?
-
 - [ ] performance issue:
 
 * on local:jn/tsa-struct-sibling, rending diff takes hours, because the base repo was wrong, so the diff was gigantic. Is there something we should do to wrap eagerly but style only what is visible?

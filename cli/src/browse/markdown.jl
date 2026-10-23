@@ -149,7 +149,8 @@ that `else` becoming `else # a long remark` is the edit it is (an append is
 the clearest edit there is) and not a line one-fifteenth alike; words, so
 that `=`, `(` and `,` in common between two unrelated lines do not make
 them alike. A line with no words at all - `}` against `};` - is measured
-on what it has.
+on what it has; against a line that has words it has nothing in common,
+for the words are new whole, and that the two colours already say.
 """
 function word_marks(a::Union{String,SubString{String}}, b::Union{String,SubString{String}})
     none = (0.0, UnitRange{Int}[], UnitRange{Int}[])
@@ -163,7 +164,15 @@ function word_marks(a::Union{String,SubString{String}}, b::Union{String,SubStrin
     # calls it in the table's inner loop, and a variable a closure captures
     # and that is then assigned again is boxed, a dynamic call every cell.
     isword(t) = isletter(t.match[1]) || isdigit(t.match[1]) || t.match[1] == '_'
-    marks_only = !(any(isword, ta) && any(isword, tb))
+    wordsa, wordsb = any(isword, ta), any(isword, tb)
+    # A line of marks alone and a line with words have nothing to pair.
+    # Measured on marks, `}` against a line of forty tokens ending in `}`
+    # scored whole - one brace in common, of one - and the line was marked
+    # from its indent to its end, less the brace (JuliaLang/julia#64020,
+    # cgutils.cpp); and in the pairing by likeness a `}` line took any line
+    # with a brace in it, away from the line that was its edit.
+    wordsa == wordsb || return none
+    marks_only = !wordsa
     word = t -> marks_only ? !all(isspace, t.match) : isword(t)
     # The LCS table, weighted: a word in common is worth three of a space or
     # a mark, so that between matching `frame` and matching the `.` beside

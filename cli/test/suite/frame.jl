@@ -1130,6 +1130,11 @@ end
     sc, a, b = W.word_marks("        code = frame.linfo", "        code = StackTraces.frame_mi(frame)")
     @test sc >= 0.5 && a == [21:26] && b == [16:36, 42:42]
     @test W.word_marks("}", "};")[1] == 1.0                 # no words: on what it has
+    # No words against words is nothing in common, not one brace of one:
+    # JuliaLang/julia#64020 paired `}` with a line of forty tokens and
+    # marked all of it but the brace.
+    @test W.word_marks("    }", "    LI->setMetadata(LLVMContext::MD_align, { OP });") == (0.0, [], [])
+    @test W.word_marks("            if (align >= 1) {", "        }") == (0.0, [], [])
     # String indices, not bytes: a token ending in a three-byte character -
     # JuliaLang/julia#63006 has `x₃` - ends at the index of that character,
     # where `markwords` can cut; its last byte is the middle of it, and the
@@ -1162,6 +1167,9 @@ end
     # And the other way about: two lines that became one.
     ws = W.hunk_words(["-a = f(x)", "-b = g(y)", "+b = g(y, z)"])
     @test isempty(ws[1]) && ws[2] == [] && ws[3] == [9:11]
+    # A bare `}` is not the likest line to one that ends in a brace.
+    ws = W.hunk_words(["-} else {", "+}", "+} else if (y) {"])
+    @test ws[1] == [] && isempty(ws[2]) && ws[3] == [9:15]
 
     # Drawn in the word role inside the line's colour, and closed by what
     # ends a background alone, so the cursor's background over the row is
