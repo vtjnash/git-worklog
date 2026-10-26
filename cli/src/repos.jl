@@ -385,7 +385,7 @@ end
 have_commit(path, sha) =
     try; git(path, "cat-file", "-e", string(sha, "^{commit}")); true; catch; false; end
 
-"""Check the pull request out in `path`, the way `gh pr checkout` does it.
+"""The `gh pr checkout` line a pane runs first, as shell text.
 
 `gh` rather than `git`, because the branch of a pull request from a fork is
 on no remote this checkout has: `refs/pull/N/head` is on the project's
@@ -402,44 +402,55 @@ here it fetches `refs/pull/N/head` *into it*: a fork's pull request from its
 when it could, and be refused when `master` is checked out somewhere, which
 it always is. Neither is a checkout of the pull request.
 
-Throws `GitError` with what gh said, since every way this fails - a changed
-file the branch would overwrite, no network, no `gh` - is a thing to show in
-its own words. Blocks for the fetch, as `ensure_base!` does for `p`.
+Text and not a run, because the fetch is the one slow thing between a key
+and its pane, and it used to hold the whole browser for as long as the
+network took (`checkout_pr!`, until 2026-10-26). It runs in the session
+instead, ahead of the shell or the agent, where its progress and its
+complaint - a changed file the branch would overwrite, no network - are
+on the screen in gh's own words ([`enter_session`](@ref)). gh is named by
+the path this process would have run it at, so the pane runs the same one
+whatever the server's `PATH` says; one that is not here is left to the
+shell to say so.
 """
-function checkout_pr!(path::AbstractString, url::AbstractString; as::AbstractString = "")
+function checkout_pr_line(url::AbstractString; as::AbstractString = "")
+    gh = something(Sys.which("gh"), "gh")
+    string(shquote(gh), " pr checkout ", shquote(url),
+           isempty(as) ? "" : string(" --branch ", shquote(as)))
+end
+
+"""Run the shell text `line` in `dir` to completion, for a session that is
+already running and cannot be handed it ([`checkout_session!`](@ref)): the
+same words the pane would run, so the two ways cannot drift. Throws
+`GitError` with what was said on stderr, which is gh's or git's complaint."""
+function run_line(dir::AbstractString, line::AbstractString)
     out, err = IOBuffer(), IOBuffer()
-    args = isempty(as) ? `gh pr checkout $url` : `gh pr checkout $url --branch $as`
-    cmd = addenv(Cmd(args; dir = String(path)), "LC_ALL" => "C")
+    cmd = addenv(Cmd(`sh -c $line`; dir = String(dir)), "LC_ALL" => "C")
     try
         run(pipeline(cmd; stdout = out, stderr = err))
     catch e
-        e isa Base.IOError && throw(GitError("could not run gh: " * e.msg))
+        e isa Base.IOError && throw(GitError("could not run sh: " * e.msg))
         msg = strip(String(take!(err)))
-        throw(GitError(isempty(msg) ? "gh pr checkout failed" : msg))
+        throw(GitError(isempty(msg) ? "checkout failed" : msg))
     end
     nothing
 end
 
-"""A new worktree at `at` with the pull request checked out in it, for a branch
+"""A new worktree at `at`, detached on `HEAD`, for a pull request whose branch
 this repository does not have - a fork's, before anything fetched it - or has
-only the name of, in which case `as` is the name to make instead
-(`checkout_pr!`).
+only the name of. `add_worktree!` wants a branch that is here, and what is
+always here is `HEAD`; the pane then runs gh inside
+([`checkout_pr_line`](@ref)), which makes the branch and moves onto it.
 
-`add_worktree!` wants a branch that is here. What is always here is `HEAD`, so
-the worktree is made detached on it and `checkout_pr!` runs inside, which
-makes the branch and moves onto it. When that fails the worktree is taken away
-again, so a failure leaves git's complaint and no directory to explain.
+Only the worktree is made here, and it is git's and quick: every way *this*
+fails is a path that wants correcting, and the prompt comes back with git's
+word for it ([`make_checkout!`](@ref)). What gh may refuse is refused in the
+pane, and the worktree stays - detached, with a shell in it and the
+complaint above the prompt, which is where a retry is typed. It used to be
+taken away again on gh's failure, when gh ran here.
 """
-function add_worktree_pr!(path::AbstractString, url::AbstractString, at::AbstractString;
-                          as::AbstractString = "")
+function add_worktree_detached!(path::AbstractString, at::AbstractString)
     dest = abspath(expanduser(String(at)))
     git(path, "worktree", "add", "--quiet", "--detach", dest)
-    try
-        checkout_pr!(dest, url; as)
-    catch
-        try git(path, "worktree", "remove", "--force", dest) catch end
-        rethrow()
-    end
     try realpath(dest) catch; dest end
 end
 

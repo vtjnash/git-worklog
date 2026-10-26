@@ -377,6 +377,25 @@ end
     # The dialogs pop themselves by identity in the loop; here the loop is
     # this test, so what a key left on top is taken off by hand.
     drop!(v) = W.pop_view!(ctrl, v)
+    # A checkout staged in a pane lands in its own time: wait for it, up to
+    # a few seconds, and answer whether it did.
+    settles(f; secs = 10) = (t0 = time(); while !f() && time() - t0 < secs; sleep(0.05); end; f())
+    wtree(path) = (ws = Dict(w.path => w for w in W.worktrees(main)); get(ws, realpath(path), nothing))
+
+    # What a pane runs when a checkout goes first: the checkout, then the
+    # program in its place, and the user's shell when the checkout refused -
+    # with a word about it for `T`, since a shell is not the agent asked for.
+    sh = W.shquote(get(ENV, "SHELL", "/bin/sh"))
+    @test W.staged("", "sleep 120", :shell) == "sleep 120"
+    @test W.staged("gh pr checkout u", "sleep 120", :shell) ==
+          string("sh -c ", W.shquote(string("gh pr checkout u && exec sleep 120 || exec ", sh)))
+    @test W.staged("gh pr checkout u", "sleep 120", :agent) ==
+          string("sh -c ", W.shquote(string("gh pr checkout u && exec sleep 120 || { printf '\\nwl: ",
+                                            "the checkout failed, so this is a shell and not the agent\\n'; exec ",
+                                            sh, "; }")))
+    @test W.checkout_pr_line("https://x/pull/1") ==
+          string(W.shquote(something(Sys.which("gh"), "gh")), " pr checkout 'https://x/pull/1'")
+    @test endswith(W.checkout_pr_line("u"; as = "pr1/b"), " pr checkout 'u' --branch 'pr1/b'")
     try
         W.register_repo!(pr.repo, main)
         write(want, pr.branch)
@@ -451,6 +470,35 @@ end
                 @test W.handle!(cv, 27, ctrl) === :pop; drop!(cv)
                 @test top() === shown && said[] in (nothing, "")
                 @test !any(r -> r.item == pr.ref, W.session_list())
+
+                # `y` with nothing running there: the checkout is the pane's
+                # first command, not the browser's - the pane is up at once,
+                # the report says the checkout is on its way, and the branch
+                # moves when gh has done. The session is named and tagged for
+                # the branch asked for from the start.
+                @test W.enter_session(pr, ctrl, :shell, sleep120, say; items = known) == ""
+                ch = top(); W.select!(ch, 1); W.handle!(ch, 13, ctrl); drop!(ch)
+                cv = top(); @test cv isa W.ConfirmView
+                said[] = nothing
+                @test W.handle!(cv, Int('y'), ctrl) === :pop; drop!(cv)
+                @test top() isa W.PaneView
+                @test startswith(string(said[]), string("checking out ", pr.branch, " there first"))
+                @test occursin("started", string(said[]))
+                @test any(r -> r.item == pr.ref && r.branch == pr.branch &&
+                               W.wtkey(r.worktree) == W.wtkey(main), W.session_list())
+                @test settles(() -> first(W.worktrees(main)).branch == pr.branch)
+                @test asked() == ["pr", "checkout", pr.url]
+                # And nothing more to ask of a copy on the branch: rule 1.
+                drop!(top())
+                r = W.enter_session(pr, ctrl, :shell, sleep120, say; items = known)
+                @test r isa String && occursin("back in", r)
+                drop!(top())
+                for r in W.session_list()
+                    W.wtkey(r.worktree) == W.wtkey(main) && W.mux_kill(r.name)
+                end
+                W.git(main, "checkout", "--quiet", "master")
+                W.git(main, "branch", "--quiet", "-D", pr.branch)
+                rm(log)
 
                 # A changed file is on the question, since it is what a
                 # checkout trips on. `n` goes in as it is: a shell on master,
@@ -722,24 +770,39 @@ end
                 rm(log)
 
                 # A new worktree for a branch this repository has never had:
-                # made detached and checked out by gh, and taken away again
-                # when gh refuses - the prompt comes back with why.
+                # made detached by git, here, and checked out by gh in the
+                # pane. gh refusing is the pane's to show: the worktree
+                # stands, detached, and the shell that follows is where the
+                # retry is typed - not a dead pane, and not the prompt again.
                 dest = joinpath(root, "main-them-theirs")
                 write(want, pr3.branch)
                 touch(fail)
-                @test W.make_checkout!(pr3, ctrl, :shell, sleep120, say, dest; items = known) == ""
-                pv = top(); @test pv isa W.PromptView
-                @test occursin("local changes", pv.note) && W.text(pv) == dest
-                @test !isdir(dest)
+                r = W.make_checkout!(pr3, ctrl, :shell, sleep120, say, dest; items = known)
+                @test r isa String && occursin("made", r)
+                @test occursin(string("checking out ", pr3.branch, " there first"), r)
+                @test top() isa W.PaneView && isdir(dest)
+                @test settles(() -> asked() == ["pr", "checkout", pr3.url])
+                @test settles(() -> any(r -> W.wtkey(r.worktree) == W.wtkey(dest) && !r.dead,
+                                        W.session_list()))
+                @test wtree(dest) !== nothing && wtree(dest).branch == ""
+                drop!(top())
+                for r in W.session_list()
+                    W.wtkey(r.worktree) == W.wtkey(dest) && W.mux_kill(r.name)
+                end
+                W.git(main, "worktree", "remove", "--force", dest)
                 @test length(W.worktrees(main)) == 1
+                rm(fail); rm(log)
+                # A path git refuses - a folder that is there and is no
+                # worktree - is still the prompt again, with why.
+                @test W.make_checkout!(pr3, ctrl, :shell, sleep120, say, bin; items = known) == ""
+                pv = top(); @test pv isa W.PromptView
+                @test occursin("already exists", pv.note) && W.text(pv) == bin
                 drop!(pv)
-                rm(fail)
                 r = W.make_checkout!(pr3, ctrl, :shell, sleep120, say, dest; items = known)
                 @test r isa String && occursin("made", r) && occursin("started", r)
                 @test top() isa W.PaneView
+                @test settles(() -> (wt = wtree(dest); wt !== nothing && wt.branch == pr3.branch))
                 @test asked() == ["pr", "checkout", pr3.url]
-                ws = Dict(w.path => w for w in W.worktrees(main))
-                @test haskey(ws, realpath(dest)) && ws[realpath(dest)].branch == pr3.branch
                 drop!(top())
                 # A branch that is here is still git's to check out, not gh's.
                 rm(log)
@@ -774,9 +837,8 @@ end
                 dest5 = joinpath(root, "main-shared")
                 r = W.make_checkout!(theirs, ctrl, :shell, sleep120, say, dest5; items = known)
                 @test r isa String && occursin("made", r)
+                @test settles(() -> (wt = wtree(dest5); wt !== nothing && wt.branch == "pr24/shared"))
                 @test asked() == ["pr", "checkout", theirs.url, "--branch", "pr24/shared"]
-                ws = Dict(w.path => w for w in W.worktrees(main))
-                @test haskey(ws, realpath(dest5)) && ws[realpath(dest5)].branch == "pr24/shared"
                 @test strip(W.git(main, "rev-parse", "shared")) == tip
                 drop!(top())
                 rm(log)

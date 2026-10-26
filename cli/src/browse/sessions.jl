@@ -428,11 +428,21 @@ a worktree that has no pull request simply passes neither.
 
 What differs between the kinds is only what gets run when there is nothing
 there yet.
+
+`before` is shell text to run in the session ahead of that - a checkout
+the answer to a question asked for ([`checkout_session!`](@ref),
+[`make_checkout!`](@ref)) - staged by [`staged`](@ref). It is for a session
+this starts: one already there has its program running, and nothing can be
+put in front of that, so a caller with one to run looks first
+(`mux_find`) and runs it here when the session stands. The session is then
+tagged with `branch` as the answer named it, since the copy is not on it
+yet when the tag is written: the tag is the branch the last answer was
+about, which is what rule 2 of `item_worktree` reads it as.
 """
 function enter_session(target::AbstractString, branch::AbstractString,
                        ref::AbstractString, num::AbstractString, url::AbstractString,
                        title::AbstractString, ctrl, kind::Symbol, mkcmd;
-                       ask::Bool = kind === :agent)
+                       ask::Bool = kind === :agent, before::AbstractString = "")
     mux_bin() === nothing && return no_mux()
     rows = session_list()
     found = mux_find(target, kind, rows)
@@ -451,7 +461,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
     if found === nothing && ask
         push_view!(ctrl, AgentPromptView(isempty(ref) ? basename(rstrip(String(target), '/')) : ref,
             cmd -> (tell!(ctrl, enter_session(target, branch, ref, num, url, title, ctrl, kind,
-                                              (_, _) -> cmd; ask = false)); nothing)))
+                                              (_, _) -> cmd; ask = false, before)); nothing)))
         return ""
     end
     name = mux_name(SESSION_PREFIX, basename(rstrip(String(target), '/')), branch, num; kind = kind)
@@ -463,7 +473,7 @@ function enter_session(target::AbstractString, branch::AbstractString,
         # The first session of ours, perhaps: the pipe is up from before its
         # child starts, which is what has the terminal's background on the
         # pane when the child asks, until the last one ends (`watch_sessions!`).
-        ok, err = mux_start(name, target, mkcmd(target, branch);
+        ok, err = mux_start(name, target, staged(before, mkcmd(target, branch), kind);
                             set = fw.env, pipe = SESSION_PREFIX)
         ok || return err
     else
@@ -476,8 +486,10 @@ function enter_session(target::AbstractString, branch::AbstractString,
     # stale, or the branch it *asked* gh for when gh chose another name) -
     # re-tagged on every entry, so it is always the branch the last answer
     # was about, and a copy on some other branch next time is one that has
-    # moved since (`item_worktree`, rule 2).
-    on = String(place_branch(target))
+    # moved since (`item_worktree`, rule 2). With a checkout still to run
+    # in the pane, the answer's own word for the branch: git's is the one
+    # the copy is leaving.
+    on = isempty(before) ? String(place_branch(target)) : String(branch)
     mux_tag!(name; worktree = target, kind = kind, item = ref, url = url, branch = on)
     # And on the item's other sessions here: the answer was about the place,
     # not the kind, so the agent left in this copy is told the branch the
@@ -519,12 +531,38 @@ function enter_session(target::AbstractString, branch::AbstractString,
     said * gone_suffix(fw.gone)
 end
 
+"""The session's command when something runs ahead of it: `before`, then
+`cmd` in its place, or the user's shell when `before` refused.
+
+`&&` and not `;`, because a checkout that failed is a copy on the branch
+it was on, and an agent started on it anyway would be told nothing - the
+status row that used to say `could not check out` is written before the
+pane has run a word. So the failure keeps the pane: a shell, where the file
+in the way gets dealt with and gh's complaint is above the prompt, and for
+`T` a line saying that this is a shell and not the agent. A `cmd` that is
+not there at all still ends the pane with the shell's word for it, as
+before: `exec` failing takes the non-interactive shell with it.
+
+One `sh -c`, because `mux_start` hands the whole line to `standalone`,
+whose `env` prefix reaches only the first command of a list; wrapped, the
+forwards reach the checkout and the program both.
+"""
+function staged(before::AbstractString, cmd::AbstractString, kind::Symbol)
+    isempty(before) && return String(cmd)
+    sh = shquote(get(ENV, "SHELL", "/bin/sh"))
+    fallback = kind === :agent ?
+        string("{ printf '\\nwl: the checkout failed, so this is a shell and not the agent\\n'; exec ",
+               sh, "; }") :
+        string("exec ", sh)
+    string("sh -c ", shquote(string(before, " && exec ", cmd, " || ", fallback)))
+end
+
 """What `t` and `T` have to say, put where it can be read.
 
 The browser's status row, as every key reports - and the pane's own footer
 when a pane is on top, because the report that matters most arrives just as
-the pane covers the row it used to land on: `started …`, `checked out …`,
-`could not check out …`, and the `no live ssh agent` suffix, all of which
+the pane covers the row it used to land on: `started …`, `checking out …`,
+`fast-forwarded …`, and the `no live ssh agent` suffix, all of which
 are about the session that has just opened. The footer holds it the way it
 holds `^]?`, until the next prefix command. A report with no pane on top -
 a chooser, a refusal - reads off the browser's row as before.
@@ -737,7 +775,7 @@ end
 the item: the unconditional half of [`item_session!`](@ref), and what its
 question's answers come back to."""
 function session_in!(it::Item, target::AbstractString, branch::AbstractString,
-                     ctrl, kind::Symbol, mkcmd)
+                     ctrl, kind::Symbol, mkcmd; before::AbstractString = "")
     # What was on top before, and not how tall the stack was: a pane *replaces*
     # the place it was opened from, so the depth can be the same on both sides
     # of a session that opened perfectly well.
@@ -745,7 +783,7 @@ function session_in!(it::Item, target::AbstractString, branch::AbstractString,
     r = enter_session(target, branch, it.ref, string(it.number), it.url,
                       string(kind === :agent ? "agent  " : "", it.ref,
                              isempty(branch) ? "" : string("  ", branch)),
-                      ctrl, kind, mkcmd)
+                      ctrl, kind, mkcmd; before)
     # Only once there is something to work in - the pane being on the stack is
     # what says so, rather than the shape of the message. Opening a shell or an
     # agent on an item is the strongest signal of work there is, stronger than
@@ -775,8 +813,10 @@ line for a pull request when `push.useForceIfIncludes` is off
 ([`lease_note`](@ref)): `y`'s gh refreshes the lease `--force-with-lease`
 reads, and so does the user's own gh, so the line is about the setting.
 
-Blocks the browser for the fetch under `y`, the way `p` does for its base;
-the pane opens when it lands.
+`y`'s fetch runs in the pane, ahead of the shell or the agent
+([`checkout_session!`](@ref)): the pane opens at once, with gh's progress on
+it. It used to hold the browser until the fetch landed, the way `p` does
+for its base.
 
 `w`, `pr`, `rows` and `tr` are [`item_session!`](@ref)'s, the rows listed
 here when it had none - and only when there is something to look for: a copy
@@ -809,7 +849,7 @@ function checkout_offer(it::Item, w, pr::AbstractString, ctrl, kind::Symbol, mkc
                  isempty(lease) ? String[] : [lease])
     push_view!(ctrl, ConfirmView(
         string("Check out ", pr, " in ", name, "?"), notes,
-        ["yY" => () -> say(checkout_session!(it, target, wbranch, pr, ctrl, kind, mkcmd)),
+        ["yY" => () -> say(checkout_session!(it, target, pr, ctrl, kind, mkcmd)),
          "nN" => () -> say(session_in!(it, target, wbranch, ctrl, kind, mkcmd)),
          # `w` is *where*, not back: `t` on an item whose rules picked a copy
          # asks this straight away, so the chooser it opens may be one the
@@ -833,30 +873,46 @@ not assumed: gh picks a name of its own for a fork's branch that collides
 with the project's default, and the session's tag and the report are about
 the branch that is there.
 
-A checkout that fails still opens the session, on the branch the copy was on,
-with git's or gh's complaint ahead of the pane's own report: a shell is where
-the file in the way gets dealt with, and refusing the shell for it would leave
-nowhere to. A `T` failing the same way is an agent told nothing about it - the
-status line says, and the agent reads its branch off its own prompt.
+The checkout runs in the pane, first, with the shell or the agent after it
+([`staged`](@ref)): the pane opens at once and gh's fetch is on its screen,
+where it used to hold the whole browser. One that fails leaves the pane a
+shell on the branch the copy was on, with git's or gh's complaint above the
+prompt: a shell is where the file in the way gets dealt with, and refusing
+the shell for it would leave nowhere to. A `T` failing the same way is a
+shell too, and says so, rather than an agent on a branch it was not asked
+for. The session is named and tagged for the branch the answer asked for;
+the branch the copy is *on* is read off git at the next entry, as always.
+
+Unless a session of the kind is there already - another item's, to be
+taken over, or this item's in a copy picked by hand - which is resumed,
+not started, with its program running: then the checkout runs here first,
+as every checkout did until 2026-10-26, and the report is the result -
+`checked out`, or `could not check out` with the complaint, and the
+session opened either way on whatever branch the copy is on.
 """
-function checkout_session!(it::Item, target::AbstractString, wbranch::AbstractString,
-                           branch::AbstractString, ctrl, kind::Symbol, mkcmd)
+function checkout_session!(it::Item, target::AbstractString, branch::AbstractString,
+                           ctrl, kind::Symbol, mkcmd)
+    line, want = if it.is_pr
+        as = pr_branch_here(target, it, branch) === :taken ?
+             string("pr", it.number, "/", branch) : ""
+        (checkout_pr_line(it.url; as), isempty(as) ? branch : as)
+    else
+        (string("git checkout ", shquote(branch)), branch)
+    end
+    if mux_find(target, kind) === nothing
+        r = session_in!(it, target, want, ctrl, kind, mkcmd; before = line)
+        return r isa String ? string("checking out ", want, " there first \u00b7 ", r) : r
+    end
     try
-        if it.is_pr
-            as = pr_branch_here(target, it, branch) === :taken ?
-                 string("pr", it.number, "/", branch) : ""
-            checkout_pr!(target, it.url; as)
-        else
-            git(target, "checkout", "--quiet", branch)
-        end
+        run_line(target, line)
     catch e
         e isa GitError || rethrow()
-        r = session_in!(it, target, wbranch, ctrl, kind, mkcmd)
-        return string("could not check out ", branch, ": ", oneline(first(e.msg, 120)),
+        r = session_in!(it, target, String(place_branch(target)), ctrl, kind, mkcmd)
+        return string("could not check out ", want, ": ", oneline(first(e.msg, 120)),
                       r isa String && !isempty(r) ? string(" \u00b7 ", r) : "")
     end
     now = head_branch(target)
-    isempty(now) && (now = branch)
+    isempty(now) && (now = want)
     r = session_in!(it, target, now, ctrl, kind, mkcmd)
     r isa String ? string("checked out ", now, " \u00b7 ", r) : r
 end
@@ -967,19 +1023,23 @@ A branch this repository has, when it is the pull request's
 ([`pr_branch_here`](@ref)), is checked out as a worktree of it
 (`add_worktree!`) - made off the remote's copy when that is the only one
 here, said by its full name so two remotes carrying it is not a refusal. One
-it has not - a fork's, before anything fetched it - is made by `gh` in a
-detached worktree (`add_worktree_pr!`), which is what a pull request from a
-fork always needed and this used to refuse with `invalid reference`. One it
-has only the *name* of - a fork's `master`, when this checkout has its own -
-is gh's too, under a name of its own, `pr<N>/<branch>`, since gh handed the
-head's name would fetch the pull request into the branch that is already
-here. A worktree under that name is found by its session (rule 2) and not by
-its branch (rule 1), which is the price of not touching `master`. An adopted
-branch is here by definition, and is git's.
+it has not - a fork's, before anything fetched it - is made detached
+(`add_worktree_detached!`) and checked out by `gh` in the pane, ahead of the
+shell or the agent ([`checkout_pr_line`](@ref)), which is what a pull
+request from a fork always needed and this used to refuse with `invalid
+reference`. One it has only the *name* of - a fork's `master`, when this
+checkout has its own - is gh's too, under a name of its own,
+`pr<N>/<branch>`, since gh handed the head's name would fetch the pull
+request into the branch that is already here. A worktree under that name is
+found by its session (rule 2) and not by its branch (rule 1), which is the
+price of not touching `master`. An adopted branch is here by definition, and
+is git's.
 
-Failure re-opens the prompt with what was typed still in it and git's own
-complaint above it: every way this fails is a path that wants correcting - the
-directory exists, its parent does not, the branch is checked out somewhere else.
+Git's failure re-opens the prompt with what was typed still in it and git's
+own complaint above it: every way git fails here is a path that wants
+correcting - the directory exists, its parent does not, the branch is
+checked out somewhere else. gh's is the pane's, as [`checkout_session!`](@ref)
+says: the worktree stands, detached, with a shell in it.
 """
 function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractString;
                         items = Item[], pr::AbstractString = pr_branch(it))
@@ -1004,13 +1064,17 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
             # brought up to date when it had to; without one at all, gh's
             # checkout sets the tracking up as git would have.
             rem = string("refs/remotes/", remote_for(repo, it.repo), "/", pr)
-            has_rev(repo, rem) ? add_worktree!(repo, pr, at; from = rem) :
-                                 add_worktree_pr!(repo, it.url, at)
+            if has_rev(repo, rem)
+                add_worktree!(repo, pr, at; from = rem)
+            else
+                found = :gh
+                add_worktree_detached!(repo, at)
+            end
         elseif found === :taken
             branch = string("pr", it.number, "/", pr)
-            add_worktree_pr!(repo, it.url, at; as = branch)
+            add_worktree_detached!(repo, at)
         elseif it.is_pr
-            add_worktree_pr!(repo, it.url, at)
+            add_worktree_detached!(repo, at)
         else
             return string("no branch ", pr, " here to check out")
         end
@@ -1022,11 +1086,17 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
     end
     # A worktree git made goes through the same look as any other landing,
     # and is offered the fast-forward when the branch is behind the pull
-    # request. One gh just made is where the pull request is.
-    r = found in (:local, :remote) ?
+    # request. One for gh to fill is where the pull request will be, and gh
+    # runs in its pane: the `--branch` is the name chosen above when the
+    # head's own is taken, and gh's choice otherwise.
+    r = if found in (:local, :remote)
         item_session!(it, (path = dest, branch = branch, main = false), pr, ctrl, kind, mkcmd,
-                      say; picked = true, items) :
-        session_in!(it, dest, branch, ctrl, kind, mkcmd)
+                      say; picked = true, items)
+    else
+        r = session_in!(it, dest, branch, ctrl, kind, mkcmd;
+                        before = checkout_pr_line(it.url; as = found === :taken ? branch : ""))
+        r isa String ? string("checking out ", branch, " there first · ", r) : r
+    end
     r isa String && !isempty(r) ? string("made ", dest, " · ", r) : r
 end
 

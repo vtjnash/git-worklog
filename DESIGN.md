@@ -1642,6 +1642,23 @@ Each of the following returns success and the wrong answer:
 
 ## Decisions not to re-litigate
 
+- **A checkout a key asked for runs in the pane, not in the browser**
+  (2026-10-26). `y` to `Check out … in …?` and a new worktree for a fork's
+  branch used to run `gh pr checkout` here and hold every key until the
+  fetch landed. Now the session's command is the checkout and then the
+  program (`staged`): `before && exec cmd || exec $SHELL`, so the pane is
+  up at once with gh's progress on it, and a checkout that refuses leaves a
+  shell with the complaint above the prompt - for `T`, with a line saying
+  it is not the agent - rather than an agent on the branch the copy was
+  already on. The session is tagged for the branch the answer named, not
+  the one the copy is leaving. Two things stay synchronous on purpose: the
+  questions' own fetches (`pr_branch_here`'s `fetch_base!`, `update_offer`'s
+  `ensure_commit!`), which the question cannot be asked without; and the
+  checkout when a session of the kind is already standing in the copy,
+  which is resumed with its program running and cannot be handed a first
+  command - `checkout_session!` runs it here then, as before. A worktree
+  gh fails to fill is not taken away again, as it was when gh ran here:
+  the shell in it is where the retry is typed.
 - **One client for GitHub, HTTP.jl** (2026-09-28). Every request - the
   lanes' GraphQL, the poll's REST, the writes, the diff - is `github` in
   `gh.jl`, which answers `(rc, text, err, date)` and never throws for a
