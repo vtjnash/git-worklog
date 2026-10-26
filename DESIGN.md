@@ -1108,6 +1108,15 @@ wrong reaches the screen unless it is corrected before the parse
   `master` tracks `origin/master`, and `git worktree add` then refused with
   `master is already checked out`. The upstream and remote-tracking rules
   hold only for a pull request from the project (`head_repo`).
+- **A pinned folder can be there and be no checkout.** `repo_path` asks
+  only `isdir`, and a source tree unpacked over a checkout, or a linked
+  worktree whose repository was deleted, passes; `T` on an item of it then
+  threw `fatal: not a git repository` out of `worktrees` into `errors.log`,
+  and the footer stood over a pin that was merely stale (2026-10-25).
+  `item_worktree` reads such a pin as none, so the key asks for a checkout
+  and what is typed replaces it; and the browser's `handle!` turns any
+  other `GitError` a key runs into into the status row - git refusing is an
+  answer to show, not a fault to log.
 
 ### tmux
 

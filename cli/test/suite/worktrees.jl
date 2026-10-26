@@ -285,6 +285,35 @@ end
     end
 end
 
+@testset "a pinned folder git does not know is asked about, not thrown" begin
+    # `repo_path` asks only that the folder be there. A source tree unpacked
+    # over a checkout, or a linked worktree whose repository was deleted, is
+    # there and is no checkout - and `T` on an item of it threw git's `fatal:
+    # not a git repository` into errors.log (2026-10-25). It reads as never
+    # pinned: the prompt for a checkout comes up, and what is typed replaces
+    # the stale pin.
+    pr = fixture_item("yours, open, with a branch and labels")
+    root = mktempdir(); plain = joinpath(root, "plain"); mkpath(plain)
+    keept = W.LOCAL[]; W.LOCAL[] = joinpath(root, "local.toml")
+    try
+        write(W.localfile(), string("[\"repo:", pr.repo, "\"]\nworktree = \"", plain, "\"\n"))
+        @test W.repo_path(pr.repo) == plain          # the folder is there...
+        r = W.item_worktree(pr)
+        @test r.path === nothing                     # ...and that is all it is
+        @test W.item_place(pr) == ""
+        @test W.item_checkout(pr) == (nothing, "")
+        @test W.open_editor(pr) === :needs_repo
+        # And through the key: `o` asks for a checkout rather than crashing.
+        st = W.BState([pr], "worklog"); st.sel = 1
+        ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+        @test W.handle!(st, Int('o'), ctrl) === :ok
+        @test last(ctrl.stack) isa W.PromptView
+        pop!(ctrl.stack)
+    finally
+        W.LOCAL[] = keept
+    end
+end
+
 @testset "t looks at the branch before it opens, and offers the checkout" begin
     # A copy on some other branch is where a session used to open without a
     # word. Now the branch is looked at first: when the place is new to the

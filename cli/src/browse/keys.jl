@@ -94,7 +94,18 @@ function handle!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow())
     # but a key writes here, so nothing else is left to clear it. A load that
     # lands says so on the pane's border (`pane_stamp`), not here.
     st.status = ""
-    r = handle_key!(st, k, ctrl, at)
+    # A git that refuses is an answer, not a fault: the status row says what
+    # it said, where the controller's catch would have logged a stack trace
+    # and left the footer's standing warning over a checkout that is merely
+    # wrong. Every key that runs git goes through here, so one catch covers
+    # the ones that did not think to.
+    r = try
+        handle_key!(st, k, ctrl, at)
+    catch e
+        e isa GitError || rethrow()
+        st.status = string("git: ", oneline(e.msg))
+        :ok
+    end
     # Here and not in each key: whatever the key did to the cursor, the pane
     # follows it. The controller does the same after every event, which is
     # what reaches a cursor moved from a dialog; this is the key's own, for a

@@ -51,14 +51,26 @@ later ([`item_session!`](@ref) asks the same questions): whether the copy is
 the `main` checkout, the pull request's own branch `pr` - a `gh` round trip
 for a row from before the field existed - and the mux `rows`, or `nothing`
 when they were not needed. `path` is `nothing` when the repo has never been
-registered.
+registered - or when what it is registered to is a folder git does not know
+(below).
 """
 function item_worktree(it::Item; items = Item[])
     repo = repo_path(it.repo)
     repo === nothing &&
         return (path = nothing, branch = "", ask = false, main = false, pr = "", rows = nothing)
     branch = pr_branch(it)
-    ws = worktrees(repo)
+    # `repo_path` asks only that the folder be there, and a folder can be
+    # there and be no checkout: a source tree unpacked over one, a linked
+    # worktree whose repository was deleted. git's first word then was `fatal:
+    # not a git repository`, thrown out of `T` into `errors.log` (2026-10-25).
+    # Such a pin is as good as a vanished one: the caller asks for a checkout
+    # again, and the answer typed replaces it.
+    ws = try
+        worktrees(repo)
+    catch e
+        e isa GitError || rethrow()
+        return (path = nothing, branch = "", ask = false, main = false, pr = "", rows = nothing)
+    end
     rows = nothing
     # What each branch here follows, read once for every worktree of the
     # repository: rule 1 and rule 2 both ask whose a copy's branch is, and
