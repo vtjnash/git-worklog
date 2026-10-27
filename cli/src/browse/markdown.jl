@@ -97,17 +97,19 @@ end
 """One line of a diff, in the face of what it is - and, given `words`, the
 ranges of it - string indices - that changed against the line it is paired
 with, in the word role over the line's own face. A line `moved` - taken out
-of one place and put down the same in another, which `mark_moved!` found over
-the whole diff - is in the moved role whichever side it is on, and no word of
-it is marked: the line it pairs with is itself."""
+of one place and put down in another, which `mark_moved!` found over the whole
+diff - is in the moved role whichever side it is on, and `moved` is then the
+ranges of it that differ from the line it moved to or from: none for a line
+moved as it was, and the words edited on the way for one that was."""
 function diffline(l::AbstractString, words::Vector{UnitRange{Int}} = UnitRange{Int}[],
-                  moved::Bool = false)
+                  moved::Union{Nothing,Vector{UnitRange{Int}}} = nothing)
     # File headers must be tested before the bare +/- cases, or `+++`/`---`
     # colour as additions and deletions.
     startswith(l, "@@") && return faced(l, THEME.diff_hunk)
     (startswith(l, "+++") || startswith(l, "---") || startswith(l, "index ")) &&
         return faced(l, THEME.diff_meta)
-    moved && (startswith(l, "+") || startswith(l, "-")) && return faced(l, THEME.diff_moved)
+    moved !== nothing && (startswith(l, "+") || startswith(l, "-")) &&
+        return faced(markwords(l, moved, THEME.diff_moved_word), THEME.diff_moved)
     startswith(l, "+") && return faced(markwords(l, words, THEME.diff_add_word), THEME.diff_add)
     startswith(l, "-") && return faced(markwords(l, words, THEME.diff_del_word), THEME.diff_del)
     row(l)
@@ -239,13 +241,13 @@ best match is a rewrite is left unmarked, and so is every line outside a
 change. The ranges are into the whole line, marker included, so they go
 straight back onto it.
 
-A line in `moved` is not part of any change here: it is a block moved whole,
-and the words of the line it is paired with are its own. Such a line is
+A line in `moved` is not part of any change here: it is a block moved, and
+its pair is the line it moved to, marked by `mark_moved!`. Such a line is
 stepped over, and the lines either side of it read as adjacent - the one
 edited line in a run of nine moved ones is paired with its edit, not with
 the moved line that happens to come first.
 """
-function hunk_words(lines::AbstractVector{<:AbstractString}, moved = Set{Int}())
+function hunk_words(lines::AbstractVector{<:AbstractString}, moved = ())
     out = [UnitRange{Int}[] for _ in lines]
     shift = rs -> [(first(r) + 1):(last(r) + 1) for r in rs]
     # The lines that are a change's, in order, with the moved ones gone.
@@ -562,11 +564,11 @@ function nodelines(n::Node, w::Int)
         # The lines `mark_moved!` found moved, kept as indices into the body
         # and read here as rows: `[` has put `up` rows of context over them.
         moved = hunk_moved(n)
-        words = hunk_words(raw, moved)
+        words = hunk_words(raw, keys(moved))
         # `detab` after the words are marked, since the ranges index
         # the line as written; and on the styled line, under its faces.
-        lines = Styled[detab(diffline(l, words[k], k in moved)) * markof(get(marks, k, nothing))
-                       for (k, l) in enumerate(raw)]
+        lines = Styled[detab(diffline(l, words[k], get(moved, k, nothing))) *
+                       markof(get(marks, k, nothing)) for (k, l) in enumerate(raw)]
         srcline = [(true, rstrip(l)) for l in raw]
     else
         # A tab is drawn as its columns here too - a log, a range-diff - and

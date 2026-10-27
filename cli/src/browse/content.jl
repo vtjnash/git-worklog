@@ -1122,32 +1122,45 @@ one place the old name is said; `file` stays the new one, which is what the
 checkout is read by and GitHub anchors its comments to."""
 hunk_file(n::Node) = rename_name(jstr(n.meta, :oldfile, ""), jstr(n.meta, :file, ""))
 
-"""The rows of a hunk, as drawn now, that are a moved line: `mark_moved!`'s
-indices into the body, moved down by the `up` rows of context `[` has put
-over it."""
+"""The rows of a hunk, as drawn now, that are a moved line, each with the
+ranges of it that differ from the line it moved to or from: `mark_moved!`'s
+indices into the body, moved down by the `up` rows of context `[` has put over
+it."""
 function hunk_moved(n::Node)
     v = get(n.meta, "moved", nothing)
-    v isa Vector{Int} || return Set{Int}()
+    v isa Dict{Int,Vector{UnitRange{Int}}} || return Dict{Int,Vector{UnitRange{Int}}}()
     up = jint(n.meta, :up, 0)
-    Set{Int}(k + up for k in v)
+    Dict{Int,Vector{UnitRange{Int}}}(k + up => r for (k, r) in v)
 end
 
 # --- moved lines ---------------------------------------------------------------
 #
-# A block of lines taken out of one place and put down unchanged in another is
-# the one change a diff's two colours misreport: a function moved to another
-# file is nine red lines and nine green ones, and reading each is reading
-# nothing. `git diff --color-moved` marks them, in a colour of their own, and
-# this is its `blocks` rule: a run of `-` lines that is, line for line, a run
-# of `+` lines somewhere in the diff - the same hunk or another file - and
-# long enough to be a move rather than a coincidence, which git puts at twenty
-# letters and digits across the block (`COLOR_MOVED_MIN_ALNUM_COUNT`), so a
-# `}` or an `end` taken out here and put in there is not one. Matched exact,
-# as git does without `--color-moved-ws`: a line re-indented is a changed line.
+# A block of lines taken out of one place and put down in another is the one
+# change a diff's two colours misreport: a function moved to another file is
+# nine red lines and nine green ones, and reading each is reading nothing.
+# `git diff --color-moved` marks them, in a colour of their own, and this
+# begins as its `blocks` rule: a run of `-` lines that is, line for line, a run
+# of `+` lines somewhere in the diff - the same hunk or another file - and long
+# enough to be a move rather than a coincidence, which git puts at twenty
+# letters and digits across the block (`COLOR_MOVED_MIN_ALNUM_COUNT`), so a `}`
+# or an `end` taken out here and put in there is not one.
 #
-# Found once over the whole diff, in `hunk_nodes`, and kept on each hunk as
+# Then two things git's rule does not do, because a function is seldom moved
+# untouched. A line is the same line re-indented: the block that moved into a
+# module is still a move, with nothing in it to read (git's
+# `--color-moved-ws=allow-indentation-change`, without its demand that every
+# line shift alike). And a block runs on through a line that was *edited* on
+# the way - alike to its pair by `word_marks`' measure, the one the word marks
+# already use - and the words that differ are marked on both sides, as they
+# are between a `-` line and the `+` line it became. The twenty letters are
+# counted on the lines that match exactly: the edited lines ride along with a
+# move, and never make one by themselves, which is what keeps two functions of
+# the same shape from reading as one moved.
+#
+# Found once over the whole diff, in `hunk_nodes`, and kept on each hunk by
 # the indices into its `body` - not its rows, which `[`/`]` moves - so the
-# draw reads it off and pairs no words on it: the two lines are the same.
+# draw reads it off and pairs no words on it with its neighbours: its pair is
+# the line it moved to.
 
 "The lines of a hunk's body that are a `+` or a `-`, by sign."
 function moved_lines(ns::Vector{Node})
@@ -1166,17 +1179,32 @@ function moved_lines(ns::Vector{Node})
     (hunks, lines, signs, texts)
 end
 
+"""How a line of a moved block stands to its pair on the other side: `:same`
+for the same line, its indentation aside; `:alike` for one edited on the way,
+with the ranges of each - into the line as drawn, marker and all - that
+differ; `nothing` for a line that is another line. The ranges are
+`word_marks`', measured past the indentation and put back where they were."""
+function moved_pair(a::String, b::String)
+    sa, sb = lstrip(a), lstrip(b)
+    none = UnitRange{Int}[]
+    sa == sb && return (:same, none, none)
+    sc, ra, rb = word_marks(sa, sb)
+    sc < 0.5 && return nothing
+    back(r, s, l) = (first(r) + 1 + ncodeunits(l) - ncodeunits(s)):(last(r) + 1 + ncodeunits(l) - ncodeunits(s))
+    (:alike, [back(r, sa, a) for r in ra], [back(r, sb, b) for r in rb])
+end
+
 """Marks `moved` on each hunk of `ns`: the indices into its body of the lines
-that are a block moved from or to somewhere else in the diff. See the note
-over `moved_lines`."""
+that are a block moved from or to somewhere else in the diff, each with the
+ranges of it that differ from its pair. See the note over `moved_lines`."""
 function mark_moved!(ns::Vector{Node})
     hunks, lines, signs, texts = moved_lines(ns)
     N = length(texts)
     N == 0 && return ns
-    # Where each text is found on each side.
+    # Where each text is found on each side, its indentation aside.
     at = Dict{Tuple{Char,String},Vector{Int}}()
     for j in 1:N
-        push!(get!(at, (signs[j], texts[j]), Int[]), j)
+        push!(get!(at, (signs[j], String(lstrip(texts[j]))), Int[]), j)
     end
     # `j` follows `p` in the diff with nothing between: the next changed line
     # of the same hunk and sign, in the body, is the line after it.
@@ -1184,30 +1212,60 @@ function mark_moved!(ns::Vector{Node})
                     lines[j] == lines[p] + 1
     alnum(s) = count(c -> isletter(c) || isdigit(c), s)
     moved = falses(N)
+    marks = Dict{Int,Vector{UnitRange{Int}}}()
     # The block being read, the lines on the other side that could still be
-    # the block's pair (`pmb`, as git names them), and the block's letters so
+    # the block's pair (`pmb`, as git names them: the one matched to the
+    # block's last line), and the letters of its exactly matched lines so
     # far. Mutated in place and never assigned again, so no closure boxes them.
     block, pmb, letters = Int[], Int[], Ref(0)
     for j in 1:(N + 1)
         # A block runs on while the line continues it and, on the other
-        # side, some match of the block so far continues too.
+        # side, some match of the block so far continues too: the same line
+        # first, and an edit of it when no match has the same line.
         if j <= N && !isempty(block) && follows(j, block[end])
-            filter!(p -> p < N && follows(p + 1, p) && texts[p + 1] == texts[j], pmb)
-            if !isempty(pmb)
-                pmb .+= 1; push!(block, j); letters[] += alnum(texts[j])
+            on = [p + 1 for p in pmb if p < N && follows(p + 1, p) && !moved[p + 1]]
+            same = [q for q in on if lstrip(texts[q]) == lstrip(texts[j])]
+            next = !isempty(same) ? same : [q for q in on if moved_pair(texts[j], texts[q]) !== nothing]
+            if !isempty(next)
+                copy!(pmb, next); push!(block, j)
+                isempty(same) || (letters[] += alnum(texts[j]))
                 continue
             end
         end
-        letters[] >= 20 && (moved[block] .= true)
+        if letters[] >= 20
+            # The pairs, read back from the match: the block's lines and
+            # the other side's, in step - and the lines before either, while
+            # they are alike, which a block seeded on the same line could not
+            # start with.
+            len = length(block)
+            pairs = [(block[i], pmb[1] - len + i) for i in 1:len]
+            x, y = pairs[1]
+            while x > 1 && y > 1 && follows(x, x - 1) && follows(y, y - 1) &&
+                  !moved[x - 1] && !moved[y - 1] && moved_pair(texts[x - 1], texts[y - 1]) !== nothing
+                x -= 1; y -= 1
+                pushfirst!(pairs, (x, y))
+            end
+            for (x, y) in pairs
+                moved[x] = moved[y] = true
+                m = something(moved_pair(texts[x], texts[y]))
+                marks[x] = m[2]; marks[y] = m[3]
+            end
+        end
         empty!(block); empty!(pmb); letters[] = 0
         j <= N || break
-        cands = get(at, (signs[j] == '+' ? '-' : '+', texts[j]), nothing)
+        moved[j] && continue
+        cands = get(at, (signs[j] == '+' ? '-' : '+', String(lstrip(texts[j]))), nothing)
         cands === nothing && continue
-        append!(pmb, cands); push!(block, j); letters[] = alnum(texts[j])
+        for q in cands
+            moved[q] || push!(pmb, q)
+        end
+        isempty(pmb) && continue
+        push!(block, j); letters[] = alnum(texts[j])
     end
     for j in 1:N
         moved[j] || continue
-        push!(get!(ns[hunks[j]].meta, "moved", Int[])::Vector{Int}, lines[j])
+        d = get!(ns[hunks[j]].meta, "moved", Dict{Int,Vector{UnitRange{Int}}}())
+        (d::Dict{Int,Vector{UnitRange{Int}}})[lines[j]] = marks[j]
     end
     ns
 end

@@ -1210,9 +1210,11 @@ end
           "diff --git a/lib/b.jl b/lib/b.jl\n--- a/lib/b.jl\n+++ b/lib/b.jl\n" *
           "@@ -1,2 +1,11 @@\n module B\n" * join("+" .* fn, "\n") * "\n end\n"
     ns = W.hunk_nodes(txt, "u")
+    mv(n) = sort(collect(keys(n.meta["moved"])))
     @test length(ns) == 2
-    @test ns[1].meta["moved"] == collect(1:9)
-    @test ns[2].meta["moved"] == collect(2:10)
+    @test mv(ns[1]) == 1:9 && mv(ns[2]) == 2:10
+    # Moved as they were: nothing in them to mark.
+    @test all(isempty, values(ns[1].meta["moved"]))
     # The counts on the header are still what the hunk adds and takes away.
     @test unstyled(ns[1].header) == "lib/a.jl  @@ 1,3 @@  +0 -10"
     # Too little to be a move: `end` out here and in there is a coincidence,
@@ -1227,39 +1229,68 @@ end
                       "\n-short_line = 3\n" *
                       "diff --git a/b b/b\n@@ -1,0 +1,3 @@\n+" * long[1] * "\n+" * long[2] *
                       "\n+other\n+short_line = 3\n", "u")
-    @test ns[1].meta["moved"] == [1, 2] && ns[2].meta["moved"] == [1, 2]
+    @test mv(ns[1]) == [1, 2] && mv(ns[2]) == [1, 2]
     # Within one hunk too, and from either side first.
     ns = W.hunk_nodes("diff --git a/a b/a\n@@ -1,4 +1,4 @@\n+" * long[1] * "\n+" * long[2] *
                       "\n x\n-" * long[1] * "\n-" * long[2] * "\n", "u")
-    @test ns[1].meta["moved"] == [1, 2, 4, 5]
+    @test mv(ns[1]) == [1, 2, 4, 5]
+
+    # A function is seldom moved untouched. Re-indented on the way into a
+    # module, it is the same block with nothing in it to read; a line edited
+    # on the way rides along with the move, alike to its pair, and the words
+    # that differ are marked on both sides - the first line of the block as
+    # well, which no exact line could seed. The blank between is the same
+    # line too. And the twenty letters are the exact lines': two lines of
+    # the same shape with every word changed are not a move.
+    fn2 = copy(fn); fn2[1] = "function helper_one(x, w)"; fn2[4] = "    return z + helper_two(y) + w"
+    txt = "diff --git a/lib/a.jl b/lib/a.jl\n@@ -1,13 +1,3 @@\n" * join("-" .* fn, "\n") *
+          "\n-\n function main()\n" *
+          "diff --git a/lib/b.jl b/lib/b.jl\n@@ -1,2 +1,11 @@\n module B\n" *
+          join("+    " .* fn2, "\n") * "\n end\n"
+    ns = W.hunk_nodes(txt, "u")
+    @test mv(ns[1]) == 1:9 && mv(ns[2]) == 2:10
+    a, b = ns[1].meta["moved"], ns[2].meta["moved"]
+    # `(x)` → `(x, w)`: the `, w` is new on the `+` side and nothing is gone
+    # on the `-`; marker and indentation counted, as the lines are drawn.
+    @test isempty(a[1]) && length(b[2]) == 1 && ("+    " * fn2[1])[b[2][1]] == ", w"
+    @test isempty(a[4]) && length(b[5]) == 1 && ("+    " * fn2[4])[b[5][1]] == " + w"
+    @test all(k -> isempty(a[k]), (2, 3, 5, 6, 7, 8, 9)) && all(k -> isempty(b[k]), 3:4)
+    ns = W.hunk_nodes("diff --git a/a b/a\n@@ -1,2 +1,0 @@\n-alpha_one = beta_one(gamma_one)\n" *
+                      "-delta_one = epsilon_one(zeta_one)\n" *
+                      "diff --git a/b b/b\n@@ -1,0 +1,2 @@\n+alpha_two = beta_two(gamma_two)\n" *
+                      "+delta_two = epsilon_two(zeta_two)\n", "u")
+    @test !any(n -> haskey(n.meta, "moved"), ns)
 
     # Drawn in the moved role, whichever side, with no word marked; the
     # lines around a moved one pair as if it were not there. And `[` moving
     # the body down by its context moves the marks with it.
-    keep = W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word
-    add, del, mv, word = W.parse_face.(("green", "red", "yellow", "on 22"))
-    W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word =
-        add, del, mv, word
+    keep = W.THEME.diff_add, W.THEME.diff_moved, W.THEME.diff_add_word, W.THEME.diff_moved_word
+    add, yel, word, yword = W.parse_face.(("green", "yellow", "on 22", "on 58"))
+    W.THEME.diff_add, W.THEME.diff_moved, W.THEME.diff_add_word, W.THEME.diff_moved_word =
+        add, yel, word, yword
+    none = UnitRange{Int}[]
     try
-        @test faces(W.diffline("+a = 10", [6:7], true)) == ["+a = 10" => mv]
-        @test faces(W.diffline("-a = 10", [6:7], true)) == ["-a = 10" => mv]
-        @test faces(W.diffline("+a = 10", [6:7], false)) == ["+a = 10" => add, "10" => word]
+        @test faces(W.diffline("+a = 10", [6:7], none)) == ["+a = 10" => yel]
+        @test faces(W.diffline("-a = 10", none, none)) == ["-a = 10" => yel]
+        @test faces(W.diffline("-a = 10", none, [6:7])) == ["-a = 10" => yel, "10" => yword]
+        @test faces(W.diffline("+a = 10", [6:7], nothing)) == ["+a = 10" => add, "10" => word]
         lines = ["-moved_whole_line_one = f(x)", "-a = 1", "+moved_whole_line_one = f(x)",
                  "+a = 10"]
-        ws = W.hunk_words(lines, Set([1, 3]))
+        ws = W.hunk_words(lines, (1, 3))
         @test isempty(ws[1]) && isempty(ws[3]) && ws[2] == [6:6] && ws[4] == [6:7]
         n = W.Node("a  @@ 1,2 @@", "-a = 1\n+" * long[1] * "\n+a = 10", :diff, true)
         merge!(n.meta, Dict{String,Any}("file" => "a", "start" => 1, "count" => 2,
                                         "ostart" => 1, "ocount" => 1, "up" => 0, "down" => 0,
-                                        "moved" => [2]))
+                                        "moved" => Dict(2 => [3:4])))
         rs = W.rows([n], 60)
-        @test faces(rs[findfirst(r -> r.src == "+" * long[1], rs)].text) == ["+" * long[1] => mv]
+        @test faces(rs[findfirst(r -> r.src == "+" * long[1], rs)].text) ==
+              ["+" * long[1] => yel, long[1][2:3] => yword]
         @test faces(rs[findfirst(r -> r.src == "+a = 10", rs)].text) == ["+a = 10" => add, "10" => word]
-        @test W.hunk_moved(n) == Set([2])
+        @test W.hunk_moved(n) == Dict(2 => [3:4])
         n.meta["up"] = 3
-        @test W.hunk_moved(n) == Set([5])
+        @test W.hunk_moved(n) == Dict(5 => [3:4])
     finally
-        W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word = keep
+        W.THEME.diff_add, W.THEME.diff_moved, W.THEME.diff_add_word, W.THEME.diff_moved_word = keep
     end
 end
 

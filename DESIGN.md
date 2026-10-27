@@ -693,20 +693,27 @@ Three things answer it, all read off the mark `e` leaves:
   no message over it. Counted as the picker counts (`pr_commits`), from the
   merge base `pr_diff` measured from, so the two cannot disagree about how
   many commits the pull request is.
-- **A block moved whole is marked moved, not added and deleted** (`mark_moved!`,
-  `diff_moved`): `git diff --color-moved`'s `blocks` rule - a run of `-`
-  lines that is, line for line, a run of `+` lines anywhere in the diff, the
-  same hunk or another file, and twenty letters and digits long across the
-  block, as git's `COLOR_MOVED_MIN_ALNUM_COUNT` has it, so an `end` taken
-  out here and put down there is not a move. Matched exact, as git does
-  without `--color-moved-ws`. Found once over the whole diff in `hunk_nodes`,
-  since it is a fact about the diff and not the hunk, and kept on each hunk
-  as indices into its `body`, which `[`/`]` does not move; `hunk_moved`
-  reads them as rows. A moved line has no words marked (`hunk_words` steps
-  over it, and the lines either side of it pair as if it were not there) and
-  one colour on both sides: the marker says which side, and the colour says
-  it is not a change to read. Checked against git 2.54's own marking on
-  2026-10-27.
+- **A block moved is marked moved, not added and deleted** (`mark_moved!`,
+  `diff_moved`): `git diff --color-moved`'s `blocks` rule to begin with - a
+  run of `-` lines that is, line for line, a run of `+` lines anywhere in
+  the diff, the same hunk or another file, and twenty letters and digits
+  long across the block, as git's `COLOR_MOVED_MIN_ALNUM_COUNT` has it, so
+  an `end` taken out here and put down there is not a move. Checked against
+  git 2.54's own marking on 2026-10-27. Then, because a function is seldom
+  moved untouched, two things git's rule does not do: indentation is not
+  compared, so a block moved into a module is the same block; and a block
+  runs on through a line edited on the way - alike to its pair by
+  `word_marks`' own measure, the first line of the block included - and the
+  words that differ are marked on both sides in `diff_moved_word`, as between
+  a `-` line and the `+` it became. The twenty letters are counted on the
+  exact lines alone, so edited lines ride along with a move and never make
+  one, and two functions of the same shape are not one moved. Found once
+  over the whole diff in `hunk_nodes`, since it is a fact about the diff and
+  not the hunk, and kept on each hunk as indices into its `body`, which
+  `[`/`]` does not move, each with its ranges; `hunk_moved` reads them as
+  rows. A moved line is outside `hunk_words`' pairing (the lines either side
+  of it pair as if it were not there) and one colour on both sides: the
+  marker says which, and the colour says it is not a change to read.
 - **A renamed file keeps both names** (`rename_name`, `hunk_file`): read off
   `rename from`/`rename to` and `copy from`/`copy to`, whole lines, since the
   `diff --git` line is split on a space and a name with one in it is not safe
@@ -1563,7 +1570,8 @@ Each of the following returns success and the wrong answer:
   roles are backgrounds where the palette has them, laid over the line's
   colour, and the cursor row's background goes under both. A line
   `mark_moved!` found moved is outside the pairing altogether: its pair is
-  itself, and the `-` and `+` lines either side of it read as adjacent.
+  the line it moved to, and the `-` and `+` lines either side of it read as
+  adjacent.
 - **A diff is somebody else's bytes, printed.** An escape in one is a
   command to the terminal the frame is drawn on, and `gh pr diff` refuses
   to pipe one at all ("pass --allow-escape-sequences"), which was a row of

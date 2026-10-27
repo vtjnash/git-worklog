@@ -71,10 +71,11 @@ diff_del  = "160"
 # puts behind them - a background that stops with the word, so it can be one.
 diff_add_word = "on 157"
 diff_del_word = "on 217"
-# A block of lines moved whole, on both sides, as `git diff --color-moved`
-# marks one. GitHub has no colour for it, and a yellow on white cannot be
+# A block of lines moved, on both sides, as `git diff --color-moved` marks
+# one, and the words edited in a line on the way. GitHub has no colour for it, and a yellow on white cannot be
 # read: a dark gold, as `waiting` is.
 diff_moved = "136"
+diff_moved_word = "on 229"
 diff_hunk = "26"
 diff_meta = "245"
 # Behind the header rows, which do run to the edge of the pane: GitHub's pale
