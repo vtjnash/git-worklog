@@ -1039,7 +1039,10 @@ things are left here because they are this program's rather than a composer's:
     readline's transpose and taken; `^x` is free in a text area and is the one
     of the free ones that reads as an exchange.
   * **The terminal `⌥e` hands over is the controller's**, and is only known
-    once an event is being handled in it.
+    once an event is being handled in it. The file it hands over is named
+    only where the text has a kind the editor can be told: the merge composer
+    writes a git commit message, and `MERGE_MSG` is the basename vim and the
+    rest read as one - a comment is plain markdown and says nothing.
 """
 mutable struct EditorView <: View
     ta::TextArea
@@ -1056,11 +1059,11 @@ end
 
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
                     allow_empty::Bool = false, suggest::AbstractString = "",
-                    cycle = nothing)
+                    cycle = nothing, filename::AbstractString = "")
     hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
                   cycle === nothing ? "" : "^x cycles · ",
                   "^c copies · ⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
-    EditorView(TextArea(title, note; initial = initial, hint = hint),
+    EditorView(TextArea(title, note; initial = initial, hint = hint, filename = filename),
                onsubmit, String(suggest), allow_empty, cycle)
 end
 

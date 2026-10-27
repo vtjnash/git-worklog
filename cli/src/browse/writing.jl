@@ -692,6 +692,9 @@ function merge_compose(st::BState, ctrl::Controller, it::Item, ms,
                     # A rebase writes no message, so there is nothing for `^s`
                     # to refuse to send. Everything else needs its headline.
                     allow_empty = cur[] == "REBASE",
+                    # The text is a commit message, and the name is how an
+                    # editor is told so: vim picks `gitcommit` by basename.
+                    filename = "MERGE_MSG",
                     cycle = length(ms.methods) == 1 ? nothing :
                             (v, dir) -> merge_cycle!(v, ctrl, ms, cur, dir, it.labels))
     push_beside!(ctrl, st, ev)

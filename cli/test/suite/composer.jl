@@ -133,3 +133,22 @@ end
     @test String(take!(out)) == string("\e]52;c;", W.Base64.base64encode("two\nlines"), "\a")
     @test occursin("^c copies", ev.hint)
 end
+
+@testset "the merge composer names the file it hands to \$EDITOR" begin
+    # A merge message is a git commit message, and an editor knows that only
+    # from the file's name - vim picks `gitcommit` by basename and nothing
+    # else - so the merge composer alone names its file `MERGE_MSG`. A
+    # comment is markdown of no particular kind and leaves the name to
+    # `compose_external`, which is the `TextArea` default.
+    st = mkstate()
+    ctrl = W.Controller(); ctrl.running = true; push!(ctrl.stack, st)
+    it = st.items[st.sel]
+    ms = W.Events.merge_info(id = "x", oid = "o", state = "OPEN", mergeable = "MERGEABLE",
+                             status = "CLEAN", base = "master", commits = 1,
+                             methods = ["SQUASH"])
+    W.merge_compose(st, ctrl, it, ms, "SQUASH")
+    top = ctrl.stack[end]
+    ev = top isa W.SideView ? top.inner : top
+    @test ev isa W.EditorView && ev.filename == "MERGE_MSG"
+    @test W.EditorView("Comment on r#1", "", identity).filename == ""
+end
