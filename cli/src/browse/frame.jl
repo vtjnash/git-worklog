@@ -368,7 +368,7 @@ function pin_row(st::BState, h::Row, iw::Int)
     n = st.nodes[h.node]
     fn = hunk_func(n)
     pad = " "^(2 * n.depth)
-    txt = "▾ " * jstr(n.meta, :file, "") * (isempty(fn) ? "" : "  " * fn) *
+    txt = "▾ " * hunk_file(n) * (isempty(fn) ? "" : "  " * fn) *
           hunk_counts(n) * row(get(n.meta, "tally", ""))
     core = rowfit(faced(txt, THEME.bold), max(1, iw - 2 * n.depth))
     bg = header_bg(st, h)

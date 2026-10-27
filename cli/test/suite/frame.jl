@@ -1196,6 +1196,123 @@ end
     @test any(r -> r.src == "+a = 10", rs)
 end
 
+@testset "a block of lines moved whole is marked moved, on both sides" begin
+    # Nine lines leave a.jl and land in b.jl as they were; the blank after
+    # them leaves a.jl and lands nowhere. As `git diff --color-moved` marks
+    # it (checked against git 2.54 on 2026-10-27): the block on both sides,
+    # the stray blank not.
+    fn = ["function helper_one(x)", "    y = x + 1", "    z = y * 2",
+          "    return z + helper_two(y)", "end", "", "function helper_two(y)",
+          "    return y - 1", "end"]
+    txt = "diff --git a/lib/a.jl b/lib/a.jl\n--- a/lib/a.jl\n+++ b/lib/a.jl\n" *
+          "@@ -1,13 +1,3 @@\n" * join("-" .* fn, "\n") * "\n-\n function main()\n" *
+          "     println(helper_one(3))\n end\n" *
+          "diff --git a/lib/b.jl b/lib/b.jl\n--- a/lib/b.jl\n+++ b/lib/b.jl\n" *
+          "@@ -1,2 +1,11 @@\n module B\n" * join("+" .* fn, "\n") * "\n end\n"
+    ns = W.hunk_nodes(txt, "u")
+    @test length(ns) == 2
+    @test ns[1].meta["moved"] == collect(1:9)
+    @test ns[2].meta["moved"] == collect(2:10)
+    # The counts on the header are still what the hunk adds and takes away.
+    @test unstyled(ns[1].header) == "lib/a.jl  @@ 1,3 @@  +0 -10"
+    # Too little to be a move: `end` out here and in there is a coincidence,
+    # and so is a block of under twenty letters and digits.
+    ns = W.hunk_nodes("diff --git a/a b/a\n@@ -1,2 +1,1 @@\n-end\n-x = 1\n y\n" *
+                      "diff --git a/b b/b\n@@ -1,1 +1,3 @@\n y\n+end\n+x = 1\n", "u")
+    @test !any(n -> haskey(n.meta, "moved"), ns)
+    # A block broken on the other side is two blocks, and each is measured
+    # on its own: the one line of it that moved alone is not marked.
+    long = ["a_long_enough_identifier_one = 1", "another_long_enough_identifier = 2"]
+    ns = W.hunk_nodes("diff --git a/a b/a\n@@ -1,3 +1,0 @@\n-" * long[1] * "\n-" * long[2] *
+                      "\n-short_line = 3\n" *
+                      "diff --git a/b b/b\n@@ -1,0 +1,3 @@\n+" * long[1] * "\n+" * long[2] *
+                      "\n+other\n+short_line = 3\n", "u")
+    @test ns[1].meta["moved"] == [1, 2] && ns[2].meta["moved"] == [1, 2]
+    # Within one hunk too, and from either side first.
+    ns = W.hunk_nodes("diff --git a/a b/a\n@@ -1,4 +1,4 @@\n+" * long[1] * "\n+" * long[2] *
+                      "\n x\n-" * long[1] * "\n-" * long[2] * "\n", "u")
+    @test ns[1].meta["moved"] == [1, 2, 4, 5]
+
+    # Drawn in the moved role, whichever side, with no word marked; the
+    # lines around a moved one pair as if it were not there. And `[` moving
+    # the body down by its context moves the marks with it.
+    keep = W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word
+    add, del, mv, word = W.parse_face.(("green", "red", "yellow", "on 22"))
+    W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word =
+        add, del, mv, word
+    try
+        @test faces(W.diffline("+a = 10", [6:7], true)) == ["+a = 10" => mv]
+        @test faces(W.diffline("-a = 10", [6:7], true)) == ["-a = 10" => mv]
+        @test faces(W.diffline("+a = 10", [6:7], false)) == ["+a = 10" => add, "10" => word]
+        lines = ["-moved_whole_line_one = f(x)", "-a = 1", "+moved_whole_line_one = f(x)",
+                 "+a = 10"]
+        ws = W.hunk_words(lines, Set([1, 3]))
+        @test isempty(ws[1]) && isempty(ws[3]) && ws[2] == [6:6] && ws[4] == [6:7]
+        n = W.Node("a  @@ 1,2 @@", "-a = 1\n+" * long[1] * "\n+a = 10", :diff, true)
+        merge!(n.meta, Dict{String,Any}("file" => "a", "start" => 1, "count" => 2,
+                                        "ostart" => 1, "ocount" => 1, "up" => 0, "down" => 0,
+                                        "moved" => [2]))
+        rs = W.rows([n], 60)
+        @test faces(rs[findfirst(r -> r.src == "+" * long[1], rs)].text) == ["+" * long[1] => mv]
+        @test faces(rs[findfirst(r -> r.src == "+a = 10", rs)].text) == ["+a = 10" => add, "10" => word]
+        @test W.hunk_moved(n) == Set([2])
+        n.meta["up"] = 3
+        @test W.hunk_moved(n) == Set([5])
+    finally
+        W.THEME.diff_add, W.THEME.diff_del, W.THEME.diff_moved, W.THEME.diff_add_word = keep
+    end
+end
+
+@testset "a renamed file keeps both names on its header" begin
+    # As `git diff --stat` writes a rename: what the two share outside the
+    # braces, cut at a `/`, and `old => new` whole when they share nothing.
+    @test W.rename_name("arch/i386/Makefile", "arch/x86/Makefile") == "arch/{i386 => x86}/Makefile"
+    @test W.rename_name("foo/bar.c", "foo/sub/bar.c") == "foo/{ => sub}/bar.c"
+    @test W.rename_name("foo/sub/bar.c", "foo/bar.c") == "foo/{sub => }/bar.c"
+    @test W.rename_name("a.c", "b/a.c") == "a.c => b/a.c"
+    @test W.rename_name("x/a.c", "y/b.c") == "x/a.c => y/b.c"
+    @test W.rename_name("src/x/a.c", "src/y/a.c") == "src/{x => y}/a.c"
+    @test W.rename_name("src/a.c", "src/b.c") == "src/{a.c => b.c}"
+    @test W.rename_name("", "a/b") == "a/b"
+    @test W.rename_name("a/b", "a/b") == "a/b"
+
+    txt = "diff --git a/arch/i386/Makefile b/arch/x86/Makefile\nsimilarity index 60%\n" *
+          "rename from arch/i386/Makefile\nrename to arch/x86/Makefile\n" *
+          "index e2ff67a..a96e9ee 100644\n--- a/arch/i386/Makefile\n+++ b/arch/x86/Makefile\n" *
+          "@@ -1,3 +1,3 @@\n all: build\n-\tx\n+\ty\n" *
+          "diff --git a/old name.jl b/new name.jl\nsimilarity index 100%\n" *
+          "rename from old name.jl\nrename to new name.jl\n" *
+          "diff --git a/lib/c.jl b/lib/d.jl\nsimilarity index 90%\ncopy from lib/c.jl\n" *
+          "copy to lib/d.jl\n--- a/lib/c.jl\n+++ b/lib/d.jl\n@@ -1 +1 @@\n-a\n+b\n" *
+          "diff --git a/e.jl b/e.jl\n--- a/e.jl\n+++ b/e.jl\n@@ -1 +1 @@\n-a\n+b\n"
+    ns = W.hunk_nodes(txt, "u")
+    @test length(ns) == 4
+    # The header says both; `file` is the new name, which is what the
+    # checkout and GitHub's comments know it by.
+    @test unstyled(ns[1].header) == "arch/{i386 => x86}/Makefile  @@ 1,3 @@  +1 -1"
+    @test ns[1].meta["file"] == "arch/x86/Makefile"
+    @test ns[1].meta["oldfile"] == "arch/i386/Makefile"
+    # Moved whole: a header alone, so the move is on screen at all. No
+    # `file`, so nothing takes it for a hunk.
+    @test unstyled(ns[2].header) == "old name.jl => new name.jl  renamed"
+    @test !haskey(ns[2].meta, "file") && !ns[2].open && ns[2].raw == ""
+    @test unstyled(ns[3].header) == "lib/{c.jl => d.jl}  @@ 1,1 @@  +1 -1"
+    # Said once, and not carried to the file after.
+    @test unstyled(ns[4].header) == "e.jl  @@ 1,1 @@  +1 -1"
+    @test !haskey(ns[4].meta, "oldfile")
+    # The pin over a scrolled hunk says both names too.
+    st = mkstate()
+    st.mode = :diff
+    st.nodes = ns
+    rs = W.rows(ns, 80)
+    h = rs[findfirst(r -> r.node == 1 && r.header && r.part == 0, rs)]
+    @test startswith(unstyled(W.pin_row(st, h, 80).text), "▾ arch/{i386 => x86}/Makefile  +1 -1")
+    # The rename alone is stepped over by what walks hunks: it is no hunk to
+    # widen, and the size of the diff counts it as nothing.
+    @test W.diff_size(ns) == (3, 3)
+    @test W.stuck_header(ns, rs, findfirst(r -> r.node == 2, rs), 0) == 0
+end
+
 @testset "a pane says when it was loaded on its border, not in the status" begin
     now = W.DateTime(2026, 9, 24, 15, 0)
     t = W.datetime2unix(W.DateTime(2026, 9, 24, 14, 2))

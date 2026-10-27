@@ -975,13 +975,24 @@ Its own function because there are two diffs in this program now: the pull
 request's whole change, and what has been pushed to it since you last looked.
 They differ in where the text comes from and in nothing else, and a second
 parser would be a second set of hunk ranges to keep in step with `hunk_line_at`.
+
+A file git saw renamed or copied keeps both names: `file` is the new one,
+which is what the checkout and GitHub's comments know it by, and `oldfile`
+the one it had, said on the header as `git diff --stat` says it
+(`rename_name`). A rename with no hunk under it - the file moved whole - is
+a header alone (`rename_node`), since the move is the only thing the diff
+has to say about it and it was said nowhere. And once every hunk is read, a
+block of lines taken out of one place and put down the same in another,
+anywhere in the diff, is marked moved (`mark_moved!`): that is a fact about
+the whole diff, not about the hunk, so it is found here and not at the draw.
 """
 function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractString = "")
     txt, ctl = inert(txt)
     ns, file, buf, inhunk = Node[], "", String[], false
-    # Whether the file is one the change creates: said between `diff --git`
-    # and its first `@@`, and nowhere after.
-    newfile = false
+    # Whether the file is one the change creates, and the name it had if git
+    # saw it renamed or copied: said between `diff --git` and its first `@@`,
+    # and nowhere after.
+    newfile, oldfile, copied, hunks = false, "", false, 0
     pending_range, pending_old, pending_func = (0, 0), (0, 0), ""
     # Each hunk goes to `hunk_node` whole when the next begins, not to a
     # `flush!` closure: all of these are assigned again, and a closure over
@@ -989,14 +1000,25 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
     for l in split(txt, "\n")
         if startswith(l, "diff --git")
             inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
-                                          url, head, newfile))
+                                          url, head, newfile, oldfile))
+            inhunk || hunks > 0 || isempty(oldfile) ||
+                push!(ns, rename_node(oldfile, file, copied))
             inhunk = false; buf = String[]; newfile = false
+            oldfile = ""; copied = false; hunks = 0
             file = replace(String(last(split(l, " "))), r"^b/" => "")
         elseif !inhunk && (startswith(l, "new file mode") || l == "--- /dev/null")
             newfile = true
+        elseif !inhunk && (startswith(l, "rename from ") || startswith(l, "copy from "))
+            # The names on their own lines, whole: the `diff --git` line is
+            # split on a space, and a name with one in it is not safe there.
+            oldfile = String(l[(findfirst(' ', l) + 6):end])
+            copied = startswith(l, "copy")
+        elseif !inhunk && (startswith(l, "rename to ") || startswith(l, "copy to "))
+            file = String(l[(findfirst(' ', l) + 4):end])
         elseif startswith(l, "@@")
             inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
-                                          url, head, newfile))
+                                          url, head, newfile, oldfile))
+            hunks += 1
             # What follows the second `@@` is git's function context: the
             # line it found above the hunk in the old file - by default the
             # nearest one that starts with a letter, `_` or `$`, or what the
@@ -1015,7 +1037,9 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
         end
     end
     inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
-                                  url, head, newfile))
+                                  url, head, newfile, oldfile))
+    inhunk || hunks > 0 || isempty(oldfile) || push!(ns, rename_node(oldfile, file, copied))
+    mark_moved!(ns)
     isempty(ns) || uninert(ctl) || pushfirst!(ns, ctlnode(ctl))
     ns
 end
@@ -1023,10 +1047,51 @@ end
 "A side of an `@@` header: a count left out is one line; a start is always there."
 hunk_span(a, n) = (parse(Int, something(a)), n === nothing ? 1 : parse(Int, n))
 
+"""A file's two names as `git diff --stat` prints a rename:
+`arch/{i386 => x86}/Makefile`, the part in common on each side kept outside
+the braces - cut at a `/`, never inside a name - and `old => new` whole when
+the two share no directory at either end. git's `pprint_rename`, so the
+header reads as the stat the reader has seen; a name that has not changed is
+itself."""
+function rename_name(old::AbstractString, new::AbstractString)
+    (isempty(old) || old == new) && return String(new)
+    a, b = collect(old), collect(new)
+    # The common prefix, back to the last `/` in it; the common suffix,
+    # forward to the first `/` in it - both so a directory is what moves
+    # outside the braces, not the half of a name two files happen to share.
+    pfx = 0
+    for i in 1:min(length(a), length(b))
+        a[i] == b[i] || break
+        a[i] == '/' && (pfx = i)
+    end
+    sfx = 0
+    for i in 0:(min(length(a), length(b)) - 1)
+        a[end - i] == b[end - i] || break
+        a[end - i] == '/' && (sfx = i + 1)
+    end
+    pfx + sfx == 0 && return string(old, " => ", new)
+    mid(v) = String(v[(pfx + 1):max(pfx, length(v) - sfx)])
+    string(String(a[1:pfx]), "{", mid(a), " => ", mid(b), "}", String(a[(end - sfx + 1):end]))
+end
+
+"""The header a file that moved whole gets - renamed, or copied, and not a
+line of it changed - so the move is on screen at all: no hunk means no node,
+and the file was gone from the diff. A header alone, with no `file`, which is
+what `[`/`]`, the pin and `attach_comments` step over, as they do the
+`inert` note; `o` and `C` have no line to go to in it."""
+function rename_node(old::String, new::String, copied::Bool)
+    n = Node(string(rename_name(old, new), "  ", copied ? "copied" : "renamed"), "", :diff,
+             false)
+    n.meta["oldfile"] = old
+    n.meta["rename"] = new
+    n
+end
+
 "One hunk of `hunk_nodes`, as the node the pane folds."
 function hunk_node(file::String, buf::Vector{String},
                    rng::Tuple{Int,Int}, old::Tuple{Int,Int}, func::String,
-                   url::AbstractString, head::AbstractString, newfile::Bool)
+                   url::AbstractString, head::AbstractString, newfile::Bool,
+                   oldfile::String = "")
     adds = count(l -> startswith(l, "+") && !startswith(l, "+++"), buf)
     dels = count(l -> startswith(l, "-") && !startswith(l, "---"), buf)
     n = Node("", join(buf, "\n"), :diff, true)
@@ -1046,8 +1111,105 @@ function hunk_node(file::String, buf::Vector{String},
     n.meta["url"] = String(url)
     n.meta["head"] = String(head)
     n.meta["newfile"] = newfile
+    isempty(oldfile) || oldfile == file || (n.meta["oldfile"] = oldfile)
     n.header = hunk_header(n)
     n
+end
+
+"""The file a hunk's header names: the new name, with the old one it was
+renamed or copied from in `git diff --stat`'s braces when git saw one. The
+one place the old name is said; `file` stays the new one, which is what the
+checkout is read by and GitHub anchors its comments to."""
+hunk_file(n::Node) = rename_name(jstr(n.meta, :oldfile, ""), jstr(n.meta, :file, ""))
+
+"""The rows of a hunk, as drawn now, that are a moved line: `mark_moved!`'s
+indices into the body, moved down by the `up` rows of context `[` has put
+over it."""
+function hunk_moved(n::Node)
+    v = get(n.meta, "moved", nothing)
+    v isa Vector{Int} || return Set{Int}()
+    up = jint(n.meta, :up, 0)
+    Set{Int}(k + up for k in v)
+end
+
+# --- moved lines ---------------------------------------------------------------
+#
+# A block of lines taken out of one place and put down unchanged in another is
+# the one change a diff's two colours misreport: a function moved to another
+# file is nine red lines and nine green ones, and reading each is reading
+# nothing. `git diff --color-moved` marks them, in a colour of their own, and
+# this is its `blocks` rule: a run of `-` lines that is, line for line, a run
+# of `+` lines somewhere in the diff - the same hunk or another file - and
+# long enough to be a move rather than a coincidence, which git puts at twenty
+# letters and digits across the block (`COLOR_MOVED_MIN_ALNUM_COUNT`), so a
+# `}` or an `end` taken out here and put in there is not one. Matched exact,
+# as git does without `--color-moved-ws`: a line re-indented is a changed line.
+#
+# Found once over the whole diff, in `hunk_nodes`, and kept on each hunk as
+# the indices into its `body` - not its rows, which `[`/`]` moves - so the
+# draw reads it off and pairs no words on it: the two lines are the same.
+
+"The lines of a hunk's body that are a `+` or a `-`, by sign."
+function moved_lines(ns::Vector{Node})
+    # Every changed line of the diff, in order, as (hunk, line in its body,
+    # sign, text past the marker); a hunk's `body` is what the parse read, and
+    # what stays under `[`/`]`.
+    hunks = Int[]; lines = Int[]; signs = Char[]; texts = String[]
+    for (i, n) in enumerate(ns)
+        haskey(n.meta, "start") || continue
+        for (k, l) in enumerate(split(jstr(n.meta, :body, ""), "\n"))
+            c = isempty(l) ? ' ' : l[1]
+            (c == '+' || c == '-') || continue
+            push!(hunks, i); push!(lines, k); push!(signs, c); push!(texts, String(l[2:end]))
+        end
+    end
+    (hunks, lines, signs, texts)
+end
+
+"""Marks `moved` on each hunk of `ns`: the indices into its body of the lines
+that are a block moved from or to somewhere else in the diff. See the note
+over `moved_lines`."""
+function mark_moved!(ns::Vector{Node})
+    hunks, lines, signs, texts = moved_lines(ns)
+    N = length(texts)
+    N == 0 && return ns
+    # Where each text is found on each side.
+    at = Dict{Tuple{Char,String},Vector{Int}}()
+    for j in 1:N
+        push!(get!(at, (signs[j], texts[j]), Int[]), j)
+    end
+    # `j` follows `p` in the diff with nothing between: the next changed line
+    # of the same hunk and sign, in the body, is the line after it.
+    follows(j, p) = j == p + 1 && hunks[j] == hunks[p] && signs[j] == signs[p] &&
+                    lines[j] == lines[p] + 1
+    alnum(s) = count(c -> isletter(c) || isdigit(c), s)
+    moved = falses(N)
+    # The block being read, the lines on the other side that could still be
+    # the block's pair (`pmb`, as git names them), and the block's letters so
+    # far. Mutated in place and never assigned again, so no closure boxes them.
+    block, pmb, letters = Int[], Int[], Ref(0)
+    for j in 1:(N + 1)
+        # A block runs on while the line continues it and, on the other
+        # side, some match of the block so far continues too.
+        if j <= N && !isempty(block) && follows(j, block[end])
+            filter!(p -> p < N && follows(p + 1, p) && texts[p + 1] == texts[j], pmb)
+            if !isempty(pmb)
+                pmb .+= 1; push!(block, j); letters[] += alnum(texts[j])
+                continue
+            end
+        end
+        letters[] >= 20 && (moved[block] .= true)
+        empty!(block); empty!(pmb); letters[] = 0
+        j <= N || break
+        cands = get(at, (signs[j] == '+' ? '-' : '+', texts[j]), nothing)
+        cands === nothing && continue
+        append!(pmb, cands); push!(block, j); letters[] = alnum(texts[j])
+    end
+    for j in 1:N
+        moved[j] || continue
+        push!(get!(ns[hunks[j]].meta, "moved", Int[])::Vector{Int}, lines[j])
+    end
+    ns
 end
 
 """A hunk's header, from what its node carries: the file, the new-side range,
@@ -1060,7 +1222,7 @@ its column 0 is the diff's."""
 function hunk_header(n::Node)
     m = n.meta
     up, down = jint(m, :up, 0), jint(m, :down, 0)
-    string(jstr(m, :file, ""), "  @@ ", jint(m, :start, 0), ",", jint(m, :count, 0), " @@",
+    string(hunk_file(n), "  @@ ", jint(m, :start, 0), ",", jint(m, :count, 0), " @@",
            hunk_counts(n), up > 0 ? string("  ↑", up) : "",
            down > 0 ? string("  ↓", down) : "") * row(get(m, "tally", ""))
 end

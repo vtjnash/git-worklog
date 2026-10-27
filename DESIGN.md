@@ -693,6 +693,32 @@ Three things answer it, all read off the mark `e` leaves:
   no message over it. Counted as the picker counts (`pr_commits`), from the
   merge base `pr_diff` measured from, so the two cannot disagree about how
   many commits the pull request is.
+- **A block moved whole is marked moved, not added and deleted** (`mark_moved!`,
+  `diff_moved`): `git diff --color-moved`'s `blocks` rule - a run of `-`
+  lines that is, line for line, a run of `+` lines anywhere in the diff, the
+  same hunk or another file, and twenty letters and digits long across the
+  block, as git's `COLOR_MOVED_MIN_ALNUM_COUNT` has it, so an `end` taken
+  out here and put down there is not a move. Matched exact, as git does
+  without `--color-moved-ws`. Found once over the whole diff in `hunk_nodes`,
+  since it is a fact about the diff and not the hunk, and kept on each hunk
+  as indices into its `body`, which `[`/`]` does not move; `hunk_moved`
+  reads them as rows. A moved line has no words marked (`hunk_words` steps
+  over it, and the lines either side of it pair as if it were not there) and
+  one colour on both sides: the marker says which side, and the colour says
+  it is not a change to read. Checked against git 2.54's own marking on
+  2026-10-27.
+- **A renamed file keeps both names** (`rename_name`, `hunk_file`): read off
+  `rename from`/`rename to` and `copy from`/`copy to`, whole lines, since the
+  `diff --git` line is split on a space and a name with one in it is not safe
+  there; said on the header and the pin as `git diff --stat` says it,
+  `arch/{i386 => x86}/Makefile`, git's `pprint_rename` - the part in common
+  outside the braces, cut at a `/`, and `old => new` whole when they share
+  no directory at either end. `file` stays the new name, which is what the
+  checkout is read by and GitHub anchors its comments to; `oldfile` is kept
+  beside it. A rename with no hunk under it used to be no node at all, and
+  the move was said nowhere: it is a header alone now (`rename_node`), with
+  no `file`, which is what `[`/`]`, the pin, `diff_size` and
+  `attach_comments` all step over, as they do the `inert` note.
 
 ## What is said, and where
 
@@ -1535,7 +1561,9 @@ Each of the following returns success and the wrong answer:
   under a half is a rewrite that marks nothing, which is also how a `-`
   line with no line like it is left alone in an unequal run. The
   roles are backgrounds where the palette has them, laid over the line's
-  colour, and the cursor row's background goes under both.
+  colour, and the cursor row's background goes under both. A line
+  `mark_moved!` found moved is outside the pairing altogether: its pair is
+  itself, and the `-` and `+` lines either side of it read as adjacent.
 - **A diff is somebody else's bytes, printed.** An escape in one is a
   command to the terminal the frame is drawn on, and `gh pr diff` refuses
   to pipe one at all ("pass --allow-escape-sequences"), which was a row of

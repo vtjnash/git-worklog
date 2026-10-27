@@ -65,6 +65,9 @@ Base.@kwdef mutable struct Theme
     # What changed inside a changed line, drawn over the line's own colour.
     diff_add_word::Face = Face()
     diff_del_word::Face = Face()
+    # A line moved whole from one place in the diff to another, on either
+    # side: neither an addition nor a deletion to read.
+    diff_moved::Face = Face()
     diff_hunk::Face = Face()
     diff_meta::Face = Face()
     # Behind a header row in the diff, which is drawn to the edge of the pane

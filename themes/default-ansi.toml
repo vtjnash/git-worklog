@@ -74,6 +74,9 @@ diff_del  = "red"
 # eight colours have no lighter green to put behind a green word.
 diff_add_word = "reverse"
 diff_del_word = "reverse"
+# A block of lines moved whole, on both sides, as `git diff --color-moved`
+# marks one: not a change to read, whichever colour its marker would say.
+diff_moved = "yellow"
 diff_hunk = "cyan"
 diff_meta = "dim"
 # Behind the header rows. None: the eight colours have no tint quiet enough to
