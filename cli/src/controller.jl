@@ -1042,7 +1042,8 @@ things are left here because they are this program's rather than a composer's:
     once an event is being handled in it. The file it hands over is named
     only where the text has a kind the editor can be told: the merge composer
     writes a git commit message, and `MERGE_MSG` is the basename vim and the
-    rest read as one - a comment is plain markdown and says nothing.
+    rest read as one - a comment is text of no particular kind and keeps
+    the default, a `message` with no suffix to claim one.
 """
 mutable struct EditorView <: View
     ta::TextArea
@@ -1059,7 +1060,7 @@ end
 
 function EditorView(title, note, onsubmit; initial::AbstractString = "",
                     allow_empty::Bool = false, suggest::AbstractString = "",
-                    cycle = nothing, filename::AbstractString = "")
+                    cycle = nothing, filename::AbstractString = "message")
     hint = string("^s submit · ", isempty(suggest) ? "" : "^r suggestion · ",
                   cycle === nothing ? "" : "^x cycles · ",
                   "^c copies · ⌥e/^o \$EDITOR · ^w word · ^a/^e line · esc cancel")
