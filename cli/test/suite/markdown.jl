@@ -233,6 +233,36 @@ end
     @test W.row_span(r1, 0, 11) == 18:27            # the second copy, not the first
     @test W.row_span(W.Row(1, false, "nope", "alpha beta", 0), 0, 1) === nothing
     @test W.row_span(W.Row(1, false, "  beta  ", "alpha beta", 0), 2, 1) == 7:10
+    # A tab in prose is drawn as a space, and the row is still a piece of its line.
+    @test W.row_span(W.Row(1, false, "a b c", "a\tb\tc", 0), 0, 1) == 1:5
+end
+
+@testset "tab-separated columns under a quote stay in the pane, and in the quote" begin
+    # julia#64488: a table pasted as tab-separated text under a quoted line.
+    # Each tab was measured as no columns and drawn to the terminal's next
+    # stop, so every row of the table tore the pane's edge; and the quote
+    # ended at the table, which GitHub draws inside it.
+    body = "> Here they are:\nfunction\tx (Float16)\tgot\nsin\t-300.0\t1.0\n\n> after\nplain"
+    rs = W.render_md(body, 40)
+    @test all(r -> width(r.text) == 40 && !occursin('\t', String(r.text)), rs)
+    @test [rstrip(unstyled(r.text)) for r in rs] ==
+          ["│ Here they are:", "│ function x (Float16) got", "│ sin -300.0 1.0", "",
+           "│ after", "│ plain"]
+    @test occursin("function\tx (Float16)\tgot", rs[2].src)   # a copy keeps the tabs
+
+    esc = W.escape_source
+    @test esc("> a\nb\nc") == "> a\n> b\n> c"
+    @test esc("> > a\nb") == "> > a\n> > b"
+    @test esc(">a\n    b") == ">a\n> b"                      # not code: a paragraph goes on
+    @test esc("> - item\nmore") == "> - item\n> more"
+    # A line that could start a block ends the quote, as it did before.
+    for b in ("> a\n\nb", "> a\n- b", "> a\n1. b", "> a\n# b", "> a\n---", "> a\n```\nb\n```",
+              "> a\n<div>", "> ---\nb", "> # h\nb", ">     code\nb", "> \nb")
+        @test esc(b) == b
+    end
+    # Code in a quote is code: nothing in it is escaped.
+    @test esc("> ```\n> a_b :tada:\n> ```") == "> ```\n> a_b :tada:\n> ```"
+    @test esc(">     a_b") == ">     a_b"
 end
 
 @testset "span highlighting" begin

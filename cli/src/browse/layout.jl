@@ -253,9 +253,11 @@ earlier in the same line lands on its own copy. `indent` is the depth padding
 `rows` added, which is not part of the source. Trailing space is not either:
 `src` is stripped of it and a row may be padded out to the pane.
 
+A space on the row is a tab in `src` as well: prose draws a tab as one, as
+GitHub does, and is still a piece of its line character for character.
 `nothing` when the row is not a piece of its source at all - a footnote row
-shows an elided URL; a row with a tab in it shows the tab as spaces (`detab`)
-- and the caller falls back to marking what is visible.
+shows an elided URL; a diff's row shows a tab as the spaces to its stop
+(`detab`) - and the caller falls back to marking what is visible.
 """
 function row_span(row::Row, indent::Int, from::Int)
     full = collect(String(row.text))
@@ -266,7 +268,8 @@ function row_span(row::Row, indent::Int, from::Int)
     for i in max(1, from):(length(hay) - m + 1)
         ok = true
         for j in 1:m
-            hay[i + j - 1] == body[j] || (ok = false; break)
+            h = hay[i + j - 1]
+            h == body[j] || (h == '\t' && body[j] == ' ') || (ok = false; break)
         end
         ok && return i:(i + m - 1)
     end
@@ -291,9 +294,10 @@ function src_at(st::BState, r::Row, col::Int)
     ind = 2 * st.nodes[clamp(r.node, 1, length(st.nodes))].depth
     # Display column to character index, walking widths rather than counting
     # characters: one wide character earlier on the row moves everything after it.
+    # By the row's measure, in which a tab is the one column it is drawn in.
     ci, acc = 0, 0
     for (k, c) in enumerate(txt)
-        acc += textwidth(c)
+        acc += rowwidth(string(c))
         acc >= col && (ci = k; break)
     end
     ci == 0 && return 0

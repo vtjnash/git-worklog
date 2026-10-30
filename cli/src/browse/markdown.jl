@@ -468,21 +468,55 @@ terminal draws the one column that was counted.
 
 Code is left alone for both, since a backslash inside a code span prints as
 a backslash and `:robot:` in code is what was meant: fenced blocks, indented blocks and inline spans are all
-skipped. An unbalanced backtick makes
+skipped, inside a quote as well as out. An unbalanced backtick makes
 the rest of its line count as code, which errs towards changing nothing.
+
+**Lazy continuation.** A paragraph in a quote goes on through a line without
+the `>`, as CommonMark has it and GitHub draws it, until a blank line or a line
+that starts a block of its own - a heading, a fence, a list, a rule. Julia's
+`Markdown` ends the quote at the first such line, so a table pasted under a
+quoted sentence (julia#64488) was drawn outside the quote it was written in.
+The line is given the `>` it was spared. What could start a block is left to
+end the quote, which is what it did before.
 """
 const SHORTCODE = r"\G:([a-z0-9_+-]+):"
+const QUOTED = r"^(?: {0,3}> ?)+"
+const RULE = r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$"
+const LISTMARK = r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)"
+
+"Whether `line` could start a block, and so end a paragraph rather than go on with it."
+opens_block(line::AbstractString) =
+    occursin(r"^ {0,3}(?:#{1,6}(?:\s|$)|```|~~~|<|=+\s*$)", line) ||
+    occursin(RULE, line) || occursin(LISTMARK, line)
+
+"""Whether a quote's line, after its `>`s, is in a paragraph - a list item's
+too, after its marker - which a line without them may go on."""
+function quote_para(rest::AbstractString)
+    (isempty(strip(rest)) || occursin(r"^(    |\t)", rest) || occursin(RULE, rest)) &&
+        return false
+    m = match(LISTMARK, rest)
+    m === nothing ? !opens_block(rest) : quote_para(SubString(rest, ncodeunits(m.match) + 1))
+end
+
 function escape_source(md::AbstractString)
     isword(c) = isletter(c) || isdigit(c) || c == '_'
     out = IOBuffer()
     fenced = false
+    lazy = ""                           # the `>`s a quote's paragraph goes on under
     for (li, line) in enumerate(split(md, '\n'))
         li == 1 || write(out, '\n')
-        if occursin(r"^\s*(```|~~~)", line)
+        if !isempty(lazy) && !occursin(QUOTED, line)
+            isempty(strip(line)) || opens_block(line) ? (lazy = "") :
+                (line = string(lazy, lstrip(line)))
+        end
+        q = match(QUOTED, line)
+        rest = q === nothing ? line : SubString(line, ncodeunits(q.match) + 1)
+        lazy = q !== nothing && !fenced && quote_para(rest) ? string(rstrip(q.match), ' ') : ""
+        if occursin(r"^\s*(```|~~~)", rest)
             fenced = !fenced
             write(out, line); continue
         end
-        if fenced || occursin(r"^(    |\t)", line)
+        if fenced || occursin(r"^(    |\t)", rest)
             write(out, line); continue
         end
         incode, i = false, firstindex(line)

@@ -1074,6 +1074,10 @@ wrong reaches the screen unless it is corrected before the parse
 - A list is marked `loose` whenever a blank line follows it, which is every
   list with a paragraph after it. The renderer believes `loose` only when an
   item has more than one block, since GitHub draws that list tight.
+- A quote ends at the first line without a `>`, where CommonMark goes on
+  with the quote's paragraph through it (lazy continuation) and GitHub draws
+  it inside. `escape_source` gives such a line its `>`s, unless it could
+  start a block of its own.
 - A double backtick opens maths, not a code span: ``` ``a`b`` ``` is a
   `LaTeX`, drawn as its source between `$`. Not worked around.
 - An empty list item is an empty vector, which Term indexed into; the
@@ -1587,7 +1591,13 @@ Each of the following returns success and the wrong answer:
   in what *prints* only - the diff and plain branches of `nodelines` - and
   the `src` behind the row keeps the tab, so `y` copies one and `^r`'s
   suggestion carries one. `row_span` gives up on such a row, and the search
-  marks what is visible.
+  marks what is visible. Prose is the other half: TSV pasted into a comment
+  (julia#64488) kept its tabs through `markdown_rows`, and every row of it
+  tore the edge. Outside a code block a tab is whitespace, a space as GitHub
+  draws it, which is what TermInput's wrap makes of it there, the `src` again
+  keeping the tab; and in any row a tab reaches, it is one column drawn as
+  a space, which is what a `TextArea` drew one as already. A stop is the
+  caller's to draw, since only the caller knows where the line starts.
 - A key code is **the bytes that arrived**, packed big-endian, and `K_BASE`
   is `1 << 32`. Starting the key range at `0x110000` let a malformed
   four-byte sequence assemble to `K_LEFT`; rejecting non-codepoints is wrong,
