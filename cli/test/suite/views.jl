@@ -51,6 +51,79 @@
     @test W.drain_fetches!() === nothing
 end
 
+@testset "a diff nobody is waiting for stops being laid out" begin
+    # Tasks are cooperative and a fetch is `@async` on the key loop's thread,
+    # so a forty-thousand-line diff was three seconds in which no key was read
+    # - not even the one that moved off it - and then three seconds of work
+    # thrown away. The layout stops for breath now (`checkpoint`), and asks
+    # whether anybody still wants it when it does.
+    W.drain_fetches!()
+    keep = W.BREATH_NS[]
+    W.BREATH_NS[] = 0                   # a breath at every checkpoint
+    hunk(i) = string("diff --git a/f", i, ".jl b/f", i, ".jl\n@@ -1,2 +1,2 @@\n",
+                     "-old_line_number_", i, " = compute(", i, ")\n",
+                     "+new_line_number_", i, " = compute(", i, ")\n context\n")
+    txt = join(hunk(i) for i in 1:400)
+    try
+        # Outside a fetch it is nothing at all: the suite, a command, the key
+        # loop itself have nobody to give a turn to.
+        @test W.checkpoint() === nothing
+
+        # Wanted, it runs to the end - and the key loop has turns throughout.
+        turns = Ref(0); going = Ref(true)
+        ticker = @async while going[]; turns[] += 1; yield(); end
+        t = W.fetching("lay a") do; W.hunk_nodes(txt, "u"); end
+        @test length(fetch(t)) == 400
+        going[] = false; wait(ticker)
+        @test turns[] > 100
+
+        # Unwanted, it stops at its next breath: out of the map in the same
+        # breath, so nobody joins it on its way out, and not an error - the
+        # log is for failures, and this is a reader moving on.
+        isfile(W.errlog()) && rm(W.errlog())
+        want = Ref(true)
+        laid = Ref(0)
+        t = W.fetching("lay b"; wanted = () -> want[]) do
+            ns = W.hunk_nodes(txt, "u"); laid[] = length(ns); ns
+        end
+        yield(); yield()                # under way
+        @test haskey(W.INFLIGHT, "lay b")
+        want[] = false
+        @test_throws TaskFailedException fetch(t)
+        @test t.exception isa W.Abandoned && laid[] == 0
+        @test !haskey(W.INFLIGHT, "lay b") && !haskey(W.WANTS, "lay b")
+        @test !isfile(W.errlog())
+
+        # Two askers: one moving on does not stop it for the other.
+        want[] = true
+        other = Ref(true)
+        t1 = W.fetching("lay c"; wanted = () -> want[]) do; W.hunk_nodes(txt, "u"); end
+        t2 = W.fetching("lay c"; wanted = () -> other[]) do; error("not run"); end
+        @test t1 === t2
+        yield(); want[] = false
+        @test length(fetch(t1)) == 400
+        @test !haskey(W.WANTS, "lay c")
+
+        # And the browser's question is the pane's own: is it still loading
+        # this key. Moving the cursor is what answers no.
+        st = mkstate()
+        st.loaded = ""; st.nodes = W.Node[]
+        key = W.mode_key(st, st.items[st.sel], st.mode)
+        W.load_nodes!(st)               # held for the dwell, which starts here
+        st.selat -= W.LOAD_AFTER[]
+        W.load_nodes!(st)
+        @test st.pending !== nothing
+        asked() = any(w -> w(), get(W.WANTS, key, Any[]))
+        @test asked()
+        st.sel = st.sel == 1 ? 2 : 1
+        W.load_nodes!(st)
+        @test st.pendkey != key && !asked()
+    finally
+        W.BREATH_NS[] = keep
+        W.drain_fetches!()
+    end
+end
+
 @testset "another window's writes arrive on their own" begin
     # `wl set` in another terminal, a second browser, the refresh on a timer:
     # each writes a file this process is holding a copy of, and the copy used to

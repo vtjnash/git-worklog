@@ -875,6 +875,9 @@ function diff_nodes(it::Item; fresh::Bool = false, run = diff_run)
     isempty(ns) && (ns = [Node("empty diff", "", :plain, true)])
     cn = isempty(at_head) ? nothing : whole_commit_node(it, repo, at_head)
     cn === nothing || pushfirst!(ns, cn)
+    # Before two requests for the comments, which a reader who has gone on
+    # to the next item does not need answered.
+    checkpoint()
     out = place_comments(ns, it)
     stale && !isempty(out) && (out[1].meta["stale"] = true)
     asof === nothing || isempty(out) || (out[1].meta["asof"] = asof)
@@ -998,6 +1001,7 @@ function hunk_nodes(txt::AbstractString, url::AbstractString; head::AbstractStri
     # `flush!` closure: all of these are assigned again, and a closure over
     # them would box every one.
     for l in split(txt, "\n")
+        checkpoint()            # a turn for the keys, and a stop if they left
         if startswith(l, "diff --git")
             inhunk && push!(ns, hunk_node(file, buf, pending_range, pending_old, pending_func,
                                           url, head, newfile, oldfile))
@@ -1170,6 +1174,7 @@ function moved_lines(ns::Vector{Node})
     hunks = Int[]; lines = Int[]; signs = Char[]; texts = String[]
     for (i, n) in enumerate(ns)
         haskey(n.meta, "start") || continue
+        checkpoint()
         for (k, l) in enumerate(split(jstr(n.meta, :body, ""), "\n"))
             c = isempty(l) ? ' ' : l[1]
             (c == '+' || c == '-') || continue
@@ -1219,6 +1224,11 @@ function mark_moved!(ns::Vector{Node})
     # far. Mutated in place and never assigned again, so no closure boxes them.
     block, pmb, letters = Int[], Int[], Ref(0)
     for j in 1:(N + 1)
+        # The one loop here that is long: three seconds over a diff of forty
+        # thousand lines, every line asking each place its text is found on
+        # the other side. A `checkpoint` a line is a clock read, and lets the
+        # key that moved off this diff be read, and stop it.
+        checkpoint()
         # A block runs on while the line continues it and, on the other
         # side, some match of the block so far continues too: the same line
         # first, and an edit of it when no match has the same line.

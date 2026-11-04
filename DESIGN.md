@@ -1649,6 +1649,21 @@ Each of the following returns success and the wrong answer:
   browser draws its own copy meanwhile; the refresh's writes are `OURS` and
   `refresh_all!` sets `reload` itself. `wl refresh` and `bin/refresh` are
   still a process, for the cron and the hand.
+- **A diff's layout stops for breath, and stops when nobody is waiting.**
+  `mark_moved!` over a 42k-line diff is 2.9 s of CPU (measured 2026-11-02,
+  this repository's last 300 commits under `cli/`), on an `@async` task on
+  the key loop's thread: not even the key that moved off the diff was read
+  until it ended, and its answer was then thrown away. `hunk_nodes`,
+  `moved_lines` and `mark_moved!` call `checkpoint`, which yields every 10 ms
+  (`BREATH_NS`) and, since a yield is the only moment the answer can change,
+  asks each `wanted` its fetch was started or joined with; the browser's is
+  `st.pendkey == key`. Unwanted, the task leaves `INFLIGHT` under the lock as
+  it decides to, so nobody joins it on the way out, and throws `Abandoned`,
+  which `fetching` does not log. A question and not a count of holders,
+  because the browser lets go of a fetch by overwriting `st.pending` in four
+  places, and a release at each would be a fifth thing to keep in step. The
+  longest stretch left is a garbage collection, 30-60 ms: the layout
+  allocates 4 GB for that diff. Outside a fetch `checkpoint` does nothing.
 - **juliaup's launcher does not pass argv[0] through**: it execs the real
   binary under that binary's own path, so `exec -a wl` in `bin/wl` names
   nothing. The process names itself instead: `uv_set_process_title` in `main`

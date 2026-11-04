@@ -28,27 +28,108 @@ as the debounce.
 const INFLIGHT = Dict{String,Task}()
 const INFLIGHT_LOCK = ReentrantLock()
 
+"""Who is still waiting on each fetch in `INFLIGHT`: one question per asker,
+`() -> Bool`, asked whenever the fetch stops for breath (`checkpoint`). A
+fetch is wanted while any of them answers yes, and abandoned when none does.
+
+A question and not a count of holders, because nothing here lets go of a
+fetch: the browser drops one by overwriting `st.pending` as the cursor moves,
+in four places, and a release at each would be a fifth thing to keep in step.
+The question reads the state those places already keep - is the pane still
+loading this key - at the moment it matters, and a reader who comes back
+before the next breath finds it still in the air and joins it.
+"""
+const WANTS = Dict{String,Vector{Any}}()
+
+"""What a fetch nobody wants throws from its next `checkpoint`: the cursor
+left the diff it was laying out, and every row it was going to draw would be
+thrown away the moment it landed. Not an error, and never logged as one."""
+struct Abandoned <: Exception
+    key::String
+end
+Base.showerror(io::IO, e::Abandoned) = print(io, "abandoned: ", e.key)
+
+"""The fetch the current task is running, and when it last let the key loop
+have a turn; in task-local storage, set by `fetching`."""
+mutable struct Breath
+    key::String
+    at::UInt64
+end
+
+"""How long a fetch computes before it lets the key loop have a turn, in
+nanoseconds: well under a frame, so a key pressed in the middle of laying out
+a diff is read when it is pressed."""
+const BREATH_NS = Ref{UInt64}(10_000_000)
+
+"""Let the key loop have a turn, if this fetch has held it long enough, and
+stop here if nobody wants what is being computed any more.
+
+Tasks are cooperative, and a fetch is `@async` on the key loop's own thread:
+laying out a forty-thousand-line diff is three seconds in which no key is
+read - not even the one that moves away from it. So the long loops call this,
+and it yields every `BREATH_NS`; and since a yield is the only moment the
+answer can change, it is also where `WANTS` is asked. Abandoned, the fetch
+leaves `INFLIGHT` under the lock in the same breath as it decides to, so that
+nobody joins a task on its way out, and throws `Abandoned` to unwind whatever
+it was in the middle of.
+
+Outside a fetch - a test, a command, the key loop itself - it does nothing:
+there is nobody to give a turn to that a caller expects to run.
+"""
+function checkpoint()
+    b = get(task_local_storage(), :breath, nothing)
+    b === nothing && return nothing
+    b = b::Breath
+    now = time_ns()
+    now - b.at < BREATH_NS[] && return nothing
+    yield()
+    b.at = time_ns()
+    gone = lock(INFLIGHT_LOCK) do
+        ws = get(WANTS, b.key, nothing)
+        # Latest: the task runs in the world it was started in, and a reader
+        # who joined it later may have brought a question defined since.
+        (ws === nothing || any(w -> Base.invokelatest(w)::Bool, ws)) && return false
+        get(INFLIGHT, b.key, nothing) === current_task() || return false
+        delete!(INFLIGHT, b.key); delete!(WANTS, b.key)
+        true
+    end
+    gone && throw(Abandoned(b.key))
+    nothing
+end
+
 """Run `f` in the background as `key`, or join the run already under way.
 
 The task takes itself out of the map when it finishes, so what is in there is
 what is *in flight* rather than a history of everything ever asked for.
+
+`wanted` is the asker's half of `WANTS`: asked at each `checkpoint`, and the
+default is a reader who always wants the answer - the metadata, `u`, anything
+that does not stop for breath anyway.
 """
-function fetching(f, key::AbstractString)
+function fetching(f, key::AbstractString; wanted = Returns(true))
     k = String(key)
     lock(INFLIGHT_LOCK) do
         t = get(INFLIGHT, k, nothing)
-        (t !== nothing && !istaskdone(t)) && return t
+        if t !== nothing && !istaskdone(t)
+            push!(get!(Vector{Any}, WANTS, k), wanted)
+            return t
+        end
+        WANTS[k] = Any[wanted]
         t = @async begin
+            task_local_storage(:breath, Breath(k, time_ns()))
             try
                 f()
             catch e
                 # Nobody may ever `fetch` this one - the cursor moves on - so
                 # this is the last place its failure can be noticed at all.
-                logerror!(e, catch_backtrace(), string("fetch ", k))
+                # An abandoned one did not fail: it was let go of.
+                e isa Abandoned || logerror!(e, catch_backtrace(), string("fetch ", k))
                 rethrow()
             finally
                 lock(INFLIGHT_LOCK) do
-                    get(INFLIGHT, k, nothing) === current_task() && delete!(INFLIGHT, k)
+                    if get(INFLIGHT, k, nothing) === current_task()
+                        delete!(INFLIGHT, k); delete!(WANTS, k)
+                    end
                 end
             end
         end
@@ -209,7 +290,10 @@ function load_nodes!(st::BState)
     # `fetched` decides what `e` can mark seen, and too early leaves a comment
     # unread rather than hiding one.
     at = utcnow()
-    st.pending = fetching(key) do
+    # Wanted while the pane is loading this key: a cursor that moves on
+    # changes `pendkey`, and a diff still being laid out stops at its next
+    # breath rather than finishing for nobody (`checkpoint`).
+    st.pending = fetching(key; wanted = () -> st.pendkey == key) do
         try
             mode_nodes(mode, it, at; from, range)
         finally
