@@ -42,6 +42,9 @@ focus = "bold 16"
 # over any grey laid under it.
 quiet      = "250"
 quiet_bold = "bold 246"
+# The border with the keys, as a hue; see `default-ansi.toml`. Done.fg's
+# purple (#8250df -> 98), dark enough to read as a line on white.
+active = "bold 98"
 
 # --- the three verdicts, and a name ------------------------------------------
 # success.fg, danger.fg and attention.fg, which on a light ground are darker

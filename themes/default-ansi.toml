@@ -43,6 +43,13 @@ focus = "bold white"
 # wrong. A 256-colour theme gives it a lighter grey and keeps the weight.
 quiet      = "dim"
 quiet_bold = ""
+# The border of whatever has the keys - the list, the reading pane, a hosted
+# pane or a composer - and a dialog's title. A hue and not a weight: bold
+# against dim is a contrast to be judged, and on a washed-out monitor it takes
+# a look to judge it, where a coloured box against grey ones is seen without
+# looking. Magenta because nothing outside a code block is: the verdicts are
+# green, red and yellow, a name is cyan, a link blue.
+active = "bold magenta"
 
 # --- the three verdicts, and a name ------------------------------------------
 # How something stands, which is the same question wherever it is asked: an

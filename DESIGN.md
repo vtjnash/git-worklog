@@ -522,7 +522,9 @@ distinction and `push_place!` enforces it. Going somewhere means leaving where
 you were; a dialog answers a question and hands the keys back.
 
 **The side without the focus gets no keys.** Which keys belong to which side
-is answerable by looking at which side is lit - the border, and the list as
+is answerable by looking at which side is lit - the border in `active`, a hue
+and not a weight, since bold against dim was a contrast that took a look to
+judge on a washed-out monitor (2026-11-06), and the list as
 a whole, drawn in `quiet` while the keys are on the reading side, its unread
 rows in `quiet_bold` rather than `bold` (a 256-colour theme's `bold` carries
 the full foreground, and `bold` over the `dim` attribute is the pair

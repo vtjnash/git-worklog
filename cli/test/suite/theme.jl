@@ -163,7 +163,7 @@ end
 @testset "markdown and code are the theme's, in its own words" begin
     try
         @test isempty(W.load_theme!(THEME_DEFAULT))
-        @test TermInput.CHROME[] == (strong = W.THEME.bold, quiet = W.THEME.dim,
+        @test TermInput.CHROME[] == (strong = W.THEME.active, quiet = W.THEME.dim,
                                      focus = W.THEME.focus, box = TermInput.BOXES.ROUNDED)
         st = W.MD_STYLE[]
         # The same spec language as every role, each a face.

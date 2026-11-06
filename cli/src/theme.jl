@@ -49,6 +49,8 @@ Base.@kwdef mutable struct Theme
     # The list while the keys are on the reading side, and an unread row in it.
     quiet::Face = Face()
     quiet_bold::Face = Face()
+    # The border of whatever has the keys, and a dialog's title.
+    active::Face = Face()
     # The three verdicts, and a name or a place.
     settled::Face = Face()
     blocked::Face = Face()
@@ -392,7 +394,7 @@ end
 `TermInput.CHROME` is their one hook for it, and `TermIFrame` reads the same
 one - the box a hosted program is drawn in and the box a composer is drawn in
 are the same box as far as a theme is concerned. Three roles cover it: a title
-and a focused border are `bold`, everything else about a border is `dim`, and
+and a focused border are `active`, everything else about a border is `dim`, and
 the option under a picker's cursor is `focus` - and the box is `[markdown]`'s
 `box`. With no theme all three are empty, and the boxes come out as bare
 characters, which is the whole of what "drawing plain" means for something that
@@ -404,7 +406,7 @@ beside the thread does not have the keys, a block `TermInput` keeps as reverse
 video whatever a theme says, because it is the only thing on screen saying
 where typing will go when they come back.
 """
-chrome!() = (TermInput.CHROME[] = (strong = THEME.bold, quiet = THEME.dim,
+chrome!() = (TermInput.CHROME[] = (strong = THEME.active, quiet = THEME.dim,
                                    focus = THEME.focus, box = BOX[]); nothing)
 
 """Which file the colours come from, or `""` for none.

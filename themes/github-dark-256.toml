@@ -35,6 +35,9 @@ focus = "bold 231"
 # over any grey laid under it.
 quiet      = "238"
 quiet_bold = "bold 243"
+# The border with the keys, as a hue; see `default-ansi.toml`. An orchid
+# (#d75fd7), away from `accent`'s blue and the oranges of `waiting` and `rang`.
+active = "bold 170"
 
 # --- the three verdicts, and a name ------------------------------------------
 # success.fg, danger.fg, attention.fg, accent.fg - the dark forms, which are
