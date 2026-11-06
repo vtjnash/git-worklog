@@ -496,6 +496,14 @@ count was a with-minus-without. Split again on 2026-09-21 into two adding
 axes, which keeps what the merge was for - a view names an axis whole, empty
 is empty, `c` is the default - and makes the boxes one kind each.
 
+**The long axes say no as well as yes.** Repo, label and author are `[+]`
+include, `[-]` exclude or `[ ]` per value, turned by `↵` (`AXIS_TRI`); the
+short axes stay `[x]` boxes, and `[@]` is kept for a radio (the milestone). On
+a short axis "all but this" is the other boxes checked; on a hundred repos it
+had no spelling, and it is the commoner wish - the noisy repo, the bot. An
+exclusion wins over every inclusion, on any axis, and the count beside a value
+is what `[+]` on it would bring with the exclusions standing.
+
 **A view names an axis whole.** `show = ["filed"]` is the filed work alone;
 naming no `show` keeps the default. An unknown axis or value is reported, not
 ignored: a misspelt one silently widens a view, and did.

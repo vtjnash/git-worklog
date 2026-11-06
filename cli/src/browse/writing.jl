@@ -1373,7 +1373,9 @@ function milestone_action(st::BState, ctrl::Controller, it::Item)
         st.status = string("could not list the milestones: ", first(sprint(showerror, e), 120))
         return
     end
-    mark(on) = on ? "[x] " : "[ ] "
+    # `[@]`: one of them or none, a radio and not a box, so it is not marked
+    # the way the toggles beside it - assignee, reviewer, label - are.
+    mark(on) = on ? "[@] " : "[ ] "
     # No colour on a row: the picker styles the whole row for the cursor.
     opts = Tuple{String,Any}[(string(mark(m.title == it.milestone), m.title,
                                      isempty(m.due) ? "" : string("  ", m.due)),

@@ -12,6 +12,9 @@
         axis === :lane   ? (p.lanes = Set([v])) :
         axis === :repo   ? (p.repos = Set([v])) :
         axis === :author ? (p.authors = Set([v])) : (p.labels = Set([v]))
+        # What `[+]` on it would bring: the axis's other exclusions stand, and
+        # its own `[-]` comes off, since a value is one or the other.
+        axis in W.AXIS_TRI && delete!(W.not_set(p, axis), v)
         # The same marks the counts are computed against, or the two sides are
         # answering about different lists: `archived` and `drafts` are
         # membership in a file, and an empty one here would make every count of
@@ -49,7 +52,16 @@
                W.Filters(authors = Set([W.AUTHOR_ME])),
                W.Filters(authors = Set([W.AUTHOR_OTHERS, "Keno"])),
                W.Filters(show = Set([:done]), state = Set([:closed]), kind = Set([:pr]),
-                         authors = Set([W.AUTHOR_ME]))]
+                         authors = Set([W.AUTHOR_ME])),
+               # And what the long axes keep out, alone and beside a `[+]`.
+               W.Filters(not_repos = Set(["JuliaLang/julia"])),
+               W.Filters(not_labels = Set(["docs"]), labels = Set(["bug"])),
+               W.Filters(not_labels = Set(["docs", "bug"])),
+               W.Filters(not_authors = Set([W.AUTHOR_OTHERS])),
+               W.Filters(not_authors = Set([W.AUTHOR_ME, "Keno"]), kind = Set([:pr])),
+               W.Filters(show = Set(k for (k, _) in W.SHOW),
+                         not_repos = Set(["JuliaLang/julia"]),
+                         not_labels = Set(["docs"]), authors = Set([W.AUTHOR_ME]))]
     for f in configs
         st.filters = f
         n = W.axis_counts(st)
@@ -598,13 +610,27 @@ end
     pop!(ctrl.stack)
     @test st.filters.repos == Set(["libuv/libuv"])
     @test all(x.repo == "libuv/libuv" for x in st.items)
-    @test any(r -> r[1] === :repo && r[2] == "libuv/libuv" && occursin("[x]", r[3]),
+    @test any(r -> r[1] === :repo && r[2] == "libuv/libuv" && startswith(r[3], "[+] "),
               W.filter_rows(st))
-    # And what is applied is listed however little it carries, so `↵` can take
-    # it off again.
+    # And what is applied is listed however little it carries, so `↵` can
+    # turn it: the second press keeps its rows out, `[-]`, and the third
+    # leaves it saying nothing.
     st.frow = findfirst(r -> r[1] === :repo && r[2] == "libuv/libuv", W.filter_rows(st))
     @test W.toggle_filter!(st, ctrl)
-    @test isempty(st.filters.repos)
+    @test isempty(st.filters.repos) && st.filters.not_repos == Set(["libuv/libuv"])
+    @test !isempty(st.items) && all(x.repo != "libuv/libuv" for x in st.items)
+    @test any(r -> r[1] === :repo && r[2] == "libuv/libuv" && startswith(r[3], "[-] "),
+              W.filter_rows(st))
+    @test occursin("not libuv", W.filter_summary(st.filters))
+    @test !W.isdefault(st.filters)
+    # Nor does the picker offer it while it is kept out: it is on screen.
+    cvx = (st.frow = findfirst(r -> r[1] === :pick && r[2] == "repo", W.filter_rows(st));
+           W.toggle_filter!(st, ctrl); pop!(ctrl.stack))
+    @test !any(o -> o[2] == "libuv/libuv", cvx.options)
+    st.frow = findfirst(r -> r[1] === :repo && r[2] == "libuv/libuv", W.filter_rows(st))
+    @test W.toggle_filter!(st, ctrl)
+    @test isempty(st.filters.repos) && isempty(st.filters.not_repos)
+    @test W.isdefault(st.filters)
     # A picker needs somewhere to push itself; without one the row does nothing.
     st.frow = findfirst(r -> r[1] === :pick, W.filter_rows(st))
     @test !W.toggle_filter!(st)
@@ -829,6 +855,14 @@ end
     other = fixture_item("no labels at all")
     @test !W.matches(f, other)
     @test occursin(first(it.labels), W.filter_summary(f))
+    # A `[-]` wins over a `[+]`, on its own axis and on another: what was
+    # said to be unwanted is not brought back by something else asked for.
+    g = W.Filters(labels = Set(it.labels), not_labels = Set([last(it.labels)]))
+    @test !W.matches(g, it) && !W.matches(g, other)
+    g = W.Filters(not_labels = Set([first(it.labels)]))
+    @test !W.matches(g, it) && W.matches(g, other)
+    g = W.Filters(repos = Set([it.repo]), not_authors = Set([W.AUTHOR_ME]))
+    @test W.matches(g, it) != W.author_ok(Set([W.AUTHOR_ME]), it)
     # Every label row the pane offers actually selects something.
     st.filters = f
     rows = W.filter_rows(st)
@@ -876,6 +910,14 @@ end
     W.apply_view!(st, Dict("repo" => "JuliaLang/julia", "show" => "done"))
     @test st.filters.repos == Set(["JuliaLang/julia"])
     @test st.filters.show == Set([:done])
+    # The `[-]` values are axes of their own in a view, written back the way
+    # they were read; one that is both `[+]` and `[-]` is said.
+    said = W.apply_view!(st, Dict("not_repo" => "libuv/libuv", "label" => ["bug"],
+                                  "not_label" => ["bug", "docs"], "not_author" => ["@me"]))
+    @test st.filters.not_repos == Set(["libuv/libuv"]) && st.filters.not_authors == Set(["@me"])
+    @test occursin("label 'bug' is in not_label too", said)
+    @test "not_label = [\"bug\", \"docs\"]" in W.view_lines(st.filters, st.sort)
+    @test "not_repo = [\"libuv/libuv\"]" in W.view_lines(st.filters, st.sort)
 
     # The sort is an axis like the rest: a view that names one sets it, and a
     # view that names none puts it back to the order its selection opens in -

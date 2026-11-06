@@ -36,7 +36,7 @@ const HELP = Union{String,Tuple{String,String}}[
     ("h  d  p  c", "the thread, its history · the diff · what was pushed since you last looked · the checks"),
     ("d d  p p", "on the diff, which commits - shift for a run · on what was pushed, compared from where"),
     ("[  ]  l", "widen a hunk's context · fetch a failing Buildkite job's log"),
-    ("f", "the filter pane; c there clears it, ↵ toggles a box, n/N jump a group"),
+    ("f", "the filter pane; c there clears it, ↵ toggles a box or turns a value [+]/[-]/[ ], n/N jump a group"),
     ("'  1-9 0", "views · the first ten of them"),
     ("`  ~", "back and forward through where you have been: lists, jumps, rows you stopped on"),
     ("w", "cycle the order: when it moved · that or when you acted · when you acted · url"),

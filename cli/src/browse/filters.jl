@@ -46,6 +46,9 @@
 #     for a while (`snoozed`).
 #   * **kind**, **lane**, **repo**, **label**, **author** - facts on the row.
 #     `lane` is which search claimed it, and it stands where `bucket` did.
+#     The last three are long and say no as well as yes: a value is `[+]`,
+#     which brings its rows like a box, `[-]`, which keeps them out whatever
+#     else brings them, or `[ ]`, which says nothing. See `AXIS_TRI`.
 #
 # What is *not* here any more: `active`, `backlog`, `mine` and `bucket`. `mine`
 # was the author axis written twice. `active` and `backlog` were one fact
@@ -265,6 +268,12 @@ Base.@kwdef mutable struct Filters
     authors::Set{String} = Set{String}()   # empty means anybody; @me and
                                            # @anyone-else are values here as
                                            # well as logins
+    # And what the three long axes keep out: a row carrying any of these is
+    # not listed, whatever the sets above bring. Empty keeps nothing out.
+    # `AXIS_TRI`
+    not_repos::Set{String} = Set{String}()
+    not_labels::Set{String} = Set{String}()
+    not_authors::Set{String} = Set{String}() # @me and @anyone-else here too
 end
 
 """What the browser opens on: the notifications, unfiled, open or closed.
@@ -306,7 +315,8 @@ other two `SHOW` boxes are the way back out to the corpus.
 isdefault(f::Filters) =
     f.show == SHOW_DEFAULT && f.state == STATE_DEFAULT && isempty(f.tags) &&
     isempty(f.kind) && isempty(f.lanes) && isempty(f.repos) &&
-    isempty(f.labels) && isempty(f.authors)
+    isempty(f.labels) && isempty(f.authors) && isempty(f.not_repos) &&
+    isempty(f.not_labels) && isempty(f.not_authors)
 
 "One empty map, shared, for every caller that has no marks to hand."
 const EMPTY_TOUCHED = Dict{String,String}()
@@ -618,6 +628,17 @@ function author_ok(authors::Set{String}, it::Item)
     it.author in authors
 end
 
+"""Does the row answer to any of `authors`? `author_ok` without its empty set
+restricting nothing - the question an exclusion asks, where empty keeps
+nothing out."""
+author_hit(authors::Set{String}, it::Item) = !isempty(authors) && author_ok(authors, it)
+
+"""The values of the author axis a row answers to: its login, and whichever
+of `@me` and `@anyone-else` it is. `author_ok` is whether any of them is in
+the set."""
+author_vals(it::Item) =
+    (it.author, author_ok(Set([AUTHOR_ME]), it) ? AUTHOR_ME : AUTHOR_OTHERS)
+
 """Is this row in the list?
 
 An empty set restricts nothing on every axis but `show`, which adds rather than
@@ -632,6 +653,11 @@ function matches(f::Filters, it::Item, m::Marks = Marks())
     isempty(f.lanes) || it.lane in f.lanes || return false
     isempty(f.repos)   || it.repo in f.repos     || return false
     isempty(f.labels)  || any(in(f.labels), it.labels) || return false
+    # What is kept out is asked last and wins: a `[-]` is a row you do not
+    # want, and no `[+]` on the same axis or another brings it back.
+    author_hit(f.not_authors, it) && return false
+    it.repo in f.not_repos && return false
+    any(in(f.not_labels), it.labels) && return false
     true
 end
 
@@ -667,10 +693,12 @@ function axis_counts(st)
         # Every axis, answered once, in the order the pane draws them.
         ok = (dp in f.show, ov in f.state,
               isempty(f.tags) || any(in(f.tags), tg),
-              kind_ok(f.kind, it), author_ok(f.authors, it),
+              kind_ok(f.kind, it),
+              author_ok(f.authors, it) && !author_hit(f.not_authors, it),
               isempty(f.lanes) || it.lane in f.lanes,
-              isempty(f.repos) || it.repo in f.repos,
-              isempty(f.labels) || any(in(f.labels), it.labels))
+              (isempty(f.repos) || it.repo in f.repos) && !(it.repo in f.not_repos),
+              (isempty(f.labels) || any(in(f.labels), it.labels)) &&
+                  !any(in(f.not_labels), it.labels))
         # Each count is against the *other* axes only, so a value shows what
         # picking it would bring rather than a total that ignores the rest of
         # the filter. Which is: this row already passes everything except
@@ -686,22 +714,37 @@ function axis_counts(st)
             end
         end
         others(4) && bump!(kinds, kind_of(it))
-        if others(5)
-            # One item counts towards its own author *and* towards whichever of
-            # the two predicates it answers, since picking either would bring it.
-            isempty(it.author) || bump!(authors, it.author)
-            author_ok(Set([AUTHOR_ME]), it) && bump!(authors, AUTHOR_ME)
-            author_ok(Set([AUTHOR_OTHERS]), it) && bump!(authors, AUTHOR_OTHERS)
-        end
+        # One item counts towards its own author *and* towards whichever of
+        # the two predicates it answers, since picking either would bring it.
+        others(5) && bump_tri!(authors, author_vals(it), f.not_authors)
         others(6) && bump!(lanes, it.lane)
-        others(7) && bump!(repos, it.repo)
-        if others(8)
-            for l in it.labels
-                bump!(labels, l)
-            end
-        end
+        others(7) && bump_tri!(repos, (it.repo,), f.not_repos)
+        others(8) && bump_tri!(labels, it.labels, f.not_labels)
     end
     (; shows, states, tags = tagn, kinds, lanes, repos, labels, authors)
+end
+
+"""Count a row towards each value it carries on one of the long axes, `vals`,
+against what that axis keeps out, `not`.
+
+The number beside a value is what `[+]` on it would bring, the rest of the
+filter as it stands - its exclusions on the same axis included, since they
+win. So a row carrying one excluded value counts towards that value alone,
+which is what the `[-]` is holding out; one carrying two counts towards
+neither, since taking one of them off would still leave the other; and one
+carrying none counts towards everything it carries. On the repo axis a row
+has one value and this is a plain tally."""
+function bump_tri!(d::Dict{String,Int}, vals, not::Set{String})
+    hit, h = 0, ""
+    for v in vals
+        isempty(v) && continue
+        v in not && (hit += 1; h = v)
+    end
+    hit >= 2 && return
+    for v in vals
+        isempty(v) && continue
+        (hit == 0 || v == h) && (d[v] = get(d, v, 0) + 1)
+    end
 end
 
 apply_filters(f, all, m::Marks = Marks()) = [it for it in all if matches(f, it, m)]
@@ -723,6 +766,31 @@ a different kind of work, short enough to read at a glance and the one nobody
 would think to search for by name.
 """
 const AXIS_APPLIED_ONLY = (:repo, :label, :author)
+
+"""Which axes say no as well as yes: a value is `[+]` include, `[-]` exclude,
+or `[ ]`, which asks nothing of it. `\u21b5` turns it through the three.
+
+They are the long axes, the ones listed by what is applied. On an axis of a
+few values leaving one out is checking the others; on a hundred repos or
+several hundred labels "everything but this" had no other spelling, and it
+is the commoner wish - the noisy repo, the `wontfix` label, the bot. An
+exclusion wins over every inclusion, on its own axis and the others: what
+you said you do not want is not brought back by something else you asked
+for.
+
+The short axes - `show`, `state`, `tag`, `kind`, `lane` - stay boxes, `[x]`
+picked or not, where the boxes left unchecked already are the no. `[@]` is
+a radio's, which no axis here is: the milestone picker under `;`.
+"""
+const AXIS_TRI = AXIS_APPLIED_ONLY
+
+"What one of the `AXIS_TRI` axes keeps out, which is where `[-]` lands."
+not_set(f::Filters, axis::Symbol) =
+    axis === :repo ? f.not_repos : axis === :label ? f.not_labels : f.not_authors
+
+"How a value of an `AXIS_TRI` axis is marked on the pane: `[+]`, `[-]` or `[ ]`."
+tri_mark(f::Filters, axis::Symbol, v::AbstractString) =
+    v in axis_set(f, axis) ? "[+] " : v in not_set(f, axis) ? "[-] " : "[ ] "
 
 """`[filters] pinned_repos` from the config: the repos listed on the pane
 whether or not they are applied, as written there - a name or `owner/*`."""
@@ -839,7 +907,14 @@ const VIEWS = [
 ]
 
 "The keys a view may name. Anything else in one is a misspelling; see `apply_view!`."
-const VIEW_KEYS = ("show", "state", "tag", "kind", "lane", "repo", "label", "author", "sort")
+const VIEW_KEYS = ("show", "state", "tag", "kind", "lane", "repo", "label", "author",
+                   "not_repo", "not_label", "not_author", "sort")
+
+"The string axes a view names, each with the set it fills: `[+]` then `[-]`."
+view_sets(f::Filters) =
+    (("lane", f.lanes), ("repo", f.repos), ("label", f.labels), ("author", f.authors),
+     ("not_repo", f.not_repos), ("not_label", f.not_labels),
+     ("not_author", f.not_authors))
 
 "Every view: the built-in ones, then whatever `[views]` in the config adds or replaces."
 function views(cfg = config())
@@ -900,12 +975,20 @@ function apply_view!(st, d)
         key in VIEW_KEYS ||
             (bad = string(bad, " \u00b7 no axis '", key, "'"))
     end
-    for (k, set) in (("lane", f.lanes), ("repo", f.repos),
-                     ("label", f.labels), ("author", f.authors))
+    for (k, set) in view_sets(f)
         haskey(d, k) || continue
         v = d[k]
         for x in (v isa AbstractString ? [v] : v)
             push!(set, String(x))
+        end
+    end
+    # A value both brought and kept out shows nothing of itself, which the
+    # pane can mark only one way; said, like a misspelling, since a view
+    # written so means something it does not look like.
+    for (k, inc, exc) in (("repo", f.repos, f.not_repos), ("label", f.labels, f.not_labels),
+                          ("author", f.authors, f.not_authors))
+        for x in sort(collect(intersect(inc, exc)))
+            bad = string(bad, " \u00b7 ", k, " '", x, "' is in not_", k, " too")
         end
     end
     st.filters = f
@@ -954,8 +1037,7 @@ function view_lines(f::Filters, order::Symbol)
                             join([repr(String(k)) for (k, _) in values if k in set],
                                  ", "), "]"))
     end
-    for (k, set) in (("lane", f.lanes), ("repo", f.repos),
-                     ("label", f.labels), ("author", f.authors))
+    for (k, set) in view_sets(f)
         isempty(set) && continue
         push!(lines, string(k, " = [",
                             join([repr(x) for x in sort(collect(set))], ", "), "]"))
@@ -967,7 +1049,8 @@ function view_lines(f::Filters, order::Symbol)
 end
 
 """Rows for the filter pane: the way out, what to show and in which state, the
-tags, the kinds, then four more checkbox axes.
+tags, the kinds and the lanes, all boxes, `[x]` or `[ ]`; then repo, label and
+author, whose values are `[+]`, `[-]` or `[ ]` (`AXIS_TRI`).
 
 Counts are computed against the other axes only, so a category shows how many
 items selecting it would actually add rather than a total that ignores the rest
@@ -1016,7 +1099,8 @@ function filter_rows(st)
         sel = axis_set(f, axis)
         for (j, v) in enumerate(values)
             cnt = get(tally, v, 0)
-            on = v in sel
+            tri = axis in AXIS_TRI
+            on = v in sel || (tri && v in not_set(f, axis))
             # `me` and `anyone else` are the axis's two controls rather than two
             # of its values, and a control is worth offering when it would
             # select nothing: that it selects nothing is the answer. Narrow to a
@@ -1036,7 +1120,7 @@ function filter_rows(st)
             # The pane is then as long as the answer rather than as long as the
             # question.
             (!on && !always && axis in AXIS_APPLIED_ONLY) && continue
-            push!(rows, (axis, v, string(on ? "[x] " : "[ ] ",
+            push!(rows, (axis, v, string(tri ? tri_mark(f, axis, v) : on ? "[x] " : "[ ] ",
                                          String(rowpad(axis_label(axis, v), 22)), "  ", cnt)))
         end
         # The rest of them, behind a picker you can type into. Offered even when
@@ -1080,14 +1164,12 @@ function filter_help(axis::Symbol, val::AbstractString)
     elseif axis === :lane
         return string("Came from: ", get(LANE_HELP, val,
                       "a search of yours, under [lanes] in data/config.toml."))
-    elseif axis === :repo
-        return "The repository the row is in."
-    elseif axis === :label
-        return "A GitHub label the row carries."
-    elseif axis === :author
-        val == AUTHOR_ME && return "Opened by you."
-        val == AUTHOR_OTHERS && return "Opened by anybody but you."
-        return "Opened by this login."
+    elseif axis in AXIS_TRI
+        what = axis === :repo ? "The repository the row is in." :
+               axis === :label ? "A GitHub label the row carries." :
+               val == AUTHOR_ME ? "Opened by you, or assigned to you." :
+               val == AUTHOR_OTHERS ? "Opened by anybody but you." : "Opened by this login."
+        return string(what, " \u21b5 turns it: [+] brings these, [-] keeps them out whatever else brings them, [ ] either.")
     end
     ""
 end
@@ -1148,18 +1230,19 @@ picked, so this is a wiring job rather than a picker. The counts come from
 the filter - the same number the listed rows show, and the one worth having
 while choosing.
 
-Values already applied are left out, and so are the pinned repos. They are on
-screen a few rows above, where `\u21b5` takes them off or puts them on.
+Values already applied, `[+]` or `[-]`, are left out, and so are the pinned
+repos. They are on screen a few rows above, where `\u21b5` turns them. A pick
+is a `[+]`; a second `\u21b5` on the row it becomes is the `[-]`.
 """
 function pick_axis!(st, ctrl, axis::Symbol)
     n = axis_counts(st)
     tally = axis === :repo ? n.repos : axis === :label ? n.labels : n.authors
     values = axis === :repo ? (r = repo_axis(st); r[1][r[2]+1:end]) :
              axis === :label ? st.labels : st.authors
-    sel = axis_set(st.filters, axis)
+    sel, not = axis_set(st.filters, axis), not_set(st.filters, axis)
     opts = Tuple{String,Any}[(string(rpad(axis_label(axis, v), 30), " ",
                                      get(tally, v, 0)), v)
-                             for v in values if !(v in sel)]
+                             for v in values if !(v in sel) && !(v in not)]
     isempty(opts) && return false
     push_view!(ctrl, ChooseView(string("Filter by ", axis), "type to narrow", opts,
         v -> begin
@@ -1170,7 +1253,8 @@ function pick_axis!(st, ctrl, axis::Symbol)
     true
 end
 
-"""Toggle whatever the filter cursor is on; radio rows replace, checkboxes flip.
+"""Toggle whatever the filter cursor is on: a box flips, and a value on one of
+the `AXIS_TRI` axes turns `[ ]` to `[+]` to `[-]` and back.
 
 `ctrl` is only wanted by the row that opens a picker, and a caller that has none
 gets everything else.
@@ -1194,7 +1278,16 @@ function toggle_filter!(st, ctrl = nothing)
     elseif axis === :pick
         ctrl === nothing && return false
         return pick_axis!(st, ctrl, Symbol(val))
-    elseif axis in (:lane, :repo, :label, :author)
+    elseif axis in AXIS_TRI
+        inc, exc = axis_set(st.filters, axis), not_set(st.filters, axis)
+        if val in inc
+            delete!(inc, val); push!(exc, val)
+        elseif val in exc
+            delete!(exc, val)
+        else
+            push!(inc, val)
+        end
+    elseif axis === :lane
         set = axis_set(st.filters, axis)
         val in set ? delete!(set, val) : push!(set, val)
     else
@@ -1386,11 +1479,18 @@ function filter_summary(f, order::Symbol = lane_sort(f))
         push!(parts, order === :moved ? "by when it moved" :
                      order === :latest ? "by when anything happened" :
                      order === :touched ? "by when you acted" : "by url")
-    isempty(f.authors) ||
-        push!(parts, join(sort([axis_label(:author, a) for a in f.authors]), "+"))
+    # What is kept out is said beside what is brought, with a `not`: the two
+    # read as one clause each, and a list missing rows it was not asked to
+    # miss is the thing the title is there to explain.
+    authors(s) = join(sort([axis_label(:author, a) for a in s]), "+")
+    repos(s) = join([last(split(r, '/')) for r in sort(collect(s))], "+")
+    isempty(f.authors) || push!(parts, authors(f.authors))
+    isempty(f.not_authors) || push!(parts, string("not ", authors(f.not_authors)))
     isempty(f.lanes) || push!(parts, join(sort(collect(f.lanes)), "+"))
-    isempty(f.repos) || push!(parts, join([last(split(r, '/')) for r in sort(collect(f.repos))], "+"))
+    isempty(f.repos) || push!(parts, repos(f.repos))
+    isempty(f.not_repos) || push!(parts, string("not ", repos(f.not_repos)))
     isempty(f.labels) || push!(parts, join(sort(collect(f.labels)), "+"))
+    isempty(f.not_labels) || push!(parts, string("not ", join(sort(collect(f.not_labels)), "+")))
     isempty(parts) && push!(parts, "unread")
     join(parts, " · ")
 end

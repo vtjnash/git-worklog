@@ -400,8 +400,8 @@ not there below 20 rows, and a click on it toggles nothing.
 `'`, `s`, `;` and `A` (on a pull request): no query row, the hint `0-9
 picks · ↑/↓ move · ↵ pick · esc cancel`, a letter does nothing, a digit
 picks its row (`2` in `s` is 3 days), and the arrows, `↵` and escape do
-what they say. `;` `2` on an item with a milestone opens on its `[x]` row,
-and `↵` says "already"; with none, on `[x] none`. `T`, `tab`, a second
+what they say. `;` `2` on an item with a milestone opens on its `[@]` row,
+and `↵` says "already"; with none, on `[@] none`. `T`, `tab`, a second
 agent, `tab` again: the cursor is on that agent.
 
 *2026-10-06*: pass.

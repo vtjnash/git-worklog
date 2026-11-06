@@ -175,16 +175,21 @@ at by hand is a view by the time it is pasted.
   away`. The number by a box is what checking it would bring in.
 - `state` - two more: `open` · `closed or merged`. A row is in when its box
   on each of these two axes is checked.
-- tag, kind, lane, repo, label, author - each narrows. A row has one kind -
-  `pr`, `draft`, `branch`, `issue`, `notice` - so a view that wants every
-  pull request names `pr` and `draft` both, and my work names `branch` with
-  them.
+- tag, kind, lane - boxes, `[x]` or `[ ]`, and each narrows. A row has one
+  kind - `pr`, `draft`, `branch`, `issue`, `notice` - so a view that wants
+  every pull request names `pr` and `draft` both, and my work names `branch`
+  with them.
+- repo, label, author - `↵` turns a value `[ ]` → `[+]` → `[-]`: `[+]`
+  narrows to it as a box does, `[-]` keeps its rows out whatever else brings
+  them. A pick from the picker row is a `[+]`.
 
 Nothing asked means not done, in both states. Repo, label and author list
 what is applied and keep the rest behind a picker row; `[filters]
 pinned_repos` in `data/config.toml` names repos listed first regardless, as a
 name or `owner/*`. In a view's TOML the axes are `show = ["not-done", "done",
-"filed"]`, `state = ["open", "closed"]`, `kind = ["pr", "draft"]` and so on.
+"filed"]`, `state = ["open", "closed"]`, `kind = ["pr", "draft"]` and so on,
+and the `[-]` values are `not_repo`, `not_label`, `not_author`. The milestone
+picker under `;`, one of them or none, marks its choice `[@]`.
 A view names a filter and nothing else: it is never a lane, and no row
 carries a word for which view it belongs to.
 

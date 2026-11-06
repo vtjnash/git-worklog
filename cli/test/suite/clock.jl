@@ -248,8 +248,8 @@ end
         @test mv isa W.ChooseView && !mv.numbered
         @test [o[2] for o in mv.options] == [3, 4, nothing]
         @test startswith(mv.options[1][1], "[ ] 1.13") && occursin("2026-10-01", mv.options[1][1])
-        @test startswith(mv.options[2][1], isempty(it.milestone) ? "[ ] " : "[x] ")
-        @test mv.options[3][1] == string(isempty(it.milestone) ? "[x] " : "[ ] ", "none")
+        @test startswith(mv.options[2][1], isempty(it.milestone) ? "[ ] " : "[@] ")
+        @test mv.options[3][1] == string(isempty(it.milestone) ? "[@] " : "[ ] ", "none")
         # Picking what it already is writes nothing and says so.
         mv.onpick(isempty(it.milestone) ? nothing : 4)
         @test startswith(st.status, "already")
