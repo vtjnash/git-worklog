@@ -291,12 +291,103 @@ end
     back = W.branch_moved(main, new, old)
     @test back.kind === :diff && occursin("-two", back.text) && back.now < back.then
 
-    # And what git says when it refuses is its own line, not its usage.
+    # And what git says when it refuses is the command and its own line, not
+    # its usage, with the shas cut to what the panes show.
     e = try
         W.git(main, "range-diff", string(old, "..", old), string(new, "..", new)); nothing
     catch err
         err
     end
     @test e isa W.GitError
-    @test W.git_said(e) == "fatal: need two commit ranges"
+    o8, n8 = first(string(old), 8), first(string(new), 8)
+    @test W.git_said(e) ==
+          "\$ git range-diff $o8..$o8 $n8..$n8\nfatal: need two commit ranges"
+    @test W.git_said(W.GitError("not a git checkout: /x")) == "not a git checkout: /x"
+end
+
+@testset "a criss-cross history counts the branch's commits, not a merge base's" begin
+    # The base and the branch each merged the other, so they have two merge
+    # bases and `git merge-base` names one. Measured from it, the commit only
+    # the other base reaches - already on the base - is counted and paired as
+    # the pull request's own; `base..head` is the set itself.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@example.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "a"), "x\n"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    g("checkout", "--quiet", "-b", "pr")
+    write(joinpath(main, "b"), "pr\n"); g("add", "b"); g("commit", "--quiet", "-m", "pr side")
+    g("checkout", "--quiet", "master")
+    write(joinpath(main, "c"), "master\n"); g("add", "c"); g("commit", "--quiet", "-m", "master side")
+    master_side = strip(g("rev-parse", "HEAD"))
+    g("merge", "--quiet", "--no-ff", "-m", "master takes pr", "pr")
+    g("checkout", "--quiet", "pr")
+    g("merge", "--quiet", "--no-ff", "-m", "pr takes master", master_side)
+    @test length(split(strip(g("merge-base", "--all", "master", "pr")), '\n')) == 2
+    write(joinpath(main, "b"), "pr\nmore\n"); g("commit", "--quiet", "-am", "the change")
+    old = strip(g("rev-parse", "HEAD"))
+    g("commit", "--quiet", "--amend", "-m", "the change, amended")
+    new = strip(g("rev-parse", "HEAD"))
+
+    mv = W.branch_moved(main, old, new; base = "master")
+    @test mv.kind === :range
+    @test (mv.then, mv.now) == (2, 2)    # "pr takes master" and the change
+    @test !occursin("pr side", mv.text) && !occursin("master side", mv.text)
+    @test occursin("the change, amended", mv.text)
+end
+
+@testset "a squash is the whole branch then against now, and each gone commit is its own diff" begin
+    # Commits paired one to one say nothing about a squash: the new commit
+    # pairs with one of the old ones or with none, the rest are gone, and the
+    # change between the two branches is on no row. So the whole branch is
+    # one more thing - the plain diff while the base stands still, a diff of
+    # the two diffs once it has moved - and nothing of it lands in the
+    # checkout's own objects.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@example.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "f"), "a\nb\nc\n"); g("add", "f"); g("commit", "--quiet", "-m", "base")
+    g("checkout", "--quiet", "-b", "pr")
+    write(joinpath(main, "f"), "a\nb\nc\none\n"); g("commit", "--quiet", "-am", "add one")
+    g("checkout", "--quiet", "master")
+    write(joinpath(main, "g"), "z\n"); g("add", "g"); g("commit", "--quiet", "-m", "master moves")
+    g("checkout", "--quiet", "pr")
+    g("merge", "--quiet", "--no-ff", "-m", "merge master", "master")
+    write(joinpath(main, "f"), "a\nb\nc\none\ntwo\n"); g("commit", "--quiet", "-am", "add two")
+    old = strip(g("rev-parse", "HEAD"))
+    g("reset", "--quiet", "--soft", "master")
+    write(joinpath(main, "f"), "a\nb\nc\none\nTWO\n"); g("commit", "--quiet", "-am", "all in one")
+    new = strip(g("rev-parse", "HEAD"))
+    objects() = sort(readdir(joinpath(main, ".git", "objects"); join = true))
+    before = objects()
+
+    mv = W.branch_moved(main, old, new; base = "master")
+    @test mv.kind === :range && mv.moved == 0
+    whole = W.branch_whole(main, old, new; base = "master", moved = mv.moved)
+    @test whole.kind === :diff
+    @test occursin("    -two", whole.text) && occursin("    +TWO", whole.text)
+    # Each commit gone with the squash carries its own diff; `range-diff`
+    # leaves the merge of the base out altogether.
+    lone = W.lone_patches(main, mv.text)
+    @test occursin("< -:  ------- add two\n    diff --git a/f b/f", lone)
+    @test !occursin("merge master", lone)
+
+    # The base moves and the squash is rebased onto it: the plain diff would
+    # be the base's commit as much as the branch's, so it is the diff of diffs.
+    g("checkout", "--quiet", "master")
+    write(joinpath(main, "g"), "z\ny\n"); g("commit", "--quiet", "-am", "master again")
+    g("checkout", "--quiet", "pr"); g("rebase", "--quiet", "master")
+    newer = strip(g("rev-parse", "HEAD"))
+    before = objects()
+    mv = W.branch_moved(main, old, newer; base = "master")
+    @test mv.kind === :range && mv.moved == 1
+    whole = W.branch_whole(main, old, newer; base = "master", moved = mv.moved)
+    @test whole.kind === :range
+    @test occursin("    -+two", whole.text) && occursin("    ++TWO", whole.text)
+    @test !occursin("+y", whole.text)               # the base's own change
+    @test all(l -> startswith(l, "    "), split(whole.text, '\n'))
+    @test objects() == before
+    n = W.whole_node(main, old, newer, "master", mv, mv.text)
+    @test n.open && n.meta["range"] === true
 end

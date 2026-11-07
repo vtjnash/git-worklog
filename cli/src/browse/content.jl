@@ -1715,17 +1715,50 @@ function lone_patches(repo::AbstractString, txt::AbstractString)
         (m === nothing || !(m[3] in (">", "<"))) && continue
         # Whichever side has the commit; the other is `-------`.
         sha = String(something(m[3] == ">" ? m[5] : m[2]))
+        # A `git show` that fails says so where the patch would be: skipped,
+        # it was a header over nothing, as if the commit had done nothing.
         patch = try
             git(repo, "show", "-M", "--no-color", "--no-ext-diff", "--format=",
                 "--src-prefix=a/", "--dst-prefix=b/", sha)
-        catch
-            continue
+        catch e
+            string("could not show it:\n", git_said(e))
         end
         for pl in split(strip(==('\n'), patch), "\n"; keepempty = false)
             push!(out, string("    ", pl))
         end
     end
     join(out, "\n")
+end
+
+"""The whole branch then and now as one node, ahead of its commits.
+
+Pairing commits is the right grain for a rebase and the wrong one for a squash
+or a commit rewritten past recognition: those come out as gone commits and new
+ones, each whole, and the change between them is on no row. This node is that
+change - the plain diff when the base did not move, the branch's diff against it
+then against its diff now when it did (`branch_whole`). Open when some commit
+went unpaired, which is when the list cannot say it; folded otherwise, since a
+rebase the pairs explain needs it only to be sure.
+"""
+function whole_node(repo, old, new, base, mv, txt)
+    unpaired = any(l -> (m = match(RANGE_PAIR, l); m !== nothing && m[3] in ("<", ">")),
+                   split(txt, '\n'))
+    w = try
+        branch_whole(repo, old, new; base = base, moved = mv.moved)
+    catch e
+        return failednode("could not diff the whole branch", git_said(e))
+    end
+    # Control characters are made inert as everywhere, and said once - by
+    # the commits' own nodes, which carry the same lines.
+    body, _ = inert(w.text)
+    what = w.kind === :diff ? "head to head, the plain diff: the base did not move" :
+           string("the branch's diff then against now, each from ", base)
+    n = Node(faced(rowpad("whole", 10), THEME.waiting) * faced(what, THEME.dim),
+             isempty(strip(body)) ? "    the two do the same" : body, :plain, unpaired)
+    n.meta["range"] = true
+    n.meta["src"] = string("whole  ", first(old, 8), " → ", first(new, 8))
+    n.meta["sha"] = String(new)
+    n
 end
 
 """What has been pushed to this branch since the done mark was made.
@@ -1822,7 +1855,10 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
                 "to the head now." :
                 string("The commits are different objects now, so this is a ",
                        "`git range-diff`: the old commits paired with the new ",
-                       "ones, and what differs between each pair.",
+                       "ones, and what differs between each pair. Above them, ",
+                       "the whole branch then against now, for what the pairs ",
+                       "cannot say - a squash, or a commit rewritten past ",
+                       "recognition.",
                        isempty(base) ? "\n\nMeasured from where the two heads " *
                        "meet, because this item has no base branch to measure " *
                        "from - so commits the base gained in between are counted " *
@@ -1835,6 +1871,7 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     ns = kind === :diff ? hunk_nodes(txt, files_link(it); head = new) :
                           rangediff_nodes(lone_patches(repo, txt))
     isempty(ns) && (ns = [Node("no textual change", "", :plain, true)])
+    kind === :range && pushfirst!(ns, whole_node(repo, old, new, base, mv, txt))
     # The one commit added is the head now, and its message says what it was.
     cn = kind === :diff && mv.now - mv.then == 1 ? commit_node(it, repo, new) : nothing
     cn === nothing || pushfirst!(ns, cn)

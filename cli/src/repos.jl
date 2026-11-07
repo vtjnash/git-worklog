@@ -18,22 +18,30 @@ const REPO_PREFIX = "repo:"
 
 struct GitError <: Exception
     msg::String
+    cmd::String     # what was run, when it was `git` that ran it; else ""
 end
+GitError(msg::AbstractString) = GitError(msg, "")
 Base.showerror(io::IO, e::GitError) = print(io, e.msg)
 
-"""What git said when it refused, for a pane: its `fatal:` and `error:` lines.
+"""What git said when it refused, for a pane: the command, then its `fatal:` and
+`error:` lines.
 
 A refusal of the arguments is one line and then the command's whole usage,
 some eight thousand characters of it, and the first two hundred of that were
-the line and a cut-off list of options. Anything that is not a `GitError`, or
-one with no such line, is its message, cut where the pane would cut it.
+the line and a cut-off list of options. The line alone does not say what was
+asked - "need two commit ranges" is about ranges nobody on the screen wrote -
+so the command goes above it, its full shas cut to the eight the panes show.
+Anything that is not a `GitError`, or one with no such line, is its message,
+cut where the pane would cut it.
 """
 function git_said(e)
     msg = sprint(showerror, e)
-    said = e isa GitError ?
-           [l for l in split(msg, '\n') if startswith(l, "fatal:") || startswith(l, "error:")] :
-           SubString{String}[]
-    isempty(said) ? first(msg, 300) : join(said, "\n")
+    e isa GitError || return first(msg, 300)
+    said = [l for l in split(msg, '\n') if startswith(l, "fatal:") || startswith(l, "error:")]
+    body = isempty(said) ? first(msg, 300) : join(said, "\n")
+    isempty(e.cmd) && return body
+    cmd = replace(e.cmd, r"\b([0-9a-f]{8})[0-9a-f]{32}\b" => s"\1")
+    string("\$ ", first(cmd, 200), "\n", body)
 end
 
 """Run git in `dir`, returning stdout. Throws GitError with stderr on failure.
@@ -43,13 +51,13 @@ rather than by a person: `%(upstream:track)` in particular comes back as
 `[ahead 3, behind 1]` through gettext, and would be parsed wrong - silently,
 as no divergence at all - in any locale that translates it.
 """
-function git(dir::AbstractString, args...)
+function git(dir::AbstractString, args...; env = ())
     out, err = IOBuffer(), IOBuffer()
-    cmd = addenv(Cmd(`git $(collect(String, args))`; dir = String(dir)), "LC_ALL" => "C")
+    cmd = addenv(Cmd(`git $(collect(String, args))`; dir = String(dir)), "LC_ALL" => "C", env...)
     try
         run(pipeline(cmd; stdout = out, stderr = err))
     catch
-        throw(GitError(strip(String(take!(err)))))
+        throw(GitError(strip(String(take!(err))), join(["git"; collect(String, args)], ' ')))
     end
     String(take!(out))
 end
@@ -924,11 +932,30 @@ from there is a branch that went back - the new head inside the old - and
 `range-diff` has nothing to pair either, so that is the plain diff too.
 """
 function branch_moved(path, old, new; base::AbstractString = "")
-    ob = isempty(base) ? "" : merge_base(path, base, old)
-    nb = isempty(base) ? "" : merge_base(path, base, new)
-    (isempty(ob) || isempty(nb) || commits_ahead(path, ob, old) == 0 ||
-     commits_ahead(path, nb, new) == 0) && (ob = nb = merge_base(path, old, new))
-    if isempty(ob)
+    old, new = string(old), string(new)
+    # Each side is a set - what its head has and the base does not - so it
+    # goes to git as `base..head`, never from a merge base this picked: in a
+    # criss-cross history there are two, and either one alone lets in the
+    # base's commits that only the other reaches. The merge bases are for the
+    # one thing a set cannot say, how far the base moved between the two.
+    then_ = now_ = moved = 0
+    if !isempty(base)
+        ob, nb = merge_base(path, base, old), merge_base(path, base, new)
+        if !isempty(ob) && !isempty(nb)
+            then_, now_ = commits_ahead(path, base, old), commits_ahead(path, base, new)
+            moved = commits_ahead(path, ob, nb)
+        end
+    end
+    if then_ > 0 && now_ > 0
+        if moved == 0 && is_ancestor(path, old, new)
+            return (kind = :diff, text = git(path, "diff", old, new),
+                    then = then_, now = now_, moved = 0)
+        end
+        return (kind = :range,
+                text = git(path, "range-diff", "--no-color", base, old, new),
+                then = then_, now = now_, moved = moved)
+    end
+    if isempty(merge_base(path, old, new))
         # Unrelated histories, or a merge base git will not name. Ranges cannot
         # be built at all here - `..old` is not an empty left-hand side, it is
         # `HEAD..old` - so this hands git the two heads and lets it answer.
@@ -936,15 +963,58 @@ function branch_moved(path, old, new; base::AbstractString = "")
                 text = git(path, "range-diff", "--no-color", string(old, "...", new)),
                 then = 0, now = 0, moved = 0)
     end
-    then_, now_ = commits_ahead(path, ob, old), commits_ahead(path, nb, new)
-    if (ob == nb && is_ancestor(path, old, new)) || then_ == 0 || now_ == 0
-        return (kind = :diff, text = git(path, "diff", string(old), string(new)),
+    # From the heads' own merge bases, all of them: `new..old` is the old
+    # side of `old...new`, `old..new` the new.
+    then_, now_ = commits_ahead(path, new, old), commits_ahead(path, old, new)
+    if then_ == 0 || now_ == 0
+        return (kind = :diff, text = git(path, "diff", old, new),
                 then = then_, now = now_, moved = 0)
     end
     (kind = :range,
-     text = git(path, "range-diff", "--no-color",
-                string(ob, "..", old), string(nb, "..", new)),
-     then = then_, now = now_, moved = commits_ahead(path, ob, nb))
+     text = git(path, "range-diff", "--no-color", string(old, "...", new)),
+     then = then_, now = now_, moved = 0)
+end
+
+"""The whole of a branch at two heads, one against the other, for when pairing
+its commits says too little: a squash is one new commit and a list of gone ones,
+and a commit changed past recognition is a gone one and a new one. Answers
+`(kind, text)`, the text indented as a range-diff's inner diff is.
+
+Which whole depends on whether the base moved under it (`moved`, from
+`branch_moved`). If it did not, both heads stand on the same commit and the plain
+diff between them is exactly what changed - `:diff`. If it did, that diff is
+mostly the base's own commits, and what is wanted is the branch's diff against
+its base then beside its diff against its base now - `:range`, a diff of diffs.
+
+`git range-diff` is the one command that draws a diff of diffs well - line
+numbers out of the hunk headers, so a hunk the base only moved is not a change -
+and it takes only commits. So each side is squashed into one: a commit with
+that head's tree on that side's merge base, made with `commit-tree` into a
+directory of its own that git reads the checkout's objects through, and thrown
+away with it - nothing is written to the checkout. A pairing cost of a
+thousand percent makes the two pair however little of them is alike, which is
+the case this is for.
+"""
+function branch_whole(path, old, new; base::AbstractString = "", moved::Integer = 0)
+    old, new = string(old), string(new)
+    indent(t) = join((string("    ", l) for l in split(rstrip(t, '\n'), '\n')), '\n')
+    ob = isempty(base) || moved == 0 ? "" : merge_base(path, base, old)
+    nb = isempty(ob) ? "" : merge_base(path, base, new)
+    isempty(nb) && return (kind = :diff, text = indent(git(path, "diff", "-M", "--no-color", old, new)))
+    objs = strip(git(path, "rev-parse", "--path-format=absolute", "--git-path", "objects"))
+    mktempdir() do tmp
+        env = ("GIT_OBJECT_DIRECTORY" => tmp, "GIT_ALTERNATE_OBJECT_DIRECTORIES" => objs,
+               "GIT_AUTHOR_NAME" => "wl", "GIT_AUTHOR_EMAIL" => "wl",
+               "GIT_COMMITTER_NAME" => "wl", "GIT_COMMITTER_EMAIL" => "wl",
+               "GIT_AUTHOR_DATE" => "@0 +0000", "GIT_COMMITTER_DATE" => "@0 +0000")
+        squash(head, on) = strip(git(path, "commit-tree", "-p", on, "-m", "the whole branch",
+                                     string(head, "^{tree}"); env))
+        x, y = squash(old, ob), squash(new, nb)
+        txt = git(path, "range-diff", "--no-color", "--creation-factor=1000",
+                  string(ob, "..", x), string(nb, "..", y); env)
+        body = [l for l in split(rstrip(txt, '\n'), '\n') if match(RANGE_PAIR, l) === nothing]
+        (kind = :range, text = join(body, '\n'))
+    end
 end
 
 "File contents at a commit, as lines. `nothing` when the path is absent there."

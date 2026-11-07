@@ -672,7 +672,18 @@ Three things answer it, all read off the mark `e` leaves:
   GitHub compares refs, and the head you saw is not one. git prints a
   commit with no pair in a range-diff - new, or gone - as its header alone,
   so its own diff is put under it (`lone_patches`), folded: a gone one opened
-  onto nothing, and what a dropped commit did is in no other view. A second
+  onto nothing, and what a dropped commit did is in no other view. Each side
+  goes to git as a set, `range-diff <base> old new`, never from a merge base
+  picked here: a criss-cross history has two, and either alone lets in base
+  commits only the other reaches. **Ahead of the commits, the whole branch**
+  (`branch_whole`), because pairing is the wrong grain for a squash or a
+  commit rewritten past recognition - gone commits and new ones, and the
+  change between them on no row. Base unmoved: the plain diff head to head.
+  Base moved: each head squashed onto its own merge base by `commit-tree` into
+  a throwaway `GIT_OBJECT_DIRECTORY` that reads the checkout's objects as an
+  alternate - nothing lands in the checkout - and the two range-diffed with
+  `--creation-factor=1000` so they pair however unalike. Open when a commit
+  went unpaired, folded when the pairs explain it. A second
   `p` can also start from any name the checkout resolves, the remote's
   branch of that name before a local one, never fetched.
 - **A hunk's header is its file, its range and its counts; git's function

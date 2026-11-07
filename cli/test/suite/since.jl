@@ -600,9 +600,15 @@ end
         @test occursin("onto 10 newer commits", unstyled(ns[1].header))
         @test occursin(string(first(old, 8), " \u2192 ", first(newh, 8)),
                        unstyled(ns[1].header))
-        @test count(n -> n.kind === :plain && !isempty(n.raw), ns) == 1
-        @test length(ns) == 2                      # the lead, and one commit
+        @test count(n -> n.kind === :plain && !isempty(n.raw), ns) == 2
+        @test length(ns) == 3              # the lead, the whole branch, one commit
         @test any(n -> occursin("TWOO", n.raw), ns)
+        # The whole branch, folded because the one pair explains it, is the
+        # branch's diff against the base then against now - and the base's ten
+        # are in neither side of that.
+        whole = ns[2]
+        @test startswith(unstyled(whole.header), "whole") && !whole.open
+        @test occursin("TWOO", whole.raw) && !occursin("master", whole.raw)
         @test !any(n -> occursin("master work", unstyled(n.header)), ns)
 
         # Without it, the ten come back - as the rows this change exists to
@@ -628,12 +634,18 @@ end
         other = strip(W.git(main, "rev-parse", "HEAD"))
         remade = W.pushed_nodes(W.Item(url = u, ref = "r#4", repo = "o/r", number = 4,
                                        title = "t", head = other, base = "master"))
-        @test [first(unstyled(n.header), 4) for n in remade[2:end]] == ["gone", "new "]
-        gone = remade[2]
+        @test [first(unstyled(n.header), 4) for n in remade[2:end]] ==
+              ["whol", "gone", "new "]
+        # Paired with nothing, the commits cannot say what changed; the whole
+        # branch can, and is open. Both heads stand on the same commit of the
+        # base, so it is the plain diff between them.
+        @test remade[2].open && occursin("\n    +other", remade[2].raw)
+        @test occursin("\n    -TWO", remade[2].raw) && occursin("\n    +middle", remade[2].raw)
+        gone = remade[3]
         @test occursin(first(old, 7), unstyled(gone.header)) && !gone.open
         @test occursin("diff --git a/f.txt b/f.txt", gone.raw)
         @test occursin("\n    -middle", gone.raw) && occursin("\n    +TWO", gone.raw)
-        @test occursin("\n    +other", remade[3].raw)
+        @test occursin("\n    +other", remade[4].raw)
 
         # A push that only added to the branch is a plain diff instead, and
         # counts what arrived.

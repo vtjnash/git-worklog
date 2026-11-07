@@ -91,7 +91,8 @@ diff. The workflow, in keys:
     days; "second look" in the filter pane and the views
 - **Shows *what* changed**: the thread opens on the first comment you have not
   seen, and `p` is the diff, or the `range-diff`, since the head you last
-  read.
+  read - with the whole branch then against now above its commits, for a
+  squash that pairs with nothing.
 - **Writes back**: comment, review (a draft held on GitHub until you send it),
   label, merge.
 - **Hosts a shell or an agent** in a tmux pane beside the thread, one per
