@@ -1792,14 +1792,18 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     mv = try
         branch_moved(repo, old, new; base = base)
     catch e
-        return [failednode("could not diff the two heads",
-                           first(sprint(showerror, e), 200))]
+        return [failednode("could not diff the two heads", git_said(e))]
     end
     kind, txt = mv.kind, mv.text
     # What happened, in the order somebody would say it. A rebase whose commit
     # count did not change says so by not mentioning it, which is the common
     # case and the one where the count would be noise.
-    said = kind === :diff ?
+    # Fewer than before is a branch reset back to a head inside the old one.
+    said = kind === :diff && mv.now < mv.then ?
+           faced(string(mv.then - mv.now,
+                        mv.then - mv.now == 1 ? " commit" : " commits", " taken off"),
+                 THEME.waiting) :
+           kind === :diff ?
            faced(string(mv.now - mv.then,
                         mv.now - mv.then == 1 ? " commit" : " commits", " added"),
                  THEME.settled) :

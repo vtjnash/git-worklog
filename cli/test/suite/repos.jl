@@ -255,3 +255,48 @@ end
         W.LOCAL[] = keept
     end
 end
+
+@testset "a merged branch is diffed from its heads, not from the base that has them" begin
+    # julia#63818: read at one head, pushed to once more, merged. The base has
+    # both heads then, so measured from it each side was a head to itself,
+    # and `range-diff old..old new..new` is `fatal: need two commit ranges`
+    # and eight thousand characters of usage - of which the pane showed two
+    # hundred.
+    root = mktempdir(); main = joinpath(root, "main"); mkpath(main)
+    g(a...) = W.git(main, a...)
+    g("init", "--quiet", "--initial-branch=master", ".")
+    g("config", "user.email", "me@example.com"); g("config", "user.name", "Me")
+    write(joinpath(main, "a"), "x\n"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    g("checkout", "--quiet", "-b", "pr")
+    write(joinpath(main, "b"), "one\n"); g("add", "b"); g("commit", "--quiet", "-m", "first")
+    old = strip(g("rev-parse", "HEAD"))
+    write(joinpath(main, "b"), "one\ntwo\n"); g("commit", "--quiet", "-am", "second")
+    new = strip(g("rev-parse", "HEAD"))
+    g("checkout", "--quiet", "master")
+    write(joinpath(main, "a"), "x\ny\n"); g("commit", "--quiet", "-am", "master moves")
+    g("merge", "--quiet", "--no-ff", "-m", "merge pr", "pr")
+
+    mv = W.branch_moved(main, old, new; base = "master")
+    @test mv.kind === :diff && occursin("+two", mv.text)
+    @test mv.now - mv.then == 1
+    # Before the merge it was the same answer, measured from the base.
+    pre = W.branch_moved(main, old, new; base = "master~1")
+    @test pre.kind === :diff && occursin("+two", pre.text)
+
+    # A branch reset back to a head inside the one you saw. From a base it is
+    # a range like any other, the commit taken off unpaired; from the heads'
+    # own merge base the new side is empty, nothing for `range-diff` to pair,
+    # and the diff is what was taken off.
+    @test W.branch_moved(main, new, old; base = "master~1").kind === :range
+    back = W.branch_moved(main, new, old)
+    @test back.kind === :diff && occursin("-two", back.text) && back.now < back.then
+
+    # And what git says when it refuses is its own line, not its usage.
+    e = try
+        W.git(main, "range-diff", string(old, "..", old), string(new, "..", new)); nothing
+    catch err
+        err
+    end
+    @test e isa W.GitError
+    @test W.git_said(e) == "fatal: need two commit ranges"
+end

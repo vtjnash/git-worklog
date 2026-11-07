@@ -21,6 +21,21 @@ struct GitError <: Exception
 end
 Base.showerror(io::IO, e::GitError) = print(io, e.msg)
 
+"""What git said when it refused, for a pane: its `fatal:` and `error:` lines.
+
+A refusal of the arguments is one line and then the command's whole usage,
+some eight thousand characters of it, and the first two hundred of that were
+the line and a cut-off list of options. Anything that is not a `GitError`, or
+one with no such line, is its message, cut where the pane would cut it.
+"""
+function git_said(e)
+    msg = sprint(showerror, e)
+    said = e isa GitError ?
+           [l for l in split(msg, '\n') if startswith(l, "fatal:") || startswith(l, "error:")] :
+           SubString{String}[]
+    isempty(said) ? first(msg, 300) : join(said, "\n")
+end
+
 """Run git in `dir`, returning stdout. Throws GitError with stderr on failure.
 
 Under `LC_ALL=C`, because everything git says here is read by this program
@@ -898,11 +913,21 @@ With no base to measure against - an item no lane gave one, a checkout with no
 remote for it, a branch the fetch could not find - the two merge bases collapse
 to the merge base of the heads, which is exactly the `old...new` this did before
 and the best guess there is.
+
+**And so do they once the base has a head.** A merged pull request's base has
+both of them, so each merge base is the head itself and each range is empty -
+`old..old`, `new..new` - which `range-diff` refuses outright, `fatal: need two
+commit ranges` and its usage after it (julia#63818, 2026-11-07, read before a
+last push and merged since). From the heads' own merge base the push that
+landed is what it was, commits added to the head you saw. A side still empty
+from there is a branch that went back - the new head inside the old - and
+`range-diff` has nothing to pair either, so that is the plain diff too.
 """
 function branch_moved(path, old, new; base::AbstractString = "")
     ob = isempty(base) ? "" : merge_base(path, base, old)
     nb = isempty(base) ? "" : merge_base(path, base, new)
-    (isempty(ob) || isempty(nb)) && (ob = nb = merge_base(path, old, new))
+    (isempty(ob) || isempty(nb) || commits_ahead(path, ob, old) == 0 ||
+     commits_ahead(path, nb, new) == 0) && (ob = nb = merge_base(path, old, new))
     if isempty(ob)
         # Unrelated histories, or a merge base git will not name. Ranges cannot
         # be built at all here - `..old` is not an empty left-hand side, it is
@@ -912,7 +937,7 @@ function branch_moved(path, old, new; base::AbstractString = "")
                 then = 0, now = 0, moved = 0)
     end
     then_, now_ = commits_ahead(path, ob, old), commits_ahead(path, nb, new)
-    if ob == nb && is_ancestor(path, old, new)
+    if (ob == nb && is_ancestor(path, old, new)) || then_ == 0 || now_ == 0
         return (kind = :diff, text = git(path, "diff", string(old), string(new)),
                 then = then_, now = now_, moved = 0)
     end
