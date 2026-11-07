@@ -582,12 +582,20 @@ left there - two of these at once from two worktrees would tear it, and one
 of them would overwrite what a `git pull` was about to read. The commit is
 held by nothing until something points at it, and is fetched again when a
 `gc` has taken it, which is what the fetch was for the first time.
+
+`--no-auto-gc` on this fetch and on `fetch_base!`'s, because a fetch that
+brought enough loose objects then runs `git maintenance run --auto` over the
+whole repository before it returns - a repack of a checkout the size of
+julia's, held against a key press, and in an object store every worktree of
+the repository shares, while agents in the others are working in it. Leaving
+it to the user's own fetches and `git gc` costs nothing: these add a few
+objects at a time.
 """
 function ensure_commit!(path, sha, prnum::Integer; remote::AbstractString = "origin")
     have_commit(path, sha) && return true
     for spec in ("pull/$prnum/head", string(sha))
         try
-            git(path, "fetch", "--quiet", "--no-write-fetch-head", remote, spec)
+            git(path, "fetch", "--quiet", "--no-write-fetch-head", "--no-auto-gc", remote, spec)
             have_commit(path, sha) && return true
         catch
         end
@@ -631,7 +639,7 @@ function fetch_base!(path, repo::AbstractString, base::AbstractString)
     (isempty(base) || match(REF_OK, base) === nothing) && return :failed
     r = remote_for(path, repo)
     try
-        git(path, "fetch", "--quiet", r, "+refs/heads/$base:refs/remotes/$r/$base")
+        git(path, "fetch", "--quiet", "--no-auto-gc", r, "+refs/heads/$base:refs/remotes/$r/$base")
         :fetched
     catch e
         e isa GitError && occursin("couldn't find remote ref", e.msg) ? :missing : :failed

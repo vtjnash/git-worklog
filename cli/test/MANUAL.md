@@ -199,7 +199,7 @@ and the box wraps its notes. The next pass should see each of those.
 ## 10. The `pull/N/head` refspec
 
 A PR whose head is not local (`git cat-file -t <sha>` fails). By hand:
-`git fetch --quiet --no-write-fetch-head origin pull/<N>/head && git
+`git fetch --quiet --no-write-fetch-head --no-auto-gc origin pull/<N>/head && git
 cat-file -t <sha>` says `commit`, and `.git/FETCH_HEAD`'s mtime is
 unchanged. Then `p` in `wl` on another such PR with a push since it was
 read: the push's diff is drawn and the new head is now local.
