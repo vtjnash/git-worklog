@@ -87,6 +87,7 @@ Base.@kwdef mutable struct Theme
     code_bg::Face = Face()
     # Where the cursor, the selection, a search hit and the insertion point are.
     cursor_bg::Face = Face()
+    cursor_active_bg::Face = Face()   # the cursor on the side with the keys
     select_bg::Face = Face()
     match_bg::Face = Face()
     caret::Face = Face()

@@ -705,7 +705,7 @@ end
         st.nrow = findfirst(r -> r.node == 1 && r.header, rs)
         st.loaded = string(st.items[st.sel].url, ":", st.mode)
         out = frame(st, 160, 50)
-        @test faceon(W.THEME.diff_file_bg, out) && faceon(W.THEME.cursor_bg, out)
+        @test faceon(W.THEME.diff_file_bg, out) && faceon(W.THEME.cursor_active_bg, out)
         # A comment in the history is not a diff's, and has none.
         st.mode = :comments
         @test bgof(2) == W.Face()
@@ -890,16 +890,18 @@ end
     # The cursor is a background now, the way the reading pane's line is: bold
     # is spoken for, and a bright-white bold row among bold rows is not a
     # cursor. It covers the row rather than the words on it.
-    @test faceon(W.THEME.cursor_bg, row(st.items[st.sel]))
-    @test !faceon(W.THEME.cursor_bg, row(unread)) &&
-          !faceon(W.THEME.cursor_bg, row(read_))
-    @test width(first(l for l in lines if faceon(W.THEME.cursor_bg, l))) == 150
+    @test faceon(W.THEME.cursor_active_bg, row(st.items[st.sel]))
+    @test !faceon(W.THEME.cursor_active_bg, row(unread)) &&
+          !faceon(W.THEME.cursor_active_bg, row(read_))
+    @test width(first(l for l in lines if faceon(W.THEME.cursor_active_bg, l))) == 150
     # And it stays lit with the keys on the reading side: it says which item
-    # is being read, and the border says which side has the keys - as does the
-    # whole list going dim, weight and cursor still under it.
+    # is being read - in the grey, where the reading pane's cursor is now in
+    # the hue, so the coloured bar is where the keys are. The border says so
+    # too, and the whole list going dim, weight and cursor still under it.
     st.focus = :detail
     lines = split(frame(st, 150, 40), "\n")
     @test faceon(W.THEME.cursor_bg, row(st.items[st.sel]))
+    @test !faceon(W.THEME.cursor_active_bg, row(st.items[st.sel]))
     @test faceon(W.THEME.quiet, row(read_)) && faceon(W.THEME.quiet, row(unread))
     @test faceon(W.THEME.quiet, row(st.items[st.sel]))
     # The ANSI theme has no `quiet_bold`: bold over dim is the pair terminals

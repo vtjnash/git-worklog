@@ -104,7 +104,11 @@ code_bg = "on 238"
 # whether a row has been read. `select_bg` is a drag or a shifted move over the
 # reading pane, `match_bg` a search hit inside a row that has colours of its
 # own, and `caret` the block after what you have typed.
+# `cursor_active_bg` is the cursor on the side with the keys, in `active`'s
+# hue: the border says which side has them where the eye is not, and this
+# says it where the eye is. The other side's cursor stays `cursor_bg`'s grey.
 cursor_bg = "on 236"
+cursor_active_bg = "on 53"
 select_bg = "on 24"
 match_bg  = "black on yellow"
 caret     = "reverse"

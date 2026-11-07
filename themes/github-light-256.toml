@@ -102,6 +102,9 @@ code_bg = "on 253"
 # attention.subtle - the yellow of a highlighted match - with the text on it
 # forced dark, since the row underneath may have a colour of its own.
 cursor_bg = "on 255"
+# The cursor with the keys: a lavender (#d7d7ff) under `active`'s purple, a
+# tint where `cursor_bg` is a grey, and nothing else on the screen is either.
+cursor_active_bg = "on 189"
 select_bg = "on 153"
 match_bg  = "235 on 230"
 caret     = "reverse"

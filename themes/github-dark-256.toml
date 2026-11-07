@@ -92,6 +92,8 @@ code_bg = "on 238"
 # search hit on attention.emphasis (#9e6a03) with the text over it forced
 # white, since the row underneath may carry colour of its own.
 cursor_bg = "on 236"
+# The cursor with the keys: a dark plum (#5f005f) under `active`'s orchid.
+cursor_active_bg = "on 53"
 select_bg = "on 26"
 match_bg  = "231 on 94"
 caret     = "reverse"

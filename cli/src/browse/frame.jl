@@ -86,7 +86,7 @@ function detail_pane(st::BState, it::Union{Nothing,Item}, rw::Int, rh::Int, focu
         # Otherwise a header in the diff says what it heads by its background,
         # as GitHub's do. Laid here and not in `rows`, and only where the cursor
         # is not: a background inside the row would outlast the cursor's.
-        bg = insel ? THEME.select_bg : cur ? THEME.cursor_bg : header_bg(st, r)
+        bg = insel ? THEME.select_bg : cur ? THEME.cursor_active_bg : header_bg(st, r)
         bg == Face() && continue
         rrows[i + st.hdr] = Row(r.node, r.header, hlrow(rowpad(r.text, riw), bg),
                                 r.src, r.part, r.gutter)
@@ -422,9 +422,9 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         lrows = Row[]
         for (j, (axis, _, text)) in enumerate(frows)
             on = j == st.frow && st.focus === :list && axis !== :head
-            push!(lrows, Row(j, true,
-                             faced(rowfit(text, liw),
-                                   axis === :head ? THEME.bold : on ? THEME.focus : THEME.dim),
+            t = faced(rowfit(text, liw),
+                      axis === :head ? THEME.bold : on ? THEME.focus : THEME.dim)
+            push!(lrows, Row(j, true, on ? hlrow(rowpad(t, liw), THEME.cursor_active_bg) : t,
                              text, 0))
         end
         # What the row under the cursor means, at the foot: the labels are a
@@ -445,8 +445,10 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
         # The import row leads, always: a list of two thousand rows is not
         # somewhere a control can be discovered at the bottom of.
         lrows = Row[Row(0, true,
-                        faced(rowfit(NEWROW, liw),
-                              st.sel == 0 && st.focus === :list ? THEME.focus : THEME.dim),
+                        st.sel == 0 && st.focus === :list ?
+                            hlrow(rowpad(faced(rowfit(NEWROW, liw), THEME.focus), liw),
+                                  THEME.cursor_active_bg) :
+                            faced(rowfit(NEWROW, liw), THEME.dim),
                         NEWROW, 0)]
         # One reading of the marks for the whole frame, so a list is not
         # half-woken across its own rows; the same answer `refilter!` sorted by.
@@ -500,7 +502,13 @@ function render_frame(st::BState, w::Int, h::Int, at::DateTime = utcnow())
             # anybody can find. Laid over the padded row the way the detail
             # pane's is, and by the same `hlrow`, which lays the background
             # under everything the row carries - a search hit keeps its own.
-            on && (styled = hlrow(rowpad(styled, liw), THEME.cursor_bg))
+            #
+            # And in the hue of the border with the keys while they are here,
+            # grey while they are not: the border is where the eye is not, and
+            # the cursor is where it is - so the bar is what says, at a glance,
+            # whether `j` moves this list or the thread (2026-11-06).
+            on && (styled = hlrow(rowpad(styled, liw),
+                                  quiet ? THEME.cursor_bg : THEME.cursor_active_bg))
             # The whole list quieter while the keys are on the other side, on
             # top of everything else: the lit border says which side has them,
             # and a screen of equal weight had to be read for it.

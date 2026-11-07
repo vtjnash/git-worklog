@@ -524,7 +524,9 @@ you were; a dialog answers a question and hands the keys back.
 **The side without the focus gets no keys.** Which keys belong to which side
 is answerable by looking at which side is lit - the border in `active`, a hue
 and not a weight, since bold against dim was a contrast that took a look to
-judge on a washed-out monitor (2026-11-06), and the list as
+judge on a washed-out monitor (2026-11-06); the cursor bar on that side in
+`cursor_active_bg`, a tint of the same hue, and the other side's in
+`cursor_bg`'s grey, since the eye is on the cursor and not the border; and the list as
 a whole, drawn in `quiet` while the keys are on the reading side, its unread
 rows in `quiet_bold` rather than `bold` (a 256-colour theme's `bold` carries
 the full foreground, and `bold` over the `dim` attribute is the pair
