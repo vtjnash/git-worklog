@@ -157,7 +157,8 @@ const TERM_DARK = Ref{Union{Nothing,Bool}}(nothing)
 #
 # Decoding is `TermInput`'s `readevent`, which also reads the scheme and
 # background reports as `SchemeEvent`s. What is here is the other way in: the
-# bytes undecoded, for a view that forwards them, with those reports taken out.
+# bytes undecoded, for a view that forwards them, with those reports taken out -
+# and the focus and X10 mouse reports, which say the mouse needs asking for again.
 
 """Read what is there, without looking at any of it.
 
@@ -176,12 +177,12 @@ function readraw(io::IO)
     # as `readevent` does for any sequence: the report is ours whenever it
     # arrives, and its head alone would have gone to the child. What stops
     # being able to become one goes on as the bytes it is.
-    while occursin(REPORT_UNFINISHED, String(copy(buf)))
+    while occursin(REPORT_UNFINISHED, String(copy(buf))) || x10_unfinished(buf)
         push!(buf, read(io, UInt8))
         n = bytesavailable(io)
         n > 0 && append!(buf, read(io, n))
     end
-    scheme_in(buf)
+    modes_in(buf)
 end
 
 """A read that ends partway into a report `scheme_in` takes: `ESC [ ?` and
@@ -190,6 +191,58 @@ terminator. Not a bare `ESC` or `ESC [`, which are keys: Escape, and the head
 of every arrow, arrive in one write and are never held for a report."""
 const REPORT_UNFINISHED =
     r"\e(?:\[\?(?:9(?:9(?:7(?:;[12]?)?)?)?)?|\](?:1(?:1(?:;[\x21-\x7e]{0,100}\e?)?)?)?)$"
+
+"""A read that ends partway into an X10 mouse report: `ESC [ M` and fewer than
+the three bytes behind it, none of them an `ESC`, which no byte of one is. Not
+a pattern, since those bytes are any byte at all and a `Regex` matches no byte
+that is not UTF-8. `ESC [ M` is no key, so holding it holds nothing back."""
+function x10_unfinished(buf::Vector{UInt8})
+    n = length(buf)
+    for k in 0:2
+        i = n - k - 2                   # where its `ESC` would be
+        i >= 1 || break
+        buf[i] == 0x1b && buf[i+1] == UInt8('[') && buf[i+2] == UInt8('M') &&
+            !in(0x1b, view(buf, i+3:n)) && return true
+    end
+    false
+end
+
+"""A raw read with the reports taken out that say the terminal's modes were put
+back behind us: an X10 mouse report, which arrives once the SGR encoding is
+lost, and a focus report, which xterm.js sends whenever a replay sets the mode
+again. Neither is the child's - a child that asked for the mouse is sent SGR by
+`retarget_mouse`, and the focus reports were asked for here - and an X10
+report's three bytes would be keys to it, printed by a shell. Either comes back
+as `TermInput`'s event for it, `LegacyMouseEvent` or `FocusEvent`, with what is
+left of the read as its `rest`, for the loop to re-arm the mouse and pass the
+rest on through `scheme_in`; a read with neither is `scheme_in`'s.
+
+The X10 report is taken out byte by byte, as `readevent` reads it: its three
+bytes are any byte at all, and a `Regex` matches no byte that is not UTF-8. One
+short of its bytes ends at the `ESC` after it, as there."""
+function modes_in(buf::Vector{UInt8})
+    rest, x10, i, n = UInt8[], false, 1, length(buf)
+    while i <= n
+        if buf[i] == 0x1b && i + 2 <= n && buf[i+1] == UInt8('[') && buf[i+2] == UInt8('M')
+            x10 = true
+            i += 3
+            j = 0
+            while j < 3 && i <= n && buf[i] != 0x1b
+                i += 1; j += 1
+            end
+        else
+            push!(rest, buf[i]); i += 1
+        end
+    end
+    s = String(copy(rest))
+    f = nothing
+    for x in eachmatch(FOCUS_REPORT, s)
+        f = x
+    end
+    f === nothing && !x10 && return scheme_in(buf)
+    f === nothing && return LegacyMouseEvent(rest)
+    FocusEvent(f[1] == "I", Vector{UInt8}(codeunits(replace(s, FOCUS_REPORT => ""))))
+end
 
 """A raw read as the event it is: the colour-scheme report and the background
 colour are ours and not the child's, and are taken out of the bytes with
@@ -406,6 +459,26 @@ menu_press(::Any) = false
 "The mouse reporting turned off and on again, while it is on; see `menu_press`."
 rearm_mouse!(ctrl::Controller) =
     ctrl.term.mouse && write(ctrl.term, string(mouse_reporting(false), mouse_reporting(true)))
+
+"""The event after a sign that the terminal's modes were put back behind us,
+which is answered here: the mouse asked for again (`rearm_mouse!`), and what
+else the read held - a pane's raw input - passed on through `scheme_in`, or
+`nothing`. Any other event is itself.
+
+VS Code, reattaching a session, replays the mouse tracking mode and not the
+SGR encoding, so every click after it came as X10 - three bytes of keys, a
+space for the press and a `#` for the release, and an `m` in column 77 that
+turned the mouse off. The signs are a report in that encoding
+(`LegacyMouseEvent`), which costs the one click, and a focus report
+(`FocusEvent`), which xterm.js sends when the replay sets the focus mode
+again, before any click at all."""
+function restored!(ctrl::Controller, ev)
+    # A branch each, as in `safe_dispatch!`, so `rest` is read off a known type.
+    rest = ev isa FocusEvent ? ev.rest : ev isa LegacyMouseEvent ? ev.rest : nothing
+    rest === nothing && return ev
+    rearm_mouse!(ctrl)
+    isempty(rest) ? nothing : scheme_in(rest)
+end
 
 """Is this view a dialog, or a place?
 
@@ -658,7 +731,7 @@ function run!(ctrl::Controller, root::View)
     # next, which every common prompt does. What it says is set per frame,
     # below. Bracketed paste is on for the whole run, so a paste is text.
     ctrl.term = enter_terminal(ctrl.term.in, ctrl.term.out; altscreen = true,
-                               title = true, mouse = true, paste = true)
+                               title = true, mouse = true, paste = true, focus = true)
     # Asked and not waited for: the answer is an event like any other, and a
     # terminal that does not know the question says nothing at all.
     write(ctrl.term, scheme_reports(true))
@@ -760,6 +833,7 @@ function run!(ctrl::Controller, root::View)
                 dirty = true
             else
                 armed = false
+                ev = restored!(ctrl, ev)
                 if ev isa SchemeEvent
                     if ev.dark !== nothing
                         scheme!(ctrl, ev.dark)

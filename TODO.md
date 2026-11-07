@@ -20,6 +20,16 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
 
 ## Unverified
 
+- [ ] **A reattached VS Code terminal keeps the mouse.** In VS Code with wl
+  open, *Developer: Reload Window* (or let Remote-SSH reconnect). Back in
+  the terminal, without pressing anything, click a row in the list, at a
+  column past 77 as well: the cursor lands where clicked, no stray keys act,
+  the mouse stays on (no `mouse off` in the status line), and a drag
+  selects. Then the same in a `t` pane running `cat -A`: a drag is copy
+  mode, and nothing of `^[[M` is printed. Before, every click after a
+  reattach came as X10 - VS Code's restore replays `?1002h` and not
+  `?1006h` - until `m` was pressed twice (2026-11-07).
+
 - [ ] **A hunk says its function under the header, and stays named on the
   top row.** Under `d`, each hunk's header `file  @@ 12,5 @@  +3 -1` has
   the function git names over it on the row below, in the column the

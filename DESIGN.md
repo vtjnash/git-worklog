@@ -1625,6 +1625,28 @@ Each of the following returns success and the wrong answer:
   is `1 << 32`. Starting the key range at `0x110000` let a malformed
   four-byte sequence assemble to `K_LEFT`; rejecting non-codepoints is wrong,
   because Julia does not need a decoder to throw anything away.
+- **A terminal can lose the mouse's encoding and keep the mouse, so the
+  mouse is asked for again on the signs of it.** VS Code, reattaching a
+  session (a reload, a Remote-SSH reconnect), replays the modes its pty
+  host's xterm saved, and `SerializeAddon` saves the tracking mode
+  (`?1002h`) and not the encoding: xterm.js's `modes` has no field for it.
+  Every click after came as X10, `CSI M` and three raw bytes - the one
+  report whose data follows its final byte, so `readevent` ended it at the
+  `M`, a well-formed DL, and the bytes were keys: a space each press, a `#`
+  each release, `m` for column 77, which turned the mouse off. In a pane
+  they went to the child as they came, and `cat -A` printed them
+  (2026-11-07). TermInput reads one whole, as a `LegacyMouseEvent`, never
+  decoded; `modes_in` takes it out of a pane's raw input; and `restored!`
+  answers it with `rearm_mouse!`, which costs the one click. Focus reports
+  (`?1004`) are on for the run because xterm.js answers the mode being *set*
+  with the focus as it is, so the replay itself says so before any click,
+  and either report re-arms. Not the mouse off on focus-out: with tracking
+  off xterm.js turns the wheel into arrow keys on the alternate screen, the
+  click that focuses would be its selection rather than ours, and a lost
+  focus-in would leave the mouse off with nothing to say so. Not in
+  TermIFrame's `retarget_mouse` either: it rewrites SGR and passes the rest
+  on, and a host may mean raw bytes to reach tmux as they came - taking
+  them out is the host's, which here is `modes_in`.
 - `REPL.TerminalMenus.readkey` cannot see a mouse report and drops any
   sequence it does not know as a bare `Escape`. `readevent` consumes what it
   cannot parse, as `K_NONE`. Three spellings of Alt-arrow are decoded.

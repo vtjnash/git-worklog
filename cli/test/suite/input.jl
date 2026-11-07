@@ -181,6 +181,63 @@ end
     @test isempty(take!(buf))                                  # `m` gave it back
 end
 
+@testset "a terminal that lost the mouse's encoding is asked again" begin
+    # VS Code reattaching a session puts the drag tracking back and not the SGR
+    # encoding, so clicks come as X10: `ESC [ M` and three raw bytes. In a
+    # pane's raw input they are taken out - a shell printed them, and a column
+    # byte can be any key - and the report is the event that re-arms.
+    b(xs...) = UInt8[x isa Char ? UInt8(x) : x for x in xs]
+    ev = W.modes_in(b('a', 0x1b, '[', 'M', ' ', 0x92, 'G', 0x1b, '[', 'M', '#', 0xc5, 'G', 'z'))
+    @test ev isa W.LegacyMouseEvent && ev.rest == b('a', 'z')
+    # One short of its bytes takes nothing of the sequence after it.
+    ev = W.modes_in(Vector{UInt8}(codeunits("\e[M G\e[Aq")))
+    @test ev isa W.LegacyMouseEvent && String(copy(ev.rest)) == "\e[Aq"
+    # The focus a replay reports, taken out as well, with the last one said.
+    ev = W.modes_in(Vector{UInt8}(codeunits("x\e[Oy\e[I")))
+    @test ev isa W.FocusEvent && ev.focused && String(copy(ev.rest)) == "xy"
+    # Neither is `scheme_in`'s, and a scheme report beside one is left for it.
+    @test W.modes_in(Vector{UInt8}(codeunits("\e[<0;4;5M"))) isa W.RawEvent
+    ev = W.modes_in(Vector{UInt8}(codeunits("\e[I\e[?997;1n")))
+    @test ev isa W.FocusEvent && W.scheme_in(ev.rest) isa W.SchemeEvent
+
+    # A read that ends inside one waits for its bytes, as for any of our
+    # reports, and a report whole is not waited on.
+    @test W.x10_unfinished(b(0x1b, '[', 'M')) && W.x10_unfinished(b('a', 0x1b, '[', 'M', ' ', 0xc5))
+    @test !W.x10_unfinished(b(0x1b, '[', 'M', ' ', 0xc5, 'G'))
+    @test !W.x10_unfinished(b(0x1b, '[', 'M', ' ', 0x1b)) && !W.x10_unfinished(b(0x1b, '['))
+    io = Base.BufferStream()
+    write(io, b(0x1b, '[', 'M', ' '))
+    t = @async W.readraw(io)
+    sleep(0.1)
+    @test !istaskdone(t)
+    write(io, b(0xc5, 'G', 'j'))
+    ev = fetch(t)
+    @test ev isa W.LegacyMouseEvent && ev.rest == b('j')
+
+    # Either report, decoded or raw, turns the mouse off and on, and what else
+    # the read held goes on to the view - a scheme report still as one.
+    buf = IOBuffer()
+    held = W.Controller(W.enter_terminal(IOBuffer(), buf; mouse = true, focus = true))
+    take!(buf)
+    again = string(W.mouse_reporting(false), W.mouse_reporting(true))
+    @test W.restored!(held, W.readevent(IOBuffer("\e[M \x22G"))) === nothing
+    @test String(take!(buf)) == again
+    @test W.restored!(held, W.readevent(IOBuffer("\e[I"))) === nothing
+    @test String(take!(buf)) == again
+    ev = W.restored!(held, W.modes_in(Vector{UInt8}(codeunits("\e[Oq"))))
+    @test ev isa W.RawEvent && ev.bytes == UInt8['q'] && String(take!(buf)) == again
+    ev = W.restored!(held, W.modes_in(Vector{UInt8}(codeunits("\e[I\e[?997;2n"))))
+    @test ev isa W.SchemeEvent && ev.dark === false
+    take!(buf)
+    # Anything else is itself, and nothing is written for it.
+    k = W.KeyEvent(Int('m'))
+    @test W.restored!(held, k) === k && isempty(take!(buf))
+    # With the mouse given back by `m`, a report re-arms nothing.
+    held.term.mouse = false
+    @test W.restored!(held, W.readevent(IOBuffer("\e[I"))) === nothing
+    @test isempty(take!(buf))
+end
+
 @testset "the terminal says dark or light, and the theme follows" begin
     # The report is an event of its own - `readevent`'s, which TermInput
     # tests, and from the raw path here, where it is taken out of a pane's

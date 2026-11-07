@@ -72,9 +72,10 @@ import TermInput: settext!, curline, insertblock!, dialogbox, centred, tablerows
 # them. Called `Styled` here, since a `Row` is the detail pane's own.
 import TermInput: Row as Styled, row, rowhead, rowtail, rowlines, rowwraplines,
     rowvpad, rowrstrip, overlaid, linked
-# And the two reports `readevent` decodes, as patterns, which `scheme_in` takes
-# out of a pane's undecoded input; and the question that asks for the second.
-import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT
+# And three reports `readevent` decodes, as patterns, which `scheme_in` and
+# `modes_in` take out of a pane's undecoded input; and the question that asks
+# for the second.
+import TermInput: BG_QUERY, SCHEME_REPORT, BG_REPORT, FOCUS_REPORT
 # And what `enter_terminal` returns: the controller's terminal, entered while it
 # runs, and where everything the program draws is written.
 import TermInput: HeldTerminal
