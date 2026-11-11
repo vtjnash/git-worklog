@@ -1165,14 +1165,24 @@ dated by them alone a pull request opened after its source's floor arrived
 read, while the thread called all of it new (libuv#5301). Your own opening
 is no movement, but that is `opened_by_you`'s to say, not this. Every one of
 these is GitHub's time, so a rebuilt `fetched.json` still does not read as
-everything moving at once."""
+everything moving at once.
+
+**And not `updated`**, which a label moves, while there is anything else to
+go by: an issue with no comment is the case, which `activity_at` dates by
+`updated` for want of a push or a comment. A light row from before its
+floor that somebody labelled is asked by url for exactly this answer (the
+`stirred` rows in `refresh`); dated by the label, it would come back as
+unread with nothing to read as the poll had left it. Only a row with none
+of these at all is dated by `updated`."""
 function first_seen_at(r)
-    best = something(activity_at(r), "")
-    best = max(best, jstr(r, :created, ""))
+    best = jstr(r, :created, "")
+    for t in (jstr(r, :head_at, ""), jstr(r, :last_comment_at, ""))
+        best = max(best, t)
+    end
     for k in values(TIMED_KEYS)
         best = max(best, jstr(r, Symbol(k), ""))
     end
-    best
+    isempty(best) ? jstr(r, :updated, "") : best
 end
 
 """Is this row's arrival your own doing, and nothing since anybody else's?
@@ -1611,7 +1621,8 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
     #   * a row of a watched repository's traffic, `subscribed` or the poll's
     #     own: **not here**. It stays a light row in the inbox, shown by the
     #     browser as such, until it is looked at - `fetch_bundle` - or a lane
-    #     returns it.
+    #     returns it. Unless it is **stirred**: opened before its source's
+    #     floor and `updated` past it, below.
     #
     # **Nothing leaves.** The corpus is the index of everything that was ever
     # in front of you, done or not, and a row in it is kept for good: read
@@ -1656,6 +1667,34 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
         ask[url] = jstr(e, :lane, "notifications")
         brought += 1
     end
+    # **A light row from before its floor that stirred is asked once.** A
+    # light row has no wake table, so `updated` is its movement, and a label
+    # moves `updated`: julia#37822, labelled eight years on, was unread until
+    # it was opened and the bundle dated it back under the floor. A row
+    # opened *after* the floor is unread whatever stirred it - its opening
+    # is a movement past the floor - and a label only says when; so only one
+    # opened at or before it can be unread with nothing to read, and that is
+    # the one asked, once: the answer is a corpus row, whose wake table says
+    # from then on and which no label moves. About one a day on julia's
+    # traffic. `quiet_closed` keeps most closed ones from stirring at all;
+    # this is the open ones, a comment edited or deleted, and the rows that
+    # arrived before it was there.
+    stirred = 0
+    let sources = source_since()
+        for (url, e) in inbox
+            (haskey(items, url) || haskey(ask, url)) && continue
+            startswith(url, "https://") || continue
+            lane = jstr(e, :lane, "activity")
+            fl = floor_of(lane, jstr(e, :repo, ""), sources)
+            created = jstr(e, :created, "")
+            (fl === nothing || isempty(created) || created > fl) && continue
+            jstr(e, :updated, "") > fl || continue
+            ask[url] = lane
+            stirred += 1
+        end
+    end
+    stirred == 0 || @printf(report(), "  %-9s %3d light rows opened before their floor moved past it, asked once\n",
+                            "stirred", stirred)
     # **A mark is proof it was in front of you.** A watched repository's
     # thread stays a light row in the inbox until it is looked at - and the
     # inbox is a clock, not a place: a light row you opened, or pressed `e`
@@ -1736,9 +1775,9 @@ function refresh_(args::Vector{String}, at_::Union{Nothing,DateTime};
         end
         # A thread the token cannot see is asked and not answered, and has no
         # row to keep; it stays a light row, and is asked again while unread.
-        @printf(report(), "  %-9s %3d items fetched: %d moved, %d threads new here%s (of %d asked%s)\n",
-                "by url", got, length(ask) - brought - marked, landed,
-                landed == brought ? "" : " of $brought asked", length(ask),
+        @printf(report(), "  %-9s %3d items fetched: %d moved, %d rows new here%s (of %d asked%s)\n",
+                "by url", got, length(ask) - brought - stirred - marked, landed,
+                landed == brought + stirred ? "" : " of $(brought + stirred) asked", length(ask),
                 unanswered == 0 ? "" : "; $unanswered unanswered, kept as they were")
     end
     @printf(report(), "  %-9s %3d items no lane returns, kept or re-asked\n", "carried",

@@ -77,7 +77,13 @@ activity on yours, a thread you commented on - is fetched by url with its
 bundle the first time it is seen, whatever repository, open or closed. A
 watched repository's other traffic stays a **light row** (state, author,
 comment count; no bundle) until it is looked at. That is what reaches a
-question on an issue closed years ago, which no `is:open` search could. What
+question on an issue closed years ago, which no `is:open` search could. One
+kind is asked by url anyway, once: a light row opened before its source's
+floor whose `updated` has passed it (`stirred`). A light row's only clock is
+`updated`, which a label moves, and of the rows it moves only that kind can
+be unread with nothing to read - one opened after the floor is unread for
+its opening. The corpus row it becomes is read off its wake table from then
+on, and dated on first sight by anything but `updated` (`first_seen_at`). What
 no clock covers - a push, a label or a draft toggle on an open row of yours
 in a repository nobody polls, on a machine whose token cannot read
 notifications - is asked by url every refresh while it is open (`covered`).
@@ -358,7 +364,8 @@ The rules behind the table, each of which cost a bug:
   pull request closed months ago. Everything compares against `moved_at`; a
   light row has only `updated`, which is why the repo poll asks the
   repository's comment lists before writing one for a closed thing
-  (`quiet_closed`, GitHub 19 below).
+  (`quiet_closed`, GitHub 19 below), and why the refresh asks by url a
+  light row from before its floor that stirred (`stirred`, "The corpus").
 - **Not in the table, on purpose:** `mergeable`, `unresolved`, labels,
   milestones, title edits, ready-for-review (arrives with the request that
   follows), a team being asked (the token cannot see it).

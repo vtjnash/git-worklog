@@ -441,6 +441,12 @@ end
     @test W.first_seen_at(Dict{String,Any}("updated" => "2026-09-25T16:06:49Z",
         "created" => "2026-09-25T16:06:49Z",
         "head_at" => "2026-09-14T12:46:13Z")) == "2026-09-25T16:06:49Z"
+    # And not by `updated`, which a label moves, while anything else says:
+    # an issue with no comment, closed in August and labelled in November,
+    # last moved when it was closed.
+    @test W.first_seen_at(Dict{String,Any}("updated" => "2026-11-03T21:09:36Z",
+        "created" => "2026-07-01T00:00:00Z",
+        "state_at" => "2026-08-01T00:00:00Z")) == "2026-08-01T00:00:00Z"
 
     # A kept row is derived against itself, and nothing about it moves: the
     # mark stays, the carried keys stay, and only what depends on the clock -
@@ -869,6 +875,67 @@ end
         finally
             W.CACHE_DIR[] = keepdir
         end
+    finally
+        W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.Events._PAT[] = keeppat
+    end
+end
+
+@testset "a light row from before its floor that stirred is asked once" begin
+    # A light row's only clock is `updated`, and a label moves it: one opened
+    # before its source's floor and labelled after it was unread until it was
+    # opened, with nothing to read (julia#37822). The refresh asks it by url
+    # once, and its wake table answers from then on. One opened after the
+    # floor is unread whatever stirred it, and one that has not passed the
+    # floor is read by it; neither is asked.
+    keepi, keepm = W.FETCHED[], W.LOCAL[]
+    d = mktempdir()
+    W.FETCHED[] = joinpath(d, "fetched.json")
+    W.LOCAL[] = joinpath(d, "local.toml")
+    write(W.LOCAL[], "[\"source:o/r\"]\nsince = \"2026-09-01T00:00:00Z\"\n")
+    U(n) = "https://github.com/o/r/issues/$n"
+    node(n; kw...) = W.JSON.parse(W.json_dumps(merge(Dict{String,Any}(
+        "__typename" => "Issue", "url" => U(n), "number" => n, "title" => "t$n",
+        "createdAt" => "2026-07-01T00:00:00Z", "updatedAt" => "2026-09-13T10:00:00Z",
+        "closedAt" => "2026-08-01T00:00:00Z", "state" => "CLOSED",
+        "repository" => Dict("nameWithOwner" => "o/r"),
+        "author" => Dict("login" => "alice"), "milestone" => nothing,
+        "assignees" => Dict("nodes" => []),
+        "labels" => Dict("nodes" => [Dict("name" => "backport")]),
+        "timelineItems" => Dict("nodes" => [Dict("__typename" => "ClosedEvent",
+            "createdAt" => "2026-08-01T00:00:00Z", "actor" => Dict("login" => "bob"))]),
+        "comments" => Dict("nodes" => [])),
+        Dict{String,Any}(String(k) => v for (k, v) in kw))))
+    light(n, created, updated) = Dict{String,Any}("url" => U(n), "repo" => "o/r",
+        "number" => n, "title" => "t$n", "state" => "closed", "author" => "alice",
+        "created" => created, "updated" => updated, "comments" => 0)
+    keeppat = W.Events._PAT[]
+    try
+        W.Events._PAT[] = ("a person's token", "test")
+        W.save_fetched(Dict{String,Any}("items" => Dict{String,Any}()))
+        asked = String[]
+        byurl(urls) = (append!(asked, urls);
+                       W.OrderedDict{String,Any}(u => (u == U(1) ? node(1) : nothing) for u in urls))
+        clock(cfg, login, at) = [
+            light(1, "2026-07-01T00:00:00Z", "2026-09-13T10:00:00Z"),   # stirred
+            light(2, "2026-09-05T00:00:00Z", "2026-09-13T10:00:00Z"),   # new anyway
+            light(3, "2026-07-01T00:00:00Z", "2026-08-20T00:00:00Z")]   # under the floor
+        at = W.DateTime(2026, 9, 13, 12)
+        @test W.refresh(String[], at; search = q -> (Any[], 4, 0), fetch_url_map = byurl,
+                        poll = clock, open_list = (a...; kw...) -> []) == 0
+        @test asked == [U(1)]
+        its = W.fetched("items")
+        r = its[Symbol(U(1))]
+        # Dated by the close, not by the label, and so read by the floor.
+        @test r.lane == "activity" && r.moved_at == "2026-08-01T00:00:00Z"
+        m = W.Marks(done = W.load_done(), sources = W.source_since())
+        @test W.seen_of(W.item_of(W.JSON.parse(W.json_dumps(r))), m) === :done
+        @test !haskey(its, Symbol(U(2))) && !haskey(its, Symbol(U(3)))
+        # Once: a corpus row now, which the next stir asks only as a clock.
+        asked = String[]
+        @test W.refresh(String[], at + W.Hour(1); search = q -> (Any[], 4, 0),
+                        fetch_url_map = byurl, poll = (a...) -> Any[],
+                        open_list = (a...; kw...) -> []) == 0
+        @test isempty(asked)
     finally
         W.FETCHED[] = keepi; W.LOCAL[] = keepm; W.Events._PAT[] = keeppat
     end
