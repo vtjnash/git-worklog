@@ -325,6 +325,29 @@ end
     bare = W.Item(url = "local:o/r#wip", ref = "r#wip", repo = "o/r", number = 0,
                   title = "an adopted branch")
     @test !occursin("created", unstyled(join(W.meta_lines(st, bare, 44), "\n")))
+    # When it last moved, beside when GitHub last touched it, and what the
+    # movement was: julia#64504 was merged on the 31st and unlabelled on the
+    # 4th, and sorted by the merge while the pane said only the label's date.
+    # The key the refresh kept says what it was; `new` says only that the row
+    # arrived, and the key whose time is the stamp says it instead.
+    pr1 = (url = "https://github.com/o/r/pull/1", ref = "r#1", repo = "o/r",
+           number = 1, title = "merged, then relabelled", is_pr = true,
+           state = "MERGED", state_at = "2026-10-31T14:31:57Z",
+           moved_at = "2026-10-31T14:31:57Z", moved_by = "new",
+           updated = "2026-11-04T19:50:37Z", created = "2026-10-31T04:17:24Z")
+    merged = W.Item(; pr1...)
+    said = unstyled.(W.meta_lines(st, merged, 60, W.ts("2026-11-07T00:00:00Z")))
+    mv = findfirst(l -> startswith(l, "moved "), said)
+    up = findfirst(l -> startswith(l, "updated "), said)
+    @test mv !== nothing && up !== nothing && mv < up
+    @test occursin("2026-10-31 14:31", said[mv]) && occursin("merged", said[mv])
+    @test occursin("2026-11-04 19:50", said[up])
+    pushed = W.Item(; pr1..., moved_by = "their_head", head_at = "2026-10-31T14:31:57Z",
+                    head_by = "someone")
+    @test occursin("pushed", W.last_moved_word(pushed))
+    # A light row has no movement but `updated`, and says only that.
+    light = W.Item(; pr1..., moved_at = "", moved_by = "")
+    @test !any(l -> startswith(l, "moved "), unstyled.(W.meta_lines(st, light, 60)))
     # Per-person review state needs a request; until it lands, it says so.
     @test st.meta === nothing
     it.is_pr && @test occursin("reviews", plain)

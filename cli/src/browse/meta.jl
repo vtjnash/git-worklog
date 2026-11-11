@@ -362,13 +362,7 @@ function table_words(it::Item, m::Marks)
     evs = Tuple{String,String}[]          # (when, word), to sort newest first
     keys = get(TRACK_KEYS, it.track, TRACK_KEYS["normal"])
     for k in keys
-        t = k == "their_head" ? (it.head_by == login() ? "" : it.head_at) :
-            k == "their_comment_at" ? it.their_comment_at :
-            k == "human_comment_at" ? it.human_comment_at :
-            k == "review_at" ? it.review_at :
-            k == "review_requested_at" ? it.review_requested_at :
-            k == "assigned_at" ? it.assigned_at :
-            k == "state_at" ? it.state_at : ""
+        t = key_at(it, k)
         isempty(t) || t <= stamp || push!(evs, (t, moved_word(k, it)))
     end
     moved = opened ? "" : something(moved_of(it), "")
@@ -382,6 +376,31 @@ function table_words(it::Item, m::Marks)
     isempty(evs) && return moved > stamp ? [isempty(it.moved_at) ? "updated" : "moved"] : String[]
     sort!(evs; by = first, rev = true)
     unique!(last.(evs))
+end
+
+"""The time on the item of one key of the wake table, or `""`: a push only
+while the head is theirs, and a bool, which has no time, never."""
+key_at(it::Item, k::AbstractString) =
+    k == "their_head" ? (it.head_by == login() ? "" : it.head_at) :
+    k == "their_comment_at" ? it.their_comment_at :
+    k == "human_comment_at" ? it.human_comment_at :
+    k == "review_at" ? it.review_at :
+    k == "review_requested_at" ? it.review_requested_at :
+    k == "assigned_at" ? it.assigned_at :
+    k == "state_at" ? it.state_at : ""
+
+"""What the last movement was, in the pane's words, for the `moved` row: the
+key the refresh kept beside the stamp (`moved_by`), else - where that says
+only that the row arrived, `new`, or says nothing - the key of the table
+whose time is the stamp. `""` when neither can say."""
+function last_moved_word(it::Item)
+    by = it.moved_by
+    isempty(by) || by in ("new", "opened") || return moved_word(by, it)
+    for k in get(TRACK_KEYS, it.track, TRACK_KEYS["normal"])
+        t = key_at(it, k)
+        !isempty(t) && t == it.moved_at && return moved_word(k, it)
+    end
+    ""
 end
 
 "The CI state as the mergeable row repeats it, or nothing for no CI."
@@ -526,8 +545,16 @@ function meta_lines(st::BState, it::Union{Nothing,Item}, w::Int,
     # `updated` is GitHub's own, so a label edit moves it. That is a different
     # fact from `moved_at` - somebody else's push, comment or review - and the
     # lists are ordered by that precisely because this one moves for things
-    # nobody did.
+    # nobody did. So both are said, the movement first and with what it was:
+    # a row that sorts six days back while GitHub says two is otherwise a
+    # puzzle with half its pieces off the screen. A light row has no
+    # movement but `updated`, and says only that.
     kv("created", when_str(it.created, at))
+    if !isempty(it.moved_at)
+        what = last_moved_word(it)
+        kv("moved", when_str(it.moved_at, at) *
+                    (isempty(what) ? row("") : "  " * faced(what, THEME.dim)))
+    end
     kv("updated", when_str(it.updated, at))
     kv("milestone", string(it.milestone,
                            isempty(it.milestone_due) ? "" : string("  (", it.milestone_due, ")")))
