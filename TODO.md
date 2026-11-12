@@ -18,6 +18,33 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
     #16 0x00007a8262449318 in rows () at /home/vtjnash/git-worklog/cli/src/browse/markdown.jl:652
     #17 julia_detail_pane_0 () at /home/vtjnash/git-worklog/cli/src/browse/frame.jl:47
 
+- [ ] **`p` on a stacked pull request whose base was rebased shows the
+      base's old commit as `gone`.** julia#63576 (2026-11-09): the old side
+      is `base_sha..done_head`, and the base pull request's commit as it
+      stood at the mark is not in today's base - it was rewritten - so it
+      counts as this pull request's. Recomputing the old side against the
+      new base should be about as accurate as recording the base's sha
+      beside `done_head` at `e`, and needs nothing stored: drop each old
+      commit whose patch is in the new base (`git rev-list --cherry-pick
+      --right-only base...old`, or `git cherry`), and measure the old side
+      from the last commit dropped. Doing that misses only a base commit
+      that was changed, not just moved, by its rebase.
+
+- [ ] **Closing a `t`/`T` session offers to give the copy back.** When `q`
+      ends the session, offer to check out the base there, `origin/master`
+      (`repo_default` through `base_name`, not `origin/HEAD`), which
+      effectively unpins the copy from the item: no branch of the pull
+      request is checked out there, so the next `t`/`T` on any item can
+      take the copy without a takeover. That mostly matters for a pull
+      request that has closed or merged, whose branch is going nowhere.
+- [ ] **A checkout of a pull request whose branch is gone is rebuilt from
+      its sha.** `gh pr checkout` often fails once the head branch has been
+      deleted on the remote, after a close or a merge - the same cause as
+      `p`'s stale base (`ensure_base!`). The head is still served by sha,
+      or as `refs/pull/N/head` (`ensure_commit!`), so `checkout_pr_line`
+      can fall back to fetching that and making the branch at `headRefOid`
+      when gh's checkout fails.
+
 ## Unverified
 
 - [ ] **A reattached VS Code terminal keeps the mouse.** In VS Code with wl

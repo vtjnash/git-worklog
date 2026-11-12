@@ -606,7 +606,8 @@ end
 "What a branch name may look like before it is written into a refspec."
 const REF_OK = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$"
 
-"""Bring the base branch up to date locally, and answer with the ref holding it.
+"""Bring the base up to date locally, and answer with what to measure from:
+its sha, or the ref holding it.
 
 The merge base is measured against this, so a stale copy is a wrong answer
 rather than merely an old one: every commit the base has gained since this
@@ -617,13 +618,45 @@ checkout - which is the same order as the two head fetches beside it.
 An explicit refspec, so what moves is the remote-tracking ref. `FETCH_HEAD`
 would be fresher and is a single file shared by every worktree of the
 repository, which two of these running at once would tear.
+
+**The base's sha beats its ref.** `sha` is the item's `base_sha` -
+`baseRefOid`, where GitHub saw the base in the same answer the head came
+in - so the two heads and it agree by construction, and a sha the checkout
+has costs no round trip at all. A ref is only as good as its last fetch,
+and it can be a stale copy of a branch that is not there any more: a stacked
+pull request's base is another pull request's branch, merging the stack
+deletes it, and the tracking ref nothing prunes kept julia#63576's
+`adienes/unsafe-memoryref-access` as a fetch a month before saw it, ahead
+of a rebase over master - so `p` reported every commit master gained in
+between as pushed (2026-11-09). A deleted branch keeps its `baseRefOid`.
+
+So the sha when there is one: fetched with its branch when it is not here,
+which is where it normally is, and by itself when the branch is gone. The
+ref only without one - a record from before the lanes carried it, or a sha
+neither fetch brought - and never the copy of a branch the remote says it
+has not got (`:missing`); then `""`, and the merge base of the heads is the
+guess.
 """
-function ensure_base!(path, repo::AbstractString, base::AbstractString)
-    # No network, no such branch, no such remote: whatever is already here is
-    # still worth measuring against - it is only ever too old, never wrong
-    # about which commits are the base's.
-    fetch_base!(path, repo, base)
-    base_ref(path, repo, base)
+function ensure_base!(path, repo::AbstractString, base::AbstractString;
+                      sha::AbstractString = "")
+    # Checked as a sha, since it goes to git as an argument.
+    sha = match(r"^[0-9a-f]{40}$", sha) === nothing ? "" : String(sha)
+    !isempty(sha) && have_commit(path, sha) && return sha
+    st = fetch_base!(path, repo, base)
+    if !isempty(sha)
+        # By sha alone, which GitHub serves for a commit no branch holds any
+        # more (`ensure_commit!`).
+        have_commit(path, sha) || try
+            git(path, "fetch", "--quiet", "--no-write-fetch-head", "--no-auto-gc",
+                remote_for(path, repo), sha)
+        catch
+        end
+        have_commit(path, sha) && return sha
+    end
+    # No network, no such remote: whatever is already here is still worth
+    # measuring against - it is only ever too old, never wrong about which
+    # commits are the base's. No such branch is the other thing.
+    st === :missing ? "" : base_ref(path, repo, base)
 end
 
 """The round trip of [`ensure_base!`](@ref) alone: `:fetched` when the base

@@ -684,6 +684,87 @@ end
     end
 end
 
+@testset "p measures a stacked pull request whose base went with the stack" begin
+    # julia#63576 (2026-11-09): based on another pull request's branch, which
+    # the stack's merge deleted. The tracking ref still held that branch as a
+    # fetch a month before saw it, ahead of a rebase over master, and every
+    # commit master gained in between came out as pushed.
+    keep = W.LOCAL[]
+    W.LOCAL[] = fresh_local()
+    root = mktempdir()
+    try
+        main = joinpath(root, "main"); mkpath(main)
+        g(a...) = W.git(main, a...)
+        g("init", "--quiet", "--initial-branch=master", ".")
+        g("config", "user.email", "t@e.com"); g("config", "user.name", "t")
+        lines(x, y) = join(vcat(["line $i" for i in 1:20], [x], ["line $i" for i in 21:40],
+                                [y], ["line $i" for i in 41:60]), "\n")
+        write(joinpath(main, "f.txt"), lines("a", "b"))
+        g("add", "f.txt"); g("commit", "--quiet", "-m", "base")
+        m0 = strip(g("rev-parse", "HEAD"))
+        bare = joinpath(root, "o.git"); g("init", "--quiet", "--bare", bare)
+        g("remote", "add", "origin", bare)
+        # The stack: its base pull request's commit, then this one's.
+        g("checkout", "--quiet", "-b", "stackbase")
+        write(joinpath(main, "f.txt"), lines("A", "b")); g("commit", "--quiet", "-am", "the base pr")
+        g("push", "--quiet", "origin", "master", "stackbase")
+        write(joinpath(main, "f.txt"), lines("A", "B")); g("commit", "--quiet", "-am", "this pr")
+        old = strip(g("rev-parse", "HEAD"))
+        # Master moves ten commits, and the stack is rebased onto it.
+        g("checkout", "--quiet", "master")
+        for i in 1:10
+            write(joinpath(main, "m.txt"), string("master ", i))
+            g("add", "m.txt"); g("commit", "--quiet", "-m", "master work $i")
+        end
+        g("checkout", "--quiet", "--detach")
+        write(joinpath(main, "f.txt"), lines("A", "b")); g("commit", "--quiet", "-am", "the base pr")
+        b1 = strip(g("rev-parse", "HEAD"))
+        write(joinpath(main, "f.txt"), lines("A", "BB")); g("commit", "--quiet", "-am", "this pr")
+        newh = strip(g("rev-parse", "HEAD"))
+        g("checkout", "--quiet", "master")
+        g("push", "--quiet", "origin", "master")
+        # The stack merged, and its base branch with it is gone from the
+        # remote; the tracking ref here is the copy from before the rebase.
+        g("push", "--quiet", "origin", "--delete", "stackbase")
+        g("update-ref", "refs/remotes/origin/stackbase", strip(g("rev-parse", "stackbase")))
+        @test W.fetch_base!(main, "o/r", "stackbase") === :missing
+        W.save_repo!("o/r", ["worktree" => main])
+
+        u = "https://github.com/o/r/pull/5"
+        W.set_done_mark(u, "2026-10-05T00:00:00Z", old)
+        it = W.Item(url = u, ref = "r#5", repo = "o/r", number = 5, title = "t",
+                    head = newh, base = "stackbase", base_sha = b1)
+        # Measured from where GitHub last saw the base: the ten are a number
+        # in the header, not rows.
+        ns = W.pushed_nodes(it)
+        @test occursin("onto 11 newer commits", unstyled(ns[1].header))
+        @test !any(n -> occursin("master work", unstyled(n.header)), ns)
+        @test any(n -> occursin("this pr", unstyled(n.header)), ns)
+        @test occursin(string("`stackbase` at `", first(b1, 8), "`"), ns[1].raw)
+        @test W.ensure_base!(main, "o/r", "stackbase"; sha = b1) == b1
+        # Without a sha the stale copy is still not the answer; the heads'
+        # merge base is the guess, and says so.
+        @test W.ensure_base!(main, "o/r", "stackbase") == ""
+        ns = W.pushed_nodes(W.Item(url = u, ref = "r#5", repo = "o/r", number = 5,
+                                   title = "t", head = newh, base = "stackbase"))
+        @test occursin("no base branch to measure from", ns[1].raw)
+        # The sha beats the ref even for a branch the remote still has: it
+        # came with the head, and the ref is only as good as its last fetch.
+        # Without one, the fresh copy.
+        @test W.ensure_base!(main, "o/r", "master"; sha = b1) == b1
+        @test W.ensure_base!(main, "o/r", "master") == "refs/remotes/origin/master"
+        # A sha the checkout has not got is fetched by itself when the branch
+        # that held it is gone.
+        clone = joinpath(root, "clone")
+        W.git(root, "clone", "--quiet", bare, clone)
+        @test !W.have_commit(clone, b1)
+        g("push", "--quiet", "origin", string(b1, ":refs/keep/b1"))
+        @test W.ensure_base!(clone, "o/r", "stackbase"; sha = b1) == b1
+    finally
+        W.LOCAL[] = keep
+    end
+end
+
 @testset "a second p or d picks what to compare" begin
     keep = W.LOCAL[]
     W.LOCAL[] = fresh_local()

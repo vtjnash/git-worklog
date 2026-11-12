@@ -1178,6 +1178,14 @@ wrong reaches the screen unless it is corrected before the parse
   from `:failed`: a remote that answers and has no branch of the name says
   the *name* is wrong, which `branch_diff` says rather than measuring from
   whatever local copy carries it.
+- **A base is measured from its sha, not its ref.** A stacked pull
+  request's base is another pull request's branch, and merging the stack
+  deletes it; the tracking ref nothing prunes kept julia#63576's base as a
+  fetch a month before a rebase saw it, and `p` listed everything master
+  gained in between as pushed (2026-11-09). `base_sha` came in the same
+  answer as the head, so the two agree by construction, and a deleted
+  branch keeps it. `ensure_base!` answers with it, fetched by branch or by
+  sha; the ref only where there is none, and never a `:missing` one.
 - **The project's copy of a name is not a fork's pull request from it.**
   `pr_branch_here` said `:local` for a fork's `master` because the local
   `master` tracks `origin/master`, and `git worktree add` then refused with

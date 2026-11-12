@@ -1821,7 +1821,7 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
     # merge base against it is what separates their commits from its own. Only
     # here: it is one more round trip, and it is worth it exactly when there is
     # a range to measure.
-    base = ensure_base!(repo, it.repo, it.base)
+    base = ensure_base!(repo, it.repo, it.base; sha = it.base_sha)
     mv = try
         branch_moved(repo, old, new; base = base)
     catch e
@@ -1863,8 +1863,13 @@ function pushed_nodes(it::Item; from::Union{Nothing,AbstractString} = nothing,
                        "meet, because this item has no base branch to measure " *
                        "from - so commits the base gained in between are counted " *
                        "here as pushed." :
-                       string("\n\nEach side is measured from `", base,
-                              "`, so the base's own commits are the number above ",
+                       string("\n\nEach side is measured from ",
+                              # A sha is the base where GitHub saw it with
+                              # the head, which is `ensure_base!`'s first
+                              # answer; a ref, its fallback.
+                              startswith(base, "refs/") ? string("`", base, "`") :
+                              string("`", it.base, "` at `", first(base, 8), "`"),
+                              ", so the base's own commits are the number above ",
                               "rather than rows in the list.")), :md, false)
     lead.meta["src"] = string(first(old, 8), " → ", first(new, 8))
     lead.meta["url"] = files_link(it)
