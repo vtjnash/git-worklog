@@ -23,7 +23,7 @@ login = ""
 # no entry; these are user accounts that run a program, which GitHub cannot
 # tell from a person. Without case, as GitHub compares logins. An array, so
 # one in `data/config.toml` is the whole list: copy these to add to them.
-bots = ["codecov-commenter", "coveralls", "llvmbot", "JuliaTagBot"]
+bots = ["codecov-commenter", "coveralls", "llvmbot"]
 
 # The file under `themes/` the colours come from. Empty, or a file that is
 # not there, draws everything plain, with no escapes printed at all. A
