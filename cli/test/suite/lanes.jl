@@ -360,17 +360,17 @@ end
     # what you said by hand wins.
     @test W.resolve_track(Dict{String,Any}(), Dict("state" => "MERGED", "mine" => true)) == "loose"
     # Whose it is decides the rest, which is the whole of "closely on mine, not
-    # on anyone else's": your own pull request wakes on a failing CI and on any
-    # comment, theirs wakes on a review, a human reply and a push and not on a
-    # bot or its CI.
+    # on anyone else's": your own pull request wakes on a failing CI, theirs
+    # on a review, a reply and a push and not on its CI - and neither on a
+    # bot's comment.
     yours = Dict{String,Any}("state" => "OPEN", "mine" => true)
     theirs = Dict{String,Any}("state" => "OPEN", "mine" => false)
     @test W.resolve_track(Dict{String,Any}(), yours) == "normal"
     @test W.resolve_track(Dict{String,Any}(), theirs) == "loose"
-    for k in ("ci_failed", "their_comment_at")
-        @test k in W.TRACK_KEYS["normal"] && !(k in W.TRACK_KEYS["loose"])
-    end
-    @test "human_comment_at" in W.TRACK_KEYS["loose"]
+    @test "ci_failed" in W.TRACK_KEYS["normal"] && !("ci_failed" in W.TRACK_KEYS["loose"])
+    # A comment is in both, and a bot's is nobody's at either.
+    @test "their_comment_at" in W.TRACK_KEYS["normal"] && "their_comment_at" in W.TRACK_KEYS["loose"]
+    @test !("human_comment_at" in W.TRACK_KEYS["loose"])
     # A review is in both, and it is a *time* rather than a verdict and a count:
     # the verdict only ever moves because a review arrived, and the arrival is
     # the thing that has a clock. So is a push, since 2026-09-12 - somebody

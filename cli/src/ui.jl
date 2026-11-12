@@ -50,7 +50,6 @@ Base.@kwdef struct Item
     head_at::String = ""
     head_by::String = ""
     their_comment_at::String = ""
-    human_comment_at::String = ""
     review_at::String = ""
     review_requested_at::String = ""
     assigned_at::String = ""
@@ -166,7 +165,6 @@ function item_of(@nospecialize(r))
             head_at = jstr(r, :head_at, ""),
             head_by = jstr(r, :head_by, ""),
             their_comment_at = jstr(r, :their_comment_at, ""),
-            human_comment_at = jstr(r, :human_comment_at, ""),
             review_at = jstr(r, :review_at, ""),
             review_requested_at = jstr(r, :review_requested_at, ""),
             assigned_at = jstr(r, :assigned_at, ""),

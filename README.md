@@ -384,12 +384,13 @@ makes it unread and the one thing that wakes a snooze early. Two levels:
 | level | default for | ignores |
 |---|---|---|
 | `normal` | your own unfinished work | nothing |
-| `loose` | everything else, and anything finished | a bot's comment; a stranger's CI |
+| `loose` | everything else, and anything finished | a stranger's CI |
 
-Both see a push, a human's comment, a review, a request, an assignment, a
-close or a merge - by somebody other than you. Not movement at any level, and
-never to be: your own actions, a label, a milestone, a title edit, a thread
-being resolved, a review request being withdrawn.
+Both see a push, a comment, a review, a request, an assignment, a close or a
+merge - by somebody other than you. Not movement at any level, and never to
+be: your own actions, a bot's comment, a label, a milestone, a title edit, a
+thread being resolved, a review request being withdrawn. A bot is a GitHub
+App (`name[bot]`), or an account named in `bots` in the configuration.
 
 ## Configuration
 

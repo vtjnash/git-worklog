@@ -460,7 +460,7 @@ end
         "labels" => String[], "head_sha" => "abc", "head_by" => "alice",
         "head_at" => "2026-09-10T10:00:00Z", "last_comment_at" => nothing,
         "last_comment_by" => nothing, "their_head" => "abc",
-        "their_comment_at" => nothing, "human_comment_at" => nothing,
+        "their_comment_at" => nothing,
         "moved_at" => "2026-09-10T10:00:00Z", "fetched_at" => "2026-09-10T10:01:00Z",
         "track" => "loose")
     kept = W.kept_row(J(row))
@@ -478,8 +478,41 @@ end
                                        "head_at" => "2026-09-10T09:00:00Z")) == ""
     @test W.moved_key(Dict{String,Any}("track" => "normal", "moved_at" => "2026-09-10T10:00:00Z",
                                        "review_at" => "2026-09-10T10:00:00Z")) == "review_at"
+    # A comment is a key at both levels: `loose` had its own, past bots too,
+    # until a bot stopped being somebody at either.
     @test W.moved_key(Dict{String,Any}("track" => "loose", "moved_at" => "2026-09-10T10:00:00Z",
-                                       "their_comment_at" => "2026-09-10T10:00:00Z")) == ""
+                                       "their_comment_at" => "2026-09-10T10:00:00Z")) == "their_comment_at"
+    # A bot is nobody. GraphQL leaves the `[bot]` off a GitHub App's login and
+    # says so only in `__typename`, so the record spells it as REST does.
+    @test W.comment_by(Dict{String,Any}("__typename" => "Bot", "login" => "llvmorg-github-actions")) ==
+          "llvmorg-github-actions[bot]"
+    @test W.comment_by(Dict{String,Any}("__typename" => "User", "login" => "alice")) == "alice"
+    @test W.comment_by(nothing) === nothing
+    # A user account running a program is named, without case.
+    @test W.is_bot("llvmorg-github-actions[bot]", String[])
+    @test W.is_bot("CodeCov-Commenter", ["codecov-commenter"])
+    @test !W.is_bot("alice", ["codecov-commenter"])
+    @test "codecov-commenter" in cfg["bots"]
+    # Its comment is carried past at every level: on your own pull request a
+    # minute after you opened it, it leaves the row `opened` and seen.
+    own_open = merge(W.kept_row(row), Dict{String,Any}("author" => cfg["login"], "mine" => true,
+        "head_by" => cfg["login"], "their_head" => nothing, "lane" => "mine", "track" => "normal",
+        "last_comment_at" => "2026-09-10T10:01:00Z",
+        "last_comment_by" => "llvmorg-github-actions[bot]"))
+    delete!(own_open, "moved_at")
+    W.derive!(own_open, nothing, Dict{String,Any}(), cfg, at)
+    @test own_open["their_comment_at"] === nothing && own_open["moved_by"] == "opened"
+    # And past a human's: theirs stands, and the bot after it moves nothing.
+    spoke = merge(W.kept_row(row), Dict{String,Any}("last_comment_at" => "2026-09-11T00:00:00Z",
+                                                    "last_comment_by" => "bob",
+                                                    "track" => "normal"))
+    W.derive!(spoke, J(row), Dict{String,Any}(), cfg, at)
+    @test spoke["their_comment_at"] == "2026-09-11T00:00:00Z"
+    botted = merge(W.kept_row(spoke), Dict{String,Any}("last_comment_at" => "2026-09-12T00:00:00Z",
+                                                       "last_comment_by" => "coveralls"))
+    W.derive!(botted, J(spoke), Dict{String,Any}(), cfg, at)
+    @test botted["their_comment_at"] == "2026-09-11T00:00:00Z"
+    @test botted["moved_at"] == spoke["moved_at"]
     # First sight: the mark is what GitHub says, and the row is new.
     fresh = W.kept_row(row); delete!(fresh, "moved_at")
     W.derive!(fresh, nothing, Dict{String,Any}(), cfg, at)
@@ -2174,7 +2207,6 @@ end
                                          "ci" => "SUCCESS",
                                          "head_at" => "2026-09-01T00:00:00Z",
                                          "their_comment_at" => "2026-09-01T00:00:00Z",
-                                         "human_comment_at" => "2026-09-01T00:00:00Z",
                                          "moved_at" => "2026-09-01T00:00:00Z",
                                          "unresolved" => 0),
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
@@ -2246,7 +2278,6 @@ end
                                           "their_head" => "a1b2c3",
                                           "head_at" => "2026-09-12T08:00:00Z",
                                           "their_comment_at" => "2026-09-12T09:00:00Z",
-                                          "human_comment_at" => "2026-09-12T09:00:00Z",
                                           "review_at" => "2026-09-12T08:30:00Z",
                                           "moved_at" => "2026-09-12T09:00:00Z"),
                          Dict{String,Any}(String(k) => v for (k, v) in kw))
@@ -2256,8 +2287,7 @@ end
     # And nothing moving is an answer it gives, not a case it never sees: it
     # is the one arbiter now, asked about every row, and the mark stays put.
     @test W.moved_stamp(old, row(), now_) == "2026-09-12T09:00:00Z"
-    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T09:55:00Z",
-                                 human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
     # Being handed the item has the shape of being asked to review it.
     @test W.moved_stamp(old, row(; assigned_at = "2026-09-12T10:05:00Z"), now_) ==
@@ -2325,8 +2355,7 @@ end
     # unread since an 11:00 CI failure would otherwise be marked done by a
     # deletion at 09:00, losing the change nobody looked at rather than the
     # comment nobody can.
-    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T08:30:00Z",
-                                 human_comment_at = "2026-09-12T08:30:00Z"), now_) ==
+    @test W.moved_stamp(old, row(; their_comment_at = "2026-09-12T08:30:00Z"), now_) ==
           W.stamp(now_)
 
     # **A key that was not there before is not an event.** A row the bulk lanes
@@ -2361,7 +2390,6 @@ end
                                   head_at = "2026-09-12T10:30:00Z"), now_) ==
           "2026-09-12T10:30:00Z"
     @test W.moved_stamp(loose, row(; track = "loose",
-                                  human_comment_at = "2026-09-12T09:55:00Z",
                                   their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           "2026-09-12T09:55:00Z"
     @test W.moved_stamp(loose, row(; track = "loose", ci_failed = true), now_) ==
@@ -2371,12 +2399,10 @@ end
     # time is the stamp, the bool that rose, the key whose time could not
     # account for the change; none when the mark stayed.
     @test W.movement(old, row(), now_) == ("2026-09-12T09:00:00Z", "")
-    @test W.movement(old, row(; their_comment_at = "2026-09-12T09:55:00Z",
-                              human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+    @test W.movement(old, row(; their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           ("2026-09-12T09:55:00Z", "their_comment_at")
-    @test W.movement(loose, row(; track = "loose", their_comment_at = "2026-09-12T09:55:00Z",
-                                human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
-          ("2026-09-12T09:55:00Z", "human_comment_at")
+    @test W.movement(loose, row(; track = "loose", their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+          ("2026-09-12T09:55:00Z", "their_comment_at")
     @test W.movement(old, row(; their_head = "ffff", head_at = "2026-09-12T10:30:00Z"), now_) ==
           ("2026-09-12T10:30:00Z", "their_head")
     @test W.movement(old, row(; ci_failed = true), now_) == (W.stamp(now_), "ci_failed")
@@ -2384,8 +2410,7 @@ end
           (W.stamp(now_), "their_head")
     # Two in one refresh: the later one is the word, since it is the stamp.
     @test W.movement(old, row(; review_at = "2026-09-12T10:15:00Z",
-                              their_comment_at = "2026-09-12T09:55:00Z",
-                              human_comment_at = "2026-09-12T09:55:00Z"), now_) ==
+                              their_comment_at = "2026-09-12T09:55:00Z"), now_) ==
           ("2026-09-12T10:15:00Z", "review_at")
     @test W.movement(old, row(; state = "MERGED", state_at = "2026-09-12T10:40:00Z"), now_)[2] ==
           "state_at"
@@ -2406,7 +2431,7 @@ end
     mk(; kw...) = W.with(st.items[1]; url = "https://github.com/o/r/pull/9", ref = "r#9",
                          moved_at = "2026-09-12T10:00:00Z", updated = "2026-09-12T10:00:00Z",
                          state = "OPEN", track = "normal", moved_by = "", head_at = "",
-                         head_by = "", their_comment_at = "", human_comment_at = "",
+                         head_by = "", their_comment_at = "",
                          review_at = "", review_requested_at = "", assigned_at = "",
                          state_at = "", review_decision = "", kw...)
     at = W.ts("2026-09-13T00:00:00Z")
@@ -2434,10 +2459,10 @@ end
     # `e` empties it, with no refresh between.
     @test isempty(W.moved_words(mk(; their_comment_at = "2026-09-12T09:00:00Z"),
                                 marks("2026-09-12T10:00:00Z")))
-    # The level decides which keys are read: loosely, a bot's comment is not
-    # one - the stamp alone says the row moved - and the human key is.
-    @test W.moved_words(mk(; track = "loose", their_comment_at = "2026-09-12T09:00:00Z"), read) == ["moved"]
-    @test W.moved_words(mk(; track = "loose", human_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
+    # A comment is read at both levels; a bot's never reached the key. A row
+    # last moved by the key `loose` had until 2026-11-12 still says comment.
+    @test W.moved_words(mk(; track = "loose", their_comment_at = "2026-09-12T09:00:00Z"), read) == ["comment"]
+    @test W.moved_word("human_comment_at", mk()) == "comment"
     # Your own push after theirs dates the head and is not news; theirs
     # before it is the refresh's to remember.
     me = W.login()
@@ -2559,24 +2584,24 @@ end
     @test W.event_at(nothing, me, req, :requestedReviewer) === nothing
 
     # A comment the same way, carried across your own because
-    # `comments(last: 1)` cannot see past it - and for the `loose` key, across
-    # a bot's, which used to take the key to nothing and wake the item for
-    # exactly the comment that level exists to ignore.
+    # `comments(last: 1)` cannot see past it - and across a bot's, at every
+    # level, which used to take the key to nothing and wake the item for
+    # exactly the comment the level existed to ignore.
     r(at, by) = Dict{String,Any}("last_comment_at" => at, "last_comment_by" => by)
-    old = (their_comment_at = "2026-09-01T00:00:00Z", human_comment_at = "2026-09-01T00:00:00Z")
-    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "them"), old, me, "their_comment_at"; human = false) ==
+    old = (their_comment_at = "2026-09-01T00:00:00Z",)
+    bots = ["coveralls"]
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "them"), old, me, bots) ==
           "2026-09-02T00:00:00Z"
-    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), old, me, "their_comment_at"; human = false) ==
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), old, me, bots) ==
           "2026-09-01T00:00:00Z"
-    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "nanosoldier[bot]"), old, me, "their_comment_at"; human = false) ==
-          "2026-09-02T00:00:00Z"
-    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "nanosoldier[bot]"), old, me, "human_comment_at"; human = true) ==
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "github-actions[bot]"), old, me, bots) ==
+          "2026-09-01T00:00:00Z"
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", "Coveralls"), old, me, bots) ==
           "2026-09-01T00:00:00Z"
     # Nothing to carry and nothing to see is nothing; every comment deleted
     # keeps what there was rather than going backwards.
-    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), nothing, me, "their_comment_at"; human = false) === nothing
-    @test W.their_comment_at(r(nothing, nothing), old, me, "human_comment_at"; human = true) ==
-          "2026-09-01T00:00:00Z"
+    @test W.their_comment_at(r("2026-09-02T00:00:00Z", me), nothing, me, bots) === nothing
+    @test W.their_comment_at(r(nothing, nothing), old, me, bots) == "2026-09-01T00:00:00Z"
 end
 
 @testset "a push of your own is not news" begin

@@ -383,7 +383,6 @@ while the head is theirs, and a bool, which has no time, never."""
 key_at(it::Item, k::AbstractString) =
     k == "their_head" ? (it.head_by == login() ? "" : it.head_at) :
     k == "their_comment_at" ? it.their_comment_at :
-    k == "human_comment_at" ? it.human_comment_at :
     k == "review_at" ? it.review_at :
     k == "review_requested_at" ? it.review_requested_at :
     k == "assigned_at" ? it.assigned_at :
@@ -409,7 +408,9 @@ ci_word(ci::AbstractString) =
     ci in ("PENDING", "EXPECTED") ? "CI pending" :
     ci in ("FAILURE", "ERROR") ? "CI failed" : ""
 
-"The pane's word for a key of the wake table; the state's own for a close."
+"""The pane's word for a key of the wake table; the state's own for a close.
+`human_comment_at` was `loose`'s comment key until 2026-11-12, and a row it
+last moved still says so in `moved_by` until something moves it again."""
 moved_word(k::AbstractString, it::Item) =
     k == "their_head" ? "pushed" :
     k in ("their_comment_at", "human_comment_at") ? "comment" :

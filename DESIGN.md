@@ -313,8 +313,7 @@ item's level.
 | event | key | `normal` | `loose` | dated by | not counted when |
 |---|---|---|---|---|---|
 | somebody pushed | `their_head` | ✓ | ✓ | `head_at` | you are the committer |
-| somebody commented | `their_comment_at` | ✓ | – | itself | you are the author |
-| a human commented | `human_comment_at` | – | ✓ | itself | you, or a bot |
+| somebody commented | `their_comment_at` | ✓ | ✓ | itself | you, or a bot, are the author |
 | somebody reviewed, or dismissed a review | `review_at` | ✓ | ✓ | itself | you did it |
 | somebody asked you to review | `review_requested_at` | ✓ | ✓ | itself | you did it |
 | somebody assigned you | `assigned_at` | ✓ | ✓ | itself | you did it |
@@ -328,6 +327,15 @@ The rules behind the table, each of which cost a bug:
   cannot see past your reply, so `their_comment_at` is carried. Being let off
   (a request withdrawn, an assignment removed) is not movement either; the
   `Removed`/`Unassigned` events are not fetched.
+- **A bot is nobody, at either level.** A GitHub App is told by its
+  `__typename`, which GraphQL gives and the login does not - `Bot.login` has
+  no `[bot]`, so `comment_by` adds it back as REST spells it, and before it
+  did the bot test matched nothing the lanes fetched. A user account that
+  runs a program is named in `bots` in the configuration. `loose` had its own
+  key past bots, `human_comment_at`, until llvm's subscribers comment, a
+  minute after every pull request is opened, made each of yours unread
+  (2026-11-12); what a bot says on your own work that matters is a red
+  check, and `ci_failed` says that.
 - **Opening it is something you did.** An issue or pull request of yours
   arrived as `new` and unread, with nothing to read (2026-09-24). A row you
   wrote with no key of the table set is `moved_by = "opened"`

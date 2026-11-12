@@ -304,8 +304,8 @@ function seed_cache(u::String)
         "labels" => ["bug"], "branch" => "jn/topic", "ci" => "SUCCESS",
         "review" => "review requested", "mine" => true, "new" => false,
         "created" => "2026-08-30T12:00:00Z", "updated" => "2026-09-02T12:00:00Z",
-        "moved_at" => "2026-09-02T12:00:00Z", "moved_by" => "human_comment_at",
-        "human_comment_at" => "2026-09-02T12:00:00Z", "last_comment_by" => "alice",
+        "moved_at" => "2026-09-02T12:00:00Z", "moved_by" => "their_comment_at",
+        "their_comment_at" => "2026-09-02T12:00:00Z", "last_comment_by" => "alice",
         "fetched_at" => "2026-09-02T12:05:00Z", "milestone" => nothing, "note" => nothing))
     comment(id, by, at, body; kw...) = Dict{String,Any}(
         "id" => id, "user" => who(by), "created_at" => at, "body" => body,

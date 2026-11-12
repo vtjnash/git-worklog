@@ -258,7 +258,7 @@ const PR_FIELDS = "\n" * """
           ... on MergedEvent { createdAt actor { login } }
           ... on ReopenedEvent { createdAt actor { login } }
         } }
-      comments(last: 1) { nodes { author { login } createdAt } }
+      comments(last: 1) { nodes { author { __typename login } createdAt } }
       reviews(last: 20) { nodes { author { login } state submittedAt } }
 """
 
@@ -276,7 +276,7 @@ const ISSUE_FIELDS = "\n" * """
           ... on ClosedEvent { createdAt actor { login } }
           ... on ReopenedEvent { createdAt actor { login } }
         } }
-      comments(last: 1) { nodes { author { login } createdAt } }
+      comments(last: 1) { nodes { author { __typename login } createdAt } }
 """
 
 # Both inline fragments are required even when a lane is `is:pr`: a search

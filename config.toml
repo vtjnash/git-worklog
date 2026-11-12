@@ -16,6 +16,15 @@
 # it, since `@me` in a search is whoever holds the token.
 login = ""
 
+# Accounts whose comments are nobody's: a bot's comment never makes anything
+# unread, at either tracking level. A GitHub App (`codecov[bot]`,
+# `dependabot[bot]`, `github-actions[bot]`, llvm's
+# `llvmorg-github-actions[bot]`) is known by GitHub's word for it and needs
+# no entry; these are user accounts that run a program, which GitHub cannot
+# tell from a person. Without case, as GitHub compares logins. An array, so
+# one in `data/config.toml` is the whole list: copy these to add to them.
+bots = ["codecov-commenter", "coveralls", "llvmbot", "JuliaTagBot"]
+
 # The file under `themes/` the colours come from. Empty, or a file that is
 # not there, draws everything plain, with no escapes printed at all. A
 # misspelt role or colour inside the file is reported on stderr at startup

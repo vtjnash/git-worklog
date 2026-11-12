@@ -83,6 +83,17 @@ A `Dict` and not an ordered one: the order that matters is the corpus's, which
 without asking what it is, where `OrderedDict` specialises on it."""
 const Record = Dict{String,Any}
 
+"""Who wrote a comment, as REST and github.com spell it: a GitHub App's
+login with `[bot]` after it. GraphQL leaves the suffix off - `Bot.login` of
+`llvmorg-github-actions[bot]` is `llvmorg-github-actions` - and says so only
+in `__typename`, so until 2026-11-12 the `[bot]` test in `is_bot` never
+matched a row the lanes fetched, and `loose` ignored no bot at all."""
+function comment_by(@nospecialize(a))
+    by = jget(a, :login)
+    by === nothing && return nothing
+    jstr(a, :__typename, "") == "Bot" && !endswith(String(by), "[bot]") ? string(by, "[bot]") : by
+end
+
 "Flatten one GraphQL node into the record the rest of the script uses."
 function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString)::Record
     typename = jstr(n, :__typename, "PullRequest")
@@ -117,12 +128,11 @@ function normalize(@nospecialize(n), lane::AbstractString, login::AbstractString
     # Being assigned it does, and GitHub is the only one who can say so.
     rec["mine"] = mine
     lastc = jnodes(n, :comments)
-    rec["last_comment_by"] = isempty(lastc) ? nothing : jget(jget(lastc[1], :author), :login)
+    rec["last_comment_by"] = isempty(lastc) ? nothing : comment_by(jget(lastc[1], :author))
     rec["last_comment_at"] = isempty(lastc) ? nothing : jget(lastc[1], :createdAt)
-    # `their_comment_at` and `human_comment_at` - the keys - are set beside
-    # `their_head` in the refresh loop, which is where the old row is: your
-    # own comment carries the previous value forward, and `comments(last: 1)`
-    # cannot see past it.
+    # `their_comment_at` - the key - is set beside `their_head` in the
+    # refresh loop, which is where the old row is: your own comment carries
+    # the previous value forward, and `comments(last: 1)` cannot see past it.
     #
     # **When you were last assigned this**, which has the shape of a review
     # request and had its bug: a first assignment arrived as a new item through
@@ -354,9 +364,12 @@ end
 # fetched per-lane is. Neither is a property of the item that might interest
 # you - each is somebody naming you, and there is no level at which being asked
 # to review something, or handed it, is noise. `loose` exists to ignore a
-# stranger's CI and a bot's comment, and a human asking you for something is the
-# opposite of both. `state_at` is in both for the reason GitHub mails about it:
-# an item somebody else finished is finished, and there is nothing to wait for.
+# stranger's CI, and a human asking you for something is the opposite of it.
+# `their_comment_at` is in both since 2026-11-12, when a bot stopped being
+# somebody at either level (`their_comment_at`, the function); until then
+# `loose` had `human_comment_at`, the same key past bots too. `state_at` is
+# in both for the reason GitHub mails about it: an item somebody else
+# finished is finished, and there is nothing to wait for.
 # And `their_head` is in both since 2026-09-12: a push on something you are
 # watching loosely is not a thing to review, but it is the item being active,
 # which is what you are watching it to know.
@@ -372,7 +385,7 @@ end
 const TRACK_KEYS = Dict{String,Vector{String}}(
     "normal" => ["their_head", "their_comment_at", "review_at", "review_requested_at",
                  "assigned_at", "state_at", "ci_failed"],
-    "loose"  => ["their_head", "human_comment_at", "review_at", "review_requested_at",
+    "loose"  => ["their_head", "their_comment_at", "review_at", "review_requested_at",
                  "assigned_at", "state_at"],
 )
 "The keys of the wake table at `r`'s level: `normal`'s for a row with none."
@@ -400,7 +413,6 @@ hashed: a hash of the value differs on both edges, and only one of them is a
 thing to be told.
 """
 const TIMED_KEYS = Dict("their_comment_at" => "their_comment_at",
-                        "human_comment_at" => "human_comment_at",
                         "review_at" => "review_at",
                         "review_requested_at" => "review_requested_at",
                         "assigned_at" => "assigned_at",
@@ -813,9 +825,9 @@ function their_head(r, @nospecialize(old), login::AbstractString)
     jstr(r, :head_by) == login ? jget(old, :their_head) : sha
 end
 
-"""The newest comment by somebody else - and with `human`, by somebody who is
-neither you nor a bot - carried forward across the ones that are not; or
-`nothing` for an item nobody else has commented on.
+"""The newest comment by somebody else - neither you nor a bot (`is_bot`) -
+carried forward across the ones that are not; or `nothing` for an item
+nobody else has commented on.
 
 `their_head` for a comment, and the same reason: your own reply is your own
 keystroke, and without this the item came back unread every time you answered
@@ -824,18 +836,29 @@ yours the value is carried rather than looked past - and if somebody commented
 and you replied between two refreshes, theirs is missed and you read it, which
 is the trade `their_head` makes for a push.
 
-Carried across a bot's too, for the `human` key: it used to go to `nothing`
-when a bot spoke after a human, which was a change like any other and woke a
-`loose` item for exactly the comment that level exists to ignore. Carried
-across no comment at all - every one deleted - for the same reason.
+A bot's is carried the same way, at every level. There were two keys until
+2026-11-12, this one and `human_comment_at` past bots too, for `loose` alone;
+but the subscribers list llvm posts on every pull request a minute after it
+is opened made each of your own unread before anybody had looked at it, and
+a bot's comment on your own work worth being told about is a check that
+went red, which `ci_failed` already says. It used to go to `nothing` when a
+bot spoke after a human, which was a change like any other and woke the item
+for exactly the comment this exists to ignore. Carried across no comment at
+all - every one deleted - for the same reason.
 """
-function their_comment_at(r, @nospecialize(old), login::AbstractString, key::AbstractString;
-                          human::Bool)
+function their_comment_at(r, @nospecialize(old), login::AbstractString, bots::Vector{String})
     at, by = jstr(r, :last_comment_at, ""), jstr(r, :last_comment_by, "")
-    carry = jstr(old, Symbol(key))
+    carry = jstr(old, :their_comment_at)
     isempty(at) && return carry
-    (by == login || (human && endswith(by, "[bot]"))) ? carry : at
+    (by == login || is_bot(by, bots)) ? carry : at
 end
+
+"""Is `by` a bot: a GitHub App, which `comment_by` spells with `[bot]` as
+REST does, or an account `bots` in the configuration names - a user account
+somebody runs a program from, which GitHub cannot tell from a person. Logins
+are compared as GitHub does, without case."""
+is_bot(by::AbstractString, bots::Vector{String}) =
+    endswith(by, "[bot]") || any(b -> lowercase(b) == lowercase(by), bots)
 
 """Is this a row nobody put in front of you - the pile?
 
@@ -1038,8 +1061,7 @@ function derive!(r, @nospecialize(old), @nospecialize(st), cfg, at::DateTime;
     login = jstr(cfg, :login, "")
     second_days = jint(jdict(cfg, :thresholds), :second_look_days, 2)
     r["their_head"] = their_head(r, old, login)
-    r["their_comment_at"] = their_comment_at(r, old, login, "their_comment_at"; human = false)
-    r["human_comment_at"] = their_comment_at(r, old, login, "human_comment_at"; human = true)
+    r["their_comment_at"] = their_comment_at(r, old, login, jstrs(cfg, :bots))
     r["mentioned"] = mentioned_of(r, old)
     apply_state!(r, st, cfg, at)
     # **A snooze is a wake time, and an archive is a mark.** Neither is a
