@@ -434,11 +434,41 @@ on the screen in gh's own words ([`enter_session`](@ref)). gh is named by
 the path this process would have run it at, so the pane runs the same one
 whatever the server's `PATH` says; one that is not here is left to the
 shell to say so.
+
+**A branch the remote has deleted is rebuilt from its sha.** gh fetches a
+branch of the project's own - or of a fork that is a remote here - by its
+name, `+refs/heads/<b>`, and once a close or a merge has deleted it that
+fetch is `couldn't find remote ref` and the checkout is refused, for a pull
+request whose head GitHub still serves by sha (`ensure_commit!`). So `gone`,
+`(remote, branch, sha, from)` - the remote gh fetches the head from, the
+head's name there, `headRefOid`, and the project's remote to fetch it by sha
+from ([`pr_checkout_line`](@ref)) - adds a second try after gh's: asked only
+when gh failed, and taken only when that remote answers that it has no such
+branch (`ls-remote --exit-code` is 2 for exactly that), so a dirty tree or
+no network is still gh's complaint above a shell. It makes `as` (or the
+head's name) at the sha, with no upstream, there being none to follow - or
+checks out the local branch of that name when there is one, which gh would
+have used and then failed to update.
 """
-function checkout_pr_line(url::AbstractString; as::AbstractString = "")
+function checkout_pr_line(url::AbstractString; as::AbstractString = "",
+                          gone::Union{Nothing,NTuple{4,String}} = nothing)
     gh = something(Sys.which("gh"), "gh")
-    string(shquote(gh), " pr checkout ", shquote(url),
-           isempty(as) ? "" : string(" --branch ", shquote(as)))
+    line = string(shquote(gh), " pr checkout ", shquote(url),
+                  isempty(as) ? "" : string(" --branch ", shquote(as)))
+    gone === nothing && return line
+    rem, branch, sha, from = gone
+    (isempty(branch) || match(r"^[0-9a-f]{40}$", sha) === nothing) && return line
+    name = isempty(as) ? branch : String(as)
+    q = shquote
+    string("{ ", line, " || { git ls-remote --exit-code ", q(rem), " ",
+           q("refs/heads/" * branch), " >/dev/null 2>&1; [ \$? -eq 2 ] && ",
+           "printf 'wl: %s is gone from %s, so this is its last head, %s\\n' ",
+           q(branch), " ", q(rem), " ", q(first(sha, 8)), " >&2 && ",
+           "if git rev-parse --quiet --verify ", q("refs/heads/" * name),
+           " >/dev/null; then git checkout ", q(name), "; else ",
+           "{ git cat-file -e ", q(sha * "^{commit}"), " 2>/dev/null || ",
+           "git fetch --quiet --no-write-fetch-head --no-auto-gc ", q(from), " ", q(sha),
+           "; } && git checkout --quiet --no-track -b ", q(name), " ", q(sha), "; fi; }; }")
 end
 
 """Run the shell text `line` in `dir` to completion, for a session that is

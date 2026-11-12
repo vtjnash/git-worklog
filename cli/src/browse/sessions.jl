@@ -895,7 +895,7 @@ function checkout_session!(it::Item, target::AbstractString, branch::AbstractStr
     line, want = if it.is_pr
         as = pr_branch_here(target, it, branch) === :taken ?
              string("pr", it.number, "/", branch) : ""
-        (checkout_pr_line(it.url; as), isempty(as) ? branch : as)
+        (pr_checkout_line(target, it, branch; as), isempty(as) ? branch : as)
     else
         (string("git checkout ", shquote(branch)), branch)
     end
@@ -915,6 +915,29 @@ function checkout_session!(it::Item, target::AbstractString, branch::AbstractStr
     isempty(now) && (now = want)
     r = session_in!(it, target, now, ctrl, kind, mkcmd)
     r isa String ? string("checked out ", now, " \u00b7 ", r) : r
+end
+
+"""[`checkout_pr_line`](@ref) for `it` in the checkout at `target`, with the
+rebuild from its sha for when its branch is gone from the remote.
+
+Which remote gh fetches the head from is the one question: the head
+repository's, when it is a remote here - the project's own for a branch of
+the project's, and a fork that was added as one - since that is the one gh
+fetches by name. A fork that is no remote here gh fetches as
+`refs/pull/N/head`, which no deletion takes away, so there is nothing to
+rebuild and no rebuild is offered: a failure there is something else. The
+sha is fetched from the project's remote, which serves every pull request's
+head. A row with no head sha has nothing to rebuild from.
+"""
+function pr_checkout_line(target::AbstractString, it::Item, branch::AbstractString;
+                          as::AbstractString = "")
+    isempty(it.head) && return checkout_pr_line(it.url; as)
+    hr = lowercase(isempty(it.head_repo) ? it.repo : it.head_repo)
+    rs = try remote_repos(target) catch; Dict{String,String}() end
+    rem = remote_for(target, hr)
+    lowercase(get(rs, rem, "")) == hr || return checkout_pr_line(it.url; as)
+    checkout_pr_line(it.url; as, gone = (rem, String(branch), String(it.head),
+                                         remote_for(target, it.repo)))
 end
 
 """A checkout, as an option in the list of places this item could be worked on.
@@ -1094,7 +1117,8 @@ function make_checkout!(it::Item, ctrl, kind::Symbol, mkcmd, say, at::AbstractSt
                       say; picked = true, items)
     else
         r = session_in!(it, dest, branch, ctrl, kind, mkcmd;
-                        before = checkout_pr_line(it.url; as = found === :taken ? branch : ""))
+                        before = pr_checkout_line(dest, it, pr;
+                                                  as = found === :taken ? branch : ""))
         r isa String ? string("checking out ", branch, " there first · ", r) : r
     end
     r isa String && !isempty(r) ? string("made ", dest, " · ", r) : r

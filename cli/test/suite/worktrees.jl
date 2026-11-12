@@ -1208,6 +1208,83 @@ end
     end
 end
 
+@testset "a pull request whose branch was deleted is checked out from its sha" begin
+    # gh fetches a branch of the project's by name, and a merge that deleted
+    # it leaves `couldn't find remote ref` and no checkout - of a head GitHub
+    # still serves, as `refs/pull/N/head` and by sha.
+    root = mktempdir()
+    bare = joinpath(root, "o.git"); W.git(root, "init", "--quiet", "--bare", bare)
+    seed = joinpath(root, "seed")
+    W.git(root, "clone", "--quiet", bare, seed)
+    g(a...) = W.git(seed, a...)
+    g("config", "user.email", "t@e.com"); g("config", "user.name", "t")
+    write(joinpath(seed, "a"), "x"); g("add", "a"); g("commit", "--quiet", "-m", "base")
+    g("push", "--quiet", "origin", "HEAD:master")
+    g("checkout", "--quiet", "-b", "feat")
+    write(joinpath(seed, "a"), "y"); g("commit", "--quiet", "-am", "the pr")
+    head = strip(g("rev-parse", "HEAD"))
+    g("push", "--quiet", "origin", "feat", "HEAD:refs/pull/1/head")
+    clone = joinpath(root, "clone")
+    # Without the head: a local clone would hardlink every object there is.
+    W.git(root, "clone", "--quiet", "--no-local", "--single-branch", "--branch", "master",
+          bare, clone)
+    @test !W.have_commit(clone, head)
+    # A gh that fails as the real one does, and says so on stderr.
+    bin = joinpath(root, "bin"); mkpath(bin)
+    write(joinpath(bin, "gh"), "#!/bin/sh\necho \"fatal: couldn't find remote ref refs/heads/feat\" >&2\nexit 1\n")
+    chmod(joinpath(bin, "gh"), 0o755)
+    line(rem; as = "") = withenv("PATH" => string(bin, ":", ENV["PATH"])) do
+        W.checkout_pr_line("https://github.com/o/r/pull/1"; as,
+                           gone = (rem, "feat", String(head), "origin"))
+    end
+    # While the branch is there, gh's failure is gh's: something else is in
+    # the way, and rebuilding the branch would not be the checkout asked for.
+    @test_throws W.GitError W.run_line(clone, line("origin"))
+    @test !W.has_rev(clone, "refs/heads/feat")
+    # Nor when the remote does not answer at all.
+    @test_throws W.GitError W.run_line(clone, line(joinpath(root, "nowhere.git")))
+    # Gone, it is made at the head, with nothing to track.
+    W.git(seed, "push", "--quiet", "origin", "--delete", "feat")
+    W.run_line(clone, line("origin"))
+    @test W.head_branch(clone) == "feat"
+    @test strip(W.git(clone, "rev-parse", "HEAD")) == head
+    @test W.upstream_of(clone, "feat") == ""
+    # Under the name it was asked for, when the head's own was taken.
+    W.git(clone, "checkout", "--quiet", "master")
+    W.run_line(clone, line("origin"; as = "pr1/feat"))
+    @test W.head_branch(clone) == "pr1/feat"
+    # And a local branch of the name is the one checked out, not remade: it
+    # may have work on it.
+    W.git(clone, "checkout", "--quiet", "master")
+    W.git(clone, "branch", "--quiet", "-f", "feat", "master")
+    W.run_line(clone, line("origin"))
+    @test W.head_branch(clone) == "feat"
+    @test strip(W.git(clone, "rev-parse", "HEAD")) == strip(W.git(clone, "rev-parse", "master"))
+
+    # Which remote is asked: the head repository's, when it is a remote here.
+    W.git(clone, "remote", "set-url", "origin", "https://github.com/o/r.git")
+    it = W.Item(url = "https://github.com/o/r/pull/1", ref = "r#1", repo = "o/r",
+                number = 1, title = "t", branch = "feat", head = String(head))
+    l = W.pr_checkout_line(clone, it, "feat")
+    @test occursin("ls-remote --exit-code 'origin' 'refs/heads/feat'", l)
+    @test occursin(string("'", head, "'"), l)
+    # A fork that is no remote here is fetched as `refs/pull/N/head`, which
+    # no deletion takes; and a row with no sha has nothing to rebuild from.
+    plain = W.checkout_pr_line(it.url)
+    fork = W.Item(url = it.url, ref = "r#1", repo = "o/r", number = 1, title = "t",
+                  branch = "feat", head = String(head), head_repo = "someone/r")
+    @test W.pr_checkout_line(clone, fork, "feat") == plain
+    nosha = W.Item(url = it.url, ref = "r#1", repo = "o/r", number = 1, title = "t",
+                   branch = "feat")
+    @test W.pr_checkout_line(clone, nosha, "feat") == plain
+    # A fork that is a remote here is asked as itself, and fetched from the
+    # project.
+    W.git(clone, "remote", "add", "someone", "https://github.com/someone/r.git")
+    l = W.pr_checkout_line(clone, fork, "feat"; as = "pr1/feat")
+    @test occursin("ls-remote --exit-code 'someone' 'refs/heads/feat'", l)
+    @test occursin(string("--no-auto-gc 'origin' '", head, "'"), l)
+end
+
 @testset "worktrees, with the sessions folded in" begin
     items = W.loaditems()
     ctrl = W.Controller(); ctrl.running = true

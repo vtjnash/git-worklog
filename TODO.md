@@ -37,13 +37,6 @@ when its write-up goes to `cli/test/MANUAL.md` and the line here goes.
       request is checked out there, so the next `t`/`T` on any item can
       take the copy without a takeover. That mostly matters for a pull
       request that has closed or merged, whose branch is going nowhere.
-- [ ] **A checkout of a pull request whose branch is gone is rebuilt from
-      its sha.** `gh pr checkout` often fails once the head branch has been
-      deleted on the remote, after a close or a merge - the same cause as
-      `p`'s stale base (`ensure_base!`). The head is still served by sha,
-      or as `refs/pull/N/head` (`ensure_commit!`), so `checkout_pr_line`
-      can fall back to fetching that and making the branch at `headRefOid`
-      when gh's checkout fails.
 
 ## Unverified
 

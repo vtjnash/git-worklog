@@ -1186,6 +1186,14 @@ wrong reaches the screen unless it is corrected before the parse
   answer as the head, so the two agree by construction, and a deleted
   branch keeps it. `ensure_base!` answers with it, fetched by branch or by
   sha; the ref only where there is none, and never a `:missing` one.
+- **`gh pr checkout` fetches a branch of the project's by its name**, so
+  once a close or a merge has deleted it the checkout is `couldn't find
+  remote ref` - of a head GitHub still serves by sha. The pane's line
+  (`checkout_pr_line`, through `pr_checkout_line`) asks the head's remote
+  after gh fails, and only `ls-remote --exit-code`'s 2, no such ref, makes
+  the branch at `headRefOid`; any other failure is still gh's, above a
+  shell. A fork that is no remote here is fetched as `refs/pull/N/head`,
+  which no deletion takes, and gets no second try.
 - **The project's copy of a name is not a fork's pull request from it.**
   `pr_branch_here` said `:local` for a fork's `master` because the local
   `master` tracks `origin/master`, and `git worktree add` then refused with
