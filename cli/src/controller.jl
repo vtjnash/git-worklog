@@ -168,7 +168,7 @@ it never waits, so it cannot hang on a stream that will send nothing more. It
 matters because an escape sequence, a paste and a mouse report are each several
 bytes that must reach the child together and in order.
 """
-function readraw(io::IO)
+function readraw(io::IO, term::Union{Nothing,HeldTerminal} = nothing)
     b = read(io, UInt8)
     buf = UInt8[b]
     n = bytesavailable(io)
@@ -182,15 +182,24 @@ function readraw(io::IO)
         n = bytesavailable(io)
         n > 0 && append!(buf, read(io, n))
     end
+    # The answer to the fence, while one is out, is the terminal's to the
+    # question `term` asked, and goes to the reader that notes it; the rest is
+    # the view's, as the reports' rest is.
+    if term !== nothing
+        f = fence_in(term, buf)
+        f === nothing || return f
+    end
     modes_in(buf)
 end
 
-"""A read that ends partway into a report `scheme_in` takes: `ESC [ ?` and
-on towards `997;1n`, or `ESC ]` and on towards `11;<colour>` and its
-terminator. Not a bare `ESC` or `ESC [`, which are keys: Escape, and the head
-of every arrow, arrive in one write and are never held for a report."""
+"""A read that ends partway into a report `scheme_in` or `fence_in` takes:
+`ESC [ ?` and the digits and semicolons on towards `997;1n` or the fence's
+`62;22c`, or `ESC ]` and on towards `11;<colour>` and its terminator. Not a
+bare `ESC` or `ESC [`, which are keys: Escape, and the head of every arrow,
+arrive in one write and are never held for a report. No key is `CSI ?`, so
+holding one holds back nothing typed."""
 const REPORT_UNFINISHED =
-    r"\e(?:\[\?(?:9(?:9(?:7(?:;[12]?)?)?)?)?|\](?:1(?:1(?:;[\x21-\x7e]{0,100}\e?)?)?)?)$"
+    r"\e(?:\[\?[0-9;]{0,32}|\](?:1(?:1(?:;[\x21-\x7e]{0,100}\e?)?)?)?)$"
 
 """A read that ends partway into an X10 mouse report: `ESC [ M` and fewer than
 the three bytes behind it, none of them an `ESC`, which no byte of one is. Not
@@ -266,14 +275,18 @@ end
 
 """One event from stdin, for the reader: undecoded when the view on top forwards
 its input (`wantsraw`), keys otherwise. Which is decided by the loop as it
-arms the reader, and handed over as `raw`."""
-readinput(io::IO, raw::Bool) = raw ? readraw(io) : readevent(io)
+arms the reader, and handed over as `raw`. A struct and not a closure over the
+terminal, so that the reader's task is compiled for it (`--trim`)."""
+struct ReadInput
+    term::HeldTerminal
+end
+(r::ReadInput)(io::IO, raw::Bool) = raw ? readraw(io, r.term) : readevent(io)
 
 mutable struct Controller
     term::HeldTerminal          # what everything is written to and sized by;
                                 # entered while `run!` runs, and nothing done before
     events::Channel{Any}
-    reader::Union{Nothing,InputReader{Bool}}  # `readinput`, onto `events`
+    reader::Union{Nothing,InputReader{Bool}}  # `ReadInput`, onto `events`
     stack::Vector{View}
     running::Bool
     title::String               # what the terminal's title bar was last told
@@ -736,9 +749,13 @@ function run!(ctrl::Controller, root::View)
     # a title stack (xterm, VTE, kitty, wezterm, iTerm2, foot) gets its own
     # back; one without keeps the last one until its shell's prompt writes the
     # next, which every common prompt does. What it says is set per frame,
-    # below. Bracketed paste is on for the whole run, so a paste is text.
+    # below. Bracketed paste is on for the whole run, so a paste is text. And
+    # the fence: the terminal is asked once here whether it answers, so that
+    # leaving and `suspend` can read what it already sent - a report from
+    # before the mouse went off - rather than the shell or the child.
     ctrl.term = enter_terminal(ctrl.term.in, ctrl.term.out; altscreen = true,
-                               title = true, mouse = true, paste = true, focus = true)
+                               title = true, mouse = true, paste = true, focus = true,
+                               fence = true)
     # Asked and not waited for: the answer is an event like any other, and a
     # terminal that does not know the question says nothing at all.
     write(ctrl.term, scheme_reports(true))
@@ -747,7 +764,7 @@ function run!(ctrl::Controller, root::View)
     # One event per `arm!`, parked between them, which is what lets `suspend`
     # hand stdin to a child. Whatever ends the reading - EOF because the
     # terminal closed, EIO because the pty is gone - comes as an `EndEvent`.
-    reader = ctrl.reader = InputReader(readinput, ctrl.term, ctrl.events, Bool)
+    reader = ctrl.reader = InputReader(ReadInput(ctrl.term), ctrl.term, ctrl.events, Bool)
     # The sign of life, once a second, where it is wanted (`liveness`). The
     # timer only queues; the write is the loop's, below, like every other.
     ticker = liveness() ? Timer(_ -> pulse!(ctrl), 1.0; interval = 1.0) : nothing
@@ -840,6 +857,9 @@ function run!(ctrl::Controller, root::View)
                 dirty = true
             else
                 armed = false
+                # The fence's answer taken out of a raw read, with what else
+                # the read held; the reader has noted the answer.
+                ev isa FenceEvent && (ev = modes_in(ev.rest))
                 ev = restored!(ctrl, ev)
                 if ev isa SchemeEvent
                     if ev.dark !== nothing

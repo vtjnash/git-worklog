@@ -238,6 +238,28 @@ end
     ev = fetch(t)
     @test ev isa W.LegacyMouseEvent && ev.rest == b('j')
 
+    # The fence's answer, while one is out, is taken out of a raw read for
+    # the reader to note, with the rest for the view; while none is, it is
+    # the child's. A read that ends inside one waits for the rest of it.
+    held = W.HeldTerminal(IOBuffer(), IOBuffer())
+    held.fence, held.fences = true, 1
+    ev = W.readraw(IOBuffer("a\e[?62;22cb"), held)
+    @test ev isa W.FenceEvent && ev.rest == b('a', 'b')
+    held.fences = 0
+    ev = W.readraw(IOBuffer("a\e[?62;22cb"), held)
+    @test ev isa W.RawEvent && ev.bytes == Vector{UInt8}("a\e[?62;22cb")
+    @test occursin(W.REPORT_UNFINISHED, "x\e[?62;2") && occursin(W.REPORT_UNFINISHED, "\e[?997;")
+    @test !occursin(W.REPORT_UNFINISHED, "\e[?62c") && !occursin(W.REPORT_UNFINISHED, "\e[")
+    held.fences = 1
+    io = Base.BufferStream()
+    write(io, "\e[?62;")
+    t = @async W.readraw(io, held)
+    sleep(0.1)
+    @test !istaskdone(t)
+    write(io, "22cj")
+    ev = fetch(t)
+    @test ev isa W.FenceEvent && ev.rest == b('j')
+
     # Either report, decoded or raw, turns the mouse off and on, and what else
     # the read held goes on to the view - a scheme report still as one.
     buf = IOBuffer()

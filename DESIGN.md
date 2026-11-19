@@ -1689,6 +1689,19 @@ Each of the following returns success and the wrong answer:
   twice for one: a wake does not use the token up. Which read the next event
   gets - `readevent`, or `readraw` for a hosted pane - is the loop's to say,
   since it knows what is on top and the parked reader does not.
+- **What the terminal sent before raw mode went is read up to a fence.**
+  Turning the mouse off and leaving raw mode in one breath gave the shell
+  the reports already in flight, `^[[<35;40;12M` at the prompt, and the
+  child of a `suspend` the same as keys; there is no asking the kernel what
+  is queued on a tty. The terminal answers `CSI c` after everything it sent
+  before, so TermInput's `fence` asks it once on the way in, not waited
+  for, and `leave_terminal` and `suspend` read to an answer before raw mode
+  goes. Until the first answer has come they wait for it up to three
+  seconds from the asking - an ssh round trip moves too much to measure -
+  and a terminal that misses that is never asked again. The reader notes
+  the answer wherever it lands: decoded by `readevent`, or in a pane's raw
+  read by `fence_in`, which looks for it only while one is out, since the
+  child may ask the same question and its answer is its own.
 - **Leaving the terminal never throws.** The commonest way out of `run!` is
   the terminal having gone away, which the reader says as an `EndEvent`,
   and then every write in the `finally` is to a closed descriptor;
