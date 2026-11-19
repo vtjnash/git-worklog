@@ -252,7 +252,7 @@ end
         n0 = length(st.all)
         W.handle!(st, Int('"'), ctrl)
         v = last(ctrl.stack)
-        W.handle!(v, W.K_STAB, ctrl)
+        W.handle!(v, (W.K_SHIFT | 9), ctrl)
         @test v.mode === :branches
         pick(n) = (v.bsel = findfirst(b -> b.name == n, v.brows))
 
@@ -458,7 +458,7 @@ end
     @test v.asel == 2 && W.currow(v).name == "agent"
     # Its own cursor: the whole list's is where it was.
     @test v.sel == 1
-    W.handle!(v, W.K_STAB, ctrl)
+    W.handle!(v, (W.K_SHIFT | 9), ctrl)
     @test v.mode === :worktrees && W.currow(v).name == "idle"
 end
 
@@ -516,7 +516,7 @@ end
         @test v.bsel == length(v.brows) && v.sel == 2
         W.handle!(v, 9, ctrl)
         @test v.mode === :worktrees && v.sel == 2
-        W.handle!(v, W.K_STAB, ctrl)                 # and back the other way
+        W.handle!(v, (W.K_SHIFT | 9), ctrl)                 # and back the other way
         @test v.mode === :branches && v.bsel == length(v.brows)
 
         # A branch is not a place: enter goes to the worktree that has it out.
@@ -526,7 +526,7 @@ end
         # And offers to make one where there is none, which is the only thing
         # this list could see and not act on. The suggestion is beside the main
         # checkout, already typed and with the cursor after it.
-        W.handle!(v, W.K_STAB, ctrl)
+        W.handle!(v, (W.K_SHIFT | 9), ctrl)
         v.bsel = findfirst(b -> b.name == "homeless", v.brows)
         @test W.handle!(v, 13, ctrl) === :ok
         @test v.mode === :branches
@@ -556,7 +556,7 @@ end
         @test ispath(joinpath(made, ".git"))
         @test !isempty(first(b for b in v.brows if b.name == "homeless").worktree)
         # Nowhere left to suggest: a second one is refused by git, not by us.
-        W.handle!(v, W.K_STAB, ctrl)
+        W.handle!(v, (W.K_SHIFT | 9), ctrl)
         v.bsel = findfirst(b -> b.name == "homeless", v.brows)
         W.handle!(v, 13, ctrl)
         @test v.mode === :worktrees && v.rows[v.sel].name == "made"
@@ -564,7 +564,7 @@ end
         # `h` works from either lens.
         st = W.BState(items, "worklog")
         v2 = W.worktree_view(items; onitem = x -> W.select_item!(st, x))
-        W.handle!(v2, W.K_STAB, ctrl)
+        W.handle!(v2, (W.K_SHIFT | 9), ctrl)
         v2.bsel = findfirst(b -> b.name == pr.branch, v2.brows)
         @test W.handle!(v2, Int('h'), ctrl) === :pop
         @test st.items[st.sel].url == pr.url

@@ -349,7 +349,7 @@ drawn here.
 """
 function handle!(v::SideView, k::Int, ctrl)
     if v.focus === :read
-        if k in (9, K_STAB, 27, Int('q'))
+        if k in (9, K_SHIFT | 9, 27, Int('q'))
             v.focus = :inner
             return :ok
         elseif k == Int('f')
@@ -363,7 +363,7 @@ function handle!(v::SideView, k::Int, ctrl)
         sidestatus!(v)
         return :ok
     end
-    if k in (9, K_STAB)
+    if k in (9, K_SHIFT | 9)
         v.focus = :read
         # The detail and not the list, which is not drawn here.
         v.beside.focus = :detail
@@ -791,7 +791,7 @@ Both were reachable from here and neither should have been: they are things done
 """
 function handle!(v::PaneView, k::Int, ctrl)
     if v.child.client !== nothing && v.focus === :read
-        if k == 9 || k == K_STAB
+        if k == 9 || k == K_SHIFT | 9
             v.focus = :child
             v.child.status = ""
         elseif k == 27 || k == Int('q') || k == Int('t') || k == Int('T')
@@ -1615,7 +1615,7 @@ function goto_item(v::WorktreeView, it::Union{Nothing,Item})
 end
 
 function handle!(v::WorktreeView, k::Int, ctrl)
-    k = unshift(k)
+    k = unmodified(k)
     n = nshown(v)
     # A page is the rows the last frame had room for: rows here are of
     # several lines, so the box's height is not a count of them.
@@ -1625,7 +1625,7 @@ function handle!(v::WorktreeView, k::Int, ctrl)
     r = currow(v)
     if k == Int('q') || k == 27
         return :pop
-    elseif k == 9 || k == K_STAB
+    elseif k == 9 || k == K_SHIFT | 9
         # The same `tab` the browser uses to change pane: three lenses on one
         # key, and each keeps its own cursor so switching back returns to where
         # you were rather than to the top.

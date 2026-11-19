@@ -804,7 +804,7 @@ end
         @test v isa W.ChooseView && v.ranged
         @test [o[2] for o in v.options][1] === :whole && length(v.options) == 4
         W.handle!(v, W.K_DOWN, ctrl); W.handle!(v, W.K_DOWN, ctrl)
-        W.handle!(v, W.K_SDOWN, ctrl)
+        W.handle!(v, (W.K_SHIFT | W.K_DOWN), ctrl)
         @test W.handle!(v, 13, ctrl) === :pop
         @test st.drange == (u, shas[2], shas[3], string("2 commits, ", first(shas[2], 8),
                                                        "..", first(shas[3], 8)))

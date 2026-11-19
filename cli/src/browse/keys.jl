@@ -240,10 +240,6 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
     iw = st.diw > 0 ? st.diw : L.riw
     page = st.dpage > 0 ? st.dpage : L.page
     lpage = L.lpage
-    # The shifted arrows extend the selection, and the detail pane is the only
-    # thing here that has one. In the two lists they are the arrows they are
-    # drawn on rather than keys that do nothing.
-    st.focus === :detail && st.lmode !== :filters || (k = unshift(k))
     # While the query is being typed it takes every key, so that `/julia` is a
     # search and not four commands. Enter keeps it, escape drops it, and `↑` in
     # the detail pane brings back the last one; the rest is `LineInput`'s, so it
@@ -262,6 +258,13 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         end
         return :ok
     end
+    # The shifted arrows extend the selection, and the detail pane is the only
+    # thing here that has one. In the two lists they are the arrows they are
+    # drawn on rather than keys that do nothing, and every other modifier on a
+    # named key is the key alone everywhere. After the query, which has the
+    # key as it came: Alt-Left is a word there, as in every field.
+    k in (K_SHIFT | K_UP, K_SHIFT | K_DOWN) && st.focus === :detail && st.lmode !== :filters ||
+        (k = unmodified(k))
     if k == Int('/')
         st.typing = true
         st.search = ""
@@ -272,7 +275,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         return :ok
     elseif k == Int('q')
         return :quit          # Escape no longer quits: it heads key sequences
-    elseif k == Int('\t') || k == K_STAB
+    elseif k == Int('\t') || k == K_SHIFT | 9
         st.focus = st.focus === :list ? :detail : :list
     elseif k == Int('f')
         st.lmode = st.lmode === :filters ? :items : :filters
@@ -336,7 +339,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
         # actions below - can still see what is selected.
         to = listmove(k, st.nrow, n, page)
         (to !== nothing || k in (Int('n'), Int('N'), 13)) && clearsel!(st)
-        if k in (Int('J'), K_SDOWN, Int('K'), K_SUP)
+        if k in (Int('J'), K_SHIFT | K_DOWN, Int('K'), K_SHIFT | K_UP)
             # The keyboard half of a drag: the anchor is wherever the cursor
             # already was, and every press moves the far end of the range. Not
             # in the list above, so these are the four keys in this pane that
@@ -350,7 +353,7 @@ function handle_key!(st::BState, k::Int, ctrl::Controller, at::DateTime = utcnow
             # afford: a selection is a way of pointing at rows, and `y` and `c`
             # are what act on it.
             st.anchor == 0 && (st.anchor = st.nrow)
-            st.nrow = clamp(st.nrow + (k in (Int('J'), K_SDOWN) ? 1 : -1), 1, n)
+            st.nrow = clamp(st.nrow + (k in (Int('J'), K_SHIFT | K_DOWN) ? 1 : -1), 1, n)
             st.sela, st.selb = st.anchor, st.nrow
             st.status = string(abs(st.selb - st.sela) + 1, " rows selected — y to copy")
         elseif to !== nothing;               st.nrow = to

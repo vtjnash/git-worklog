@@ -20,7 +20,7 @@
     # state, because moving the list selection above started a fetch that
     # cleared the nodes - which is exactly what it should do.
     st = mkstate()
-    W.handle!(st, W.K_STAB, ctrl)
+    W.handle!(st, (W.K_SHIFT | 9), ctrl)
     @test st.focus === :detail
     W.handle!(st, W.K_DOWN, ctrl)
     @test st.nrow == 2

@@ -488,19 +488,23 @@ end
     st.nrow = 2
     W.handle!(st, Int('J'), ctrl)
     @test W.selrange(st) == (2, 3) && st.nrow == 3
-    W.handle!(st, W.K_SDOWN, ctrl)
+    W.handle!(st, (W.K_SHIFT | W.K_DOWN), ctrl)
     @test W.selrange(st) == (2, 4) && st.nrow == 4
     # Back through the anchor and out the other side, the way a drag does.
     for _ in 1:4; W.handle!(st, Int('K'), ctrl); end
     @test W.selrange(st) == (1, 2) && st.nrow == 1
     @test occursin("rows selected", st.status)
-    # An unshifted arrow still drops it.
+    # An unshifted arrow still drops it, and so does one with any other
+    # modifier held, which is the arrow.
     W.handle!(st, W.K_DOWN, ctrl)
     @test W.selrange(st) === nothing
+    W.handle!(st, (W.K_SHIFT | W.K_DOWN), ctrl); was = st.nrow
+    W.handle!(st, (W.K_CTRL | W.K_DOWN), ctrl)
+    @test W.selrange(st) === nothing && st.nrow == was + 1
     # In the list there is no selection to extend, so they are the arrows.
     st.focus = :list
     was = st.sel
-    W.handle!(st, W.K_SDOWN, ctrl)
+    W.handle!(st, (W.K_SHIFT | W.K_DOWN), ctrl)
     @test st.sel == was + 1 && W.selrange(st) === nothing
 end
 

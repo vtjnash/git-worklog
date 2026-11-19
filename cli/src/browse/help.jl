@@ -123,7 +123,7 @@ end
 
 function handle!(v::HelpView, k::Int, ctrl::Controller)
     n, page = help_size(ctrl)
-    to = listmove(unshift(k), v.top, n, page)
+    to = listmove(unmodified(k), v.top, n, page)
     to === nothing ? :pop : scroll_help!(v, to, ctrl)
 end
 

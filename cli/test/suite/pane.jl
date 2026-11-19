@@ -674,7 +674,7 @@ end
     # produce in a screen that is not the one being worked in, and `q` in the
     # browser ends the program - quitting out from under a half-written comment
     # is the one thing this view exists to make impossible.
-    for k in (9, W.K_STAB, 27, Int('q'))
+    for k in (9, (W.K_SHIFT | 9), 27, Int('q'))
         v.focus = :read
         @test W.handle!(v, k, ctrl) === :ok
         @test v.focus === :inner

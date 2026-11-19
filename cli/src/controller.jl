@@ -1020,7 +1020,7 @@ end
 function handle!(v::ChooseView, k::Int, ctrl::Controller)
     c = getfield(v, :c)
     TermInput.handle!(c, k) === :ok && return :ok
-    unshift(k) == 27 && return :pop
+    k == 27 && return :pop
     i = TermInput.picked(c, k)
     i == 0 ? :ok : pick!(v, i)
 end

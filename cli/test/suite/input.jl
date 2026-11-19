@@ -130,7 +130,7 @@ end
     type!("alpha beta gamma")
     W.handle!(v, W.C_W, ctrl)
     @test W.text(v) == "alpha beta "
-    W.handle!(v, W.K_WORD_BACK, ctrl)
+    W.handle!(v, (W.K_ALT | 127), ctrl)
     @test W.text(v) == "alpha "
     W.handle!(v, W.C_A, ctrl); @test v.buf.col == 1
     W.handle!(v, W.C_D, ctrl)                      # forward delete
@@ -144,7 +144,7 @@ end
     got = Ref("")
     p = W.PromptView("t", "", s -> got[] = s)
     for c in "/usr/local/lib"; W.handle!(p, W.keycode(c), ctrl); end
-    W.handle!(p, W.K_WORD_BACK, ctrl)              # alt-backspace: one component
+    W.handle!(p, (W.K_ALT | 127), ctrl)              # alt-backspace: one component
     @test W.handle!(p, 13, ctrl) === :pop
     @test got[] == "/usr/local/"
 

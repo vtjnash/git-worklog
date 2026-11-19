@@ -22,7 +22,7 @@ import TermInput: Row, row, rowcat, rowwidth, faced,
     TextArea, Choice, handle!, picked, selected, select!, markdown_rows, MarkdownStyle, Keys,
     frame_bytes, drawcursor
 import TermInput.Keys: K_LEFT, K_RIGHT, K_UP, K_DOWN, K_DEL, K_HOME, K_END, K_PGUP,
-    K_PGDN, K_BASE, keycode, keychar
+    K_PGDN, K_BASE, K_ALT, K_CTRL, keycode, keychar
 
 import Term: default_width, reshape_rows, joinrows, rows_to_width, highlight,
     TERM_THEME, fint
@@ -79,8 +79,9 @@ struct Del <: KeyInput end
     KEYCODES
 
 Term's named keys by the `TermInput.Keys` code each arrives as from
-`readevent`. Shift-Up/Down are the plain arrows here (`Keys.unshift`), since no
-Term widget extends a selection.
+`readevent`. A modified named key is the key here (`Keys.unmodified`), since no
+Term widget extends a selection - all but the word's chords, Alt or Ctrl on an
+arrow or Delete, which `keyinput` leaves to the widget's TermInput handling.
 """
 const KEYCODES = Dict{Int, KeyInput}(
     13 => Enter(),
@@ -109,7 +110,9 @@ named keys, a `Char` for anything typed (control bytes included, as Term's
 motion, `⌥e` - which only a widget's own TermInput handling can take.
 """
 function keyinput(code::Int)
-    code = Keys.unshift(code)
+    plain = Keys.unmodified(code)
+    plain in (K_LEFT, K_RIGHT, K_DEL) && code & (K_ALT | K_CTRL) != 0 && return nothing
+    code = plain
     haskey(KEYCODES, code) && return KEYCODES[code]
     0 <= code < K_BASE && return keychar(code)
     return nothing
