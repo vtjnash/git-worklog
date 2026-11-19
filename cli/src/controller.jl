@@ -452,7 +452,7 @@ in good order is only told again what it was already doing.
 """
 menu_press(ev::MouseEvent) = ev.kind === :press && ev.button in (1, 2)
 menu_press(ev::RawEvent) =
-    any(m -> (b = parse(Int, something(m[1])); b & 0x60 == 0 && b & 3 in (1, 2)),
+    any(m -> (b = parse(Int, something(m[1])); b & 0xe0 == 0 && b & 3 in (1, 2)),
         eachmatch(r"\e\[<(\d{1,4});\d+;\d+M", String(copy(ev.bytes))))
 menu_press(::Any) = false
 
@@ -625,6 +625,13 @@ function safe_render(v::View, w::Int, h::Int)
     end
 end
 
+"""A mouse report no view answers: the back and forward buttons, 128 and 129
+beside the three, and a move with no button held, which nothing here asks
+for. Every `onmouse!` reads the `kind` and not the button, so a press of the
+back button was a click wherever it landed - and its release, in the middle of
+a drag, ended the drag."""
+nobodys_mouse(ev::MouseEvent) = ev.button >= 128 || ev.kind === :move
+
 """Hand `ev` to `v`, or log and carry on. Returns the view's action.
 
 A lost keystroke is a smaller loss than a lost session, which is what an
@@ -633,7 +640,7 @@ under it as well.
 """
 function safe_dispatch!(v::View, ev, ctrl)
     try
-        ev isa MouseEvent ? onmouse!(v, ev, ctrl) :
+        ev isa MouseEvent ? (nobodys_mouse(ev) ? :ok : onmouse!(v, ev, ctrl)) :
         ev isa RawEvent   ? onraw!(v, ev.bytes, ctrl) :
         ev isa PasteEvent ? onpaste!(v, ev.text, ctrl) :
                             handle!(v, ev.code, ctrl)

@@ -157,6 +157,28 @@ end
     @test length(ls) == 24 && all(width(l) == 90 for l in ls)
 end
 
+mutable struct MouseLog <: W.View
+    evs::Vector{Any}
+end
+W.onmouse!(v::MouseLog, ev::W.MouseEvent, ctrl) = (push!(v.evs, ev); :ok)
+
+@testset "the back and forward buttons are nobody's" begin
+    # Every view reads a press's kind and not its button, so the back button
+    # was a click wherever it landed; it and the forward one reach no view.
+    v, ctrl = MouseLog(Any[]), W.Controller()
+    for ev in (W.MouseEvent(:press, 128, 5, 5, 0), W.MouseEvent(:release, 128, 5, 5, 0),
+               W.MouseEvent(:press, 129, 5, 5, 0), W.MouseEvent(:drag, 128, 6, 5, 0),
+               W.MouseEvent(:move, 3, 6, 5, 0))
+        @test W.safe_dispatch!(v, ev, ctrl) === :ok
+    end
+    @test isempty(v.evs)
+    left = W.MouseEvent(:press, 0, 5, 5, 0)
+    W.safe_dispatch!(v, left, ctrl)
+    @test v.evs == [left]
+    # As the terminal sends them, now that the bit is kept.
+    @test W.readevent(IOBuffer("\e[<128;5;5M")) == W.MouseEvent(:press, 128, 5, 5, 0)
+end
+
 @testset "a right or middle press turns the mouse off and on" begin
     # After one, a terminal stopped reporting drags until `m` was pressed
     # twice; the loop does that itself, and only for those presses.
@@ -170,6 +192,8 @@ end
     @test !W.menu_press(raw("\e[<2;10;4m"))                    # a release
     @test !W.menu_press(raw("\e[<0;10;4M\e[<32;11;4M"))        # a left drag
     @test !W.menu_press(raw("\e[<65;10;4M"))                   # the wheel
+    @test !W.menu_press(raw("\e[<129;10;4M"))                  # the forward button
+    @test !W.menu_press(W.MouseEvent(:press, 129, 5, 5, 0))
     @test !W.menu_press(W.KeyEvent(13))
     buf = IOBuffer()
     held = W.Controller(W.enter_terminal(IOBuffer(), buf; mouse = true))
